@@ -17,10 +17,13 @@ import ScheduleManagement from "@/pages/ScheduleManagement";
 import Team from "@/pages/Team";
 import Availability from "@/pages/Availability";
 import PayPeriodManagement from "@/pages/PayPeriodManagement";
+import PayrollSetupModal from "@/components/PayrollSetupModal";
+import { usePayrollSetup } from "@/hooks/usePayrollSetup";
 import NotFound from "@/pages/not-found";
 
 function Router() {
   const { isAuthenticated, isLoading, user } = useAuth();
+  const { showSetupModal, closeSetupModal } = usePayrollSetup();
 
   if (isLoading) {
     return (
@@ -73,6 +76,9 @@ function Router() {
         </>
       )}
       <Route component={NotFound} />
+      
+      {/* Payroll Setup Modal for first-time users */}
+      <PayrollSetupModal isOpen={showSetupModal} onClose={closeSetupModal} />
     </Switch>
   );
 }

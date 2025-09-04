@@ -849,6 +849,84 @@ export class DatabaseStorage implements IStorage {
     return result.map(row => row.permission);
   }
 
+  // Payroll settings operations
+  async getPayrollSettings(): Promise<any> {
+    const [settings] = await db.select().from(payPeriodSettings).limit(1);
+    return settings;
+  }
+
+  async createPayrollSettings(data: any): Promise<any> {
+    const [created] = await db.insert(payPeriodSettings).values(data).returning();
+    return created;
+  }
+
+  async updatePayrollSettings(id: string, updates: any): Promise<any> {
+    const [updated] = await db
+      .update(payPeriodSettings)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(payPeriodSettings.id, id))
+      .returning();
+    return updated;
+  }
+
+  async getPayrollPeriod(id: string): Promise<any> {
+    const [period] = await db.select().from(payrollPeriods).where(eq(payrollPeriods.id, id));
+    return period;
+  }
+
+  async getUpcomingPayrollPeriods(limit: number): Promise<any[]> {
+    return await db
+      .select()
+      .from(payrollPeriods)
+      .where(sql`start_date > NOW()`)
+      .orderBy(payrollPeriods.startDate)
+      .limit(limit);
+  }
+
+  async getLatestPayrollPeriod(): Promise<any> {
+    const [period] = await db
+      .select()
+      .from(payrollPeriods)
+      .orderBy(sql`end_date DESC`)
+      .limit(1);
+    return period;
+  }
+
+  async getPendingPayrollPeriods(): Promise<any[]> {
+    return await db
+      .select()
+      .from(payrollPeriods)
+      .where(sql`workflow_state NOT IN ('processed', 'finalized')`);
+  }
+
+  async getSchedulesByPeriod(periodId: string): Promise<any[]> {
+    return await db
+      .select()
+      .from(schedules)
+      .where(eq(schedules.payrollPeriodId, periodId));
+  }
+
+  async getTimeEntriesByPeriod(periodId: string): Promise<any[]> {
+    const period = await this.getPayrollPeriod(periodId);
+    if (!period) return [];
+
+    return await db
+      .select()
+      .from(timeEntries)
+      .where(
+        sql`clock_in_time >= ${period.startDate} AND clock_in_time <= ${period.endDate}`
+      );
+  }
+
+  async createWorkflowLog(data: any): Promise<any> {
+    const [created] = await db.insert(workflowLogs).values(data).returning();
+    return created;
+  }
+
+  async getAllUsers(): Promise<User[]> {
+    return await db.select().from(users).where(eq(users.isActive, true));
+  }
+
   async updateUserPayRate(userId: string, hourlyRate: number): Promise<User> {
     const [updatedUser] = await db
       .update(users)

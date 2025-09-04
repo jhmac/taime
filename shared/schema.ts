@@ -176,10 +176,14 @@ export const messages = pgTable("messages", {
 export const payPeriodSettings = pgTable("pay_period_settings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   intervalType: varchar("interval_type").default("bi-weekly"), // 'weekly', 'bi-weekly', 'monthly'
-  isAutomationEnabled: boolean("is_automation_enabled").default(true),
+  isAutomationEnabled: boolean("is_automation_enabled").default(false),
   daysBeforeNotification: integer("days_before_notification").default(7), // Days before period ends to send availability notice
   scheduleGenerationDays: integer("schedule_generation_days").default(5), // Days before period starts to generate schedule
   automaticConflictResolution: boolean("automatic_conflict_resolution").default(true),
+  firstPayPeriodStart: timestamp("first_pay_period_start"),
+  firstPayPeriodEnd: timestamp("first_pay_period_end"),
+  notificationUserId: varchar("notification_user_id").references(() => users.id), // User who receives payroll confirmations
+  isSetupComplete: boolean("is_setup_complete").default(false),
   createdBy: varchar("created_by").references(() => users.id),
   updatedBy: varchar("updated_by").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow(),

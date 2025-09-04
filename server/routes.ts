@@ -10,6 +10,7 @@ import { claudeService } from "./services/claudeService";
 import { notificationService } from "./services/notificationService";
 import { geofencingService } from "./services/geofencingService";
 import { automationService } from "./services/automationService";
+import { payrollAutomationService } from "./services/payrollAutomationService";
 import {
   insertTimeEntrySchema,
   insertScheduleSchema,
@@ -41,8 +42,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Get the role information from the roles table
         const role = await storage.getRole(user.roleId);
         if (role) {
-          // Override the role field with the actual role name from the roles table
-          user.role = role.name;
+          // Add the role name to the user object
+          (user as any).role = role.name;
         }
       }
       
@@ -441,15 +442,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const availabilityData = await storage.getAllAvailabilityForPeriod(payrollPeriodId);
       
       // Get user information to include names and roles
-      const users = await storage.getUsers();
+      const allUsers = await db.select().from(users).where(eq(users.isActive, true));
       
       // Transform availability data for AI processing
       const transformedData = availabilityData.map((avail: any) => {
-        const user = users.find((u: any) => u.id === avail.userId);
+        const user = allUsers.find((u: any) => u.id === avail.userId);
         return {
           userId: avail.userId,
           userName: user ? `${user.firstName} ${user.lastName}` : 'Unknown User',
-          role: user?.role || 'employee',
+          role: user?.roleId || 'employee',
           hourlyRate: 15.00, // Default rate - would be from user profile in full implementation
           date: avail.date.toISOString().split('T')[0],
           timeSlot: avail.timeSlot,
@@ -1294,6 +1295,112 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error updating user role:", error);
       res.status(400).json({ message: (error as Error).message });
+    }
+  });
+
+  // Payroll setup routes
+  app.post('/api/payroll/setup', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canManagePayroll = userPermissions.some(p => 
+        p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all'
+      );
+      
+      if (!canManagePayroll) {
+        return res.status(403).json({ message: "Payroll management access required" });
+      }
+
+      const { 
+        intervalType, 
+        firstPayPeriodStart, 
+        firstPayPeriodEnd, 
+        isAutomationEnabled, 
+        notificationUserId,
+        isSetupComplete 
+      } = req.body;
+
+      // Create or update payroll settings
+      const existingSettings = await storage.getPayrollSettings();
+      
+      if (existingSettings) {
+        await storage.updatePayrollSettings(existingSettings.id, {
+          intervalType,
+          firstPayPeriodStart: new Date(firstPayPeriodStart),
+          firstPayPeriodEnd: new Date(firstPayPeriodEnd),
+          isAutomationEnabled,
+          notificationUserId,
+          isSetupComplete,
+          updatedBy: userId,
+        });
+      } else {
+        await storage.createPayrollSettings({
+          intervalType,
+          firstPayPeriodStart: new Date(firstPayPeriodStart),
+          firstPayPeriodEnd: new Date(firstPayPeriodEnd),
+          isAutomationEnabled,
+          notificationUserId,
+          isSetupComplete,
+          createdBy: userId,
+        });
+      }
+
+      // Create the first payroll period
+      await storage.createPayrollPeriod({
+        startDate: new Date(firstPayPeriodStart),
+        endDate: new Date(firstPayPeriodEnd),
+        workflowState: 'created',
+      });
+
+      // If AI automation is enabled, schedule future periods
+      if (isAutomationEnabled) {
+        await payrollAutomationService.scheduleNextPayrollPeriods(intervalType, new Date(firstPayPeriodEnd));
+      }
+
+      res.json({ message: "Payroll setup completed successfully" });
+    } catch (error) {
+      console.error("Error setting up payroll:", error);
+      res.status(500).json({ message: "Failed to setup payroll" });
+    }
+  });
+
+  app.get('/api/payroll/settings', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canViewPayroll = userPermissions.some(p => 
+        p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all'
+      );
+      
+      if (!canViewPayroll) {
+        return res.status(403).json({ message: "Payroll access required" });
+      }
+
+      const settings = await storage.getPayrollSettings();
+      res.json(settings);
+    } catch (error) {
+      console.error("Error fetching payroll settings:", error);
+      res.status(500).json({ message: "Failed to fetch payroll settings" });
+    }
+  });
+
+  app.get('/api/payroll/setup-status', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canManagePayroll = userPermissions.some(p => 
+        p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all'
+      );
+      
+      const settings = await storage.getPayrollSettings();
+      
+      res.json({ 
+        needsSetup: canManagePayroll && (!settings || !settings.isSetupComplete),
+        canManagePayroll 
+      });
+    } catch (error) {
+      console.error("Error checking setup status:", error);
+      res.status(500).json({ message: "Failed to check setup status" });
     }
   });
 
