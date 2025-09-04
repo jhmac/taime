@@ -9,12 +9,21 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import type { PayrollPeriod, PayPeriodSettings, WorkflowLog } from "@shared/schema";
+import type { PayrollPeriod, PayPeriodSettings, WorkflowLog, Permission } from "@shared/schema";
 
 export default function PayPeriodManagement() {
   const { toast } = useToast();
   const { user } = useAuth();
   const queryClient = useQueryClient();
+
+  // Fetch user permissions
+  const { data: userPermissions = [] } = useQuery<Permission[]>({
+    queryKey: ["/api/auth/permissions"],
+    enabled: !!user,
+  });
+
+  // Check permissions
+  const canManagePayroll = userPermissions?.some?.(p => p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all') || false;
   
   const [selectedPeriodId, setSelectedPeriodId] = useState<string>("");
   const [automationSettings, setAutomationSettings] = useState({
@@ -191,9 +200,7 @@ export default function PayPeriodManagement() {
     });
   };
 
-  const isManager = user?.roleId === 'manager' || user?.roleId === 'admin';
-
-  if (!isManager) {
+  if (!canManagePayroll) {
     return (
       <div className="min-h-screen bg-background p-4">
         <div className="space-y-4 max-w-sm mx-auto">
@@ -203,7 +210,7 @@ export default function PayPeriodManagement() {
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground">
-                You need manager or admin access to view pay period management.
+                You need payroll management permissions to view this page.
               </p>
             </CardContent>
           </Card>

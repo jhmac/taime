@@ -8,10 +8,20 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import PayrollModal from '@/components/PayrollModal';
+import type { Permission } from '@shared/schema';
 
 export default function HR() {
   const { user } = useAuth();
   const [showPayrollModal, setShowPayrollModal] = useState(false);
+
+  // Fetch user permissions
+  const { data: userPermissions = [] } = useQuery<Permission[]>({
+    queryKey: ["/api/auth/permissions"],
+    enabled: !!user,
+  });
+
+  // Check permissions
+  const canManageEmployees = userPermissions?.some?.(p => p.name === 'hr.manage_employees' || p.name === 'admin.manage_all') || false;
 
   const { data: timeEntries, isLoading: timeEntriesLoading } = useQuery({
     queryKey: ['/api/time-entries'],
@@ -36,6 +46,25 @@ export default function HR() {
     }
     return total;
   }, 0);
+
+  if (!canManageEmployees) {
+    return (
+      <div className="min-h-screen bg-background p-4">
+        <div className="space-y-4 max-w-sm mx-auto">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Access Denied</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                You need HR management permissions to view this page.
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">

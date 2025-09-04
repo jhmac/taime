@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
 import Layout from "@/components/Layout";
+import PermissionGuard from "@/components/PermissionGuard";
 import Landing from "@/pages/Landing";
 import Dashboard from "@/pages/Dashboard";
 import Operations from "@/pages/Operations";
@@ -36,15 +37,39 @@ function Router() {
       ) : (
         <>
           <Route path="/" component={user?.role === 'admin' ? AdminDashboard : Dashboard} />
-          <Route path="/operations" component={Operations} />
+          <Route path="/operations">
+            <PermissionGuard permission="admin.manage_all">
+              <Operations />
+            </PermissionGuard>
+          </Route>
           <Route path="/communication" component={Communication} />
-          <Route path="/hr" component={HR} />
-          <Route path="/hr/roles" component={RoleManagement} />
-          <Route path="/team" component={Team} />
+          <Route path="/hr">
+            <PermissionGuard permission="hr.manage_employees">
+              <HR />
+            </PermissionGuard>
+          </Route>
+          <Route path="/hr/roles">
+            <PermissionGuard permission="admin.role_management">
+              <RoleManagement />
+            </PermissionGuard>
+          </Route>
+          <Route path="/team">
+            <PermissionGuard permission="hr.manage_employees">
+              <Team />
+            </PermissionGuard>
+          </Route>
           <Route path="/schedules" component={ScheduleManagement} />
           <Route path="/availability" component={Availability} />
-          <Route path="/payroll" component={PayPeriodManagement} />
-          <Route path="/admin" component={AdminDashboard} />
+          <Route path="/payroll">
+            <PermissionGuard permission="admin.manage_payroll">
+              <PayPeriodManagement />
+            </PermissionGuard>
+          </Route>
+          <Route path="/admin">
+            <PermissionGuard permission="admin.manage_all">
+              <AdminDashboard />
+            </PermissionGuard>
+          </Route>
         </>
       )}
       <Route component={NotFound} />

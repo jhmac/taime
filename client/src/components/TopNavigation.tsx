@@ -1,25 +1,39 @@
 import { useState } from 'react';
 import { useLocation } from 'wouter';
+import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { useAuth } from '@/hooks/useAuth';
 import { cn } from '@/lib/utils';
+import type { Permission } from '@shared/schema';
 
-const navItems = [
+const allNavItems = [
   { path: '/', icon: 'fas fa-home', label: 'Dashboard' },
   { path: '/schedules', icon: 'fas fa-calendar-alt', label: 'Schedules' },
   { path: '/availability', icon: 'fas fa-clock', label: 'Availability' },
-  { path: '/payroll', icon: 'fas fa-dollar-sign', label: 'Payroll' },
-  { path: '/team', icon: 'fas fa-users', label: 'Team' },
+  { path: '/payroll', icon: 'fas fa-dollar-sign', label: 'Payroll', permission: 'admin.manage_payroll' },
+  { path: '/team', icon: 'fas fa-users', label: 'Team', permission: 'hr.manage_employees' },
   { path: '/communication', icon: 'fas fa-comment', label: 'Communication' },
-  { path: '/hr', icon: 'fas fa-user-tie', label: 'HR' },
-  { path: '/operations', icon: 'fas fa-cogs', label: 'Operations' },
+  { path: '/hr', icon: 'fas fa-user-tie', label: 'HR', permission: 'hr.manage_employees' },
+  { path: '/operations', icon: 'fas fa-cogs', label: 'Operations', permission: 'admin.manage_all' },
 ];
 
 export default function TopNavigation() {
   const [location, navigate] = useLocation();
   const [isOpen, setIsOpen] = useState(false);
   const { user } = useAuth();
+
+  // Fetch user permissions
+  const { data: userPermissions = [] } = useQuery<Permission[]>({
+    queryKey: ["/api/auth/permissions"],
+    enabled: !!user,
+  });
+
+  // Filter navigation items based on user permissions
+  const navItems = allNavItems.filter(item => {
+    if (!item.permission) return true; // No permission required
+    return userPermissions?.some?.(p => p.name === item.permission) || false;
+  });
 
   const handleNavigate = (path: string) => {
     navigate(path);

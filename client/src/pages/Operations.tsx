@@ -5,11 +5,22 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import TimeClockWidget from '@/components/TimeClockWidget';
 import ScheduleModal from '@/components/ScheduleModal';
-import type { TimeEntry, Schedule } from '@shared/schema';
+import { useAuth } from '@/hooks/useAuth';
+import type { TimeEntry, Schedule, Permission } from '@shared/schema';
 
 export default function Operations() {
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
+  const { user } = useAuth();
+
+  // Fetch user permissions
+  const { data: userPermissions = [] } = useQuery<Permission[]>({
+    queryKey: ["/api/auth/permissions"],
+    enabled: !!user,
+  });
+
+  // Check permissions
+  const canAccessOperations = userPermissions?.some?.(p => p.name === 'admin.manage_all' || p.name === 'operations.view') || false;
 
   const { data: timeEntries, isLoading: timeEntriesLoading } = useQuery<TimeEntry[]>({
     queryKey: ['/api/time-entries'],
@@ -46,6 +57,25 @@ export default function Operations() {
     }
     return total;
   }, 0);
+
+  if (!canAccessOperations) {
+    return (
+      <div className="min-h-screen bg-background p-4">
+        <div className="space-y-4 max-w-sm mx-auto">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Access Denied</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                You need operations management permissions to view this page.
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
