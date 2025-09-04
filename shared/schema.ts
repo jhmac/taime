@@ -128,6 +128,17 @@ export const tasks = pgTable("tasks", {
   aiReasoning: text("ai_reasoning"),
   completedAt: timestamp("completed_at"),
   createdAt: timestamp("created_at").defaultNow(),
+  // Chore management fields
+  dayOfWeek: varchar("day_of_week"), // 'monday', 'tuesday', etc.
+  timeOfDay: varchar("time_of_day"), // 'morning', 'afternoon'
+  isRecurring: boolean("is_recurring").default(false),
+  requiresSignature: boolean("requires_signature").default(false),
+  employeeSignedAt: timestamp("employee_signed_at"),
+  managerSignedAt: timestamp("manager_signed_at"),
+  signedBy: varchar("signed_by").references(() => users.id),
+  verifiedBy: varchar("verified_by").references(() => users.id),
+  choreZone: varchar("chore_zone"), // 'zone 1', 'zone 2', etc.
+  priority: varchar("priority").default("medium"), // 'low', 'medium', 'high'
 });
 
 // Team messages/communication
@@ -340,6 +351,18 @@ export const insertPushSubscriptionSchema = createInsertSchema(pushSubscriptions
   createdAt: true,
 });
 
+// Chore assignment schema
+export const choreAssignmentSchema = z.object({
+  choreId: z.string(),
+  userId: z.string(),
+});
+
+// Chore sign-off schema
+export const choreSignOffSchema = z.object({
+  choreId: z.string(),
+  isManager: z.boolean().default(false),
+});
+
 // Types
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
@@ -363,6 +386,8 @@ export type Permission = typeof permissions.$inferSelect;
 export type InsertPermission = z.infer<typeof insertPermissionSchema>;
 export type RolePermission = typeof rolePermissions.$inferSelect;
 export type InsertRolePermission = z.infer<typeof insertRolePermissionSchema>;
+export type ChoreAssignment = z.infer<typeof choreAssignmentSchema>;
+export type ChoreSignOff = z.infer<typeof choreSignOffSchema>;
 
 // Extended user type with role information
 export type UserWithRole = User & {

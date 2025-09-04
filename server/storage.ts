@@ -64,6 +64,13 @@ export interface IStorage {
   updateTask(id: string, updates: Partial<Task>): Promise<Task>;
   getTasksForDate(date: Date): Promise<Task[]>;
   
+  // Chore operations
+  getChoresForDay(dayOfWeek: string, timeOfDay?: string): Promise<Task[]>;
+  assignChoreToUser(choreId: string, userId: string): Promise<Task>;
+  signOffChore(choreId: string, userId: string, isManager: boolean): Promise<Task>;
+  getWeeklyChoreSchedule(): Promise<Record<string, Task[]>>;
+  getChoresByZone(zone: string): Promise<Task[]>;
+  
   // Message operations
   createMessage(message: InsertMessage): Promise<Message>;
   getMessages(userId?: string): Promise<Message[]>;
@@ -261,6 +268,87 @@ export class DatabaseStorage implements IStorage {
         lte(tasks.dueDate, endOfDay)
       ))
       .orderBy(tasks.dueDate);
+  }
+
+  // Chore operations
+  async getChoresForDay(dayOfWeek: string, timeOfDay?: string): Promise<Task[]> {
+    const conditions = [eq(tasks.dayOfWeek, dayOfWeek)];
+    if (timeOfDay) {
+      conditions.push(eq(tasks.timeOfDay, timeOfDay));
+    }
+
+    return await db
+      .select()
+      .from(tasks)
+      .where(and(...conditions))
+      .orderBy(tasks.timeOfDay, tasks.estimatedMinutes);
+  }
+
+  async assignChoreToUser(choreId: string, userId: string): Promise<Task> {
+    const [updated] = await db
+      .update(tasks)
+      .set({ 
+        assignedTo: userId, 
+        status: 'in_progress',
+        // Reset signatures when reassigning
+        employeeSignedAt: null,
+        managerSignedAt: null,
+        signedBy: null,
+        verifiedBy: null
+      })
+      .where(eq(tasks.id, choreId))
+      .returning();
+    return updated;
+  }
+
+  async signOffChore(choreId: string, userId: string, isManager: boolean): Promise<Task> {
+    const updateData: any = {};
+    
+    if (isManager) {
+      updateData.managerSignedAt = new Date();
+      updateData.verifiedBy = userId;
+      updateData.status = 'completed';
+      updateData.completedAt = new Date();
+    } else {
+      updateData.employeeSignedAt = new Date();
+      updateData.signedBy = userId;
+    }
+
+    const [updated] = await db
+      .update(tasks)
+      .set(updateData)
+      .where(eq(tasks.id, choreId))
+      .returning();
+    return updated;
+  }
+
+  async getWeeklyChoreSchedule(): Promise<Record<string, Task[]>> {
+    const chores = await db
+      .select()
+      .from(tasks)
+      .where(eq(tasks.isRecurring, true))
+      .orderBy(tasks.dayOfWeek, tasks.timeOfDay, tasks.estimatedMinutes);
+
+    const schedule: Record<string, Task[]> = {};
+    chores.forEach(chore => {
+      if (chore.dayOfWeek) {
+        const key = `${chore.dayOfWeek}_${chore.timeOfDay}`;
+        if (!schedule[key]) {
+          schedule[key] = [];
+        }
+        schedule[key].push(chore);
+      }
+    });
+
+    return schedule;
+  }
+
+  async getChoresByZone(zone: string): Promise<Task[]> {
+    return await db
+      .select()
+      .from(tasks)
+      .where(eq(tasks.choreZone, zone))
+      .orderBy(tasks.dayOfWeek, tasks.timeOfDay);
   }
 
   // Message operations
