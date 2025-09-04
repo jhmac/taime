@@ -7,8 +7,9 @@ export function useAuth() {
     retry: false,
     throwOnError: false,
     refetchOnWindowFocus: false,
-    staleTime: 60000, // Cache for 1 minute
-    cacheTime: 300000, // Keep in cache for 5 minutes
+    staleTime: 0, // Always fetch fresh data for auth
+    cacheTime: 0, // Don't cache auth data
+    refetchInterval: false, // Don't auto-refetch
   });
 
   return {
