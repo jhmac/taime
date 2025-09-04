@@ -56,13 +56,13 @@ export default function Team() {
     enabled: !!currentUser,
   });
 
-  // Check permissions
-  const canManageEmployees = userPermissions.some(p => p.name === 'hr.manage_employees');
-  const canEditRoles = userPermissions.some(p => p.name === 'admin.role_management');
-  const canViewPayRates = userPermissions.some(p => p.name === 'hr.view_pay_rates');
-  const canEditPayRates = userPermissions.some(p => p.name === 'hr.edit_pay_rates');
-  const canCreateGroups = userPermissions.some(p => p.name === 'communication.create_groups');
-  const canManageGroups = userPermissions.some(p => p.name === 'communication.manage_groups');
+  // Check permissions - safely check if userPermissions exists and is an array
+  const canManageEmployees = userPermissions?.some?.(p => p.name === 'hr.manage_employees') || false;
+  const canEditRoles = userPermissions?.some?.(p => p.name === 'admin.role_management') || false;
+  const canViewPayRates = userPermissions?.some?.(p => p.name === 'hr.view_pay_rates') || false;
+  const canEditPayRates = userPermissions?.some?.(p => p.name === 'hr.edit_pay_rates') || false;
+  const canCreateGroups = userPermissions?.some?.(p => p.name === 'communication.create_groups') || false;
+  const canManageGroups = userPermissions?.some?.(p => p.name === 'communication.manage_groups') || false;
 
   // Add team member mutation
   const addMemberMutation = useMutation({
@@ -321,8 +321,8 @@ export default function Team() {
     }
   };
 
-  const getActiveMembers = () => teamMembers.filter(member => member.isActive !== false);
-  const getInactiveMembers = () => teamMembers.filter(member => member.isActive === false);
+  const getActiveMembers = () => teamMembers?.filter(member => member.isActive !== false) || [];
+  const getInactiveMembers = () => teamMembers?.filter(member => member.isActive === false) || [];
 
   if (membersLoading) {
     return (
@@ -382,7 +382,7 @@ export default function Team() {
         <TabsContent value="active" className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
             {getActiveMembers().map((member) => {
-              const memberRole = roles.find(r => r.id === member.roleId);
+              const memberRole = roles?.find(r => r.id === member.roleId);
               return (
                 <Card key={member.id} className="hover:shadow-md transition-shadow" data-testid={`card-member-${member.id}`}>
                   <CardHeader className="pb-3">
@@ -402,7 +402,7 @@ export default function Team() {
                   <CardContent className="space-y-3">
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-medium">Role:</span>
-                      {canEditRoles ? (
+                      {canEditRoles && roles?.length > 0 ? (
                         <Select value={member.roleId || ""} onValueChange={(value) => handleRoleChange(member.id, value)}>
                           <SelectTrigger className="w-32">
                             <SelectValue />
@@ -879,7 +879,7 @@ export default function Team() {
               <div className="space-y-3">
                 <div className="flex justify-between">
                   <span className="font-medium">Role:</span>
-                  <span>{roles.find(r => r.id === selectedMember.roleId)?.displayName || 'Not assigned'}</span>
+                  <span>{roles?.find(r => r.id === selectedMember.roleId)?.displayName || 'Not assigned'}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="font-medium">Status:</span>

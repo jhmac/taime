@@ -415,7 +415,7 @@ export default function PayPeriodManagement() {
                     </div>
                     <p className="text-muted-foreground mt-1">{log.details}</p>
                     <p className="text-muted-foreground">
-                      {new Date(log.createdAt).toLocaleString()}
+                      {log.createdAt ? new Date(log.createdAt).toLocaleString() : 'Unknown time'}
                     </p>
                   </div>
                 ))
