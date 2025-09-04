@@ -259,7 +259,7 @@ export default function ScheduleManagement() {
   };
 
   const weekDates = getWeekDates(selectedWeek);
-  const activeEmployees = users.filter(user => user.isActive);
+  const activeEmployees = users.filter(user => user.isActive !== false); // Include users where isActive is true or undefined
 
   if (schedulesLoading || usersLoading) {
     return (
@@ -327,11 +327,17 @@ export default function ScheduleManagement() {
                       <SelectValue placeholder="Select employee" />
                     </SelectTrigger>
                     <SelectContent>
-                      {activeEmployees.map((user) => (
-                        <SelectItem key={user.id} value={user.id}>
-                          {user.firstName} {user.lastName}
+                      {activeEmployees.length === 0 ? (
+                        <SelectItem value="" disabled>
+                          No employees available
                         </SelectItem>
-                      ))}
+                      ) : (
+                        activeEmployees.map((user) => (
+                          <SelectItem key={user.id} value={user.id}>
+                            {user.firstName} {user.lastName}
+                          </SelectItem>
+                        ))
+                      )}
                     </SelectContent>
                   </Select>
                 </div>
