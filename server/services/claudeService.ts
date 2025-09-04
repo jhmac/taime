@@ -88,6 +88,92 @@ export interface PayrollAnalysisRequest {
 
 export class ClaudeService {
   /**
+   * Create schedule based on employee availability data
+   */
+  async createScheduleFromAvailability(request: {
+    payrollPeriodId: string;
+    availabilityData: Array<{
+      userId: string;
+      userName: string;
+      role: string;
+      hourlyRate: number;
+      date: string;
+      timeSlot: string;
+      isAvailable: boolean;
+    }>;
+    businessHours: {
+      dailyHours: number;
+      peakHours: string[];
+      minimumStaffing: number;
+    };
+    constraints: {
+      maxWeeklyHours: number;
+      overtimeThreshold: number;
+      minimumShiftLength: number;
+    };
+  }): Promise<{
+    schedule: Array<{
+      userId: string;
+      userName: string;
+      date: string;
+      startTime: string;
+      endTime: string;
+      timeSlot: string;
+      reasoning: string;
+    }>;
+    insights: string[];
+    staffingAnalysis: {
+      adequateCoverage: boolean;
+      potentialIssues: string[];
+      costEstimate: number;
+    };
+  }> {
+    try {
+      const prompt = `You are an AI scheduling system. Create an optimal work schedule based on employee availability data.
+
+Availability Data:
+${JSON.stringify(request.availabilityData, null, 2)}
+
+Business Requirements:
+${JSON.stringify(request.businessHours, null, 2)}
+
+Constraints:
+${JSON.stringify(request.constraints, null, 2)}
+
+Please create a schedule that:
+1. Only assigns employees when they're available
+2. Ensures adequate staffing during peak hours
+3. Distributes hours fairly among available employees
+4. Minimizes scheduling conflicts
+5. Respects weekly hour limits and overtime rules
+6. Provides clear reasoning for each assignment
+
+Time slots:
+- Morning: 6:00 AM - 12:00 PM
+- Afternoon: 12:00 PM - 6:00 PM  
+- Evening: 6:00 PM - 12:00 AM
+- Overnight: 12:00 AM - 6:00 AM
+
+Respond in JSON format with schedule, insights, and staffingAnalysis.`;
+
+      const response = await anthropic.messages.create({
+        model: DEFAULT_MODEL_STR,
+        max_tokens: 3000,
+        messages: [{ role: 'user', content: prompt }],
+      });
+
+      const content = response.content[0];
+      if (content.type !== 'text') {
+        throw new Error('Expected text response from Claude');
+      }
+      const result = JSON.parse(content.text);
+      return result;
+    } catch (error) {
+      throw new Error(`Schedule creation failed: ${(error as Error).message}`);
+    }
+  }
+
+  /**
    * Optimize employee scheduling using AI
    */
   async optimizeSchedule(request: ScheduleOptimizationRequest): Promise<{

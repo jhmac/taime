@@ -14,7 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
-import type { User, Role, Message, Permission } from "@shared/schema";
+import type { User, Role, Message, Permission, ChatGroup } from "@shared/schema";
 import { useAuth } from "@/hooks/useAuth";
 
 export default function Team() {
@@ -25,6 +25,8 @@ export default function Team() {
   const [showProfile, setShowProfile] = useState(false);
   const [showMessage, setShowMessage] = useState(false);
   const [messageType, setMessageType] = useState<'individual' | 'broadcast'>('individual');
+  const [showCreateGroup, setShowCreateGroup] = useState(false);
+  const [selectedGroup, setSelectedGroup] = useState<ChatGroup | null>(null);
 
   // Fetch team members
   const { data: teamMembers = [], isLoading: membersLoading } = useQuery<User[]>({
@@ -41,6 +43,12 @@ export default function Team() {
     queryKey: ["/api/messages"],
   });
 
+  // Fetch groups
+  const { data: groups = [] } = useQuery<ChatGroup[]>({
+    queryKey: ["/api/groups"],
+    enabled: !!currentUser,
+  });
+
   // Get current user and permissions
   const { user: currentUser } = useAuth();
   const { data: userPermissions = [] } = useQuery<Permission[]>({
@@ -53,6 +61,8 @@ export default function Team() {
   const canEditRoles = userPermissions.some(p => p.name === 'admin.role_management');
   const canViewPayRates = userPermissions.some(p => p.name === 'hr.view_pay_rates');
   const canEditPayRates = userPermissions.some(p => p.name === 'hr.edit_pay_rates');
+  const canCreateGroups = userPermissions.some(p => p.name === 'communication.create_groups');
+  const canManageGroups = userPermissions.some(p => p.name === 'communication.manage_groups');
 
   // Add team member mutation
   const addMemberMutation = useMutation({
@@ -117,6 +127,29 @@ export default function Team() {
       toast({
         title: "Error",
         description: `Failed to send message: ${error.message}`,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Create group mutation
+  const createGroupMutation = useMutation({
+    mutationFn: async (groupData: any) => {
+      const response = await apiRequest("POST", "/api/groups", groupData);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/groups"] });
+      setShowCreateGroup(false);
+      toast({
+        title: "Success",
+        description: "Group created successfully",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: `Failed to create group: ${error.message}`,
         variant: "destructive",
       });
     },
@@ -199,6 +232,18 @@ export default function Team() {
       hourlyRate: formData.get("hourlyRate") as string,
     };
     addMemberMutation.mutate(memberData);
+  };
+
+  const handleCreateGroup = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const memberIds = Array.from(formData.getAll("memberIds")) as string[];
+    const groupData = {
+      name: formData.get("name") as string,
+      description: formData.get("description") as string,
+      memberIds: memberIds.filter(id => id), // Remove empty values
+    };
+    createGroupMutation.mutate(groupData);
   };
 
   const handleSendMessage = (e: React.FormEvent<HTMLFormElement>) => {
@@ -318,12 +363,15 @@ export default function Team() {
       </div>
 
       <Tabs defaultValue="active" className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="active" data-testid="tab-active-members">
-            Active Members ({getActiveMembers().length})
+            Active ({getActiveMembers().length})
           </TabsTrigger>
           <TabsTrigger value="inactive" data-testid="tab-inactive-members">
             Inactive ({getInactiveMembers().length})
+          </TabsTrigger>
+          <TabsTrigger value="groups" data-testid="tab-groups">
+            Groups ({groups.length})
           </TabsTrigger>
           <TabsTrigger value="messages" data-testid="tab-messages">
             Messages ({messages.length})
@@ -493,6 +541,95 @@ export default function Team() {
           )}
         </TabsContent>
 
+        {/* Groups Tab */}
+        <TabsContent value="groups" className="space-y-4">
+          <div className="flex justify-between items-center">
+            <h3 className="text-lg font-semibold">Chat Groups</h3>
+            {canCreateGroups && (
+              <Dialog open={showCreateGroup} onOpenChange={setShowCreateGroup}>
+                <DialogTrigger asChild>
+                  <Button data-testid="button-create-group">
+                    <i className="fas fa-plus mr-2"></i>
+                    Create Group
+                  </Button>
+                </DialogTrigger>
+              </Dialog>
+            )}
+          </div>
+          
+          <div className="grid gap-4 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+            {groups.map((group) => (
+              <Card key={group.id} className="hover:shadow-md transition-shadow" data-testid={`card-group-${group.id}`}>
+                <CardHeader className="pb-3">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center">
+                      <i className="fas fa-users text-primary text-lg"></i>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <CardTitle className="text-lg truncate">
+                        {group.name}
+                      </CardTitle>
+                      <p className="text-sm text-muted-foreground truncate">{group.description}</p>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">
+                      Created: {new Date(group.createdAt!).toLocaleDateString()}
+                    </span>
+                    <Badge variant="secondary">
+                      <i className="fas fa-user mr-1"></i>
+                      Members
+                    </Badge>
+                  </div>
+                  
+                  <div className="flex space-x-2 pt-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => {
+                        setSelectedGroup(group);
+                        // TODO: Open group chat
+                      }}
+                      data-testid={`button-open-group-${group.id}`}
+                    >
+                      <i className="fas fa-comments mr-1"></i>
+                      Open Chat
+                    </Button>
+                    {canManageGroups && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setSelectedGroup(group);
+                          // TODO: Manage group members
+                        }}
+                        data-testid={`button-manage-group-${group.id}`}
+                      >
+                        <i className="fas fa-cog mr-1"></i>
+                        Manage
+                      </Button>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+          
+          {groups.length === 0 && (
+            <div className="text-center py-8">
+              <p className="text-muted-foreground">No groups found.</p>
+              {canCreateGroups && (
+                <p className="text-sm text-muted-foreground mt-2">
+                  Create your first group to start collaborating with your team!
+                </p>
+              )}
+            </div>
+          )}
+        </TabsContent>
+
         {/* Messages Tab */}
         <TabsContent value="messages" className="space-y-4">
           <div className="flex justify-end">
@@ -642,6 +779,72 @@ export default function Team() {
               </Button>
               <Button type="submit" disabled={sendMessageMutation.isPending} data-testid="button-send">
                 {sendMessageMutation.isPending ? "Sending..." : messageType === 'broadcast' ? "Send Announcement" : "Send Message"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Create Group Dialog */}
+      <Dialog open={showCreateGroup} onOpenChange={setShowCreateGroup}>
+        <DialogContent data-testid="dialog-create-group">
+          <DialogHeader>
+            <DialogTitle>Create New Group</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleCreateGroup} className="space-y-4">
+            <div>
+              <Label htmlFor="groupName">Group Name</Label>
+              <Input
+                id="groupName"
+                name="name"
+                required
+                placeholder="Team Leaders"
+                data-testid="input-group-name"
+              />
+            </div>
+            <div>
+              <Label htmlFor="groupDescription">Description (optional)</Label>
+              <Textarea
+                id="groupDescription"
+                name="description"
+                placeholder="Group for leadership discussions and announcements"
+                rows={2}
+                data-testid="textarea-group-description"
+              />
+            </div>
+            <div>
+              <Label>Select Members</Label>
+              <div className="max-h-48 overflow-y-auto space-y-2 mt-2 p-2 border rounded-md">
+                {teamMembers.map((member) => (
+                  <div key={member.id} className="flex items-center space-x-2">
+                    <input
+                      type="checkbox"
+                      id={`member-${member.id}`}
+                      name="memberIds"
+                      value={member.id}
+                      className="rounded"
+                      data-testid={`checkbox-member-${member.id}`}
+                    />
+                    <label htmlFor={`member-${member.id}`} className="flex items-center space-x-2 flex-1 cursor-pointer">
+                      <Avatar className="h-8 w-8">
+                        <AvatarImage src={member.profileImageUrl || undefined} />
+                        <AvatarFallback className="text-xs">{getInitials(member.firstName, member.lastName)}</AvatarFallback>
+                      </Avatar>
+                      <span className="text-sm">{member.firstName} {member.lastName}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {roles.find(r => r.id === member.roleId)?.displayName}
+                      </span>
+                    </label>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="flex justify-end space-x-2">
+              <Button type="button" variant="outline" onClick={() => setShowCreateGroup(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={createGroupMutation.isPending} data-testid="button-save-group">
+                {createGroupMutation.isPending ? "Creating..." : "Create Group"}
               </Button>
             </div>
           </form>

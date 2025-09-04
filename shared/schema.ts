@@ -141,11 +141,31 @@ export const tasks = pgTable("tasks", {
   priority: varchar("priority").default("medium"), // 'low', 'medium', 'high'
 });
 
-// Team messages/communication
+// Chat groups for group messaging
+export const chatGroups = pgTable("chat_groups", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name").notNull(),
+  description: text("description"),
+  createdBy: varchar("created_by").references(() => users.id).notNull(),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Group members junction table
+export const groupMembers = pgTable("group_members", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  groupId: varchar("group_id").references(() => chatGroups.id).notNull(),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  joinedAt: timestamp("joined_at").defaultNow(),
+});
+
+// Team messages/communication (updated for group chat support)
 export const messages = pgTable("messages", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   senderId: varchar("sender_id").references(() => users.id).notNull(),
   recipientId: varchar("recipient_id").references(() => users.id),
+  groupId: varchar("group_id").references(() => chatGroups.id),
   content: text("content").notNull(),
   isAnnouncement: boolean("is_announcement").default(false),
   readBy: jsonb("read_by").$type<string[]>().default([]),
@@ -161,6 +181,17 @@ export const payrollPeriods = pgTable("payroll_periods", {
   processedBy: varchar("processed_by").references(() => users.id),
   processedAt: timestamp("processed_at"),
   aiAnalysis: jsonb("ai_analysis"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// User availability for scheduling
+export const userAvailability = pgTable("user_availability", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  payrollPeriodId: varchar("payroll_period_id").references(() => payrollPeriods.id).notNull(),
+  date: timestamp("date").notNull(),
+  timeSlot: varchar("time_slot").notNull(), // 'morning', 'afternoon', 'evening', 'overnight'
+  isAvailable: boolean("is_available").default(true),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -200,6 +231,9 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   createdTasks: many(tasks, { relationName: "createdTasks" }),
   sentMessages: many(messages, { relationName: "sentMessages" }),
   receivedMessages: many(messages, { relationName: "receivedMessages" }),
+  createdGroups: many(chatGroups),
+  groupMemberships: many(groupMembers),
+  availability: many(userAvailability),
   insights: many(aiInsights),
   pushSubscriptions: many(pushSubscriptions),
 }));
@@ -271,6 +305,26 @@ export const tasksRelations = relations(tasks, ({ one }) => ({
   }),
 }));
 
+export const chatGroupsRelations = relations(chatGroups, ({ one, many }) => ({
+  creator: one(users, {
+    fields: [chatGroups.createdBy],
+    references: [users.id],
+  }),
+  members: many(groupMembers),
+  messages: many(messages),
+}));
+
+export const groupMembersRelations = relations(groupMembers, ({ one }) => ({
+  group: one(chatGroups, {
+    fields: [groupMembers.groupId],
+    references: [chatGroups.id],
+  }),
+  user: one(users, {
+    fields: [groupMembers.userId],
+    references: [users.id],
+  }),
+}));
+
 export const messagesRelations = relations(messages, ({ one }) => ({
   sender: one(users, {
     fields: [messages.senderId],
@@ -281,6 +335,10 @@ export const messagesRelations = relations(messages, ({ one }) => ({
     fields: [messages.recipientId],
     references: [users.id],
     relationName: "receivedMessages",
+  }),
+  group: one(chatGroups, {
+    fields: [messages.groupId],
+    references: [chatGroups.id],
   }),
 }));
 
@@ -336,7 +394,23 @@ export const insertTaskSchema = createInsertSchema(tasks).omit({
   createdAt: true,
 });
 
+export const insertChatGroupSchema = createInsertSchema(chatGroups).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertGroupMemberSchema = createInsertSchema(groupMembers).omit({
+  id: true,
+  joinedAt: true,
+});
+
 export const insertMessageSchema = createInsertSchema(messages).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertUserAvailabilitySchema = createInsertSchema(userAvailability).omit({
   id: true,
   createdAt: true,
 });
@@ -372,8 +446,14 @@ export type Schedule = typeof schedules.$inferSelect;
 export type InsertSchedule = z.infer<typeof insertScheduleSchema>;
 export type Task = typeof tasks.$inferSelect;
 export type InsertTask = z.infer<typeof insertTaskSchema>;
+export type ChatGroup = typeof chatGroups.$inferSelect;
+export type InsertChatGroup = z.infer<typeof insertChatGroupSchema>;
+export type GroupMember = typeof groupMembers.$inferSelect;
+export type InsertGroupMember = z.infer<typeof insertGroupMemberSchema>;
 export type Message = typeof messages.$inferSelect;
 export type InsertMessage = z.infer<typeof insertMessageSchema>;
+export type UserAvailability = typeof userAvailability.$inferSelect;
+export type InsertUserAvailability = z.infer<typeof insertUserAvailabilitySchema>;
 export type WorkLocation = typeof workLocations.$inferSelect;
 export type InsertWorkLocation = z.infer<typeof insertWorkLocationSchema>;
 export type PayrollPeriod = typeof payrollPeriods.$inferSelect;

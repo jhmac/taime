@@ -4,8 +4,11 @@ import {
   schedules,
   tasks,
   messages,
+  chatGroups,
+  groupMembers,
   workLocations,
   payrollPeriods,
+  userAvailability,
   aiInsights,
   pushSubscriptions,
   roles,
@@ -21,9 +24,15 @@ import {
   type InsertTask,
   type Message,
   type InsertMessage,
+  type ChatGroup,
+  type InsertChatGroup,
+  type GroupMember,
+  type InsertGroupMember,
   type WorkLocation,
   type InsertWorkLocation,
   type PayrollPeriod,
+  type UserAvailability,
+  type InsertUserAvailability,
   type AIInsight,
   type PushSubscription,
   type InsertPushSubscription,
@@ -74,7 +83,20 @@ export interface IStorage {
   // Message operations
   createMessage(message: InsertMessage): Promise<Message>;
   getMessages(userId?: string): Promise<Message[]>;
+  
+  // Group chat operations
+  createGroup(group: InsertChatGroup): Promise<ChatGroup>;
+  getGroups(userId: string): Promise<ChatGroup[]>;
+  addGroupMember(member: InsertGroupMember): Promise<GroupMember>;
+  removeGroupMember(groupId: string, userId: string): Promise<void>;
+  getGroupMessages(groupId: string): Promise<Message[]>;
+  getGroupMembers(groupId: string): Promise<GroupMember[]>;
   markMessageAsRead(messageId: string, userId: string): Promise<void>;
+  
+  // Availability operations
+  submitAvailability(availability: InsertUserAvailability[]): Promise<UserAvailability[]>;
+  getUserAvailability(userId: string, payrollPeriodId?: string): Promise<UserAvailability[]>;
+  getAllAvailabilityForPeriod(payrollPeriodId: string): Promise<UserAvailability[]>;
   
   // Work location operations
   createWorkLocation(location: InsertWorkLocation): Promise<WorkLocation>;
@@ -381,6 +403,111 @@ export class DatabaseStorage implements IStorage {
         readBy: sql`${messages.readBy} || ${JSON.stringify([userId])}`
       })
       .where(eq(messages.id, messageId));
+  }
+
+  // Group chat operations
+  async createGroup(group: InsertChatGroup): Promise<ChatGroup> {
+    const [created] = await db.insert(chatGroups).values(group).returning();
+    return created;
+  }
+
+  async getGroups(userId: string): Promise<ChatGroup[]> {
+    const result = await db
+      .select({ group: chatGroups })
+      .from(chatGroups)
+      .innerJoin(groupMembers, eq(chatGroups.id, groupMembers.groupId))
+      .where(and(
+        eq(groupMembers.userId, userId),
+        eq(chatGroups.isActive, true)
+      ))
+      .orderBy(desc(chatGroups.updatedAt));
+    
+    return result.map(row => row.group);
+  }
+
+  async addGroupMember(member: InsertGroupMember): Promise<GroupMember> {
+    const [created] = await db.insert(groupMembers).values(member).returning();
+    return created;
+  }
+
+  async removeGroupMember(groupId: string, userId: string): Promise<void> {
+    await db
+      .delete(groupMembers)
+      .where(and(
+        eq(groupMembers.groupId, groupId),
+        eq(groupMembers.userId, userId)
+      ));
+  }
+
+  async getGroupMessages(groupId: string): Promise<Message[]> {
+    return await db
+      .select()
+      .from(messages)
+      .where(eq(messages.groupId, groupId))
+      .orderBy(desc(messages.createdAt));
+  }
+
+  async getGroupMembers(groupId: string): Promise<GroupMember[]> {
+    return await db
+      .select()
+      .from(groupMembers)
+      .where(eq(groupMembers.groupId, groupId))
+      .orderBy(groupMembers.joinedAt);
+  }
+
+  // Availability operations
+  async submitAvailability(availability: InsertUserAvailability[]): Promise<UserAvailability[]> {
+    const result = [];
+    
+    for (const avail of availability) {
+      // Check if availability already exists for this user, period, date, and time slot
+      const existing = await db
+        .select()
+        .from(userAvailability)
+        .where(and(
+          eq(userAvailability.userId, avail.userId),
+          eq(userAvailability.payrollPeriodId, avail.payrollPeriodId),
+          eq(userAvailability.date, avail.date),
+          eq(userAvailability.timeSlot, avail.timeSlot)
+        ));
+
+      if (existing.length > 0) {
+        // Update existing
+        const [updated] = await db
+          .update(userAvailability)
+          .set({ isAvailable: avail.isAvailable })
+          .where(eq(userAvailability.id, existing[0].id))
+          .returning();
+        result.push(updated);
+      } else {
+        // Create new
+        const [created] = await db.insert(userAvailability).values(avail).returning();
+        result.push(created);
+      }
+    }
+    
+    return result;
+  }
+
+  async getUserAvailability(userId: string, payrollPeriodId?: string): Promise<UserAvailability[]> {
+    const conditions = [eq(userAvailability.userId, userId)];
+    if (payrollPeriodId) {
+      conditions.push(eq(userAvailability.payrollPeriodId, payrollPeriodId));
+    }
+
+    return await db
+      .select()
+      .from(userAvailability)
+      .where(and(...conditions))
+      .orderBy(userAvailability.date, userAvailability.timeSlot);
+  }
+
+  async getAllAvailabilityForPeriod(payrollPeriodId: string): Promise<UserAvailability[]> {
+    return await db
+      .select()
+      .from(userAvailability)
+      .where(eq(userAvailability.payrollPeriodId, payrollPeriodId))
+      .orderBy(userAvailability.date, userAvailability.timeSlot);
   }
 
   // Work location operations

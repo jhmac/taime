@@ -376,6 +376,119 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Availability routes
+  app.post('/api/availability', isAuthenticated, async (req: any, res) => {
+    try {
+      const { availability } = req.body;
+      const userId = req.user.claims.sub;
+      
+      // Validate and add userId to each availability entry
+      const availabilityWithUserId = availability.map((avail: any) => ({
+        ...avail,
+        userId,
+        date: new Date(avail.date),
+      }));
+      
+      const submitted = await storage.submitAvailability(availabilityWithUserId);
+      res.json(submitted);
+    } catch (error) {
+      console.error("Error submitting availability:", error);
+      res.status(500).json({ message: "Failed to submit availability" });
+    }
+  });
+
+  app.get('/api/availability', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { payrollPeriodId } = req.query;
+      
+      const availability = await storage.getUserAvailability(userId, payrollPeriodId);
+      res.json(availability);
+    } catch (error) {
+      console.error("Error fetching availability:", error);
+      res.status(500).json({ message: "Failed to fetch availability" });
+    }
+  });
+
+  app.get('/api/availability/period/:periodId', isAuthenticated, async (req: any, res) => {
+    try {
+      const { periodId } = req.params;
+      const availability = await storage.getAllAvailabilityForPeriod(periodId);
+      res.json(availability);
+    } catch (error) {
+      console.error("Error fetching period availability:", error);
+      res.status(500).json({ message: "Failed to fetch period availability" });
+    }
+  });
+
+  // AI Schedule Creation routes
+  app.post('/api/schedules/create-from-availability', isAuthenticated, async (req: any, res) => {
+    try {
+      const { payrollPeriodId, businessHours, constraints } = req.body;
+      
+      // Get all availability data for the period
+      const availabilityData = await storage.getAllAvailabilityForPeriod(payrollPeriodId);
+      
+      // Get user information to include names and roles
+      const users = await storage.getUsers();
+      
+      // Transform availability data for AI processing
+      const transformedData = availabilityData.map((avail: any) => {
+        const user = users.find((u: any) => u.id === avail.userId);
+        return {
+          userId: avail.userId,
+          userName: user ? `${user.firstName} ${user.lastName}` : 'Unknown User',
+          role: user?.role || 'employee',
+          hourlyRate: 15.00, // Default rate - would be from user profile in full implementation
+          date: avail.date.toISOString().split('T')[0],
+          timeSlot: avail.timeSlot,
+          isAvailable: avail.isAvailable,
+        };
+      });
+
+      // Call Claude AI to create schedule
+      const result = await claudeService.createScheduleFromAvailability({
+        payrollPeriodId,
+        availabilityData: transformedData,
+        businessHours: businessHours || {
+          dailyHours: 8,
+          peakHours: ['afternoon', 'evening'],
+          minimumStaffing: 2,
+        },
+        constraints: constraints || {
+          maxWeeklyHours: 40,
+          overtimeThreshold: 8,
+          minimumShiftLength: 4,
+        },
+      });
+
+      // Save the generated schedules to database
+      const schedulesToCreate = result.schedule.map((scheduleItem: any) => ({
+        userId: scheduleItem.userId,
+        startTime: new Date(`${scheduleItem.date}T${scheduleItem.startTime}`),
+        endTime: new Date(`${scheduleItem.date}T${scheduleItem.endTime}`),
+        location: 'Main Location', // Default location
+        notes: scheduleItem.reasoning,
+      }));
+
+      // Create schedules in database
+      for (const schedule of schedulesToCreate) {
+        await storage.createSchedule(schedule);
+      }
+
+      res.json({
+        success: true,
+        scheduleCreated: result.schedule.length,
+        insights: result.insights,
+        staffingAnalysis: result.staffingAnalysis,
+        generatedSchedule: result.schedule,
+      });
+    } catch (error) {
+      console.error("Error creating schedule from availability:", error);
+      res.status(500).json({ message: "Failed to create schedule from availability" });
+    }
+  });
+
   // Payroll routes
   app.post('/api/payroll/analyze', isAuthenticated, async (req: any, res) => {
     try {
@@ -529,6 +642,122 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching messages:", error);
       res.status(500).json({ message: "Failed to fetch messages" });
+    }
+  });
+
+  // Group chat routes
+  app.post('/api/groups', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canCreateGroups = userPermissions.some(p => p.name === 'communication.create_groups');
+      
+      if (!canCreateGroups) {
+        return res.status(403).json({ message: "Group creation access required" });
+      }
+
+      const { name, description, memberIds } = req.body;
+      
+      // Create group
+      const group = await storage.createGroup({ 
+        name, 
+        description, 
+        createdBy: userId 
+      });
+      
+      // Add creator as member
+      await storage.addGroupMember({ groupId: group.id, userId });
+      
+      // Add other members
+      if (memberIds && Array.isArray(memberIds)) {
+        for (const memberId of memberIds) {
+          await storage.addGroupMember({ groupId: group.id, userId: memberId });
+        }
+      }
+
+      res.json(group);
+    } catch (error) {
+      console.error("Error creating group:", error);
+      res.status(400).json({ message: (error as Error).message });
+    }
+  });
+
+  app.get('/api/groups', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const groups = await storage.getGroups(userId);
+      res.json(groups);
+    } catch (error) {
+      console.error("Error fetching groups:", error);
+      res.status(500).json({ message: "Failed to fetch groups" });
+    }
+  });
+
+  app.get('/api/groups/:groupId/messages', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { groupId } = req.params;
+      
+      // Check if user is member of group
+      const members = await storage.getGroupMembers(groupId);
+      const isMember = members.some(m => m.userId === userId);
+      
+      if (!isMember) {
+        return res.status(403).json({ message: "Not a member of this group" });
+      }
+
+      const messages = await storage.getGroupMessages(groupId);
+      res.json(messages);
+    } catch (error) {
+      console.error("Error fetching group messages:", error);
+      res.status(500).json({ message: "Failed to fetch group messages" });
+    }
+  });
+
+  app.get('/api/groups/:groupId/members', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { groupId } = req.params;
+      
+      // Check if user is member of group
+      const members = await storage.getGroupMembers(groupId);
+      const isMember = members.some(m => m.userId === userId);
+      
+      if (!isMember) {
+        return res.status(403).json({ message: "Not a member of this group" });
+      }
+
+      res.json(members);
+    } catch (error) {
+      console.error("Error fetching group members:", error);
+      res.status(500).json({ message: "Failed to fetch group members" });
+    }
+  });
+
+  app.post('/api/groups/:groupId/members', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { groupId } = req.params;
+      const { userIds } = req.body;
+      
+      // Check permissions to add members (group creator or admin)
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canManageGroups = userPermissions.some(p => p.name === 'communication.manage_groups');
+      
+      if (!canManageGroups) {
+        return res.status(403).json({ message: "Group management access required" });
+      }
+
+      const addedMembers = [];
+      for (const newUserId of userIds) {
+        const member = await storage.addGroupMember({ groupId, userId: newUserId });
+        addedMembers.push(member);
+      }
+
+      res.json(addedMembers);
+    } catch (error) {
+      console.error("Error adding group members:", error);
+      res.status(400).json({ message: (error as Error).message });
     }
   });
 
