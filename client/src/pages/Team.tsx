@@ -14,7 +14,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
-import type { User, Role, Message } from "@shared/schema";
+import type { User, Role, Message, Permission } from "@shared/schema";
+import { useAuth } from "@/hooks/useAuth";
 
 export default function Team() {
   const { toast } = useToast();
@@ -39,6 +40,19 @@ export default function Team() {
   const { data: messages = [] } = useQuery<Message[]>({
     queryKey: ["/api/messages"],
   });
+
+  // Get current user and permissions
+  const { user: currentUser } = useAuth();
+  const { data: userPermissions = [] } = useQuery<Permission[]>({
+    queryKey: ["/api/auth/permissions"],
+    enabled: !!currentUser,
+  });
+
+  // Check permissions
+  const canManageEmployees = userPermissions.some(p => p.name === 'hr.manage_employees');
+  const canEditRoles = userPermissions.some(p => p.name === 'admin.role_management');
+  const canViewPayRates = userPermissions.some(p => p.name === 'hr.view_pay_rates');
+  const canEditPayRates = userPermissions.some(p => p.name === 'hr.edit_pay_rates');
 
   // Add team member mutation
   const addMemberMutation = useMutation({
@@ -108,6 +122,50 @@ export default function Team() {
     },
   });
 
+  // Update member pay rate mutation
+  const updatePayRateMutation = useMutation({
+    mutationFn: async ({ userId, hourlyRate }: { userId: string; hourlyRate: string }) => {
+      const response = await apiRequest("PUT", `/api/users/${userId}/pay-rate`, { hourlyRate });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+      toast({
+        title: "Success",
+        description: "Pay rate updated successfully",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: `Failed to update pay rate: ${error.message}`,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Remove member mutation (permanent deletion)
+  const removeMemberMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      const response = await apiRequest("DELETE", `/api/users/${userId}`);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+      toast({
+        title: "Success",
+        description: "Team member removed successfully",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: `Failed to remove member: ${error.message}`,
+        variant: "destructive",
+      });
+    },
+  });
+
   // Deactivate member mutation
   const deactivateMemberMutation = useMutation({
     mutationFn: async (userId: string) => {
@@ -155,7 +213,53 @@ export default function Team() {
   };
 
   const handleRoleChange = (userId: string, roleId: string) => {
+    if (!canEditRoles) {
+      toast({
+        title: "Access Denied",
+        description: "You don't have permission to change roles",
+        variant: "destructive",
+      });
+      return;
+    }
     updateRoleMutation.mutate({ userId, roleId });
+  };
+
+  const handlePayRateChange = (userId: string, hourlyRate: string) => {
+    if (!canEditPayRates) {
+      toast({
+        title: "Access Denied",
+        description: "You don't have permission to edit pay rates",
+        variant: "destructive",
+      });
+      return;
+    }
+    updatePayRateMutation.mutate({ userId, hourlyRate });
+  };
+
+  const handleRemoveMember = (userId: string) => {
+    if (!canManageEmployees) {
+      toast({
+        title: "Access Denied",
+        description: "You don't have permission to remove employees",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (confirm("Are you sure you want to permanently remove this team member? This action cannot be undone.")) {
+      removeMemberMutation.mutate(userId);
+    }
+  };
+
+  const handleDeactivateMember = (userId: string) => {
+    if (!canManageEmployees) {
+      toast({
+        title: "Access Denied",
+        description: "You don't have permission to deactivate employees",
+        variant: "destructive",
+      });
+      return;
+    }
+    deactivateMemberMutation.mutate(userId);
   };
 
   const getInitials = (firstName?: string | null, lastName?: string | null) => {
@@ -200,14 +304,16 @@ export default function Team() {
               </Button>
             </DialogTrigger>
           </Dialog>
-          <Dialog open={showAddMember} onOpenChange={setShowAddMember}>
-            <DialogTrigger asChild>
-              <Button data-testid="button-add-member">
-                <i className="fas fa-plus mr-2"></i>
-                Add Team Member
-              </Button>
-            </DialogTrigger>
-          </Dialog>
+          {canManageEmployees && (
+            <Dialog open={showAddMember} onOpenChange={setShowAddMember}>
+              <DialogTrigger asChild>
+                <Button data-testid="button-add-member">
+                  <i className="fas fa-plus mr-2"></i>
+                  Add Team Member
+                </Button>
+              </DialogTrigger>
+            </Dialog>
+          )}
         </div>
       </div>
 
@@ -226,7 +332,7 @@ export default function Team() {
 
         {/* Active Members Tab */}
         <TabsContent value="active" className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
             {getActiveMembers().map((member) => {
               const memberRole = roles.find(r => r.id === member.roleId);
               return (
@@ -248,18 +354,22 @@ export default function Team() {
                   <CardContent className="space-y-3">
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-medium">Role:</span>
-                      <Select value={member.roleId || ""} onValueChange={(value) => handleRoleChange(member.id, value)}>
-                        <SelectTrigger className="w-32">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {roles.map((role) => (
-                            <SelectItem key={role.id} value={role.id}>
-                              {role.displayName}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      {canEditRoles ? (
+                        <Select value={member.roleId || ""} onValueChange={(value) => handleRoleChange(member.id, value)}>
+                          <SelectTrigger className="w-32">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {roles.map((role) => (
+                              <SelectItem key={role.id} value={role.id}>
+                                {role.displayName}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <span className="text-sm">{memberRole?.displayName || 'Not assigned'}</span>
+                      )}
                     </div>
                     
                     {memberRole && (
@@ -268,38 +378,76 @@ export default function Team() {
                       </Badge>
                     )}
                     
-                    {member.hourlyRate && (
-                      <div className="text-sm text-muted-foreground">
-                        Rate: ${member.hourlyRate}/hr
+                    {canViewPayRates && member.hourlyRate && (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-medium">Rate:</span>
+                          {canEditPayRates ? (
+                            <div className="flex items-center space-x-2">
+                              <Input
+                                type="number"
+                                step="0.01"
+                                defaultValue={member.hourlyRate}
+                                className="w-20 h-8 text-sm"
+                                onBlur={(e) => {
+                                  const newRate = e.target.value;
+                                  if (newRate !== member.hourlyRate) {
+                                    handlePayRateChange(member.id, newRate);
+                                  }
+                                }}
+                                data-testid={`input-pay-rate-${member.id}`}
+                              />
+                              <span className="text-sm text-muted-foreground">/hr</span>
+                            </div>
+                          ) : (
+                            <span className="text-sm">${member.hourlyRate}/hr</span>
+                          )}
+                        </div>
                       </div>
                     )}
                     
-                    <div className="flex justify-between pt-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setSelectedMember(member);
-                          setShowProfile(true);
-                        }}
-                        data-testid={`button-view-profile-${member.id}`}
-                      >
-                        <i className="fas fa-user mr-1"></i>
-                        Profile
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setSelectedMember(member);
-                          setMessageType('individual');
-                          setShowMessage(true);
-                        }}
-                        data-testid={`button-message-${member.id}`}
-                      >
-                        <i className="fas fa-envelope mr-1"></i>
-                        Message
-                      </Button>
+                    <div className="flex flex-col space-y-2 pt-2">
+                      <div className="flex justify-between space-x-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="flex-1"
+                          onClick={() => {
+                            setSelectedMember(member);
+                            setShowProfile(true);
+                          }}
+                          data-testid={`button-view-profile-${member.id}`}
+                        >
+                          <i className="fas fa-user mr-1"></i>
+                          Profile
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="flex-1"
+                          onClick={() => {
+                            setSelectedMember(member);
+                            setMessageType('individual');
+                            setShowMessage(true);
+                          }}
+                          data-testid={`button-message-${member.id}`}
+                        >
+                          <i className="fas fa-envelope mr-1"></i>
+                          Message
+                        </Button>
+                      </div>
+                      {canManageEmployees && (
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          className="w-full"
+                          onClick={() => handleRemoveMember(member.id)}
+                          data-testid={`button-remove-${member.id}`}
+                        >
+                          <i className="fas fa-trash mr-1"></i>
+                          Remove Employee
+                        </Button>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -316,7 +464,7 @@ export default function Team() {
 
         {/* Inactive Members Tab */}
         <TabsContent value="inactive" className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
             {getInactiveMembers().map((member) => (
               <Card key={member.id} className="opacity-60" data-testid={`card-inactive-member-${member.id}`}>
                 <CardHeader className="pb-3">
@@ -536,10 +684,29 @@ export default function Team() {
                     {selectedMember.isActive !== false ? "Active" : "Inactive"}
                   </Badge>
                 </div>
-                {selectedMember.hourlyRate && (
+                {canViewPayRates && selectedMember.hourlyRate && (
                   <div className="flex justify-between">
                     <span className="font-medium">Hourly Rate:</span>
-                    <span>${selectedMember.hourlyRate}/hr</span>
+                    {canEditPayRates ? (
+                      <div className="flex items-center space-x-2">
+                        <Input
+                          type="number"
+                          step="0.01"
+                          defaultValue={selectedMember.hourlyRate}
+                          className="w-24 h-8 text-sm"
+                          onBlur={(e) => {
+                            const newRate = e.target.value;
+                            if (newRate !== selectedMember.hourlyRate) {
+                              handlePayRateChange(selectedMember.id, newRate);
+                            }
+                          }}
+                          data-testid="input-profile-pay-rate"
+                        />
+                        <span className="text-sm">/hr</span>
+                      </div>
+                    ) : (
+                      <span>${selectedMember.hourlyRate}/hr</span>
+                    )}
                   </div>
                 )}
                 <div className="flex justify-between">
@@ -563,18 +730,33 @@ export default function Team() {
                   <i className="fas fa-envelope mr-2"></i>
                   Send Message
                 </Button>
-                {selectedMember.isActive !== false && (
-                  <Button
-                    variant="destructive"
-                    onClick={() => {
-                      deactivateMemberMutation.mutate(selectedMember.id);
-                      setShowProfile(false);
-                    }}
-                    data-testid="button-deactivate-member"
-                  >
-                    <i className="fas fa-user-times mr-2"></i>
-                    Deactivate
-                  </Button>
+                {canManageEmployees && (
+                  <div className="flex space-x-2">
+                    {selectedMember.isActive !== false && (
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          handleDeactivateMember(selectedMember.id);
+                          setShowProfile(false);
+                        }}
+                        data-testid="button-deactivate-member"
+                      >
+                        <i className="fas fa-user-times mr-2"></i>
+                        Deactivate
+                      </Button>
+                    )}
+                    <Button
+                      variant="destructive"
+                      onClick={() => {
+                        handleRemoveMember(selectedMember.id);
+                        setShowProfile(false);
+                      }}
+                      data-testid="button-remove-member-profile"
+                    >
+                      <i className="fas fa-trash mr-2"></i>
+                      Remove
+                    </Button>
+                  </div>
                 )}
               </div>
             </div>

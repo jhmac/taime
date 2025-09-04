@@ -42,6 +42,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get('/api/auth/permissions', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const permissions = await storage.getUserPermissions(userId);
+      res.json(permissions);
+    } catch (error) {
+      console.error("Error fetching user permissions:", error);
+      res.status(500).json({ message: "Failed to fetch user permissions" });
+    }
+  });
+
   // Time tracking routes
   app.post('/api/time-entries', isAuthenticated, async (req: any, res) => {
     try {
@@ -545,14 +556,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Role management routes
   app.get('/api/roles', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canManageRoles = userPermissions.some(p => p.name === 'admin.role_management');
-      
-      if (!canManageRoles) {
-        return res.status(403).json({ message: "Permission denied: Role management access required" });
-      }
-      
+      // Allow all authenticated users to view roles (needed for role assignment dropdowns)
       const roles = await storage.getAllRoles();
       res.json(roles);
     } catch (error) {
@@ -841,6 +845,77 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching users:", error);
       res.status(500).json({ message: "Failed to fetch users" });
+    }
+  });
+
+  // User management routes
+  app.put('/api/users/:userId/pay-rate', isAuthenticated, async (req: any, res) => {
+    try {
+      const currentUserId = req.user.claims.sub;
+      const { userId } = req.params;
+      const { hourlyRate } = req.body;
+
+      // Check permissions
+      const userPermissions = await storage.getUserPermissions(currentUserId);
+      const canEditPayRates = userPermissions.some(p => p.name === 'hr.edit_pay_rates');
+      
+      if (!canEditPayRates) {
+        return res.status(403).json({ message: "Pay rate editing access required" });
+      }
+
+      const updatedUser = await storage.updateUserPayRate(userId, parseFloat(hourlyRate));
+      res.json(updatedUser);
+    } catch (error) {
+      console.error("Error updating pay rate:", error);
+      res.status(400).json({ message: (error as Error).message });
+    }
+  });
+
+  app.delete('/api/users/:userId', isAuthenticated, async (req: any, res) => {
+    try {
+      const currentUserId = req.user.claims.sub;
+      const { userId } = req.params;
+
+      // Check permissions
+      const userPermissions = await storage.getUserPermissions(currentUserId);
+      const canManageEmployees = userPermissions.some(p => p.name === 'hr.manage_employees');
+      
+      if (!canManageEmployees) {
+        return res.status(403).json({ message: "Employee management access required" });
+      }
+
+      // Prevent users from deleting themselves
+      if (currentUserId === userId) {
+        return res.status(400).json({ message: "Cannot delete your own account" });
+      }
+
+      await storage.deleteUser(userId);
+      res.json({ message: "User deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting user:", error);
+      res.status(400).json({ message: (error as Error).message });
+    }
+  });
+
+  app.put('/api/users/:userId/role', isAuthenticated, async (req: any, res) => {
+    try {
+      const currentUserId = req.user.claims.sub;
+      const { userId } = req.params;
+      const { roleId } = req.body;
+
+      // Check permissions
+      const userPermissions = await storage.getUserPermissions(currentUserId);
+      const canEditRoles = userPermissions.some(p => p.name === 'admin.role_management');
+      
+      if (!canEditRoles) {
+        return res.status(403).json({ message: "Role management access required" });
+      }
+
+      const updatedUser = await storage.updateUserRole(userId, roleId);
+      res.json(updatedUser);
+    } catch (error) {
+      console.error("Error updating user role:", error);
+      res.status(400).json({ message: (error as Error).message });
     }
   });
 

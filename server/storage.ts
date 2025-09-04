@@ -569,6 +569,28 @@ export class DatabaseStorage implements IStorage {
     
     return result.map(row => row.permission);
   }
+
+  async updateUserPayRate(userId: string, hourlyRate: number): Promise<User> {
+    const [updatedUser] = await db
+      .update(users)
+      .set({ hourlyRate: hourlyRate.toString() })
+      .where(eq(users.id, userId))
+      .returning();
+    return updatedUser;
+  }
+
+  async updateUserRole(userId: string, roleId: string): Promise<User> {
+    const [updatedUser] = await db
+      .update(users)
+      .set({ roleId })
+      .where(eq(users.id, userId))
+      .returning();
+    return updatedUser;
+  }
+
+  async deleteUser(userId: string): Promise<void> {
+    await db.delete(users).where(eq(users.id, userId));
+  }
 }
 
 export const storage = new DatabaseStorage();
