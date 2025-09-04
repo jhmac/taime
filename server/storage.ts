@@ -733,18 +733,24 @@ export class DatabaseStorage implements IStorage {
 
   // Role management operations
   async getUserWithRole(id: string): Promise<any> {
+    console.log("Getting user with role for ID:", id);
+    
     // Get the user first
     const user = await this.getUser(id);
+    console.log("User found:", user);
+    
     if (!user) return undefined;
 
     // Get the role if user has one
     let role = null;
     if (user.roleId) {
+      console.log("Getting role for roleId:", user.roleId);
       role = await this.getRole(user.roleId);
+      console.log("Role found:", role);
     }
 
     // Return user with role information
-    return {
+    const result = {
       ...user,
       role: role ? {
         id: role.id,
@@ -753,6 +759,9 @@ export class DatabaseStorage implements IStorage {
         description: role.description
       } : null
     };
+    
+    console.log("Final user with role result:", result);
+    return result;
   }
 
   async getAllRoles(): Promise<Role[]> {

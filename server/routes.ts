@@ -37,6 +37,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.claims.sub;
       const userWithRole = await storage.getUserWithRole(userId);
+      console.log("User with role data:", JSON.stringify(userWithRole, null, 2));
+      
+      // Prevent caching to ensure fresh role data
+      res.set({
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+      });
+      
       res.json(userWithRole);
     } catch (error) {
       console.error("Error fetching user:", error);
