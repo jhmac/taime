@@ -13,6 +13,8 @@ import {
   insertMessageSchema,
   insertWorkLocationSchema,
   insertPushSubscriptionSchema,
+  insertRoleSchema,
+  insertRolePermissionSchema,
 } from "@shared/schema";
 import { z } from "zod";
 
@@ -506,10 +508,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/insights', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
-      const user = await storage.getUser(userId);
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canViewAllInsights = userPermissions.some(p => p.name === 'hr.insights');
       
       let insights;
-      if (user?.role === 'admin') {
+      if (canViewAllInsights) {
         insights = await storage.getUserInsights();
       } else {
         insights = await storage.getUserInsights(userId);
@@ -519,6 +522,194 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching insights:", error);
       res.status(500).json({ message: "Failed to fetch insights" });
+    }
+  });
+
+  // Role management routes
+  app.get('/api/roles', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canManageRoles = userPermissions.some(p => p.name === 'admin.role_management');
+      
+      if (!canManageRoles) {
+        return res.status(403).json({ message: "Permission denied: Role management access required" });
+      }
+      
+      const roles = await storage.getAllRoles();
+      res.json(roles);
+    } catch (error) {
+      console.error("Error fetching roles:", error);
+      res.status(500).json({ message: "Failed to fetch roles" });
+    }
+  });
+
+  app.post('/api/roles', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canManageRoles = userPermissions.some(p => p.name === 'admin.role_management');
+      
+      if (!canManageRoles) {
+        return res.status(403).json({ message: "Permission denied: Role management access required" });
+      }
+      
+      const data = insertRoleSchema.parse(req.body);
+      const role = await storage.createRole(data);
+      res.json(role);
+    } catch (error) {
+      console.error("Error creating role:", error);
+      res.status(400).json({ message: (error as Error).message });
+    }
+  });
+
+  app.patch('/api/roles/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canManageRoles = userPermissions.some(p => p.name === 'admin.role_management');
+      
+      if (!canManageRoles) {
+        return res.status(403).json({ message: "Permission denied: Role management access required" });
+      }
+      
+      const { id } = req.params;
+      const updates = req.body;
+      
+      const role = await storage.updateRole(id, updates);
+      res.json(role);
+    } catch (error) {
+      console.error("Error updating role:", error);
+      res.status(400).json({ message: (error as Error).message });
+    }
+  });
+
+  app.delete('/api/roles/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canManageRoles = userPermissions.some(p => p.name === 'admin.role_management');
+      
+      if (!canManageRoles) {
+        return res.status(403).json({ message: "Permission denied: Role management access required" });
+      }
+      
+      const { id } = req.params;
+      await storage.deleteRole(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting role:", error);
+      res.status(400).json({ message: (error as Error).message });
+    }
+  });
+
+  // Permission management routes
+  app.get('/api/permissions', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canManageRoles = userPermissions.some(p => p.name === 'admin.role_management');
+      
+      if (!canManageRoles) {
+        return res.status(403).json({ message: "Permission denied: Role management access required" });
+      }
+      
+      const permissions = await storage.getPermissionsByCategory();
+      res.json(permissions);
+    } catch (error) {
+      console.error("Error fetching permissions:", error);
+      res.status(500).json({ message: "Failed to fetch permissions" });
+    }
+  });
+
+  app.get('/api/roles/:id/permissions', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canManageRoles = userPermissions.some(p => p.name === 'admin.role_management');
+      
+      if (!canManageRoles) {
+        return res.status(403).json({ message: "Permission denied: Role management access required" });
+      }
+      
+      const { id } = req.params;
+      const rolePermissions = await storage.getRolePermissions(id);
+      res.json(rolePermissions);
+    } catch (error) {
+      console.error("Error fetching role permissions:", error);
+      res.status(500).json({ message: "Failed to fetch role permissions" });
+    }
+  });
+
+  app.put('/api/roles/:id/permissions', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canManageRoles = userPermissions.some(p => p.name === 'admin.role_management');
+      
+      if (!canManageRoles) {
+        return res.status(403).json({ message: "Permission denied: Role management access required" });
+      }
+      
+      const { id } = req.params;
+      const { permissionIds } = req.body;
+      
+      if (!Array.isArray(permissionIds)) {
+        return res.status(400).json({ message: "permissionIds must be an array" });
+      }
+      
+      await storage.updateRolePermissions(id, permissionIds);
+      const updatedPermissions = await storage.getRolePermissions(id);
+      res.json(updatedPermissions);
+    } catch (error) {
+      console.error("Error updating role permissions:", error);
+      res.status(400).json({ message: (error as Error).message });
+    }
+  });
+
+  // User role assignment routes
+  app.patch('/api/users/:id/role', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canEditTeam = userPermissions.some(p => p.name === 'hr.edit_team');
+      
+      if (!canEditTeam) {
+        return res.status(403).json({ message: "Permission denied: Team editing access required" });
+      }
+      
+      const { id } = req.params;
+      const { roleId } = req.body;
+      
+      await storage.assignUserRole(id, roleId);
+      const updatedUser = await storage.getUserWithRole(id);
+      res.json(updatedUser);
+    } catch (error) {
+      console.error("Error assigning user role:", error);
+      res.status(400).json({ message: (error as Error).message });
+    }
+  });
+
+  app.get('/api/users/:id/permissions', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const requestingUserId = req.user.claims.sub;
+      
+      // Users can view their own permissions, or managers can view team permissions
+      if (id !== requestingUserId) {
+        const userPermissions = await storage.getUserPermissions(requestingUserId);
+        const canViewTeam = userPermissions.some(p => p.name === 'hr.view_team');
+        
+        if (!canViewTeam) {
+          return res.status(403).json({ message: "Permission denied" });
+        }
+      }
+      
+      const permissions = await storage.getUserPermissions(id);
+      res.json(permissions);
+    } catch (error) {
+      console.error("Error fetching user permissions:", error);
+      res.status(500).json({ message: "Failed to fetch user permissions" });
     }
   });
 

@@ -11,6 +11,7 @@ import Operations from "@/pages/Operations";
 import Communication from "@/pages/Communication";
 import HR from "@/pages/HR";
 import AdminDashboard from "@/pages/AdminDashboard";
+import RoleManagement from "@/pages/RoleManagement";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -34,6 +35,7 @@ function Router() {
           <Route path="/operations" component={Operations} />
           <Route path="/communication" component={Communication} />
           <Route path="/hr" component={HR} />
+          <Route path="/hr/roles" component={RoleManagement} />
           <Route path="/admin" component={AdminDashboard} />
         </>
       )}
