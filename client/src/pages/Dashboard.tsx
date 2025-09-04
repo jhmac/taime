@@ -8,9 +8,10 @@ import ChoresWidget from '@/components/ChoresWidget';
 import TeamActivityFeed from '@/components/TeamActivityFeed';
 import AIInsightsWidget from '@/components/AIInsightsWidget';
 import AIChatModal from '@/components/AIChatModal';
+import type { UserWithRole } from '@shared/schema';
 
 export default function Dashboard() {
-  const { user } = useAuth();
+  const { user } = useAuth() as { user: UserWithRole | undefined, isLoading: boolean, isAuthenticated: boolean, error: any };
   const { isConnected } = useWebSocket();
   const [currentTime, setCurrentTime] = useState(new Date());
   const [showAIChat, setShowAIChat] = useState(false);
