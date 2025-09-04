@@ -87,10 +87,57 @@ export default function TopNavigation() {
               <span className="text-sm text-muted-foreground hidden sm:inline">
                 {user.firstName} {user.lastName}
               </span>
-              <Button variant="ghost" size="sm" onClick={() => window.location.href = '/api/logout'}>
-                <i className="fas fa-sign-out-alt mr-1"></i>
-                <span className="hidden sm:inline">Logout</span>
-              </Button>
+              <Sheet>
+                <SheetTrigger asChild>
+                  <Button variant="ghost" size="sm" data-testid="user-menu">
+                    <i className="fas fa-user-circle mr-1"></i>
+                    <span className="hidden sm:inline">Account</span>
+                  </Button>
+                </SheetTrigger>
+                <SheetContent side="right" className="w-80">
+                  <div className="flex flex-col space-y-4 py-4">
+                    <div className="px-3 py-2">
+                      <h2 className="mb-2 px-4 text-lg font-semibold tracking-tight">
+                        Account Options
+                      </h2>
+                      <div className="space-y-3">
+                        <div className="px-4 py-2 bg-muted/30 rounded">
+                          <p className="text-sm font-medium">{user.firstName} {user.lastName}</p>
+                          <p className="text-xs text-muted-foreground">{user.email}</p>
+                        </div>
+                        
+                        <Button 
+                          variant="outline" 
+                          className="w-full justify-start" 
+                          onClick={() => window.location.href = '/api/logout'}
+                          data-testid="button-logout"
+                        >
+                          <i className="fas fa-sign-out-alt mr-2"></i>
+                          Log Out
+                        </Button>
+                        
+                        <Button 
+                          variant="ghost" 
+                          className="w-full justify-start" 
+                          onClick={() => {
+                            window.location.href = '/api/logout';
+                          }}
+                          data-testid="button-switch-user"
+                        >
+                          <i className="fas fa-user-friends mr-2"></i>
+                          Switch User
+                        </Button>
+                        
+                        <div className="border-t pt-3">
+                          <p className="text-xs text-muted-foreground px-4">
+                            To log in as a different user, you'll be logged out and redirected to the login page.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </SheetContent>
+              </Sheet>
             </div>
           )}
         </div>
