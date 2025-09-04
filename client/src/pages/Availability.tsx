@@ -41,10 +41,13 @@ function AIScheduleCreator({ payrollPeriodId, onScheduleCreated }: {
 
   const createScheduleMutation = useMutation({
     mutationFn: async (data: any) => {
-      return apiRequest('/api/schedules/create-from-availability', {
+      const response = await fetch('/api/schedules/create-from-availability', {
         method: 'POST',
-        body: data,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
       });
+      if (!response.ok) throw new Error('Failed to create schedule');
+      return response.json();
     },
     onSuccess: (result) => {
       toast({
@@ -90,20 +93,21 @@ function AIScheduleCreator({ payrollPeriodId, onScheduleCreated }: {
           Create AI Schedule
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-sm mx-auto max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>AI Schedule Creation</DialogTitle>
-          <DialogDescription>
-            Configure business requirements and let AI create an optimized schedule based on employee availability.
+          <DialogTitle className="text-sm">AI Schedule Creation</DialogTitle>
+          <DialogDescription className="text-xs">
+            Configure business requirements and let AI create an optimized schedule.
           </DialogDescription>
         </DialogHeader>
         
-        <div className="space-y-4">
+        <div className="space-y-3">
           <div>
-            <Label htmlFor="dailyHours">Daily Operating Hours</Label>
+            <Label htmlFor="dailyHours" className="text-xs">Daily Operating Hours</Label>
             <Input
               id="dailyHours"
               type="number"
+              className="h-8 text-sm"
               value={businessSettings.dailyHours}
               onChange={(e) => setBusinessSettings(prev => ({ 
                 ...prev, 
@@ -113,10 +117,11 @@ function AIScheduleCreator({ payrollPeriodId, onScheduleCreated }: {
           </div>
           
           <div>
-            <Label htmlFor="minimumStaffing">Minimum Staffing</Label>
+            <Label htmlFor="minimumStaffing" className="text-xs">Minimum Staffing</Label>
             <Input
               id="minimumStaffing"
               type="number"
+              className="h-8 text-sm"
               value={businessSettings.minimumStaffing}
               onChange={(e) => setBusinessSettings(prev => ({ 
                 ...prev, 
@@ -126,10 +131,11 @@ function AIScheduleCreator({ payrollPeriodId, onScheduleCreated }: {
           </div>
           
           <div>
-            <Label htmlFor="maxWeeklyHours">Max Weekly Hours per Employee</Label>
+            <Label htmlFor="maxWeeklyHours" className="text-xs">Max Weekly Hours per Employee</Label>
             <Input
               id="maxWeeklyHours"
               type="number"
+              className="h-8 text-sm"
               value={constraints.maxWeeklyHours}
               onChange={(e) => setConstraints(prev => ({ 
                 ...prev, 
@@ -139,10 +145,11 @@ function AIScheduleCreator({ payrollPeriodId, onScheduleCreated }: {
           </div>
           
           <div>
-            <Label htmlFor="overtimeThreshold">Overtime Threshold (daily)</Label>
+            <Label htmlFor="overtimeThreshold" className="text-xs">Overtime Threshold (daily)</Label>
             <Input
               id="overtimeThreshold"
               type="number"
+              className="h-8 text-sm"
               value={constraints.overtimeThreshold}
               onChange={(e) => setConstraints(prev => ({ 
                 ...prev, 
@@ -154,15 +161,15 @@ function AIScheduleCreator({ payrollPeriodId, onScheduleCreated }: {
           <Button 
             onClick={handleCreateSchedule}
             disabled={createScheduleMutation.isPending}
-            className="w-full"
+            className="w-full h-8 text-sm mt-4"
             data-testid="confirm-create-schedule"
           >
             {createScheduleMutation.isPending ? (
-              <>Creating Schedule...</>
+              <>Creating...</>
             ) : (
               <>
-                <Sparkles className="h-4 w-4 mr-2" />
-                Generate Schedule
+                <Sparkles className="h-3 w-3 mr-1" />
+                Generate
               </>
             )}
           </Button>
@@ -184,7 +191,7 @@ export default function Availability() {
     queryKey: ['/api/payroll/periods'],
   });
 
-  const nextPeriod = payrollPeriods.find((period: any) => !period.isProcessed);
+  const nextPeriod = Array.isArray(payrollPeriods) ? payrollPeriods.find((period: any) => !period.isProcessed) : null;
 
   // Set the selected period to the next unprocessed period
   useEffect(() => {
@@ -202,20 +209,25 @@ export default function Availability() {
   // Convert availability data to a more usable format
   useEffect(() => {
     const availMap: Record<string, boolean> = {};
-    currentAvailability.forEach((avail: any) => {
-      const key = `${avail.date.split('T')[0]}-${avail.timeSlot}`;
-      availMap[key] = avail.isAvailable;
-    });
+    if (Array.isArray(currentAvailability)) {
+      currentAvailability.forEach((avail: any) => {
+        const key = `${avail.date.split('T')[0]}-${avail.timeSlot}`;
+        availMap[key] = avail.isAvailable;
+      });
+    }
     setAvailabilityData(availMap);
   }, [currentAvailability]);
 
   // Submit availability mutation
   const submitAvailabilityMutation = useMutation({
     mutationFn: async (availability: any[]) => {
-      return apiRequest('/api/availability', {
+      const response = await fetch('/api/availability', {
         method: 'POST',
-        body: { availability },
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ availability }),
       });
+      if (!response.ok) throw new Error('Failed to submit availability');
+      return response.json();
     },
     onSuccess: () => {
       toast({
@@ -422,7 +434,7 @@ export default function Availability() {
         </Card>
 
         {/* AI Schedule Creation (Manager Only) */}
-        {user?.role === 'manager' || user?.role === 'admin' ? (
+        {user?.roleId === 'manager' || user?.roleId === 'admin' ? (
           <Card>
             <CardHeader>
               <CardTitle className="text-sm flex items-center gap-2">
