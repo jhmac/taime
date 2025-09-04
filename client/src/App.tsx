@@ -15,6 +15,7 @@ import RoleManagement from "@/pages/RoleManagement";
 import ScheduleManagement from "@/pages/ScheduleManagement";
 import Team from "@/pages/Team";
 import Availability from "@/pages/Availability";
+import PayPeriodManagement from "@/pages/PayPeriodManagement";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -42,6 +43,7 @@ function Router() {
           <Route path="/team" component={Team} />
           <Route path="/schedules" component={ScheduleManagement} />
           <Route path="/availability" component={Availability} />
+          <Route path="/payroll" component={PayPeriodManagement} />
           <Route path="/admin" component={AdminDashboard} />
         </>
       )}

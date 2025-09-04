@@ -5,6 +5,7 @@ const navItems = [
   { path: '/', icon: 'fas fa-home', label: 'Dashboard' },
   { path: '/schedules', icon: 'fas fa-calendar-alt', label: 'Schedules' },
   { path: '/availability', icon: 'fas fa-clock', label: 'Available' },
+  { path: '/payroll', icon: 'fas fa-dollar-sign', label: 'Payroll' },
   { path: '/team', icon: 'fas fa-users', label: 'Team' },
   { path: '/communication', icon: 'fas fa-comment', label: 'Chat' },
 ];

@@ -172,15 +172,51 @@ export const messages = pgTable("messages", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-// Payroll periods
+// Pay period automation settings
+export const payPeriodSettings = pgTable("pay_period_settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  intervalType: varchar("interval_type").default("bi-weekly"), // 'weekly', 'bi-weekly', 'monthly'
+  isAutomationEnabled: boolean("is_automation_enabled").default(true),
+  daysBeforeNotification: integer("days_before_notification").default(7), // Days before period ends to send availability notice
+  scheduleGenerationDays: integer("schedule_generation_days").default(5), // Days before period starts to generate schedule
+  automaticConflictResolution: boolean("automatic_conflict_resolution").default(true),
+  createdBy: varchar("created_by").references(() => users.id),
+  updatedBy: varchar("updated_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Workflow states enum for pay periods
+export const workflowStateEnum = pgEnum("workflow_state", [
+  "created", // Pay period created
+  "availability_requested", // Availability notification sent to team
+  "availability_collected", // Team has submitted availability
+  "schedule_generated", // AI has generated initial schedule
+  "schedule_sent_for_review", // Schedule sent to team for confirmation
+  "schedule_confirmed", // Team has confirmed schedule
+  "conflicts_resolved", // Any conflicts have been automatically resolved
+  "finalized", // Schedule is final and locked
+  "processed" // Payroll has been processed
+]);
+
+// Payroll periods with enhanced automation and workflow support
 export const payrollPeriods = pgTable("payroll_periods", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   startDate: timestamp("start_date").notNull(),
   endDate: timestamp("end_date").notNull(),
+  workflowState: workflowStateEnum("workflow_state").default("created"),
   isProcessed: boolean("is_processed").default(false),
   processedBy: varchar("processed_by").references(() => users.id),
   processedAt: timestamp("processed_at"),
   aiAnalysis: jsonb("ai_analysis"),
+  availabilityDeadline: timestamp("availability_deadline"),
+  scheduleConfirmationDeadline: timestamp("schedule_confirmation_deadline"),
+  availabilityNotificationSentAt: timestamp("availability_notification_sent_at"),
+  scheduleGeneratedAt: timestamp("schedule_generated_at"),
+  scheduleSentAt: timestamp("schedule_sent_at"),
+  scheduleConfirmedAt: timestamp("schedule_confirmed_at"),
+  finalizedAt: timestamp("finalized_at"),
+  automationMetadata: jsonb("automation_metadata"), // Store automation-related data
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -192,6 +228,30 @@ export const userAvailability = pgTable("user_availability", {
   date: timestamp("date").notNull(),
   timeSlot: varchar("time_slot").notNull(), // 'morning', 'afternoon', 'evening', 'overnight'
   isAvailable: boolean("is_available").default(true),
+  submittedAt: timestamp("submitted_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Schedule confirmations from team members
+export const scheduleConfirmations = pgTable("schedule_confirmations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  payrollPeriodId: varchar("payroll_period_id").references(() => payrollPeriods.id).notNull(),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  isConfirmed: boolean("is_confirmed").default(false),
+  feedback: text("feedback"), // Optional feedback about the schedule
+  conflicts: jsonb("conflicts"), // Any conflicts the user has with the schedule
+  confirmedAt: timestamp("confirmed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Automated workflow logs
+export const workflowLogs = pgTable("workflow_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  payrollPeriodId: varchar("payroll_period_id").references(() => payrollPeriods.id).notNull(),
+  workflowStep: varchar("workflow_step").notNull(), // e.g., 'availability_requested', 'schedule_generated'
+  status: varchar("status").notNull(), // 'success', 'failed', 'pending'
+  details: text("details"), // Additional details about the workflow step
+  metadata: jsonb("metadata"), // JSON data related to the workflow step
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -413,6 +473,28 @@ export const insertMessageSchema = createInsertSchema(messages).omit({
 export const insertUserAvailabilitySchema = createInsertSchema(userAvailability).omit({
   id: true,
   createdAt: true,
+  submittedAt: true,
+});
+
+export const insertPayPeriodSettingsSchema = createInsertSchema(payPeriodSettings).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertScheduleConfirmationSchema = createInsertSchema(scheduleConfirmations).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertWorkflowLogSchema = createInsertSchema(workflowLogs).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertPayrollPeriodSchema = createInsertSchema(payrollPeriods).omit({
+  id: true,
+  createdAt: true,
 });
 
 export const insertWorkLocationSchema = createInsertSchema(workLocations).omit({
@@ -457,6 +539,13 @@ export type InsertUserAvailability = z.infer<typeof insertUserAvailabilitySchema
 export type WorkLocation = typeof workLocations.$inferSelect;
 export type InsertWorkLocation = z.infer<typeof insertWorkLocationSchema>;
 export type PayrollPeriod = typeof payrollPeriods.$inferSelect;
+export type InsertPayrollPeriod = z.infer<typeof insertPayrollPeriodSchema>;
+export type PayPeriodSettings = typeof payPeriodSettings.$inferSelect;
+export type InsertPayPeriodSettings = z.infer<typeof insertPayPeriodSettingsSchema>;
+export type ScheduleConfirmation = typeof scheduleConfirmations.$inferSelect;
+export type InsertScheduleConfirmation = z.infer<typeof insertScheduleConfirmationSchema>;
+export type WorkflowLog = typeof workflowLogs.$inferSelect;
+export type InsertWorkflowLog = z.infer<typeof insertWorkflowLogSchema>;
 export type AIInsight = typeof aiInsights.$inferSelect;
 export type PushSubscription = typeof pushSubscriptions.$inferSelect;
 export type InsertPushSubscription = z.infer<typeof insertPushSubscriptionSchema>;

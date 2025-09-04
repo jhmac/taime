@@ -9,6 +9,9 @@ import {
   workLocations,
   payrollPeriods,
   userAvailability,
+  payPeriodSettings,
+  scheduleConfirmations,
+  workflowLogs,
   aiInsights,
   pushSubscriptions,
   roles,
@@ -31,8 +34,15 @@ import {
   type WorkLocation,
   type InsertWorkLocation,
   type PayrollPeriod,
+  type InsertPayrollPeriod,
   type UserAvailability,
   type InsertUserAvailability,
+  type PayPeriodSettings,
+  type InsertPayPeriodSettings,
+  type ScheduleConfirmation,
+  type InsertScheduleConfirmation,
+  type WorkflowLog,
+  type InsertWorkflowLog,
   type AIInsight,
   type PushSubscription,
   type InsertPushSubscription,
@@ -104,9 +114,24 @@ export interface IStorage {
   getWorkLocation(id: string): Promise<WorkLocation | undefined>;
   
   // Payroll operations
-  createPayrollPeriod(period: Omit<PayrollPeriod, 'id' | 'createdAt'>): Promise<PayrollPeriod>;
+  createPayrollPeriod(period: InsertPayrollPeriod): Promise<PayrollPeriod>;
   getPayrollPeriods(): Promise<PayrollPeriod[]>;
   updatePayrollPeriod(id: string, updates: Partial<PayrollPeriod>): Promise<PayrollPeriod>;
+  getNextPayrollPeriod(): Promise<PayrollPeriod | undefined>;
+  
+  // Pay period automation operations
+  getPayPeriodSettings(): Promise<PayPeriodSettings | undefined>;
+  updatePayPeriodSettings(settings: InsertPayPeriodSettings): Promise<PayPeriodSettings>;
+  createNextPayPeriod(): Promise<PayrollPeriod>;
+  
+  // Schedule confirmation operations
+  createScheduleConfirmation(confirmation: InsertScheduleConfirmation): Promise<ScheduleConfirmation>;
+  getScheduleConfirmations(payrollPeriodId: string): Promise<ScheduleConfirmation[]>;
+  updateScheduleConfirmation(id: string, updates: Partial<ScheduleConfirmation>): Promise<ScheduleConfirmation>;
+  
+  // Workflow log operations
+  createWorkflowLog(log: InsertWorkflowLog): Promise<WorkflowLog>;
+  getWorkflowLogs(payrollPeriodId: string): Promise<WorkflowLog[]>;
   
   // AI insights operations
   createAIInsight(insight: Omit<AIInsight, 'id' | 'createdAt'>): Promise<AIInsight>;
@@ -526,7 +551,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Payroll operations
-  async createPayrollPeriod(period: Omit<PayrollPeriod, 'id' | 'createdAt'>): Promise<PayrollPeriod> {
+  async createPayrollPeriod(period: InsertPayrollPeriod): Promise<PayrollPeriod> {
     const [created] = await db.insert(payrollPeriods).values(period).returning();
     return created;
   }
@@ -542,6 +567,133 @@ export class DatabaseStorage implements IStorage {
       .where(eq(payrollPeriods.id, id))
       .returning();
     return updated;
+  }
+
+  async getNextPayrollPeriod(): Promise<PayrollPeriod | undefined> {
+    const [period] = await db
+      .select()
+      .from(payrollPeriods)
+      .where(eq(payrollPeriods.isProcessed, false))
+      .orderBy(payrollPeriods.startDate)
+      .limit(1);
+    return period;
+  }
+
+  // Pay period automation operations
+  async getPayPeriodSettings(): Promise<PayPeriodSettings | undefined> {
+    const [settings] = await db
+      .select()
+      .from(payPeriodSettings)
+      .orderBy(desc(payPeriodSettings.createdAt))
+      .limit(1);
+    return settings;
+  }
+
+  async updatePayPeriodSettings(settingsData: InsertPayPeriodSettings): Promise<PayPeriodSettings> {
+    // Delete existing settings (only one should exist)
+    await db.delete(payPeriodSettings);
+    
+    const [settings] = await db
+      .insert(payPeriodSettings)
+      .values(settingsData)
+      .returning();
+    return settings;
+  }
+
+  async createNextPayPeriod(): Promise<PayrollPeriod> {
+    const settings = await this.getPayPeriodSettings();
+    const lastPeriod = await db
+      .select()
+      .from(payrollPeriods)
+      .orderBy(desc(payrollPeriods.endDate))
+      .limit(1);
+
+    let startDate: Date;
+    let endDate: Date;
+
+    if (lastPeriod.length === 0) {
+      // First pay period starts today
+      startDate = new Date();
+      startDate.setHours(0, 0, 0, 0);
+    } else {
+      // Start the day after the last period ends
+      startDate = new Date(lastPeriod[0].endDate);
+      startDate.setDate(startDate.getDate() + 1);
+    }
+
+    // Calculate end date based on interval
+    endDate = new Date(startDate);
+    switch (settings?.intervalType) {
+      case 'weekly':
+        endDate.setDate(startDate.getDate() + 6);
+        break;
+      case 'monthly':
+        endDate.setMonth(startDate.getMonth() + 1);
+        endDate.setDate(startDate.getDate() - 1);
+        break;
+      default: // 'bi-weekly'
+        endDate.setDate(startDate.getDate() + 13);
+        break;
+    }
+
+    // Calculate deadlines
+    const availabilityDeadline = new Date(endDate);
+    availabilityDeadline.setDate(endDate.getDate() - (settings?.daysBeforeNotification || 7));
+
+    const scheduleConfirmationDeadline = new Date(startDate);
+    scheduleConfirmationDeadline.setDate(startDate.getDate() - (settings?.scheduleGenerationDays || 5));
+
+    const periodData: InsertPayrollPeriod = {
+      startDate,
+      endDate,
+      workflowState: 'created',
+      availabilityDeadline,
+      scheduleConfirmationDeadline,
+      automationMetadata: {
+        intervalType: settings?.intervalType || 'bi-weekly',
+        isAutomated: true,
+        createdAt: new Date().toISOString()
+      }
+    };
+
+    return await this.createPayrollPeriod(periodData);
+  }
+
+  // Schedule confirmation operations
+  async createScheduleConfirmation(confirmation: InsertScheduleConfirmation): Promise<ScheduleConfirmation> {
+    const [created] = await db.insert(scheduleConfirmations).values(confirmation).returning();
+    return created;
+  }
+
+  async getScheduleConfirmations(payrollPeriodId: string): Promise<ScheduleConfirmation[]> {
+    return await db
+      .select()
+      .from(scheduleConfirmations)
+      .where(eq(scheduleConfirmations.payrollPeriodId, payrollPeriodId))
+      .orderBy(scheduleConfirmations.createdAt);
+  }
+
+  async updateScheduleConfirmation(id: string, updates: Partial<ScheduleConfirmation>): Promise<ScheduleConfirmation> {
+    const [updated] = await db
+      .update(scheduleConfirmations)
+      .set(updates)
+      .where(eq(scheduleConfirmations.id, id))
+      .returning();
+    return updated;
+  }
+
+  // Workflow log operations
+  async createWorkflowLog(log: InsertWorkflowLog): Promise<WorkflowLog> {
+    const [created] = await db.insert(workflowLogs).values(log).returning();
+    return created;
+  }
+
+  async getWorkflowLogs(payrollPeriodId: string): Promise<WorkflowLog[]> {
+    return await db
+      .select()
+      .from(workflowLogs)
+      .where(eq(workflowLogs.payrollPeriodId, payrollPeriodId))
+      .orderBy(workflowLogs.createdAt);
   }
 
   // AI insights operations

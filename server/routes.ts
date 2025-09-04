@@ -9,6 +9,7 @@ import { db } from "./db";
 import { claudeService } from "./services/claudeService";
 import { notificationService } from "./services/notificationService";
 import { geofencingService } from "./services/geofencingService";
+import { automationService } from "./services/automationService";
 import {
   insertTimeEntrySchema,
   insertScheduleSchema,
@@ -530,6 +531,144 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error analyzing payroll:", error);
       res.status(500).json({ message: "Failed to analyze payroll" });
+    }
+  });
+
+  // Pay period automation routes
+  app.get('/api/payroll/periods', isAuthenticated, async (req: any, res) => {
+    try {
+      const periods = await storage.getPayrollPeriods();
+      res.json(periods);
+    } catch (error) {
+      console.error("Error fetching payroll periods:", error);
+      res.status(500).json({ message: "Failed to fetch payroll periods" });
+    }
+  });
+
+  app.post('/api/payroll/periods', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canManagePayroll = userPermissions.some(p => p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all');
+      
+      if (!canManagePayroll) {
+        return res.status(403).json({ message: "Payroll management access required" });
+      }
+
+      const period = await storage.createNextPayPeriod();
+      res.json(period);
+    } catch (error) {
+      console.error("Error creating payroll period:", error);
+      res.status(500).json({ message: "Failed to create payroll period" });
+    }
+  });
+
+  app.get('/api/payroll/settings', isAuthenticated, async (req: any, res) => {
+    try {
+      const settings = await storage.getPayPeriodSettings();
+      res.json(settings);
+    } catch (error) {
+      console.error("Error fetching pay period settings:", error);
+      res.status(500).json({ message: "Failed to fetch settings" });
+    }
+  });
+
+  app.post('/api/payroll/settings', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canManagePayroll = userPermissions.some(p => p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all');
+      
+      if (!canManagePayroll) {
+        return res.status(403).json({ message: "Payroll management access required" });
+      }
+
+      const settingsData = { ...req.body, createdBy: userId, updatedBy: userId };
+      const settings = await storage.updatePayPeriodSettings(settingsData);
+      res.json(settings);
+    } catch (error) {
+      console.error("Error updating pay period settings:", error);
+      res.status(500).json({ message: "Failed to update settings" });
+    }
+  });
+
+  app.post('/api/payroll/automation/trigger', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canManagePayroll = userPermissions.some(p => p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all');
+      
+      if (!canManagePayroll) {
+        return res.status(403).json({ message: "Payroll management access required" });
+      }
+
+      await automationService.checkAndTriggerAutomation();
+      res.json({ success: true, message: "Automation triggered successfully" });
+    } catch (error) {
+      console.error("Error triggering automation:", error);
+      res.status(500).json({ message: "Failed to trigger automation" });
+    }
+  });
+
+  app.get('/api/payroll/periods/:id/workflow-logs', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const logs = await storage.getWorkflowLogs(id);
+      res.json(logs);
+    } catch (error) {
+      console.error("Error fetching workflow logs:", error);
+      res.status(500).json({ message: "Failed to fetch workflow logs" });
+    }
+  });
+
+  app.get('/api/payroll/periods/:id/confirmations', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const confirmations = await storage.getScheduleConfirmations(id);
+      res.json(confirmations);
+    } catch (error) {
+      console.error("Error fetching schedule confirmations:", error);
+      res.status(500).json({ message: "Failed to fetch confirmations" });
+    }
+  });
+
+  app.post('/api/payroll/periods/:id/confirm-schedule', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { id } = req.params;
+      const { isConfirmed, feedback, conflicts } = req.body;
+      
+      const confirmation = await storage.createScheduleConfirmation({
+        payrollPeriodId: id,
+        userId,
+        isConfirmed,
+        feedback,
+        conflicts,
+        confirmedAt: isConfirmed ? new Date() : undefined
+      });
+      
+      res.json(confirmation);
+    } catch (error) {
+      console.error("Error confirming schedule:", error);
+      res.status(500).json({ message: "Failed to confirm schedule" });
+    }
+  });
+
+  app.post('/api/payroll/automation/initialize', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canManagePayroll = userPermissions.some(p => p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all');
+      
+      if (!canManagePayroll) {
+        return res.status(403).json({ message: "Payroll management access required" });
+      }
+
+      await automationService.initializeDefaultSettings(userId);
+      res.json({ success: true, message: "Automation settings initialized" });
+    } catch (error) {
+      console.error("Error initializing automation:", error);
+      res.status(500).json({ message: "Failed to initialize automation" });
     }
   });
 
