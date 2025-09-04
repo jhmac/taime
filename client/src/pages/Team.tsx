@@ -43,14 +43,14 @@ export default function Team() {
     queryKey: ["/api/messages"],
   });
 
+  // Get current user and permissions
+  const { user: currentUser } = useAuth();
+
   // Fetch groups
   const { data: groups = [] } = useQuery<ChatGroup[]>({
     queryKey: ["/api/groups"],
     enabled: !!currentUser,
   });
-
-  // Get current user and permissions
-  const { user: currentUser } = useAuth();
   const { data: userPermissions = [] } = useQuery<Permission[]>({
     queryKey: ["/api/auth/permissions"],
     enabled: !!currentUser,

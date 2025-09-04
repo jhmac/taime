@@ -339,15 +339,26 @@ export default function PayPeriodManagement() {
           <CardHeader>
             <CardTitle className="text-sm">Quick Actions</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-2">
             <Button 
               onClick={() => createPeriodMutation.mutate()}
               disabled={createPeriodMutation.isPending}
               variant="outline"
               size="sm"
               className="w-full"
+              data-testid="create-pay-period-button"
             >
               {createPeriodMutation.isPending ? "Creating..." : "Create New Pay Period"}
+            </Button>
+            <Button 
+              onClick={() => createPeriodMutation.mutate()}
+              disabled={createPeriodMutation.isPending}
+              size="sm"
+              className="w-full"
+              data-testid="create-payroll-schedule-button"
+            >
+              <i className="fas fa-calendar-plus mr-2"></i>
+              {createPeriodMutation.isPending ? "Creating..." : "Create Payroll Schedule"}
             </Button>
           </CardContent>
         </Card>

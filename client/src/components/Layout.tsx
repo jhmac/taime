@@ -1,6 +1,6 @@
 import { ReactNode } from 'react';
 import { useAuth } from '@/hooks/useAuth';
-import BottomNavigation from './BottomNavigation';
+import TopNavigation from './TopNavigation';
 import PushNotification from './PushNotification';
 
 interface LayoutProps {
@@ -16,10 +16,10 @@ export default function Layout({ children }: LayoutProps) {
 
   return (
     <div className="max-w-sm mx-auto bg-white shadow-2xl min-h-screen relative overflow-hidden">
-      <main className="pb-20">
+      <TopNavigation />
+      <main className="pt-4">
         {children}
       </main>
-      <BottomNavigation />
       <PushNotification />
     </div>
   );
