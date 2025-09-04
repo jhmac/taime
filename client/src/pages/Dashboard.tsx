@@ -16,11 +16,6 @@ export default function Dashboard() {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [showAIChat, setShowAIChat] = useState(false);
 
-  // Debug: Log user data to console
-  console.log("Dashboard - Full user object:", user);
-  console.log("Dashboard - User role:", user?.role);
-  console.log("Dashboard - Role displayName:", user?.role?.displayName);
-  console.log("Dashboard - Role name:", user?.role?.name);
 
   useEffect(() => {
     const timer = setInterval(() => {

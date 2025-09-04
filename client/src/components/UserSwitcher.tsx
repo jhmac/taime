@@ -3,10 +3,11 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { useAuth } from '@/hooks/useAuth';
+import type { UserWithRole } from '@shared/schema';
 
 export default function UserSwitcher() {
   const [isOpen, setIsOpen] = useState(false);
-  const { user } = useAuth();
+  const { user } = useAuth() as { user: UserWithRole | undefined, isLoading: boolean, isAuthenticated: boolean, error: any };
 
   const handleSwitchUser = () => {
     // Clear any local storage data
@@ -45,7 +46,7 @@ export default function UserSwitcher() {
                 <p className="font-medium">{user.firstName} {user.lastName}</p>
                 <p className="text-sm text-muted-foreground">{user.email}</p>
                 {user.role && (
-                  <p className="text-sm text-muted-foreground capitalize">Role: {user.role}</p>
+                  <p className="text-sm text-muted-foreground capitalize">Role: {user.role.displayName || user.role.name || 'Employee'}</p>
                 )}
               </div>
             </CardContent>
