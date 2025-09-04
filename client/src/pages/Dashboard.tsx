@@ -64,7 +64,7 @@ export default function Dashboard() {
               {user?.firstName} {user?.lastName}
             </p>
             <p className="text-xs opacity-80" data-testid="user-role">
-              {user?.role === 'admin' ? 'Team Manager' : 'Employee'}
+              {user?.role?.displayName || user?.role?.name || 'Employee'}
             </p>
           </div>
         </div>

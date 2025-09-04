@@ -39,7 +39,7 @@ function Router() {
         <Route path="/" component={Landing} />
       ) : (
         <>
-          <Route path="/" component={user?.role === 'admin' ? AdminDashboard : Dashboard} />
+          <Route path="/" component={(user?.role?.name === 'admin' || user?.role?.name === 'owner') ? AdminDashboard : Dashboard} />
           <Route path="/operations">
             <PermissionGuard permission="admin.manage_all">
               <Operations />

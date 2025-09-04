@@ -732,33 +732,27 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Role management operations
-  async getUserWithRole(id: string): Promise<UserWithRole | undefined> {
-    const [user] = await db
-      .select()
-      .from(users)
-      .leftJoin(roles, eq(users.roleId, roles.id))
-      .leftJoin(rolePermissions, eq(roles.id, rolePermissions.roleId))
-      .leftJoin(permissions, eq(rolePermissions.permissionId, permissions.id))
-      .where(eq(users.id, id));
+  async getUserWithRole(id: string): Promise<any> {
+    // Get the user first
+    const user = await this.getUser(id);
+    if (!user) return undefined;
 
-    if (!user.users) return undefined;
+    // Get the role if user has one
+    let role = null;
+    if (user.roleId) {
+      role = await this.getRole(user.roleId);
+    }
 
-    // Transform the result to match our expected structure
-    const userWithRole: UserWithRole = {
-      ...user.users,
-      role: user.roles ? {
-        ...user.roles,
-        rolePermissions: user.permissions ? [{
-          id: user.role_permissions?.id || '',
-          roleId: user.role_permissions?.roleId || '',
-          permissionId: user.role_permissions?.permissionId || '',
-          createdAt: user.role_permissions?.createdAt || new Date(),
-          permission: user.permissions
-        }] : []
-      } : undefined
+    // Return user with role information
+    return {
+      ...user,
+      role: role ? {
+        id: role.id,
+        name: role.name,
+        displayName: role.displayName,
+        description: role.description
+      } : null
     };
-
-    return userWithRole;
   }
 
   async getAllRoles(): Promise<Role[]> {
