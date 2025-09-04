@@ -88,7 +88,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
 
       let timeEntries;
-      if (user?.role === 'admin') {
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canViewAll = userPermissions.some(p => p.name === 'time.view_all');
+      
+      if (canViewAll) {
         timeEntries = await storage.getAllTimeEntries(startDate, endDate);
       } else {
         timeEntries = await storage.getUserTimeEntries(userId, startDate, endDate);
@@ -128,7 +131,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(timeEntry);
     } catch (error) {
       console.error("Error updating time entry:", error);
-      res.status(400).json({ message: error.message });
+      res.status(400).json({ message: (error as Error).message });
     }
   });
 
@@ -157,7 +160,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(schedule);
     } catch (error) {
       console.error("Error creating schedule:", error);
-      res.status(400).json({ message: error.message });
+      res.status(400).json({ message: (error as Error).message });
     }
   });
 
@@ -170,7 +173,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
 
       let schedules;
-      if (user?.role === 'admin') {
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canViewAll = userPermissions.some(p => p.name === 'schedule.view_all');
+      
+      if (canViewAll) {
         schedules = await storage.getAllSchedules(startDate, endDate);
       } else {
         schedules = await storage.getUserSchedules(userId, startDate, endDate);
@@ -206,7 +212,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(task);
     } catch (error) {
       console.error("Error creating task:", error);
-      res.status(400).json({ message: error.message });
+      res.status(400).json({ message: (error as Error).message });
     }
   });
 
@@ -216,7 +222,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await storage.getUser(userId);
 
       let tasks;
-      if (user?.role === 'admin') {
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canViewAll = userPermissions.some(p => p.name === 'tasks.view_all');
+      
+      if (canViewAll) {
         tasks = await storage.getAllTasks();
       } else {
         tasks = await storage.getUserTasks(userId);
@@ -249,7 +258,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(task);
     } catch (error) {
       console.error("Error updating task:", error);
-      res.status(400).json({ message: error.message });
+      res.status(400).json({ message: (error as Error).message });
     }
   });
 
@@ -342,7 +351,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const context = {
         user: {
           name: `${user?.firstName} ${user?.lastName}`,
-          role: user?.role,
+          role: 'employee',
         },
         isCurrentlyClockedIn: !!activeTimeEntry,
         recentTasks: recentTasks.slice(0, 5),
@@ -440,8 +449,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.user.claims.sub;
       const user = await storage.getUser(userId);
       
-      if (user?.role !== 'admin') {
-        return res.status(403).json({ message: "Admin access required" });
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canManageLocations = userPermissions.some(p => p.name === 'admin.manage_locations');
+      
+      if (!canManageLocations) {
+        return res.status(403).json({ message: "Location management access required" });
       }
 
       const data = insertWorkLocationSchema.parse(req.body);
@@ -449,7 +461,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(location);
     } catch (error) {
       console.error("Error creating work location:", error);
-      res.status(400).json({ message: error.message });
+      res.status(400).json({ message: (error as Error).message });
     }
   });
 
@@ -473,7 +485,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(subscription);
     } catch (error) {
       console.error("Error creating push subscription:", error);
-      res.status(400).json({ message: error.message });
+      res.status(400).json({ message: (error as Error).message });
     }
   });
 
@@ -494,7 +506,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(message);
     } catch (error) {
       console.error("Error creating message:", error);
-      res.status(400).json({ message: error.message });
+      res.status(400).json({ message: (error as Error).message });
     }
   });
 
