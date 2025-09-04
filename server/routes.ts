@@ -36,6 +36,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = req.user.claims.sub;
       const user = await storage.getUser(userId);
+      
+      if (user && user.roleId) {
+        // Get the role information from the roles table
+        const role = await storage.getRole(user.roleId);
+        if (role) {
+          // Override the role field with the actual role name from the roles table
+          user.role = role.name;
+        }
+      }
+      
       res.json(user);
     } catch (error) {
       console.error("Error fetching user:", error);
