@@ -3,10 +3,10 @@ import { cn } from '@/lib/utils';
 
 const navItems = [
   { path: '/', icon: 'fas fa-home', label: 'Dashboard' },
+  { path: '/schedules', icon: 'fas fa-calendar-alt', label: 'Schedules' },
   { path: '/operations', icon: 'fas fa-clock', label: 'Operations' },
   { path: '/communication', icon: 'fas fa-comment', label: 'Chat' },
   { path: '/hr', icon: 'fas fa-user-tie', label: 'HR' },
-  { path: '/more', icon: 'fas fa-ellipsis-h', label: 'More' },
 ];
 
 export default function BottomNavigation() {

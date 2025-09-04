@@ -3,6 +3,9 @@ import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replitAuth";
+import { users } from "@shared/schema";
+import { eq } from "drizzle-orm";
+import { db } from "./db";
 import { claudeService } from "./services/claudeService";
 import { notificationService } from "./services/notificationService";
 import { geofencingService } from "./services/geofencingService";
@@ -803,6 +806,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching chores by zone:", error);
       res.status(500).json({ message: "Failed to fetch chores by zone" });
+    }
+  });
+
+  // Users management routes
+  app.get('/api/users', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canViewTeam = userPermissions.some(p => p.name === 'hr.view_team' || p.name === 'schedule.view_all');
+      
+      if (!canViewTeam) {
+        // Return only the current user if no team viewing permissions
+        const currentUser = await storage.getUser(userId);
+        res.json(currentUser ? [currentUser] : []);
+        return;
+      }
+      
+      // Get all users for managers/admins
+      const allUsers = await db.select().from(users).where(eq(users.isActive, true));
+      res.json(allUsers);
+    } catch (error) {
+      console.error("Error fetching users:", error);
+      res.status(500).json({ message: "Failed to fetch users" });
     }
   });
 
