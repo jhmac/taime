@@ -32,6 +32,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
   await setupAuth(app);
 
+  // Debug routes for session testing
+  app.get('/api/debug/session', (req, res) => {
+    res.json({
+      sessionID: req.sessionID,
+      session: req.session,
+      user: req.user,
+      hostname: req.hostname,
+      authenticated: req.isAuthenticated()
+    });
+  });
+
+  app.post('/api/debug/session', (req, res) => {
+    if (!req.session) {
+      return res.status(500).json({ error: 'No session object' });
+    }
+    req.session.test = Date.now();
+    req.session.save((err) => {
+      if (err) {
+        return res.status(500).json({ error: 'Session save failed', details: err });
+      }
+      res.json({ message: 'Session test data set', test: req.session.test });
+    });
+  });
+
   // Auth routes
   app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
     try {
