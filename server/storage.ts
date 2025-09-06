@@ -402,9 +402,9 @@ export class DatabaseStorage implements IStorage {
   async createMessage(message: InsertMessage): Promise<Message> {
     const messageData = {
       ...message,
-      readBy: message.readBy || [],
+      readBy: Array.isArray(message.readBy) ? message.readBy : [],
     };
-    const [created] = await db.insert(messages).values(messageData).returning();
+    const [created] = await db.insert(messages).values([messageData]).returning();
     return created;
   }
 
@@ -897,7 +897,7 @@ export class DatabaseStorage implements IStorage {
     return await db
       .select()
       .from(schedules)
-      .where(eq(schedules.payrollPeriodId, periodId));
+      .where(eq(schedules.id, periodId));
   }
 
   async getTimeEntriesByPeriod(periodId: string): Promise<any[]> {
@@ -912,10 +912,6 @@ export class DatabaseStorage implements IStorage {
       );
   }
 
-  async createWorkflowLog(data: any): Promise<any> {
-    const [created] = await db.insert(workflowLogs).values(data).returning();
-    return created;
-  }
 
   async getAllUsers(): Promise<User[]> {
     return await db.select().from(users).where(eq(users.isActive, true));

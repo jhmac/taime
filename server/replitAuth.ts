@@ -83,10 +83,17 @@ export async function setupAuth(app: Express) {
     tokens: client.TokenEndpointResponse & client.TokenEndpointResponseHelpers,
     verified: passport.AuthenticateCallback
   ) => {
-    const user = {};
-    updateUserSession(user, tokens);
-    await upsertUser(tokens.claims());
-    verified(null, user);
+    try {
+      console.log("Auth verify starting for user:", tokens.claims()?.sub);
+      const user = {};
+      updateUserSession(user, tokens);
+      await upsertUser(tokens.claims());
+      console.log("Auth verify successful for user:", tokens.claims()?.sub);
+      verified(null, user);
+    } catch (error) {
+      console.error("Auth verify failed:", error);
+      verified(error, null);
+    }
   };
 
   for (const domain of process.env
@@ -114,9 +121,11 @@ export async function setupAuth(app: Express) {
   });
 
   app.get("/api/callback", (req, res, next) => {
+    console.log("Callback route hit for hostname:", req.hostname);
     passport.authenticate(`replitauth:${req.hostname}`, {
       successReturnToOrRedirect: "/",
       failureRedirect: "/api/login",
+      failureFlash: false
     })(req, res, next);
   });
 
