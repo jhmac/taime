@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { storage } from "./storage";
-import { setupAuth, isAuthenticated } from "./replitAuth";
+import { setupAuth, requireAuth } from "./auth";
 import { users } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { db } from "./db";
@@ -32,50 +32,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
   await setupAuth(app);
 
-  // Debug routes for session testing
-  app.get('/api/debug/session', (req, res) => {
-    res.json({
-      sessionID: req.sessionID,
-      session: req.session,
-      user: req.user,
-      hostname: req.hostname,
-      authenticated: req.isAuthenticated()
-    });
-  });
-
-  app.post('/api/debug/session', (req, res) => {
-    if (!req.session) {
-      return res.status(500).json({ error: 'No session object' });
-    }
-    req.session.test = Date.now();
-    req.session.save((err) => {
-      if (err) {
-        return res.status(500).json({ error: 'Session save failed', details: err });
-      }
-      res.json({ message: 'Session test data set', test: req.session.test });
-    });
-  });
-
-  // Auth routes
-  app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.claims.sub;
-      const userWithRole = await storage.getUserWithRole(userId);
-      console.log("User with role data:", JSON.stringify(userWithRole, null, 2));
-      
-      // Prevent caching to ensure fresh role data
-      res.set({
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Pragma': 'no-cache',
-        'Expires': '0'
-      });
-      
-      res.json(userWithRole);
-    } catch (error) {
-      console.error("Error fetching user:", error);
-      res.status(500).json({ message: "Failed to fetch user" });
-    }
-  });
+  // Clean auth setup - no debug routes needed
 
   app.get('/api/auth/permissions', isAuthenticated, async (req: any, res) => {
     try {
