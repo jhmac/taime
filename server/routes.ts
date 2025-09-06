@@ -34,21 +34,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Clean auth setup - no debug routes needed
 
-  app.get('/api/auth/permissions', isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.claims.sub;
-      const permissions = await storage.getUserPermissions(userId);
-      res.json(permissions);
-    } catch (error) {
-      console.error("Error fetching user permissions:", error);
-      res.status(500).json({ message: "Failed to fetch user permissions" });
-    }
-  });
+  // Business routes will be handled by new auth system
 
   // Time tracking routes
-  app.post('/api/time-entries', isAuthenticated, async (req: any, res) => {
+  app.post('/api/time-entries', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const data = insertTimeEntrySchema.parse({ ...req.body, userId });
       
       // Validate location if clockInTime is provided
@@ -82,9 +73,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/time-entries', isAuthenticated, async (req: any, res) => {
+  app.get('/api/time-entries', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const user = await storage.getUser(userId);
       
       const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
@@ -107,9 +98,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/time-entries/active', isAuthenticated, async (req: any, res) => {
+  app.get('/api/time-entries/active', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const activeEntry = await storage.getActiveTimeEntry(userId);
       res.json(activeEntry);
     } catch (error) {
@@ -118,7 +109,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch('/api/time-entries/:id', isAuthenticated, async (req: any, res) => {
+  app.patch('/api/time-entries/:id', requireAuth, async (req: any, res) => {
     try {
       const { id } = req.params;
       const updates = req.body;
@@ -139,9 +130,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Schedule routes
-  app.post('/api/schedules', isAuthenticated, async (req: any, res) => {
+  app.post('/api/schedules', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const data = insertScheduleSchema.parse({ ...req.body, createdBy: userId });
       
       const schedule = await storage.createSchedule(data);
@@ -167,9 +158,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/schedules', isAuthenticated, async (req: any, res) => {
+  app.get('/api/schedules', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const user = await storage.getUser(userId);
       
       const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
@@ -193,9 +184,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Task routes
-  app.post('/api/tasks', isAuthenticated, async (req: any, res) => {
+  app.post('/api/tasks', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const data = insertTaskSchema.parse({ ...req.body, createdBy: userId });
       
       const task = await storage.createTask(data);
@@ -219,9 +210,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/tasks', isAuthenticated, async (req: any, res) => {
+  app.get('/api/tasks', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const user = await storage.getUser(userId);
 
       let tasks;
@@ -241,7 +232,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch('/api/tasks/:id', isAuthenticated, async (req: any, res) => {
+  app.patch('/api/tasks/:id', requireAuth, async (req: any, res) => {
     try {
       const { id } = req.params;
       const updates = req.body;
@@ -266,7 +257,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // AI routes
-  app.post('/api/ai/assign-chores', isAuthenticated, async (req: any, res) => {
+  app.post('/api/ai/assign-chores', requireAuth, async (req: any, res) => {
     try {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
@@ -341,10 +332,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/ai/chat', isAuthenticated, async (req: any, res) => {
+  app.post('/api/ai/chat', requireAuth, async (req: any, res) => {
     try {
       const { message } = req.body;
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       
       // Get context for the AI
       const user = await storage.getUser(userId);
@@ -369,10 +360,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Availability routes
-  app.post('/api/availability', isAuthenticated, async (req: any, res) => {
+  app.post('/api/availability', requireAuth, async (req: any, res) => {
     try {
       const { availability } = req.body;
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       
       // Validate and add userId to each availability entry
       const availabilityWithUserId = availability.map((avail: any) => ({
@@ -389,9 +380,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/availability', isAuthenticated, async (req: any, res) => {
+  app.get('/api/availability', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const { payrollPeriodId } = req.query;
       
       const availability = await storage.getUserAvailability(userId, payrollPeriodId);
@@ -402,7 +393,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/availability/period/:periodId', isAuthenticated, async (req: any, res) => {
+  app.get('/api/availability/period/:periodId', requireAuth, async (req: any, res) => {
     try {
       const { periodId } = req.params;
       const availability = await storage.getAllAvailabilityForPeriod(periodId);
@@ -414,7 +405,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // AI Schedule Creation routes
-  app.post('/api/schedules/create-from-availability', isAuthenticated, async (req: any, res) => {
+  app.post('/api/schedules/create-from-availability', requireAuth, async (req: any, res) => {
     try {
       const { payrollPeriodId, businessHours, constraints } = req.body;
       
@@ -482,7 +473,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Payroll routes
-  app.post('/api/payroll/analyze', isAuthenticated, async (req: any, res) => {
+  app.post('/api/payroll/analyze', requireAuth, async (req: any, res) => {
     try {
       const { startDate, endDate } = req.body;
       const start = new Date(startDate);
@@ -526,7 +517,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Pay period automation routes
-  app.get('/api/payroll/periods', isAuthenticated, async (req: any, res) => {
+  app.get('/api/payroll/periods', requireAuth, async (req: any, res) => {
     try {
       const periods = await storage.getPayrollPeriods();
       res.json(periods);
@@ -536,9 +527,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/payroll/periods', isAuthenticated, async (req: any, res) => {
+  app.post('/api/payroll/periods', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
       const canManagePayroll = userPermissions.some(p => p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all');
       
@@ -554,7 +545,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/payroll/settings', isAuthenticated, async (req: any, res) => {
+  app.get('/api/payroll/settings', requireAuth, async (req: any, res) => {
     try {
       const settings = await storage.getPayPeriodSettings();
       res.json(settings);
@@ -564,9 +555,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/payroll/settings', isAuthenticated, async (req: any, res) => {
+  app.post('/api/payroll/settings', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
       const canManagePayroll = userPermissions.some(p => p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all');
       
@@ -583,9 +574,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/payroll/automation/trigger', isAuthenticated, async (req: any, res) => {
+  app.post('/api/payroll/automation/trigger', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
       const canManagePayroll = userPermissions.some(p => p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all');
       
@@ -601,7 +592,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/payroll/periods/:id/workflow-logs', isAuthenticated, async (req: any, res) => {
+  app.get('/api/payroll/periods/:id/workflow-logs', requireAuth, async (req: any, res) => {
     try {
       const { id } = req.params;
       const logs = await storage.getWorkflowLogs(id);
@@ -612,7 +603,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/payroll/periods/:id/confirmations', isAuthenticated, async (req: any, res) => {
+  app.get('/api/payroll/periods/:id/confirmations', requireAuth, async (req: any, res) => {
     try {
       const { id } = req.params;
       const confirmations = await storage.getScheduleConfirmations(id);
@@ -623,9 +614,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/payroll/periods/:id/confirm-schedule', isAuthenticated, async (req: any, res) => {
+  app.post('/api/payroll/periods/:id/confirm-schedule', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const { id } = req.params;
       const { isConfirmed, feedback, conflicts } = req.body;
       
@@ -645,9 +636,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/payroll/automation/initialize', isAuthenticated, async (req: any, res) => {
+  app.post('/api/payroll/automation/initialize', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
       const canManagePayroll = userPermissions.some(p => p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all');
       
@@ -664,9 +655,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Location and geofencing routes
-  app.post('/api/geofence/check', isAuthenticated, async (req: any, res) => {
+  app.post('/api/geofence/check', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const { latitude, longitude } = req.body;
       
       const result = await geofencingService.checkUserLocation(userId, latitude, longitude);
@@ -677,9 +668,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/geofence/event', isAuthenticated, async (req: any, res) => {
+  app.post('/api/geofence/event', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const { latitude, longitude, eventType } = req.body;
       
       await geofencingService.processGeofenceEvent({
@@ -698,9 +689,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Work locations routes (admin only)
-  app.post('/api/work-locations', isAuthenticated, async (req: any, res) => {
+  app.post('/api/work-locations', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const user = await storage.getUser(userId);
       
       const userPermissions = await storage.getUserPermissions(userId);
@@ -719,7 +710,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/work-locations', isAuthenticated, async (req: any, res) => {
+  app.get('/api/work-locations', requireAuth, async (req: any, res) => {
     try {
       const locations = await storage.getAllWorkLocations();
       res.json(locations);
@@ -730,9 +721,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Push notification routes
-  app.post('/api/push/subscribe', isAuthenticated, async (req: any, res) => {
+  app.post('/api/push/subscribe', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const data = insertPushSubscriptionSchema.parse({ ...req.body, userId });
       
       const subscription = await storage.createPushSubscription(data);
@@ -744,9 +735,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Message/communication routes
-  app.post('/api/messages', isAuthenticated, async (req: any, res) => {
+  app.post('/api/messages', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const data = insertMessageSchema.parse({ ...req.body, senderId: userId });
       
       const message = await storage.createMessage(data);
@@ -764,9 +755,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/messages', isAuthenticated, async (req: any, res) => {
+  app.get('/api/messages', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const messages = await storage.getMessages(userId);
       res.json(messages);
     } catch (error) {
@@ -776,9 +767,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Group chat routes
-  app.post('/api/groups', isAuthenticated, async (req: any, res) => {
+  app.post('/api/groups', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
       const canCreateGroups = userPermissions.some(p => p.name === 'communication.create_groups');
       
@@ -812,9 +803,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/groups', isAuthenticated, async (req: any, res) => {
+  app.get('/api/groups', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const groups = await storage.getGroups(userId);
       res.json(groups);
     } catch (error) {
@@ -823,9 +814,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/groups/:groupId/messages', isAuthenticated, async (req: any, res) => {
+  app.get('/api/groups/:groupId/messages', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const { groupId } = req.params;
       
       // Check if user is member of group
@@ -844,9 +835,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/groups/:groupId/members', isAuthenticated, async (req: any, res) => {
+  app.get('/api/groups/:groupId/members', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const { groupId } = req.params;
       
       // Check if user is member of group
@@ -864,9 +855,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/groups/:groupId/members', isAuthenticated, async (req: any, res) => {
+  app.post('/api/groups/:groupId/members', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const { groupId } = req.params;
       const { userIds } = req.body;
       
@@ -892,9 +883,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // AI insights routes
-  app.get('/api/insights', isAuthenticated, async (req: any, res) => {
+  app.get('/api/insights', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
       const canViewAllInsights = userPermissions.some(p => p.name === 'hr.insights');
       
@@ -913,7 +904,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Role management routes
-  app.get('/api/roles', isAuthenticated, async (req: any, res) => {
+  app.get('/api/roles', requireAuth, async (req: any, res) => {
     try {
       // Allow all authenticated users to view roles (needed for role assignment dropdowns)
       const roles = await storage.getAllRoles();
@@ -924,9 +915,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/roles', isAuthenticated, async (req: any, res) => {
+  app.post('/api/roles', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
       const canManageRoles = userPermissions.some(p => p.name === 'admin.role_management');
       
@@ -943,9 +934,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch('/api/roles/:id', isAuthenticated, async (req: any, res) => {
+  app.patch('/api/roles/:id', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
       const canManageRoles = userPermissions.some(p => p.name === 'admin.role_management');
       
@@ -964,9 +955,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/roles/:id', isAuthenticated, async (req: any, res) => {
+  app.delete('/api/roles/:id', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
       const canManageRoles = userPermissions.some(p => p.name === 'admin.role_management');
       
@@ -984,9 +975,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Permission management routes
-  app.get('/api/permissions', isAuthenticated, async (req: any, res) => {
+  app.get('/api/permissions', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
       const canManageRoles = userPermissions.some(p => p.name === 'admin.role_management');
       
@@ -1002,9 +993,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/roles/:id/permissions', isAuthenticated, async (req: any, res) => {
+  app.get('/api/roles/:id/permissions', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
       const canManageRoles = userPermissions.some(p => p.name === 'admin.role_management');
       
@@ -1021,9 +1012,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put('/api/roles/:id/permissions', isAuthenticated, async (req: any, res) => {
+  app.put('/api/roles/:id/permissions', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
       const canManageRoles = userPermissions.some(p => p.name === 'admin.role_management');
       
@@ -1048,9 +1039,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // User role assignment routes
-  app.patch('/api/users/:id/role', isAuthenticated, async (req: any, res) => {
+  app.patch('/api/users/:id/role', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
       const canEditTeam = userPermissions.some(p => p.name === 'hr.edit_team');
       
@@ -1070,10 +1061,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/users/:id/permissions', isAuthenticated, async (req: any, res) => {
+  app.get('/api/users/:id/permissions', requireAuth, async (req: any, res) => {
     try {
       const { id } = req.params;
-      const requestingUserId = req.user.claims.sub;
+      const requestingUserId = req.user.id;
       
       // Users can view their own permissions, or managers can view team permissions
       if (id !== requestingUserId) {
@@ -1094,7 +1085,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Chore management routes
-  app.get('/api/chores/day/:dayOfWeek', isAuthenticated, async (req: any, res) => {
+  app.get('/api/chores/day/:dayOfWeek', requireAuth, async (req: any, res) => {
     try {
       const { dayOfWeek } = req.params;
       const { timeOfDay } = req.query;
@@ -1107,7 +1098,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/chores/schedule', isAuthenticated, async (req: any, res) => {
+  app.get('/api/chores/schedule', requireAuth, async (req: any, res) => {
     try {
       const schedule = await storage.getWeeklyChoreSchedule();
       res.json(schedule);
@@ -1117,9 +1108,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/chores/assign', isAuthenticated, async (req: any, res) => {
+  app.post('/api/chores/assign', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
       const canAssignTasks = userPermissions.some(p => p.name === 'tasks.create' || p.name === 'tasks.edit_all');
       
@@ -1143,9 +1134,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/chores/signoff', isAuthenticated, async (req: any, res) => {
+  app.post('/api/chores/signoff', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const data = choreSignOffSchema.parse(req.body);
       
       // Check permissions for manager sign-off
@@ -1173,7 +1164,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/chores/zone/:zone', isAuthenticated, async (req: any, res) => {
+  app.get('/api/chores/zone/:zone', requireAuth, async (req: any, res) => {
     try {
       const { zone } = req.params;
       const chores = await storage.getChoresByZone(zone);
@@ -1185,9 +1176,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Users management routes
-  app.get('/api/users', isAuthenticated, async (req: any, res) => {
+  app.get('/api/users', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
       const canViewTeam = userPermissions.some(p => p.name === 'hr.view_team' || p.name === 'schedule.view_all');
       
@@ -1208,9 +1199,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // User management routes
-  app.put('/api/users/:userId/pay-rate', isAuthenticated, async (req: any, res) => {
+  app.put('/api/users/:userId/pay-rate', requireAuth, async (req: any, res) => {
     try {
-      const currentUserId = req.user.claims.sub;
+      const currentUserId = req.user.id;
       const { userId } = req.params;
       const { hourlyRate } = req.body;
 
@@ -1230,9 +1221,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/users/:userId', isAuthenticated, async (req: any, res) => {
+  app.delete('/api/users/:userId', requireAuth, async (req: any, res) => {
     try {
-      const currentUserId = req.user.claims.sub;
+      const currentUserId = req.user.id;
       const { userId } = req.params;
 
       // Check permissions
@@ -1256,9 +1247,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put('/api/users/:userId/role', isAuthenticated, async (req: any, res) => {
+  app.put('/api/users/:userId/role', requireAuth, async (req: any, res) => {
     try {
-      const currentUserId = req.user.claims.sub;
+      const currentUserId = req.user.id;
       const { userId } = req.params;
       const { roleId } = req.body;
 
@@ -1279,9 +1270,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Payroll setup routes
-  app.post('/api/payroll/setup', isAuthenticated, async (req: any, res) => {
+  app.post('/api/payroll/setup', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
       const canManagePayroll = userPermissions.some(p => 
         p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all'
@@ -1344,9 +1335,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/payroll/settings', isAuthenticated, async (req: any, res) => {
+  app.get('/api/payroll/settings', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
       const canViewPayroll = userPermissions.some(p => 
         p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all'
@@ -1364,9 +1355,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get('/api/payroll/setup-status', isAuthenticated, async (req: any, res) => {
+  app.get('/api/payroll/setup-status', requireAuth, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
       const canManagePayroll = userPermissions.some(p => 
         p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all'

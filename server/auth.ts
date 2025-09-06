@@ -49,14 +49,17 @@ export async function setupAuth(app: Express) {
   }, async (tokens, done) => {
     try {
       const claims = tokens.claims();
+      if (!claims || !claims.sub) {
+        return done(new Error('Invalid claims'));
+      }
       
       // Create or update user
       const user = await storage.upsertUser({
-        id: claims.sub,
-        email: claims.email,
-        firstName: claims.first_name,
-        lastName: claims.last_name,
-        profileImageUrl: claims.profile_image_url,
+        id: String(claims.sub),
+        email: String(claims.email || ''),
+        firstName: String(claims.first_name || ''),
+        lastName: String(claims.last_name || ''),
+        profileImageUrl: String(claims.profile_image_url || ''),
       });
 
       done(null, user);
