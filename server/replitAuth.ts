@@ -35,10 +35,10 @@ export function getSession() {
     secret: process.env.SESSION_SECRET!,
     store: sessionStore,
     resave: false,
-    saveUninitialized: false,
+    saveUninitialized: true,  // Save uninitialized sessions for OIDC state
     cookie: {
       httpOnly: true,
-      secure: "auto",
+      secure: false,  // Disable secure for development
       sameSite: "lax",
       maxAge: sessionTtl,
     },
@@ -117,8 +117,8 @@ export async function setupAuth(app: Express) {
   app.get("/api/login", (req, res, next) => {
     console.log("Login attempt - hostname:", req.hostname);
     console.log("Available domains:", process.env.REPLIT_DOMAINS);
+    console.log("Session before login:", req.sessionID, !!req.session);
     passport.authenticate(`replitauth:${req.hostname}`, {
-      prompt: "login consent",
       scope: ["openid", "email", "profile", "offline_access"],
     })(req, res, next);
   });
