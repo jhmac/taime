@@ -15,11 +15,11 @@ export default function UserSwitcher() {
     sessionStorage.clear();
     
     // Redirect to logout which will clear server session and redirect to login
-    window.location.href = '/api/logout';
+    window.location.href = '/api/auth/logout';
   };
 
   const handleLogout = () => {
-    window.location.href = '/api/logout';
+    window.location.href = '/api/auth/logout';
   };
 
   if (!user) return null;
