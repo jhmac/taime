@@ -8,7 +8,7 @@ export function useAuth() {
     throwOnError: false,
     refetchOnWindowFocus: false,
     staleTime: 0, // Always fetch fresh data for auth
-    cacheTime: 0, // Don't cache auth data
+    gcTime: 0, // Don't cache auth data
     refetchInterval: false, // Don't auto-refetch
   });
 
