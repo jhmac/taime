@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { storage } from "./storage";
-import { setupAuth, isAuthenticated } from "./auth";
+import { setupAuth, requireAuth as isAuthenticated } from "./simpleAuth";
 import { users } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { db } from "./db";
@@ -34,28 +34,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Clean auth setup - no debug routes needed
 
-  // Auth user routes
-  app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.claims.sub;
-      const userWithRole = await storage.getUserWithRole(userId);
-      res.json(userWithRole);
-    } catch (error) {
-      console.error("Error fetching user:", error);
-      res.status(500).json({ message: "Failed to fetch user" });
-    }
-  });
-
-  app.get('/api/auth/permissions', isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.claims.sub;
-      const permissions = await storage.getUserPermissions(userId);
-      res.json(permissions);
-    } catch (error) {
-      console.error("Error fetching permissions:", error);
-      res.status(500).json({ message: "Failed to fetch permissions" });
-    }
-  });
+  // Auth routes handled by simpleAuth
 
   // Time tracking routes
   app.post('/api/time-entries', isAuthenticated, async (req: any, res) => {
