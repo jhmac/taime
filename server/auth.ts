@@ -45,7 +45,7 @@ export async function setupAuth(app: Express) {
     name: "replit",
     config: issuer,
     scope: "openid email profile",
-    callbackURL: `https://${process.env.REPLIT_DOMAINS}/api/auth/callback`,
+    callbackURL: `https://${process.env.REPLIT_DOMAINS?.split(',')[0]}/api/auth/callback`,
   }, async (tokens, done) => {
     try {
       const claims = tokens.claims();
@@ -80,7 +80,11 @@ export async function setupAuth(app: Express) {
   });
 
   // Auth routes
-  app.get("/api/auth/login", passport.authenticate("replit"));
+  app.get("/api/auth/login", (req, res, next) => {
+    passport.authenticate("replit", {
+      scope: "openid email profile",
+    })(req, res, next);
+  });
   
   app.get("/api/auth/callback", 
     passport.authenticate("replit", { 
