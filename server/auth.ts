@@ -68,11 +68,20 @@ export async function setupAuth(app: Express) {
     verified: passport.AuthenticateCallback
   ) => {
     try {
+      console.log("Verify function called with tokens:", !!tokens);
+      const claims = tokens.claims();
+      console.log("Claims received:", claims);
+      
       const user = {};
       updateUserSession(user, tokens);
-      await upsertUser(tokens.claims());
+      console.log("User session updated:", user);
+      
+      await upsertUser(claims);
+      console.log("User upserted successfully");
+      
       verified(null, user);
     } catch (error) {
+      console.error("Verify function error:", error);
       verified(error, null);
     }
   };
@@ -117,9 +126,32 @@ export async function setupAuth(app: Express) {
   app.get("/api/callback", (req, res, next) => {
     console.log("Callback attempt - hostname:", req.hostname);
     console.log("Query params:", req.query);
-    passport.authenticate(`replitauth:${req.hostname}`, {
-      successReturnToOrRedirect: "/",
-      failureRedirect: "/api/login",
+    console.log("Session ID:", req.sessionID);
+    
+    passport.authenticate(`replitauth:${req.hostname}`, (err, user, info) => {
+      console.log("Passport authenticate result:");
+      console.log("- Error:", err);
+      console.log("- User:", !!user);
+      console.log("- Info:", info);
+      
+      if (err) {
+        console.error("Authentication error:", err);
+        return res.redirect("/api/login");
+      }
+      
+      if (!user) {
+        console.error("No user returned");
+        return res.redirect("/api/login");
+      }
+      
+      req.logIn(user, (loginErr) => {
+        if (loginErr) {
+          console.error("Login error:", loginErr);
+          return res.redirect("/api/login");
+        }
+        console.log("User logged in successfully, redirecting to /");
+        return res.redirect("/");
+      });
     })(req, res, next);
   });
 
