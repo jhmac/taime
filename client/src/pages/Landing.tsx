@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 
 export default function Landing() {
   const handleLogin = () => {
-    window.location.href = '/api/auth/login';
+    window.location.href = '/api/login';
   };
 
   return (
