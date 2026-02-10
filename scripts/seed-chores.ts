@@ -1,5 +1,5 @@
-import { db } from "./server/db";
-import { users, tasks, roles } from "./shared/schema";
+import { db } from "../server/db";
+import { users, tasks, roles } from "../shared/schema";
 import { eq } from "drizzle-orm";
 
 async function run() {
