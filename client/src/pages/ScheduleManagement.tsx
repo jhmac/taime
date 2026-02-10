@@ -130,16 +130,8 @@ export default function ScheduleManagement() {
   }
 
   return (
-    <div className="min-h-screen bg-background p-4">
-      <div className="space-y-4 max-w-sm mx-auto">
-        {/* Header */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Schedule Management</CardTitle>
-            <p className="text-sm text-muted-foreground">Create and manage team schedules</p>
-          </CardHeader>
-        </Card>
-        
+    <div className="min-h-screen bg-background p-4 md:p-6">
+      <div className="space-y-4">
         {/* Controls */}
         <Card>
           <CardContent className="p-4">

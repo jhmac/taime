@@ -60,8 +60,8 @@ export default function Operations() {
 
   if (!canAccessOperations) {
     return (
-      <div className="min-h-screen bg-background p-4">
-        <div className="space-y-4 max-w-sm mx-auto">
+      <div className="min-h-screen bg-background p-4 md:p-6">
+        <div className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">Access Denied</CardTitle>
@@ -79,13 +79,7 @@ export default function Operations() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="bg-primary text-primary-foreground p-4">
-        <h1 className="text-xl font-bold">Operations Hub</h1>
-        <p className="text-sm opacity-80">Time tracking & scheduling</p>
-      </header>
-
-      <div className="p-4 space-y-4">
+      <div className="p-4 md:p-6 space-y-4">
         {/* Time Clock */}
         <TimeClockWidget />
 

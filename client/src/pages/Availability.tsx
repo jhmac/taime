@@ -309,7 +309,7 @@ export default function Availability() {
 
   if (!nextPeriod) {
     return (
-      <div className="min-h-screen bg-background p-4">
+      <div className="min-h-screen bg-background p-4 md:p-6">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -326,24 +326,8 @@ export default function Availability() {
   }
 
   return (
-    <div className="min-h-screen bg-background p-4">
+    <div className="min-h-screen bg-background p-4 md:p-6">
       <div className="space-y-6">
-        {/* Header */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Clock className="h-5 w-5" />
-              Availability Calendar
-            </CardTitle>
-            <div className="flex items-center gap-2">
-              <CalendarDays className="h-4 w-4" />
-              <span className="text-sm text-muted-foreground">
-                {new Date(nextPeriod.startDate).toLocaleDateString()} - {new Date(nextPeriod.endDate).toLocaleDateString()}
-              </span>
-            </div>
-          </CardHeader>
-        </Card>
-
         {/* Week Navigation */}
         <Card>
           <CardHeader>

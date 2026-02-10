@@ -132,6 +132,11 @@
   }
 }
 
+/* Safe area for bottom navigation */
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
 /* iOS Safari specific fixes */
 @supports (-webkit-touch-callout: none) {
   .ios-safe-area {

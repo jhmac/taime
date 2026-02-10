@@ -125,12 +125,8 @@ export default function RoleManagement() {
   }
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    <div className="p-4 md:p-6 space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Role Management</h1>
-          <p className="text-muted-foreground">Manage roles and permissions for your team</p>
-        </div>
         <Dialog open={showCreateRole} onOpenChange={setShowCreateRole}>
           <DialogTrigger asChild>
             <Button data-testid="button-create-role">

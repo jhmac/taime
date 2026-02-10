@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Link } from 'wouter';
 import { useAuth } from '@/hooks/useAuth';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -49,8 +48,8 @@ export default function HR() {
 
   if (!canManageEmployees) {
     return (
-      <div className="min-h-screen bg-background p-4">
-        <div className="space-y-4 max-w-sm mx-auto">
+      <div className="min-h-screen bg-background p-4 md:p-6">
+        <div className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">Access Denied</CardTitle>
@@ -68,23 +67,7 @@ export default function HR() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="bg-primary text-primary-foreground p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold">HR Hub</h1>
-            <p className="text-sm opacity-80">Performance & payroll management</p>
-          </div>
-          <Link href="/hr/roles">
-            <Button variant="secondary" size="sm" data-testid="button-role-management">
-              <i className="fas fa-users-cog mr-2"></i>
-              Role Management
-            </Button>
-          </Link>
-        </div>
-      </header>
-
-      <div className="p-4">
+      <div className="p-4 md:p-6">
         <Tabs defaultValue="performance" className="w-full">
           <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="performance">Performance</TabsTrigger>

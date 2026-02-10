@@ -1,89 +1,62 @@
-import { useState } from 'react';
-import { useLocation } from 'wouter';
-import { useQuery } from '@tanstack/react-query';
 import { UserButton } from '@clerk/clerk-react';
-import { Button } from '@/components/ui/button';
-import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { useAuth } from '@/hooks/useAuth';
-import { cn } from '@/lib/utils';
-import type { Permission } from '@shared/schema';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { useLocation } from 'wouter';
 
-const allNavItems = [
-  { path: '/', icon: 'fas fa-home', label: 'Dashboard' },
-  { path: '/schedules', icon: 'fas fa-calendar-alt', label: 'Schedules' },
-  { path: '/availability', icon: 'fas fa-clock', label: 'Availability' },
-  { path: '/payroll', icon: 'fas fa-dollar-sign', label: 'Payroll', permission: 'admin.manage_payroll' },
-  { path: '/team', icon: 'fas fa-users', label: 'Team', permission: 'hr.manage_employees' },
-  { path: '/communication', icon: 'fas fa-comment', label: 'Communication' },
-  { path: '/hr', icon: 'fas fa-user-tie', label: 'HR', permission: 'hr.manage_employees' },
-  { path: '/operations', icon: 'fas fa-cogs', label: 'Operations', permission: 'admin.manage_all' },
-];
+const pageTitles: Record<string, string> = {
+  '/': 'Dashboard',
+  '/schedules': 'Schedules',
+  '/availability': 'Availability',
+  '/communication': 'Messages',
+  '/team': 'Team',
+  '/payroll': 'Payroll',
+  '/hr': 'HR Management',
+  '/hr/roles': 'Role Management',
+  '/operations': 'Operations',
+  '/admin': 'Admin',
+};
 
 export default function TopNavigation() {
-  const [location, navigate] = useLocation();
-  const [isOpen, setIsOpen] = useState(false);
   const { user } = useAuth();
+  const isMobile = useIsMobile();
+  const [location] = useLocation();
 
-  const { data: userPermissions = [] } = useQuery<Permission[]>({
-    queryKey: ["/api/auth/permissions"],
-    enabled: !!user,
-  });
+  const pageTitle = pageTitles[location] || 'ClockSync AI';
 
-  const navItems = allNavItems.filter(item => {
-    if (!item.permission) return true;
-    return userPermissions?.some?.(p => p.name === item.permission) || false;
-  });
-
-  const handleNavigate = (path: string) => {
-    navigate(path);
-    setIsOpen(false);
-  };
+  if (isMobile) {
+    return (
+      <header className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <div className="flex h-14 items-center justify-between px-4">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center">
+              <i className="fas fa-clock text-primary-foreground text-xs"></i>
+            </div>
+            <h1 className="text-base font-semibold">{pageTitle}</h1>
+          </div>
+          <div className="flex items-center gap-3">
+            <button className="relative p-1.5" data-testid="notifications-button">
+              <i className="fas fa-bell text-muted-foreground"></i>
+            </button>
+            {user && <UserButton afterSignOutUrl="/" />}
+          </div>
+        </div>
+      </header>
+    );
+  }
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="flex h-14 items-center justify-between px-4">
-        <div className="flex items-center gap-2">
-          <Sheet open={isOpen} onOpenChange={setIsOpen}>
-            <SheetTrigger asChild>
-              <Button variant="ghost" size="icon" data-testid="menu-button">
-                <i className="fas fa-bars"></i>
-                <span className="sr-only">Toggle menu</span>
-              </Button>
-            </SheetTrigger>
-            <SheetContent side="left" className="w-80">
-              <div className="flex flex-col space-y-4 py-4">
-                <div className="px-3 py-2">
-                  <h2 className="mb-2 px-4 text-lg font-semibold tracking-tight">
-                    ClockSync AI
-                  </h2>
-                  <div className="space-y-1">
-                    {navItems.map((item) => (
-                      <Button
-                        key={item.path}
-                        variant={location === item.path ? "secondary" : "ghost"}
-                        className={cn(
-                          "w-full justify-start",
-                          location === item.path && "bg-muted font-medium"
-                        )}
-                        onClick={() => handleNavigate(item.path)}
-                        data-testid={`nav-${item.label.toLowerCase().replace(' ', '-')}`}
-                      >
-                        <i className={`${item.icon} mr-2`}></i>
-                        {item.label}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </SheetContent>
-          </Sheet>
-          <h1 className="text-lg font-semibold">ClockSync AI</h1>
+    <header className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <div className="flex h-14 items-center justify-between px-6">
+        <div>
+          <h1 className="text-lg font-semibold">{pageTitle}</h1>
         </div>
-        
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-4">
+          <button className="relative p-2 rounded-lg hover:bg-muted transition-colors" data-testid="notifications-button">
+            <i className="fas fa-bell text-muted-foreground"></i>
+          </button>
           {user && (
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground hidden sm:inline">
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-muted-foreground">
                 {user.firstName} {user.lastName}
               </span>
               <UserButton afterSignOutUrl="/" />

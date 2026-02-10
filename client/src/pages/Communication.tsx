@@ -84,13 +84,7 @@ export default function Communication() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="bg-primary text-primary-foreground p-4">
-        <h1 className="text-xl font-bold">Communications Hub</h1>
-        <p className="text-sm opacity-80">Team chat & announcements</p>
-      </header>
-
-      <div className="p-4">
+      <div className="p-4 md:p-6">
         <Tabs defaultValue="feed" className="w-full">
           <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="feed">Team Feed</TabsTrigger>

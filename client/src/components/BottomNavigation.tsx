@@ -1,40 +1,51 @@
 import { useLocation } from 'wouter';
+import { useAuth } from '@/hooks/useAuth';
 import { cn } from '@/lib/utils';
 
-const navItems = [
-  { path: '/', icon: 'fas fa-home', label: 'Dashboard' },
-  { path: '/schedules', icon: 'fas fa-calendar-alt', label: 'Schedules' },
-  { path: '/availability', icon: 'fas fa-clock', label: 'Available' },
-  { path: '/payroll', icon: 'fas fa-dollar-sign', label: 'Payroll' },
+const employeeNavItems = [
+  { path: '/', icon: 'fas fa-home', label: 'Home' },
+  { path: '/schedules', icon: 'fas fa-calendar-alt', label: 'Schedule' },
+  { path: '/availability', icon: 'fas fa-clock', label: 'Hours' },
+  { path: '/communication', icon: 'fas fa-comments', label: 'Chat' },
+];
+
+const adminNavItems = [
+  { path: '/', icon: 'fas fa-tachometer-alt', label: 'Dashboard' },
+  { path: '/schedules', icon: 'fas fa-calendar-alt', label: 'Schedule' },
   { path: '/team', icon: 'fas fa-users', label: 'Team' },
-  { path: '/communication', icon: 'fas fa-comment', label: 'Chat' },
+  { path: '/communication', icon: 'fas fa-comments', label: 'Chat' },
+  { path: '/payroll', icon: 'fas fa-dollar-sign', label: 'Payroll' },
 ];
 
 export default function BottomNavigation() {
   const [location, navigate] = useLocation();
+  const { user } = useAuth();
+
+  const isAdmin = user?.role?.name === 'admin' || user?.role?.name === 'owner';
+  const navItems = isAdmin ? adminNavItems : employeeNavItems;
 
   return (
-    <nav className="absolute bottom-0 left-0 right-0 bg-card border-t border-border" data-testid="bottom-navigation">
-      <div className="flex items-center justify-around py-2">
-        {navItems.map((item) => (
-          <button
-            key={item.path}
-            onClick={() => navigate(item.path)}
-            className={cn(
-              "flex flex-col items-center py-2 px-3 transition-colors",
-              location === item.path
-                ? "text-primary"
-                : "text-muted-foreground hover:text-primary"
-            )}
-            data-testid={`nav-${item.label.toLowerCase()}`}
-          >
-            <i className={`${item.icon} text-lg`}></i>
-            <span className="text-xs mt-1">{item.label}</span>
-            {item.label === 'More' && (
-              <span className="absolute -top-1 -right-1 bg-destructive w-2 h-2 rounded-full"></span>
-            )}
-          </button>
-        ))}
+    <nav className="fixed bottom-0 left-0 right-0 bg-background border-t border-border z-50 safe-area-bottom" data-testid="bottom-navigation">
+      <div className="flex items-center justify-around py-1">
+        {navItems.map((item) => {
+          const isActive = location === item.path;
+          return (
+            <button
+              key={item.path}
+              onClick={() => navigate(item.path)}
+              className={cn(
+                "flex flex-col items-center py-2 px-3 transition-colors min-w-0 flex-1",
+                isActive
+                  ? "text-primary"
+                  : "text-muted-foreground"
+              )}
+              data-testid={`nav-${item.label.toLowerCase()}`}
+            >
+              <i className={cn(item.icon, "text-lg")}></i>
+              <span className="text-[10px] mt-0.5 truncate">{item.label}</span>
+            </button>
+          );
+        })}
       </div>
     </nav>
   );

@@ -202,8 +202,8 @@ export default function PayPeriodManagement() {
 
   if (!canManagePayroll) {
     return (
-      <div className="min-h-screen bg-background p-4">
-        <div className="space-y-4 max-w-sm mx-auto">
+      <div className="min-h-screen bg-background p-4 md:p-6">
+        <div className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">Access Denied</CardTitle>
@@ -220,16 +220,8 @@ export default function PayPeriodManagement() {
   }
 
   return (
-    <div className="min-h-screen bg-background p-4">
-      <div className="space-y-4 max-w-sm mx-auto">
-        {/* Header */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Pay Period Management</CardTitle>
-            <p className="text-sm text-muted-foreground">Automated scheduling and payroll workflow</p>
-          </CardHeader>
-        </Card>
-
+    <div className="min-h-screen bg-background p-4 md:p-6">
+      <div className="space-y-4">
         {/* Automation Settings */}
         <Card>
           <CardHeader>
