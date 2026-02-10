@@ -22,6 +22,7 @@ import {
   insertRolePermissionSchema,
   choreAssignmentSchema,
   choreSignOffSchema,
+  insertCompanySettingsSchema,
 } from "@shared/schema";
 import { z } from "zod";
 
@@ -720,6 +721,87 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Work location update/delete
+  app.put('/api/work-locations/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canManageLocations = userPermissions.some(p => p.name === 'admin.manage_locations' || p.name === 'admin.manage_all');
+      if (!canManageLocations) {
+        return res.status(403).json({ message: "Location management access required" });
+      }
+      const updated = await storage.updateWorkLocation(req.params.id, req.body);
+      await storage.createActivityLog({ userId, action: 'update', targetType: 'work_location', targetId: req.params.id, details: `Updated work location: ${updated.name}` });
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating work location:", error);
+      res.status(400).json({ message: (error as Error).message });
+    }
+  });
+
+  app.delete('/api/work-locations/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canManageLocations = userPermissions.some(p => p.name === 'admin.manage_locations' || p.name === 'admin.manage_all');
+      if (!canManageLocations) {
+        return res.status(403).json({ message: "Location management access required" });
+      }
+      await storage.deleteWorkLocation(req.params.id);
+      await storage.createActivityLog({ userId, action: 'delete', targetType: 'work_location', targetId: req.params.id, details: 'Deleted work location' });
+      res.json({ message: "Location deleted" });
+    } catch (error) {
+      console.error("Error deleting work location:", error);
+      res.status(400).json({ message: (error as Error).message });
+    }
+  });
+
+  // Company settings routes
+  app.get('/api/company-settings', isAuthenticated, async (req: any, res) => {
+    try {
+      const settings = await storage.getCompanySettings();
+      res.json(settings || { companyName: 'My Company', timezone: 'America/New_York', businessStartHour: 8, businessEndHour: 17, overtimeThresholdHours: 40, overtimeMultiplier: '1.50', geofenceEnforcement: false, breakDurationMinutes: 30, autoClockOutMinutes: 480 });
+    } catch (error) {
+      console.error("Error fetching company settings:", error);
+      res.status(500).json({ message: "Failed to fetch company settings" });
+    }
+  });
+
+  app.put('/api/company-settings', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canManage = userPermissions.some(p => p.name === 'admin.manage_all');
+      if (!canManage) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+      const settings = await storage.updateCompanySettings({ ...req.body, updatedBy: userId });
+      await storage.createActivityLog({ userId, action: 'update', targetType: 'company_settings', details: 'Updated company settings' });
+      res.json(settings);
+    } catch (error) {
+      console.error("Error updating company settings:", error);
+      res.status(400).json({ message: (error as Error).message });
+    }
+  });
+
+  // Activity logs routes
+  app.get('/api/activity-logs', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canView = userPermissions.some(p => p.name === 'admin.manage_all');
+      if (!canView) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+      const limit = parseInt(req.query.limit as string) || 50;
+      const logs = await storage.getActivityLogs(limit);
+      res.json(logs);
+    } catch (error) {
+      console.error("Error fetching activity logs:", error);
+      res.status(500).json({ message: "Failed to fetch activity logs" });
+    }
+  });
+
   // Push notification routes
   app.post('/api/push/subscribe', isAuthenticated, async (req: any, res) => {
     try {
@@ -990,6 +1072,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching permissions:", error);
       res.status(500).json({ message: "Failed to fetch permissions" });
+    }
+  });
+
+  app.get('/api/roles/all-permissions', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canManageRoles = userPermissions.some(p => p.name === 'admin.role_management' || p.name === 'admin.manage_all');
+      
+      if (!canManageRoles) {
+        return res.status(403).json({ message: "Permission denied: Role management access required" });
+      }
+      
+      const allRoles = await storage.getRoles();
+      const result: Record<string, string[]> = {};
+      for (const role of allRoles) {
+        const perms = await storage.getRolePermissions(role.id);
+        result[role.id] = perms.map(p => p.id);
+      }
+      res.json(result);
+    } catch (error) {
+      console.error("Error fetching all role permissions:", error);
+      res.status(500).json({ message: "Failed to fetch all role permissions" });
     }
   });
 

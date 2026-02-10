@@ -34,10 +34,17 @@ Preferred communication style: Simple, everyday language.
 - **Role-based Access**: Admin, Owner, and Employee roles with granular permissions
 - **Token Flow**: Frontend sends Clerk JWT Bearer tokens; backend verifies via Clerk middleware
 
+### Admin & Management Pages
+- **Admin Settings Hub** (`/admin`): Company profile config (name, timezone, business hours, overtime rules, geofence settings), work locations management (CRUD with geofencing radius), activity logging for admin actions, quick-link cards to Team/Roles/Payroll
+- **Team Management** (`/team`): Searchable/filterable member table with role/status filters, profile slide-out panel (Sheet), inline role and pay rate editing, add member dialog, deactivate/remove with confirmation dialogs
+- **Role Management** (`/hr/roles`): Visual permission matrix (roles as columns, permissions as rows grouped by category), role templates/presets (Basic Employee, Shift Lead, Manager, Full Admin), create role with clone-from-existing option
+- **HR Dashboard** (`/hr`): Real computed metrics from API data (attendance rate, task completion, punctuality), dynamic week date range, recent activity from time entries
+- **Permission System**: 7 categories (Time & Attendance, Scheduling, HR & People, Administration, Communication, Payroll, AI Features), `admin.manage_all` acts as superuser fallback for all permission checks
+
 ### Database Design
 - **Primary Database**: PostgreSQL with Neon serverless driver
 - **Schema Management**: Drizzle Kit for migrations and schema evolution
-- **Key Entities**: Users, TimeEntries, Schedules, Tasks, Messages, WorkLocations, PayrollPeriods, AIInsights
+- **Key Entities**: Users, TimeEntries, Schedules, Tasks, Messages, WorkLocations, PayrollPeriods, AIInsights, CompanySettings, ActivityLogs
 - **Session Storage**: Dedicated sessions table for authentication persistence
 
 ### AI Integration

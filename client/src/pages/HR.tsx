@@ -6,8 +6,9 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
 import PayrollModal from '@/components/PayrollModal';
-import type { Permission } from '@shared/schema';
+import type { Permission, TimeEntry, Task, Schedule } from '@shared/schema';
 
 export default function HR() {
   const { user } = useAuth();
@@ -22,20 +23,38 @@ export default function HR() {
   // Check permissions
   const canManageEmployees = userPermissions?.some?.(p => p.name === 'hr.manage_employees' || p.name === 'admin.manage_all') || false;
 
-  const { data: timeEntries, isLoading: timeEntriesLoading } = useQuery({
+  // Fetch time entries
+  const { data: timeEntries = [], isLoading: timeEntriesLoading } = useQuery<TimeEntry[]>({
     queryKey: ['/api/time-entries'],
   });
 
+  // Fetch tasks
+  const { data: tasks = [], isLoading: tasksLoading } = useQuery<Task[]>({
+    queryKey: ['/api/tasks'],
+  });
+
+  // Fetch schedules
+  const { data: schedules = [], isLoading: schedulesLoading } = useQuery<Schedule[]>({
+    queryKey: ['/api/schedules'],
+  });
+
+  // Calculate week start and end dates
   const today = new Date();
   const startOfWeek = new Date(today);
   startOfWeek.setDate(today.getDate() - today.getDay());
+  
+  const endOfWeek = new Date(startOfWeek);
+  endOfWeek.setDate(startOfWeek.getDate() + 6);
+  endOfWeek.setHours(23, 59, 59, 999);
 
-  const thisWeekEntries = timeEntries?.filter((entry: any) => {
+  // Get this week's entries
+  const thisWeekEntries = timeEntries?.filter((entry: TimeEntry) => {
     const entryDate = new Date(entry.clockInTime);
-    return entryDate >= startOfWeek;
+    return entryDate >= startOfWeek && entryDate <= endOfWeek;
   }) || [];
 
-  const totalHoursThisWeek = thisWeekEntries.reduce((total: number, entry: any) => {
+  // Calculate total hours this week
+  const totalHoursThisWeek = thisWeekEntries.reduce((total: number, entry: TimeEntry) => {
     if (entry.clockOutTime) {
       const clockIn = new Date(entry.clockInTime);
       const clockOut = new Date(entry.clockOutTime);
@@ -45,6 +64,70 @@ export default function HR() {
     }
     return total;
   }, 0);
+
+  // Calculate attendance rate
+  const userSchedulesThisWeek = schedules.filter((schedule: Schedule) => {
+    if (schedule.userId !== user?.id) return false;
+    const scheduleDate = new Date(schedule.startTime);
+    return scheduleDate >= startOfWeek && scheduleDate <= endOfWeek;
+  });
+
+  const daysWithClockIn = new Set(
+    thisWeekEntries.map((entry: TimeEntry) => {
+      const date = new Date(entry.clockInTime);
+      return date.toDateString();
+    })
+  ).size;
+
+  const attendanceRate = userSchedulesThisWeek.length > 0
+    ? (daysWithClockIn / userSchedulesThisWeek.length) * 100
+    : totalHoursThisWeek > 0 ? 100 : 0;
+
+  // Calculate task completion rate
+  const userTasks = tasks.filter((task: Task) => task.assignedTo === user?.id) || [];
+  const completedTasks = userTasks.filter((task: Task) => task.status === 'completed').length;
+  const taskCompletionRate = userTasks.length > 0
+    ? (completedTasks / userTasks.length) * 100
+    : 0;
+
+  // Calculate punctuality score (based on clock-in times)
+  let punctualityScore = 0;
+  if (thisWeekEntries.length > 0) {
+    const onTimeCount = thisWeekEntries.filter((entry: TimeEntry) => {
+      const clockInTime = new Date(entry.clockInTime);
+      // Assume 8 AM is on-time
+      return clockInTime.getHours() <= 8 || (clockInTime.getHours() === 8 && clockInTime.getMinutes() <= 30);
+    }).length;
+    punctualityScore = (onTimeCount / thisWeekEntries.length) * 100;
+  }
+
+  // Calculate performance score (average of attendance, task completion, and punctuality)
+  const performanceScore = thisWeekEntries.length > 0 || userTasks.length > 0
+    ? ((attendanceRate + taskCompletionRate + punctualityScore) / 3) / 20
+    : 0;
+
+  // Format week range
+  const formatWeekRange = () => {
+    const startMonth = startOfWeek.toLocaleString('en-US', { month: 'short' });
+    const startDay = startOfWeek.getDate();
+    const endMonth = endOfWeek.toLocaleString('en-US', { month: 'short' });
+    const endDay = endOfWeek.getDate();
+    const year = startOfWeek.getFullYear();
+    
+    if (startMonth === endMonth) {
+      return `Week of ${startMonth} ${startDay}-${endDay}, ${year}`;
+    }
+    return `Week of ${startMonth} ${startDay} - ${endMonth} ${endDay}, ${year}`;
+  };
+
+  // Get latest 5 time entries for Recent Activity
+  const recentActivity = [...thisWeekEntries]
+    .sort((a: TimeEntry, b: TimeEntry) => {
+      const dateA = new Date(a.clockInTime);
+      const dateB = new Date(b.clockInTime);
+      return dateB.getTime() - dateA.getTime();
+    })
+    .slice(0, 5);
 
   if (!canManageEmployees) {
     return (
@@ -87,11 +170,25 @@ export default function HR() {
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="text-center">
-                    <p className="text-2xl font-bold text-green-600">95%</p>
+                    {timeEntriesLoading || schedulesLoading ? (
+                      <Skeleton className="h-8 w-20 mx-auto mb-1" />
+                    ) : (
+                      <p className="text-2xl font-bold text-green-600">
+                        {userSchedulesThisWeek.length === 0 && totalHoursThisWeek === 0
+                          ? "No Data"
+                          : `${Math.round(attendanceRate)}%`}
+                      </p>
+                    )}
                     <p className="text-xs text-muted-foreground">Attendance Rate</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-2xl font-bold text-blue-600">4.8</p>
+                    {timeEntriesLoading || tasksLoading || schedulesLoading ? (
+                      <Skeleton className="h-8 w-20 mx-auto mb-1" />
+                    ) : (
+                      <p className="text-2xl font-bold text-blue-600">
+                        {(performanceScore).toFixed(1)}
+                      </p>
+                    )}
                     <p className="text-xs text-muted-foreground">Performance Score</p>
                   </div>
                 </div>
@@ -100,58 +197,103 @@ export default function HR() {
                   <div>
                     <div className="flex justify-between text-sm mb-1">
                       <span>Task Completion Rate</span>
-                      <span>92%</span>
+                      {tasksLoading ? (
+                        <Skeleton className="h-4 w-12" />
+                      ) : (
+                        <span>{userTasks.length === 0 ? "No tasks" : `${Math.round(taskCompletionRate)}%`}</span>
+                      )}
                     </div>
-                    <Progress value={92} className="h-2" />
+                    <Progress value={userTasks.length === 0 ? 0 : taskCompletionRate} className="h-2" />
                   </div>
                   
                   <div>
                     <div className="flex justify-between text-sm mb-1">
                       <span>Punctuality Score</span>
-                      <span>88%</span>
+                      {timeEntriesLoading ? (
+                        <Skeleton className="h-4 w-12" />
+                      ) : (
+                        <span>{thisWeekEntries.length === 0 ? "N/A" : `${Math.round(punctualityScore)}%`}</span>
+                      )}
                     </div>
-                    <Progress value={88} className="h-2" />
+                    <Progress value={thisWeekEntries.length === 0 ? 0 : punctualityScore} className="h-2" />
                   </div>
                   
                   <div>
                     <div className="flex justify-between text-sm mb-1">
-                      <span>Team Collaboration</span>
-                      <span>96%</span>
+                      <span>Total Hours This Week</span>
+                      {timeEntriesLoading ? (
+                        <Skeleton className="h-4 w-12" />
+                      ) : (
+                        <span>{totalHoursThisWeek.toFixed(1)}h</span>
+                      )}
                     </div>
-                    <Progress value={96} className="h-2" />
+                    <Progress value={Math.min((totalHoursThisWeek / 40) * 100, 100)} className="h-2" />
                   </div>
                 </div>
               </CardContent>
             </Card>
 
-            {/* Recent Achievements */}
+            {/* Recent Activity */}
             <Card>
               <CardHeader>
                 <CardTitle className="text-base flex items-center">
-                  <i className="fas fa-trophy text-primary mr-2"></i>
-                  Recent Achievements
+                  <i className="fas fa-history text-primary mr-2"></i>
+                  Recent Activity
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-3">
-                  <div className="flex items-center space-x-3 p-3 bg-green-50 rounded-lg border border-green-200">
-                    <i className="fas fa-medal text-green-600"></i>
-                    <div className="flex-1">
-                      <p className="font-medium text-sm text-green-800">Perfect Week</p>
-                      <p className="text-xs text-green-700">Completed all tasks on time this week</p>
-                    </div>
-                    <Badge className="bg-green-100 text-green-800">+10 pts</Badge>
+                {timeEntriesLoading ? (
+                  <div className="space-y-3">
+                    {[...Array(3)].map((_, i) => (
+                      <div key={i} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                        <Skeleton className="h-12 w-32" />
+                        <Skeleton className="h-6 w-20" />
+                      </div>
+                    ))}
                   </div>
-                  
-                  <div className="flex items-center space-x-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
-                    <i className="fas fa-clock text-blue-600"></i>
-                    <div className="flex-1">
-                      <p className="font-medium text-sm text-blue-800">Early Bird</p>
-                      <p className="text-xs text-blue-700">Clocked in early 5 days in a row</p>
-                    </div>
-                    <Badge className="bg-blue-100 text-blue-800">+5 pts</Badge>
+                ) : recentActivity.length === 0 ? (
+                  <div className="text-center py-4">
+                    <i className="fas fa-inbox text-muted-foreground text-xl mb-2"></i>
+                    <p className="text-muted-foreground text-sm">No activity this week</p>
                   </div>
-                </div>
+                ) : (
+                  <div className="space-y-3">
+                    {recentActivity.map((entry: TimeEntry) => (
+                      <div key={entry.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                        <div>
+                          <p className="font-medium text-sm">
+                            {new Date(entry.clockInTime).toLocaleDateString('en-US', {
+                              weekday: 'short',
+                              month: 'short',
+                              day: 'numeric',
+                            })}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {new Date(entry.clockInTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}
+                            {entry.clockOutTime && (
+                              <> - {new Date(entry.clockOutTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}</>
+                            )}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          {entry.clockOutTime ? (
+                            <p className="font-medium text-sm">
+                              {(() => {
+                                const clockIn = new Date(entry.clockInTime);
+                                const clockOut = new Date(entry.clockOutTime);
+                                const hours = (clockOut.getTime() - clockIn.getTime()) / (1000 * 60 * 60);
+                                const breakHours = (entry.breakMinutes || 0) / 60;
+                                return `${(hours - breakHours).toFixed(1)}h`;
+                              })()}
+                            </p>
+                          ) : (
+                            <Badge className="bg-green-100 text-green-800">Active</Badge>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -168,7 +310,7 @@ export default function HR() {
               <CardContent>
                 <div className="space-y-4">
                   <div className="flex justify-between items-center">
-                    <span className="text-sm text-muted-foreground">Week of Jan 20-24, 2025</span>
+                    <span className="text-sm text-muted-foreground">{formatWeekRange()}</span>
                     <Badge variant={totalHoursThisWeek > 40 ? "destructive" : "default"}>
                       {totalHoursThisWeek.toFixed(1)} hours
                     </Badge>
@@ -405,7 +547,7 @@ export default function HR() {
               <CardContent className="space-y-4">
                 <div className="bg-muted/50 rounded-lg p-4">
                   <div className="flex justify-between items-center mb-2">
-                    <span className="text-sm font-medium">Week of Jan 20-24, 2025</span>
+                    <span className="text-sm font-medium">{formatWeekRange()}</span>
                     <Badge>{totalHoursThisWeek.toFixed(1)} hours</Badge>
                   </div>
                   

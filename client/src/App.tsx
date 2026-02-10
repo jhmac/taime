@@ -21,6 +21,7 @@ import Availability from "@/pages/Availability";
 import PayPeriodManagement from "@/pages/PayPeriodManagement";
 import PayrollSetupModal from "@/components/PayrollSetupModal";
 import { usePayrollSetup } from "@/hooks/usePayrollSetup";
+import AdminSettings from "@/pages/AdminSettings";
 import NotFound from "@/pages/not-found";
 
 function AuthenticatedApp() {
@@ -76,7 +77,7 @@ function AuthenticatedApp() {
       </Route>
       <Route path="/admin">
         <PermissionGuard permission="admin.manage_all">
-          <AdminDashboard />
+          <AdminSettings />
         </PermissionGuard>
       </Route>
       <Route component={NotFound} />

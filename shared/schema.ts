@@ -272,6 +272,34 @@ export const aiInsights = pgTable("ai_insights", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Company settings (singleton)
+export const companySettings = pgTable("company_settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyName: varchar("company_name").default("My Company"),
+  timezone: varchar("timezone").default("America/New_York"),
+  businessStartHour: integer("business_start_hour").default(8),
+  businessEndHour: integer("business_end_hour").default(17),
+  overtimeThresholdHours: integer("overtime_threshold_hours").default(40),
+  overtimeMultiplier: decimal("overtime_multiplier", { precision: 3, scale: 2 }).default("1.50"),
+  geofenceEnforcement: boolean("geofence_enforcement").default(false),
+  breakDurationMinutes: integer("break_duration_minutes").default(30),
+  autoClockOutMinutes: integer("auto_clock_out_minutes").default(480),
+  updatedBy: varchar("updated_by").references(() => users.id),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Activity log for admin actions
+export const activityLogs = pgTable("activity_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  action: varchar("action").notNull(),
+  targetType: varchar("target_type").notNull(),
+  targetId: varchar("target_id"),
+  details: text("details"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Push notification subscriptions
 export const pushSubscriptions = pgTable("push_subscriptions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -511,6 +539,16 @@ export const insertPushSubscriptionSchema = createInsertSchema(pushSubscriptions
   createdAt: true,
 });
 
+export const insertCompanySettingsSchema = createInsertSchema(companySettings).omit({
+  id: true,
+  updatedAt: true,
+});
+
+export const insertActivityLogSchema = createInsertSchema(activityLogs).omit({
+  id: true,
+  createdAt: true,
+});
+
 // Chore assignment schema
 export const choreAssignmentSchema = z.object({
   choreId: z.string(),
@@ -561,6 +599,10 @@ export type RolePermission = typeof rolePermissions.$inferSelect;
 export type InsertRolePermission = z.infer<typeof insertRolePermissionSchema>;
 export type ChoreAssignment = z.infer<typeof choreAssignmentSchema>;
 export type ChoreSignOff = z.infer<typeof choreSignOffSchema>;
+export type CompanySettings = typeof companySettings.$inferSelect;
+export type InsertCompanySettings = z.infer<typeof insertCompanySettingsSchema>;
+export type ActivityLog = typeof activityLogs.$inferSelect;
+export type InsertActivityLog = z.infer<typeof insertActivityLogSchema>;
 
 // Extended user type with role information
 export type UserWithRole = User & {

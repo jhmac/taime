@@ -1,307 +1,599 @@
-import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
-import { Button } from "@/components/ui/button";
+import { useState, useMemo } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { useIsMobile } from "@/hooks/use-mobile";
+import type { Role, Permission } from "@shared/schema";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
-import { useToast } from "@/hooks/use-toast";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
-import type { Role, Permission } from "@shared/schema";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  Clock,
+  Calendar,
+  Users,
+  Shield,
+  MessageSquare,
+  DollarSign,
+  Sparkles,
+  Plus,
+  Loader2,
+  AlertCircle,
+  Copy,
+  Zap,
+} from "lucide-react";
+
+const CATEGORY_META: Record<string, { label: string; icon: typeof Clock }> = {
+  time_tracking: { label: "Time & Attendance", icon: Clock },
+  scheduling: { label: "Scheduling", icon: Calendar },
+  hr: { label: "HR & People", icon: Users },
+  admin: { label: "Administration", icon: Shield },
+  communication: { label: "Communication", icon: MessageSquare },
+  payroll: { label: "Payroll", icon: DollarSign },
+  ai: { label: "AI Features", icon: Sparkles },
+};
+
+const ROLE_PRESETS: Record<string, { label: string; description: string; categories: Record<string, boolean> }> = {
+  basic_employee: {
+    label: "Basic Employee",
+    description: "View own schedule, clock in/out, basic communication",
+    categories: { time_tracking: true },
+  },
+  shift_lead: {
+    label: "Shift Lead",
+    description: "Employee permissions plus team scheduling and basic HR views",
+    categories: { time_tracking: true, scheduling: true, communication: true },
+  },
+  manager: {
+    label: "Manager",
+    description: "Full scheduling, HR management, payroll views, and team communication",
+    categories: { time_tracking: true, scheduling: true, hr: true, communication: true, payroll: true },
+  },
+  full_admin: {
+    label: "Full Admin",
+    description: "All permissions across every category",
+    categories: { time_tracking: true, scheduling: true, hr: true, admin: true, communication: true, payroll: true, ai: true },
+  },
+};
 
 export default function RoleManagement() {
   const { toast } = useToast();
-  const queryClient = useQueryClient();
-  const [selectedRole, setSelectedRole] = useState<Role | null>(null);
-  const [showCreateRole, setShowCreateRole] = useState(false);
-  const [showPermissions, setShowPermissions] = useState(false);
+  const isMobile = useIsMobile();
 
-  // Fetch roles
-  const { data: roles = [], isLoading: rolesLoading } = useQuery<Role[]>({
+  const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [showPresetDialog, setShowPresetDialog] = useState(false);
+  const [pendingPreset, setPendingPreset] = useState<string | null>(null);
+  const [cloneFromRoleId, setCloneFromRoleId] = useState<string>("none");
+  const [pendingCells, setPendingCells] = useState<Set<string>>(new Set());
+  const [mobileSelectedRole, setMobileSelectedRole] = useState<string | null>(null);
+
+  const { data: roles = [], isLoading: rolesLoading, error: rolesError } = useQuery<Role[]>({
     queryKey: ["/api/roles"],
   });
 
-  // Fetch permissions grouped by category
-  const { data: permissionsByCategory = {}, isLoading: permissionsLoading } = useQuery<Record<string, Permission[]>>({
+  const { data: permissionsByCategory = {}, isLoading: permissionsLoading, error: permissionsError } = useQuery<Record<string, Permission[]>>({
     queryKey: ["/api/permissions"],
   });
 
-  // Fetch role permissions when a role is selected
-  const { data: rolePermissions = [], refetch: refetchRolePermissions } = useQuery<Permission[]>({
-    queryKey: ["/api/roles", selectedRole?.id, "permissions"],
-    enabled: !!selectedRole?.id,
+  const allRolePermissions = useQuery<Record<string, string[]>>({
+    queryKey: ["/api/roles/all-permissions"],
+    enabled: roles.length > 0,
   });
 
-  // Create role mutation
+  const rolePermsMap = allRolePermissions.data ?? {};
+
+  const allPermissions = useMemo(() => {
+    const result: { category: string; permissions: Permission[] }[] = [];
+    for (const [category, perms] of Object.entries(permissionsByCategory)) {
+      result.push({ category, permissions: perms });
+    }
+    return result;
+  }, [permissionsByCategory]);
+
+  const totalPermissionCount = useMemo(() => {
+    let count = 0;
+    for (const perms of Object.values(permissionsByCategory)) {
+      count += perms.length;
+    }
+    return count;
+  }, [permissionsByCategory]);
+
+  const getRolePermissionCount = (roleId: string) => {
+    return rolePermsMap[roleId]?.length ?? 0;
+  };
+
+  const selectedRole = roles.find((r) => r.id === selectedRoleId) ?? null;
+
   const createRoleMutation = useMutation({
-    mutationFn: async (roleData: { name: string; displayName: string; description: string }) => {
-      const response = await apiRequest("POST", "/api/roles", roleData);
-      return response.json();
+    mutationFn: async (roleData: { name: string; displayName: string; description: string; cloneFromRoleId?: string }) => {
+      const { cloneFromRoleId: cloneId, ...data } = roleData;
+      const response = await apiRequest("POST", "/api/roles", data);
+      const newRole = await response.json();
+      if (cloneId && cloneId !== "none" && rolePermsMap[cloneId]) {
+        await apiRequest("PUT", `/api/roles/${newRole.id}/permissions`, {
+          permissionIds: rolePermsMap[cloneId],
+        });
+      }
+      return newRole;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/roles"] });
-      setShowCreateRole(false);
-      toast({
-        title: "Success",
-        description: "Role created successfully",
-      });
+      queryClient.invalidateQueries({ queryKey: ["/api/roles/all-permissions"] });
+      setShowCreateDialog(false);
+      setCloneFromRoleId("none");
+      toast({ title: "Role created", description: "New role has been created successfully." });
     },
     onError: (error) => {
-      toast({
-        title: "Error",
-        description: `Failed to create role: ${error.message}`,
-        variant: "destructive",
-      });
+      toast({ title: "Error", description: `Failed to create role: ${error.message}`, variant: "destructive" });
     },
   });
 
-  // Update role permissions mutation
   const updatePermissionsMutation = useMutation({
     mutationFn: async ({ roleId, permissionIds }: { roleId: string; permissionIds: string[] }) => {
       const response = await apiRequest("PUT", `/api/roles/${roleId}/permissions`, { permissionIds });
       return response.json();
     },
-    onSuccess: () => {
-      refetchRolePermissions();
-      toast({
-        title: "Success",
-        description: "Permissions updated successfully",
-      });
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/roles/all-permissions"] });
+      setPendingCells(new Set());
     },
     onError: (error) => {
-      toast({
-        title: "Error",
-        description: `Failed to update permissions: ${error.message}`,
-        variant: "destructive",
-      });
+      setPendingCells(new Set());
+      toast({ title: "Error", description: `Failed to update permissions: ${error.message}`, variant: "destructive" });
     },
   });
+
+  const handleTogglePermission = (roleId: string, permissionId: string) => {
+    const current = rolePermsMap[roleId] ?? [];
+    const has = current.includes(permissionId);
+    const newIds = has ? current.filter((id) => id !== permissionId) : [...current, permissionId];
+
+    const cellKey = `${roleId}-${permissionId}`;
+    setPendingCells((prev) => new Set(prev).add(cellKey));
+
+    updatePermissionsMutation.mutate({ roleId, permissionIds: newIds });
+  };
+
+  const handleApplyPreset = () => {
+    if (!pendingPreset || !selectedRoleId) return;
+    const preset = ROLE_PRESETS[pendingPreset];
+    if (!preset) return;
+
+    const newPermissionIds: string[] = [];
+    for (const [category, perms] of Object.entries(permissionsByCategory)) {
+      if (preset.categories[category]) {
+        newPermissionIds.push(...perms.map((p) => p.id));
+      }
+    }
+
+    updatePermissionsMutation.mutate(
+      { roleId: selectedRoleId, permissionIds: newPermissionIds },
+      {
+        onSuccess: () => {
+          toast({ title: "Preset applied", description: `"${preset.label}" permissions have been applied.` });
+          setShowPresetDialog(false);
+          setPendingPreset(null);
+        },
+      }
+    );
+  };
 
   const handleCreateRole = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
-    const roleData = {
+    createRoleMutation.mutate({
       name: formData.get("name") as string,
       displayName: formData.get("displayName") as string,
       description: formData.get("description") as string,
-    };
-    createRoleMutation.mutate(roleData);
-  };
-
-  const handlePermissionChange = (permissionId: string, checked: boolean) => {
-    if (!selectedRole) return;
-    
-    const currentPermissionIds = rolePermissions.map(p => p.id);
-    const newPermissionIds = checked 
-      ? [...currentPermissionIds, permissionId]
-      : currentPermissionIds.filter(id => id !== permissionId);
-    
-    updatePermissionsMutation.mutate({
-      roleId: selectedRole.id,
-      permissionIds: newPermissionIds,
+      cloneFromRoleId: cloneFromRoleId,
     });
   };
 
-  const getRolePermissionCount = (role: Role) => {
-    // This would ideally come from the API, but for now we'll estimate
-    if (role.name === 'owner') return 'All Permissions';
-    if (role.name === 'manager') return '25 Permissions';
-    if (role.name === 'assistant_manager') return '19 Permissions';
-    if (role.name === 'team_member') return '9 Permissions';
-    return '0 Permissions';
-  };
-
-  if (rolesLoading) {
+  if (rolesLoading || permissionsLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-sm text-muted-foreground">Loading roles and permissions…</p>
+        </div>
       </div>
     );
   }
 
-  return (
-    <div className="p-4 md:p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <Dialog open={showCreateRole} onOpenChange={setShowCreateRole}>
-          <DialogTrigger asChild>
-            <Button data-testid="button-create-role">
-              <i className="fas fa-plus mr-2"></i>
-              Create Role
-            </Button>
-          </DialogTrigger>
-          <DialogContent data-testid="dialog-create-role">
-            <DialogHeader>
-              <DialogTitle>Create New Role</DialogTitle>
-            </DialogHeader>
-            <form onSubmit={handleCreateRole} className="space-y-4">
-              <div>
-                <Label htmlFor="name">Role Name</Label>
-                <Input
-                  id="name"
-                  name="name"
-                  placeholder="e.g., shift_supervisor"
-                  required
-                  data-testid="input-role-name"
-                />
-              </div>
-              <div>
-                <Label htmlFor="displayName">Display Name</Label>
-                <Input
-                  id="displayName"
-                  name="displayName"
-                  placeholder="e.g., Shift Supervisor"
-                  required
-                  data-testid="input-role-display-name"
-                />
-              </div>
-              <div>
-                <Label htmlFor="description">Description</Label>
-                <Textarea
-                  id="description"
-                  name="description"
-                  placeholder="Describe the role's responsibilities..."
-                  data-testid="textarea-role-description"
-                />
-              </div>
-              <div className="flex justify-end space-x-2">
-                <Button type="button" variant="outline" onClick={() => setShowCreateRole(false)}>
-                  Cancel
-                </Button>
-                <Button type="submit" disabled={createRoleMutation.isPending} data-testid="button-save-role">
-                  {createRoleMutation.isPending ? "Creating..." : "Create Role"}
-                </Button>
-              </div>
-            </form>
-          </DialogContent>
-        </Dialog>
+  if (rolesError || permissionsError) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="flex flex-col items-center gap-3 text-center">
+          <AlertCircle className="h-8 w-8 text-destructive" />
+          <p className="text-sm text-destructive">Failed to load data. Please try refreshing.</p>
+        </div>
       </div>
+    );
+  }
 
-      <Tabs defaultValue="roles" className="w-full">
-        <TabsList>
-          <TabsTrigger value="roles" data-testid="tab-roles">Roles</TabsTrigger>
-          <TabsTrigger value="permissions" data-testid="tab-permissions">Permissions</TabsTrigger>
-        </TabsList>
+  if (roles.length === 0) {
+    return (
+      <div className="p-4 md:p-6 flex flex-col items-center justify-center min-h-[60vh] gap-4">
+        <Shield className="h-12 w-12 text-muted-foreground" />
+        <p className="text-muted-foreground">No roles configured yet.</p>
+        <Button onClick={() => setShowCreateDialog(true)}>
+          <Plus className="h-4 w-4 mr-2" />
+          Create First Role
+        </Button>
+      </div>
+    );
+  }
 
-        <TabsContent value="roles" className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {roles.map((role) => (
-              <Card key={role.id} className="cursor-pointer hover:shadow-md transition-shadow" data-testid={`card-role-${role.name}`}>
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-lg">{role.displayName}</CardTitle>
-                    {role.isSystemRole && (
-                      <Badge variant="secondary" data-testid={`badge-system-role-${role.name}`}>System</Badge>
+  const mobileViewRole = roles.find((r) => r.id === mobileSelectedRole) ?? null;
+
+  return (
+    <TooltipProvider>
+      <div className="p-4 md:p-6 space-y-6">
+        {/* Role Cards */}
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-lg font-semibold text-muted-foreground">
+            {roles.length} Role{roles.length !== 1 ? "s" : ""}
+          </h2>
+          <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+            <DialogTrigger asChild>
+              <Button size="sm">
+                <Plus className="h-4 w-4 mr-2" />
+                Create Role
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Create New Role</DialogTitle>
+              </DialogHeader>
+              <form onSubmit={handleCreateRole} className="space-y-4">
+                <div>
+                  <Label htmlFor="name">Name (slug)</Label>
+                  <Input id="name" name="name" placeholder="e.g., shift_supervisor" required pattern="[a-z0-9_]+" title="Lowercase letters, numbers, and underscores only" />
+                </div>
+                <div>
+                  <Label htmlFor="displayName">Display Name</Label>
+                  <Input id="displayName" name="displayName" placeholder="e.g., Shift Supervisor" required />
+                </div>
+                <div>
+                  <Label htmlFor="description">Description</Label>
+                  <Textarea id="description" name="description" placeholder="Describe the role's responsibilities…" />
+                </div>
+                <div>
+                  <Label>Clone permissions from</Label>
+                  <Select value={cloneFromRoleId} onValueChange={setCloneFromRoleId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="None (start empty)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None (start empty)</SelectItem>
+                      {roles.map((r) => (
+                        <SelectItem key={r.id} value={r.id}>
+                          <span className="flex items-center gap-2">
+                            <Copy className="h-3 w-3" />
+                            {r.displayName}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setShowCreateDialog(false)}>
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={createRoleMutation.isPending}>
+                    {createRoleMutation.isPending ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Creating…
+                      </>
+                    ) : (
+                      "Create Role"
                     )}
-                  </div>
-                  <p className="text-sm text-muted-foreground">{role.description}</p>
-                </CardHeader>
-                <CardContent>
+                  </Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </div>
+
+        <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+          {roles.map((role) => {
+            const isSelected = selectedRoleId === role.id;
+            const permCount = getRolePermissionCount(role.id);
+            return (
+              <Card
+                key={role.id}
+                className={`cursor-pointer transition-all hover:shadow-md ${isSelected ? "ring-2 ring-primary shadow-md" : ""}`}
+                onClick={() => {
+                  setSelectedRoleId(isSelected ? null : role.id);
+                  if (isMobile) setMobileSelectedRole(isSelected ? null : role.id);
+                }}
+              >
+                <CardHeader className="pb-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground" data-testid={`text-permission-count-${role.name}`}>
-                      {getRolePermissionCount(role)}
-                    </span>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setSelectedRole(role);
-                        setShowPermissions(true);
-                      }}
-                      data-testid={`button-edit-permissions-${role.name}`}
-                    >
-                      Edit Permissions
-                    </Button>
+                    <CardTitle className="text-base">{role.displayName}</CardTitle>
+                    {role.isSystemRole && <Badge variant="secondary">System</Badge>}
                   </div>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <p className="text-xs text-muted-foreground line-clamp-2 mb-2">{role.description}</p>
+                  <Badge variant="outline" className="text-xs">
+                    {permCount} / {totalPermissionCount} permissions
+                  </Badge>
                 </CardContent>
               </Card>
-            ))}
-          </div>
-        </TabsContent>
+            );
+          })}
+        </div>
 
-        <TabsContent value="permissions" className="space-y-4">
-          {Object.entries(permissionsByCategory).map(([category, permissions]) => (
-            <Card key={category} data-testid={`card-category-${category}`}>
-              <CardHeader>
-                <CardTitle className="capitalize">{category.replace('_', ' ')}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid gap-3 md:grid-cols-2">
-                  {permissions.map((permission) => (
-                    <div key={permission.id} className="flex items-start space-x-3 p-2 rounded border" data-testid={`permission-${permission.name}`}>
-                      <div className="flex-1">
-                        <h4 className="font-medium">{permission.displayName}</h4>
-                        <p className="text-sm text-muted-foreground">{permission.description}</p>
-                        <code className="text-xs bg-muted px-1 py-0.5 rounded">{permission.name}</code>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </TabsContent>
-      </Tabs>
-
-      {/* Permissions Dialog */}
-      <Dialog open={showPermissions} onOpenChange={setShowPermissions}>
-        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto" data-testid="dialog-edit-permissions">
-          <DialogHeader>
-            <DialogTitle>
-              Edit Permissions: {selectedRole?.displayName}
-            </DialogTitle>
-          </DialogHeader>
-          
-          {permissionsLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
+        {/* Role Presets */}
+        {selectedRoleId && (
+          <>
+            <Separator />
+            <div>
+              <h3 className="text-sm font-medium text-muted-foreground mb-3 flex items-center gap-2">
+                <Zap className="h-4 w-4" />
+                Quick Presets for {selectedRole?.displayName}
+              </h3>
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(ROLE_PRESETS).map(([key, preset]) => (
+                  <Tooltip key={key}>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setPendingPreset(key);
+                          setShowPresetDialog(true);
+                        }}
+                      >
+                        {preset.label}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="max-w-xs">{preset.description}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                ))}
+              </div>
             </div>
-          ) : (
-            <div className="space-y-6">
-              {Object.entries(permissionsByCategory).map(([category, permissions]) => (
-                <div key={category} data-testid={`permission-category-${category}`}>
-                  <h3 className="font-semibold text-lg mb-3 capitalize">
-                    {category.replace('_', ' ')}
-                  </h3>
-                  <div className="space-y-3">
-                    {permissions.map((permission) => {
-                      const hasPermission = rolePermissions.some(rp => rp.id === permission.id);
-                      return (
-                        <div key={permission.id} className="flex items-start space-x-3 p-3 border rounded" data-testid={`checkbox-permission-${permission.name}`}>
-                          <Checkbox
-                            id={permission.id}
-                            checked={hasPermission}
-                            onCheckedChange={(checked) => handlePermissionChange(permission.id, checked as boolean)}
-                            disabled={updatePermissionsMutation.isPending}
-                          />
-                          <div className="flex-1">
-                            <Label htmlFor={permission.id} className="font-medium cursor-pointer">
-                              {permission.displayName}
-                            </Label>
-                            <p className="text-sm text-muted-foreground mt-1">
-                              {permission.description}
-                            </p>
-                            <code className="text-xs bg-muted px-1 py-0.5 rounded mt-1 inline-block">
-                              {permission.name}
-                            </code>
-                          </div>
+          </>
+        )}
+
+        {/* Preset Confirmation Dialog */}
+        <Dialog open={showPresetDialog} onOpenChange={setShowPresetDialog}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Apply Preset</DialogTitle>
+            </DialogHeader>
+            {pendingPreset && ROLE_PRESETS[pendingPreset] && (
+              <div className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  This will replace all current permissions for <strong>{selectedRole?.displayName}</strong> with the <strong>{ROLE_PRESETS[pendingPreset].label}</strong> preset.
+                </p>
+                <p className="text-sm text-muted-foreground">{ROLE_PRESETS[pendingPreset].description}</p>
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowPresetDialog(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleApplyPreset} disabled={updatePermissionsMutation.isPending}>
+                {updatePermissionsMutation.isPending ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Applying…
+                  </>
+                ) : (
+                  "Apply Preset"
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Separator />
+
+        {/* Permission Matrix */}
+        {isMobile ? (
+          <MobilePermissionView
+            roles={roles}
+            allPermissions={allPermissions}
+            rolePermsMap={rolePermsMap}
+            pendingCells={pendingCells}
+            selectedRoleId={mobileSelectedRole}
+            onSelectRole={setMobileSelectedRole}
+            onToggle={handleTogglePermission}
+          />
+        ) : (
+          <div className="border rounded-lg overflow-auto max-h-[60vh]">
+            <table className="w-full border-collapse text-sm">
+              <thead className="sticky top-0 z-10 bg-background">
+                <tr>
+                  <th className="text-left p-3 border-b border-r font-medium text-muted-foreground min-w-[250px] sticky left-0 bg-background z-20">
+                    Permission
+                  </th>
+                  {roles.map((role) => {
+                    const isActive = selectedRoleId === role.id;
+                    return (
+                      <th
+                        key={role.id}
+                        className={`p-3 border-b border-r text-center font-medium min-w-[100px] cursor-pointer transition-colors ${isActive ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted/50"}`}
+                        onClick={() => setSelectedRoleId(isActive ? null : role.id)}
+                      >
+                        <div className="flex flex-col items-center gap-1">
+                          <span className="text-xs leading-tight">{role.displayName}</span>
+                          {role.isSystemRole && <Badge variant="secondary" className="text-[10px] px-1 py-0">System</Badge>}
                         </div>
-                      );
-                    })}
-                  </div>
-                  {category !== Object.keys(permissionsByCategory).slice(-1)[0] && (
-                    <Separator className="mt-4" />
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+                      </th>
+                    );
+                  })}
+                </tr>
+              </thead>
+              <tbody>
+                {allPermissions.map(({ category, permissions }) => {
+                  const meta = CATEGORY_META[category] ?? { label: category.replace(/_/g, " "), icon: Shield };
+                  const Icon = meta.icon;
+                  return (
+                    <>
+                      <tr key={`cat-${category}`} className="bg-muted/30">
+                        <td colSpan={roles.length + 1} className="p-2 pl-3 border-b sticky left-0 bg-muted/30">
+                          <div className="flex items-center gap-2 font-semibold text-sm">
+                            <Icon className="h-4 w-4 text-muted-foreground" />
+                            {meta.label}
+                            <Badge variant="outline" className="text-[10px] ml-1">{permissions.length}</Badge>
+                          </div>
+                        </td>
+                      </tr>
+                      {permissions.map((perm, idx) => (
+                        <tr key={perm.id} className={idx % 2 === 0 ? "bg-background" : "bg-muted/10"}>
+                          <td className="p-2 pl-6 border-b border-r sticky left-0 bg-inherit" title={perm.description ?? ""}>
+                            <span className="font-medium text-foreground">{perm.displayName}</span>
+                          </td>
+                          {roles.map((role) => {
+                            const cellKey = `${role.id}-${perm.id}`;
+                            const hasPermission = (rolePermsMap[role.id] ?? []).includes(perm.id);
+                            const isPending = pendingCells.has(cellKey);
+                            const isActiveCol = selectedRoleId === role.id;
+                            return (
+                              <td
+                                key={cellKey}
+                                className={`p-2 border-b border-r text-center ${isActiveCol ? "bg-primary/5" : ""}`}
+                              >
+                                {isPending ? (
+                                  <Loader2 className="h-4 w-4 animate-spin mx-auto text-muted-foreground" />
+                                ) : (
+                                  <Checkbox
+                                    checked={hasPermission}
+                                    onCheckedChange={() => handleTogglePermission(role.id, perm.id)}
+                                    className="mx-auto"
+                                  />
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </TooltipProvider>
+  );
+}
+
+function MobilePermissionView({
+  roles,
+  allPermissions,
+  rolePermsMap,
+  pendingCells,
+  selectedRoleId,
+  onSelectRole,
+  onToggle,
+}: {
+  roles: Role[];
+  allPermissions: { category: string; permissions: Permission[] }[];
+  rolePermsMap: Record<string, string[]>;
+  pendingCells: Set<string>;
+  selectedRoleId: string | null;
+  onSelectRole: (id: string | null) => void;
+  onToggle: (roleId: string, permissionId: string) => void;
+}) {
+  const selectedRole = roles.find((r) => r.id === selectedRoleId) ?? null;
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <Label className="text-sm font-medium">Select a role to manage</Label>
+        <Select value={selectedRoleId ?? "none"} onValueChange={(v) => onSelectRole(v === "none" ? null : v)}>
+          <SelectTrigger className="mt-1">
+            <SelectValue placeholder="Choose a role…" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">Choose a role…</SelectItem>
+            {roles.map((r) => (
+              <SelectItem key={r.id} value={r.id}>
+                {r.displayName}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {selectedRole && (
+        <div className="space-y-4">
+          {allPermissions.map(({ category, permissions }) => {
+            const meta = CATEGORY_META[category] ?? { label: category.replace(/_/g, " "), icon: Shield };
+            const Icon = meta.icon;
+            return (
+              <Card key={category}>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <Icon className="h-4 w-4" />
+                    {meta.label}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {permissions.map((perm) => {
+                    const cellKey = `${selectedRole.id}-${perm.id}`;
+                    const hasPermission = (rolePermsMap[selectedRole.id] ?? []).includes(perm.id);
+                    const isPending = pendingCells.has(cellKey);
+                    return (
+                      <div key={perm.id} className="flex items-center gap-3 p-2 rounded border">
+                        {isPending ? (
+                          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground shrink-0" />
+                        ) : (
+                          <Checkbox
+                            checked={hasPermission}
+                            onCheckedChange={() => onToggle(selectedRole.id, perm.id)}
+                            className="shrink-0"
+                          />
+                        )}
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate" title={perm.description ?? ""}>
+                            {perm.displayName}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

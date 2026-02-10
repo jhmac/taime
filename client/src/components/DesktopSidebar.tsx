@@ -17,6 +17,7 @@ const allNavItems = [
   { path: '/hr', icon: 'fas fa-user-tie', label: 'HR', permission: 'hr.manage_employees' },
   { path: '/hr/roles', icon: 'fas fa-shield-alt', label: 'Roles', permission: 'admin.role_management' },
   { path: '/operations', icon: 'fas fa-cogs', label: 'Operations', permission: 'admin.manage_all' },
+  { path: '/admin', icon: 'fas fa-sliders-h', label: 'Settings', permission: 'admin.manage_all' },
 ];
 
 export default function DesktopSidebar() {

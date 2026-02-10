@@ -17,6 +17,8 @@ import {
   roles,
   permissions,
   rolePermissions,
+  companySettings,
+  activityLogs,
   type User,
   type UpsertUser,
   type TimeEntry,
@@ -53,6 +55,10 @@ import {
   type RolePermission,
   type InsertRolePermission,
   type UserWithRole,
+  type CompanySettings,
+  type InsertCompanySettings,
+  type ActivityLog,
+  type InsertActivityLog,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, gte, lte, isNull, sql } from "drizzle-orm";
@@ -158,6 +164,25 @@ export interface IStorage {
   getRolePermissions(roleId: string): Promise<Permission[]>;
   updateRolePermissions(roleId: string, permissionIds: string[]): Promise<void>;
   getUserPermissions(userId: string): Promise<Permission[]>;
+  
+  // Company settings operations
+  getCompanySettings(): Promise<CompanySettings | undefined>;
+  updateCompanySettings(settings: InsertCompanySettings): Promise<CompanySettings>;
+  
+  // Work location update/delete
+  updateWorkLocation(id: string, updates: Partial<WorkLocation>): Promise<WorkLocation>;
+  deleteWorkLocation(id: string): Promise<void>;
+  
+  // Activity log operations
+  createActivityLog(log: InsertActivityLog): Promise<ActivityLog>;
+  getActivityLogs(limit?: number): Promise<ActivityLog[]>;
+  
+  // User management
+  getAllUsers(): Promise<User[]>;
+  updateUserRole(userId: string, roleId: string): Promise<User>;
+  deleteUser(userId: string): Promise<void>;
+  deactivateUser(userId: string): Promise<User>;
+  updateUser(userId: string, updates: Partial<User>): Promise<User>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -937,6 +962,75 @@ export class DatabaseStorage implements IStorage {
 
   async deleteUser(userId: string): Promise<void> {
     await db.delete(users).where(eq(users.id, userId));
+  }
+
+  async deactivateUser(userId: string): Promise<User> {
+    const [updatedUser] = await db
+      .update(users)
+      .set({ isActive: false, updatedAt: new Date() })
+      .where(eq(users.id, userId))
+      .returning();
+    return updatedUser;
+  }
+
+  async updateUser(userId: string, updates: Partial<User>): Promise<User> {
+    const [updatedUser] = await db
+      .update(users)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(users.id, userId))
+      .returning();
+    return updatedUser;
+  }
+
+  async getCompanySettings(): Promise<CompanySettings | undefined> {
+    const [settings] = await db.select().from(companySettings).limit(1);
+    return settings;
+  }
+
+  async updateCompanySettings(settings: InsertCompanySettings): Promise<CompanySettings> {
+    const existing = await this.getCompanySettings();
+    if (existing) {
+      const [updated] = await db
+        .update(companySettings)
+        .set({ ...settings, updatedAt: new Date() })
+        .where(eq(companySettings.id, existing.id))
+        .returning();
+      return updated;
+    }
+    const [created] = await db
+      .insert(companySettings)
+      .values(settings)
+      .returning();
+    return created;
+  }
+
+  async updateWorkLocation(id: string, updates: Partial<WorkLocation>): Promise<WorkLocation> {
+    const [updated] = await db
+      .update(workLocations)
+      .set(updates)
+      .where(eq(workLocations.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteWorkLocation(id: string): Promise<void> {
+    await db.delete(workLocations).where(eq(workLocations.id, id));
+  }
+
+  async createActivityLog(log: InsertActivityLog): Promise<ActivityLog> {
+    const [created] = await db
+      .insert(activityLogs)
+      .values(log)
+      .returning();
+    return created;
+  }
+
+  async getActivityLogs(limit: number = 50): Promise<ActivityLog[]> {
+    return await db
+      .select()
+      .from(activityLogs)
+      .orderBy(desc(activityLogs.createdAt))
+      .limit(limit);
   }
 }
 

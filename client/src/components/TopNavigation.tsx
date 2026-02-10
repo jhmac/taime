@@ -13,7 +13,7 @@ const pageTitles: Record<string, string> = {
   '/hr': 'HR Management',
   '/hr/roles': 'Role Management',
   '/operations': 'Operations',
-  '/admin': 'Admin',
+  '/admin': 'Settings',
 };
 
 export default function TopNavigation() {
