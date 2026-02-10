@@ -27,10 +27,12 @@ Preferred communication style: Simple, everyday language.
 - **File Structure**: Monorepo structure with shared schema between client and server
 
 ### Authentication & Authorization
-- **Provider**: Replit Auth using OpenID Connect (OIDC)
-- **Strategy**: Passport.js with custom OpenID Connect strategy
-- **Session Storage**: PostgreSQL-backed sessions with configurable TTL
-- **Role-based Access**: Admin and Employee roles with different permissions
+- **Provider**: Clerk (clerk.com) for OAuth/SSO authentication
+- **Frontend**: @clerk/clerk-react with ClerkProvider, SignedIn/SignedOut components, UserButton
+- **Backend**: @clerk/express with clerkMiddleware() for JWT verification via getAuth()
+- **User Sync**: On first login, Clerk user data syncs to local database via /api/auth/sync
+- **Role-based Access**: Admin, Owner, and Employee roles with granular permissions
+- **Token Flow**: Frontend sends Clerk JWT Bearer tokens; backend verifies via Clerk middleware
 
 ### Database Design
 - **Primary Database**: PostgreSQL with Neon serverless driver
@@ -75,8 +77,8 @@ Preferred communication style: Simple, everyday language.
 - **Connection Pooling**: @neondatabase/serverless with connection pooling
 
 ### Authentication Services
-- **Replit Auth**: OpenID Connect integration with passport strategies
-- **Session Management**: PostgreSQL session storage with connect-pg-simple
+- **Clerk**: @clerk/clerk-react (frontend) and @clerk/express (backend) for complete auth
+- **JWT Verification**: Clerk middleware handles token validation on all API routes
 
 ### AI Services
 - **Anthropic Claude**: Official SDK for AI-powered features and chat capabilities

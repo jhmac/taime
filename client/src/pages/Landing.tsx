@@ -1,11 +1,7 @@
-import { Button } from '@/components/ui/button';
+import { SignIn } from '@clerk/clerk-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
 export default function Landing() {
-  const handleLogin = () => {
-    window.location.href = '/api/login';
-  };
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/10 via-background to-accent/10 flex items-center justify-center p-4">
       <Card className="w-full max-w-md">
@@ -64,18 +60,15 @@ export default function Landing() {
             </div>
           </div>
 
-          <Button
-            onClick={handleLogin}
-            className="w-full"
-            size="lg"
-            data-testid="login-button"
-          >
-            <i className="fas fa-sign-in-alt mr-2"></i>
-            Sign In to Get Started
-          </Button>
-
-          <div className="text-center text-xs text-muted-foreground">
-            Secure login powered by Replit Auth
+          <div className="flex justify-center" data-testid="clerk-sign-in">
+            <SignIn 
+              appearance={{
+                elements: {
+                  rootBox: "w-full",
+                  card: "shadow-none border-0 p-0",
+                }
+              }}
+            />
           </div>
         </CardContent>
       </Card>
