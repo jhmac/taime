@@ -26,7 +26,6 @@ import {
 } from "@shared/schema";
 import { z } from "zod";
 import crypto from "crypto";
-import { encryptToken, decryptToken } from "./utils/tokenEncryption";
 import { ShopifyService } from "./services/shopifyService";
 
 // WebSocket connections map
@@ -1514,13 +1513,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .limit(1);
 
       if (shopResult.length > 0 && shopResult[0].accessToken) {
-        try {
-          const decryptedToken = decryptToken(shopResult[0].accessToken);
-          return { shopDomain: shopResult[0].shopDomain, accessToken: decryptedToken };
-        } catch (decryptError) {
-          console.error(`Failed to decrypt token for ${normalizedDomain}:`, decryptError);
-          return null;
-        }
+        return { shopDomain: shopResult[0].shopDomain, accessToken: shopResult[0].accessToken };
       }
       return null;
     } catch (error) {
@@ -1657,8 +1650,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         throw new Error('No access token received from Shopify');
       }
 
-      const encryptedToken = encryptToken(accessToken);
-
       const shopifyService = new ShopifyService(shopDomain, accessToken);
       const shopInfo = await shopifyService.getShopInfo().catch(() => null);
 
@@ -1670,7 +1661,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (existing.length > 0) {
         await db.update(shops)
           .set({
-            accessToken: encryptedToken,
+            accessToken,
             isActive: true,
             shopName: shopInfo?.name || existing[0].shopName,
             shopEmail: shopInfo?.email || existing[0].shopEmail,
@@ -1682,7 +1673,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else {
         await db.insert(shops).values({
           shopDomain,
-          accessToken: encryptedToken,
+          accessToken,
           isActive: true,
           shopName: shopInfo?.name || null,
           shopEmail: shopInfo?.email || null,

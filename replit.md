@@ -63,15 +63,15 @@ Preferred communication style: Simple, everyday language.
 
 ### Shopify Integration
 - **OAuth Flow**: Full OAuth 2.0 with HMAC verification and CSRF state tokens for secure store connection
-- **Token Security**: AES-256-GCM encryption for Shopify access tokens stored in PostgreSQL (TOKEN_ENCRYPTION_KEY env var)
+- **Token Storage**: Shopify access tokens stored directly in PostgreSQL
 - **API**: Shopify GraphQL Admin API (version 2025-04) via ShopifyService class
 - **Data Sync**: Historical order data fetched and aggregated into shopify_daily_sales table (date, order count, revenue)
 - **AI Recommendations**: Claude AI analyzes sales patterns by day-of-week to generate staffing multiplier suggestions
 - **Database Tables**: shops (store info + encrypted tokens), user_shops (user-store mapping), shopify_daily_sales (daily aggregates)
-- **Key Files**: server/services/shopifyService.ts, server/utils/tokenEncryption.ts, server/routes.ts (contains sales sync and staffing recommendation logic inline)
+- **Key Files**: server/services/shopifyService.ts, server/routes.ts (contains sales sync and staffing recommendation logic inline)
 - **API Routes**: /api/shopify/auth (initiate OAuth), /api/shopify/auth/callback (complete OAuth), /api/shopify/sync-sales (trigger sync), /api/shopify/sales-data (retrieve data), /api/shopify/staffing-recommendations (AI analysis), /api/shopify/shops (list connected stores)
 - **Frontend**: Shopify tab in AdminSettings page with connect/disconnect flow, sync controls, sales analytics, and AI recommendations; Schedule page shows AI staffing insight cards
-- **Required Env Vars**: SHOPIFY_API_KEY, SHOPIFY_API_SECRET, TOKEN_ENCRYPTION_KEY
+- **Required Env Vars**: SHOPIFY_API_KEY, SHOPIFY_API_SECRET
 
 ### Push Notifications
 - **Technology**: Web Push API with VAPID keys
