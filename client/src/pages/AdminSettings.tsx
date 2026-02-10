@@ -43,6 +43,102 @@ export default function AdminSettings() {
   const [, navigate] = useLocation();
   const [showAddLocation, setShowAddLocation] = useState(false);
   const [editingLocation, setEditingLocation] = useState<WorkLocation | null>(null);
+  const [shopifyDomain, setShopifyDomain] = useState('');
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('shopify') === 'connected') {
+      toast({ title: "Shopify Connected", description: "Your Shopify store has been connected successfully." });
+      window.history.replaceState({}, '', window.location.pathname);
+    } else if (params.get('shopify') === 'error') {
+      toast({ title: "Connection Error", description: "Failed to connect your Shopify store. Please try again.", variant: "destructive" });
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
+
+  const { data: shopifyShops = [], isLoading: shopsLoading } = useQuery<any[]>({
+    queryKey: ['/api/shopify/shops'],
+  });
+
+  const connectedShop = shopifyShops.find((s: any) => s.isActive);
+
+  const { data: salesData, isLoading: salesLoading } = useQuery<any>({
+    queryKey: ['/api/shopify/sales-data', connectedShop?.shopDomain],
+    queryFn: async () => {
+      const res = await fetch(`/api/shopify/sales-data?shop=${encodeURIComponent(connectedShop.shopDomain)}`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to fetch sales data');
+      return res.json();
+    },
+    enabled: !!connectedShop?.shopDomain,
+  });
+
+  const { data: staffingRecs, isLoading: staffingLoading, refetch: refetchStaffing } = useQuery<any>({
+    queryKey: ['/api/shopify/staffing-recommendations', connectedShop?.shopDomain],
+    queryFn: async () => {
+      const res = await fetch(`/api/shopify/staffing-recommendations?shop=${encodeURIComponent(connectedShop.shopDomain)}`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to fetch staffing recommendations');
+      return res.json();
+    },
+    enabled: false,
+  });
+
+  const connectShopifyMutation = useMutation({
+    mutationFn: async (domain: string) => {
+      const res = await fetch(`/api/shopify/auth?shop=${encodeURIComponent(domain)}`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to initiate Shopify auth');
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      if (data.authUrl) {
+        window.location.href = data.authUrl;
+      }
+    },
+    onError: (error) => {
+      toast({ title: "Error", description: `Failed to connect: ${error.message}`, variant: "destructive" });
+    },
+  });
+
+  const disconnectShopifyMutation = useMutation({
+    mutationFn: async (shopDomain: string) => {
+      const res = await apiRequest('POST', '/api/shopify/disconnect', { shopDomain });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/shopify/shops'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/shopify/sales-data'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/shopify/staffing-recommendations'] });
+      toast({ title: "Disconnected", description: "Shopify store has been disconnected." });
+    },
+    onError: (error) => {
+      toast({ title: "Error", description: `Failed to disconnect: ${error.message}`, variant: "destructive" });
+    },
+  });
+
+  const syncSalesMutation = useMutation({
+    mutationFn: async (shopDomain: string) => {
+      const res = await apiRequest('POST', '/api/shopify/sync-sales', { shopDomain, daysBack: 365 });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/shopify/sales-data'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/shopify/shops'] });
+      toast({ title: "Sync Complete", description: "Sales data has been synced successfully." });
+    },
+    onError: (error) => {
+      toast({ title: "Sync Error", description: `Failed to sync sales data: ${error.message}`, variant: "destructive" });
+    },
+  });
+
+  const getStaffingLevelColor = (level: string) => {
+    const colors: Record<string, string> = {
+      high: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
+      above_average: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
+      normal: "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400",
+      below_average: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400",
+      low: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
+    };
+    return colors[level] || colors.normal;
+  };
 
   const { data: settings, isLoading: settingsLoading } = useQuery<CompanySettings>({
     queryKey: ['/api/company-settings'],
@@ -275,10 +371,11 @@ export default function AdminSettings() {
         </div>
 
         <Tabs defaultValue="company" className="w-full">
-          <TabsList className={isMobile ? "grid w-full grid-cols-3 mb-4" : "mb-4"}>
+          <TabsList className={isMobile ? "grid w-full grid-cols-4 mb-4" : "mb-4"}>
             <TabsTrigger value="company">Company</TabsTrigger>
             <TabsTrigger value="locations">Locations</TabsTrigger>
             <TabsTrigger value="activity">Activity</TabsTrigger>
+            <TabsTrigger value="shopify"><i className="fab fa-shopify mr-1"></i>Shopify</TabsTrigger>
           </TabsList>
 
           <TabsContent value="company">
@@ -669,6 +766,298 @@ export default function AdminSettings() {
                 )}
               </CardContent>
             </Card>
+          </TabsContent>
+
+          <TabsContent value="shopify">
+            <div className="space-y-6">
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <i className="fab fa-shopify text-green-600"></i>
+                    Store Connection
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <div className="flex-1">
+                      <Label htmlFor="shopify-domain">Store Domain</Label>
+                      <div className="flex items-center gap-2 mt-1">
+                        <Input
+                          id="shopify-domain"
+                          placeholder="your-store"
+                          value={shopifyDomain}
+                          onChange={(e) => setShopifyDomain(e.target.value)}
+                        />
+                        <span className="text-sm text-muted-foreground whitespace-nowrap">.myshopify.com</span>
+                      </div>
+                    </div>
+                    <div className="flex items-end">
+                      <Button
+                        onClick={() => {
+                          const domain = shopifyDomain.includes('.myshopify.com')
+                            ? shopifyDomain
+                            : `${shopifyDomain}.myshopify.com`;
+                          connectShopifyMutation.mutate(domain);
+                        }}
+                        disabled={!shopifyDomain || connectShopifyMutation.isPending}
+                      >
+                        {connectShopifyMutation.isPending ? (
+                          <><i className="fas fa-spinner fa-spin mr-2"></i>Connecting...</>
+                        ) : (
+                          <><i className="fas fa-plug mr-2"></i>Connect Store</>
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  {shopsLoading ? (
+                    <div className="space-y-3">
+                      {[1, 2].map(i => <div key={i} className="animate-pulse h-16 bg-muted rounded-lg"></div>)}
+                    </div>
+                  ) : shopifyShops.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-8">
+                      <i className="fas fa-store text-muted-foreground text-2xl mb-3"></i>
+                      <p className="text-sm text-muted-foreground">No Shopify stores connected</p>
+                      <p className="text-xs text-muted-foreground mt-1">Enter your store domain above to get started</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <p className="text-sm font-medium">Connected Stores</p>
+                      {shopifyShops.map((shop: any) => (
+                        <div key={shop.id} className="flex items-center justify-between p-3 rounded-lg border bg-card">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="w-9 h-9 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center flex-shrink-0">
+                              <i className="fab fa-shopify text-green-600 dark:text-green-400"></i>
+                            </div>
+                            <div className="min-w-0">
+                              <p className="font-medium text-sm">{shop.shopName || shop.shopDomain}</p>
+                              <p className="text-xs text-muted-foreground truncate">{shop.shopDomain}</p>
+                              <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                {shop.currency && (
+                                  <Badge variant="outline" className="text-[10px]">{shop.currency}</Badge>
+                                )}
+                                {shop.lastSyncAt && (
+                                  <span className="text-[10px] text-muted-foreground">
+                                    Last sync: {new Date(shop.lastSyncAt).toLocaleDateString()}
+                                  </span>
+                                )}
+                                <Badge variant={shop.isActive ? "default" : "secondary"} className="text-[10px]">
+                                  {shop.isActive ? 'Active' : 'Inactive'}
+                                </Badge>
+                              </div>
+                            </div>
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-destructive hover:text-destructive flex-shrink-0"
+                            onClick={() => disconnectShopifyMutation.mutate(shop.shopDomain)}
+                            disabled={disconnectShopifyMutation.isPending}
+                          >
+                            {disconnectShopifyMutation.isPending ? (
+                              <i className="fas fa-spinner fa-spin"></i>
+                            ) : (
+                              <><i className="fas fa-unlink mr-1"></i>Disconnect</>
+                            )}
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {connectedShop && (
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <i className="fas fa-sync text-primary"></i>
+                      Sales Data Sync
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium">Sync Shopify Sales Data</p>
+                        <p className="text-xs text-muted-foreground">Import the last 365 days of sales data from your store</p>
+                        {connectedShop.lastSyncAt && (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Last synced: {new Date(connectedShop.lastSyncAt).toLocaleString()}
+                          </p>
+                        )}
+                      </div>
+                      <Button
+                        onClick={() => syncSalesMutation.mutate(connectedShop.shopDomain)}
+                        disabled={syncSalesMutation.isPending}
+                      >
+                        {syncSalesMutation.isPending ? (
+                          <><i className="fas fa-spinner fa-spin mr-2"></i>Syncing...</>
+                        ) : (
+                          <><i className="fas fa-download mr-2"></i>Sync Sales Data</>
+                        )}
+                      </Button>
+                    </div>
+                    {syncSalesMutation.isPending && (
+                      <div className="w-full bg-muted rounded-full h-2">
+                        <div className="bg-primary h-2 rounded-full animate-pulse" style={{ width: '60%' }}></div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+
+              {salesData?.summary && (
+                <>
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <i className="fas fa-chart-bar text-primary"></i>
+                        Sales Analytics
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-6">
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div className="p-3 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+                          <p className="text-xs text-muted-foreground">Total Revenue</p>
+                          <p className="text-lg font-bold text-green-700 dark:text-green-400">
+                            ${Number(salesData.summary.totalRevenue || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </p>
+                        </div>
+                        <div className="p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+                          <p className="text-xs text-muted-foreground">Total Orders</p>
+                          <p className="text-lg font-bold text-blue-700 dark:text-blue-400">
+                            {Number(salesData.summary.totalOrders || 0).toLocaleString()}
+                          </p>
+                        </div>
+                        <div className="p-3 rounded-lg bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800">
+                          <p className="text-xs text-muted-foreground">Avg Daily Revenue</p>
+                          <p className="text-lg font-bold text-purple-700 dark:text-purple-400">
+                            ${Number(salesData.summary.avgDailyRevenue || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </p>
+                        </div>
+                        <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                          <p className="text-xs text-muted-foreground">Avg Daily Orders</p>
+                          <p className="text-lg font-bold text-amber-700 dark:text-amber-400">
+                            {Number(salesData.summary.avgDailyOrders || 0).toFixed(1)}
+                          </p>
+                        </div>
+                      </div>
+
+                      {salesData.dayOfWeek && salesData.dayOfWeek.length > 0 && (
+                        <>
+                          <Separator />
+                          <div>
+                            <p className="text-sm font-medium mb-3">Revenue by Day of Week</p>
+                            <div className="space-y-2">
+                              {(() => {
+                                const maxRevenue = Math.max(...salesData.dayOfWeek.map((d: any) => Number(d.avgRevenue || 0)));
+                                return salesData.dayOfWeek.map((day: any) => {
+                                  const pct = maxRevenue > 0 ? (Number(day.avgRevenue || 0) / maxRevenue) * 100 : 0;
+                                  return (
+                                    <div key={day.day} className="flex items-center gap-3">
+                                      <span className="text-xs font-medium w-12 text-right">{day.day?.slice(0, 3)}</span>
+                                      <div className="flex-1 bg-muted rounded-full h-6 relative overflow-hidden">
+                                        <div
+                                          className="bg-primary/80 h-full rounded-full transition-all duration-500"
+                                          style={{ width: `${pct}%` }}
+                                        ></div>
+                                      </div>
+                                      <div className="text-right min-w-[100px]">
+                                        <span className="text-xs font-medium">
+                                          ${Number(day.avgRevenue || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                                        </span>
+                                        <span className="text-[10px] text-muted-foreground ml-1">
+                                          ({Number(day.avgOrders || 0).toFixed(1)} orders)
+                                        </span>
+                                      </div>
+                                    </div>
+                                  );
+                                });
+                              })()}
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <i className="fas fa-robot text-primary"></i>
+                        AI Staffing Recommendations
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {!staffingRecs ? (
+                        <div className="flex flex-col items-center py-6">
+                          <p className="text-sm text-muted-foreground mb-3">Get AI-powered staffing recommendations based on your sales data</p>
+                          <Button
+                            onClick={() => refetchStaffing()}
+                            disabled={staffingLoading}
+                          >
+                            {staffingLoading ? (
+                              <><i className="fas fa-spinner fa-spin mr-2"></i>Analyzing...</>
+                            ) : (
+                              <><i className="fas fa-magic mr-2"></i>Get Staffing Recommendations</>
+                            )}
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
+                          {staffingRecs.insight && (
+                            <div className="p-4 rounded-lg bg-muted/50 border">
+                              <p className="text-sm font-medium mb-1 flex items-center gap-2">
+                                <i className="fas fa-lightbulb text-amber-500"></i>
+                                AI Insight
+                              </p>
+                              <p className="text-sm text-muted-foreground">{staffingRecs.insight}</p>
+                            </div>
+                          )}
+
+                          {staffingRecs.recommendations && staffingRecs.recommendations.length > 0 && (
+                            <div>
+                              <p className="text-sm font-medium mb-3">Daily Staffing Levels</p>
+                              <div className="grid gap-2">
+                                {staffingRecs.recommendations.map((rec: any) => (
+                                  <div key={rec.day} className="flex items-center justify-between p-3 rounded-lg border">
+                                    <div className="flex items-center gap-3">
+                                      <span className="text-sm font-medium w-24">{rec.day}</span>
+                                      <Badge className={`text-xs ${getStaffingLevelColor(rec.level)}`}>
+                                        {rec.level?.replace('_', ' ')}
+                                      </Badge>
+                                    </div>
+                                    <div className="text-right">
+                                      <span className="text-sm font-medium">{rec.multiplier ? `${rec.multiplier}x` : '-'}</span>
+                                      <span className="text-xs text-muted-foreground ml-1">staff</span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => refetchStaffing()}
+                            disabled={staffingLoading}
+                          >
+                            {staffingLoading ? (
+                              <><i className="fas fa-spinner fa-spin mr-2"></i>Refreshing...</>
+                            ) : (
+                              <><i className="fas fa-refresh mr-2"></i>Refresh Recommendations</>
+                            )}
+                          </Button>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </>
+              )}
+            </div>
           </TabsContent>
         </Tabs>
       </div>

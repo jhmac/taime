@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
-import type { User, Schedule, WorkLocation } from "@shared/schema";
+import type { User, Schedule, WorkLocation, Shop } from "@shared/schema";
 
 export default function ScheduleManagement() {
   const { toast } = useToast();
@@ -32,6 +32,24 @@ export default function ScheduleManagement() {
 
   const { data: locations = [] } = useQuery<WorkLocation[]>({
     queryKey: ["/api/work-locations"],
+  });
+
+  const { data: connectedShops = [] } = useQuery<any[]>({
+    queryKey: ["/api/shopify/shops"],
+  });
+
+  const activeShop = connectedShops.find((s: any) => s.isActive) || (connectedShops.length > 0 ? connectedShops[0] : null);
+
+  const { data: staffingData } = useQuery<any>({
+    queryKey: ["/api/shopify/staffing-recommendations", activeShop?.shopDomain],
+    queryFn: async () => {
+      const res = await fetch(`/api/shopify/staffing-recommendations?shop=${encodeURIComponent(activeShop?.shopDomain)}`, {
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error('Failed to fetch');
+      return res.json();
+    },
+    enabled: !!activeShop?.shopDomain,
   });
 
   // Create schedule mutation
@@ -308,6 +326,46 @@ export default function ScheduleManagement() {
             </div>
           </CardContent>
         </Card>
+
+        {staffingData?.recommendations && staffingData.recommendations.length > 0 && (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <i className="fas fa-chart-line text-primary"></i>
+                AI Staffing Insights
+                <Badge variant="outline" className="text-[10px] ml-auto">
+                  Based on {staffingData.dataPoints} days of sales data
+                </Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-3">
+              {staffingData.aiInsight && (
+                <p className="text-xs text-muted-foreground mb-3 bg-muted/50 p-2 rounded-md">
+                  <i className="fas fa-robot mr-1"></i>
+                  {staffingData.aiInsight}
+                </p>
+              )}
+              <div className="grid grid-cols-7 gap-1">
+                {staffingData.recommendations.map((rec: any) => {
+                  const levelColors: Record<string, string> = {
+                    high: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 border-green-200',
+                    above_average: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400 border-blue-200',
+                    normal: 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400 border-gray-200',
+                    below_average: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 border-amber-200',
+                    low: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400 border-red-200',
+                  };
+                  return (
+                    <div key={rec.dayOfWeek} className={`text-center p-2 rounded-md border ${levelColors[rec.staffingLevel] || levelColors.normal}`}>
+                      <p className="text-[10px] font-medium">{rec.dayName.slice(0, 3)}</p>
+                      <p className="text-xs font-bold">{rec.staffMultiplier}x</p>
+                      <p className="text-[9px]">${rec.avgRevenue}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Mobile-Friendly Schedule View */}
         <Card>

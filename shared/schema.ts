@@ -604,6 +604,67 @@ export type InsertCompanySettings = z.infer<typeof insertCompanySettingsSchema>;
 export type ActivityLog = typeof activityLogs.$inferSelect;
 export type InsertActivityLog = z.infer<typeof insertActivityLogSchema>;
 
+// Shopify connected shops
+export const shops = pgTable("shops", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  shopDomain: varchar("shop_domain").notNull().unique(),
+  accessToken: text("access_token").notNull(),
+  shopName: varchar("shop_name"),
+  shopEmail: varchar("shop_email"),
+  currency: varchar("currency").default("USD"),
+  timezone: varchar("timezone"),
+  isActive: boolean("is_active").default(true),
+  lastSyncAt: timestamp("last_sync_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// User-to-shop linking (which users connected which stores)
+export const userShops = pgTable("user_shops", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  shopDomain: varchar("shop_domain").notNull(),
+  connectedAt: timestamp("connected_at").defaultNow(),
+});
+
+// Aggregated daily sales data from Shopify
+export const shopifyDailySales = pgTable("shopify_daily_sales", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  shopDomain: varchar("shop_domain").notNull(),
+  date: timestamp("date").notNull(),
+  dayOfWeek: integer("day_of_week").notNull(), // 0=Sunday, 6=Saturday
+  orderCount: integer("order_count").default(0),
+  totalRevenue: decimal("total_revenue", { precision: 12, scale: 2 }).default("0"),
+  itemCount: integer("item_count").default(0),
+  averageOrderValue: decimal("average_order_value", { precision: 10, scale: 2 }).default("0"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Insert schemas for Shopify tables
+export const insertShopSchema = createInsertSchema(shops).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertUserShopSchema = createInsertSchema(userShops).omit({
+  id: true,
+  connectedAt: true,
+});
+
+export const insertShopifyDailySalesSchema = createInsertSchema(shopifyDailySales).omit({
+  id: true,
+  createdAt: true,
+});
+
+// Shopify types
+export type Shop = typeof shops.$inferSelect;
+export type InsertShop = z.infer<typeof insertShopSchema>;
+export type UserShop = typeof userShops.$inferSelect;
+export type InsertUserShop = z.infer<typeof insertUserShopSchema>;
+export type ShopifyDailySale = typeof shopifyDailySales.$inferSelect;
+export type InsertShopifyDailySale = z.infer<typeof insertShopifyDailySalesSchema>;
+
 // Extended user type with role information
 export type UserWithRole = User & {
   role?: Role & {
