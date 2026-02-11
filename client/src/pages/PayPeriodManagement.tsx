@@ -22,8 +22,8 @@ export default function PayPeriodManagement() {
     enabled: !!user,
   });
 
-  // Check permissions
-  const canManagePayroll = userPermissions?.some?.(p => p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all') || false;
+  // Check permissions - also allow owner/admin roles directly
+  const canManagePayroll = userPermissions?.some?.(p => p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all') || user?.role?.name === 'owner' || user?.role?.name === 'admin' || false;
   
   const [selectedPeriodId, setSelectedPeriodId] = useState<string>("");
   const [automationSettings, setAutomationSettings] = useState({

@@ -22,6 +22,7 @@ import PayPeriodManagement from "@/pages/PayPeriodManagement";
 import PayrollSetupModal from "@/components/PayrollSetupModal";
 import { usePayrollSetup } from "@/hooks/usePayrollSetup";
 import AdminSettings from "@/pages/AdminSettings";
+import TaskManagement from "@/pages/TaskManagement";
 import NotFound from "@/pages/not-found";
 
 function AuthenticatedApp() {
@@ -68,6 +69,7 @@ function AuthenticatedApp() {
           <Team />
         </PermissionGuard>
       </Route>
+      <Route path="/tasks" component={TaskManagement} />
       <Route path="/schedules" component={ScheduleManagement} />
       <Route path="/availability" component={Availability} />
       <Route path="/payroll">

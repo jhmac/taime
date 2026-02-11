@@ -87,6 +87,7 @@ export interface IStorage {
   getUserTasks(userId: string): Promise<Task[]>;
   getAllTasks(): Promise<Task[]>;
   updateTask(id: string, updates: Partial<Task>): Promise<Task>;
+  deleteTask(id: string): Promise<void>;
   getTasksForDate(date: Date): Promise<Task[]>;
   
   // Chore operations
@@ -324,6 +325,10 @@ export class DatabaseStorage implements IStorage {
       .where(eq(tasks.id, id))
       .returning();
     return updated;
+  }
+
+  async deleteTask(id: string): Promise<void> {
+    await db.delete(tasks).where(eq(tasks.id, id));
   }
 
   async getTasksForDate(date: Date): Promise<Task[]> {

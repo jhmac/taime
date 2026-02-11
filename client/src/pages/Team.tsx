@@ -96,8 +96,9 @@ export default function Team() {
     enabled: !!currentUser,
   });
 
+  const isAdminRole = currentUser?.role?.name === 'owner' || currentUser?.role?.name === 'admin';
   const can = (perm: string) =>
-    permissions?.some?.((p) => p.name === perm || p.name === "admin.manage_all") || false;
+    permissions?.some?.((p) => p.name === perm || p.name === "admin.manage_all") || isAdminRole || false;
 
   const canManageEmployees = can("hr.manage_employees");
   const canEditRoles = can("admin.role_management");

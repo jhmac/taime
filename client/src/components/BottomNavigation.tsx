@@ -11,9 +11,9 @@ const employeeNavItems = [
 
 const adminNavItems = [
   { path: '/', icon: 'fas fa-tachometer-alt', label: 'Dashboard' },
+  { path: '/tasks', icon: 'fas fa-clipboard-list', label: 'Tasks' },
   { path: '/schedules', icon: 'fas fa-calendar-alt', label: 'Schedule' },
   { path: '/team', icon: 'fas fa-users', label: 'Team' },
-  { path: '/communication', icon: 'fas fa-comments', label: 'Chat' },
   { path: '/payroll', icon: 'fas fa-dollar-sign', label: 'Payroll' },
 ];
 

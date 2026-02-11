@@ -19,8 +19,8 @@ export default function Operations() {
     enabled: !!user,
   });
 
-  // Check permissions
-  const canAccessOperations = userPermissions?.some?.(p => p.name === 'admin.manage_all' || p.name === 'operations.view') || false;
+  // Check permissions - also allow owner/admin roles directly
+  const canAccessOperations = userPermissions?.some?.(p => p.name === 'admin.manage_all' || p.name === 'operations.view') || user?.role?.name === 'owner' || user?.role?.name === 'admin' || false;
 
   const { data: timeEntries, isLoading: timeEntriesLoading } = useQuery<TimeEntry[]>({
     queryKey: ['/api/time-entries'],

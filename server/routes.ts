@@ -259,6 +259,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.delete('/api/tasks/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      await storage.deleteTask(id);
+      broadcastToAll({
+        type: 'task_deleted',
+        data: { taskId: id },
+      });
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting task:", error);
+      res.status(400).json({ message: (error as Error).message });
+    }
+  });
+
   // AI routes
   app.post('/api/ai/assign-chores', isAuthenticated, async (req: any, res) => {
     try {
@@ -1087,7 +1102,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Permission denied: Role management access required" });
       }
       
-      const allRoles = await storage.getRoles();
+      const allRoles = await storage.getAllRoles();
       const result: Record<string, string[]> = {};
       for (const role of allRoles) {
         const perms = await storage.getRolePermissions(role.id);
