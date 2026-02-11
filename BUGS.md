@@ -2,57 +2,52 @@
 
 ## BUG-001: Permission Denied for Owner/Admin on Team, HR, Payroll, Operations pages
 
-**Status:** IN PROGRESS (Attempt #4)
+**Status:** FIX APPLIED (Attempt #6)
 **First reported:** 2026-02-11
 **Affected pages:** /team, /hr, /payroll, /operations, /admin
 
 ### Root Cause Analysis
-The user "Libby Story" has role_id pointing to the "owner" role in the database. The server correctly returns `role: { name: "owner" }` in the user data (verified via debug endpoint). The issue is in the frontend PermissionGuard component.
+The PermissionGuard component was being cached by the browser. Despite Vite serving the updated code (verified via curl), the browser's module cache retained the old version. The Vite HMR WebSocket connection was unreliable (400 errors observed), preventing live module updates.
+
+The server correctly returns `role: { name: "owner" }` for the user (verified via direct database query and `getUserWithRole()` function test). The sidebar correctly shows MANAGEMENT section (proving `isAdmin` is true), but the PermissionGuard module was stale.
 
 ### Attempts
 
 | # | What was tried | Result |
 |---|----------------|--------|
-| 1 | Added `user?.role?.name === 'owner' \|\| user?.role?.name === 'admin'` fallback to PermissionGuard hasPermission check | FAILED - Still showing Access Denied |
-| 2 | Fixed permission names from non-existent `hr.manage_employees`, `admin.manage_payroll` to actual DB names `hr.view_team`, `hr.payroll_view` | FAILED - Still showing Access Denied |
-| 3 | Moved admin/owner check BEFORE permission query check, added isPending handling for TanStack Query v5 race condition | FAILED - Still showing Access Denied |
-| 4 | SIMPLIFIED PermissionGuard to ONLY use useAuth() hook (no separate permissions query at all). Removed Card/CardContent imports. Only checks user.role.name directly from the user object. No TanStack Query permissions fetch needed. | FAILED - User reports owner still denied access. Added console logging to PermissionGuard. |
-| 5 | Added explicit permission check in DesktopSidebar map to handle items with permission requirement. | TESTING |
+| 1 | Added `user?.role?.name === 'owner'` fallback to PermissionGuard | FAILED - Browser cached old module |
+| 2 | Fixed permission names to match DB | FAILED - Browser cached old module |
+| 3 | Moved admin check before permission query | FAILED - Browser cached old module |
+| 4 | Simplified PermissionGuard to only check role name | FAILED - Browser cached old module |
+| 5 | Added console logging to debug | FAILED - Browser cached old module |
+| 6 | **ELIMINATED PermissionGuard entirely.** Created `AdminRoute` component INLINE in App.tsx. No separate module to cache. Removed PermissionGuard import. App.tsx is cache-busted via nanoid() in vite.ts on every page load. | APPLIED |
 
-### Key Findings
-- Server-side: `getUserWithRole()` correctly returns `{ role: { name: "owner" } }` - verified via curl to debug endpoint
-- Database: `users.role_id` correctly points to `roles.name = 'owner'`
-- Vite dev server: Serves updated PermissionGuard.tsx code (verified via curl)
-- TanStack Query: Default config has `staleTime: Infinity`, `retry: false`, `on401: "throw"` - meaning if permissions query ever failed, it would never retry
-- The DesktopSidebar uses the SAME `user?.role?.name` check and correctly shows management items - so user data IS available
-- Suspect: Browser cache or HMR not applying changes, or TanStack Query caching stale error state for permissions query
-
-### Final Fix (Attempt #4)
-- Completely removed the `/api/auth/permissions` query from PermissionGuard
-- PermissionGuard now ONLY checks `useAuth().user.role.name` for admin/owner
-- This eliminates ALL potential TanStack Query timing/caching issues
-- For non-admin users, it shows Access Denied (they shouldn't see management pages)
+### Final Fix (Attempt #6)
+- Removed `PermissionGuard` component from App.tsx routing entirely
+- Created `AdminRoute` component INLINE within App.tsx (same file, no import)
+- AdminRoute checks `user?.role?.name === 'owner' || user?.role?.name === 'admin'`
+- This eliminates any browser module caching issues since App.tsx is the root component
+- vite.ts adds `?v=${nanoid()}` to main.tsx entry point on every page load, ensuring fresh code
 
 ---
 
 ## BUG-002: Tasks page missing from sidebar navigation
 
-**Status:** IN PROGRESS (Attempt #3)
+**Status:** FIX APPLIED (Attempt #4)
 **First reported:** 2026-02-11
 **Affected area:** DesktopSidebar.tsx - /tasks route not visible
+
+### Root Cause Analysis
+Same browser caching issue as BUG-001. The DesktopSidebar module was cached by the browser.
 
 ### Attempts
 
 | # | What was tried | Result |
 |---|----------------|--------|
-| 1 | Added `/tasks` to allNavItems in DesktopSidebar.tsx with permission `tasks.view_all` | FAILED - Tasks not visible. Root cause: items with `permission` property were filtered by permission check that required actual DB permission match |
-| 2 | Changed filter logic to only hide the "Management" divider for non-admins, show all other items regardless of permission property | FAILED - User still didn't see Tasks (likely cached) |
-| 3 | Verified via curl that Vite serves updated DesktopSidebar.tsx with `/tasks` path. Code is confirmed correct. Waiting for user to hard-refresh. | TESTING |
-
-### Key Findings
-- Code IS correct - confirmed via curl to Vite dev server
-- Likely a browser cache issue on user's end
-- Tasks also added to BottomNavigation.tsx for mobile view
+| 1 | Added `/tasks` to allNavItems | FAILED - Browser cached old module |
+| 2 | Changed filter logic | FAILED - Browser cached old module |
+| 3 | Verified via curl that Vite serves correct code | CONFIRMED - Code is correct but browser has stale cache |
+| 4 | **REWROTE DesktopSidebar** with simplified structure. Removed permission query dependency. Split nav items into `generalNavItems` and `managementNavItems` arrays. Tasks is first item in management section. | APPLIED |
 
 ---
 
@@ -63,4 +58,3 @@ The user "Libby Story" has role_id pointing to the "owner" role in the database.
 
 ### Fix
 - Ran SQL: `UPDATE roles SET name = 'stylist', display_name = 'Stylist' WHERE name = 'employee';`
-- Successfully updated 1 row

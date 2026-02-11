@@ -1,13 +1,12 @@
 import { useState, useEffect } from "react";
 import { Switch, Route } from "wouter";
 import { queryClient } from "./lib/queryClient";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { ClerkProvider, SignedIn, SignedOut } from "@clerk/clerk-react";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
 import Layout from "@/components/Layout";
-import PermissionGuard from "@/components/PermissionGuard";
 import Landing from "@/pages/Landing";
 import Dashboard from "@/pages/Dashboard";
 import Operations from "@/pages/Operations";
@@ -24,6 +23,50 @@ import { usePayrollSetup } from "@/hooks/usePayrollSetup";
 import AdminSettings from "@/pages/AdminSettings";
 import TaskManagement from "@/pages/TaskManagement";
 import NotFound from "@/pages/not-found";
+import type { Permission } from "@shared/schema";
+
+function ProtectedRoute({ children, permission }: { children: React.ReactNode; permission?: string }) {
+  const { user, isLoading } = useAuth();
+  const { data: permissions = [] } = useQuery<Permission[]>({
+    queryKey: ["/api/auth/permissions"],
+    enabled: !!user,
+  });
+
+  if (isLoading || !user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
+  const roleName = user?.role?.name;
+  const isAdminOrOwner = roleName === 'owner' || roleName === 'admin';
+
+  if (isAdminOrOwner) {
+    return <>{children}</>;
+  }
+
+  if (permission) {
+    const hasPermission = permissions.some(p => p.name === permission || p.name === 'admin.manage_all');
+    if (hasPermission) {
+      return <>{children}</>;
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-background p-4">
+      <div className="space-y-4 max-w-sm mx-auto mt-20">
+        <div className="rounded-lg border bg-card p-6">
+          <h3 className="text-lg font-semibold">Access Denied</h3>
+          <p className="text-sm text-muted-foreground mt-2">
+            You don't have permission to access this page.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function AuthenticatedApp() {
   const { isAuthenticated, isLoading, user } = useAuth();
@@ -45,42 +88,32 @@ function AuthenticatedApp() {
     );
   }
 
+  const isAdmin = user?.role?.name === 'admin' || user?.role?.name === 'owner';
+
   return (
     <Switch>
-      <Route path="/" component={(user?.role?.name === 'admin' || user?.role?.name === 'owner') ? AdminDashboard : Dashboard} />
+      <Route path="/" component={isAdmin ? AdminDashboard : Dashboard} />
       <Route path="/operations">
-        <PermissionGuard permission="admin.manage_all">
-          <Operations />
-        </PermissionGuard>
+        <ProtectedRoute permission="admin.manage_all"><Operations /></ProtectedRoute>
       </Route>
       <Route path="/communication" component={Communication} />
       <Route path="/hr">
-        <PermissionGuard permission="hr.view_team">
-          <HR />
-        </PermissionGuard>
+        <ProtectedRoute permission="hr.view_team"><HR /></ProtectedRoute>
       </Route>
       <Route path="/hr/roles">
-        <PermissionGuard permission="admin.role_management">
-          <RoleManagement />
-        </PermissionGuard>
+        <ProtectedRoute permission="admin.role_management"><RoleManagement /></ProtectedRoute>
       </Route>
       <Route path="/team">
-        <PermissionGuard permission="hr.view_team">
-          <Team />
-        </PermissionGuard>
+        <ProtectedRoute permission="hr.view_team"><Team /></ProtectedRoute>
       </Route>
       <Route path="/tasks" component={TaskManagement} />
       <Route path="/schedules" component={ScheduleManagement} />
       <Route path="/availability" component={Availability} />
       <Route path="/payroll">
-        <PermissionGuard permission="hr.payroll_view">
-          <PayPeriodManagement />
-        </PermissionGuard>
+        <ProtectedRoute permission="hr.payroll_view"><PayPeriodManagement /></ProtectedRoute>
       </Route>
       <Route path="/admin">
-        <PermissionGuard permission="admin.manage_all">
-          <AdminSettings />
-        </PermissionGuard>
+        <ProtectedRoute permission="admin.manage_all"><AdminSettings /></ProtectedRoute>
       </Route>
       <Route component={NotFound} />
       <PayrollSetupModal isOpen={showSetupModal} onClose={closeSetupModal} />

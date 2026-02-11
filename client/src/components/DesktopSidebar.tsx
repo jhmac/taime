@@ -3,15 +3,16 @@ import { useLocation } from 'wouter';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
 import type { Permission } from '@shared/schema';
 
-const allNavItems = [
+const generalNavItems = [
   { path: '/', icon: 'fas fa-home', label: 'Dashboard' },
   { path: '/schedules', icon: 'fas fa-calendar-alt', label: 'Schedules' },
   { path: '/availability', icon: 'fas fa-clock', label: 'Availability' },
   { path: '/communication', icon: 'fas fa-comments', label: 'Messages' },
-  { divider: true, label: 'Management' },
+];
+
+const managementNavItems = [
   { path: '/tasks', icon: 'fas fa-clipboard-list', label: 'Tasks', permission: 'tasks.view_all' },
   { path: '/team', icon: 'fas fa-users', label: 'Team', permission: 'hr.view_team' },
   { path: '/payroll', icon: 'fas fa-dollar-sign', label: 'Payroll', permission: 'hr.payroll_view' },
@@ -33,14 +34,32 @@ export default function DesktopSidebar() {
 
   const isAdmin = user?.role?.name === 'admin' || user?.role?.name === 'owner';
 
-  const visibleItems = allNavItems.filter(item => {
-    if ('divider' in item && item.divider) {
-      return isAdmin;
-    }
-    // Always show Tasks for everyone, or check specific logic if needed
-    // For now, let's ensure it's not being filtered out accidentally
-    return true;
+  const visibleManagementItems = managementNavItems.filter(item => {
+    if (isAdmin) return true;
+    return userPermissions.some(p => p.name === item.permission || p.name === 'admin.manage_all');
   });
+
+  const showManagement = visibleManagementItems.length > 0;
+
+  function NavButton({ path, icon, label }: { path: string; icon: string; label: string }) {
+    const isActive = location === path || (path !== '/' && location.startsWith(path));
+    return (
+      <button
+        onClick={() => navigate(path)}
+        className={cn(
+          "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors",
+          isActive
+            ? "bg-sidebar-primary text-sidebar-primary-foreground font-medium"
+            : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+          collapsed && "justify-center px-0"
+        )}
+        title={collapsed ? label : undefined}
+      >
+        <i className={cn(icon, "w-5 text-center")}></i>
+        {!collapsed && <span>{label}</span>}
+      </button>
+    );
+  }
 
   return (
     <aside
@@ -59,48 +78,25 @@ export default function DesktopSidebar() {
       </div>
 
       <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
-        {visibleItems.map((item, idx) => {
-          if ('divider' in item && item.divider) {
-            return (
-              <div key={`div-${idx}`} className={cn("pt-4 pb-1", collapsed && "pt-2 pb-0")}>
-                {!collapsed && (
-                  <span className="px-3 text-xs font-medium text-sidebar-foreground/50 uppercase tracking-wider">
-                    {item.label}
-                  </span>
-                )}
-                {collapsed && <div className="border-t border-sidebar-border mx-2"></div>}
-              </div>
-            );
-          }
+        {generalNavItems.map(item => (
+          <NavButton key={item.path} {...item} />
+        ))}
 
-          const navItem = item as { path: string; icon: string; label: string; permission?: string };
-          
-          // Check if user has permission for this item
-          if (navItem.permission && !isAdmin) {
-             const hasPerm = userPermissions.some(p => p.name === navItem.permission);
-             if (!hasPerm) return null;
-          }
-
-          const isActive = location === navItem.path || (navItem.path !== '/' && location.startsWith(navItem.path));
-
-          return (
-            <button
-              key={navItem.path}
-              onClick={() => navigate(navItem.path)}
-              className={cn(
-                "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors",
-                isActive
-                  ? "bg-sidebar-primary text-sidebar-primary-foreground font-medium"
-                  : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-                collapsed && "justify-center px-0"
+        {showManagement && (
+          <>
+            <div className={cn("pt-4 pb-1", collapsed && "pt-2 pb-0")}>
+              {!collapsed && (
+                <span className="px-3 text-xs font-medium text-sidebar-foreground/50 uppercase tracking-wider">
+                  Management
+                </span>
               )}
-              title={collapsed ? navItem.label : undefined}
-            >
-              <i className={cn(navItem.icon, "w-5 text-center")}></i>
-              {!collapsed && <span>{navItem.label}</span>}
-            </button>
-          );
-        })}
+              {collapsed && <div className="border-t border-sidebar-border mx-2"></div>}
+            </div>
+            {visibleManagementItems.map(item => (
+              <NavButton key={item.path} {...item} />
+            ))}
+          </>
+        )}
       </nav>
 
       <div className="p-2 border-t border-sidebar-border">
