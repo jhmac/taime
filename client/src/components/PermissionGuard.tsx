@@ -23,6 +23,8 @@ export default function PermissionGuard({ children, permission, fallback }: Perm
   }
 
   const roleName = user?.role?.name;
+  console.log('PermissionGuard:', { roleName, permission, isLoading, userId: user?.id });
+  
   if (roleName === 'owner' || roleName === 'admin') {
     return <>{children}</>;
   }

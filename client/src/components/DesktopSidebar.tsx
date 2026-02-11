@@ -37,6 +37,8 @@ export default function DesktopSidebar() {
     if ('divider' in item && item.divider) {
       return isAdmin;
     }
+    // Always show Tasks for everyone, or check specific logic if needed
+    // For now, let's ensure it's not being filtered out accidentally
     return true;
   });
 
@@ -71,7 +73,14 @@ export default function DesktopSidebar() {
             );
           }
 
-          const navItem = item as { path: string; icon: string; label: string };
+          const navItem = item as { path: string; icon: string; label: string; permission?: string };
+          
+          // Check if user has permission for this item
+          if (navItem.permission && !isAdmin) {
+             const hasPerm = userPermissions.some(p => p.name === navItem.permission);
+             if (!hasPerm) return null;
+          }
+
           const isActive = location === navItem.path || (navItem.path !== '/' && location.startsWith(navItem.path));
 
           return (

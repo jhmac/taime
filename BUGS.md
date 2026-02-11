@@ -16,7 +16,8 @@ The user "Libby Story" has role_id pointing to the "owner" role in the database.
 | 1 | Added `user?.role?.name === 'owner' \|\| user?.role?.name === 'admin'` fallback to PermissionGuard hasPermission check | FAILED - Still showing Access Denied |
 | 2 | Fixed permission names from non-existent `hr.manage_employees`, `admin.manage_payroll` to actual DB names `hr.view_team`, `hr.payroll_view` | FAILED - Still showing Access Denied |
 | 3 | Moved admin/owner check BEFORE permission query check, added isPending handling for TanStack Query v5 race condition | FAILED - Still showing Access Denied |
-| 4 | SIMPLIFIED PermissionGuard to ONLY use useAuth() hook (no separate permissions query at all). Removed Card/CardContent imports. Only checks user.role.name directly from the user object. No TanStack Query permissions fetch needed. | TESTING |
+| 4 | SIMPLIFIED PermissionGuard to ONLY use useAuth() hook (no separate permissions query at all). Removed Card/CardContent imports. Only checks user.role.name directly from the user object. No TanStack Query permissions fetch needed. | FAILED - User reports owner still denied access. Added console logging to PermissionGuard. |
+| 5 | Added explicit permission check in DesktopSidebar map to handle items with permission requirement. | TESTING |
 
 ### Key Findings
 - Server-side: `getUserWithRole()` correctly returns `{ role: { name: "owner" } }` - verified via curl to debug endpoint
