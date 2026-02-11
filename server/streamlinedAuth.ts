@@ -5,6 +5,7 @@ import { storage } from "./storage";
 export const requireAuth: RequestHandler = async (req: any, res, next) => {
   const auth = getAuth(req);
   if (!auth?.userId) {
+    console.log(`[Auth] 401 on ${req.method} ${req.path} - No userId from Clerk. sessionId=${auth?.sessionId || 'none'}`);
     return res.status(401).json({ message: "Unauthorized" });
   }
   

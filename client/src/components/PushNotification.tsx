@@ -17,18 +17,6 @@ export default function PushNotification() {
   const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
-    // Register service worker for push notifications
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js')
-        .then((registration) => {
-          console.log('Service Worker registered:', registration);
-        })
-        .catch((error) => {
-          console.error('Service Worker registration failed:', error);
-        });
-    }
-
-    // Listen for push notification events
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.addEventListener('message', (event) => {
         if (event.data && event.data.type === 'push-notification') {

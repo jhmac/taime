@@ -7,6 +7,13 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
 app.use((req, res, next) => {
+  if (!req.path.startsWith('/api') && req.method === 'GET') {
+    res.setHeader('Clear-Site-Data', '"cache"');
+  }
+  next();
+});
+
+app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
   let capturedJsonResponse: Record<string, any> | undefined = undefined;
