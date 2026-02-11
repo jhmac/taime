@@ -37,10 +37,6 @@ export default function DesktopSidebar() {
     if ('divider' in item && item.divider) {
       return isAdmin;
     }
-    if ('permission' in item && item.permission) {
-      if (isAdmin) return true;
-      return userPermissions?.some?.(p => p.name === item.permission) || false;
-    }
     return true;
   });
 
