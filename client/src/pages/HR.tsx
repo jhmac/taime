@@ -20,8 +20,8 @@ export default function HR() {
     enabled: !!user,
   });
 
-  // Check permissions
-  const canManageEmployees = userPermissions?.some?.(p => p.name === 'hr.manage_employees' || p.name === 'admin.manage_all') || false;
+  const isAdmin = user?.role?.name === 'owner' || user?.role?.name === 'admin';
+  const canManageEmployees = isAdmin || userPermissions?.some?.(p => p.name === 'hr.edit_team' || p.name === 'hr.view_team' || p.name === 'admin.manage_all') || false;
 
   // Fetch time entries
   const { data: timeEntries = [], isLoading: timeEntriesLoading } = useQuery<TimeEntry[]>({

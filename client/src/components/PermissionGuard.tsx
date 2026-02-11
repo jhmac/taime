@@ -13,19 +13,21 @@ interface PermissionGuardProps {
 export default function PermissionGuard({ children, permission, fallback }: PermissionGuardProps) {
   const { user } = useAuth();
 
-  // Fetch user permissions
-  const { data: userPermissions = [], isLoading } = useQuery<Permission[]>({
+  const { data: userPermissions = [], isLoading: isPermissionsLoading, isPending } = useQuery<Permission[]>({
     queryKey: ["/api/auth/permissions"],
     enabled: !!user,
   });
 
-  // If no permission is required, render children
   if (!permission) {
     return <>{children}</>;
   }
 
-  // Show loading state while permissions are being fetched
-  if (isLoading) {
+  const isAdmin = user?.role?.name === 'owner' || user?.role?.name === 'admin';
+  if (isAdmin) {
+    return <>{children}</>;
+  }
+
+  if (!user || (isPending && !isPermissionsLoading)) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
@@ -33,8 +35,15 @@ export default function PermissionGuard({ children, permission, fallback }: Perm
     );
   }
 
-  // Check if user has the required permission
-  const hasPermission = userPermissions?.some?.(p => p.name === permission) || user?.role?.name === 'owner' || user?.role?.name === 'admin' || false;
+  if (isPermissionsLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
+  const hasPermission = userPermissions?.some?.(p => p.name === permission) || false;
 
   if (!hasPermission) {
     return fallback || (

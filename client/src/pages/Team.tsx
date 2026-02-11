@@ -100,10 +100,10 @@ export default function Team() {
   const can = (perm: string) =>
     permissions?.some?.((p) => p.name === perm || p.name === "admin.manage_all") || isAdminRole || false;
 
-  const canManageEmployees = can("hr.manage_employees");
+  const canManageEmployees = can("hr.edit_team");
   const canEditRoles = can("admin.role_management");
-  const canViewPayRates = can("hr.view_pay_rates");
-  const canEditPayRates = can("hr.edit_pay_rates");
+  const canViewPayRates = can("hr.view_team");
+  const canEditPayRates = can("hr.edit_team");
 
   const addMemberMutation = useMutation({
     mutationFn: async (data: Record<string, string>) => {

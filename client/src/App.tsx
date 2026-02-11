@@ -55,7 +55,7 @@ function AuthenticatedApp() {
       </Route>
       <Route path="/communication" component={Communication} />
       <Route path="/hr">
-        <PermissionGuard permission="hr.manage_employees">
+        <PermissionGuard permission="hr.view_team">
           <HR />
         </PermissionGuard>
       </Route>
@@ -65,7 +65,7 @@ function AuthenticatedApp() {
         </PermissionGuard>
       </Route>
       <Route path="/team">
-        <PermissionGuard permission="hr.manage_employees">
+        <PermissionGuard permission="hr.view_team">
           <Team />
         </PermissionGuard>
       </Route>
@@ -73,7 +73,7 @@ function AuthenticatedApp() {
       <Route path="/schedules" component={ScheduleManagement} />
       <Route path="/availability" component={Availability} />
       <Route path="/payroll">
-        <PermissionGuard permission="admin.manage_payroll">
+        <PermissionGuard permission="hr.payroll_view">
           <PayPeriodManagement />
         </PermissionGuard>
       </Route>
