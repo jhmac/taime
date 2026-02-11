@@ -865,7 +865,20 @@ export class DatabaseStorage implements IStorage {
       .innerJoin(permissions, eq(rolePermissions.permissionId, permissions.id))
       .where(eq(users.id, userId));
     
-    return result.map(row => row.permission);
+    const perms = result.map(row => row.permission);
+
+    // Hard-coded safety check for owner/admin roles
+    const [user] = await db.select().from(users).innerJoin(roles, eq(users.roleId, roles.id)).where(eq(users.id, userId));
+    if (user && (user.roles.name === 'owner' || user.roles.name === 'admin')) {
+      const allPerms = await db.select().from(permissions);
+      // Ensure admin.manage_all is included for UI guards
+      if (!perms.some(p => p.name === 'admin.manage_all')) {
+        const manageAll = allPerms.find(p => p.name === 'admin.manage_all');
+        if (manageAll) perms.push(manageAll);
+      }
+    }
+
+    return perms;
   }
 
   // Payroll settings operations

@@ -34,7 +34,7 @@ export default function PermissionGuard({ children, permission, fallback }: Perm
   }
 
   // Check if user has the required permission
-  const hasPermission = userPermissions?.some?.(p => p.name === permission) || false;
+  const hasPermission = userPermissions?.some?.(p => p.name === permission) || user?.role?.name === 'owner' || user?.role?.name === 'admin' || false;
 
   if (!hasPermission) {
     return fallback || (
