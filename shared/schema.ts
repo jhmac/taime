@@ -605,6 +605,26 @@ export type InsertCompanySettings = z.infer<typeof insertCompanySettingsSchema>;
 export type ActivityLog = typeof activityLogs.$inferSelect;
 export type InsertActivityLog = z.infer<typeof insertActivityLogSchema>;
 
+// Holiday pay rules
+export const holidayPayRules = pgTable("holiday_pay_rules", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name").notNull(),
+  month: integer("month").notNull(),
+  day: integer("day").notNull(),
+  payMultiplier: decimal("pay_multiplier", { precision: 3, scale: 2 }).notNull().default("1.50"),
+  isActive: boolean("is_active").default(true),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertHolidayPayRuleSchema = createInsertSchema(holidayPayRules).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type HolidayPayRule = typeof holidayPayRules.$inferSelect;
+export type InsertHolidayPayRule = z.infer<typeof insertHolidayPayRuleSchema>;
+
 // Shopify connected shops
 export const shops = pgTable("shops", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

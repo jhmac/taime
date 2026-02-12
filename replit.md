@@ -56,6 +56,14 @@ Preferred communication style: Simple, everyday language.
   - Payroll validation and error highlighting
   - Conversational AI chat for employee assistance
 
+### Holiday Pay System
+- **AI-Powered Setup**: Owner types natural language instructions (e.g., "pay time and a half on Christmas Eve, Memorial Day, Fourth of July") and Claude AI parses them into structured rules
+- **Database Table**: `holiday_pay_rules` stores holiday name, month, day, pay multiplier, and active status
+- **Automatic Payroll Integration**: Payroll export automatically detects hours worked on holidays and applies the correct pay multiplier bonus
+- **API Routes**: `POST /api/ai/parse-holiday-pay` (AI parsing + save), `GET /api/holiday-pay-rules` (list), `DELETE /api/holiday-pay-rules/:id` (remove), `PATCH /api/holiday-pay-rules/:id` (update)
+- **Frontend**: "Holiday Pay" tab in AdminSettings with AI text input, parsed rules display with month/day badges, multiplier labels, and delete controls
+- **Key Files**: shared/schema.ts (holidayPayRules table), server/services/claudeService.ts (parseHolidayPayRules method), server/routes.ts (holiday pay + updated payroll export), client/src/pages/AdminSettings.tsx (Holiday Pay tab)
+
 ### Geolocation & Security
 - **Geofencing**: Browser geolocation API with custom distance calculations using Haversine formula
 - **Location Validation**: Work location boundaries enforcement for clock-in/out operations

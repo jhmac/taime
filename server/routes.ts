@@ -453,6 +453,123 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Holiday pay rules routes
+  app.post('/api/ai/parse-holiday-pay', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canManage = userPermissions.some(p => p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all');
+
+      if (!canManage) {
+        return res.status(403).json({ message: "Admin or payroll management access required" });
+      }
+
+      const { instruction } = req.body;
+      if (!instruction) {
+        return res.status(400).json({ message: "Instruction text is required" });
+      }
+
+      const result = await claudeService.parseHolidayPayRules(instruction);
+
+      if (!result.holidays || !Array.isArray(result.holidays)) {
+        return res.status(500).json({ message: "AI returned invalid response format" });
+      }
+
+      const savedRules = [];
+      const existingRules = await storage.getAllHolidayPayRules();
+      for (const holiday of result.holidays) {
+        if (!holiday.name || typeof holiday.month !== 'number' || typeof holiday.day !== 'number') continue;
+        if (holiday.month < 1 || holiday.month > 12 || holiday.day < 1 || holiday.day > 31) continue;
+        const multiplier = typeof holiday.payMultiplier === 'number' && holiday.payMultiplier > 0 ? holiday.payMultiplier : 1.5;
+
+        const existing = existingRules.find(
+          r => r.month === holiday.month && r.day === holiday.day
+        );
+        if (existing) {
+          const updated = await storage.updateHolidayPayRule(existing.id, {
+            name: holiday.name,
+            payMultiplier: multiplier.toFixed(2),
+          });
+          savedRules.push(updated);
+        } else {
+          const rule = await storage.createHolidayPayRule({
+            name: holiday.name,
+            month: holiday.month,
+            day: holiday.day,
+            payMultiplier: multiplier.toFixed(2),
+            isActive: true,
+            createdBy: userId,
+          });
+          savedRules.push(rule);
+        }
+      }
+
+      res.json({ rules: savedRules, summary: result.summary });
+    } catch (error) {
+      console.error("Error parsing holiday pay rules:", error);
+      res.status(500).json({ message: "Failed to parse holiday pay instructions" });
+    }
+  });
+
+  app.get('/api/holiday-pay-rules', isAuthenticated, async (req: any, res) => {
+    try {
+      const rules = await storage.getAllHolidayPayRules();
+      res.json(rules);
+    } catch (error) {
+      console.error("Error fetching holiday pay rules:", error);
+      res.status(500).json({ message: "Failed to fetch holiday pay rules" });
+    }
+  });
+
+  app.delete('/api/holiday-pay-rules/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canManage = userPermissions.some(p => p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all');
+
+      if (!canManage) {
+        return res.status(403).json({ message: "Admin or payroll management access required" });
+      }
+
+      const { id } = req.params;
+      await storage.deleteHolidayPayRule(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting holiday pay rule:", error);
+      res.status(500).json({ message: "Failed to delete holiday pay rule" });
+    }
+  });
+
+  app.patch('/api/holiday-pay-rules/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canManage = userPermissions.some(p => p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all');
+
+      if (!canManage) {
+        return res.status(403).json({ message: "Admin or payroll management access required" });
+      }
+
+      const { id } = req.params;
+      const { name, month, day, payMultiplier, isActive } = req.body;
+      const safeUpdates: Record<string, any> = {};
+      if (name !== undefined && typeof name === 'string') safeUpdates.name = name;
+      if (month !== undefined && typeof month === 'number' && month >= 1 && month <= 12) safeUpdates.month = month;
+      if (day !== undefined && typeof day === 'number' && day >= 1 && day <= 31) safeUpdates.day = day;
+      if (payMultiplier !== undefined) {
+        const mult = parseFloat(payMultiplier);
+        if (!isNaN(mult) && mult > 0 && mult <= 5) safeUpdates.payMultiplier = mult.toFixed(2);
+      }
+      if (isActive !== undefined && typeof isActive === 'boolean') safeUpdates.isActive = isActive;
+
+      const rule = await storage.updateHolidayPayRule(id, safeUpdates);
+      res.json(rule);
+    } catch (error) {
+      console.error("Error updating holiday pay rule:", error);
+      res.status(500).json({ message: "Failed to update holiday pay rule" });
+    }
+  });
+
   // Availability routes
   app.post('/api/availability', isAuthenticated, async (req: any, res) => {
     try {
@@ -707,6 +824,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const timeEntriesData = await storage.getAllTimeEntries(start, end);
       const allUsers = await db.select().from(users);
       const [settings] = await db.select().from(companySettings).limit(1);
+      const holidayRules = await storage.getAllHolidayPayRules();
 
       const overtimeThreshold = settings?.overtimeThresholdHours || 40;
       const overtimeMultiplier = parseFloat(settings?.overtimeMultiplier || "1.50");
@@ -715,6 +833,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         name: string;
         email: string;
         totalHours: number;
+        holidayHours: number;
+        holidayPayExtra: number;
         breakMinutes: number;
         hourlyRate: number;
       }> = {};
@@ -733,18 +853,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
             name: user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() : 'Unknown',
             email: user?.email || '',
             totalHours: 0,
+            holidayHours: 0,
+            holidayPayExtra: 0,
             breakMinutes: 0,
             hourlyRate: parseFloat(user?.hourlyRate || "0"),
           };
         }
 
-        employeeMap[entry.userId].totalHours += Math.max(0, workedHours);
+        const hours = Math.max(0, workedHours);
+        employeeMap[entry.userId].totalHours += hours;
         employeeMap[entry.userId].breakMinutes += breakMins;
+
+        const entryMonth = clockIn.getMonth() + 1;
+        const entryDay = clockIn.getDate();
+        const matchingHoliday = holidayRules.find(
+          r => r.month === entryMonth && r.day === entryDay
+        );
+        if (matchingHoliday) {
+          const multiplier = parseFloat(matchingHoliday.payMultiplier);
+          const extraMultiplier = multiplier - 1;
+          employeeMap[entry.userId].holidayHours += hours;
+          employeeMap[entry.userId].holidayPayExtra += hours * employeeMap[entry.userId].hourlyRate * extraMultiplier;
+        }
       }
 
       const csvHeaders = [
         'Employee Name', 'Email', 'Total Hours', 'Regular Hours', 'Overtime Hours',
-        'Break Minutes', 'Hourly Rate', 'Regular Pay', 'Overtime Pay', 'Total Pay'
+        'Holiday Hours', 'Break Minutes', 'Hourly Rate', 'Regular Pay', 'Overtime Pay', 'Holiday Pay Bonus', 'Total Pay'
       ];
 
       const csvRows = Object.values(employeeMap).map(emp => {
@@ -752,7 +887,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const overtimeHours = Math.max(0, emp.totalHours - overtimeThreshold);
         const regularPay = regularHours * emp.hourlyRate;
         const overtimePay = overtimeHours * emp.hourlyRate * overtimeMultiplier;
-        const totalPay = regularPay + overtimePay;
+        const totalPay = regularPay + overtimePay + emp.holidayPayExtra;
 
         return [
           `"${emp.name}"`,
@@ -760,10 +895,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           emp.totalHours.toFixed(2),
           regularHours.toFixed(2),
           overtimeHours.toFixed(2),
+          emp.holidayHours.toFixed(2),
           emp.breakMinutes.toString(),
           emp.hourlyRate.toFixed(2),
           regularPay.toFixed(2),
           overtimePay.toFixed(2),
+          emp.holidayPayExtra.toFixed(2),
           totalPay.toFixed(2),
         ].join(',');
       });

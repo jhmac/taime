@@ -19,6 +19,7 @@ import {
   rolePermissions,
   companySettings,
   activityLogs,
+  holidayPayRules,
   type User,
   type UpsertUser,
   type TimeEntry,
@@ -59,6 +60,8 @@ import {
   type InsertCompanySettings,
   type ActivityLog,
   type InsertActivityLog,
+  type HolidayPayRule,
+  type InsertHolidayPayRule,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, gte, lte, isNull, sql } from "drizzle-orm";
@@ -184,6 +187,12 @@ export interface IStorage {
   deleteUser(userId: string): Promise<void>;
   deactivateUser(userId: string): Promise<User>;
   updateUser(userId: string, updates: Partial<User>): Promise<User>;
+
+  // Holiday pay rules
+  createHolidayPayRule(rule: InsertHolidayPayRule): Promise<HolidayPayRule>;
+  getAllHolidayPayRules(): Promise<HolidayPayRule[]>;
+  deleteHolidayPayRule(id: string): Promise<void>;
+  updateHolidayPayRule(id: string, updates: Partial<HolidayPayRule>): Promise<HolidayPayRule>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -321,10 +330,7 @@ export class DatabaseStorage implements IStorage {
   async updateTask(id: string, updates: Partial<Task>): Promise<Task> {
     const [updated] = await db
       .update(tasks)
-      .set({
-        ...updates,
-        updatedAt: new Date(),
-      })
+      .set(updates)
       .where(eq(tasks.id, id))
       .returning();
     return updated;
@@ -1047,6 +1053,32 @@ export class DatabaseStorage implements IStorage {
       .from(activityLogs)
       .orderBy(desc(activityLogs.createdAt))
       .limit(limit);
+  }
+
+  async createHolidayPayRule(rule: InsertHolidayPayRule): Promise<HolidayPayRule> {
+    const [created] = await db.insert(holidayPayRules).values(rule).returning();
+    return created;
+  }
+
+  async getAllHolidayPayRules(): Promise<HolidayPayRule[]> {
+    return await db
+      .select()
+      .from(holidayPayRules)
+      .where(eq(holidayPayRules.isActive, true))
+      .orderBy(holidayPayRules.month, holidayPayRules.day);
+  }
+
+  async deleteHolidayPayRule(id: string): Promise<void> {
+    await db.delete(holidayPayRules).where(eq(holidayPayRules.id, id));
+  }
+
+  async updateHolidayPayRule(id: string, updates: Partial<HolidayPayRule>): Promise<HolidayPayRule> {
+    const [updated] = await db
+      .update(holidayPayRules)
+      .set(updates)
+      .where(eq(holidayPayRules.id, id))
+      .returning();
+    return updated;
   }
 }
 

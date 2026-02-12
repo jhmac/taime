@@ -427,6 +427,75 @@ Respond in JSON format with insights array.`;
   }
 
   /**
+   * Parse natural language holiday pay instructions into structured rules
+   */
+  async parseHolidayPayRules(instruction: string): Promise<{
+    holidays: Array<{
+      name: string;
+      month: number;
+      day: number;
+      payMultiplier: number;
+    }>;
+    summary: string;
+  }> {
+    try {
+      const prompt = `You are an AI assistant for a workforce management platform. The owner wants to set up holiday pay rules using natural language.
+
+Parse the following instruction into structured holiday pay rules. For each holiday mentioned, extract:
+- name: The holiday name
+- month: The month number (1-12)
+- day: The day of the month (1-31)
+- payMultiplier: The pay multiplier (e.g., 1.5 for "time and a half", 2.0 for "double time", 2.5 for "double time and a half")
+
+Important notes:
+- "Time and a half" = 1.5x multiplier
+- "Double time" = 2.0x multiplier  
+- "Double time and a half" = 2.5x multiplier
+- "Triple time" = 3.0x multiplier
+- If no specific multiplier is mentioned, default to 1.5 (time and a half)
+- Use the standard US dates for well-known holidays:
+  - New Year's Day: January 1
+  - Martin Luther King Jr. Day: January 20 (use approximate fixed date)
+  - Presidents' Day: February 17 (use approximate fixed date)
+  - Memorial Day: May 26 (use approximate fixed date)
+  - Juneteenth: June 19
+  - Independence Day / Fourth of July: July 4
+  - Labor Day: September 1 (use approximate fixed date)
+  - Columbus Day / Indigenous Peoples' Day: October 13 (use approximate fixed date)
+  - Veterans Day: November 11
+  - Thanksgiving: November 27 (use approximate fixed date)
+  - Christmas Eve: December 24
+  - Christmas Day: December 25
+  - New Year's Eve: December 31
+
+Owner's instruction:
+"${instruction}"
+
+Respond with valid JSON only. Include a brief "summary" field describing what was set up.`;
+
+      const response = await anthropic.messages.create({
+        model: DEFAULT_MODEL_STR,
+        max_tokens: 1024,
+        messages: [{ role: 'user', content: prompt }],
+      });
+
+      const content = response.content[0];
+      if (content.type !== 'text') {
+        throw new Error('Expected text response from Claude');
+      }
+      
+      const jsonMatch = content.text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        throw new Error('Could not parse JSON from response');
+      }
+      const result = JSON.parse(jsonMatch[0]);
+      return result;
+    } catch (error) {
+      throw new Error(`Holiday pay parsing failed: ${(error as Error).message}`);
+    }
+  }
+
+  /**
    * Chat interface for AI assistant
    */
   async chat(message: string, context?: Record<string, any>): Promise<string> {

@@ -15,7 +15,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import type { WorkLocation, CompanySettings, ActivityLog } from '@shared/schema';
+import { Textarea } from '@/components/ui/textarea';
+import type { WorkLocation, CompanySettings, ActivityLog, HolidayPayRule } from '@shared/schema';
 import NotificationSettings from '@/components/NotificationSettings';
 
 const TIMEZONES = [
@@ -45,6 +46,8 @@ export default function AdminSettings() {
   const [showAddLocation, setShowAddLocation] = useState(false);
   const [editingLocation, setEditingLocation] = useState<WorkLocation | null>(null);
   const [shopifyDomain, setShopifyDomain] = useState('');
+  const [holidayInstruction, setHolidayInstruction] = useState('');
+  const [holidayAiSummary, setHolidayAiSummary] = useState('');
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -159,6 +162,40 @@ export default function AdminSettings() {
 
   const { data: roles = [] } = useQuery<any[]>({
     queryKey: ['/api/roles'],
+  });
+
+  const { data: holidayPayRules = [], isLoading: holidayRulesLoading } = useQuery<HolidayPayRule[]>({
+    queryKey: ['/api/holiday-pay-rules'],
+  });
+
+  const parseHolidayPayMutation = useMutation({
+    mutationFn: async (instruction: string) => {
+      const res = await apiRequest('POST', '/api/ai/parse-holiday-pay', { instruction });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/holiday-pay-rules'] });
+      setHolidayAiSummary(data.summary || `${data.rules.length} holiday pay rules saved.`);
+      setHolidayInstruction('');
+      toast({ title: "Holiday Pay Rules Saved", description: `${data.rules.length} holiday(s) configured successfully.` });
+    },
+    onError: (error) => {
+      toast({ title: "Error", description: `Failed to parse instructions: ${error.message}`, variant: "destructive" });
+    },
+  });
+
+  const deleteHolidayRuleMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest('DELETE', `/api/holiday-pay-rules/${id}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/holiday-pay-rules'] });
+      toast({ title: "Rule Removed", description: "Holiday pay rule has been removed." });
+    },
+    onError: (error) => {
+      toast({ title: "Error", description: `Failed to remove rule: ${error.message}`, variant: "destructive" });
+    },
   });
 
   const [companyForm, setCompanyForm] = useState({
@@ -372,12 +409,13 @@ export default function AdminSettings() {
         </div>
 
         <Tabs defaultValue="company" className="w-full">
-          <TabsList className={isMobile ? "grid w-full grid-cols-5 mb-4" : "mb-4"}>
+          <TabsList className={isMobile ? "grid w-full grid-cols-3 gap-1 mb-4" : "mb-4"}>
             <TabsTrigger value="company">Company</TabsTrigger>
             <TabsTrigger value="locations">Locations</TabsTrigger>
             <TabsTrigger value="notifications"><i className="fas fa-bell mr-1"></i>Alerts</TabsTrigger>
             <TabsTrigger value="activity">Activity</TabsTrigger>
             <TabsTrigger value="shopify"><i className="fab fa-shopify mr-1"></i>Shopify</TabsTrigger>
+            <TabsTrigger value="holiday-pay"><i className="fas fa-gift mr-1"></i>Holiday Pay</TabsTrigger>
           </TabsList>
 
           <TabsContent value="company">
@@ -1066,6 +1104,152 @@ export default function AdminSettings() {
                 </>
               )}
             </div>
+          </TabsContent>
+
+          <TabsContent value="holiday-pay">
+            <div className={isMobile ? "space-y-4" : "grid grid-cols-2 gap-6"}>
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <i className="fas fa-brain text-primary"></i>
+                    AI Holiday Pay Setup
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    Tell the AI which holidays should receive special pay rates. Just type it naturally, like: "Pay time and a half on Christmas Eve, Christmas Day, and New Year's Day. Pay double time on the Fourth of July."
+                  </p>
+                  <Textarea
+                    placeholder={"e.g., Pay time and a half on all clocked hours for Christmas Eve, Memorial Day, Fourth of July, New Years Day, and Labor Day."}
+                    value={holidayInstruction}
+                    onChange={(e) => setHolidayInstruction(e.target.value)}
+                    rows={4}
+                    className="resize-none"
+                  />
+                  <Button
+                    onClick={() => parseHolidayPayMutation.mutate(holidayInstruction)}
+                    disabled={!holidayInstruction.trim() || parseHolidayPayMutation.isPending}
+                    className="w-full"
+                  >
+                    {parseHolidayPayMutation.isPending ? (
+                      <>
+                        <i className="fas fa-spinner fa-spin mr-2"></i>
+                        AI is processing...
+                      </>
+                    ) : (
+                      <>
+                        <i className="fas fa-magic mr-2"></i>
+                        Set Up Holiday Pay Rules
+                      </>
+                    )}
+                  </Button>
+                  {holidayAiSummary && (
+                    <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-3">
+                      <p className="text-sm text-green-800 dark:text-green-300 flex items-start gap-2">
+                        <i className="fas fa-check-circle mt-0.5"></i>
+                        {holidayAiSummary}
+                      </p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <i className="fas fa-calendar-check text-primary"></i>
+                    Active Holiday Pay Rules
+                    {holidayPayRules.length > 0 && (
+                      <Badge variant="secondary" className="ml-auto">{holidayPayRules.length}</Badge>
+                    )}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {holidayRulesLoading ? (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <i className="fas fa-spinner fa-spin mr-2"></i>Loading...
+                    </div>
+                  ) : holidayPayRules.length === 0 ? (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <i className="fas fa-gift text-3xl mb-3 block opacity-30"></i>
+                      <p className="text-sm">No holiday pay rules set up yet.</p>
+                      <p className="text-xs mt-1">Use the AI helper to add holidays.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {holidayPayRules.map((rule) => {
+                        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                        const multiplier = parseFloat(rule.payMultiplier);
+                        const multiplierLabel = multiplier === 1.5 ? 'Time & a half' : multiplier === 2.0 ? 'Double time' : multiplier === 2.5 ? 'Double time & a half' : multiplier === 3.0 ? 'Triple time' : `${multiplier}x`;
+                        return (
+                          <div key={rule.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 transition-colors">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary">
+                                {monthNames[rule.month - 1]}<br/>{rule.day}
+                              </div>
+                              <div>
+                                <p className="font-medium text-sm">{rule.name}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {monthNames[rule.month - 1]} {rule.day}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className="font-mono">
+                                {multiplierLabel}
+                              </Badge>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                                onClick={() => deleteHolidayRuleMutation.mutate(rule.id)}
+                                disabled={deleteHolidayRuleMutation.isPending}
+                              >
+                                <i className="fas fa-trash-alt text-xs"></i>
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+            <Card className="mt-4">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <i className="fas fa-info-circle text-primary"></i>
+                  How Holiday Pay Works
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                  <div className="flex items-start gap-2">
+                    <i className="fas fa-1 text-primary mt-0.5 w-5 text-center"></i>
+                    <div>
+                      <p className="font-medium">Set up rules</p>
+                      <p className="text-muted-foreground text-xs">Tell the AI which holidays get special pay and at what rate.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <i className="fas fa-2 text-primary mt-0.5 w-5 text-center"></i>
+                    <div>
+                      <p className="font-medium">Automatic detection</p>
+                      <p className="text-muted-foreground text-xs">When employees clock in on a holiday, the system detects it automatically.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <i className="fas fa-3 text-primary mt-0.5 w-5 text-center"></i>
+                    <div>
+                      <p className="font-medium">Payroll includes it</p>
+                      <p className="text-muted-foreground text-xs">Holiday pay bonuses are automatically included in payroll exports.</p>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           </TabsContent>
         </Tabs>
       </div>
