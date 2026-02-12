@@ -139,6 +139,7 @@ export const tasks = pgTable("tasks", {
   verifiedBy: varchar("verified_by").references(() => users.id),
   choreZone: varchar("chore_zone"), // 'zone 1', 'zone 2', etc.
   priority: varchar("priority").default("medium"), // 'low', 'medium', 'high'
+  completionImageUrl: text("completion_image_url"),
 });
 
 // Chat groups for group messaging

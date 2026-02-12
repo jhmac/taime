@@ -518,8 +518,51 @@ export default function TaskManagement() {
                                     </Tooltip>
                                   </TooltipProvider>
                                 )}
+                                {task.completionImageUrl && (
+                                  <div className="mt-2">
+                                    <img 
+                                      src={task.completionImageUrl} 
+                                      alt="Completion" 
+                                      className="w-20 h-20 object-cover rounded-md border cursor-pointer hover:opacity-80 transition-opacity"
+                                      onClick={() => window.open(task.completionImageUrl!, '_blank')}
+                                    />
+                                  </div>
+                                )}
                               </div>
                               <div className="flex items-center gap-1 flex-shrink-0">
+                                {task.assignedTo === user?.id && task.status !== 'completed' && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 px-2"
+                                    onClick={() => {
+                                      const input = document.createElement('input');
+                                      input.type = 'file';
+                                      input.accept = 'image/*';
+                                      input.capture = 'environment';
+                                      input.onchange = async (e) => {
+                                        const file = (e.target as HTMLInputElement).files?.[0];
+                                        if (file) {
+                                          const reader = new FileReader();
+                                          reader.onloadend = async () => {
+                                            const base64String = reader.result as string;
+                                            try {
+                                              await apiRequest('POST', `/api/tasks/${task.id}/image`, { imageUrl: base64String });
+                                              queryClient.invalidateQueries({ queryKey: ['/api/tasks'] });
+                                              toast({ title: "Image Uploaded", description: "Task completion photo has been saved." });
+                                            } catch (err) {
+                                              toast({ title: "Upload Failed", variant: "destructive" });
+                                            }
+                                          };
+                                          reader.readAsDataURL(file);
+                                        }
+                                      };
+                                      input.click();
+                                    }}
+                                  >
+                                    <i className="fas fa-camera mr-1"></i> Photo
+                                  </Button>
+                                )}
                                 {canManageTasks && (
                                   <>
                                     <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openEdit(task)} data-testid={`edit-task-${task.id}`}>

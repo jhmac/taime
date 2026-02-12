@@ -259,6 +259,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post('/api/tasks/:id/image', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { imageUrl } = req.body;
+      
+      if (!imageUrl) {
+        return res.status(400).json({ message: "Image URL is required" });
+      }
+
+      const task = await storage.updateTask(id, { completionImageUrl: imageUrl });
+      
+      broadcastToAll({
+        type: 'task_updated',
+        data: { task },
+      });
+
+      res.json(task);
+    } catch (error) {
+      console.error("Error uploading task image:", error);
+      res.status(400).json({ message: (error as Error).message });
+    }
+  });
+
   app.delete('/api/tasks/:id', isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
