@@ -18,6 +18,7 @@ const managementNavItems = [
   { path: '/payroll', icon: 'fas fa-dollar-sign', label: 'Payroll', permission: 'hr.payroll_view' },
   { path: '/hr', icon: 'fas fa-user-tie', label: 'HR', permission: 'hr.view_team' },
   { path: '/hr/roles', icon: 'fas fa-shield-alt', label: 'Roles', permission: 'admin.role_management' },
+  { path: '/analytics', icon: 'fas fa-chart-bar', label: 'Analytics', permission: 'hr.view_team' },
   { path: '/operations', icon: 'fas fa-cogs', label: 'Operations', permission: 'admin.manage_all' },
   { path: '/admin', icon: 'fas fa-sliders-h', label: 'Settings', permission: 'admin.manage_all' },
 ];

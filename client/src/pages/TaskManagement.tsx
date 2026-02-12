@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import type { Task, User, Permission } from '@shared/schema';
 
 const DAYS_OF_WEEK = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
@@ -59,6 +60,7 @@ export default function TaskManagement() {
   const [filterZone, setFilterZone] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterAssigned, setFilterAssigned] = useState('all');
+  const [filterAIAssign, setFilterAIAssign] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('all');
 
@@ -158,6 +160,29 @@ export default function TaskManagement() {
     },
   });
 
+  const aiAssignMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest('POST', '/api/ai/assign-chores', {});
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/tasks'] });
+      if (data.message === 'No unassigned chores available') {
+        toast({ title: "No Tasks to Assign", description: "All tasks are already assigned or none are pending." });
+      } else {
+        const count = data.assignments?.length || 0;
+        const uniqueEmployees = new Set(data.assignments?.map((a: any) => a.assignedTo) || []).size;
+        toast({
+          title: "AI Auto-Assign Complete",
+          description: `${count} task${count !== 1 ? 's' : ''} assigned to ${uniqueEmployees} employee${uniqueEmployees !== 1 ? 's' : ''}`,
+        });
+      }
+    },
+    onError: (error) => {
+      toast({ title: "Error", description: `Failed to auto-assign tasks: ${error.message}`, variant: "destructive" });
+    },
+  });
+
   const handleCreateOrEdit = () => {
     const payload: any = {
       title: form.title,
@@ -218,6 +243,8 @@ export default function TaskManagement() {
     if (filterStatus !== 'all' && task.status !== filterStatus) return false;
     if (filterAssigned === 'unassigned' && task.assignedTo) return false;
     if (filterAssigned === 'assigned' && !task.assignedTo) return false;
+    if (filterAIAssign === 'ai' && !task.isAIAssigned) return false;
+    if (filterAIAssign === 'manual' && task.isAIAssigned) return false;
     if (searchQuery && !task.title.toLowerCase().includes(searchQuery.toLowerCase())) return false;
     return true;
   });
@@ -250,11 +277,28 @@ export default function TaskManagement() {
             <h2 className="text-xl font-bold">Tasks & Chores</h2>
             <p className="text-sm text-muted-foreground">Manage daily tasks and recurring chores</p>
           </div>
-          {canManageTasks && (
-            <Button onClick={openCreate} data-testid="create-task-btn">
-              <i className="fas fa-plus mr-2"></i>New Task
-            </Button>
-          )}
+          <div className="flex items-center gap-2">
+            {canManageTasks && (
+              <Button
+                onClick={() => aiAssignMutation.mutate()}
+                disabled={aiAssignMutation.isPending}
+                variant="outline"
+                className="border-primary/50 text-primary hover:bg-primary/10"
+                data-testid="ai-auto-assign-btn"
+              >
+                {aiAssignMutation.isPending ? (
+                  <><i className="fas fa-spinner fa-spin mr-2"></i>AI is distributing tasks...</>
+                ) : (
+                  <><i className="fas fa-magic mr-2"></i>AI Auto-Assign</>
+                )}
+              </Button>
+            )}
+            {canManageTasks && (
+              <Button onClick={openCreate} data-testid="create-task-btn">
+                <i className="fas fa-plus mr-2"></i>New Task
+              </Button>
+            )}
+          </div>
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
@@ -402,6 +446,16 @@ export default function TaskManagement() {
                   <SelectItem value="unassigned">Unassigned</SelectItem>
                 </SelectContent>
               </Select>
+              <Select value={filterAIAssign} onValueChange={setFilterAIAssign}>
+                <SelectTrigger className="w-[160px]">
+                  <SelectValue placeholder="AI Filter" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Tasks</SelectItem>
+                  <SelectItem value="ai">AI Assigned</SelectItem>
+                  <SelectItem value="manual">Manually Assigned</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             <p className="text-sm text-muted-foreground">{filteredTasks.length} tasks found</p>
@@ -449,6 +503,21 @@ export default function TaskManagement() {
                                 {task.description && (
                                   <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{task.description}</p>
                                 )}
+                                {task.isAIAssigned && task.aiReasoning && (
+                                  <TooltipProvider>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <p className="text-xs text-primary/70 mt-0.5 cursor-help flex items-center gap-1">
+                                          <i className="fas fa-brain text-[10px]"></i>
+                                          <span className="line-clamp-1">{task.aiReasoning}</span>
+                                        </p>
+                                      </TooltipTrigger>
+                                      <TooltipContent side="bottom" className="max-w-xs">
+                                        <p className="text-xs"><strong>AI Reasoning:</strong> {task.aiReasoning}</p>
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </TooltipProvider>
+                                )}
                               </div>
                               <div className="flex items-center gap-1 flex-shrink-0">
                                 {canManageTasks && (
@@ -488,6 +557,11 @@ export default function TaskManagement() {
                               {task.choreZone && (
                                 <Badge variant="outline" className="text-[10px]">
                                   <i className="fas fa-map-pin mr-1"></i>{task.choreZone}
+                                </Badge>
+                              )}
+                              {task.isAIAssigned && (
+                                <Badge className="text-[10px] bg-primary/15 text-primary border border-primary/30">
+                                  <i className="fas fa-robot mr-1"></i>AI Assigned
                                 </Badge>
                               )}
                               {task.isRecurring && (

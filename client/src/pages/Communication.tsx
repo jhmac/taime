@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { useWebSocket } from '@/hooks/useWebSocket';
@@ -7,308 +7,723 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Switch } from '@/components/ui/switch';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
-import { apiRequest } from '@/lib/queryClient';
+import { apiRequest, queryClient } from '@/lib/queryClient';
 import { isUnauthorizedError } from '@/lib/authUtils';
+import {
+  MessageSquare, Users, Megaphone, Send, Plus, ChevronDown, ChevronRight,
+  Hash, ArrowLeft, Loader2, UserPlus
+} from 'lucide-react';
+
+function getInitials(firstName?: string | null, lastName?: string | null): string {
+  const f = firstName?.charAt(0)?.toUpperCase() || '';
+  const l = lastName?.charAt(0)?.toUpperCase() || '';
+  return f + l || '?';
+}
 
 export default function Communication() {
   const { user } = useAuth();
   const { lastMessage } = useWebSocket();
   const { toast } = useToast();
-  const queryClient = useQueryClient();
-  const [messageContent, setMessageContent] = useState('');
-  const [announcementContent, setAnnouncementContent] = useState('');
+  const qc = useQueryClient();
 
-  const { data: messages, isLoading: messagesLoading } = useQuery({
+  const [activeTab, setActiveTab] = useState('team');
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [groupMessage, setGroupMessage] = useState('');
+  const [directMessage, setDirectMessage] = useState('');
+  const [announcementContent, setAnnouncementContent] = useState('');
+  const [showMembers, setShowMembers] = useState(false);
+  const [createGroupOpen, setCreateGroupOpen] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
+  const [newGroupDescription, setNewGroupDescription] = useState('');
+  const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const dmEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (lastMessage?.type === 'message_created') {
+      qc.invalidateQueries({ queryKey: ['/api/messages'] });
+      if (selectedGroupId) {
+        qc.invalidateQueries({ queryKey: ['/api/groups', selectedGroupId, 'messages'] });
+      }
+    }
+  }, [lastMessage, qc, selectedGroupId]);
+
+  const { data: groups = [], isLoading: groupsLoading } = useQuery<any[]>({
+    queryKey: ['/api/groups'],
+  });
+
+  const { data: groupMessages = [], isLoading: groupMessagesLoading } = useQuery<any[]>({
+    queryKey: ['/api/groups', selectedGroupId, 'messages'],
+    enabled: !!selectedGroupId,
+  });
+
+  const { data: groupMembers = [] } = useQuery<any[]>({
+    queryKey: ['/api/groups', selectedGroupId, 'members'],
+    enabled: !!selectedGroupId,
+  });
+
+  const { data: allMessages = [], isLoading: messagesLoading } = useQuery<any[]>({
     queryKey: ['/api/messages'],
   });
 
-  const sendMessageMutation = useMutation({
-    mutationFn: async (data: { content: string; isAnnouncement: boolean; recipientId?: string }) => {
+  const { data: allUsers = [] } = useQuery<any[]>({
+    queryKey: ['/api/users'],
+  });
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [groupMessages]);
+
+  useEffect(() => {
+    dmEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [allMessages, selectedUserId]);
+
+  const handleMutationError = (error: Error) => {
+    if (isUnauthorizedError(error)) {
+      toast({ title: "Unauthorized", description: "You are logged out. Logging in again...", variant: "destructive" });
+      setTimeout(() => { window.location.href = "/api/login"; }, 500);
+      return;
+    }
+    toast({ title: "Error", description: "Something went wrong. Please try again.", variant: "destructive" });
+  };
+
+  const sendGroupMessageMutation = useMutation({
+    mutationFn: async (data: { content: string; groupId: string }) => {
       return await apiRequest('POST', '/api/messages', data);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/messages'] });
-      setMessageContent('');
-      setAnnouncementContent('');
-      toast({
-        title: "Message sent",
-        description: "Your message has been sent successfully.",
-      });
+      qc.invalidateQueries({ queryKey: ['/api/groups', selectedGroupId, 'messages'] });
+      setGroupMessage('');
     },
-    onError: (error: Error) => {
-      if (isUnauthorizedError(error)) {
-        toast({
-          title: "Unauthorized",
-          description: "You are logged out. Logging in again...",
-          variant: "destructive",
-        });
-        setTimeout(() => {
-          window.location.href = "/api/login";
-        }, 500);
-        return;
-      }
-      toast({
-        title: "Error",
-        description: "Failed to send message. Please try again.",
-        variant: "destructive",
-      });
-    },
+    onError: handleMutationError,
   });
 
-  // Update messages in real-time
-  useEffect(() => {
-    if (lastMessage?.type === 'message_created') {
-      queryClient.invalidateQueries({ queryKey: ['/api/messages'] });
-    }
-  }, [lastMessage, queryClient]);
+  const sendDirectMessageMutation = useMutation({
+    mutationFn: async (data: { content: string; recipientId: string }) => {
+      return await apiRequest('POST', '/api/messages', data);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['/api/messages'] });
+      setDirectMessage('');
+    },
+    onError: handleMutationError,
+  });
 
-  const handleSendMessage = () => {
-    if (!messageContent.trim()) return;
-    
-    sendMessageMutation.mutate({
-      content: messageContent,
-      isAnnouncement: false,
-    });
+  const sendAnnouncementMutation = useMutation({
+    mutationFn: async (data: { content: string; isAnnouncement: boolean }) => {
+      return await apiRequest('POST', '/api/messages', data);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['/api/messages'] });
+      setAnnouncementContent('');
+      toast({ title: "Announcement sent", description: "Your announcement has been posted." });
+    },
+    onError: handleMutationError,
+  });
+
+  const createGroupMutation = useMutation({
+    mutationFn: async (data: { name: string; description: string; memberIds: string[] }) => {
+      return await apiRequest('POST', '/api/groups', data);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['/api/groups'] });
+      setCreateGroupOpen(false);
+      setNewGroupName('');
+      setNewGroupDescription('');
+      setSelectedMemberIds([]);
+      toast({ title: "Group created", description: "Your new group has been created." });
+    },
+    onError: handleMutationError,
+  });
+
+  const handleSendGroupMessage = () => {
+    if (!groupMessage.trim() || !selectedGroupId) return;
+    sendGroupMessageMutation.mutate({ content: groupMessage, groupId: selectedGroupId });
+  };
+
+  const handleSendDirectMessage = () => {
+    if (!directMessage.trim() || !selectedUserId) return;
+    sendDirectMessageMutation.mutate({ content: directMessage, recipientId: selectedUserId });
   };
 
   const handleSendAnnouncement = () => {
     if (!announcementContent.trim()) return;
-    
-    sendMessageMutation.mutate({
-      content: announcementContent,
-      isAnnouncement: true,
-    });
+    sendAnnouncementMutation.mutate({ content: announcementContent, isAnnouncement: true });
   };
 
-  return (
-    <div className="min-h-screen bg-background">
-      <div className="p-4 md:p-6">
-        <Tabs defaultValue="feed" className="w-full">
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="feed">Team Feed</TabsTrigger>
-            <TabsTrigger value="chat">Direct Chat</TabsTrigger>
-            <TabsTrigger value="announcements">Announce</TabsTrigger>
-          </TabsList>
+  const handleCreateGroup = () => {
+    if (!newGroupName.trim()) return;
+    createGroupMutation.mutate({ name: newGroupName, description: newGroupDescription, memberIds: selectedMemberIds });
+  };
 
-          <TabsContent value="feed" className="space-y-4">
-            {/* Company Updates Feed */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center">
-                  <i className="fas fa-bullhorn text-primary mr-2"></i>
-                  Company Updates
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
+  const toggleMember = (id: string) => {
+    setSelectedMemberIds(prev => prev.includes(id) ? prev.filter(m => m !== id) : [...prev, id]);
+  };
+
+  const getUserName = (userId: string) => {
+    const u = allUsers.find((u: any) => u.id === userId);
+    return u ? `${u.firstName || ''} ${u.lastName || ''}`.trim() || 'Unknown' : 'Unknown';
+  };
+
+  const getUserInitials = (userId: string) => {
+    const u = allUsers.find((u: any) => u.id === userId);
+    return getInitials(u?.firstName, u?.lastName);
+  };
+
+  const announcements = allMessages.filter((m: any) => m.isAnnouncement);
+  const directMessages = allMessages.filter((m: any) => !m.isAnnouncement && !m.groupId);
+
+  const dmConversations = (() => {
+    const convMap = new Map<string, any>();
+    directMessages.forEach((msg: any) => {
+      const otherId = msg.senderId === user?.id ? msg.recipientId : msg.senderId;
+      if (!otherId) return;
+      const existing = convMap.get(otherId);
+      if (!existing || new Date(msg.createdAt) > new Date(existing.createdAt)) {
+        convMap.set(otherId, msg);
+      }
+    });
+    return Array.from(convMap.entries()).map(([userId, lastMsg]) => ({
+      userId,
+      lastMessage: lastMsg,
+      name: getUserName(userId),
+      initials: getUserInitials(userId),
+    })).sort((a, b) => new Date(b.lastMessage.createdAt).getTime() - new Date(a.lastMessage.createdAt).getTime());
+  })();
+
+  const selectedDmMessages = selectedUserId
+    ? directMessages.filter((m: any) =>
+        (m.senderId === user?.id && m.recipientId === selectedUserId) ||
+        (m.senderId === selectedUserId && m.recipientId === user?.id)
+      ).sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+    : [];
+
+  const selectedGroup = groups.find((g: any) => g.id === selectedGroupId);
+
+  return (
+    <div className="h-full flex flex-col bg-background">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col h-full">
+        <div className="px-4 pt-4 pb-2">
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="team" className="gap-1.5">
+              <Users className="h-4 w-4" />
+              <span className="hidden sm:inline">Team Chat</span>
+              <span className="sm:hidden">Team</span>
+            </TabsTrigger>
+            <TabsTrigger value="direct" className="gap-1.5">
+              <MessageSquare className="h-4 w-4" />
+              <span className="hidden sm:inline">Direct Messages</span>
+              <span className="sm:hidden">DMs</span>
+            </TabsTrigger>
+            <TabsTrigger value="announcements" className="gap-1.5">
+              <Megaphone className="h-4 w-4" />
+              <span className="hidden sm:inline">Announcements</span>
+              <span className="sm:hidden">Announce</span>
+            </TabsTrigger>
+          </TabsList>
+        </div>
+
+        <TabsContent value="team" className="flex-1 overflow-hidden mt-0 px-4 pb-4">
+          <div className="flex h-full gap-3">
+            <div className={`${selectedGroupId ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-72 shrink-0`}>
+              <Card className="flex-1 flex flex-col overflow-hidden">
+                <CardHeader className="py-3 px-4 flex-row items-center justify-between space-y-0">
+                  <CardTitle className="text-sm font-semibold">Groups</CardTitle>
+                  <Dialog open={createGroupOpen} onOpenChange={setCreateGroupOpen}>
+                    <DialogTrigger asChild>
+                      <Button variant="ghost" size="icon" className="h-8 w-8">
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Create Group</DialogTitle>
+                      </DialogHeader>
+                      <div className="space-y-4">
+                        <div>
+                          <Label>Group Name</Label>
+                          <Input
+                            placeholder="e.g. Morning Crew"
+                            value={newGroupName}
+                            onChange={(e) => setNewGroupName(e.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <Label>Description</Label>
+                          <Input
+                            placeholder="Optional description"
+                            value={newGroupDescription}
+                            onChange={(e) => setNewGroupDescription(e.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <Label>Add Members</Label>
+                          <ScrollArea className="h-48 border rounded-md p-2 mt-1">
+                            {allUsers
+                              .filter((u: any) => u.id !== user?.id)
+                              .map((u: any) => (
+                                <div key={u.id} className="flex items-center space-x-2 py-1.5">
+                                  <Checkbox
+                                    id={`member-${u.id}`}
+                                    checked={selectedMemberIds.includes(u.id)}
+                                    onCheckedChange={() => toggleMember(u.id)}
+                                  />
+                                  <label htmlFor={`member-${u.id}`} className="text-sm cursor-pointer flex items-center gap-2">
+                                    <Avatar className="h-6 w-6">
+                                      <AvatarFallback className="text-xs">{getInitials(u.firstName, u.lastName)}</AvatarFallback>
+                                    </Avatar>
+                                    {u.firstName} {u.lastName}
+                                  </label>
+                                </div>
+                              ))}
+                          </ScrollArea>
+                        </div>
+                      </div>
+                      <DialogFooter>
+                        <Button onClick={handleCreateGroup} disabled={!newGroupName.trim() || createGroupMutation.isPending}>
+                          {createGroupMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                          Create Group
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+                </CardHeader>
+                <ScrollArea className="flex-1">
+                  <div className="px-2 pb-2">
+                    {groupsLoading ? (
+                      <div className="space-y-2 p-2">
+                        {[...Array(3)].map((_, i) => (
+                          <Skeleton key={i} className="h-12 w-full rounded-lg" />
+                        ))}
+                      </div>
+                    ) : groups.length === 0 ? (
+                      <div className="text-center py-8 text-muted-foreground text-sm">
+                        <Users className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                        <p>No groups yet</p>
+                        <p className="text-xs mt-1">Create one to get started</p>
+                      </div>
+                    ) : (
+                      groups.map((group: any) => (
+                        <button
+                          key={group.id}
+                          onClick={() => setSelectedGroupId(group.id)}
+                          className={`w-full text-left p-3 rounded-lg mb-1 transition-colors flex items-center gap-3 ${
+                            selectedGroupId === group.id
+                              ? 'bg-primary/10 text-primary'
+                              : 'hover:bg-muted'
+                          }`}
+                        >
+                          <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                            <Hash className="h-4 w-4 text-primary" />
+                          </div>
+                          <div className="overflow-hidden">
+                            <p className="font-medium text-sm truncate">{group.name}</p>
+                            {group.description && (
+                              <p className="text-xs text-muted-foreground truncate">{group.description}</p>
+                            )}
+                          </div>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </ScrollArea>
+              </Card>
+            </div>
+
+            <div className={`${selectedGroupId ? 'flex' : 'hidden md:flex'} flex-col flex-1 min-w-0`}>
+              {selectedGroupId && selectedGroup ? (
+                <Card className="flex-1 flex flex-col overflow-hidden">
+                  <CardHeader className="py-3 px-4 border-b space-y-0">
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 md:hidden shrink-0"
+                        onClick={() => setSelectedGroupId(null)}
+                      >
+                        <ArrowLeft className="h-4 w-4" />
+                      </Button>
+                      <Hash className="h-4 w-4 text-primary shrink-0" />
+                      <CardTitle className="text-sm font-semibold truncate">{selectedGroup.name}</CardTitle>
+                      <div className="ml-auto">
+                        <Collapsible open={showMembers} onOpenChange={setShowMembers}>
+                          <CollapsibleTrigger asChild>
+                            <Button variant="ghost" size="sm" className="gap-1 text-xs">
+                              <UserPlus className="h-3.5 w-3.5" />
+                              <span className="hidden sm:inline">{groupMembers.length} members</span>
+                              {showMembers ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                            </Button>
+                          </CollapsibleTrigger>
+                        </Collapsible>
+                      </div>
+                    </div>
+                    <Collapsible open={showMembers} onOpenChange={setShowMembers}>
+                      <CollapsibleContent>
+                        <div className="flex flex-wrap gap-2 pt-2">
+                          {groupMembers.map((member: any) => (
+                            <Badge key={member.id} variant="secondary" className="gap-1">
+                              <Avatar className="h-4 w-4">
+                                <AvatarFallback className="text-[8px]">{getUserInitials(member.userId)}</AvatarFallback>
+                              </Avatar>
+                              {getUserName(member.userId)}
+                            </Badge>
+                          ))}
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
+                  </CardHeader>
+                  <ScrollArea className="flex-1 p-4">
+                    <div className="space-y-4">
+                      {groupMessagesLoading ? (
+                        <div className="space-y-3">
+                          {[...Array(3)].map((_, i) => (
+                            <div key={i} className="flex gap-3">
+                              <Skeleton className="h-8 w-8 rounded-full shrink-0" />
+                              <div className="space-y-1 flex-1">
+                                <Skeleton className="h-3 w-20" />
+                                <Skeleton className="h-10 w-3/4 rounded-lg" />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : groupMessages.length === 0 ? (
+                        <div className="text-center py-12 text-muted-foreground">
+                          <MessageSquare className="h-10 w-10 mx-auto mb-3 opacity-40" />
+                          <p className="text-sm">No messages yet</p>
+                          <p className="text-xs mt-1">Start the conversation!</p>
+                        </div>
+                      ) : (
+                        groupMessages.map((msg: any) => {
+                          const isMine = msg.senderId === user?.id;
+                          return (
+                            <div key={msg.id} className={`flex gap-2 ${isMine ? 'flex-row-reverse' : ''}`}>
+                              {!isMine && (
+                                <Avatar className="h-8 w-8 shrink-0">
+                                  <AvatarFallback className="text-xs">{getUserInitials(msg.senderId)}</AvatarFallback>
+                                </Avatar>
+                              )}
+                              <div className={`max-w-[75%] ${isMine ? 'items-end' : 'items-start'} flex flex-col`}>
+                                {!isMine && (
+                                  <span className="text-xs text-muted-foreground mb-0.5 px-1">{getUserName(msg.senderId)}</span>
+                                )}
+                                <div className={`rounded-2xl px-3 py-2 text-sm ${
+                                  isMine
+                                    ? 'bg-primary text-primary-foreground rounded-br-md'
+                                    : 'bg-muted rounded-bl-md'
+                                }`}>
+                                  {msg.content}
+                                </div>
+                                <span className="text-[10px] text-muted-foreground mt-0.5 px-1">
+                                  {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                      <div ref={messagesEndRef} />
+                    </div>
+                  </ScrollArea>
+                  <div className="p-3 border-t">
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="Type a message..."
+                        value={groupMessage}
+                        onChange={(e) => setGroupMessage(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSendGroupMessage()}
+                      />
+                      <Button
+                        size="icon"
+                        onClick={handleSendGroupMessage}
+                        disabled={!groupMessage.trim() || sendGroupMessageMutation.isPending}
+                      >
+                        {sendGroupMessageMutation.isPending ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Send className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                </Card>
+              ) : (
+                <Card className="flex-1 flex items-center justify-center">
+                  <div className="text-center text-muted-foreground">
+                    <Hash className="h-12 w-12 mx-auto mb-3 opacity-30" />
+                    <p className="font-medium">Select a group</p>
+                    <p className="text-sm mt-1">Choose a group from the sidebar to start chatting</p>
+                  </div>
+                </Card>
+              )}
+            </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="direct" className="flex-1 overflow-hidden mt-0 px-4 pb-4">
+          <div className="flex h-full gap-3">
+            <div className={`${selectedUserId ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-72 shrink-0`}>
+              <Card className="flex-1 flex flex-col overflow-hidden">
+                <CardHeader className="py-3 px-4">
+                  <CardTitle className="text-sm font-semibold">Conversations</CardTitle>
+                </CardHeader>
+                <ScrollArea className="flex-1">
+                  <div className="px-2 pb-2">
+                    {messagesLoading ? (
+                      <div className="space-y-2 p-2">
+                        {[...Array(3)].map((_, i) => (
+                          <Skeleton key={i} className="h-14 w-full rounded-lg" />
+                        ))}
+                      </div>
+                    ) : dmConversations.length === 0 ? (
+                      <div className="text-center py-8 text-muted-foreground text-sm">
+                        <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                        <p>No conversations yet</p>
+                        <p className="text-xs mt-1">Select a team member below to start</p>
+                        <div className="mt-4 space-y-1">
+                          {allUsers
+                            .filter((u: any) => u.id !== user?.id)
+                            .slice(0, 5)
+                            .map((u: any) => (
+                              <button
+                                key={u.id}
+                                onClick={() => setSelectedUserId(u.id)}
+                                className="w-full text-left p-2 rounded-lg hover:bg-muted flex items-center gap-2"
+                              >
+                                <Avatar className="h-7 w-7">
+                                  <AvatarFallback className="text-xs">{getInitials(u.firstName, u.lastName)}</AvatarFallback>
+                                </Avatar>
+                                <span className="text-sm">{u.firstName} {u.lastName}</span>
+                              </button>
+                            ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        {dmConversations.map((conv) => (
+                          <button
+                            key={conv.userId}
+                            onClick={() => setSelectedUserId(conv.userId)}
+                            className={`w-full text-left p-3 rounded-lg mb-1 transition-colors flex items-center gap-3 ${
+                              selectedUserId === conv.userId
+                                ? 'bg-primary/10 text-primary'
+                                : 'hover:bg-muted'
+                            }`}
+                          >
+                            <Avatar className="h-9 w-9 shrink-0">
+                              <AvatarFallback className="text-xs">{conv.initials}</AvatarFallback>
+                            </Avatar>
+                            <div className="overflow-hidden flex-1">
+                              <p className="font-medium text-sm truncate">{conv.name}</p>
+                              <p className="text-xs text-muted-foreground truncate">{conv.lastMessage.content}</p>
+                            </div>
+                            <span className="text-[10px] text-muted-foreground shrink-0">
+                              {new Date(conv.lastMessage.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </button>
+                        ))}
+                        <div className="border-t mt-2 pt-2">
+                          <p className="text-xs text-muted-foreground px-2 mb-1">Start new conversation</p>
+                          {allUsers
+                            .filter((u: any) => u.id !== user?.id && !dmConversations.find(c => c.userId === u.id))
+                            .map((u: any) => (
+                              <button
+                                key={u.id}
+                                onClick={() => setSelectedUserId(u.id)}
+                                className="w-full text-left p-2 rounded-lg hover:bg-muted flex items-center gap-2"
+                              >
+                                <Avatar className="h-7 w-7">
+                                  <AvatarFallback className="text-xs">{getInitials(u.firstName, u.lastName)}</AvatarFallback>
+                                </Avatar>
+                                <span className="text-sm">{u.firstName} {u.lastName}</span>
+                              </button>
+                            ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </ScrollArea>
+              </Card>
+            </div>
+
+            <div className={`${selectedUserId ? 'flex' : 'hidden md:flex'} flex-col flex-1 min-w-0`}>
+              {selectedUserId ? (
+                <Card className="flex-1 flex flex-col overflow-hidden">
+                  <CardHeader className="py-3 px-4 border-b space-y-0">
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 md:hidden shrink-0"
+                        onClick={() => setSelectedUserId(null)}
+                      >
+                        <ArrowLeft className="h-4 w-4" />
+                      </Button>
+                      <Avatar className="h-8 w-8 shrink-0">
+                        <AvatarFallback className="text-xs">{getUserInitials(selectedUserId)}</AvatarFallback>
+                      </Avatar>
+                      <CardTitle className="text-sm font-semibold">{getUserName(selectedUserId)}</CardTitle>
+                    </div>
+                  </CardHeader>
+                  <ScrollArea className="flex-1 p-4">
+                    <div className="space-y-4">
+                      {selectedDmMessages.length === 0 ? (
+                        <div className="text-center py-12 text-muted-foreground">
+                          <MessageSquare className="h-10 w-10 mx-auto mb-3 opacity-40" />
+                          <p className="text-sm">No messages yet</p>
+                          <p className="text-xs mt-1">Say hello!</p>
+                        </div>
+                      ) : (
+                        selectedDmMessages.map((msg: any) => {
+                          const isMine = msg.senderId === user?.id;
+                          return (
+                            <div key={msg.id} className={`flex gap-2 ${isMine ? 'flex-row-reverse' : ''}`}>
+                              {!isMine && (
+                                <Avatar className="h-8 w-8 shrink-0">
+                                  <AvatarFallback className="text-xs">{getUserInitials(msg.senderId)}</AvatarFallback>
+                                </Avatar>
+                              )}
+                              <div className={`max-w-[75%] ${isMine ? 'items-end' : 'items-start'} flex flex-col`}>
+                                <div className={`rounded-2xl px-3 py-2 text-sm ${
+                                  isMine
+                                    ? 'bg-primary text-primary-foreground rounded-br-md'
+                                    : 'bg-muted rounded-bl-md'
+                                }`}>
+                                  {msg.content}
+                                </div>
+                                <span className="text-[10px] text-muted-foreground mt-0.5 px-1">
+                                  {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                      <div ref={dmEndRef} />
+                    </div>
+                  </ScrollArea>
+                  <div className="p-3 border-t">
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="Type a message..."
+                        value={directMessage}
+                        onChange={(e) => setDirectMessage(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSendDirectMessage()}
+                      />
+                      <Button
+                        size="icon"
+                        onClick={handleSendDirectMessage}
+                        disabled={!directMessage.trim() || sendDirectMessageMutation.isPending}
+                      >
+                        {sendDirectMessageMutation.isPending ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Send className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                </Card>
+              ) : (
+                <Card className="flex-1 flex items-center justify-center">
+                  <div className="text-center text-muted-foreground">
+                    <MessageSquare className="h-12 w-12 mx-auto mb-3 opacity-30" />
+                    <p className="font-medium">Select a conversation</p>
+                    <p className="text-sm mt-1">Choose a contact to start messaging</p>
+                  </div>
+                </Card>
+              )}
+            </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="announcements" className="flex-1 overflow-hidden mt-0 px-4 pb-4">
+          <Card className="h-full flex flex-col overflow-hidden">
+            <CardHeader className="py-3 px-4 border-b space-y-0 flex-row items-center justify-between">
+              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                <Megaphone className="h-4 w-4 text-primary" />
+                Announcements
+              </CardTitle>
+              {(user as any)?.role?.name === 'admin' || (user as any)?.roleId ? (
+                <Badge variant="outline" className="text-xs">Admin</Badge>
+              ) : null}
+            </CardHeader>
+
+            {(user as any)?.role?.name === 'admin' && (
+              <div className="p-4 border-b">
+                <Textarea
+                  placeholder="Write an announcement..."
+                  value={announcementContent}
+                  onChange={(e) => setAnnouncementContent(e.target.value)}
+                  className="min-h-20 mb-2"
+                />
+                <Button
+                  onClick={handleSendAnnouncement}
+                  disabled={!announcementContent.trim() || sendAnnouncementMutation.isPending}
+                  className="w-full"
+                >
+                  {sendAnnouncementMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : (
+                    <Megaphone className="h-4 w-4 mr-2" />
+                  )}
+                  Post Announcement
+                </Button>
+              </div>
+            )}
+
+            <ScrollArea className="flex-1 p-4">
+              <div className="space-y-4">
                 {messagesLoading ? (
                   <div className="space-y-3">
                     {[...Array(3)].map((_, i) => (
-                      <div key={i} className="animate-pulse">
-                        <div className="flex space-x-3">
-                          <div className="w-8 h-8 bg-muted rounded-full"></div>
-                          <div className="flex-1 space-y-1">
-                            <div className="h-3 bg-muted rounded w-1/4"></div>
-                            <div className="h-4 bg-muted rounded w-3/4"></div>
-                          </div>
-                        </div>
-                      </div>
+                      <Skeleton key={i} className="h-20 w-full rounded-lg" />
                     ))}
                   </div>
-                ) : messages?.filter((msg: any) => msg.isAnnouncement).length === 0 ? (
-                  <div className="text-center py-8">
-                    <i className="fas fa-bullhorn text-muted-foreground text-2xl mb-2"></i>
-                    <p className="text-muted-foreground">No announcements yet</p>
+                ) : announcements.length === 0 ? (
+                  <div className="text-center py-12 text-muted-foreground">
+                    <Megaphone className="h-10 w-10 mx-auto mb-3 opacity-40" />
+                    <p className="text-sm">No announcements yet</p>
                   </div>
                 ) : (
-                  <div className="space-y-4">
-                    {messages
-                      ?.filter((msg: any) => msg.isAnnouncement)
-                      .slice(0, 10)
-                      .map((message: any) => (
-                        <div key={message.id} className="flex space-x-3 p-3 bg-muted/30 rounded-lg">
-                          <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center flex-shrink-0">
-                            <i className="fas fa-building text-primary-foreground text-xs"></i>
-                          </div>
-                          <div className="flex-1">
+                  announcements
+                    .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+                    .map((msg: any) => (
+                      <div key={msg.id} className="p-4 bg-muted/40 rounded-lg border">
+                        <div className="flex items-start gap-3">
+                          <Avatar className="h-9 w-9 shrink-0">
+                            <AvatarFallback className="text-xs bg-primary text-primary-foreground">
+                              {getUserInitials(msg.senderId)}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="flex-1 min-w-0">
                             <div className="flex items-center justify-between mb-1">
-                              <p className="font-medium text-sm">Company Announcement</p>
+                              <p className="font-medium text-sm">{getUserName(msg.senderId)}</p>
                               <span className="text-xs text-muted-foreground">
-                                {new Date(message.createdAt).toLocaleDateString()}
+                                {new Date(msg.createdAt).toLocaleDateString()} {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                               </span>
                             </div>
-                            <p className="text-sm text-foreground">{message.content}</p>
+                            <p className="text-sm text-foreground whitespace-pre-wrap">{msg.content}</p>
                           </div>
                         </div>
-                      ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Team Activity */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center">
-                  <i className="fas fa-users text-primary mr-2"></i>
-                  Recent Team Activity
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {/* This would be populated with real-time team activity data */}
-                  <div className="text-center py-4">
-                    <i className="fas fa-clock text-muted-foreground text-xl mb-2"></i>
-                    <p className="text-muted-foreground text-sm">Team activity will appear here</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="chat" className="space-y-4">
-            {/* Direct Messages */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Direct Messages</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="flex space-x-2">
-                    <Input
-                      placeholder="Type your message..."
-                      value={messageContent}
-                      onChange={(e) => setMessageContent(e.target.value)}
-                      onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-                      data-testid="message-input"
-                    />
-                    <Button
-                      onClick={handleSendMessage}
-                      disabled={!messageContent.trim() || sendMessageMutation.isPending}
-                      data-testid="send-message-button"
-                    >
-                      {sendMessageMutation.isPending ? (
-                        <i className="fas fa-spinner fa-spin"></i>
-                      ) : (
-                        <i className="fas fa-paper-plane"></i>
-                      )}
-                    </Button>
-                  </div>
-
-                  {/* Chat Messages */}
-                  <div className="space-y-3 max-h-96 overflow-y-auto">
-                    {messages?.filter((msg: any) => !msg.isAnnouncement).length === 0 ? (
-                      <div className="text-center py-8">
-                        <i className="fas fa-comments text-muted-foreground text-2xl mb-2"></i>
-                        <p className="text-muted-foreground">No messages yet. Start a conversation!</p>
                       </div>
-                    ) : (
-                      messages
-                        ?.filter((msg: any) => !msg.isAnnouncement)
-                        .map((message: any) => (
-                          <div key={message.id} className="flex space-x-3">
-                            <img 
-                              src={`https://api.dicebear.com/7.x/initials/svg?seed=${message.senderId}`}
-                              alt="Sender avatar"
-                              className="w-8 h-8 rounded-full"
-                            />
-                            <div className="flex-1">
-                              <div className="bg-muted rounded-lg p-3">
-                                <p className="text-sm">{message.content}</p>
-                              </div>
-                              <p className="text-xs text-muted-foreground mt-1">
-                                {new Date(message.createdAt).toLocaleString()}
-                              </p>
-                            </div>
-                          </div>
-                        ))
-                    )}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="announcements" className="space-y-4">
-            {user?.role === 'admin' ? (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-base">Send Announcement</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <Textarea
-                    placeholder="Write your announcement here..."
-                    value={announcementContent}
-                    onChange={(e) => setAnnouncementContent(e.target.value)}
-                    className="min-h-24"
-                    data-testid="announcement-textarea"
-                  />
-                  
-                  <div className="flex items-center space-x-2">
-                    <Switch data-testid="announcement-priority" />
-                    <label className="text-sm">High Priority</label>
-                  </div>
-
-                  <Button
-                    onClick={handleSendAnnouncement}
-                    disabled={!announcementContent.trim() || sendMessageMutation.isPending}
-                    className="w-full"
-                    data-testid="send-announcement-button"
-                  >
-                    {sendMessageMutation.isPending ? (
-                      <>
-                        <i className="fas fa-spinner fa-spin mr-2"></i>
-                        Sending...
-                      </>
-                    ) : (
-                      <>
-                        <i className="fas fa-bullhorn mr-2"></i>
-                        Send Announcement
-                      </>
-                    )}
-                  </Button>
-                </CardContent>
-              </Card>
-            ) : (
-              <Card>
-                <CardContent className="p-8 text-center">
-                  <i className="fas fa-lock text-muted-foreground text-2xl mb-2"></i>
-                  <p className="text-muted-foreground">Admin access required to send announcements</p>
-                </CardContent>
-              </Card>
-            )}
-          </TabsContent>
-        </Tabs>
-
-        {/* Communication Settings */}
-        <Card className="mt-4">
-          <CardHeader>
-            <CardTitle className="text-base flex items-center">
-              <i className="fas fa-cog text-primary mr-2"></i>
-              Notification Settings
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-sm">Push Notifications</span>
-              <Switch defaultChecked data-testid="push-notifications-toggle" />
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm">Clock Reminders</span>
-              <Switch defaultChecked data-testid="clock-reminders-toggle" />
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm">Task Notifications</span>
-              <Switch defaultChecked data-testid="task-notifications-toggle" />
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-sm">Team Updates</span>
-              <Switch defaultChecked data-testid="team-updates-toggle" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+                    ))
+                )}
+              </div>
+            </ScrollArea>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

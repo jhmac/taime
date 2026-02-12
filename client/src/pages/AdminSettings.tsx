@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import type { WorkLocation, CompanySettings, ActivityLog } from '@shared/schema';
+import NotificationSettings from '@/components/NotificationSettings';
 
 const TIMEZONES = [
   'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
@@ -371,9 +372,10 @@ export default function AdminSettings() {
         </div>
 
         <Tabs defaultValue="company" className="w-full">
-          <TabsList className={isMobile ? "grid w-full grid-cols-4 mb-4" : "mb-4"}>
+          <TabsList className={isMobile ? "grid w-full grid-cols-5 mb-4" : "mb-4"}>
             <TabsTrigger value="company">Company</TabsTrigger>
             <TabsTrigger value="locations">Locations</TabsTrigger>
+            <TabsTrigger value="notifications"><i className="fas fa-bell mr-1"></i>Alerts</TabsTrigger>
             <TabsTrigger value="activity">Activity</TabsTrigger>
             <TabsTrigger value="shopify"><i className="fab fa-shopify mr-1"></i>Shopify</TabsTrigger>
           </TabsList>
@@ -721,6 +723,12 @@ export default function AdminSettings() {
                 )}
               </DialogContent>
             </Dialog>
+          </TabsContent>
+
+          <TabsContent value="notifications">
+            <div className={isMobile ? "space-y-4" : "max-w-2xl"}>
+              <NotificationSettings />
+            </div>
           </TabsContent>
 
           <TabsContent value="activity">

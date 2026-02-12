@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { storage } from "./storage";
 import { setupAuth, requireAuth as isAuthenticated } from "./streamlinedAuth";
-import { users, shops, userShops, shopifyDailySales } from "@shared/schema";
+import { users, shops, userShops, shopifyDailySales, companySettings } from "@shared/schema";
 import { eq, and, gte, lte, desc } from "drizzle-orm";
 import { db } from "./db";
 import { claudeService } from "./services/claudeService";
@@ -377,6 +377,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post('/api/ai/detect-anomalies', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canView = userPermissions.some(p => p.name === 'hr.view_team' || p.name === 'admin.manage_all');
+
+      if (!canView) {
+        return res.status(403).json({ message: "HR or admin access required" });
+      }
+
+      const endDate = new Date();
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - 30);
+
+      const timeEntriesData = await storage.getAllTimeEntries(startDate, endDate);
+      const allUsers = await db.select().from(users);
+      const userMap: Record<string, string> = {};
+      allUsers.forEach(u => {
+        userMap[u.id] = `${u.firstName || ''} ${u.lastName || ''}`.trim() || 'Unknown';
+      });
+
+      const formattedEntries = timeEntriesData.map(entry => ({
+        userId: entry.userId,
+        clockInTime: entry.clockInTime.toISOString(),
+        clockOutTime: entry.clockOutTime?.toISOString() || '',
+        breakMinutes: entry.breakMinutes || 0,
+        locationId: entry.locationId || '',
+      }));
+
+      const result = await claudeService.detectAnomalies({
+        timeEntries: formattedEntries,
+        historicalPatterns: {},
+      });
+
+      for (const anomaly of result.anomalies) {
+        await storage.createAIInsight({
+          type: 'anomaly_detected',
+          userId: anomaly.userId || null,
+          title: anomaly.type,
+          description: `${anomaly.description} — Recommendation: ${anomaly.recommendation}`,
+          severity: anomaly.severity === 'high' ? 'critical' : anomaly.severity === 'medium' ? 'warning' : 'info',
+          isRead: false,
+          metadata: { recommendation: anomaly.recommendation, detectedAt: new Date().toISOString() },
+        });
+      }
+
+      res.json({ anomalies: result.anomalies, patterns: result.patterns });
+    } catch (error) {
+      console.error("Error detecting anomalies:", error);
+      res.status(500).json({ message: "Failed to detect anomalies" });
+    }
+  });
+
   // Availability routes
   app.post('/api/availability', isAuthenticated, async (req: any, res) => {
     try {
@@ -610,6 +663,99 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get('/api/payroll/export', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canManage = userPermissions.some(p => p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all');
+
+      if (!canManage) {
+        return res.status(403).json({ message: "Payroll management access required" });
+      }
+
+      const { startDate, endDate } = req.query;
+      if (!startDate || !endDate) {
+        return res.status(400).json({ message: "startDate and endDate query parameters are required" });
+      }
+
+      const start = new Date(startDate as string);
+      const end = new Date(endDate as string);
+
+      const timeEntriesData = await storage.getAllTimeEntries(start, end);
+      const allUsers = await db.select().from(users);
+      const [settings] = await db.select().from(companySettings).limit(1);
+
+      const overtimeThreshold = settings?.overtimeThresholdHours || 40;
+      const overtimeMultiplier = parseFloat(settings?.overtimeMultiplier || "1.50");
+
+      const employeeMap: Record<string, {
+        name: string;
+        email: string;
+        totalHours: number;
+        breakMinutes: number;
+        hourlyRate: number;
+      }> = {};
+
+      for (const entry of timeEntriesData) {
+        if (!entry.clockOutTime) continue;
+
+        const clockIn = new Date(entry.clockInTime);
+        const clockOut = new Date(entry.clockOutTime);
+        const breakMins = entry.breakMinutes || 0;
+        const workedHours = (clockOut.getTime() - clockIn.getTime()) / (1000 * 60 * 60) - breakMins / 60;
+
+        if (!employeeMap[entry.userId]) {
+          const user = allUsers.find(u => u.id === entry.userId);
+          employeeMap[entry.userId] = {
+            name: user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() : 'Unknown',
+            email: user?.email || '',
+            totalHours: 0,
+            breakMinutes: 0,
+            hourlyRate: parseFloat(user?.hourlyRate || "0"),
+          };
+        }
+
+        employeeMap[entry.userId].totalHours += Math.max(0, workedHours);
+        employeeMap[entry.userId].breakMinutes += breakMins;
+      }
+
+      const csvHeaders = [
+        'Employee Name', 'Email', 'Total Hours', 'Regular Hours', 'Overtime Hours',
+        'Break Minutes', 'Hourly Rate', 'Regular Pay', 'Overtime Pay', 'Total Pay'
+      ];
+
+      const csvRows = Object.values(employeeMap).map(emp => {
+        const regularHours = Math.min(emp.totalHours, overtimeThreshold);
+        const overtimeHours = Math.max(0, emp.totalHours - overtimeThreshold);
+        const regularPay = regularHours * emp.hourlyRate;
+        const overtimePay = overtimeHours * emp.hourlyRate * overtimeMultiplier;
+        const totalPay = regularPay + overtimePay;
+
+        return [
+          `"${emp.name}"`,
+          `"${emp.email}"`,
+          emp.totalHours.toFixed(2),
+          regularHours.toFixed(2),
+          overtimeHours.toFixed(2),
+          emp.breakMinutes.toString(),
+          emp.hourlyRate.toFixed(2),
+          regularPay.toFixed(2),
+          overtimePay.toFixed(2),
+          totalPay.toFixed(2),
+        ].join(',');
+      });
+
+      const csv = [csvHeaders.join(','), ...csvRows].join('\n');
+
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename=payroll_export_${startDate}_${endDate}.csv`);
+      res.send(csv);
+    } catch (error) {
+      console.error("Error exporting payroll:", error);
+      res.status(500).json({ message: "Failed to export payroll data" });
+    }
+  });
+
   app.get('/api/payroll/periods/:id/workflow-logs', isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
@@ -830,6 +976,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error creating push subscription:", error);
       res.status(400).json({ message: (error as Error).message });
+    }
+  });
+
+  app.post('/api/push/test', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      await notificationService.sendToUser(userId, {
+        title: '🔔 Test Notification',
+        body: 'This is a test push notification from ClockSync AI. If you see this, notifications are working!',
+        data: { type: 'test' },
+      });
+      res.json({ success: true, message: 'Test notification sent' });
+    } catch (error) {
+      console.error("Error sending test notification:", error);
+      res.status(500).json({ message: "Failed to send test notification" });
     }
   });
 
@@ -2067,6 +2228,231 @@ Keep your response concise, practical, and focused on actionable staffing advice
     } catch (error) {
       console.error("Error generating staffing recommendations:", error);
       res.status(500).json({ message: "Failed to generate staffing recommendations" });
+    }
+  });
+
+  // Labor cost ratio against Shopify revenue
+  app.get("/api/shopify/labor-cost-ratio", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canView = userPermissions.some(p => p.name === 'admin.manage_all');
+
+      if (!canView) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const shopDomain = req.query.shop as string;
+      if (!shopDomain) {
+        return res.status(400).json({ error: "Shop domain required" });
+      }
+
+      const daysBack = parseInt(req.query.daysBack as string || '30');
+      const now = new Date();
+      const startDate = new Date(now.getTime() - daysBack * 24 * 60 * 60 * 1000);
+      startDate.setHours(0, 0, 0, 0);
+
+      const salesData = await db.select()
+        .from(shopifyDailySales)
+        .where(and(
+          eq(shopifyDailySales.shopDomain, shopDomain.toLowerCase().trim()),
+          gte(shopifyDailySales.date, startDate)
+        ))
+        .orderBy(shopifyDailySales.date);
+
+      const allTimeEntries = await storage.getAllTimeEntries(startDate, now);
+      const allUsers = await db.select().from(users).where(eq(users.isActive, true));
+
+      const userRateMap = new Map<string, number>();
+      allUsers.forEach(u => {
+        userRateMap.set(u.id, parseFloat(u.hourlyRate || '15'));
+      });
+
+      const revenueByDate = new Map<string, number>();
+      for (const day of salesData) {
+        const dateKey = new Date(day.date).toISOString().split('T')[0];
+        revenueByDate.set(dateKey, (revenueByDate.get(dateKey) || 0) + parseFloat(day.totalRevenue || '0'));
+      }
+
+      const laborByDate = new Map<string, number>();
+      for (const entry of allTimeEntries) {
+        if (!entry.clockOutTime) continue;
+        const clockIn = new Date(entry.clockInTime);
+        const clockOut = new Date(entry.clockOutTime);
+        const hours = Math.max(0, (clockOut.getTime() - clockIn.getTime()) / 3600000 - (entry.breakMinutes || 0) / 60);
+        const rate = userRateMap.get(entry.userId) || 15;
+        const dateKey = clockIn.toISOString().split('T')[0];
+        laborByDate.set(dateKey, (laborByDate.get(dateKey) || 0) + hours * rate);
+      }
+
+      const allDates = new Set([...revenueByDate.keys(), ...laborByDate.keys()]);
+      const dailyBreakdown = Array.from(allDates)
+        .sort()
+        .map(date => {
+          const revenue = Math.round((revenueByDate.get(date) || 0) * 100) / 100;
+          const laborCost = Math.round((laborByDate.get(date) || 0) * 100) / 100;
+          const percentage = revenue > 0 ? Math.round((laborCost / revenue) * 10000) / 100 : 0;
+          return { date, revenue, laborCost, percentage };
+        });
+
+      const totalRevenue = dailyBreakdown.reduce((sum, d) => sum + d.revenue, 0);
+      const totalLaborCost = dailyBreakdown.reduce((sum, d) => sum + d.laborCost, 0);
+      const laborCostPercentage = totalRevenue > 0
+        ? Math.round((totalLaborCost / totalRevenue) * 10000) / 100
+        : 0;
+
+      res.json({
+        totalRevenue: Math.round(totalRevenue * 100) / 100,
+        totalLaborCost: Math.round(totalLaborCost * 100) / 100,
+        laborCostPercentage,
+        daysBack,
+        dailyBreakdown,
+      });
+    } catch (error) {
+      console.error("Error calculating labor cost ratio:", error);
+      res.status(500).json({ message: "Failed to calculate labor cost ratio" });
+    }
+  });
+
+  // Analytics dashboard endpoint
+  app.get('/api/analytics/dashboard', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canView = userPermissions.some(p => p.name === 'hr.view_team' || p.name === 'admin.manage_all');
+
+      if (!canView) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const now = new Date();
+      const thirtyDaysAgo = new Date(now);
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      thirtyDaysAgo.setHours(0, 0, 0, 0);
+
+      const todayStart = new Date(now);
+      todayStart.setHours(0, 0, 0, 0);
+      const todayEnd = new Date(now);
+      todayEnd.setHours(23, 59, 59, 999);
+
+      const weekStart = new Date(now);
+      weekStart.setDate(now.getDate() - now.getDay());
+      weekStart.setHours(0, 0, 0, 0);
+
+      const allTimeEntries = await storage.getAllTimeEntries(thirtyDaysAgo, now);
+      const allUsers = await db.select().from(users).where(eq(users.isActive, true));
+      const allSchedules = await storage.getAllSchedules(thirtyDaysAgo, now);
+      const allTasks = await storage.getAllTasks();
+
+      const userRateMap = new Map<string, number>();
+      allUsers.forEach(u => {
+        userRateMap.set(u.id, parseFloat(u.hourlyRate || '15'));
+      });
+
+      const dayMap = new Map<string, { totalHours: number; totalCost: number; employees: Set<string> }>();
+      for (let d = new Date(thirtyDaysAgo); d <= now; d.setDate(d.getDate() + 1)) {
+        const key = d.toISOString().split('T')[0];
+        dayMap.set(key, { totalHours: 0, totalCost: 0, employees: new Set() });
+      }
+
+      allTimeEntries.forEach(entry => {
+        if (!entry.clockOutTime) return;
+        const clockIn = new Date(entry.clockInTime);
+        const clockOut = new Date(entry.clockOutTime);
+        const hours = Math.max(0, (clockOut.getTime() - clockIn.getTime()) / 3600000 - (entry.breakMinutes || 0) / 60);
+        const dateKey = clockIn.toISOString().split('T')[0];
+        const rate = userRateMap.get(entry.userId) || 15;
+        const dayData = dayMap.get(dateKey);
+        if (dayData) {
+          dayData.totalHours += hours;
+          dayData.totalCost += hours * rate;
+          dayData.employees.add(entry.userId);
+        }
+      });
+
+      const laborCostByDay = Array.from(dayMap.entries())
+        .map(([date, data]) => ({
+          date,
+          totalHours: Math.round(data.totalHours * 100) / 100,
+          totalCost: Math.round(data.totalCost * 100) / 100,
+          employeeCount: data.employees.size,
+        }))
+        .sort((a, b) => a.date.localeCompare(b.date));
+
+      let onTime = 0;
+      let late = 0;
+      const scheduleMap = new Map<string, Date[]>();
+      allSchedules.forEach(s => {
+        const key = `${s.userId}_${new Date(s.startTime).toISOString().split('T')[0]}`;
+        if (!scheduleMap.has(key)) scheduleMap.set(key, []);
+        scheduleMap.get(key)!.push(new Date(s.startTime));
+      });
+
+      allTimeEntries.forEach(entry => {
+        const clockIn = new Date(entry.clockInTime);
+        const key = `${entry.userId}_${clockIn.toISOString().split('T')[0]}`;
+        const scheduledStarts = scheduleMap.get(key);
+        if (scheduledStarts && scheduledStarts.length > 0) {
+          const closest = scheduledStarts.reduce((prev, curr) =>
+            Math.abs(curr.getTime() - clockIn.getTime()) < Math.abs(prev.getTime() - clockIn.getTime()) ? curr : prev
+          );
+          const diffMinutes = (clockIn.getTime() - closest.getTime()) / 60000;
+          if (diffMinutes <= 5) {
+            onTime++;
+          } else {
+            late++;
+          }
+        }
+      });
+
+      const punctualityTotal = onTime + late;
+      const punctualityScore = {
+        onTime,
+        late,
+        total: punctualityTotal,
+        percentage: punctualityTotal > 0 ? Math.round((onTime / punctualityTotal) * 100) : 100,
+      };
+
+      const weekTasks = allTasks.filter(t => {
+        const created = new Date(t.createdAt!);
+        return created >= weekStart;
+      });
+      const completedTasks = weekTasks.filter(t => t.status === 'completed').length;
+      const taskCompletion = {
+        completed: completedTasks,
+        total: weekTasks.length,
+        percentage: weekTasks.length > 0 ? Math.round((completedTasks / weekTasks.length) * 100) : 0,
+      };
+
+      const activeEntries = allTimeEntries.filter(e => !e.clockOutTime);
+      const todayEntries = allTimeEntries.filter(e => {
+        const clockIn = new Date(e.clockInTime);
+        return clockIn >= todayStart && clockIn <= todayEnd;
+      });
+      let totalHoursToday = 0;
+      todayEntries.forEach(e => {
+        const clockIn = new Date(e.clockInTime);
+        const clockOut = e.clockOutTime ? new Date(e.clockOutTime) : now;
+        totalHoursToday += Math.max(0, (clockOut.getTime() - clockIn.getTime()) / 3600000 - (e.breakMinutes || 0) / 60);
+      });
+
+      const todayTasks = allTasks.filter(t => {
+        if (!t.completedAt) return false;
+        const completed = new Date(t.completedAt);
+        return completed >= todayStart && completed <= todayEnd;
+      });
+
+      const teamSummary = {
+        activeNow: activeEntries.length,
+        totalHoursToday: Math.round(totalHoursToday * 10) / 10,
+        tasksCompletedToday: todayTasks.length,
+        totalEmployees: allUsers.length,
+      };
+
+      res.json({ laborCostByDay, punctualityScore, taskCompletion, teamSummary });
+    } catch (error) {
+      console.error("Error fetching analytics dashboard:", error);
+      res.status(500).json({ message: "Failed to fetch analytics data" });
     }
   });
 

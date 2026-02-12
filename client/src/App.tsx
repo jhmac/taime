@@ -22,7 +22,9 @@ import PayrollSetupModal from "@/components/PayrollSetupModal";
 import { usePayrollSetup } from "@/hooks/usePayrollSetup";
 import AdminSettings from "@/pages/AdminSettings";
 import TaskManagement from "@/pages/TaskManagement";
+import Analytics from "@/pages/Analytics";
 import NotFound from "@/pages/not-found";
+import OfflineIndicator from "@/components/OfflineIndicator";
 import type { Permission } from "@shared/schema";
 
 function ProtectedRoute({ children, permission }: { children: React.ReactNode; permission?: string }) {
@@ -91,6 +93,8 @@ function AuthenticatedApp() {
   const isAdmin = user?.role?.name === 'admin' || user?.role?.name === 'owner';
 
   return (
+    <>
+    <OfflineIndicator />
     <Switch>
       <Route path="/" component={isAdmin ? AdminDashboard : Dashboard} />
       <Route path="/operations">
@@ -112,12 +116,16 @@ function AuthenticatedApp() {
       <Route path="/payroll">
         <ProtectedRoute permission="hr.payroll_view"><PayPeriodManagement /></ProtectedRoute>
       </Route>
+      <Route path="/analytics">
+        <ProtectedRoute permission="hr.view_team"><Analytics /></ProtectedRoute>
+      </Route>
       <Route path="/admin">
         <ProtectedRoute permission="admin.manage_all"><AdminSettings /></ProtectedRoute>
       </Route>
       <Route component={NotFound} />
       <PayrollSetupModal isOpen={showSetupModal} onClose={closeSetupModal} />
     </Switch>
+    </>
   );
 }
 

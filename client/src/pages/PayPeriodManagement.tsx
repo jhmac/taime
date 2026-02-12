@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
+import { Download } from "lucide-react";
 import type { PayrollPeriod, PayPeriodSettings, WorkflowLog, Permission } from "@shared/schema";
 
 export default function PayPeriodManagement() {
@@ -383,7 +384,23 @@ export default function PayPeriodManagement() {
                     <div className="text-sm font-medium">
                       {formatDate(period.startDate.toString())} - {formatDate(period.endDate.toString())}
                     </div>
-                    {getWorkflowStateBadge(period.workflowState || 'created')}
+                    <div className="flex items-center gap-2">
+                      {getWorkflowStateBadge(period.workflowState || 'created')}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-7 p-0"
+                        title="Download CSV"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const sd = new Date(period.startDate).toISOString().split('T')[0];
+                          const ed = new Date(period.endDate).toISOString().split('T')[0];
+                          window.open(`/api/payroll/export?startDate=${sd}&endDate=${ed}`, '_blank');
+                        }}
+                      >
+                        <Download className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
                   <div className="text-xs text-muted-foreground">
                     {period.isProcessed ? 'Processed' : 'In Progress'}

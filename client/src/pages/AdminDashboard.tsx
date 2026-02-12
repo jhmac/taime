@@ -5,6 +5,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
@@ -18,6 +19,7 @@ export default function AdminDashboard() {
   const [, navigate] = useLocation();
   const [showAIChat, setShowAIChat] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [lastAssignResult, setLastAssignResult] = useState<any>(null);
 
   const { data: timeEntries } = useQuery({ queryKey: ['/api/time-entries'] });
   const { data: schedules, isLoading: schedulesLoading } = useQuery({ queryKey: ['/api/schedules'] });
@@ -25,11 +27,29 @@ export default function AdminDashboard() {
   const { data: insights } = useQuery({ queryKey: ['/api/insights'] });
   const { data: users } = useQuery({ queryKey: ['/api/users'] });
 
+  const getUserName = (userId: string) => {
+    const u = (users as any[])?.find((u: any) => u.id === userId);
+    return u ? `${u.firstName} ${u.lastName}` : `#${userId.slice(-4)}`;
+  };
+
   const assignChoresMutation = useMutation({
-    mutationFn: async () => await apiRequest('POST', '/api/ai/assign-chores', {}),
-    onSuccess: () => {
+    mutationFn: async () => {
+      const res = await apiRequest('POST', '/api/ai/assign-chores', {});
+      return res.json();
+    },
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ['/api/tasks'] });
-      toast({ title: "Chores Assigned", description: "AI has assigned chores to team members." });
+      setLastAssignResult(data);
+      if (data.message === 'No unassigned chores available') {
+        toast({ title: "No Tasks to Assign", description: "All tasks are already assigned or none are pending." });
+      } else {
+        const count = data.assignments?.length || 0;
+        const uniqueEmployees = new Set(data.assignments?.map((a: any) => a.assignedTo) || []).size;
+        toast({
+          title: "AI Auto-Assign Complete",
+          description: `${count} task${count !== 1 ? 's' : ''} assigned to ${uniqueEmployees} employee${uniqueEmployees !== 1 ? 's' : ''}`,
+        });
+      }
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to assign chores.", variant: "destructive" });
@@ -304,11 +324,45 @@ export default function AdminDashboard() {
                     data-testid="ai-assign-chores"
                   >
                     {assignChoresMutation.isPending ? (
-                      <><i className="fas fa-spinner fa-spin mr-2"></i>Assigning...</>
+                      <><i className="fas fa-spinner fa-spin mr-2"></i>AI is distributing tasks...</>
                     ) : (
                       <><i className="fas fa-magic mr-2"></i>Auto-Assign Tasks with AI</>
                     )}
                   </Button>
+                  {lastAssignResult && lastAssignResult.assignments?.length > 0 && (
+                    <div className="border rounded-lg p-3 bg-primary/5 border-primary/20 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-medium text-primary flex items-center gap-1.5">
+                          <i className="fas fa-check-circle"></i>
+                          {lastAssignResult.assignments.length} task{lastAssignResult.assignments.length !== 1 ? 's' : ''} assigned to {new Set(lastAssignResult.assignments.map((a: any) => a.assignedTo)).size} employee{new Set(lastAssignResult.assignments.map((a: any) => a.assignedTo)).size !== 1 ? 's' : ''}
+                        </p>
+                        <button onClick={() => setLastAssignResult(null)} className="text-muted-foreground hover:text-foreground text-xs">
+                          <i className="fas fa-times"></i>
+                        </button>
+                      </div>
+                      <div className="space-y-1.5 max-h-[150px] overflow-y-auto">
+                        {lastAssignResult.assignments.map((assignment: any, idx: number) => (
+                          <div key={idx} className="flex items-center justify-between text-xs bg-background rounded p-2 border">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <Badge variant="outline" className="text-[10px] flex-shrink-0">
+                                <i className="fas fa-robot mr-1"></i>AI
+                              </Badge>
+                              <span className="truncate">Task #{assignment.choreId.slice(-4)}</span>
+                            </div>
+                            <span className="text-muted-foreground flex-shrink-0 ml-2">→ {getUserName(assignment.assignedTo)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {lastAssignResult?.message === 'No unassigned chores available' && (
+                    <div className="border rounded-lg p-3 bg-muted/50 text-center">
+                      <p className="text-sm text-muted-foreground">
+                        <i className="fas fa-info-circle mr-1.5"></i>
+                        All tasks are already assigned
+                      </p>
+                    </div>
+                  )}
                   <div className="grid grid-cols-2 gap-3">
                     <div className="text-center p-3 bg-muted/50 rounded-lg">
                       <p className="text-xl font-bold text-primary">{todayTasks.length}</p>

@@ -73,10 +73,33 @@ Preferred communication style: Simple, everyday language.
 - **Frontend**: Shopify tab in AdminSettings page with connect/disconnect flow, sync controls, sales analytics, and AI recommendations; Schedule page shows AI staffing insight cards
 - **Required Env Vars**: SHOPIFY_API_KEY, SHOPIFY_API_SECRET
 
+### Visual Analytics Dashboard
+- **Page**: `/analytics` with permission guard (`hr.view_team`)
+- **Charts**: Recharts-based labor cost trends, punctuality scores (SVG ring), task completion bars
+- **API**: `GET /api/analytics/dashboard` computes 30-day labor costs, punctuality, task completion, team summary
+- **Shopify Integration**: Optional ShopifyAnalytics section shows labor cost % vs revenue when shop connected
+- **AI Anomaly Detection**: "Run Anomaly Scan" button triggers `POST /api/ai/detect-anomalies` for Claude-powered analysis
+
+### Payroll Export
+- **API**: `GET /api/payroll/export?startDate=X&endDate=Y` returns CSV with per-employee hours, overtime, and pay
+- **UI**: Download button in each pay period row in PayPeriodManagement page
+
+### In-App Messaging
+- **Page**: `/communication` with three tabs: Team Chat (group conversations), Direct Messages, Announcements
+- **Real-time**: WebSocket integration auto-invalidates message queries on `message_created` events
+- **API**: POST /api/messages, GET /api/messages, POST/GET /api/groups, group member management
+
 ### Push Notifications
 - **Technology**: Web Push API with VAPID keys
 - **Service Worker**: Custom implementation for offline support and background notifications
+- **Subscription UI**: NotificationSettings component in AdminSettings "Alerts" tab with enable/disable toggle, notification type preferences, test button
+- **API**: `POST /api/push/subscribe` (register), `POST /api/push/test` (test notification)
 - **Use Cases**: Clock-out reminders when leaving work location, schedule updates, task assignments
+
+### Offline Mode
+- **Service Worker**: IndexedDB-based offline storage for POST/PATCH to `/api/time-entries`
+- **Background Sync**: Uses Background Sync API when available, manual sync fallback
+- **UI**: OfflineIndicator component shows yellow banner when offline, green "syncing" banner on reconnect
 
 ### Development & Deployment
 - **Development**: Hot module replacement with Vite, TypeScript compilation checking

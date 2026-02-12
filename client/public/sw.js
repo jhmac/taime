@@ -7,6 +7,69 @@ const STATIC_CACHE_URLS = [
   'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css'
 ];
 
+const DB_NAME = 'clocksync-offline';
+const STORE_NAME = 'pendingTimeEntries';
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, 1);
+    request.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function storeOfflineEntry(url, body, method) {
+  const db = await openDB();
+  const tx = db.transaction(STORE_NAME, 'readwrite');
+  tx.objectStore(STORE_NAME).add({
+    url,
+    body,
+    timestamp: Date.now(),
+    method: method || 'POST'
+  });
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = resolve;
+    tx.onerror = reject;
+  });
+}
+
+async function syncPendingEntries() {
+  const db = await openDB();
+  const tx = db.transaction(STORE_NAME, 'readonly');
+  const store = tx.objectStore(STORE_NAME);
+  const entries = await new Promise((resolve) => {
+    const req = store.getAll();
+    req.onsuccess = () => resolve(req.result);
+  });
+
+  for (const entry of entries) {
+    try {
+      const resp = await fetch(entry.url, {
+        method: entry.method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(entry.body),
+        credentials: 'include'
+      });
+      if (resp.ok) {
+        const deleteTx = db.transaction(STORE_NAME, 'readwrite');
+        deleteTx.objectStore(STORE_NAME).delete(entry.id);
+      }
+    } catch (e) {
+      break;
+    }
+  }
+}
+
+const OFFLINE_POST_PATHS = [
+  '/api/time-entries'
+];
+
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME)
@@ -39,6 +102,30 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
+
+  const isOfflineTimeEntry = url.origin === location.origin && (
+    (request.method === 'POST' && OFFLINE_POST_PATHS.some(path => url.pathname === path)) ||
+    (request.method === 'PATCH' && url.pathname.startsWith('/api/time-entries/'))
+  );
+  if (isOfflineTimeEntry) {
+    event.respondWith(
+      request.clone().text().then((bodyText) => {
+        let body;
+        try { body = JSON.parse(bodyText); } catch (e) { body = bodyText; }
+        return fetch(request).catch(async () => {
+          await storeOfflineEntry(url.pathname, body, request.method);
+          if (self.registration.sync) {
+            try { await self.registration.sync.register('sync-time-entries'); } catch (e) {}
+          }
+          return new Response(
+            JSON.stringify({ offline: true, message: 'Saved offline. Will sync when online.' }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          );
+        });
+      })
+    );
+    return;
+  }
 
   if (request.method !== 'GET') return;
   if (url.origin !== location.origin) return;
@@ -156,12 +243,15 @@ self.addEventListener('notificationclick', (event) => {
 });
 
 self.addEventListener('sync', (event) => {
-  if (event.tag === 'background-sync') {
-    event.waitUntil(Promise.resolve());
+  if (event.tag === 'sync-time-entries' || event.tag === 'background-sync') {
+    event.waitUntil(syncPendingEntries());
   }
 });
 
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
   if (event.data && event.data.type === 'GET_VERSION') event.ports[0].postMessage({ version: CACHE_NAME });
+  if (event.data && event.data.type === 'SYNC_PENDING') {
+    event.waitUntil(syncPendingEntries());
+  }
 });
