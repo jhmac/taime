@@ -34,6 +34,8 @@ Preferred communication style: Simple, everyday language.
 - **User Sync**: On first login, Clerk user data syncs to local database via /api/auth/sync
 - **Role-based Access**: Admin, Owner, and Employee roles with granular permissions
 - **Token Flow**: Frontend sends Clerk JWT Bearer tokens; backend verifies via Clerk middleware
+- **Super Admin Lock**: `requireSuperAdmin` middleware restricts all critical admin operations (roles, permissions, company settings, work locations, payroll setup, user deletion, role assignment, pay rate changes, Shopify connection, holiday pay rules) exclusively to jh@scuild.com — no other user can perform these actions regardless of their role/permissions
+- **AI Prompt Injection Defense**: All Claude AI calls use `PROMPT_INJECTION_GUARD` system prompt that prevents role hijacking, instruction override, and social engineering attacks; user inputs are sanitized with regex pattern matching to strip common injection vectors; chat messages capped at 2000 chars
 
 ### Admin & Management Pages
 - **Admin Settings Hub** (`/admin`): Company profile config (name, timezone, business hours, overtime rules, geofence settings), work locations management (CRUD with geofencing radius), activity logging for admin actions, quick-link cards to Team/Roles/Payroll

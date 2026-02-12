@@ -1,6 +1,36 @@
 import type { Express, RequestHandler } from "express";
-import { clerkMiddleware, getAuth } from "@clerk/express";
+import { clerkMiddleware, getAuth, clerkClient } from "@clerk/express";
 import { storage } from "./storage";
+
+const SUPER_ADMIN_EMAIL = "jh@scuild.com";
+
+export const requireSuperAdmin: RequestHandler = async (req: any, res, next) => {
+  if (!req.user?.id) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+
+  try {
+    const clerkUser = await clerkClient.users.getUser(req.user.id);
+    const primaryEmailObj = clerkUser.emailAddresses?.find(
+      (e: any) => e.id === clerkUser.primaryEmailAddressId
+    );
+    const verifiedEmail = primaryEmailObj?.verification?.status === 'verified' 
+      ? primaryEmailObj.emailAddress 
+      : null;
+
+    if (!verifiedEmail || verifiedEmail.toLowerCase() !== SUPER_ADMIN_EMAIL.toLowerCase()) {
+      console.log(`[Security] Super admin access DENIED for user ${req.user.id} (${verifiedEmail || 'no verified primary email'}) on ${req.method} ${req.path}`);
+      return res.status(403).json({ 
+        message: "Access denied. Only the system owner can perform this action.",
+        code: "SUPER_ADMIN_REQUIRED"
+      });
+    }
+    next();
+  } catch (error) {
+    console.error("[Security] Super admin check failed:", error);
+    return res.status(403).json({ message: "Access denied" });
+  }
+};
 
 export const requireAuth: RequestHandler = async (req: any, res, next) => {
   const auth = getAuth(req);
@@ -36,14 +66,21 @@ export async function setupAuth(app: Express) {
 
   app.post('/api/auth/sync', requireAuth, async (req: any, res) => {
     try {
-      const { email, firstName, lastName, profileImageUrl } = req.body;
-      
+      const clerkUser = await clerkClient.users.getUser(req.user.id);
+      const primaryEmailObj = clerkUser.emailAddresses?.find(
+        (e: any) => e.id === clerkUser.primaryEmailAddressId
+      );
+      const verifiedEmail = primaryEmailObj?.emailAddress || '';
+      const verifiedFirstName = clerkUser.firstName || '';
+      const verifiedLastName = clerkUser.lastName || '';
+      const verifiedImageUrl = clerkUser.imageUrl || '';
+
       await storage.upsertUser({
         id: req.user.id,
-        email: email || '',
-        firstName: firstName || '',
-        lastName: lastName || '',
-        profileImageUrl: profileImageUrl || '',
+        email: verifiedEmail,
+        firstName: verifiedFirstName,
+        lastName: verifiedLastName,
+        profileImageUrl: verifiedImageUrl,
       });
 
       const userWithRole = await storage.getUserWithRole(req.user.id);

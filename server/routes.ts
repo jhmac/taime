@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { storage } from "./storage";
-import { setupAuth, requireAuth as isAuthenticated } from "./streamlinedAuth";
+import { setupAuth, requireAuth as isAuthenticated, requireSuperAdmin } from "./streamlinedAuth";
 import { users, shops, userShops, shopifyDailySales, companySettings } from "@shared/schema";
 import { eq, and, gte, lte, desc } from "drizzle-orm";
 import { db } from "./db";
@@ -465,8 +465,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { message } = req.body;
       const userId = req.user.id;
+
+      if (!message || typeof message !== 'string') {
+        return res.status(400).json({ message: "Message is required" });
+      }
+      if (message.length > 2000) {
+        return res.status(400).json({ message: "Message too long (max 2000 characters)" });
+      }
       
-      // Get context for the AI
       const user = await storage.getUser(userId);
       const activeTimeEntry = await storage.getActiveTimeEntry(userId);
       const recentTasks = await storage.getUserTasks(userId);
@@ -542,7 +548,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Holiday pay rules routes
-  app.post('/api/ai/parse-holiday-pay', isAuthenticated, aiRateLimiter, async (req: any, res) => {
+  app.post('/api/ai/parse-holiday-pay', isAuthenticated, requireSuperAdmin, aiRateLimiter, async (req: any, res) => {
     try {
       const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
@@ -609,7 +615,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/holiday-pay-rules/:id', isAuthenticated, async (req: any, res) => {
+  app.delete('/api/holiday-pay-rules/:id', isAuthenticated, requireSuperAdmin, async (req: any, res) => {
     try {
       const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
@@ -628,7 +634,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch('/api/holiday-pay-rules/:id', isAuthenticated, async (req: any, res) => {
+  app.patch('/api/holiday-pay-rules/:id', isAuthenticated, requireSuperAdmin, async (req: any, res) => {
     try {
       const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
@@ -854,7 +860,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/payroll/settings', isAuthenticated, async (req: any, res) => {
+  app.post('/api/payroll/settings', isAuthenticated, requireSuperAdmin, async (req: any, res) => {
     try {
       const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
@@ -1101,7 +1107,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Work locations routes (admin only)
-  app.post('/api/work-locations', isAuthenticated, async (req: any, res) => {
+  app.post('/api/work-locations', isAuthenticated, requireSuperAdmin, async (req: any, res) => {
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
@@ -1133,7 +1139,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Work location update/delete
-  app.put('/api/work-locations/:id', isAuthenticated, async (req: any, res) => {
+  app.put('/api/work-locations/:id', isAuthenticated, requireSuperAdmin, async (req: any, res) => {
     try {
       const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
@@ -1157,7 +1163,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/work-locations/:id', isAuthenticated, async (req: any, res) => {
+  app.delete('/api/work-locations/:id', isAuthenticated, requireSuperAdmin, async (req: any, res) => {
     try {
       const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
@@ -1185,7 +1191,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put('/api/company-settings', isAuthenticated, async (req: any, res) => {
+  app.put('/api/company-settings', isAuthenticated, requireSuperAdmin, async (req: any, res) => {
     try {
       const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
@@ -1437,7 +1443,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/roles', isAuthenticated, async (req: any, res) => {
+  app.post('/api/roles', isAuthenticated, requireSuperAdmin, async (req: any, res) => {
     try {
       const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
@@ -1456,7 +1462,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch('/api/roles/:id', isAuthenticated, async (req: any, res) => {
+  app.patch('/api/roles/:id', isAuthenticated, requireSuperAdmin, async (req: any, res) => {
     try {
       const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
@@ -1483,7 +1489,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/roles/:id', isAuthenticated, async (req: any, res) => {
+  app.delete('/api/roles/:id', isAuthenticated, requireSuperAdmin, async (req: any, res) => {
     try {
       const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
@@ -1563,7 +1569,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put('/api/roles/:id/permissions', isAuthenticated, async (req: any, res) => {
+  app.put('/api/roles/:id/permissions', isAuthenticated, requireSuperAdmin, async (req: any, res) => {
     try {
       const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
@@ -1750,7 +1756,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // User management routes
-  app.put('/api/users/:userId/pay-rate', isAuthenticated, async (req: any, res) => {
+  app.put('/api/users/:userId/pay-rate', isAuthenticated, requireSuperAdmin, async (req: any, res) => {
     try {
       const currentUserId = req.user.id;
       const { userId } = req.params;
@@ -1772,7 +1778,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete('/api/users/:userId', isAuthenticated, async (req: any, res) => {
+  app.delete('/api/users/:userId', isAuthenticated, requireSuperAdmin, async (req: any, res) => {
     try {
       const currentUserId = req.user.id;
       const { userId } = req.params;
@@ -1798,7 +1804,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put('/api/users/:userId/role', isAuthenticated, async (req: any, res) => {
+  app.put('/api/users/:userId/role', isAuthenticated, requireSuperAdmin, async (req: any, res) => {
     try {
       const currentUserId = req.user.id;
       const { userId } = req.params;
@@ -1821,7 +1827,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Payroll setup routes
-  app.post('/api/payroll/setup', isAuthenticated, async (req: any, res) => {
+  app.post('/api/payroll/setup', isAuthenticated, requireSuperAdmin, async (req: any, res) => {
     try {
       const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
@@ -1972,7 +1978,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
 
   // Shopify OAuth: Initiate
-  app.get("/api/shopify/auth", isAuthenticated, async (req: any, res) => {
+  app.get("/api/shopify/auth", isAuthenticated, requireSuperAdmin, async (req: any, res) => {
     try {
       const shop = req.query.shop as string;
       if (!shop) {
@@ -2196,7 +2202,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Disconnect a Shopify shop
-  app.post("/api/shopify/disconnect", isAuthenticated, async (req: any, res) => {
+  app.post("/api/shopify/disconnect", isAuthenticated, requireSuperAdmin, async (req: any, res) => {
     try {
       const { shopDomain: domain } = req.body;
       if (!domain) {
