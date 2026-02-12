@@ -25,6 +25,7 @@ Preferred communication style: Simple, everyday language.
 - **Session Management**: Express sessions with PostgreSQL store using connect-pg-simple
 - **Real-time Communication**: WebSocket server for live updates and notifications
 - **File Structure**: Monorepo structure with shared schema between client and server
+- **Security Middleware**: Helmet for HTTP security headers, express-rate-limit for AI endpoint throttling, 2MB request body size limits
 
 ### Authentication & Authorization
 - **Provider**: Clerk (clerk.com) for OAuth/SSO authentication

@@ -73,6 +73,7 @@ export interface IStorage {
   
   // Time tracking operations
   createTimeEntry(entry: InsertTimeEntry): Promise<TimeEntry>;
+  getTimeEntry(id: string): Promise<TimeEntry | undefined>;
   getActiveTimeEntry(userId: string): Promise<TimeEntry | undefined>;
   updateTimeEntry(id: string, updates: Partial<TimeEntry>): Promise<TimeEntry>;
   getUserTimeEntries(userId: string, startDate?: Date, endDate?: Date): Promise<TimeEntry[]>;
@@ -87,6 +88,7 @@ export interface IStorage {
   
   // Task operations
   createTask(task: InsertTask): Promise<Task>;
+  getTask(id: string): Promise<Task | undefined>;
   getUserTasks(userId: string): Promise<Task[]>;
   getAllTasks(): Promise<Task[]>;
   updateTask(id: string, updates: Partial<Task>): Promise<Task>;
@@ -223,6 +225,15 @@ export class DatabaseStorage implements IStorage {
     return timeEntry;
   }
 
+  async getTimeEntry(id: string): Promise<TimeEntry | undefined> {
+    const [entry] = await db
+      .select()
+      .from(timeEntries)
+      .where(eq(timeEntries.id, id))
+      .limit(1);
+    return entry;
+  }
+
   async getActiveTimeEntry(userId: string): Promise<TimeEntry | undefined> {
     const [entry] = await db
       .select()
@@ -313,6 +324,15 @@ export class DatabaseStorage implements IStorage {
   async createTask(task: InsertTask): Promise<Task> {
     const [created] = await db.insert(tasks).values(task).returning();
     return created;
+  }
+
+  async getTask(id: string): Promise<Task | undefined> {
+    const [task] = await db
+      .select()
+      .from(tasks)
+      .where(eq(tasks.id, id))
+      .limit(1);
+    return task;
   }
 
   async getUserTasks(userId: string): Promise<Task[]> {

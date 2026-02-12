@@ -26,18 +26,31 @@ import {
 } from "@shared/schema";
 import { z } from "zod";
 import crypto from "crypto";
+import rateLimit from "express-rate-limit";
 import { ShopifyService } from "./services/shopifyService";
+import { encryptToken, decryptToken } from "./utils/tokenEncryption";
+
+function sanitizeCsvField(field: string): string {
+  const dangerous = /^[=+\-@\t\r]/;
+  if (dangerous.test(field)) {
+    return "'" + field;
+  }
+  return field;
+}
 
 // WebSocket connections map
 const wsConnections = new Map<string, WebSocket>();
 
+const aiRateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  message: { message: "Too many AI requests, please try again later" },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Auth middleware
   await setupAuth(app);
-
-  // Clean auth setup - no debug routes needed
-
-  // Auth routes handled by simpleAuth
 
   // Time tracking routes
   app.post('/api/time-entries', isAuthenticated, async (req: any, res) => {
@@ -115,11 +128,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch('/api/time-entries/:id', isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
-      const updates = req.body;
+      const userId = req.user.id;
+
+      const existing = await storage.getTimeEntry(id);
+      if (!existing) {
+        return res.status(404).json({ message: "Time entry not found" });
+      }
+
+      const userPermissions = await storage.getUserPermissions(userId);
+      const isManager = userPermissions.some(p => p.name === 'time.approve' || p.name === 'admin.manage_all');
+      const isOwner = existing.userId === userId;
+
+      if (!isOwner && !isManager) {
+        return res.status(403).json({ message: "You can only edit your own time entries" });
+      }
+
+      const allowedFields = isManager
+        ? ['clockOutTime', 'breakMinutes', 'notes', 'locationId', 'isApproved', 'status']
+        : ['clockOutTime', 'breakMinutes', 'notes'];
+
+      const safeUpdates: Record<string, any> = {};
+      for (const key of allowedFields) {
+        if (req.body[key] !== undefined) {
+          safeUpdates[key] = req.body[key];
+        }
+      }
+
+      if (safeUpdates.isApproved === true) {
+        safeUpdates.approvedBy = userId;
+      }
+
+      const timeEntry = await storage.updateTimeEntry(id, safeUpdates);
       
-      const timeEntry = await storage.updateTimeEntry(id, updates);
-      
-      // Broadcast update
       broadcastToAll({
         type: 'time_entry_updated',
         data: { timeEntry },
@@ -238,15 +278,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch('/api/tasks/:id', isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
-      const updates = req.body;
-      
-      if (updates.status === 'completed' && !updates.completedAt) {
-        updates.completedAt = new Date();
+      const userId = req.user.id;
+
+      const existing = await storage.getTask(id);
+      if (!existing) {
+        return res.status(404).json({ message: "Task not found" });
       }
 
-      const task = await storage.updateTask(id, updates);
+      const userPermissions = await storage.getUserPermissions(userId);
+      const isManager = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'hr.manage_employees');
+      const isAssignee = existing.assignedTo === userId;
+
+      if (!isAssignee && !isManager) {
+        return res.status(403).json({ message: "You can only update tasks assigned to you" });
+      }
+
+      const allowedFields = isManager
+        ? ['title', 'description', 'status', 'priority', 'assignedTo', 'dueDate', 'completedAt', 'completionImageUrl', 'zone']
+        : ['status', 'completedAt', 'completionImageUrl', 'notes'];
+
+      const safeUpdates: Record<string, any> = {};
+      for (const key of allowedFields) {
+        if (req.body[key] !== undefined) {
+          safeUpdates[key] = req.body[key];
+        }
+      }
       
-      // Broadcast update
+      if (safeUpdates.status === 'completed' && !safeUpdates.completedAt) {
+        safeUpdates.completedAt = new Date();
+      }
+
+      const task = await storage.updateTask(id, safeUpdates);
+      
       broadcastToAll({
         type: 'task_updated',
         data: { task },
@@ -262,10 +325,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/tasks/:id/image', isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
+      const userId = req.user.id;
       const { imageUrl } = req.body;
       
       if (!imageUrl) {
         return res.status(400).json({ message: "Image URL is required" });
+      }
+
+      if (typeof imageUrl !== 'string' || imageUrl.length > 2 * 1024 * 1024) {
+        return res.status(400).json({ message: "Image too large (max 2MB)" });
+      }
+
+      const existing = await storage.getTask(id);
+      if (!existing) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+
+      const isAssignee = existing.assignedTo === userId;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const isManager = userPermissions.some(p => p.name === 'admin.manage_all');
+      if (!isAssignee && !isManager) {
+        return res.status(403).json({ message: "You can only upload images to your own tasks" });
       }
 
       const task = await storage.updateTask(id, { completionImageUrl: imageUrl });
@@ -285,6 +365,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete('/api/tasks/:id', isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
+      const userId = req.user.id;
+
+      const userPermissions = await storage.getUserPermissions(userId);
+      const isManager = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'hr.manage_employees');
+      if (!isManager) {
+        return res.status(403).json({ message: "Only managers can delete tasks" });
+      }
+
       await storage.deleteTask(id);
       broadcastToAll({
         type: 'task_deleted',
@@ -298,7 +386,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // AI routes
-  app.post('/api/ai/assign-chores', isAuthenticated, async (req: any, res) => {
+  app.post('/api/ai/assign-chores', isAuthenticated, aiRateLimiter, async (req: any, res) => {
     try {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
@@ -373,7 +461,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/ai/chat', isAuthenticated, async (req: any, res) => {
+  app.post('/api/ai/chat', isAuthenticated, aiRateLimiter, async (req: any, res) => {
     try {
       const { message } = req.body;
       const userId = req.user.id;
@@ -400,7 +488,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/ai/detect-anomalies', isAuthenticated, async (req: any, res) => {
+  app.post('/api/ai/detect-anomalies', isAuthenticated, aiRateLimiter, async (req: any, res) => {
     try {
       const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
@@ -454,7 +542,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Holiday pay rules routes
-  app.post('/api/ai/parse-holiday-pay', isAuthenticated, async (req: any, res) => {
+  app.post('/api/ai/parse-holiday-pay', isAuthenticated, aiRateLimiter, async (req: any, res) => {
     try {
       const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
@@ -890,8 +978,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const totalPay = regularPay + overtimePay + emp.holidayPayExtra;
 
         return [
-          `"${emp.name}"`,
-          `"${emp.email}"`,
+          `"${sanitizeCsvField(emp.name)}"`,
+          `"${sanitizeCsvField(emp.email)}"`,
           emp.totalHours.toFixed(2),
           regularHours.toFixed(2),
           overtimeHours.toFixed(2),
@@ -1053,7 +1141,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!canManageLocations) {
         return res.status(403).json({ message: "Location management access required" });
       }
-      const updated = await storage.updateWorkLocation(req.params.id, req.body);
+      const locationAllowedFields = ['name', 'address', 'latitude', 'longitude', 'radius', 'isActive'];
+      const locationUpdates: Record<string, any> = {};
+      for (const key of locationAllowedFields) {
+        if (req.body[key] !== undefined) {
+          locationUpdates[key] = req.body[key];
+        }
+      }
+      const updated = await storage.updateWorkLocation(req.params.id, locationUpdates);
       await storage.createActivityLog({ userId, action: 'update', targetType: 'work_location', targetId: req.params.id, details: `Updated work location: ${updated.name}` });
       res.json(updated);
     } catch (error) {
@@ -1098,7 +1193,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!canManage) {
         return res.status(403).json({ message: "Admin access required" });
       }
-      const settings = await storage.updateCompanySettings({ ...req.body, updatedBy: userId });
+      const settingsAllowedFields = ['companyName', 'timezone', 'businessStartHour', 'businessEndHour', 'overtimeThresholdHours', 'overtimeMultiplier', 'geofenceEnforcement', 'breakDurationMinutes', 'autoClockOutMinutes', 'defaultGeofenceRadius'];
+      const settingsUpdates: Record<string, any> = { updatedBy: userId };
+      for (const key of settingsAllowedFields) {
+        if (req.body[key] !== undefined) {
+          settingsUpdates[key] = req.body[key];
+        }
+      }
+      const settings = await storage.updateCompanySettings(settingsUpdates);
       await storage.createActivityLog({ userId, action: 'update', targetType: 'company_settings', details: 'Updated company settings' });
       res.json(settings);
     } catch (error) {
@@ -1365,9 +1467,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const { id } = req.params;
-      const updates = req.body;
+      const allowedFields = ['name', 'description', 'isDefault'];
+      const safeUpdates: Record<string, any> = {};
+      for (const key of allowedFields) {
+        if (req.body[key] !== undefined) {
+          safeUpdates[key] = req.body[key];
+        }
+      }
       
-      const role = await storage.updateRole(id, updates);
+      const role = await storage.updateRole(id, safeUpdates);
       res.json(role);
     } catch (error) {
       console.error("Error updating role:", error);
@@ -1849,7 +1957,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .limit(1);
 
       if (shopResult.length > 0 && shopResult[0].accessToken) {
-        return { shopDomain: shopResult[0].shopDomain, accessToken: shopResult[0].accessToken };
+        let token = shopResult[0].accessToken;
+        try {
+          token = decryptToken(token);
+        } catch {
+        }
+        return { shopDomain: shopResult[0].shopDomain, accessToken: token };
       }
       return null;
     } catch (error) {
@@ -1989,6 +2102,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const shopifyService = new ShopifyService(shopDomain, accessToken);
       const shopInfo = await shopifyService.getShopInfo().catch(() => null);
 
+      let encryptedToken: string;
+      try {
+        encryptedToken = encryptToken(accessToken);
+      } catch {
+        encryptedToken = accessToken;
+      }
+
       const existing = await db.select()
         .from(shops)
         .where(eq(shops.shopDomain, shopDomain))
@@ -1997,7 +2117,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (existing.length > 0) {
         await db.update(shops)
           .set({
-            accessToken,
+            accessToken: encryptedToken,
             isActive: true,
             shopName: shopInfo?.name || existing[0].shopName,
             shopEmail: shopInfo?.email || existing[0].shopEmail,
@@ -2009,7 +2129,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else {
         await db.insert(shops).values({
           shopDomain,
-          accessToken,
+          accessToken: encryptedToken,
           isActive: true,
           shopName: shopInfo?.name || null,
           shopEmail: shopInfo?.email || null,
@@ -2272,7 +2392,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // AI-powered staffing recommendations
-  app.get("/api/shopify/staffing-recommendations", isAuthenticated, async (req: any, res) => {
+  app.get("/api/shopify/staffing-recommendations", isAuthenticated, aiRateLimiter, async (req: any, res) => {
     try {
       const shopDomain = req.query.shop as string;
       const targetDate = req.query.date as string;
@@ -2618,23 +2738,34 @@ Keep your response concise, practical, and focused on actionable staffing advice
 
   const httpServer = createServer(app);
 
-  // WebSocket setup for real-time features
   const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
 
-  wss.on('connection', (ws: WebSocket, request) => {
+  wss.on('connection', async (ws: WebSocket, request) => {
     const url = new URL(request.url!, `http://${request.headers.host}`);
     const userId = url.searchParams.get('userId');
-    
-    if (userId) {
-      wsConnections.set(userId, ws);
-      console.log(`WebSocket connected for user: ${userId}`);
+
+    if (!userId) {
+      ws.close(4001, 'Missing userId');
+      return;
     }
 
-    ws.on('close', () => {
-      if (userId) {
-        wsConnections.delete(userId);
-        console.log(`WebSocket disconnected for user: ${userId}`);
+    try {
+      const user = await storage.getUser(userId);
+      if (!user) {
+        ws.close(4003, 'User not found');
+        return;
       }
+    } catch {
+      ws.close(4003, 'Auth verification failed');
+      return;
+    }
+
+    wsConnections.set(userId, ws);
+    console.log(`WebSocket connected for user: ${userId}`);
+
+    ws.on('close', () => {
+      wsConnections.delete(userId);
+      console.log(`WebSocket disconnected for user: ${userId}`);
     });
 
     ws.on('error', (error) => {
