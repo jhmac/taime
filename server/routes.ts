@@ -1252,7 +1252,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = req.user.id;
       await notificationService.sendToUser(userId, {
         title: '🔔 Test Notification',
-        body: 'This is a test push notification from ClockSync AI. If you see this, notifications are working!',
+        body: 'This is a test push notification from ManAIger. If you see this, notifications are working!',
         data: { type: 'test' },
       });
       res.json({ success: true, message: 'Test notification sent' });

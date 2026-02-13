@@ -1,4 +1,4 @@
-const CACHE_NAME = 'clocksync-ai-v2.0.0';
+const CACHE_NAME = 'manaiger-v2.0.0';
 const STATIC_CACHE_URLS = [
   '/manifest.json',
   '/icon-192x192.png',
@@ -7,7 +7,7 @@ const STATIC_CACHE_URLS = [
   'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css'
 ];
 
-const DB_NAME = 'clocksync-offline';
+const DB_NAME = 'manaiger-offline';
 const STORE_NAME = 'pendingTimeEntries';
 
 function openDB() {
@@ -206,7 +206,7 @@ self.addEventListener('push', (event) => {
     event.waitUntil(self.registration.showNotification(data.title, options));
   } catch (error) {
     event.waitUntil(
-      self.registration.showNotification('ClockSync AI', {
+      self.registration.showNotification('ManAIger', {
         body: 'You have a new notification',
         icon: '/icon-192x192.png',
         badge: '/badge-72x72.png'

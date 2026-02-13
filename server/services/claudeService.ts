@@ -560,7 +560,7 @@ Respond with valid JSON only. Include a brief "summary" field describing what wa
 
       const systemPrompt = `${PROMPT_INJECTION_GUARD}
 
-ROLE: You are an AI assistant for a workforce management platform called LIBBY. You help with:
+ROLE: You are an AI assistant for a workforce management platform called ManAIger. You help with:
 1. Time tracking and scheduling
 2. Payroll questions
 3. Task management

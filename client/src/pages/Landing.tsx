@@ -10,7 +10,7 @@ export default function Landing() {
             <i className="fas fa-robot text-primary-foreground text-2xl"></i>
           </div>
           <div>
-            <CardTitle className="text-2xl font-bold">ClockSync AI</CardTitle>
+            <CardTitle className="text-2xl font-bold">ManAIger</CardTitle>
             <CardDescription className="text-lg">
               AI-Powered Workforce Management
             </CardDescription>

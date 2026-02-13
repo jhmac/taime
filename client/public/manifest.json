@@ -1,6 +1,6 @@
 {
-  "name": "ClockSync AI - Team Time Tracker",
-  "short_name": "ClockSync AI",
+  "name": "ManAIger - AI-Powered Workforce Management",
+  "short_name": "ManAIger",
   "description": "AI-Powered Workforce Management Platform for teams with smart time tracking, scheduling, and task management",
   "start_url": "/",
   "display": "standalone",

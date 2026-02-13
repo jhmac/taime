@@ -22,7 +22,7 @@ export default function TopNavigation() {
   const isMobile = useIsMobile();
   const [location] = useLocation();
 
-  const pageTitle = pageTitles[location] || 'ClockSync AI';
+  const pageTitle = pageTitles[location] || 'ManAIger';
 
   if (isMobile) {
     return (

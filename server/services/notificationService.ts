@@ -3,7 +3,7 @@ import { storage } from '../storage';
 
 // Configure web-push
 webpush.setVapidDetails(
-  'mailto:admin@clocksync.ai',
+  'mailto:admin@manaiger.app',
   process.env.VAPID_PUBLIC_KEY || 'BMzCgT-xjAU_PCsnpPyftb40vuw0IFHBmUdrLPa8w-jDE6KYBARxbdaLYezdjqjYqKy9u_2OccTkJdNiSsoETD8',
   process.env.VAPID_PRIVATE_KEY || 'IOKvgzzuFZK7ffJi2nOhNSrwDuDBw4thmJo7gv9oLOE'
 );
