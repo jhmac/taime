@@ -1,6 +1,6 @@
 {
-  "name": "ManAIger - AI-Powered Workforce Management",
-  "short_name": "ManAIger",
+  "name": "Taime Clock - AI-Powered Workforce Management",
+  "short_name": "Taime Clock",
   "description": "AI-Powered Workforce Management Platform for teams with smart time tracking, scheduling, and task management",
   "start_url": "/",
   "display": "standalone",

@@ -74,7 +74,7 @@ export default function DesktopSidebar() {
           <i className="fas fa-clock text-primary-foreground text-sm"></i>
         </div>
         {!collapsed && (
-          <span className="font-semibold text-sidebar-foreground text-sm">ManAIger</span>
+          <span className="font-semibold text-sidebar-foreground text-sm">Taime Clock</span>
         )}
       </div>
 

@@ -22,7 +22,7 @@ export default function TopNavigation() {
   const isMobile = useIsMobile();
   const [location] = useLocation();
 
-  const pageTitle = pageTitles[location] || 'ManAIger';
+  const pageTitle = pageTitles[location] || 'Taime Clock';
 
   if (isMobile) {
     return (

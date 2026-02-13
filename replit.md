@@ -1,8 +1,8 @@
-# ManAIger - AI-Powered Workforce Management
+# Taime Clock - AI-Powered Workforce Management
 
 ## Overview
 
-ManAIger is a comprehensive workforce management platform that combines time tracking, scheduling, task management, and AI-powered insights for teams. The application provides smart time tracking with geofencing, automated task assignment using Claude AI, real-time team communication, and payroll management capabilities. Built as a Progressive Web App (PWA), it offers mobile-first design with features like push notifications, offline support, and location-based clock-in validation.
+Taime Clock is a comprehensive workforce management platform that combines time tracking, scheduling, task management, and AI-powered insights for teams. The application provides smart time tracking with geofencing, automated task assignment using Claude AI, real-time team communication, and payroll management capabilities. Built as a Progressive Web App (PWA), it offers mobile-first design with features like push notifications, offline support, and location-based clock-in validation.
 
 ## User Preferences
 
