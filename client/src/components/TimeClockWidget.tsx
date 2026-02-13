@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
 import { isUnauthorizedError } from '@/lib/authUtils';
+import type { TimeEntry, WorkLocation } from '@shared/schema';
 
 export default function TimeClockWidget() {
   const { user } = useAuth();
@@ -16,12 +17,12 @@ export default function TimeClockWidget() {
   const queryClient = useQueryClient();
   const [currentTime, setCurrentTime] = useState(new Date());
 
-  const { data: activeTimeEntry, isLoading: activeEntryLoading } = useQuery({
+  const { data: activeTimeEntry, isLoading: activeEntryLoading } = useQuery<TimeEntry | null>({
     queryKey: ['/api/time-entries/active'],
-    refetchInterval: 30000, // Refresh every 30 seconds
+    refetchInterval: 30000,
   });
 
-  const { data: workLocations } = useQuery({
+  const { data: workLocations = [] } = useQuery<WorkLocation[]>({
     queryKey: ['/api/work-locations'],
   });
 
@@ -29,7 +30,7 @@ export default function TimeClockWidget() {
     mutationFn: async (data: { locationId: string; latitude: number; longitude: number }) => {
       return await apiRequest('POST', '/api/time-entries', {
         clockInTime: new Date(),
-        locationId: data.locationId,
+        ...(data.locationId ? { locationId: data.locationId } : {}),
         latitude: data.latitude,
         longitude: data.longitude,
       });
@@ -106,16 +107,22 @@ export default function TimeClockWidget() {
 
   const handleClockAction = async () => {
     if (activeTimeEntry) {
-      // Clock out
       clockOutMutation.mutate(activeTimeEntry.id);
     } else {
-      // Clock in - first validate location
+      if (workLocations.length === 0) {
+        clockInMutation.mutate({
+          locationId: '',
+          latitude: 0,
+          longitude: 0,
+        });
+        return;
+      }
+
       if (!position) {
         await getCurrentPosition();
         return;
       }
 
-      // Check if user is in work location
       try {
         const locationCheck = await apiRequest('POST', '/api/geofence/check', {
           latitude: position.latitude,
@@ -167,24 +174,28 @@ export default function TimeClockWidget() {
   };
 
   const getLocationStatus = () => {
+    if (workLocations.length === 0) {
+      return {
+        icon: 'fas fa-map-marker-alt',
+        text: 'No locations configured',
+        color: 'text-muted-foreground',
+      };
+    }
+
     if (!position) {
       return {
-        icon: 'fas fa-map-marker-slash',
+        icon: 'fas fa-map-marker-alt',
         text: 'Location unavailable',
         color: 'text-red-500',
       };
     }
 
-    // Check if user is near any work location
-    const nearestLocation = workLocations?.find((location: any) => {
+    const nearestLocation = workLocations.find((location: WorkLocation) => {
       if (!location.latitude || !location.longitude) return false;
-      
-      // Simple distance calculation (would use proper geofencing in production)
       const distance = Math.sqrt(
         Math.pow(parseFloat(location.latitude) - position.latitude, 2) +
         Math.pow(parseFloat(location.longitude) - position.longitude, 2)
-      ) * 111000; // rough conversion to meters
-
+      ) * 111000;
       return distance <= (location.radius || 100);
     });
 
