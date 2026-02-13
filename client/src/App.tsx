@@ -16,6 +16,7 @@ import AdminDashboard from "@/pages/AdminDashboard";
 import RoleManagement from "@/pages/RoleManagement";
 import ScheduleManagement from "@/pages/ScheduleManagement";
 import Team from "@/pages/Team";
+import TeamMember from "@/pages/TeamMember";
 import Availability from "@/pages/Availability";
 import PayPeriodManagement from "@/pages/PayPeriodManagement";
 import PayrollSetupModal from "@/components/PayrollSetupModal";
@@ -109,6 +110,9 @@ function AuthenticatedApp() {
       </Route>
       <Route path="/team">
         <ProtectedRoute permission="hr.view_team"><Team /></ProtectedRoute>
+      </Route>
+      <Route path="/team/:id">
+        <ProtectedRoute permission="hr.view_team"><TeamMember /></ProtectedRoute>
       </Route>
       <Route path="/tasks" component={TaskManagement} />
       <Route path="/schedules" component={ScheduleManagement} />

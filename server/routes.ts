@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { storage } from "./storage";
 import { setupAuth, requireAuth as isAuthenticated } from "./streamlinedAuth";
-import { users, shops, userShops, shopifyDailySales, companySettings } from "@shared/schema";
+import { users, roles, shops, userShops, shopifyDailySales, companySettings } from "@shared/schema";
 import { eq, and, gte, lte, desc } from "drizzle-orm";
 import { db } from "./db";
 import { claudeService } from "./services/claudeService";
@@ -1746,8 +1746,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return;
       }
       
-      // Get all users for managers/admins
-      const allUsers = await db.select().from(users).where(eq(users.isActive, true));
+      const includeAll = req.query.includeAll === 'true';
+      const allUsers = includeAll
+        ? await db.select().from(users)
+        : await db.select().from(users).where(eq(users.isActive, true));
       res.json(allUsers);
     } catch (error) {
       console.error("Error fetching users:", error);
@@ -1755,7 +1757,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // User management routes
+  app.get('/api/users/:userId', isAuthenticated, async (req: any, res) => {
+    try {
+      const { userId } = req.params;
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      const role = user.roleId ? await db.select().from(roles).where(eq(roles.id, user.roleId)).then(r => r[0]) : null;
+      res.json({ ...user, role });
+    } catch (error) {
+      console.error("Error fetching user:", error);
+      res.status(500).json({ message: "Failed to fetch user" });
+    }
+  });
+
+  app.put('/api/users/:userId', isAuthenticated, async (req: any, res) => {
+    try {
+      const { userId } = req.params;
+      const updateData = req.body;
+      const updated = await db.update(users).set({ ...updateData, updatedAt: new Date() }).where(eq(users.id, userId)).returning();
+      if (updated.length === 0) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      res.json(updated[0]);
+    } catch (error) {
+      console.error("Error updating user:", error);
+      res.status(500).json({ message: "Failed to update user" });
+    }
+  });
+
   app.put('/api/users/:userId/pay-rate', isAuthenticated, async (req: any, res) => {
     try {
       const currentUserId = req.user.id;
