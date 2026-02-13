@@ -1199,7 +1199,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!canManage) {
         return res.status(403).json({ message: "Admin access required" });
       }
-      const settingsAllowedFields = ['companyName', 'timezone', 'businessStartHour', 'businessEndHour', 'overtimeThresholdHours', 'overtimeMultiplier', 'geofenceEnforcement', 'breakDurationMinutes', 'autoClockOutMinutes', 'defaultGeofenceRadius'];
+      const settingsAllowedFields = [
+        'companyName', 'timezone', 'businessStartHour', 'businessEndHour',
+        'overtimeThresholdHours', 'overtimeMultiplier', 'geofenceEnforcement',
+        'breakDurationMinutes', 'autoClockOutMinutes', 'defaultGeofenceRadius',
+        'locationPhone', 'address1', 'address2', 'city', 'stateProvince',
+        'zipCode', 'country', 'businessType', 'businessCategory', 'website',
+        'accountOwnerName', 'companyPhone',
+        'workWeekStart', 'schedulingStartTime', 'schedulingEndTime',
+        'lateThresholdMinutes', 'preventEarlyClockIn', 'earlyClockInMinutes',
+        'preventEarlyBreakReturn', 'singleClockOutReminder',
+        'autoClockOutEnabled', 'autoClockOutAfterMinutes',
+        'textScheduleToEmployees', 'employeesViewOwnScheduleOnly',
+        'notifyManagerLateClockIn', 'managerLateAlertMinutes',
+        'requireManagerApprovalAvailability', 'managersScheduleOwnDept',
+        'requestShiftExperience', 'requireCashTipDeclaration',
+        'enableClockRounding', 'roundingIncrement',
+        'enableMobileTimeClock', 'allowUnscheduledMobileClockIn',
+        'enableWebTimeClock', 'allowEmployeeWebClock',
+        'unscheduledShiftRoleSelection',
+        'enableDailyOvertime', 'dailyOvertimeHours', 'dailyOvertimeMultiplier',
+        'enableWeeklyOvertime', 'overtimeAlertEnabled', 'overtimeAlertHours',
+        'startOfWorkday', 'trackOvertimeAcrossLocations',
+        'enableHolidayPayRate', 'holidayPayMultiplier',
+        'breakRule1Enabled', 'breakRule1Minutes', 'breakRule1Type',
+        'breakRule1EveryHours', 'breakRule1Required',
+        'breakRule2Enabled', 'breakRule2Minutes', 'breakRule2Type',
+        'breakRule2EveryHours', 'breakRule2Required',
+        'subtractUnpaidBreaks', 'convertExcessToUnpaid',
+        'awardMissedBreakHours', 'missedBreakAwardHours', 'missedBreakPolicy',
+        'payScheduleFrequency', 'nextPayrollDate', 'lockTimesheetsAfterApproval',
+        'timeOffMaxPerDay', 'timeOffAdvanceDays',
+        'limitTimeOffRequests', 'limitTimeOffAdvance',
+        'allowShoutOuts', 'allowTeamMessaging', 'enableScheduleEvents',
+      ];
       const settingsUpdates: Record<string, any> = { updatedBy: userId };
       for (const key of settingsAllowedFields) {
         if (req.body[key] !== undefined) {
