@@ -1232,6 +1232,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         'timeOffMaxPerDay', 'timeOffAdvanceDays',
         'limitTimeOffRequests', 'limitTimeOffAdvance',
         'allowShoutOuts', 'allowTeamMessaging', 'enableScheduleEvents',
+        'enableSmartClockPrompt', 'enableClockOutOnFocusLoss', 'focusLossGraceSeconds',
       ];
       const settingsUpdates: Record<string, any> = { updatedBy: userId };
       for (const key of settingsAllowedFields) {

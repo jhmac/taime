@@ -70,6 +70,8 @@ Preferred communication style: Simple, everyday language.
 ### Geolocation & Security
 - **Geofencing**: Browser geolocation API with custom distance calculations using Haversine formula
 - **Location Validation**: Work location boundaries enforcement for clock-in/out operations
+- **Smart Clock-In Prompt**: On app open, checks GPS against work locations; if inside geofence and not clocked in, shows a banner prompting one-tap clock-in (SmartClockPrompt component, toggled via `enableSmartClockPrompt` setting)
+- **Clock Out on Focus Loss**: Uses browser `visibilitychange` API to auto-clock-out employees when app loses focus (tab switch, minimize, phone lock) after a configurable grace period (FocusClockOut component, toggled via `enableClockOutOnFocusLoss` setting, grace period via `focusLossGraceSeconds`)
 - **Security**: CORS configuration, secure session cookies, input validation with Zod schemas
 
 ### Shopify Integration

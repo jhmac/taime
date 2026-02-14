@@ -26,6 +26,8 @@ import TaskManagement from "@/pages/TaskManagement";
 import Analytics from "@/pages/Analytics";
 import NotFound from "@/pages/not-found";
 import OfflineIndicator from "@/components/OfflineIndicator";
+import SmartClockPrompt from "@/components/SmartClockPrompt";
+import FocusClockOut from "@/components/FocusClockOut";
 import type { Permission } from "@shared/schema";
 
 function ProtectedRoute({ children, permission }: { children: React.ReactNode; permission?: string }) {
@@ -96,6 +98,8 @@ function AuthenticatedApp() {
   return (
     <>
     <OfflineIndicator />
+    <SmartClockPrompt />
+    <FocusClockOut />
     <Switch>
       <Route path="/" component={isAdmin ? AdminDashboard : Dashboard} />
       <Route path="/operations">

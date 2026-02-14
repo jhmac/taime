@@ -255,6 +255,9 @@ export default function AdminSettings() {
         allowTeamMessaging: settings.allowTeamMessaging ?? true,
         breakDurationMinutes: settings.breakDurationMinutes ?? 30,
         autoClockOutMinutes: settings.autoClockOutMinutes ?? 480,
+        enableSmartClockPrompt: settings.enableSmartClockPrompt || false,
+        enableClockOutOnFocusLoss: settings.enableClockOutOnFocusLoss || false,
+        focusLossGraceSeconds: settings.focusLossGraceSeconds ?? 30,
       });
     }
   }, [settings]);
@@ -1003,6 +1006,43 @@ export default function AdminSettings() {
           </div>
         </CardContent>
       </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Smart Clock-In Prompt</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <Label className="text-sm">Enable smart clock-in prompt</Label>
+              <p className="text-xs text-muted-foreground">When an employee opens the app inside a geofenced work location, prompt them to clock in with one tap</p>
+            </div>
+            <Switch checked={settingsForm.enableSmartClockPrompt || false} onCheckedChange={val => updateForm('enableSmartClockPrompt', val)} />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Clock Out on Focus Loss</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <Label className="text-sm">Auto clock-out when app loses focus</Label>
+              <p className="text-xs text-muted-foreground">Automatically clock out employees when they switch away from the app, minimize the browser, or lock their phone</p>
+            </div>
+            <Switch checked={settingsForm.enableClockOutOnFocusLoss || false} onCheckedChange={val => updateForm('enableClockOutOnFocusLoss', val)} />
+          </div>
+          {settingsForm.enableClockOutOnFocusLoss && (
+            <div>
+              <Label className="text-xs">Grace period (seconds)</Label>
+              <p className="text-xs text-muted-foreground mb-2">How long to wait before clocking out after focus is lost, to avoid accidental triggers</p>
+              <Input type="number" min={5} max={300} value={settingsForm.focusLossGraceSeconds ?? 30} onChange={e => updateForm('focusLossGraceSeconds', parseInt(e.target.value) || 30)} className="w-32" />
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 
@@ -1151,8 +1191,8 @@ export default function AdminSettings() {
                     {holidayPayRules.map((rule: HolidayPayRule) => (
                       <div key={rule.id} className="flex items-center justify-between p-3 border rounded-lg">
                         <div>
-                          <p className="text-sm font-medium">{rule.holidayName}</p>
-                          <p className="text-xs text-muted-foreground">{rule.holidayDate} &middot; {rule.payMultiplier}x pay</p>
+                          <p className="text-sm font-medium">{rule.name}</p>
+                          <p className="text-xs text-muted-foreground">{rule.month}/{rule.day} &middot; {rule.payMultiplier}x pay</p>
                         </div>
                         <Button size="sm" variant="ghost" onClick={() => deleteHolidayRuleMutation.mutate(rule.id)}>
                           <Trash2 className="w-4 h-4 text-destructive" />
