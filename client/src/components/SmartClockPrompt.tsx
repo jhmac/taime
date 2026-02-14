@@ -2,25 +2,23 @@ import { useState, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { useGeolocation } from '@/hooks/useGeolocation';
+import { useCompanySettings } from '@/hooks/useCompanySettings';
 import { apiRequest } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { MapPin, Clock, X } from 'lucide-react';
-import type { TimeEntry, WorkLocation, CompanySettings } from '@shared/schema';
+import type { TimeEntry, WorkLocation } from '@shared/schema';
 
 export default function SmartClockPrompt() {
   const { user } = useAuth();
   const { getCurrentPosition } = useGeolocation();
+  const { settings } = useCompanySettings();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [dismissed, setDismissed] = useState(false);
   const [nearbyLocation, setNearbyLocation] = useState<{ id: string; name: string } | null>(null);
   const [checking, setChecking] = useState(false);
   const [checked, setChecked] = useState(false);
-
-  const { data: settings } = useQuery<CompanySettings>({
-    queryKey: ['/api/company-settings'],
-  });
 
   const { data: activeTimeEntry } = useQuery<TimeEntry | null>({
     queryKey: ['/api/time-entries/active'],
@@ -78,6 +76,7 @@ export default function SmartClockPrompt() {
     } finally {
       setChecking(false);
       setChecked(true);
+      sessionStorage.setItem('smartClockLastCheck', String(Date.now()));
     }
   }, [checked, checking, settings?.enableSmartClockPrompt, activeTimeEntry, workLocations.length, getCurrentPosition]);
 
@@ -93,8 +92,15 @@ export default function SmartClockPrompt() {
   useEffect(() => {
     if (!settings?.enableSmartClockPrompt) return;
 
+    const COOLDOWN_KEY = 'smartClockLastCheck';
+    const COOLDOWN_MS = 10 * 60 * 1000;
+
     const handleFocusReturn = () => {
       if (!document.hidden) {
+        const lastCheck = sessionStorage.getItem(COOLDOWN_KEY);
+        if (lastCheck && Date.now() - parseInt(lastCheck) < COOLDOWN_MS) {
+          return;
+        }
         setChecked(false);
         setDismissed(false);
         setNearbyLocation(null);

@@ -5,43 +5,29 @@ import { apiRequest } from '@/lib/queryClient';
 import { useAuth } from '@/hooks/useAuth';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useToast } from '@/hooks/use-toast';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
-import { Textarea } from '@/components/ui/textarea';
-import { Checkbox } from '@/components/ui/checkbox';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { cn } from '@/lib/utils';
 import type { WorkLocation, CompanySettings, ActivityLog, HolidayPayRule } from '@shared/schema';
-import NotificationSettings from '@/components/NotificationSettings';
 import {
   Settings, MapPin, Calendar, Clock, DollarSign, Users, User, Bell,
   Shield, FileText, MessageSquare, Store, Menu, X, ChevronRight,
-  Plus, Trash2, Edit, ExternalLink, AlertCircle
+  ExternalLink
 } from 'lucide-react';
 
-const TIMEZONES = [
-  'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
-  'America/Phoenix', 'America/Anchorage', 'Pacific/Honolulu', 'America/Toronto',
-  'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'Asia/Tokyo', 'Asia/Shanghai',
-  'Australia/Sydney', 'Pacific/Auckland',
-];
-
-const DAYS_OF_WEEK = [
-  { value: 'sunday', label: 'Sunday' },
-  { value: 'monday', label: 'Monday' },
-  { value: 'tuesday', label: 'Tuesday' },
-  { value: 'wednesday', label: 'Wednesday' },
-  { value: 'thursday', label: 'Thursday' },
-  { value: 'friday', label: 'Friday' },
-  { value: 'saturday', label: 'Saturday' },
-];
+import BasicInfoSection from '@/components/settings/BasicInfoSection';
+import PosConnectionSection from '@/components/settings/PosConnectionSection';
+import ScheduleEnforcementSection from '@/components/settings/ScheduleEnforcementSection';
+import AlertsPermissionsSection from '@/components/settings/AlertsPermissionsSection';
+import TimeClockOptionsSection from '@/components/settings/TimeClockOptionsSection';
+import OvertimeSection from '@/components/settings/OvertimeSection';
+import BreaksComplianceSection from '@/components/settings/BreaksComplianceSection';
+import PayrollSection from '@/components/settings/PayrollSection';
+import TimeOffSection from '@/components/settings/TimeOffSection';
+import MessagesSection from '@/components/settings/MessagesSection';
+import TeamPermissionsSection from '@/components/settings/TeamPermissionsSection';
+import ManagerLogSection from '@/components/settings/ManagerLogSection';
+import ProfileSection from '@/components/settings/ProfileSection';
+import NotificationsSection from '@/components/settings/NotificationsSection';
 
 const SIDEBAR_SECTIONS = [
   {
@@ -89,20 +75,6 @@ const SIDEBAR_SECTIONS = [
     ],
   },
 ];
-
-const formatHour = (hour: number) => {
-  const ampm = hour >= 12 ? 'PM' : 'AM';
-  const h = hour % 12 || 12;
-  return `${h}:00 ${ampm}`;
-};
-
-const TIME_OPTIONS = Array.from({ length: 48 }, (_, i) => {
-  const hour = Math.floor(i / 2);
-  const min = i % 2 === 0 ? '00' : '30';
-  const ampm = hour >= 12 ? 'PM' : 'AM';
-  const h = hour % 12 || 12;
-  return { value: `${String(hour).padStart(2, '0')}:${min}`, label: `${h}:${min} ${ampm}` };
-});
 
 export default function AdminSettings() {
   const { user } = useAuth();
@@ -264,14 +236,18 @@ export default function AdminSettings() {
 
   const updateSettingsMutation = useMutation({
     mutationFn: async (data: any) => {
-      const res = await apiRequest('PUT', '/api/company-settings', data);
+      const payload = { ...data, expectedVersion: settings?.version };
+      const res = await apiRequest('PUT', '/api/company-settings', payload);
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/company-settings'] });
       toast({ title: "Settings Saved", description: "Company settings updated successfully." });
     },
-    onError: (error) => {
+    onError: (error: any) => {
+      if (error.message?.includes("modified by another user")) {
+        queryClient.invalidateQueries({ queryKey: ['/api/company-settings'] });
+      }
       toast({ title: "Error", description: `Failed to save settings: ${error.message}`, variant: "destructive" });
     },
   });
@@ -481,1097 +457,95 @@ export default function AdminSettings() {
     );
   }
 
-  const renderBasicInfo = () => (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Location details</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <Label>Location name</Label>
-              <Input value={settingsForm.companyName || ''} onChange={e => updateForm('companyName', e.target.value)} />
-            </div>
-            <div>
-              <Label>Phone</Label>
-              <Input value={settingsForm.locationPhone || ''} onChange={e => updateForm('locationPhone', e.target.value)} />
-            </div>
-            <div>
-              <Label>Address 1</Label>
-              <Input value={settingsForm.address1 || ''} onChange={e => updateForm('address1', e.target.value)} />
-            </div>
-            <div>
-              <Label>Address 2</Label>
-              <Input value={settingsForm.address2 || ''} onChange={e => updateForm('address2', e.target.value)} />
-            </div>
-            <div>
-              <Label>City</Label>
-              <Input value={settingsForm.city || ''} onChange={e => updateForm('city', e.target.value)} />
-            </div>
-            <div>
-              <Label>State / Province</Label>
-              <Input value={settingsForm.stateProvince || ''} onChange={e => updateForm('stateProvince', e.target.value)} />
-            </div>
-            <div>
-              <Label>Zip code</Label>
-              <Input value={settingsForm.zipCode || ''} onChange={e => updateForm('zipCode', e.target.value)} />
-            </div>
-            <div>
-              <Label>Country</Label>
-              <Input value={settingsForm.country || ''} onChange={e => updateForm('country', e.target.value)} />
-            </div>
-            <div>
-              <Label>Timezone</Label>
-              <Select value={settingsForm.timezone || 'America/New_York'} onValueChange={val => updateForm('timezone', val)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {TIMEZONES.map(tz => (
-                    <SelectItem key={tz} value={tz}>{tz.split('/').pop()?.replace(/_/g, ' ')} ({tz})</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>Business type</Label>
-              <Input value={settingsForm.businessType || ''} onChange={e => updateForm('businessType', e.target.value)} />
-            </div>
-            <div>
-              <Label>Business category</Label>
-              <Input value={settingsForm.businessCategory || ''} onChange={e => updateForm('businessCategory', e.target.value)} />
-            </div>
-            <div>
-              <Label>Website</Label>
-              <Input value={settingsForm.website || ''} onChange={e => updateForm('website', e.target.value)} />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Company info</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <Label>Company name</Label>
-              <Input value={settingsForm.companyName || ''} onChange={e => updateForm('companyName', e.target.value)} />
-            </div>
-            <div>
-              <Label>Account owner name</Label>
-              <Input value={settingsForm.accountOwnerName || ''} onChange={e => updateForm('accountOwnerName', e.target.value)} />
-            </div>
-            <div>
-              <Label>Company phone</Label>
-              <Input value={settingsForm.companyPhone || ''} onChange={e => updateForm('companyPhone', e.target.value)} />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-base">Company locations</CardTitle>
-          <Button size="sm" onClick={() => setShowAddLocation(true)}>
-            <Plus className="w-4 h-4 mr-1" /> Add a new location
-          </Button>
-        </CardHeader>
-        <CardContent>
-          {locations.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No locations added yet.</p>
-          ) : (
-            <div className="space-y-3">
-              {locations.map(loc => (
-                <div key={loc.id} className="flex items-center justify-between p-3 border rounded-lg">
-                  <div>
-                    <p className="font-medium text-sm">{loc.name}</p>
-                    <p className="text-xs text-muted-foreground">{loc.address || 'No address'}</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button size="sm" variant="ghost" onClick={() => setEditingLocation(loc)}>
-                      <Edit className="w-4 h-4" />
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => deleteLocationMutation.mutate(loc.id)}>
-                      <Trash2 className="w-4 h-4 text-destructive" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Dialog open={showAddLocation} onOpenChange={setShowAddLocation}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Add New Location</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleAddLocation} className="space-y-4">
-            <div>
-              <Label htmlFor="name">Location Name</Label>
-              <Input id="name" name="name" required />
-            </div>
-            <div>
-              <Label htmlFor="address">Address</Label>
-              <Input id="address" name="address" />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label htmlFor="latitude">Latitude</Label>
-                <Input id="latitude" name="latitude" type="number" step="any" />
-              </div>
-              <div>
-                <Label htmlFor="longitude">Longitude</Label>
-                <Input id="longitude" name="longitude" type="number" step="any" />
-              </div>
-            </div>
-            <div>
-              <Label htmlFor="radius">Geofence Radius (meters)</Label>
-              <Input id="radius" name="radius" type="number" defaultValue={100} />
-            </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setShowAddLocation(false)}>Cancel</Button>
-              <Button type="submit" disabled={addLocationMutation.isPending}>
-                {addLocationMutation.isPending ? 'Adding...' : 'Add Location'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={!!editingLocation} onOpenChange={() => setEditingLocation(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit Location</DialogTitle>
-          </DialogHeader>
-          {editingLocation && (
-            <form onSubmit={handleUpdateLocation} className="space-y-4">
-              <div>
-                <Label htmlFor="edit-name">Location Name</Label>
-                <Input id="edit-name" name="name" defaultValue={editingLocation.name} required />
-              </div>
-              <div>
-                <Label htmlFor="edit-address">Address</Label>
-                <Input id="edit-address" name="address" defaultValue={editingLocation.address || ''} />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label htmlFor="edit-latitude">Latitude</Label>
-                  <Input id="edit-latitude" name="latitude" type="number" step="any" defaultValue={editingLocation.latitude || ''} />
-                </div>
-                <div>
-                  <Label htmlFor="edit-longitude">Longitude</Label>
-                  <Input id="edit-longitude" name="longitude" type="number" step="any" defaultValue={editingLocation.longitude || ''} />
-                </div>
-              </div>
-              <div>
-                <Label htmlFor="edit-radius">Geofence Radius (meters)</Label>
-                <Input id="edit-radius" name="radius" type="number" defaultValue={editingLocation.radius || 100} />
-              </div>
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setEditingLocation(null)}>Cancel</Button>
-                <Button type="submit" disabled={updateLocationMutation.isPending}>
-                  {updateLocationMutation.isPending ? 'Saving...' : 'Save Changes'}
-                </Button>
-              </DialogFooter>
-            </form>
-          )}
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-
-  const renderPosConnection = () => (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Store className="w-5 h-5" /> Shopify Integration
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {connectedShop ? (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between p-4 border rounded-lg bg-green-50 dark:bg-green-900/10">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
-                    <Store className="w-5 h-5 text-green-600" />
-                  </div>
-                  <div>
-                    <p className="font-medium text-sm">{connectedShop.shopDomain}</p>
-                    <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">Connected</Badge>
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <Button size="sm" variant="outline" onClick={() => syncSalesMutation.mutate(connectedShop.shopDomain)} disabled={syncSalesMutation.isPending}>
-                    {syncSalesMutation.isPending ? 'Syncing...' : 'Sync Sales'}
-                  </Button>
-                  <Button size="sm" variant="destructive" onClick={() => disconnectShopifyMutation.mutate(connectedShop.shopDomain)} disabled={disconnectShopifyMutation.isPending}>
-                    Disconnect
-                  </Button>
-                </div>
-              </div>
-              {salesData && (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  <div className="p-3 border rounded-lg text-center">
-                    <p className="text-2xl font-bold">{salesData.totalOrders || 0}</p>
-                    <p className="text-xs text-muted-foreground">Total Orders</p>
-                  </div>
-                  <div className="p-3 border rounded-lg text-center">
-                    <p className="text-2xl font-bold">${(salesData.totalRevenue || 0).toLocaleString()}</p>
-                    <p className="text-xs text-muted-foreground">Total Revenue</p>
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">Connect your Shopify store to sync sales data and get AI-powered staffing recommendations.</p>
-              <div className="flex gap-2">
-                <Input placeholder="your-store.myshopify.com" value={shopifyDomain} onChange={e => setShopifyDomain(e.target.value)} />
-                <Button onClick={() => connectShopifyMutation.mutate(shopifyDomain)} disabled={!shopifyDomain || connectShopifyMutation.isPending}>
-                  {connectShopifyMutation.isPending ? 'Connecting...' : 'Connect'}
-                </Button>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </div>
-  );
-
-  const renderScheduleEnforcement = () => (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Work week</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div>
-            <Label>Work week starts on</Label>
-            <Select value={settingsForm.workWeekStart || 'sunday'} onValueChange={val => updateForm('workWeekStart', val)}>
-              <SelectTrigger className="w-48">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {DAYS_OF_WEEK.map(d => (
-                  <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Scheduling hours</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label>Start time</Label>
-              <Select value={settingsForm.schedulingStartTime || '09:00'} onValueChange={val => updateForm('schedulingStartTime', val)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {TIME_OPTIONS.map(t => (
-                    <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>End time</Label>
-              <Select value={settingsForm.schedulingEndTime || '17:00'} onValueChange={val => updateForm('schedulingEndTime', val)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {TIME_OPTIONS.map(t => (
-                    <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Clock-in rules</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          <div className="flex items-center gap-3">
-            <span className="text-sm">Mark employee as late</span>
-            <Input type="number" className="w-20" value={settingsForm.lateThresholdMinutes ?? 5} onChange={e => updateForm('lateThresholdMinutes', parseInt(e.target.value) || 0)} />
-            <span className="text-sm">min after shift scheduled to start</span>
-          </div>
-
-          <Separator />
-
-          <div className="flex items-start gap-3">
-            <Checkbox checked={settingsForm.preventEarlyClockIn || false} onCheckedChange={val => updateForm('preventEarlyClockIn', !!val)} />
-            <div className="space-y-1">
-              <Label className="text-sm">Prevent early clock-in</Label>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">Employees cannot clock in more than</span>
-                <Input type="number" className="w-16 h-7 text-xs" value={settingsForm.earlyClockInMinutes ?? 5} onChange={e => updateForm('earlyClockInMinutes', parseInt(e.target.value) || 0)} disabled={!settingsForm.preventEarlyClockIn} />
-                <span className="text-xs text-muted-foreground">minutes before their shift</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-start gap-3">
-            <Checkbox checked={settingsForm.preventEarlyBreakReturn || false} onCheckedChange={val => updateForm('preventEarlyBreakReturn', !!val)} />
-            <div>
-              <Label className="text-sm">Prevent early break return</Label>
-              <p className="text-xs text-muted-foreground">Employees cannot end their break early</p>
-            </div>
-          </div>
-
-          <div className="flex items-start gap-3">
-            <Checkbox checked={settingsForm.singleClockOutReminder ?? true} onCheckedChange={val => updateForm('singleClockOutReminder', !!val)} />
-            <div>
-              <Label className="text-sm">Clock-out reminder</Label>
-              <p className="text-xs text-muted-foreground">Send a single reminder when an employee forgets to clock out</p>
-            </div>
-          </div>
-
-          <Separator />
-
-          <div className="flex items-start gap-3">
-            <Checkbox checked={settingsForm.autoClockOutEnabled || false} onCheckedChange={val => updateForm('autoClockOutEnabled', !!val)} />
-            <div className="space-y-1">
-              <Label className="text-sm">Auto clock-out</Label>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">Automatically clock out after</span>
-                <Input type="number" className="w-20 h-7 text-xs" value={settingsForm.autoClockOutAfterMinutes ?? 480} onChange={e => updateForm('autoClockOutAfterMinutes', parseInt(e.target.value) || 0)} disabled={!settingsForm.autoClockOutEnabled} />
-                <span className="text-xs text-muted-foreground">minutes</span>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-
-  const renderAlertsPermissions = () => (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Employee</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-start gap-3">
-            <Checkbox checked={settingsForm.textScheduleToEmployees || false} onCheckedChange={val => updateForm('textScheduleToEmployees', !!val)} />
-            <div>
-              <Label className="text-sm">Text schedule to employees</Label>
-              <p className="text-xs text-muted-foreground">Automatically send schedule updates via text message to employees</p>
-            </div>
-          </div>
-          <div className="flex items-start gap-3">
-            <Checkbox checked={settingsForm.employeesViewOwnScheduleOnly || false} onCheckedChange={val => updateForm('employeesViewOwnScheduleOnly', !!val)} />
-            <div>
-              <Label className="text-sm">Employees view own schedule only</Label>
-              <p className="text-xs text-muted-foreground">Restrict employees to only see their own scheduled shifts</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Manager</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-start gap-3">
-            <Checkbox checked={settingsForm.notifyManagerLateClockIn ?? true} onCheckedChange={val => updateForm('notifyManagerLateClockIn', !!val)} />
-            <div className="space-y-1">
-              <Label className="text-sm">Notify manager of late clock-in</Label>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">Alert managers when employee is late by</span>
-                <Input type="number" className="w-16 h-7 text-xs" value={settingsForm.managerLateAlertMinutes ?? 19} onChange={e => updateForm('managerLateAlertMinutes', parseInt(e.target.value) || 0)} disabled={!settingsForm.notifyManagerLateClockIn} />
-                <span className="text-xs text-muted-foreground">minutes</span>
-              </div>
-            </div>
-          </div>
-          <div className="flex items-start gap-3">
-            <Checkbox checked={settingsForm.requireManagerApprovalAvailability ?? true} onCheckedChange={val => updateForm('requireManagerApprovalAvailability', !!val)} />
-            <div>
-              <Label className="text-sm">Require manager approval for availability</Label>
-              <p className="text-xs text-muted-foreground">Managers must approve availability change requests from employees</p>
-            </div>
-          </div>
-          <div className="flex items-start gap-3">
-            <Checkbox checked={settingsForm.managersScheduleOwnDept || false} onCheckedChange={val => updateForm('managersScheduleOwnDept', !!val)} />
-            <div>
-              <Label className="text-sm">Managers schedule own department only</Label>
-              <p className="text-xs text-muted-foreground">Restrict managers to scheduling only employees in their department</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-
-  const renderTimeClockOptions = () => (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">General</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-start gap-3">
-            <Checkbox checked={settingsForm.requestShiftExperience ?? true} onCheckedChange={val => updateForm('requestShiftExperience', !!val)} />
-            <div>
-              <Label className="text-sm">Request shift experience</Label>
-              <p className="text-xs text-muted-foreground">Ask employees to rate their shift experience when clocking out</p>
-            </div>
-          </div>
-          <div className="flex items-start gap-3">
-            <Checkbox checked={settingsForm.requireCashTipDeclaration || false} onCheckedChange={val => updateForm('requireCashTipDeclaration', !!val)} />
-            <div>
-              <Label className="text-sm">Require cash tip declaration</Label>
-              <p className="text-xs text-muted-foreground">Employees must declare cash tips when clocking out</p>
-            </div>
-          </div>
-          <div className="flex items-start gap-3">
-            <Checkbox checked={settingsForm.enableClockRounding || false} onCheckedChange={val => updateForm('enableClockRounding', !!val)} />
-            <div className="space-y-1">
-              <Label className="text-sm">Enable clock rounding</Label>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">Round clock times to nearest</span>
-                <Input type="number" className="w-16 h-7 text-xs" value={settingsForm.roundingIncrement ?? 5} onChange={e => updateForm('roundingIncrement', parseInt(e.target.value) || 5)} disabled={!settingsForm.enableClockRounding} />
-                <span className="text-xs text-muted-foreground">minutes</span>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Mobile Time Clock</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <Label className="text-sm">Enable mobile time clock</Label>
-              <p className="text-xs text-muted-foreground">Allow employees to clock in/out from their mobile devices</p>
-            </div>
-            <Switch checked={settingsForm.enableMobileTimeClock ?? true} onCheckedChange={val => updateForm('enableMobileTimeClock', val)} />
-          </div>
-          <div className="flex items-start gap-3">
-            <Checkbox checked={settingsForm.allowUnscheduledMobileClockIn || false} onCheckedChange={val => updateForm('allowUnscheduledMobileClockIn', !!val)} />
-            <div>
-              <Label className="text-sm">Allow unscheduled mobile clock-in</Label>
-              <p className="text-xs text-muted-foreground">Employees can clock in even without a scheduled shift</p>
-            </div>
-          </div>
-          <div className="flex items-start gap-3">
-            <Checkbox checked={settingsForm.geofenceEnforcement || false} onCheckedChange={val => updateForm('geofenceEnforcement', !!val)} />
-            <div>
-              <Label className="text-sm">Enable Geo-fence</Label>
-              <p className="text-xs text-muted-foreground">Require employees to be within the geofence to clock in via mobile</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Web Time Clock</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <Label className="text-sm">Enable web time clock</Label>
-              <p className="text-xs text-muted-foreground">Allow clocking in/out from a web browser</p>
-            </div>
-            <Switch checked={settingsForm.enableWebTimeClock || false} onCheckedChange={val => updateForm('enableWebTimeClock', val)} />
-          </div>
-          <div className="flex items-start gap-3">
-            <Checkbox checked={settingsForm.allowEmployeeWebClock || false} onCheckedChange={val => updateForm('allowEmployeeWebClock', !!val)} />
-            <div>
-              <Label className="text-sm">Allow employee web clock</Label>
-              <p className="text-xs text-muted-foreground">Let employees use the web-based time clock from their own devices</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Smart Clock-In Prompt</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <Label className="text-sm">Enable smart clock-in prompt</Label>
-              <p className="text-xs text-muted-foreground">When an employee opens the app inside a geofenced work location, prompt them to clock in with one tap</p>
-            </div>
-            <Switch checked={settingsForm.enableSmartClockPrompt || false} onCheckedChange={val => updateForm('enableSmartClockPrompt', val)} />
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Clock Out on Focus Loss</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <Label className="text-sm">Auto clock-out when app loses focus</Label>
-              <p className="text-xs text-muted-foreground">Automatically clock out employees when they switch away from the app, minimize the browser, or lock their phone</p>
-            </div>
-            <Switch checked={settingsForm.enableClockOutOnFocusLoss || false} onCheckedChange={val => updateForm('enableClockOutOnFocusLoss', val)} />
-          </div>
-          {settingsForm.enableClockOutOnFocusLoss && (
-            <div>
-              <Label className="text-xs">Grace period (seconds)</Label>
-              <p className="text-xs text-muted-foreground mb-2">How long to wait before clocking out after focus is lost, to avoid accidental triggers</p>
-              <Input type="number" min={5} max={300} value={settingsForm.focusLossGraceSeconds ?? 30} onChange={e => updateForm('focusLossGraceSeconds', parseInt(e.target.value) || 30)} className="w-32" />
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </div>
-  );
-
-  const renderOvertime = () => (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Daily overtime</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <Label className="text-sm">Enable daily overtime</Label>
-            <Switch checked={settingsForm.enableDailyOvertime || false} onCheckedChange={val => updateForm('enableDailyOvertime', val)} />
-          </div>
-          {settingsForm.enableDailyOvertime && (
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label className="text-xs">Hours threshold</Label>
-                <Input type="number" value={settingsForm.dailyOvertimeHours ?? 8} onChange={e => updateForm('dailyOvertimeHours', parseInt(e.target.value) || 8)} />
-              </div>
-              <div>
-                <Label className="text-xs">Multiplier</Label>
-                <Input type="number" step="0.25" value={settingsForm.dailyOvertimeMultiplier || '1.50'} onChange={e => updateForm('dailyOvertimeMultiplier', e.target.value)} />
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Weekly overtime</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <Label className="text-sm">Enable weekly overtime</Label>
-            <Switch checked={settingsForm.enableWeeklyOvertime ?? true} onCheckedChange={val => updateForm('enableWeeklyOvertime', val)} />
-          </div>
-          {settingsForm.enableWeeklyOvertime && (
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label className="text-xs">Hours threshold (per week)</Label>
-                <Input type="number" value={settingsForm.overtimeThresholdHours ?? 40} onChange={e => updateForm('overtimeThresholdHours', parseInt(e.target.value) || 40)} />
-              </div>
-              <div>
-                <Label className="text-xs">Multiplier</Label>
-                <Input type="number" step="0.25" value={settingsForm.overtimeMultiplier || '1.50'} onChange={e => updateForm('overtimeMultiplier', e.target.value)} />
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Overtime alert</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <Label className="text-sm">Enable overtime alert</Label>
-            <Switch checked={settingsForm.overtimeAlertEnabled || false} onCheckedChange={val => updateForm('overtimeAlertEnabled', val)} />
-          </div>
-          {settingsForm.overtimeAlertEnabled && (
-            <div>
-              <Label className="text-xs">Alert when employee reaches (hours)</Label>
-              <Input type="number" className="w-32" value={settingsForm.overtimeAlertHours ?? 40} onChange={e => updateForm('overtimeAlertHours', parseInt(e.target.value) || 40)} />
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Workweek settings</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label className="text-xs">Work week starts on</Label>
-              <Select value={settingsForm.workWeekStart || 'sunday'} onValueChange={val => updateForm('workWeekStart', val)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {DAYS_OF_WEEK.map(d => (
-                    <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label className="text-xs">Start of workday</Label>
-              <Select value={settingsForm.startOfWorkday || '00:00'} onValueChange={val => updateForm('startOfWorkday', val)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {TIME_OPTIONS.map(t => (
-                    <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="flex items-start gap-3">
-            <Checkbox checked={settingsForm.trackOvertimeAcrossLocations || false} onCheckedChange={val => updateForm('trackOvertimeAcrossLocations', !!val)} />
-            <div>
-              <Label className="text-sm">Track overtime across locations</Label>
-              <p className="text-xs text-muted-foreground">Calculate overtime based on total hours across all locations</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Holiday pay rates</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <Label className="text-sm">Enable holiday pay rate</Label>
-            <Switch checked={settingsForm.enableHolidayPayRate || false} onCheckedChange={val => updateForm('enableHolidayPayRate', val)} />
-          </div>
-          {settingsForm.enableHolidayPayRate && (
-            <>
-              <div>
-                <Label className="text-xs">Holiday pay multiplier</Label>
-                <Input type="number" step="0.25" className="w-32" value={settingsForm.holidayPayMultiplier || '1.50'} onChange={e => updateForm('holidayPayMultiplier', e.target.value)} />
-              </div>
-              <Separator />
-              <div className="space-y-3">
-                <Label className="text-sm font-medium">Holiday Pay Rules</Label>
-                <div className="space-y-2">
-                  <Textarea placeholder="Describe your holiday pay rules in plain English, e.g., 'Christmas Day at 2x pay, Thanksgiving at 1.5x pay'" value={holidayInstruction} onChange={e => setHolidayInstruction(e.target.value)} rows={3} />
-                  <Button size="sm" onClick={() => parseHolidayPayMutation.mutate(holidayInstruction)} disabled={!holidayInstruction || parseHolidayPayMutation.isPending}>
-                    {parseHolidayPayMutation.isPending ? 'Processing...' : 'Save Holiday Rules'}
-                  </Button>
-                </div>
-                {holidayAiSummary && (
-                  <div className="p-3 bg-green-50 dark:bg-green-900/10 rounded-lg text-sm text-green-700 dark:text-green-400">
-                    {holidayAiSummary}
-                  </div>
-                )}
-                {holidayPayRules.length > 0 && (
-                  <div className="space-y-2">
-                    {holidayPayRules.map((rule: HolidayPayRule) => (
-                      <div key={rule.id} className="flex items-center justify-between p-3 border rounded-lg">
-                        <div>
-                          <p className="text-sm font-medium">{rule.name}</p>
-                          <p className="text-xs text-muted-foreground">{rule.month}/{rule.day} &middot; {rule.payMultiplier}x pay</p>
-                        </div>
-                        <Button size="sm" variant="ghost" onClick={() => deleteHolidayRuleMutation.mutate(rule.id)}>
-                          <Trash2 className="w-4 h-4 text-destructive" />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
-    </div>
-  );
-
-  const renderBreaksCompliance = () => (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Break rule 1</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <Label className="text-sm">Enabled</Label>
-            <Switch checked={settingsForm.breakRule1Enabled ?? true} onCheckedChange={val => updateForm('breakRule1Enabled', val)} />
-          </div>
-          {settingsForm.breakRule1Enabled && (
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label className="text-xs">Minutes</Label>
-                <Input type="number" value={settingsForm.breakRule1Minutes ?? 10} onChange={e => updateForm('breakRule1Minutes', parseInt(e.target.value) || 0)} />
-              </div>
-              <div>
-                <Label className="text-xs">Type</Label>
-                <Select value={settingsForm.breakRule1Type || 'paid'} onValueChange={val => updateForm('breakRule1Type', val)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="paid">Paid</SelectItem>
-                    <SelectItem value="unpaid">Unpaid</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label className="text-xs">Every (hours)</Label>
-                <Input type="number" value={settingsForm.breakRule1EveryHours ?? 4} onChange={e => updateForm('breakRule1EveryHours', parseInt(e.target.value) || 0)} />
-              </div>
-              <div>
-                <Label className="text-xs">Required</Label>
-                <Select value={settingsForm.breakRule1Required || 'optional'} onValueChange={val => updateForm('breakRule1Required', val)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="optional">Optional</SelectItem>
-                    <SelectItem value="mandatory">Mandatory</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Break rule 2</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <Label className="text-sm">Enabled</Label>
-            <Switch checked={settingsForm.breakRule2Enabled ?? true} onCheckedChange={val => updateForm('breakRule2Enabled', val)} />
-          </div>
-          {settingsForm.breakRule2Enabled && (
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label className="text-xs">Minutes</Label>
-                <Input type="number" value={settingsForm.breakRule2Minutes ?? 30} onChange={e => updateForm('breakRule2Minutes', parseInt(e.target.value) || 0)} />
-              </div>
-              <div>
-                <Label className="text-xs">Type</Label>
-                <Select value={settingsForm.breakRule2Type || 'unpaid'} onValueChange={val => updateForm('breakRule2Type', val)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="paid">Paid</SelectItem>
-                    <SelectItem value="unpaid">Unpaid</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label className="text-xs">Every (hours)</Label>
-                <Input type="number" value={settingsForm.breakRule2EveryHours ?? 6} onChange={e => updateForm('breakRule2EveryHours', parseInt(e.target.value) || 0)} />
-              </div>
-              <div>
-                <Label className="text-xs">Required</Label>
-                <Select value={settingsForm.breakRule2Required || 'optional'} onValueChange={val => updateForm('breakRule2Required', val)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="optional">Optional</SelectItem>
-                    <SelectItem value="mandatory">Mandatory</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Unpaid breaks</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-start gap-3">
-            <Checkbox checked={settingsForm.subtractUnpaidBreaks ?? true} onCheckedChange={val => updateForm('subtractUnpaidBreaks', !!val)} />
-            <div>
-              <Label className="text-sm">Subtract unpaid breaks from total hours</Label>
-              <p className="text-xs text-muted-foreground">Automatically deduct unpaid break time from employee total hours</p>
-            </div>
-          </div>
-          <div className="flex items-start gap-3">
-            <Checkbox checked={settingsForm.convertExcessToUnpaid || false} onCheckedChange={val => updateForm('convertExcessToUnpaid', !!val)} />
-            <div>
-              <Label className="text-sm">Convert excess break time to unpaid</Label>
-              <p className="text-xs text-muted-foreground">If an employee takes a longer break than allowed, the excess is treated as unpaid</p>
-            </div>
-          </div>
-          <div className="flex items-start gap-3">
-            <Checkbox checked={settingsForm.awardMissedBreakHours || false} onCheckedChange={val => updateForm('awardMissedBreakHours', !!val)} />
-            <div className="space-y-1">
-              <Label className="text-sm">Award missed break hours</Label>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">Award</span>
-                <Input type="number" className="w-16 h-7 text-xs" value={settingsForm.missedBreakAwardHours ?? 1} onChange={e => updateForm('missedBreakAwardHours', parseInt(e.target.value) || 0)} disabled={!settingsForm.awardMissedBreakHours} />
-                <span className="text-xs text-muted-foreground">hour(s) for missed breaks</span>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Missed break resolution</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <RadioGroup value={settingsForm.missedBreakPolicy || 'managers_only'} onValueChange={val => updateForm('missedBreakPolicy', val)} className="space-y-3">
-            <div className="flex items-center gap-3">
-              <RadioGroupItem value="managers_only" id="managers-only" />
-              <Label htmlFor="managers-only" className="text-sm">Managers only can resolve missed breaks</Label>
-            </div>
-            <div className="flex items-center gap-3">
-              <RadioGroupItem value="team_members" id="team-members" />
-              <Label htmlFor="team-members" className="text-sm">Team members can resolve their own missed breaks</Label>
-            </div>
-          </RadioGroup>
-        </CardContent>
-      </Card>
-    </div>
-  );
-
-  const renderPayroll = () => (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Pay schedule</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div>
-            <Label>Pay frequency</Label>
-            <Select value={settingsForm.payScheduleFrequency || 'every_two_weeks'} onValueChange={val => updateForm('payScheduleFrequency', val)}>
-              <SelectTrigger className="w-64">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="weekly">Weekly</SelectItem>
-                <SelectItem value="every_two_weeks">Every two weeks</SelectItem>
-                <SelectItem value="semi_monthly">Semi-monthly</SelectItem>
-                <SelectItem value="monthly">Monthly</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label>Next payroll date</Label>
-            <Input type="date" className="w-64" value={settingsForm.nextPayrollDate || ''} onChange={e => updateForm('nextPayrollDate', e.target.value)} />
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Running payroll</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-start gap-3">
-            <Checkbox checked={settingsForm.lockTimesheetsAfterApproval || false} onCheckedChange={val => updateForm('lockTimesheetsAfterApproval', !!val)} />
-            <div>
-              <Label className="text-sm">Lock timesheets after approval</Label>
-              <p className="text-xs text-muted-foreground">Prevent changes to timesheets once they have been approved for payroll</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-
-  const renderTimeOff = () => (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Time off requests</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-start gap-3">
-            <Checkbox checked={settingsForm.limitTimeOffRequests || false} onCheckedChange={val => updateForm('limitTimeOffRequests', !!val)} />
-            <div className="space-y-1">
-              <Label className="text-sm">Limit time off requests per day</Label>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">Maximum</span>
-                <Input type="number" className="w-16 h-7 text-xs" value={settingsForm.timeOffMaxPerDay ?? 1} onChange={e => updateForm('timeOffMaxPerDay', parseInt(e.target.value) || 1)} disabled={!settingsForm.limitTimeOffRequests} />
-                <span className="text-xs text-muted-foreground">employees off per day</span>
-              </div>
-            </div>
-          </div>
-          <div className="flex items-start gap-3">
-            <Checkbox checked={settingsForm.limitTimeOffAdvance || false} onCheckedChange={val => updateForm('limitTimeOffAdvance', !!val)} />
-            <div className="space-y-1">
-              <Label className="text-sm">Require advance notice for time off</Label>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">Must request at least</span>
-                <Input type="number" className="w-16 h-7 text-xs" value={settingsForm.timeOffAdvanceDays ?? 0} onChange={e => updateForm('timeOffAdvanceDays', parseInt(e.target.value) || 0)} disabled={!settingsForm.limitTimeOffAdvance} />
-                <span className="text-xs text-muted-foreground">days in advance</span>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-
-  const renderMessages = () => (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Team communication</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-start gap-3">
-            <Checkbox checked={settingsForm.allowShoutOuts ?? true} onCheckedChange={val => updateForm('allowShoutOuts', !!val)} />
-            <div>
-              <Label className="text-sm">Allow shout-outs</Label>
-              <p className="text-xs text-muted-foreground">Enable team members to send recognition and shout-outs to each other</p>
-            </div>
-          </div>
-          <div className="flex items-start gap-3">
-            <Checkbox checked={settingsForm.allowTeamMessaging ?? true} onCheckedChange={val => updateForm('allowTeamMessaging', !!val)} />
-            <div>
-              <Label className="text-sm">Allow team messaging</Label>
-              <p className="text-xs text-muted-foreground">Enable direct and group messaging between team members</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-
-  const renderTeamPermissions = () => (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Team permissions</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground mb-4">Manage roles and permissions for your team members in the dedicated role management page.</p>
-          <Button onClick={() => navigate('/hr/roles')} className="gap-2">
-            <Shield className="w-4 h-4" /> Manage Roles & Permissions <ExternalLink className="w-4 h-4" />
-          </Button>
-        </CardContent>
-      </Card>
-    </div>
-  );
-
-  const renderManagerLog = () => (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Activity log</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {activityLogs.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No activity logged yet.</p>
-          ) : (
-            <div className="space-y-2 max-h-[600px] overflow-y-auto">
-              {activityLogs.map((log: ActivityLog) => (
-                <div key={log.id} className="flex items-center justify-between p-3 border rounded-lg">
-                  <div>
-                    <p className="text-sm font-medium">{formatLogAction(log)}</p>
-                    <p className="text-xs text-muted-foreground">{log.details}</p>
-                  </div>
-                  <span className="text-xs text-muted-foreground whitespace-nowrap ml-4">{formatLogTime(log.createdAt)}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </div>
-  );
-
-  const renderProfile = () => (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Your profile</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center gap-4">
-            {user?.profileImageUrl ? (
-              <img src={user.profileImageUrl} alt="Profile" className="w-16 h-16 rounded-full object-cover" />
-            ) : (
-              <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
-                <User className="w-8 h-8 text-muted-foreground" />
-              </div>
-            )}
-            <div>
-              <p className="font-medium">{user?.firstName} {user?.lastName}</p>
-              <p className="text-sm text-muted-foreground">{user?.email}</p>
-            </div>
-          </div>
-          <Separator />
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <Label className="text-xs text-muted-foreground">First name</Label>
-              <p className="text-sm">{user?.firstName || '—'}</p>
-            </div>
-            <div>
-              <Label className="text-xs text-muted-foreground">Last name</Label>
-              <p className="text-sm">{user?.lastName || '—'}</p>
-            </div>
-            <div>
-              <Label className="text-xs text-muted-foreground">Email</Label>
-              <p className="text-sm">{user?.email || '—'}</p>
-            </div>
-          </div>
-          <p className="text-xs text-muted-foreground">Profile editing is managed through your authentication provider.</p>
-        </CardContent>
-      </Card>
-    </div>
-  );
-
-  const renderNotifications = () => (
-    <div className="space-y-6">
-      <NotificationSettings />
-    </div>
-  );
-
   const renderContent = () => {
     switch (activeSection) {
-      case 'basic-info': return renderBasicInfo();
-      case 'pos-connection': return renderPosConnection();
-      case 'schedule-enforcement': return renderScheduleEnforcement();
-      case 'alerts-permissions': return renderAlertsPermissions();
-      case 'time-clock': return renderTimeClockOptions();
-      case 'overtime': return renderOvertime();
-      case 'breaks': return renderBreaksCompliance();
-      case 'payroll': return renderPayroll();
-      case 'time-off': return renderTimeOff();
-      case 'messages': return renderMessages();
-      case 'team-permissions': return renderTeamPermissions();
-      case 'manager-log': return renderManagerLog();
-      case 'profile': return renderProfile();
-      case 'notifications': return renderNotifications();
-      default: return renderBasicInfo();
+      case 'basic-info':
+        return (
+          <BasicInfoSection
+            settingsForm={settingsForm}
+            updateForm={updateForm}
+            locations={locations}
+            showAddLocation={showAddLocation}
+            setShowAddLocation={setShowAddLocation}
+            editingLocation={editingLocation}
+            setEditingLocation={setEditingLocation}
+            addLocationMutation={addLocationMutation}
+            updateLocationMutation={updateLocationMutation}
+            deleteLocationMutation={deleteLocationMutation}
+            handleAddLocation={handleAddLocation}
+            handleUpdateLocation={handleUpdateLocation}
+          />
+        );
+      case 'pos-connection':
+        return (
+          <PosConnectionSection
+            shopifyDomain={shopifyDomain}
+            setShopifyDomain={setShopifyDomain}
+            connectedShop={connectedShop}
+            connectShopifyMutation={connectShopifyMutation}
+            disconnectShopifyMutation={disconnectShopifyMutation}
+            syncSalesMutation={syncSalesMutation}
+            salesData={salesData}
+          />
+        );
+      case 'schedule-enforcement':
+        return <ScheduleEnforcementSection settingsForm={settingsForm} updateForm={updateForm} />;
+      case 'alerts-permissions':
+        return <AlertsPermissionsSection settingsForm={settingsForm} updateForm={updateForm} />;
+      case 'time-clock':
+        return <TimeClockOptionsSection settingsForm={settingsForm} updateForm={updateForm} />;
+      case 'overtime':
+        return (
+          <OvertimeSection
+            settingsForm={settingsForm}
+            updateForm={updateForm}
+            holidayPayRules={holidayPayRules}
+            holidayInstruction={holidayInstruction}
+            setHolidayInstruction={setHolidayInstruction}
+            parseHolidayPayMutation={parseHolidayPayMutation}
+            deleteHolidayRuleMutation={deleteHolidayRuleMutation}
+            holidayAiSummary={holidayAiSummary}
+          />
+        );
+      case 'breaks':
+        return <BreaksComplianceSection settingsForm={settingsForm} updateForm={updateForm} />;
+      case 'payroll':
+        return <PayrollSection settingsForm={settingsForm} updateForm={updateForm} />;
+      case 'time-off':
+        return <TimeOffSection settingsForm={settingsForm} updateForm={updateForm} />;
+      case 'messages':
+        return <MessagesSection settingsForm={settingsForm} updateForm={updateForm} />;
+      case 'team-permissions':
+        return <TeamPermissionsSection />;
+      case 'manager-log':
+        return (
+          <ManagerLogSection
+            activityLogs={activityLogs}
+            formatLogAction={formatLogAction}
+            formatLogTime={formatLogTime}
+          />
+        );
+      case 'profile':
+        return <ProfileSection user={user} />;
+      case 'notifications':
+        return <NotificationsSection />;
+      default:
+        return (
+          <BasicInfoSection
+            settingsForm={settingsForm}
+            updateForm={updateForm}
+            locations={locations}
+            showAddLocation={showAddLocation}
+            setShowAddLocation={setShowAddLocation}
+            editingLocation={editingLocation}
+            setEditingLocation={setEditingLocation}
+            addLocationMutation={addLocationMutation}
+            updateLocationMutation={updateLocationMutation}
+            deleteLocationMutation={deleteLocationMutation}
+            handleAddLocation={handleAddLocation}
+            handleUpdateLocation={handleUpdateLocation}
+          />
+        );
     }
   };
 

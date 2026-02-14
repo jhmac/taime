@@ -1029,12 +1029,16 @@ export class DatabaseStorage implements IStorage {
     return settings;
   }
 
-  async updateCompanySettings(settings: InsertCompanySettings): Promise<CompanySettings> {
+  async updateCompanySettings(settings: InsertCompanySettings & { expectedVersion?: number }): Promise<CompanySettings> {
     const existing = await this.getCompanySettings();
     if (existing) {
+      const { expectedVersion, ...settingsData } = settings;
+      if (expectedVersion !== undefined && expectedVersion !== existing.version) {
+        throw new Error("Settings were modified by another user. Please refresh and try again.");
+      }
       const [updated] = await db
         .update(companySettings)
-        .set({ ...settings, updatedAt: new Date() })
+        .set({ ...settingsData, updatedAt: new Date(), version: existing.version + 1 })
         .where(eq(companySettings.id, existing.id))
         .returning();
       return updated;

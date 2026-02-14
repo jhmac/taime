@@ -1,21 +1,21 @@
 import { useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
+import { useCompanySettings } from '@/hooks/useCompanySettings';
 import { apiRequest } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
-import type { TimeEntry, CompanySettings } from '@shared/schema';
+import type { TimeEntry } from '@shared/schema';
+
+const EXEMPT_ROLES = ['admin', 'owner'];
 
 export default function FocusClockOut() {
   const { user } = useAuth();
+  const { settings } = useCompanySettings();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const graceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoClockedOutRef = useRef(false);
   const activeEntryRef = useRef<TimeEntry | null>(null);
-
-  const { data: settings } = useQuery<CompanySettings>({
-    queryKey: ['/api/company-settings'],
-  });
 
   const { data: activeTimeEntry } = useQuery<TimeEntry | null>({
     queryKey: ['/api/time-entries/active'],
@@ -30,6 +30,7 @@ export default function FocusClockOut() {
     mutationFn: async (timeEntryId: string) => {
       return await apiRequest('PATCH', `/api/time-entries/${timeEntryId}`, {
         clockOutTime: new Date(),
+        clockOutSource: 'auto-focus-loss',
       });
     },
     onSuccess: () => {
@@ -39,7 +40,8 @@ export default function FocusClockOut() {
   });
 
   useEffect(() => {
-    if (!settings?.enableClockOutOnFocusLoss) {
+    const userRole = user?.role?.name;
+    if (!settings?.enableClockOutOnFocusLoss || (userRole && EXEMPT_ROLES.includes(userRole))) {
       return;
     }
 
@@ -81,7 +83,7 @@ export default function FocusClockOut() {
         clearTimeout(graceTimerRef.current);
       }
     };
-  }, [settings?.enableClockOutOnFocusLoss, settings?.focusLossGraceSeconds, clockOutMutation, toast]);
+  }, [settings?.enableClockOutOnFocusLoss, settings?.focusLossGraceSeconds, clockOutMutation, toast, user?.role?.name]);
 
   return null;
 }

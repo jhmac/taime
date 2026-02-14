@@ -101,6 +101,7 @@ export const timeEntries = pgTable("time_entries", {
   clockOutTime: timestamp("clock_out_time"),
   breakMinutes: integer("break_minutes").default(0),
   notes: text("notes"),
+  clockOutSource: varchar("clock_out_source").default("manual"),
   isApproved: boolean("is_approved").default(false),
   approvedBy: varchar("approved_by").references(() => users.id),
   approvedAt: timestamp("approved_at"),
@@ -374,6 +375,7 @@ export const companySettings = pgTable("company_settings", {
   enableSmartClockPrompt: boolean("enable_smart_clock_prompt").default(false),
   enableClockOutOnFocusLoss: boolean("enable_clock_out_on_focus_loss").default(false),
   focusLossGraceSeconds: integer("focus_loss_grace_seconds").default(30),
+  version: integer("version").default(1).notNull(),
 });
 
 // Activity log for admin actions
@@ -630,6 +632,7 @@ export const insertPushSubscriptionSchema = createInsertSchema(pushSubscriptions
 export const insertCompanySettingsSchema = createInsertSchema(companySettings).omit({
   id: true,
   updatedAt: true,
+  version: true,
 });
 
 export const insertActivityLogSchema = createInsertSchema(activityLogs).omit({

@@ -24,7 +24,10 @@ Preferred communication style: Simple, everyday language.
 - **Database ORM**: Drizzle ORM for type-safe database operations
 - **Session Management**: Express sessions with PostgreSQL store using connect-pg-simple
 - **Real-time Communication**: WebSocket server for live updates and notifications
-- **File Structure**: Monorepo structure with shared schema between client and server
+- **File Structure**: Monorepo structure with shared schema between client and server; routes split into 17 modular files in server/routes/ (auth, timeEntries, schedules, tasks, ai, admin, users, roles, communication, payroll, shopify, geofence, push, chores, availability, analytics, insights)
+- **Settings Validation**: Zod schema with type/range validation on PUT /api/company-settings (replaces manual field allowlist); optimistic locking via version column prevents silent overwrites
+- **Settings Hook**: useCompanySettings hook (client/src/hooks/useCompanySettings.ts) with staleTime/gcTime to deduplicate API calls across SmartClockPrompt, FocusClockOut, and AdminSettings
+- **AdminSettings Architecture**: Controller pattern — AdminSettings.tsx holds state/mutations/queries, 14 extracted section components in client/src/components/settings/ receive settingsForm and updateForm props
 - **Security Middleware**: Helmet for HTTP security headers, express-rate-limit for AI endpoint throttling, 2MB request body size limits
 
 ### Authentication & Authorization
