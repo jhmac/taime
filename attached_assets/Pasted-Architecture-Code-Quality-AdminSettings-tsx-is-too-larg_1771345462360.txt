@@ -1,0 +1,19 @@
+Architecture & Code Quality:
+
+AdminSettings.tsx is too large (~1670 lines). It should be split into separate components for each section (BasicInfoSection, OvertimeSection, BreaksSection, etc.) living in a client/src/components/settings/ folder. Each section would receive settingsForm and updateForm as props. Much easier to maintain.
+server/routes.ts is a monolith. All routes are in one file — it's probably 2800+ lines. It should be split into route modules (authRoutes, timeEntryRoutes, adminRoutes, shopifyRoutes, aiRoutes) and composed in the main file.
+The settings "allowed fields" list is fragile. There's a manual array of 70+ field names that must stay in sync with the schema. A better approach would be to derive the allowed fields from the Drizzle schema itself, or use a Zod validation schema to whitelist fields.
+Feature-Level Improvements:
+
+SmartClockPrompt checks location on every focus return — that could annoy employees with frequent GPS prompts and battery drain. Better to add a cooldown (e.g., don't re-check within 10 minutes of the last check).
+FocusClockOut has no employee opt-out. Right now it's all-or-nothing for the whole company. Some roles (managers) might need to multitask. Adding per-role or per-user override would be smart.
+No audit trail for auto clock-outs. When FocusClockOut clocks someone out, it looks the same as a manual clock-out in the system. Should log the source (auto-focus-loss vs manual) in the time entry.
+Data & Performance:
+
+Settings are fetched on every page load by multiple components independently. A shared settings context/provider would prevent duplicate API calls.
+The company_settings table has 80+ columns. This is getting unwieldy. Consider splitting into domain-specific settings tables (schedule_settings, overtime_settings, break_settings) or using a JSONB column for grouped settings.
+Security & Reliability:
+
+The PUT settings endpoint accepts any value for each field without type validation — just checks if the key is in the allowed list. Should validate types/ranges (e.g., grace period between 5-300, multipliers > 0).
+No optimistic locking on settings. Two admins editing settings at the same time will silently overwrite each other. Adding a version number or updatedAt check would prevent lost updates.
+Would you like me to tackle any of these? I'd recommend starting with #1 (splitting AdminSettings) and #6 (audit trail for auto clock-outs) as the highest-impact improvements.
