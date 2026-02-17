@@ -11,7 +11,7 @@ import type { WorkLocation, CompanySettings, ActivityLog, HolidayPayRule } from 
 import {
   Settings, MapPin, Calendar, Clock, DollarSign, Users, User, Bell,
   Shield, FileText, MessageSquare, Store, Menu, X, ChevronRight,
-  ExternalLink
+  ExternalLink, Trophy
 } from 'lucide-react';
 
 import BasicInfoSection from '@/components/settings/BasicInfoSection';
@@ -28,6 +28,7 @@ import TeamPermissionsSection from '@/components/settings/TeamPermissionsSection
 import ManagerLogSection from '@/components/settings/ManagerLogSection';
 import ProfileSection from '@/components/settings/ProfileSection';
 import NotificationsSection from '@/components/settings/NotificationsSection';
+import PerformanceScoringSection from '@/components/settings/PerformanceScoringSection';
 
 const SIDEBAR_SECTIONS = [
   {
@@ -64,6 +65,7 @@ const SIDEBAR_SECTIONS = [
       { id: 'time-off', label: 'Time off', icon: Calendar },
       { id: 'messages', label: 'Messages', icon: MessageSquare },
       { id: 'team-permissions', label: 'Team permissions', icon: Shield },
+      { id: 'performance-scoring', label: 'Performance scoring', icon: Trophy },
       { id: 'manager-log', label: 'Manager Log', icon: FileText },
     ],
   },
@@ -517,6 +519,8 @@ export default function AdminSettings() {
         return <MessagesSection settingsForm={settingsForm} updateForm={updateForm} />;
       case 'team-permissions':
         return <TeamPermissionsSection />;
+      case 'performance-scoring':
+        return <PerformanceScoringSection />;
       case 'manager-log':
         return (
           <ManagerLogSection
@@ -602,7 +606,7 @@ export default function AdminSettings() {
             <h1 className="text-lg font-semibold">Settings</h1>
           </div>
         </div>
-        {activeSection !== 'profile' && activeSection !== 'notifications' && activeSection !== 'manager-log' && activeSection !== 'team-permissions' && activeSection !== 'pos-connection' && (
+        {activeSection !== 'profile' && activeSection !== 'notifications' && activeSection !== 'manager-log' && activeSection !== 'team-permissions' && activeSection !== 'pos-connection' && activeSection !== 'performance-scoring' && (
           <Button onClick={handleSaveSettings} disabled={updateSettingsMutation.isPending} size="sm">
             {updateSettingsMutation.isPending ? 'Saving...' : 'Save changes'}
           </Button>

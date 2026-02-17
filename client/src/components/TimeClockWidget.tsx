@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { useGeolocation } from '@/hooks/useGeolocation';
@@ -26,18 +26,31 @@ export default function TimeClockWidget() {
     queryKey: ['/api/work-locations'],
   });
 
+  const logClockEvent = useCallback(async (eventType: string, timeEntryId?: string, metadata?: any) => {
+    try {
+      await apiRequest('POST', '/api/clock-events', {
+        eventType,
+        timeEntryId: timeEntryId || null,
+        metadata: metadata || null,
+      });
+    } catch (e) {}
+  }, []);
+
   const clockInMutation = useMutation({
     mutationFn: async (data: { locationId: string; latitude: number; longitude: number }) => {
-      return await apiRequest('POST', '/api/time-entries', {
+      const res = await apiRequest('POST', '/api/time-entries', {
         clockInTime: new Date(),
+        clockInSource: 'manual',
         ...(data.locationId ? { locationId: data.locationId } : {}),
         latitude: data.latitude,
         longitude: data.longitude,
       });
+      return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ['/api/time-entries'] });
       queryClient.invalidateQueries({ queryKey: ['/api/time-entries/active'] });
+      logClockEvent('shift-start', data?.id);
       toast({
         title: "Clocked In",
         description: "Successfully clocked in. Have a great workday!",
@@ -67,11 +80,13 @@ export default function TimeClockWidget() {
     mutationFn: async (timeEntryId: string) => {
       return await apiRequest('PATCH', `/api/time-entries/${timeEntryId}`, {
         clockOutTime: new Date(),
+        clockOutSource: 'manual',
       });
     },
-    onSuccess: () => {
+    onSuccess: (_data, timeEntryId) => {
       queryClient.invalidateQueries({ queryKey: ['/api/time-entries'] });
       queryClient.invalidateQueries({ queryKey: ['/api/time-entries/active'] });
+      logClockEvent('shift-end', timeEntryId);
       toast({
         title: "Clocked Out",
         description: "Successfully clocked out. Thanks for your work today!",
@@ -132,6 +147,10 @@ export default function TimeClockWidget() {
         const result = await locationCheck.json();
         
         if (!result.isInWorkLocation) {
+          logClockEvent('geofence-denied', undefined, {
+            latitude: position.latitude,
+            longitude: position.longitude,
+          });
           toast({
             title: "Location Required",
             description: "You must be at a work location to clock in.",

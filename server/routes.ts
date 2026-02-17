@@ -20,6 +20,7 @@ import { registerChoreRoutes } from "./routes/chores";
 import { registerAvailabilityRoutes } from "./routes/availability";
 import { registerAnalyticsRoutes } from "./routes/analytics";
 import { registerInsightRoutes } from "./routes/insights";
+import { registerClockEventRoutes } from "./routes/clockEvents";
 
 const wsConnections = new Map<string, WebSocket>();
 
@@ -51,6 +52,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerAvailabilityRoutes(app, storage, isAuthenticated);
   registerAnalyticsRoutes(app, storage, isAuthenticated);
   registerInsightRoutes(app, storage, isAuthenticated);
+  registerClockEventRoutes(app, storage, isAuthenticated);
 
   const httpServer = createServer(app);
 

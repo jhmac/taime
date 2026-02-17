@@ -20,6 +20,8 @@ import {
   companySettings,
   activityLogs,
   holidayPayRules,
+  clockEvents,
+  performanceScoreSettings,
   type User,
   type UpsertUser,
   type TimeEntry,
@@ -58,6 +60,10 @@ import {
   type UserWithRole,
   type CompanySettings,
   type InsertCompanySettings,
+  type ClockEvent,
+  type InsertClockEvent,
+  type PerformanceScoreSetting,
+  type InsertPerformanceScoreSetting,
   type ActivityLog,
   type InsertActivityLog,
   type HolidayPayRule,
@@ -182,6 +188,16 @@ export interface IStorage {
   // Activity log operations
   createActivityLog(log: InsertActivityLog): Promise<ActivityLog>;
   getActivityLogs(limit?: number): Promise<ActivityLog[]>;
+
+  // Clock events operations
+  createClockEvent(event: InsertClockEvent): Promise<ClockEvent>;
+  getClockEvents(userId: string, startDate?: Date, endDate?: Date): Promise<ClockEvent[]>;
+  getAllClockEvents(startDate?: Date, endDate?: Date): Promise<ClockEvent[]>;
+
+  // Performance score settings operations
+  getPerformanceScoreSettings(): Promise<PerformanceScoreSetting[]>;
+  upsertPerformanceScoreSetting(setting: InsertPerformanceScoreSetting): Promise<PerformanceScoreSetting>;
+  getPerformanceScores(startDate?: Date, endDate?: Date): Promise<{ userId: string; totalPoints: number; eventCount: number }[]>;
   
   // User management
   getAllUsers(): Promise<User[]>;
@@ -1103,6 +1119,75 @@ export class DatabaseStorage implements IStorage {
       .where(eq(holidayPayRules.id, id))
       .returning();
     return updated;
+  }
+
+  async createClockEvent(event: InsertClockEvent): Promise<ClockEvent> {
+    const [created] = await db.insert(clockEvents).values(event).returning();
+    return created;
+  }
+
+  async getClockEvents(userId: string, startDate?: Date, endDate?: Date): Promise<ClockEvent[]> {
+    const conditions = [eq(clockEvents.userId, userId)];
+    if (startDate) conditions.push(gte(clockEvents.createdAt, startDate));
+    if (endDate) conditions.push(lte(clockEvents.createdAt, endDate));
+    return await db
+      .select()
+      .from(clockEvents)
+      .where(and(...conditions))
+      .orderBy(desc(clockEvents.createdAt));
+  }
+
+  async getAllClockEvents(startDate?: Date, endDate?: Date): Promise<ClockEvent[]> {
+    const conditions: any[] = [];
+    if (startDate) conditions.push(gte(clockEvents.createdAt, startDate));
+    if (endDate) conditions.push(lte(clockEvents.createdAt, endDate));
+    return await db
+      .select()
+      .from(clockEvents)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(clockEvents.createdAt));
+  }
+
+  async getPerformanceScoreSettings(): Promise<PerformanceScoreSetting[]> {
+    return await db.select().from(performanceScoreSettings).orderBy(performanceScoreSettings.category);
+  }
+
+  async upsertPerformanceScoreSetting(setting: InsertPerformanceScoreSetting): Promise<PerformanceScoreSetting> {
+    const [result] = await db
+      .insert(performanceScoreSettings)
+      .values(setting)
+      .onConflictDoUpdate({
+        target: performanceScoreSettings.eventType,
+        set: {
+          pointValue: setting.pointValue,
+          displayName: setting.displayName,
+          category: setting.category,
+          isActive: setting.isActive,
+          updatedBy: setting.updatedBy,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    return result;
+  }
+
+  async getPerformanceScores(startDate?: Date, endDate?: Date): Promise<{ userId: string; totalPoints: number; eventCount: number }[]> {
+    const conditions: any[] = [];
+    if (startDate) conditions.push(gte(clockEvents.createdAt, startDate));
+    if (endDate) conditions.push(lte(clockEvents.createdAt, endDate));
+
+    const result = await db
+      .select({
+        userId: clockEvents.userId,
+        totalPoints: sql<number>`COALESCE(SUM(${clockEvents.pointValue}), 0)::int`,
+        eventCount: sql<number>`COUNT(*)::int`,
+      })
+      .from(clockEvents)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .groupBy(clockEvents.userId)
+      .orderBy(sql`SUM(${clockEvents.pointValue}) DESC`);
+
+    return result;
   }
 }
 

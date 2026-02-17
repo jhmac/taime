@@ -101,7 +101,8 @@ export const timeEntries = pgTable("time_entries", {
   clockOutTime: timestamp("clock_out_time"),
   breakMinutes: integer("break_minutes").default(0),
   notes: text("notes"),
-  clockOutSource: varchar("clock_out_source").default("manual"),
+  clockInSource: varchar("clock_in_source").default("shift-start"),
+  clockOutSource: varchar("clock_out_source").default("shift-end"),
   isApproved: boolean("is_approved").default(false),
   approvedBy: varchar("approved_by").references(() => users.id),
   approvedAt: timestamp("approved_at"),
@@ -375,6 +376,7 @@ export const companySettings = pgTable("company_settings", {
   enableSmartClockPrompt: boolean("enable_smart_clock_prompt").default(false),
   enableClockOutOnFocusLoss: boolean("enable_clock_out_on_focus_loss").default(false),
   focusLossGraceSeconds: integer("focus_loss_grace_seconds").default(30),
+  autoResumeWindowSeconds: integer("auto_resume_window_seconds").default(120),
   version: integer("version").default(1).notNull(),
 });
 
@@ -388,6 +390,29 @@ export const activityLogs = pgTable("activity_logs", {
   details: text("details"),
   metadata: jsonb("metadata"),
   createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Clock events audit trail - tracks every clock action for performance scoring
+export const clockEvents = pgTable("clock_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  timeEntryId: varchar("time_entry_id").references(() => timeEntries.id),
+  eventType: varchar("event_type").notNull(),
+  pointValue: integer("point_value").default(0),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Performance score settings - configurable point values per event type
+export const performanceScoreSettings = pgTable("performance_score_settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  eventType: varchar("event_type").notNull().unique(),
+  category: varchar("category").notNull(),
+  displayName: varchar("display_name").notNull(),
+  pointValue: integer("point_value").notNull(),
+  isActive: boolean("is_active").default(true),
+  updatedBy: varchar("updated_by").references(() => users.id),
+  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 // Push notification subscriptions
@@ -418,6 +443,7 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   availability: many(userAvailability),
   insights: many(aiInsights),
   pushSubscriptions: many(pushSubscriptions),
+  clockEvents: many(clockEvents),
 }));
 
 export const rolesRelations = relations(roles, ({ many }) => ({
@@ -538,6 +564,17 @@ export const pushSubscriptionsRelations = relations(pushSubscriptions, ({ one })
   }),
 }));
 
+export const clockEventsRelations = relations(clockEvents, ({ one }) => ({
+  user: one(users, {
+    fields: [clockEvents.userId],
+    references: [users.id],
+  }),
+  timeEntry: one(timeEntries, {
+    fields: [clockEvents.timeEntryId],
+    references: [timeEntries.id],
+  }),
+}));
+
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
@@ -629,6 +666,16 @@ export const insertPushSubscriptionSchema = createInsertSchema(pushSubscriptions
   createdAt: true,
 });
 
+export const insertClockEventSchema = createInsertSchema(clockEvents).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertPerformanceScoreSettingSchema = createInsertSchema(performanceScoreSettings).omit({
+  id: true,
+  updatedAt: true,
+});
+
 export const insertCompanySettingsSchema = createInsertSchema(companySettings).omit({
   id: true,
   updatedAt: true,
@@ -680,6 +727,10 @@ export type InsertScheduleConfirmation = z.infer<typeof insertScheduleConfirmati
 export type WorkflowLog = typeof workflowLogs.$inferSelect;
 export type InsertWorkflowLog = z.infer<typeof insertWorkflowLogSchema>;
 export type AIInsight = typeof aiInsights.$inferSelect;
+export type ClockEvent = typeof clockEvents.$inferSelect;
+export type InsertClockEvent = z.infer<typeof insertClockEventSchema>;
+export type PerformanceScoreSetting = typeof performanceScoreSettings.$inferSelect;
+export type InsertPerformanceScoreSetting = z.infer<typeof insertPerformanceScoreSettingSchema>;
 export type PushSubscription = typeof pushSubscriptions.$inferSelect;
 export type InsertPushSubscription = z.infer<typeof insertPushSubscriptionSchema>;
 export type Role = typeof roles.$inferSelect;

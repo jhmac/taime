@@ -24,6 +24,7 @@ import { usePayrollSetup } from "@/hooks/usePayrollSetup";
 import AdminSettings from "@/pages/AdminSettings";
 import TaskManagement from "@/pages/TaskManagement";
 import Analytics from "@/pages/Analytics";
+import Performance from "@/pages/Performance";
 import NotFound from "@/pages/not-found";
 import OfflineIndicator from "@/components/OfflineIndicator";
 import SmartClockPrompt from "@/components/SmartClockPrompt";
@@ -127,6 +128,7 @@ function AuthenticatedApp() {
       <Route path="/analytics">
         <ProtectedRoute permission="hr.view_team"><Analytics /></ProtectedRoute>
       </Route>
+      <Route path="/performance" component={Performance} />
       <Route path="/admin">
         <ProtectedRoute permission="admin.manage_all"><AdminSettings /></ProtectedRoute>
       </Route>

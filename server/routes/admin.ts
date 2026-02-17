@@ -89,6 +89,7 @@ const companySettingsUpdateSchema = z.object({
   enableSmartClockPrompt: z.boolean().optional(),
   enableClockOutOnFocusLoss: z.boolean().optional(),
   focusLossGraceSeconds: z.number().int().min(5).max(300).optional(),
+  autoResumeWindowSeconds: z.number().int().min(30).max(600).optional(),
 }).strict();
 
 export function registerAdminRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
