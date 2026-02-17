@@ -21,6 +21,8 @@ import { registerAvailabilityRoutes } from "./routes/availability";
 import { registerAnalyticsRoutes } from "./routes/analytics";
 import { registerInsightRoutes } from "./routes/insights";
 import { registerClockEventRoutes } from "./routes/clockEvents";
+import { registerSopRoutes } from "./routes/sop";
+import { registerAiAssistantRoutes } from "./routes/aiAssistant";
 
 const wsConnections = new Map<string, WebSocket>();
 
@@ -53,6 +55,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerAnalyticsRoutes(app, storage, isAuthenticated);
   registerInsightRoutes(app, storage, isAuthenticated);
   registerClockEventRoutes(app, storage, isAuthenticated);
+  registerSopRoutes(app, storage, isAuthenticated);
+  registerAiAssistantRoutes(app, storage, isAuthenticated);
 
   const httpServer = createServer(app);
 

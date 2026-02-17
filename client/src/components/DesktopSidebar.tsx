@@ -10,6 +10,7 @@ const generalNavItems = [
   { path: '/schedules', icon: 'fas fa-calendar-alt', label: 'Schedules' },
   { path: '/availability', icon: 'fas fa-clock', label: 'Availability' },
   { path: '/communication', icon: 'fas fa-comments', label: 'Messages' },
+  { path: '/learning', icon: 'fas fa-graduation-cap', label: 'Learning' },
 ];
 
 const managementNavItems = [

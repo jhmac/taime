@@ -25,10 +25,12 @@ import AdminSettings from "@/pages/AdminSettings";
 import TaskManagement from "@/pages/TaskManagement";
 import Analytics from "@/pages/Analytics";
 import Performance from "@/pages/Performance";
+import Learning from "@/pages/Learning";
 import NotFound from "@/pages/not-found";
 import OfflineIndicator from "@/components/OfflineIndicator";
 import SmartClockPrompt from "@/components/SmartClockPrompt";
 import FocusClockOut from "@/components/FocusClockOut";
+import AIAssistant from "@/components/AIAssistant";
 import type { Permission } from "@shared/schema";
 
 function ProtectedRoute({ children, permission }: { children: React.ReactNode; permission?: string }) {
@@ -101,6 +103,7 @@ function AuthenticatedApp() {
     <OfflineIndicator />
     <SmartClockPrompt />
     <FocusClockOut />
+    <AIAssistant />
     <Switch>
       <Route path="/" component={isAdmin ? AdminDashboard : Dashboard} />
       <Route path="/operations">
@@ -129,6 +132,7 @@ function AuthenticatedApp() {
         <ProtectedRoute permission="hr.view_team"><Analytics /></ProtectedRoute>
       </Route>
       <Route path="/performance" component={Performance} />
+      <Route path="/learning" component={Learning} />
       <Route path="/admin">
         <ProtectedRoute permission="admin.manage_all"><AdminSettings /></ProtectedRoute>
       </Route>

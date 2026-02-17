@@ -22,6 +22,13 @@ import {
   holidayPayRules,
   clockEvents,
   performanceScoreSettings,
+  sopCategories,
+  sopDocuments,
+  aiChatConversations,
+  aiChatMessages,
+  trainingModules,
+  employeeTrainingProgress,
+  commuteAlerts,
   type User,
   type UpsertUser,
   type TimeEntry,
@@ -68,6 +75,20 @@ import {
   type InsertActivityLog,
   type HolidayPayRule,
   type InsertHolidayPayRule,
+  type SopCategory,
+  type InsertSopCategory,
+  type SopDocument,
+  type InsertSopDocument,
+  type AiChatConversation,
+  type InsertAiChatConversation,
+  type AiChatMessage,
+  type InsertAiChatMessage,
+  type TrainingModule,
+  type InsertTrainingModule,
+  type EmployeeTrainingProgress,
+  type InsertEmployeeTrainingProgress,
+  type CommuteAlert,
+  type InsertCommuteAlert,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, gte, lte, isNull, sql } from "drizzle-orm";
@@ -211,6 +232,41 @@ export interface IStorage {
   getAllHolidayPayRules(): Promise<HolidayPayRule[]>;
   deleteHolidayPayRule(id: string): Promise<void>;
   updateHolidayPayRule(id: string, updates: Partial<HolidayPayRule>): Promise<HolidayPayRule>;
+
+  // SOP operations
+  createSopCategory(category: InsertSopCategory): Promise<SopCategory>;
+  getSopCategories(): Promise<SopCategory[]>;
+  updateSopCategory(id: string, updates: Partial<SopCategory>): Promise<SopCategory>;
+  deleteSopCategory(id: string): Promise<void>;
+  
+  createSopDocument(doc: InsertSopDocument): Promise<SopDocument>;
+  getSopDocuments(categoryId?: string): Promise<SopDocument[]>;
+  getSopDocument(id: string): Promise<SopDocument | undefined>;
+  updateSopDocument(id: string, updates: Partial<SopDocument>): Promise<SopDocument>;
+  deleteSopDocument(id: string): Promise<void>;
+  searchSopDocuments(query: string): Promise<SopDocument[]>;
+  
+  // AI Chat operations
+  createAiChatConversation(conv: InsertAiChatConversation): Promise<AiChatConversation>;
+  getUserConversations(userId: string): Promise<AiChatConversation[]>;
+  getConversation(id: string): Promise<AiChatConversation | undefined>;
+  deleteConversation(id: string): Promise<void>;
+  
+  createAiChatMessage(msg: InsertAiChatMessage): Promise<AiChatMessage>;
+  getConversationMessages(conversationId: string): Promise<AiChatMessage[]>;
+  
+  // Training operations
+  createTrainingModule(module: InsertTrainingModule): Promise<TrainingModule>;
+  getTrainingModules(): Promise<TrainingModule[]>;
+  updateTrainingModule(id: string, updates: Partial<TrainingModule>): Promise<TrainingModule>;
+  deleteTrainingModule(id: string): Promise<void>;
+  
+  getEmployeeTrainingProgress(userId: string): Promise<EmployeeTrainingProgress[]>;
+  upsertEmployeeTrainingProgress(progress: InsertEmployeeTrainingProgress): Promise<EmployeeTrainingProgress>;
+  
+  // Commute alerts
+  createCommuteAlert(alert: InsertCommuteAlert): Promise<CommuteAlert>;
+  getUserCommuteAlerts(userId: string): Promise<CommuteAlert[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1188,6 +1244,187 @@ export class DatabaseStorage implements IStorage {
       .orderBy(sql`SUM(${clockEvents.pointValue}) DESC`);
 
     return result;
+  }
+
+  // SOP operations
+  async createSopCategory(category: InsertSopCategory): Promise<SopCategory> {
+    const [created] = await db.insert(sopCategories).values(category).returning();
+    return created;
+  }
+
+  async getSopCategories(): Promise<SopCategory[]> {
+    return await db.select().from(sopCategories).orderBy(sopCategories.sortOrder);
+  }
+
+  async updateSopCategory(id: string, updates: Partial<SopCategory>): Promise<SopCategory> {
+    const [updated] = await db
+      .update(sopCategories)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(sopCategories.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteSopCategory(id: string): Promise<void> {
+    await db.delete(sopCategories).where(eq(sopCategories.id, id));
+  }
+
+  async createSopDocument(doc: InsertSopDocument): Promise<SopDocument> {
+    const [created] = await db.insert(sopDocuments).values(doc).returning();
+    return created;
+  }
+
+  async getSopDocuments(categoryId?: string): Promise<SopDocument[]> {
+    if (categoryId) {
+      return await db
+        .select()
+        .from(sopDocuments)
+        .where(eq(sopDocuments.categoryId, categoryId))
+        .orderBy(sopDocuments.title);
+    }
+    return await db.select().from(sopDocuments).orderBy(sopDocuments.title);
+  }
+
+  async getSopDocument(id: string): Promise<SopDocument | undefined> {
+    const [doc] = await db.select().from(sopDocuments).where(eq(sopDocuments.id, id));
+    return doc;
+  }
+
+  async updateSopDocument(id: string, updates: Partial<SopDocument>): Promise<SopDocument> {
+    const [updated] = await db
+      .update(sopDocuments)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(sopDocuments.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteSopDocument(id: string): Promise<void> {
+    await db.delete(sopDocuments).where(eq(sopDocuments.id, id));
+  }
+
+  async searchSopDocuments(query: string): Promise<SopDocument[]> {
+    const searchPattern = `%${query}%`;
+    return await db
+      .select()
+      .from(sopDocuments)
+      .where(
+        and(
+          eq(sopDocuments.isPublished, true),
+          sql`(${sopDocuments.title} ILIKE ${searchPattern} OR ${sopDocuments.content} ILIKE ${searchPattern} OR ${sopDocuments.summary} ILIKE ${searchPattern})`
+        )
+      )
+      .orderBy(sopDocuments.title);
+  }
+
+  // AI Chat operations
+  async createAiChatConversation(conv: InsertAiChatConversation): Promise<AiChatConversation> {
+    const [created] = await db.insert(aiChatConversations).values(conv).returning();
+    return created;
+  }
+
+  async getUserConversations(userId: string): Promise<AiChatConversation[]> {
+    return await db
+      .select()
+      .from(aiChatConversations)
+      .where(eq(aiChatConversations.userId, userId))
+      .orderBy(desc(aiChatConversations.lastMessageAt));
+  }
+
+  async getConversation(id: string): Promise<AiChatConversation | undefined> {
+    const [conv] = await db.select().from(aiChatConversations).where(eq(aiChatConversations.id, id));
+    return conv;
+  }
+
+  async deleteConversation(id: string): Promise<void> {
+    await db.delete(aiChatMessages).where(eq(aiChatMessages.conversationId, id));
+    await db.delete(aiChatConversations).where(eq(aiChatConversations.id, id));
+  }
+
+  async createAiChatMessage(msg: InsertAiChatMessage): Promise<AiChatMessage> {
+    const [created] = await db.insert(aiChatMessages).values(msg).returning();
+    await db
+      .update(aiChatConversations)
+      .set({ lastMessageAt: new Date() })
+      .where(eq(aiChatConversations.id, msg.conversationId));
+    return created;
+  }
+
+  async getConversationMessages(conversationId: string): Promise<AiChatMessage[]> {
+    return await db
+      .select()
+      .from(aiChatMessages)
+      .where(eq(aiChatMessages.conversationId, conversationId))
+      .orderBy(aiChatMessages.createdAt);
+  }
+
+  // Training operations
+  async createTrainingModule(module: InsertTrainingModule): Promise<TrainingModule> {
+    const [created] = await db.insert(trainingModules).values(module).returning();
+    return created;
+  }
+
+  async getTrainingModules(): Promise<TrainingModule[]> {
+    return await db.select().from(trainingModules).orderBy(trainingModules.sortOrder);
+  }
+
+  async updateTrainingModule(id: string, updates: Partial<TrainingModule>): Promise<TrainingModule> {
+    const [updated] = await db
+      .update(trainingModules)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(trainingModules.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteTrainingModule(id: string): Promise<void> {
+    await db.delete(trainingModules).where(eq(trainingModules.id, id));
+  }
+
+  async getEmployeeTrainingProgress(userId: string): Promise<EmployeeTrainingProgress[]> {
+    return await db
+      .select()
+      .from(employeeTrainingProgress)
+      .where(eq(employeeTrainingProgress.userId, userId))
+      .orderBy(employeeTrainingProgress.createdAt);
+  }
+
+  async upsertEmployeeTrainingProgress(progress: InsertEmployeeTrainingProgress): Promise<EmployeeTrainingProgress> {
+    const existing = await db
+      .select()
+      .from(employeeTrainingProgress)
+      .where(
+        and(
+          eq(employeeTrainingProgress.userId, progress.userId),
+          eq(employeeTrainingProgress.moduleId, progress.moduleId)
+        )
+      );
+
+    if (existing.length > 0) {
+      const [updated] = await db
+        .update(employeeTrainingProgress)
+        .set(progress)
+        .where(eq(employeeTrainingProgress.id, existing[0].id))
+        .returning();
+      return updated;
+    }
+
+    const [created] = await db.insert(employeeTrainingProgress).values(progress).returning();
+    return created;
+  }
+
+  // Commute alerts
+  async createCommuteAlert(alert: InsertCommuteAlert): Promise<CommuteAlert> {
+    const [created] = await db.insert(commuteAlerts).values(alert).returning();
+    return created;
+  }
+
+  async getUserCommuteAlerts(userId: string): Promise<CommuteAlert[]> {
+    return await db
+      .select()
+      .from(commuteAlerts)
+      .where(eq(commuteAlerts.userId, userId))
+      .orderBy(desc(commuteAlerts.sentAt));
   }
 }
 

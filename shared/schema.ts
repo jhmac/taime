@@ -75,6 +75,8 @@ export const users = pgTable("users", {
   includeInTimeClockErrors: boolean("include_in_time_clock_errors").default(true),
   eligibleForOpenShifts: boolean("eligible_for_open_shifts").default(true),
   canWaiveMissedBreaks: boolean("can_waive_missed_breaks").default(false),
+  homeLatitude: decimal("home_latitude", { precision: 10, scale: 8 }),
+  homeLongitude: decimal("home_longitude", { precision: 11, scale: 8 }),
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -826,6 +828,153 @@ export type UserShop = typeof userShops.$inferSelect;
 export type InsertUserShop = z.infer<typeof insertUserShopSchema>;
 export type ShopifyDailySale = typeof shopifyDailySales.$inferSelect;
 export type InsertShopifyDailySale = z.infer<typeof insertShopifyDailySalesSchema>;
+
+// SOP Categories for organizing documentation
+export const sopCategories = pgTable("sop_categories", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name").notNull(),
+  description: text("description"),
+  icon: varchar("icon"),
+  sortOrder: integer("sort_order").default(0),
+  parentId: varchar("parent_id"),
+  isActive: boolean("is_active").default(true),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// SOP Documents - the actual standard operating procedures
+export const sopDocuments = pgTable("sop_documents", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  categoryId: varchar("category_id").references(() => sopCategories.id),
+  title: varchar("title").notNull(),
+  content: text("content").notNull(),
+  summary: text("summary"),
+  tags: text("tags").array(),
+  roleRestrictions: text("role_restrictions").array(),
+  isPublished: boolean("is_published").default(false),
+  version: integer("version").default(1),
+  createdBy: varchar("created_by").references(() => users.id),
+  updatedBy: varchar("updated_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// AI Chat conversations
+export const aiChatConversations = pgTable("ai_chat_conversations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  title: varchar("title"),
+  lastMessageAt: timestamp("last_message_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// AI Chat messages within conversations
+export const aiChatMessages = pgTable("ai_chat_messages", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  conversationId: varchar("conversation_id").references(() => aiChatConversations.id).notNull(),
+  role: varchar("role").notNull(), // 'user' | 'assistant'
+  content: text("content").notNull(),
+  sopReferences: text("sop_references").array(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Training modules built from SOPs for onboarding
+export const trainingModules = pgTable("training_modules", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  title: varchar("title").notNull(),
+  description: text("description"),
+  sopDocumentIds: text("sop_document_ids").array(),
+  quizQuestions: jsonb("quiz_questions"),
+  sortOrder: integer("sort_order").default(0),
+  estimatedMinutes: integer("estimated_minutes").default(15),
+  isRequired: boolean("is_required").default(true),
+  isActive: boolean("is_active").default(true),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Employee training progress tracking
+export const employeeTrainingProgress = pgTable("employee_training_progress", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  moduleId: varchar("module_id").references(() => trainingModules.id).notNull(),
+  status: varchar("status").default("not_started"), // not_started, in_progress, completed
+  quizScore: integer("quiz_score"),
+  completedAt: timestamp("completed_at"),
+  startedAt: timestamp("started_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Commute alerts log
+export const commuteAlerts = pgTable("commute_alerts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  scheduleId: varchar("schedule_id").references(() => schedules.id),
+  alertType: varchar("alert_type").notNull(), // 'departure_reminder' | 'traffic_warning' | 'weather_alert'
+  message: text("message").notNull(),
+  estimatedCommute: integer("estimated_commute"), // minutes
+  sentAt: timestamp("sent_at").defaultNow(),
+  acknowledged: boolean("acknowledged").default(false),
+});
+
+// Insert schemas for AI Success Assistant tables
+export const insertSopCategorySchema = createInsertSchema(sopCategories).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertSopDocumentSchema = createInsertSchema(sopDocuments).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+  version: true,
+});
+
+export const insertAiChatConversationSchema = createInsertSchema(aiChatConversations).omit({
+  id: true,
+  createdAt: true,
+  lastMessageAt: true,
+});
+
+export const insertAiChatMessageSchema = createInsertSchema(aiChatMessages).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertTrainingModuleSchema = createInsertSchema(trainingModules).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertEmployeeTrainingProgressSchema = createInsertSchema(employeeTrainingProgress).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertCommuteAlertSchema = createInsertSchema(commuteAlerts).omit({
+  id: true,
+  sentAt: true,
+});
+
+// AI Success Assistant types
+export type SopCategory = typeof sopCategories.$inferSelect;
+export type InsertSopCategory = z.infer<typeof insertSopCategorySchema>;
+export type SopDocument = typeof sopDocuments.$inferSelect;
+export type InsertSopDocument = z.infer<typeof insertSopDocumentSchema>;
+export type AiChatConversation = typeof aiChatConversations.$inferSelect;
+export type InsertAiChatConversation = z.infer<typeof insertAiChatConversationSchema>;
+export type AiChatMessage = typeof aiChatMessages.$inferSelect;
+export type InsertAiChatMessage = z.infer<typeof insertAiChatMessageSchema>;
+export type TrainingModule = typeof trainingModules.$inferSelect;
+export type InsertTrainingModule = z.infer<typeof insertTrainingModuleSchema>;
+export type EmployeeTrainingProgress = typeof employeeTrainingProgress.$inferSelect;
+export type InsertEmployeeTrainingProgress = z.infer<typeof insertEmployeeTrainingProgressSchema>;
+export type CommuteAlert = typeof commuteAlerts.$inferSelect;
+export type InsertCommuteAlert = z.infer<typeof insertCommuteAlertSchema>;
 
 // Extended user type with role information
 export type UserWithRole = User & {
