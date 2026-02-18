@@ -55,6 +55,42 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
     }
   });
 
+  app.post('/api/users/:userId/resend-invite', isAuthenticated, async (req: any, res) => {
+    try {
+      const currentUserId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(currentUserId);
+      const canManage = userPermissions.some(p => p.name === 'hr.manage_employees' || p.name === 'hr.edit_team');
+
+      if (!canManage) {
+        return res.status(403).json({ message: "Employee management access required" });
+      }
+
+      const { userId } = req.params;
+      const targetUser = await storage.getUser(userId);
+      if (!targetUser || !targetUser.email) {
+        return res.status(404).json({ message: "User not found or has no email" });
+      }
+
+      const inviter = await storage.getUser(currentUserId);
+      const inviterName = inviter ? `${inviter.firstName || ''} ${inviter.lastName || ''}`.trim() || 'Your manager' : 'Your manager';
+
+      const settings = await db.select().from(companySettings).limit(1);
+      const companyName = settings[0]?.companyName || 'Taime Clock';
+
+      const recipientName = `${targetUser.firstName || ''} ${targetUser.lastName || ''}`.trim();
+
+      const sent = await sendTeamInviteEmail(req, targetUser.email, recipientName, inviterName, companyName);
+      if (sent) {
+        res.json({ message: "Invitation email sent successfully" });
+      } else {
+        res.status(500).json({ message: "Failed to send invitation email" });
+      }
+    } catch (error) {
+      console.error("Error resending invite:", error);
+      res.status(500).json({ message: "Failed to resend invitation" });
+    }
+  });
+
   app.get('/api/users', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
