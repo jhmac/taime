@@ -1,8 +1,9 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
-import { users, roles } from "@shared/schema";
+import { users, roles, companySettings } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { db } from "../db";
+import { sendTeamInviteEmail } from "../services/emailService";
 
 export function registerUserRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
   app.post('/api/users', isAuthenticated, async (req: any, res) => {
@@ -34,6 +35,19 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
       if (hourlyRate) newUserData.hourlyRate = hourlyRate;
 
       const [newUser] = await db.insert(users).values(newUserData).returning();
+
+      const inviter = await storage.getUser(currentUserId);
+      const inviterName = inviter ? `${inviter.firstName || ''} ${inviter.lastName || ''}`.trim() || 'Your manager' : 'Your manager';
+
+      const settings = await db.select().from(companySettings).limit(1);
+      const companyName = settings[0]?.companyName || 'Taime Clock';
+
+      const recipientName = `${firstName || ''} ${lastName || ''}`.trim();
+
+      sendTeamInviteEmail(req, email.trim(), recipientName, inviterName, companyName).catch(err => {
+        console.error("Background email send failed:", err);
+      });
+
       res.json(newUser);
     } catch (error) {
       console.error("Error creating user:", error);
