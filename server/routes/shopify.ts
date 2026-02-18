@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
 import { shops, userShops, shopifyDailySales, users } from "@shared/schema";
-import { eq, and, gte, desc } from "drizzle-orm";
+import { eq, and, gte, lte, desc } from "drizzle-orm";
 import { db } from "../db";
 import crypto from "crypto";
 import { ShopifyService } from "../services/shopifyService";
@@ -671,6 +671,265 @@ Keep your response concise, practical, and focused on actionable staffing advice
     } catch (error) {
       console.error("Error calculating labor cost ratio:", error);
       res.status(500).json({ message: "Failed to calculate labor cost ratio" });
+    }
+  });
+
+  app.get("/api/shopify/yoy-comparison", isAuthenticated, async (req: any, res) => {
+    try {
+      const shopDomain = req.query.shop as string;
+      const startDate = req.query.startDate as string;
+      const endDate = req.query.endDate as string;
+
+      if (!shopDomain || !startDate || !endDate) {
+        return res.status(400).json({ error: "Shop domain, startDate, and endDate are required" });
+      }
+
+      const domain = shopDomain.toLowerCase().trim();
+      const currentStart = new Date(startDate + 'T00:00:00Z');
+      const currentEnd = new Date(endDate + 'T23:59:59Z');
+
+      const prevStart = new Date(currentStart);
+      prevStart.setFullYear(prevStart.getFullYear() - 1);
+      const prevEnd = new Date(currentEnd);
+      prevEnd.setFullYear(prevEnd.getFullYear() - 1);
+
+      const [currentYearSales, previousYearSales] = await Promise.all([
+        db.select().from(shopifyDailySales)
+          .where(and(
+            eq(shopifyDailySales.shopDomain, domain),
+            gte(shopifyDailySales.date, currentStart),
+            lte(shopifyDailySales.date, currentEnd)
+          ))
+          .orderBy(shopifyDailySales.date),
+        db.select().from(shopifyDailySales)
+          .where(and(
+            eq(shopifyDailySales.shopDomain, domain),
+            gte(shopifyDailySales.date, prevStart),
+            lte(shopifyDailySales.date, prevEnd)
+          ))
+          .orderBy(shopifyDailySales.date),
+      ]);
+
+      const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+      const formatDay = (sale: any) => ({
+        date: new Date(sale.date).toISOString().split('T')[0],
+        dayOfWeek: sale.dayOfWeek,
+        dayName: dayNames[sale.dayOfWeek],
+        revenue: parseFloat(sale.totalRevenue || '0'),
+        orders: sale.orderCount || 0,
+        items: sale.itemCount || 0,
+        avgOrderValue: parseFloat(sale.averageOrderValue || '0'),
+      });
+
+      const currentDays = currentYearSales.map(formatDay);
+      const previousDays = previousYearSales.map(formatDay);
+
+      const currentTotal = currentDays.reduce((s, d) => s + d.revenue, 0);
+      const previousTotal = previousDays.reduce((s, d) => s + d.revenue, 0);
+      const currentOrders = currentDays.reduce((s, d) => s + d.orders, 0);
+      const previousOrders = previousDays.reduce((s, d) => s + d.orders, 0);
+
+      const revenueGrowth = previousTotal > 0
+        ? Math.round(((currentTotal - previousTotal) / previousTotal) * 10000) / 100
+        : null;
+      const orderGrowth = previousOrders > 0
+        ? Math.round(((currentOrders - previousOrders) / previousOrders) * 10000) / 100
+        : null;
+
+      res.json({
+        currentYear: {
+          startDate,
+          endDate,
+          days: currentDays,
+          totalRevenue: Math.round(currentTotal * 100) / 100,
+          totalOrders: currentOrders,
+          avgDailyRevenue: currentDays.length > 0 ? Math.round((currentTotal / currentDays.length) * 100) / 100 : 0,
+        },
+        previousYear: {
+          startDate: prevStart.toISOString().split('T')[0],
+          endDate: prevEnd.toISOString().split('T')[0],
+          days: previousDays,
+          totalRevenue: Math.round(previousTotal * 100) / 100,
+          totalOrders: previousOrders,
+          avgDailyRevenue: previousDays.length > 0 ? Math.round((previousTotal / previousDays.length) * 100) / 100 : 0,
+        },
+        trends: {
+          revenueGrowthPercent: revenueGrowth,
+          orderGrowthPercent: orderGrowth,
+          hasCurrentData: currentDays.length > 0,
+          hasPreviousData: previousDays.length > 0,
+        },
+      });
+    } catch (error) {
+      console.error("Error fetching YoY comparison:", error);
+      res.status(500).json({ message: "Failed to fetch year-over-year comparison" });
+    }
+  });
+
+  app.get("/api/shopify/ai-staffing", isAuthenticated, aiRateLimiter, async (req: any, res) => {
+    try {
+      const shopDomain = req.query.shop as string;
+      const startDate = req.query.startDate as string;
+      const endDate = req.query.endDate as string;
+
+      if (!shopDomain || !startDate || !endDate) {
+        return res.status(400).json({ error: "Shop domain, startDate, and endDate are required" });
+      }
+
+      const domain = shopDomain.toLowerCase().trim();
+      const currentStart = new Date(startDate + 'T00:00:00Z');
+      const currentEnd = new Date(endDate + 'T23:59:59Z');
+      const prevStart = new Date(currentStart);
+      prevStart.setFullYear(prevStart.getFullYear() - 1);
+      const prevEnd = new Date(currentEnd);
+      prevEnd.setFullYear(prevEnd.getFullYear() - 1);
+
+      const [previousYearSales, historicalSales, activeEmployees] = await Promise.all([
+        db.select().from(shopifyDailySales)
+          .where(and(
+            eq(shopifyDailySales.shopDomain, domain),
+            gte(shopifyDailySales.date, prevStart),
+            lte(shopifyDailySales.date, prevEnd)
+          ))
+          .orderBy(shopifyDailySales.date),
+        db.select().from(shopifyDailySales)
+          .where(and(
+            eq(shopifyDailySales.shopDomain, domain),
+            gte(shopifyDailySales.date, new Date(Date.now() - 365 * 24 * 60 * 60 * 1000))
+          ))
+          .orderBy(desc(shopifyDailySales.date)),
+        db.select().from(users).where(eq(users.isActive, true)),
+      ]);
+
+      const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      const teamSize = activeEmployees.length;
+
+      const dayOfWeekAvg: Record<number, { revenues: number[]; orders: number[] }> = {};
+      for (let i = 0; i < 7; i++) dayOfWeekAvg[i] = { revenues: [], orders: [] };
+      for (const day of historicalSales) {
+        dayOfWeekAvg[day.dayOfWeek].revenues.push(parseFloat(day.totalRevenue || '0'));
+        dayOfWeekAvg[day.dayOfWeek].orders.push(day.orderCount || 0);
+      }
+
+      const prevDayData = previousYearSales.map(d => ({
+        date: new Date(d.date).toISOString().split('T')[0],
+        dayName: dayNames[d.dayOfWeek],
+        dayOfWeek: d.dayOfWeek,
+        revenue: parseFloat(d.totalRevenue || '0'),
+        orders: d.orderCount || 0,
+      }));
+
+      const scheduleDays: string[] = [];
+      const cursor = new Date(currentStart);
+      while (cursor <= currentEnd) {
+        scheduleDays.push(cursor.toISOString().split('T')[0]);
+        cursor.setDate(cursor.getDate() + 1);
+      }
+
+      const scheduleDayDetails = scheduleDays.map(dateStr => {
+        const d = new Date(dateStr + 'T00:00:00Z');
+        const dow = d.getUTCDay();
+        const lastYearDate = new Date(d);
+        lastYearDate.setFullYear(lastYearDate.getFullYear() - 1);
+        const lastYearKey = lastYearDate.toISOString().split('T')[0];
+        const lastYearMatch = prevDayData.find(p => p.date === lastYearKey);
+
+        const dowAvgRev = dayOfWeekAvg[dow].revenues.length > 0
+          ? dayOfWeekAvg[dow].revenues.reduce((a, b) => a + b, 0) / dayOfWeekAvg[dow].revenues.length : 0;
+        const dowAvgOrders = dayOfWeekAvg[dow].orders.length > 0
+          ? dayOfWeekAvg[dow].orders.reduce((a, b) => a + b, 0) / dayOfWeekAvg[dow].orders.length : 0;
+
+        return {
+          date: dateStr,
+          dayName: dayNames[dow],
+          dayOfWeek: dow,
+          lastYearRevenue: lastYearMatch?.revenue || null,
+          lastYearOrders: lastYearMatch?.orders || null,
+          avgDowRevenue: Math.round(dowAvgRev * 100) / 100,
+          avgDowOrders: Math.round(dowAvgOrders * 100) / 100,
+          dataSamples: dayOfWeekAvg[dow].revenues.length,
+        };
+      });
+
+      let aiRecommendations: any[] = [];
+      let aiSummary = '';
+
+      try {
+        const prompt = `You are a staffing advisor for a boutique retail business. Based on the following data, recommend specific employee counts for each day in the scheduling period.
+
+TEAM SIZE: ${teamSize} total active employees
+
+SCHEDULING PERIOD: ${startDate} to ${endDate}
+
+DATA FOR EACH DAY:
+${scheduleDayDetails.map(d => {
+  let info = `${d.date} (${d.dayName}):`;
+  if (d.lastYearRevenue !== null) {
+    info += ` Last year same date: $${d.lastYearRevenue} revenue, ${d.lastYearOrders} orders.`;
+  } else {
+    info += ` No data for same date last year.`;
+  }
+  info += ` ${d.dayName} historical average: $${d.avgDowRevenue} revenue, ${d.avgDowOrders} orders (from ${d.dataSamples} samples).`;
+  return info;
+}).join('\n')}
+
+Respond in this exact JSON format (no markdown, just raw JSON):
+{
+  "days": [
+    {
+      "date": "YYYY-MM-DD",
+      "recommendedStaff": <number>,
+      "staffingLevel": "high|above_average|normal|below_average|low",
+      "reason": "<brief 1-sentence reason>"
+    }
+  ],
+  "summary": "<2-3 sentence overall staffing recommendation>"
+}
+
+Rules:
+- recommendedStaff must be between 1 and ${teamSize}
+- Base recommendations on revenue and order patterns
+- Higher revenue days need more staff
+- Consider day-of-week patterns when same-date data is missing`;
+
+        const response = await claudeService.chat(prompt);
+        if (response) {
+          const jsonMatch = response.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0]);
+            aiRecommendations = parsed.days || [];
+            aiSummary = parsed.summary || '';
+          }
+        }
+      } catch (aiError) {
+        console.error('AI staffing analysis failed:', aiError);
+        aiSummary = 'AI analysis unavailable. Use the historical data below to plan your staffing.';
+      }
+
+      const finalDays = scheduleDayDetails.map(day => {
+        const aiDay = aiRecommendations.find((r: any) => r.date === day.date);
+        return {
+          ...day,
+          recommendedStaff: aiDay?.recommendedStaff || null,
+          staffingLevel: aiDay?.staffingLevel || null,
+          reason: aiDay?.reason || null,
+        };
+      });
+
+      res.json({
+        days: finalDays,
+        aiSummary,
+        teamSize,
+        dateRange: { startDate, endDate },
+        dataAvailability: {
+          previousYearDays: previousYearSales.length,
+          historicalDays: historicalSales.length,
+        },
+      });
+    } catch (error) {
+      console.error("Error generating AI staffing recommendations:", error);
+      res.status(500).json({ message: "Failed to generate staffing recommendations" });
     }
   });
 }

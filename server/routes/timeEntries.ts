@@ -7,7 +7,10 @@ export function registerTimeEntryRoutes(app: Express, storage: IStorage, isAuthe
   app.post('/api/time-entries', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const data = insertTimeEntrySchema.parse({ ...req.body, userId });
+      const body = { ...req.body, userId };
+      if (typeof body.clockInTime === 'string') body.clockInTime = new Date(body.clockInTime);
+      if (typeof body.clockOutTime === 'string') body.clockOutTime = new Date(body.clockOutTime);
+      const data = insertTimeEntrySchema.parse(body);
       
       if (data.clockInTime && data.locationId) {
         const user = await storage.getUser(userId);
@@ -102,6 +105,8 @@ export function registerTimeEntryRoutes(app: Express, storage: IStorage, isAuthe
           safeUpdates[key] = req.body[key];
         }
       }
+      if (typeof safeUpdates.clockOutTime === 'string') safeUpdates.clockOutTime = new Date(safeUpdates.clockOutTime);
+      if (typeof safeUpdates.clockInTime === 'string') safeUpdates.clockInTime = new Date(safeUpdates.clockInTime);
 
       if (safeUpdates.isApproved === true) {
         safeUpdates.approvedBy = userId;
