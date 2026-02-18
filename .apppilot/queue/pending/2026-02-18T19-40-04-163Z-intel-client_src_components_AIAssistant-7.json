@@ -1,0 +1,13 @@
+{
+  "filePath": "client/src/components/AIAssistant.tsx",
+  "description": "The QUICK_ACTIONS array includes hardcoded action labels, but these could be stored in a constants file for easier maintenance and potential future localization. Move QUICK_ACTIONS to client/src/lib/constants.ts or a dedicated client/src/components/AIAssistant.constants.ts file.",
+  "successCriteria": [
+    "QUICK_ACTIONS is exported from a constants file",
+    "AIAssistant.tsx imports and uses the constant",
+    "The constant includes a JSDoc comment explaining what it's for"
+  ],
+  "priority": "low",
+  "category": "code-quality",
+  "source": "codebase-intel",
+  "createdAt": "2026-02-18T19:40:04.163Z"
+}

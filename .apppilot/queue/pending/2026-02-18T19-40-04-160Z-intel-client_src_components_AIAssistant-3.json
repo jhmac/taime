@@ -1,0 +1,13 @@
+{
+  "filePath": "client/src/components/AIAssistant.tsx",
+  "description": "The briefingMutation and chatMutation both use 30s timeouts, but the timeout logic is duplicated. Extract timeout handling into a shared utility function (e.g., fetchWithTimeout) to reduce code duplication and ensure consistent timeout behavior across all AI API calls.",
+  "successCriteria": [
+    "A new utility function fetchWithTimeout exists in client/src/lib/utils.ts or client/src/lib/apiUtils.ts",
+    "Both briefingMutation and chatMutation use this shared function",
+    "The timeout logic is identical and includes proper AbortController cleanup"
+  ],
+  "priority": "medium",
+  "category": "code-quality",
+  "source": "codebase-intel",
+  "createdAt": "2026-02-18T19:40:04.160Z"
+}

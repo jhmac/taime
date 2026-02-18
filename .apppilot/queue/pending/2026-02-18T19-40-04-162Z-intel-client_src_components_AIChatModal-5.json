@@ -1,0 +1,13 @@
+{
+  "filePath": "client/src/components/AIChatModal.tsx",
+  "description": "The welcomeShownRef.current flag is set to true when the welcome message is added, but if the modal closes and reopens quickly (before unmount), the flag is never reset. Move the flag reset logic into the useEffect cleanup function to ensure it resets on unmount.",
+  "successCriteria": [
+    "The useEffect that manages welcomeShownRef includes a cleanup function",
+    "The cleanup function sets welcomeShownRef.current = false",
+    "The welcome message appears every time the modal is opened after being closed"
+  ],
+  "priority": "medium",
+  "category": "code-quality",
+  "source": "codebase-intel",
+  "createdAt": "2026-02-18T19:40:04.162Z"
+}
