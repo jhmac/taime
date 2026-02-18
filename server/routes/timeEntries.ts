@@ -3,6 +3,27 @@ import type { IStorage } from "../storage";
 import { insertTimeEntrySchema } from "@shared/schema";
 import { geofencingService } from "../services/geofencingService";
 
+async function withRetry<T>(fn: () => Promise<T>, retries = 2, delay = 500): Promise<T> {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      const isTransient = err?.message?.includes('EAI_AGAIN') ||
+        err?.message?.includes('ECONNREFUSED') ||
+        err?.message?.includes('ECONNRESET') ||
+        err?.message?.includes('ETIMEDOUT') ||
+        err?.code === 'ECONNREFUSED';
+      if (i < retries && isTransient) {
+        console.warn(`Transient DB error, retrying (${i + 1}/${retries}):`, err.message);
+        await new Promise(r => setTimeout(r, delay * (i + 1)));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error('Retry exhausted');
+}
+
 export function registerTimeEntryRoutes(app: Express, storage: IStorage, isAuthenticated: any, broadcastToAll: (data: any) => void) {
   app.post('/api/time-entries', isAuthenticated, async (req: any, res) => {
     try {
@@ -11,7 +32,7 @@ export function registerTimeEntryRoutes(app: Express, storage: IStorage, isAuthe
       const data = insertTimeEntrySchema.parse(body);
       
       if (data.clockInTime && data.locationId) {
-        const user = await storage.getUser(userId);
+        const user = await withRetry(() => storage.getUser(userId));
         if (user && req.body.latitude && req.body.longitude) {
           const validation = await geofencingService.validateClockInLocation(
             userId,
@@ -25,7 +46,7 @@ export function registerTimeEntryRoutes(app: Express, storage: IStorage, isAuthe
         }
       }
 
-      const timeEntry = await storage.createTimeEntry(data);
+      const timeEntry = await withRetry(() => storage.createTimeEntry(data));
       
       broadcastToAll({
         type: 'time_entry_created',
