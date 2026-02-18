@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,7 +7,9 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
+import { fetchWithTimeout, getErrorMessage } from '@/lib/fetchWithTimeout';
 import { useAuth } from '@/hooks/useAuth';
+import { QUICK_ACTIONS } from '@/lib/constants';
 import {
   Bot, X, Send, Loader2, Sparkles, Clock, MapPin,
   BookOpen, MessageSquare, ChevronLeft, Trash2, Plus,
@@ -27,15 +29,6 @@ type Conversation = {
   lastMessageAt: string | null;
   createdAt: string | null;
 };
-
-const QUICK_ACTIONS = [
-  { label: "What should I do right now?", icon: Clock },
-  { label: "Show my shift briefing", icon: Sparkles },
-  { label: "How do I open the store?", icon: BookOpen },
-  { label: "How do I process a return?", icon: BookOpen },
-  { label: "What's the cleaning schedule?", icon: BookOpen },
-  { label: "Show my commute info", icon: Car },
-];
 
 export default function AIAssistant() {
   const { user } = useAuth();
@@ -88,17 +81,10 @@ export default function AIAssistant() {
   const chatMutation = useMutation({
     mutationFn: async (msg: string) => {
       chatConvIdRef.current = currentConvId;
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000);
-      try {
-        const res = await apiRequest('POST', '/api/ai-assistant/chat', {
-          message: msg,
-          conversationId: currentConvId,
-        }, { signal: controller.signal });
-        return res.json();
-      } finally {
-        clearTimeout(timeoutId);
-      }
+      return fetchWithTimeout('POST', '/api/ai-assistant/chat', {
+        message: msg,
+        conversationId: currentConvId,
+      });
     },
     onSuccess: (data) => {
       if (currentConvId !== chatConvIdRef.current && chatConvIdRef.current !== null) return;
@@ -112,28 +98,15 @@ export default function AIAssistant() {
       queryClient.invalidateQueries({ queryKey: ['/api/ai-assistant/conversations'] });
     },
     onError: (err: any) => {
-      const isTimeout = err?.name === 'AbortError';
-      const errorMsg = isTimeout
-        ? "The request took too long. Please try again."
-        : "Sorry, I'm having trouble right now. Please try again in a moment.";
       setLocalMessages(prev => [...prev, {
         role: 'assistant' as const,
-        content: errorMsg,
+        content: getErrorMessage(err),
       }]);
     },
   });
 
   const briefingMutation = useMutation({
-    mutationFn: async () => {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000);
-      try {
-        const res = await apiRequest('POST', '/api/ai-assistant/briefing', {}, { signal: controller.signal });
-        return res.json();
-      } finally {
-        clearTimeout(timeoutId);
-      }
-    },
+    mutationFn: () => fetchWithTimeout('POST', '/api/ai-assistant/briefing', {}),
     onError: () => {
       toast({ title: "Briefing Failed", description: "Could not generate your briefing. Please try again.", variant: "destructive" });
     },
@@ -522,10 +495,39 @@ export default function AIAssistant() {
   );
 }
 
-function HomeLocationSetter() {
+function useGeolocation() {
   const { toast } = useToast();
-  const queryClient = useQueryClient();
   const [loading, setLoading] = useState(false);
+
+  const getCurrentPosition = useCallback((onSuccess: (coords: { latitude: number; longitude: number }) => void) => {
+    if (!navigator.geolocation) {
+      toast({ title: "Not Supported", description: "Your browser doesn't support location services.", variant: "destructive" });
+      return;
+    }
+    setLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        onSuccess({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
+        setLoading(false);
+      },
+      (err) => {
+        const msg = err.code === err.TIMEOUT
+          ? "Location request timed out. Please try again."
+          : "Please allow location access to use this feature.";
+        toast({ title: "Location Error", description: msg, variant: "destructive" });
+        setLoading(false);
+      },
+      { timeout: 15000, enableHighAccuracy: false }
+    );
+  }, [toast]);
+
+  return { getCurrentPosition, loading };
+}
+
+function HomeLocationSetter() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { getCurrentPosition, loading } = useGeolocation();
 
   const saveMutation = useMutation({
     mutationFn: async (coords: { latitude: number; longitude: number }) => {
@@ -540,34 +542,12 @@ function HomeLocationSetter() {
     },
   });
 
-  const handleSetLocation = () => {
-    if (!navigator.geolocation) {
-      toast({ title: "Not Supported", description: "Your browser doesn't support location services.", variant: "destructive" });
-      return;
-    }
-    setLoading(true);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        saveMutation.mutate({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
-        setLoading(false);
-      },
-      (err) => {
-        const msg = err.code === err.TIMEOUT
-          ? "Location request timed out. Please try again."
-          : "Please allow location access to use this feature.";
-        toast({ title: "Location Error", description: msg, variant: "destructive" });
-        setLoading(false);
-      },
-      { timeout: 15000, enableHighAccuracy: false }
-    );
-  };
-
   return (
     <Button
       variant="outline"
       size="sm"
       className="mt-3"
-      onClick={handleSetLocation}
+      onClick={() => getCurrentPosition((coords) => saveMutation.mutate(coords))}
       disabled={loading || saveMutation.isPending}
     >
       {loading || saveMutation.isPending ? (

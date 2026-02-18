@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { apiRequest } from '@/lib/queryClient';
+import { fetchWithTimeout, getErrorMessage } from '@/lib/fetchWithTimeout';
 import { isUnauthorizedError } from '@/lib/authUtils';
 
 interface AIChatModalProps {
@@ -29,16 +29,7 @@ export default function AIChatModal({ isOpen, onClose }: AIChatModalProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const chatMutation = useMutation({
-    mutationFn: async (message: string) => {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000);
-      try {
-        const response = await apiRequest('POST', '/api/ai/chat', { message }, { signal: controller.signal });
-        return await response.json();
-      } finally {
-        clearTimeout(timeoutId);
-      }
-    },
+    mutationFn: (message: string) => fetchWithTimeout('POST', '/api/ai/chat', { message }),
     onMutate: async (variables) => {
       const optimisticMessage: ChatMessage = {
         id: `user-${Date.now()}`,
@@ -76,7 +67,7 @@ export default function AIChatModal({ isOpen, onClose }: AIChatModalProps) {
       }
       toast({
         title: "Chat Error",
-        description: "Failed to send message. Please try again.",
+        description: getErrorMessage(error),
         variant: "destructive",
       });
     },
@@ -105,8 +96,9 @@ export default function AIChatModal({ isOpen, onClose }: AIChatModalProps) {
     }
     if (!isOpen) {
       welcomeShownRef.current = false;
+      setMessages([]);
     }
-  }, [isOpen, user?.firstName, messages.length]);
+  }, [isOpen, user?.firstName]);
 
   const handleSendMessage = () => {
     if (!inputMessage.trim() || chatMutation.isPending) return;
@@ -149,7 +141,6 @@ export default function AIChatModal({ isOpen, onClose }: AIChatModalProps) {
           </DialogTitle>
         </DialogHeader>
 
-        {/* Chat Messages */}
         <div className="flex-1 overflow-y-auto space-y-4 py-4" data-testid="chat-messages">
           {messages.map((message) => (
             <div key={message.id} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -204,7 +195,6 @@ export default function AIChatModal({ isOpen, onClose }: AIChatModalProps) {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Quick Actions */}
         {messages.length === 1 && (
           <div className="space-y-2">
             <p className="text-xs text-muted-foreground">Quick actions:</p>
@@ -225,7 +215,6 @@ export default function AIChatModal({ isOpen, onClose }: AIChatModalProps) {
           </div>
         )}
 
-        {/* Message Input */}
         <div className="border-t border-border pt-4">
           <div className="flex space-x-2">
             <Input

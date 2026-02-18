@@ -40,6 +40,8 @@ function ProtectedRoute({ children, permission }: { children: React.ReactNode; p
     enabled: !!user,
     retry: 2,
     retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
   });
 
   if (isLoading || !user || permissionsLoading) {
@@ -192,7 +194,12 @@ function App() {
         const res = await fetch("/api/clerk-key", { signal: controller.signal });
         clearTimeout(timeoutId);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
+        let data: any;
+        try {
+          data = await res.json();
+        } catch {
+          throw new Error("Invalid server response");
+        }
         if (!cancelled) {
           if (data.publishableKey) {
             setClerkKey(data.publishableKey);
