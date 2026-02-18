@@ -5,6 +5,42 @@ import { eq } from "drizzle-orm";
 import { db } from "../db";
 
 export function registerUserRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
+  app.post('/api/users', isAuthenticated, async (req: any, res) => {
+    try {
+      const currentUserId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(currentUserId);
+      const canManage = userPermissions.some(p => p.name === 'hr.manage_employees' || p.name === 'hr.edit_team');
+
+      if (!canManage) {
+        return res.status(403).json({ message: "Employee management access required" });
+      }
+
+      const { email, firstName, lastName, roleId, hourlyRate } = req.body;
+      if (!email || !email.trim()) {
+        return res.status(400).json({ message: "Email is required" });
+      }
+
+      const existing = await db.select().from(users).where(eq(users.email, email.trim()));
+      if (existing.length > 0) {
+        return res.status(409).json({ message: "A team member with this email already exists" });
+      }
+
+      const newUserData: Record<string, any> = {
+        email: email.trim(),
+        firstName: firstName || null,
+        lastName: lastName || null,
+      };
+      if (roleId) newUserData.roleId = roleId;
+      if (hourlyRate) newUserData.hourlyRate = hourlyRate;
+
+      const [newUser] = await db.insert(users).values(newUserData).returning();
+      res.json(newUser);
+    } catch (error) {
+      console.error("Error creating user:", error);
+      res.status(500).json({ message: "Failed to create team member" });
+    }
+  });
+
   app.get('/api/users', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
