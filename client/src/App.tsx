@@ -39,6 +39,7 @@ function ProtectedRoute({ children, permission }: { children: React.ReactNode; p
     queryKey: ["/api/auth/permissions"],
     enabled: !!user,
     retry: 2,
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
   });
 
   if (isLoading || !user || permissionsLoading) {
@@ -203,7 +204,7 @@ function App() {
       } catch (err: any) {
         if (cancelled) return;
         if (attempt < MAX_RETRIES) {
-          await new Promise(r => setTimeout(r, 1000 * attempt));
+          await new Promise(r => setTimeout(r, Math.min(1000 * 2 ** attempt, 8000)));
           return fetchClerkKey(attempt + 1);
         }
         setClerkError(err?.name === 'AbortError' ? "Connection timed out. Please refresh the page." : "Failed to initialize. Please refresh the page.");

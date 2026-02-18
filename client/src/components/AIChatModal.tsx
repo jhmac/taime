@@ -30,8 +30,14 @@ export default function AIChatModal({ isOpen, onClose }: AIChatModalProps) {
 
   const chatMutation = useMutation({
     mutationFn: async (message: string) => {
-      const response = await apiRequest('POST', '/api/ai/chat', { message });
-      return await response.json();
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
+      try {
+        const response = await apiRequest('POST', '/api/ai/chat', { message }, { signal: controller.signal });
+        return await response.json();
+      } finally {
+        clearTimeout(timeoutId);
+      }
     },
     onMutate: async (variables) => {
       const optimisticMessage: ChatMessage = {
@@ -92,7 +98,7 @@ export default function AIChatModal({ isOpen, onClose }: AIChatModalProps) {
       const welcomeMessage: ChatMessage = {
         id: 'welcome',
         role: 'assistant',
-        content: `Hello ${user?.firstName}! I'm Claude, your AI assistant. I can help you with time tracking, scheduling, payroll questions, and any other work-related queries. How can I assist you today?`,
+        content: `Hello${user?.firstName ? ` ${user.firstName}` : ''}! I'm Claude, your AI assistant. I can help you with time tracking, scheduling, payroll questions, and any other work-related queries. How can I assist you today?`,
         timestamp: new Date(),
       };
       setMessages([welcomeMessage]);

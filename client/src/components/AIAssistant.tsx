@@ -49,9 +49,10 @@ export default function AIAssistant() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const { data: conversations = [] } = useQuery<Conversation[]>({
+  const { data: conversations = [], isError: conversationsError } = useQuery<Conversation[]>({
     queryKey: ['/api/ai-assistant/conversations'],
     enabled: isOpen && view === 'history',
+    retry: 1,
   });
 
   const { data: conversationMessages = [] } = useQuery<ChatMessage[]>({
@@ -59,10 +60,11 @@ export default function AIAssistant() {
     enabled: !!currentConvId,
   });
 
-  const { data: commuteData } = useQuery<any>({
+  const { data: commuteData, isError: commuteError } = useQuery<any>({
     queryKey: ['/api/ai-assistant/commute'],
     enabled: isOpen && view === 'commute',
     refetchInterval: isOpen && view === 'commute' ? 60000 : false,
+    retry: 1,
   });
 
   useEffect(() => {
@@ -81,8 +83,11 @@ export default function AIAssistant() {
     }
   }, [isOpen, view]);
 
+  const chatConvIdRef = useRef<string | null>(null);
+
   const chatMutation = useMutation({
     mutationFn: async (msg: string) => {
+      chatConvIdRef.current = currentConvId;
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 30000);
       try {
@@ -90,14 +95,13 @@ export default function AIAssistant() {
           message: msg,
           conversationId: currentConvId,
         }, { signal: controller.signal });
-        clearTimeout(timeoutId);
         return res.json();
-      } catch (err: any) {
+      } finally {
         clearTimeout(timeoutId);
-        throw err;
       }
     },
     onSuccess: (data) => {
+      if (currentConvId !== chatConvIdRef.current && chatConvIdRef.current !== null) return;
       if (!currentConvId) {
         setCurrentConvId(data.conversationId);
       }
@@ -109,21 +113,13 @@ export default function AIAssistant() {
     },
     onError: (err: any) => {
       const isTimeout = err?.name === 'AbortError';
-      setLocalMessages(prev => {
-        const lastMsg = prev[prev.length - 1];
-        if (lastMsg?.role === 'user') {
-          return [...prev.slice(0, -1), { ...lastMsg, content: `${lastMsg.content} (failed to send)` },
-            { role: 'assistant' as const, content: isTimeout
-              ? "The request took too long. Please try again."
-              : "Sorry, I'm having trouble right now. Please try again in a moment." }];
-        }
-        return [...prev, {
-          role: 'assistant' as const,
-          content: isTimeout
-            ? "The request took too long. Please try again."
-            : "Sorry, I'm having trouble right now. Please try again in a moment.",
-        }];
-      });
+      const errorMsg = isTimeout
+        ? "The request took too long. Please try again."
+        : "Sorry, I'm having trouble right now. Please try again in a moment.";
+      setLocalMessages(prev => [...prev, {
+        role: 'assistant' as const,
+        content: errorMsg,
+      }]);
     },
   });
 
@@ -133,11 +129,9 @@ export default function AIAssistant() {
       const timeoutId = setTimeout(() => controller.abort(), 30000);
       try {
         const res = await apiRequest('POST', '/api/ai-assistant/briefing', {}, { signal: controller.signal });
-        clearTimeout(timeoutId);
         return res.json();
-      } catch (err: any) {
+      } finally {
         clearTimeout(timeoutId);
-        throw err;
       }
     },
     onError: () => {
@@ -351,7 +345,15 @@ export default function AIAssistant() {
                     <Plus className="w-4 h-4" />
                     New conversation
                   </Button>
-                  {conversations.length === 0 ? (
+                  {conversationsError ? (
+                    <div className="text-center py-4">
+                      <AlertTriangle className="w-6 h-6 mx-auto text-destructive mb-2" />
+                      <p className="text-sm text-muted-foreground">Couldn't load conversations.</p>
+                      <button onClick={() => queryClient.invalidateQueries({ queryKey: ['/api/ai-assistant/conversations'] })} className="text-xs text-primary underline mt-1">
+                        Try again
+                      </button>
+                    </div>
+                  ) : conversations.length === 0 ? (
                     <p className="text-sm text-muted-foreground text-center py-4">
                       No previous conversations yet.
                     </p>
@@ -430,7 +432,18 @@ export default function AIAssistant() {
                     <Navigation className="w-5 h-5 text-primary" />
                     <h3 className="font-semibold">Commute Intelligence</h3>
                   </div>
-                  {!commuteData ? (
+                  {commuteError ? (
+                    <Card>
+                      <CardContent className="p-4 text-center">
+                        <AlertTriangle className="w-8 h-8 mx-auto text-destructive mb-2" />
+                        <p className="text-sm font-medium">Couldn't Load Commute Info</p>
+                        <p className="text-xs text-muted-foreground mt-1">Please try again later.</p>
+                        <Button variant="outline" size="sm" className="mt-3" onClick={() => queryClient.invalidateQueries({ queryKey: ['/api/ai-assistant/commute'] })}>
+                          Retry
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  ) : !commuteData ? (
                     <div className="flex items-center justify-center py-8">
                       <Loader2 className="w-6 h-6 animate-spin" />
                     </div>
@@ -538,10 +551,14 @@ function HomeLocationSetter() {
         saveMutation.mutate({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
         setLoading(false);
       },
-      () => {
-        toast({ title: "Location Access Denied", description: "Please allow location access to use this feature.", variant: "destructive" });
+      (err) => {
+        const msg = err.code === err.TIMEOUT
+          ? "Location request timed out. Please try again."
+          : "Please allow location access to use this feature.";
+        toast({ title: "Location Error", description: msg, variant: "destructive" });
         setLoading(false);
-      }
+      },
+      { timeout: 15000, enableHighAccuracy: false }
     );
   };
 
