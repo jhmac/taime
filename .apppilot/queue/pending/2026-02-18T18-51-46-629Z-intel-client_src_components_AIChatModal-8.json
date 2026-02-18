@@ -1,0 +1,13 @@
+{
+  "filePath": "client/src/components/AIChatModal.tsx",
+  "description": "The chatMutation onSuccess adds both user message and AI response to state, but the user message is already visible in the UI before the API response returns (good UX). However, if the mutation fails, the user message remains visible with no indication that it failed. Add optimistic update with rollback on error.",
+  "successCriteria": [
+    "User message is added optimistically before API call",
+    "On error, user message is marked as failed or removed",
+    "User can retry failed messages"
+  ],
+  "priority": "medium",
+  "category": "error-handling",
+  "source": "codebase-intel",
+  "createdAt": "2026-02-18T18:51:46.629Z"
+}

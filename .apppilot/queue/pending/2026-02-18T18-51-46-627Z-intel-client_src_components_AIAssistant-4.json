@@ -1,0 +1,13 @@
+{
+  "filePath": "client/src/components/AIAssistant.tsx",
+  "description": "The quick action detection in handleSend uses simple string matching (includes('briefing'), includes('commute')) which could trigger false positives. A user typing 'tell me about the briefing process' would switch to briefing view instead of chatting. Implement more robust intent detection or move this logic to backend.",
+  "successCriteria": [
+    "Quick action detection only triggers on exact matches or obvious intents",
+    "False positives are eliminated (e.g., 'tell me about briefings' doesn't auto-switch views)",
+    "Intent detection logic is more robust or moved to Claude API backend"
+  ],
+  "priority": "medium",
+  "category": "code-quality",
+  "source": "codebase-intel",
+  "createdAt": "2026-02-18T18:51:46.627Z"
+}

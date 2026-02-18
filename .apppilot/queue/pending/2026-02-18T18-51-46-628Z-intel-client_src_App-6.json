@@ -1,0 +1,13 @@
+{
+  "filePath": "client/src/App.tsx",
+  "description": "The Clerk publishable key is fetched on every app mount with useEffect and a raw fetch call. This lacks error handling and doesn't retry on failure. If /api/clerk-key fails, the app shows a loading spinner forever. Add timeout, retry logic, and error state.",
+  "successCriteria": [
+    "fetch() call has timeout and error handling",
+    "User sees error message if Clerk key fetch fails",
+    "Retry logic or manual refresh option is provided"
+  ],
+  "priority": "high",
+  "category": "error-handling",
+  "source": "codebase-intel",
+  "createdAt": "2026-02-18T18:51:46.628Z"
+}

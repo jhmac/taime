@@ -1,0 +1,13 @@
+{
+  "filePath": "client/src/components/AIChatModal.tsx",
+  "description": "The welcome message is added to state every time the modal opens (messages.length === 0 check), but this useEffect has no cleanup. If the user opens and closes the modal multiple times, the welcome message logic runs repeatedly. Move welcome message initialization to a ref or add proper dependency array.",
+  "successCriteria": [
+    "Welcome message only appears once per modal lifecycle",
+    "Opening and closing modal multiple times doesn't duplicate state initialization",
+    "useEffect has proper dependency array or uses ref for one-time initialization"
+  ],
+  "priority": "low",
+  "category": "code-quality",
+  "source": "codebase-intel",
+  "createdAt": "2026-02-18T18:51:46.627Z"
+}
