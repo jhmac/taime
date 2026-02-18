@@ -1,0 +1,13 @@
+{
+  "filePath": "client/src/App.tsx",
+  "description": "The AuthenticatedApp component has a redundant isLoading check that returns a loading spinner, but the ClerkProvider and useAuth already handle loading states. This causes a double-loading experience. Remove the redundant check.",
+  "successCriteria": [
+    "Remove the first isLoading check in AuthenticatedApp",
+    "Clerk's built-in loading state is the only loading indicator",
+    "No visual change in loading behavior"
+  ],
+  "priority": "low",
+  "category": "dead-code",
+  "source": "codebase-intel",
+  "createdAt": "2026-02-18T19:28:35.114Z"
+}

@@ -1,0 +1,13 @@
+{
+  "filePath": "client/src/components/AIAssistant.tsx",
+  "description": "The messagesEndRef.current?.scrollIntoView is called in a useEffect that depends on localMessages, but there's no check if the scroll is already at the bottom. This can interrupt user scrolling if they're reading previous messages. Add auto-scroll only if user is already near the bottom.",
+  "successCriteria": [
+    "Auto-scroll only triggers if user is within 100px of the bottom",
+    "User can scroll up to read history without being interrupted",
+    "New messages still auto-scroll when user is at the bottom"
+  ],
+  "priority": "medium",
+  "category": "code-quality",
+  "source": "codebase-intel",
+  "createdAt": "2026-02-18T19:28:35.114Z"
+}

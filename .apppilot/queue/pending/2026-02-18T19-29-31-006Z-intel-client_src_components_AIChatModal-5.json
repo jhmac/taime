@@ -1,0 +1,13 @@
+{
+  "filePath": "client/src/components/AIChatModal.tsx",
+  "description": "The welcome message useEffect has no error boundary. If user object is malformed or firstName is unexpectedly undefined, the string interpolation could fail silently. Add null check or default value.",
+  "successCriteria": [
+    "Welcome message handles missing user.firstName gracefully",
+    "No console errors if user object is incomplete",
+    "Fallback text (e.g., 'Hello! I'm Claude...') displays if firstName missing"
+  ],
+  "priority": "low",
+  "category": "error-handling",
+  "source": "codebase-intel",
+  "createdAt": "2026-02-18T19:29:31.006Z"
+}

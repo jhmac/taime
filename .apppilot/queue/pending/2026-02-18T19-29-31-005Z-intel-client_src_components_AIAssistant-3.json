@@ -1,0 +1,13 @@
+{
+  "filePath": "client/src/components/AIAssistant.tsx",
+  "description": "The chatMutation onError handler modifies localMessages state but doesn't handle the case where the last message might not be from the user. If the mutation fails after an assistant message, the error logic could corrupt the message history.",
+  "successCriteria": [
+    "onError checks message role before slicing/modifying",
+    "Error messages are always appended as assistant role, never corrupt user messages",
+    "Test with multiple rapid sends and failures"
+  ],
+  "priority": "medium",
+  "category": "error-handling",
+  "source": "codebase-intel",
+  "createdAt": "2026-02-18T19:29:31.005Z"
+}

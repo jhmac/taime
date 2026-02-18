@@ -1,0 +1,12 @@
+{
+  "filePath": "client/src/App.tsx",
+  "description": "The fetchClerkKey function in App.tsx has no error handling for network failures beyond retries. If all retries fail, the error state is set but the underlying fetch error details are lost, making debugging difficult. Add structured error logging before setting clerkError state.",
+  "successCriteria": [
+    "Console.error or structured logger captures the actual error object before setting clerkError",
+    "Error logs include attempt number and error type (timeout vs network vs HTTP status)"
+  ],
+  "priority": "high",
+  "category": "error-handling",
+  "source": "codebase-intel",
+  "createdAt": "2026-02-18T19:28:35.105Z"
+}

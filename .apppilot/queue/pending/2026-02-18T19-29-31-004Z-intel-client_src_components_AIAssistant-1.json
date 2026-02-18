@@ -1,0 +1,13 @@
+{
+  "filePath": "client/src/components/AIAssistant.tsx",
+  "description": "The commuteData query has no error handling. If the /api/ai-assistant/commute endpoint fails, the UI shows a loading spinner forever. Add error state and fallback UI.",
+  "successCriteria": [
+    "useQuery includes isError state check",
+    "UI displays an error message with retry button if commute fetch fails",
+    "User is not stuck on infinite loading spinner"
+  ],
+  "priority": "high",
+  "category": "error-handling",
+  "source": "codebase-intel",
+  "createdAt": "2026-02-18T19:29:31.004Z"
+}

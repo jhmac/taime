@@ -1,0 +1,13 @@
+{
+  "filePath": "client/src/components/AIAssistant.tsx",
+  "description": "The briefingMutation and chatMutation both have 30-second timeouts, but there's no timeout handling for the commuteData query. If the /api/ai-assistant/commute endpoint hangs, the user sees an infinite loading spinner. Add timeout and error boundary.",
+  "successCriteria": [
+    "commuteData query has a timeout (30s)",
+    "Timeout displays a user-friendly error message",
+    "Error state allows retry without closing the modal"
+  ],
+  "priority": "high",
+  "category": "error-handling",
+  "source": "codebase-intel",
+  "createdAt": "2026-02-18T19:28:35.107Z"
+}

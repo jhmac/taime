@@ -1,0 +1,13 @@
+{
+  "filePath": "client/src/components/AIAssistant.tsx",
+  "description": "The conversations query has no error handling. If /api/ai-assistant/conversations fails, the history view will be empty with no indication of why. Add error state and user feedback.",
+  "successCriteria": [
+    "useQuery includes isError state check",
+    "UI shows error message in history view if fetch fails",
+    "User can retry or return to chat view"
+  ],
+  "priority": "high",
+  "category": "error-handling",
+  "source": "codebase-intel",
+  "createdAt": "2026-02-18T19:29:31.004Z"
+}

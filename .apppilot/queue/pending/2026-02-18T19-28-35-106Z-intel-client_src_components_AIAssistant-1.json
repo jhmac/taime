@@ -1,0 +1,12 @@
+{
+  "filePath": "client/src/components/AIAssistant.tsx",
+  "description": "The chatMutation onError handler modifies localMessages state but doesn't guarantee idempotent behavior. If the mutation retries automatically (via React Query), the error message could be appended multiple times. Add a check to prevent duplicate error messages in the same position.",
+  "successCriteria": [
+    "Error messages are not duplicated if mutation retries",
+    "State updates use a functional update pattern that checks for existing error messages"
+  ],
+  "priority": "medium",
+  "category": "error-handling",
+  "source": "codebase-intel",
+  "createdAt": "2026-02-18T19:28:35.106Z"
+}

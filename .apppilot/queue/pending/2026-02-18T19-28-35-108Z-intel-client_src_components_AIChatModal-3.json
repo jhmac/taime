@@ -1,0 +1,13 @@
+{
+  "filePath": "client/src/components/AIChatModal.tsx",
+  "description": "The chatMutation onError handler checks isUnauthorizedError and redirects to /api/login, but this redirect path doesn't match the Clerk authentication flow. Should redirect to Clerk sign-in or trigger Clerk's auth flow instead of a custom /api/login endpoint.",
+  "successCriteria": [
+    "Unauthorized errors trigger Clerk's built-in sign-in flow",
+    "No redirect to /api/login (which may not exist)",
+    "User can re-authenticate without losing modal state"
+  ],
+  "priority": "high",
+  "category": "error-handling",
+  "source": "codebase-intel",
+  "createdAt": "2026-02-18T19:28:35.108Z"
+}
