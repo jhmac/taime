@@ -600,9 +600,24 @@ export const insertRolePermissionSchema = createInsertSchema(rolePermissions).om
   createdAt: true,
 });
 
-export const insertTimeEntrySchema = createInsertSchema(timeEntries).omit({
+const rawInsertTimeEntrySchema = createInsertSchema(timeEntries).omit({
   id: true,
   createdAt: true,
+});
+
+export const insertTimeEntrySchema = rawInsertTimeEntrySchema.extend({
+  clockInTime: z.preprocess(
+    (val) => (typeof val === 'string' ? new Date(val) : val),
+    z.date()
+  ),
+  clockOutTime: z.preprocess(
+    (val) => (typeof val === 'string' ? new Date(val) : val),
+    z.date()
+  ).optional().nullable(),
+  approvedAt: z.preprocess(
+    (val) => (typeof val === 'string' ? new Date(val) : val),
+    z.date()
+  ).optional().nullable(),
 });
 
 export const insertScheduleSchema = createInsertSchema(schedules).omit({

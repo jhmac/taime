@@ -8,12 +8,6 @@ export function registerTimeEntryRoutes(app: Express, storage: IStorage, isAuthe
     try {
       const userId = req.user.id;
       const body = { ...req.body, userId };
-      const dateFields = ['clockInTime', 'clockOutTime', 'approvedAt'] as const;
-      for (const field of dateFields) {
-        if (body[field] && typeof body[field] === 'string') {
-          body[field] = new Date(body[field]);
-        }
-      }
       const data = insertTimeEntrySchema.parse(body);
       
       if (data.clockInTime && data.locationId) {
