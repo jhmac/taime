@@ -35,15 +35,34 @@ import type { Permission } from "@shared/schema";
 
 function ProtectedRoute({ children, permission }: { children: React.ReactNode; permission?: string }) {
   const { user, isLoading } = useAuth();
-  const { data: permissions = [] } = useQuery<Permission[]>({
+  const { data: permissions = [], isError: permissionsError, isLoading: permissionsLoading } = useQuery<Permission[]>({
     queryKey: ["/api/auth/permissions"],
     enabled: !!user,
+    retry: 2,
   });
 
-  if (isLoading || !user) {
+  if (isLoading || !user || permissionsLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
+  if (permissionsError) {
+    return (
+      <div className="min-h-screen bg-background p-4">
+        <div className="space-y-4 max-w-sm mx-auto mt-20">
+          <div className="rounded-lg border bg-card p-6">
+            <h3 className="text-lg font-semibold">Unable to Verify Permissions</h3>
+            <p className="text-sm text-muted-foreground mt-2">
+              We couldn't verify your access. Please try refreshing the page.
+            </p>
+            <button onClick={() => window.location.reload()} className="text-sm text-primary underline mt-3">
+              Refresh
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
@@ -158,13 +177,55 @@ function Router() {
 
 function App() {
   const [clerkKey, setClerkKey] = useState<string | null>(null);
+  const [clerkError, setClerkError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/clerk-key")
-      .then(res => res.json())
-      .then(data => setClerkKey(data.publishableKey))
-      .catch(console.error);
+    let cancelled = false;
+    const MAX_RETRIES = 3;
+    const TIMEOUT_MS = 10000;
+
+    async function fetchClerkKey(attempt = 1): Promise<void> {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
+        const res = await fetch("/api/clerk-key", { signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (!cancelled) {
+          if (data.publishableKey) {
+            setClerkKey(data.publishableKey);
+            setClerkError(null);
+          } else {
+            throw new Error("Missing publishable key");
+          }
+        }
+      } catch (err: any) {
+        if (cancelled) return;
+        if (attempt < MAX_RETRIES) {
+          await new Promise(r => setTimeout(r, 1000 * attempt));
+          return fetchClerkKey(attempt + 1);
+        }
+        setClerkError(err?.name === 'AbortError' ? "Connection timed out. Please refresh the page." : "Failed to initialize. Please refresh the page.");
+      }
+    }
+
+    fetchClerkKey();
+    return () => { cancelled = true; };
   }, []);
+
+  if (clerkError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center space-y-3">
+          <p className="text-sm text-destructive">{clerkError}</p>
+          <button onClick={() => window.location.reload()} className="text-sm text-primary underline">
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (!clerkKey) {
     return (

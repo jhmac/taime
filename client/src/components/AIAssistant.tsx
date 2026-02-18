@@ -62,14 +62,14 @@ export default function AIAssistant() {
   const { data: commuteData } = useQuery<any>({
     queryKey: ['/api/ai-assistant/commute'],
     enabled: isOpen && view === 'commute',
-    refetchInterval: 60000,
+    refetchInterval: isOpen && view === 'commute' ? 60000 : false,
   });
 
   useEffect(() => {
-    if (conversationMessages.length > 0) {
+    if (currentConvId) {
       setLocalMessages(conversationMessages);
     }
-  }, [conversationMessages]);
+  }, [conversationMessages, currentConvId]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -83,11 +83,19 @@ export default function AIAssistant() {
 
   const chatMutation = useMutation({
     mutationFn: async (msg: string) => {
-      const res = await apiRequest('POST', '/api/ai-assistant/chat', {
-        message: msg,
-        conversationId: currentConvId,
-      });
-      return res.json();
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
+      try {
+        const res = await apiRequest('POST', '/api/ai-assistant/chat', {
+          message: msg,
+          conversationId: currentConvId,
+        }, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        return res.json();
+      } catch (err: any) {
+        clearTimeout(timeoutId);
+        throw err;
+      }
     },
     onSuccess: (data) => {
       if (!currentConvId) {
@@ -99,18 +107,41 @@ export default function AIAssistant() {
       }]);
       queryClient.invalidateQueries({ queryKey: ['/api/ai-assistant/conversations'] });
     },
-    onError: () => {
-      setLocalMessages(prev => [...prev, {
-        role: 'assistant',
-        content: "Sorry, I'm having trouble right now. Please try again in a moment.",
-      }]);
+    onError: (err: any) => {
+      const isTimeout = err?.name === 'AbortError';
+      setLocalMessages(prev => {
+        const lastMsg = prev[prev.length - 1];
+        if (lastMsg?.role === 'user') {
+          return [...prev.slice(0, -1), { ...lastMsg, content: `${lastMsg.content} (failed to send)` },
+            { role: 'assistant' as const, content: isTimeout
+              ? "The request took too long. Please try again."
+              : "Sorry, I'm having trouble right now. Please try again in a moment." }];
+        }
+        return [...prev, {
+          role: 'assistant' as const,
+          content: isTimeout
+            ? "The request took too long. Please try again."
+            : "Sorry, I'm having trouble right now. Please try again in a moment.",
+        }];
+      });
     },
   });
 
   const briefingMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest('POST', '/api/ai-assistant/briefing', {});
-      return res.json();
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
+      try {
+        const res = await apiRequest('POST', '/api/ai-assistant/briefing', {}, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        return res.json();
+      } catch (err: any) {
+        clearTimeout(timeoutId);
+        throw err;
+      }
+    },
+    onError: () => {
+      toast({ title: "Briefing Failed", description: "Could not generate your briefing. Please try again.", variant: "destructive" });
     },
   });
 
@@ -125,18 +156,40 @@ export default function AIAssistant() {
     },
   });
 
+  const isBriefingIntent = (text: string): boolean => {
+    const lower = text.toLowerCase().trim();
+    const briefingPatterns = [
+      /^(show|get|give)\b.*\bbriefing\b/,
+      /^(my\s+)?shift\s+briefing/,
+      /^briefing$/,
+      /\bbrief\s+me\b/,
+    ];
+    return briefingPatterns.some(p => p.test(lower));
+  };
+
+  const isCommuteIntent = (text: string): boolean => {
+    const lower = text.toLowerCase().trim();
+    const commutePatterns = [
+      /^(show|get)\b.*\bcommute\b/,
+      /^commute\b/,
+      /\bcommute\s+(info|intelligence|data|time|estimate)/,
+      /^(how|what)\b.*(commute|drive\s+time|traffic)/,
+    ];
+    return commutePatterns.some(p => p.test(lower));
+  };
+
   const handleSend = () => {
     const trimmed = message.trim();
     if (!trimmed || chatMutation.isPending) return;
 
-    if (trimmed.toLowerCase().includes('briefing') || trimmed.toLowerCase().includes('shift briefing')) {
+    if (isBriefingIntent(trimmed)) {
       setView('briefing');
       briefingMutation.mutate();
       setMessage('');
       return;
     }
 
-    if (trimmed.toLowerCase().includes('commute') || trimmed.toLowerCase().includes('drive') || trimmed.toLowerCase().includes('traffic')) {
+    if (isCommuteIntent(trimmed)) {
       setView('commute');
       setMessage('');
       return;
@@ -148,12 +201,12 @@ export default function AIAssistant() {
   };
 
   const handleQuickAction = (action: string) => {
-    if (action.includes('briefing')) {
+    if (isBriefingIntent(action)) {
       setView('briefing');
       briefingMutation.mutate();
       return;
     }
-    if (action.includes('commute')) {
+    if (isCommuteIntent(action)) {
       setView('commute');
       return;
     }

@@ -33,26 +33,30 @@ export default function AIChatModal({ isOpen, onClose }: AIChatModalProps) {
       const response = await apiRequest('POST', '/api/ai/chat', { message });
       return await response.json();
     },
-    onSuccess: (data, variables) => {
-      // Add both user message and AI response to chat
-      const userMessage: ChatMessage = {
+    onMutate: async (variables) => {
+      const optimisticMessage: ChatMessage = {
         id: `user-${Date.now()}`,
         role: 'user',
         content: variables,
         timestamp: new Date(),
       };
-      
+      setMessages(prev => [...prev, optimisticMessage]);
+      setInputMessage('');
+      return { optimisticMessage };
+    },
+    onSuccess: (data, _variables, context) => {
       const aiMessage: ChatMessage = {
         id: `ai-${Date.now()}`,
         role: 'assistant',
         content: data.response,
         timestamp: new Date(),
       };
-
-      setMessages(prev => [...prev, userMessage, aiMessage]);
-      setInputMessage('');
+      setMessages(prev => [...prev, aiMessage]);
     },
-    onError: (error: Error) => {
+    onError: (error: Error, _variables, context) => {
+      if (context?.optimisticMessage) {
+        setMessages(prev => prev.filter(m => m.id !== context.optimisticMessage.id));
+      }
       if (isUnauthorizedError(error)) {
         toast({
           title: "Unauthorized",
@@ -80,9 +84,11 @@ export default function AIChatModal({ isOpen, onClose }: AIChatModalProps) {
     scrollToBottom();
   }, [messages]);
 
+  const welcomeShownRef = useRef(false);
+
   useEffect(() => {
-    if (isOpen && messages.length === 0) {
-      // Add welcome message when modal opens
+    if (isOpen && messages.length === 0 && !welcomeShownRef.current) {
+      welcomeShownRef.current = true;
       const welcomeMessage: ChatMessage = {
         id: 'welcome',
         role: 'assistant',
@@ -91,12 +97,14 @@ export default function AIChatModal({ isOpen, onClose }: AIChatModalProps) {
       };
       setMessages([welcomeMessage]);
     }
-  }, [isOpen, user?.firstName]);
+    if (!isOpen) {
+      welcomeShownRef.current = false;
+    }
+  }, [isOpen, user?.firstName, messages.length]);
 
   const handleSendMessage = () => {
     if (!inputMessage.trim() || chatMutation.isPending) return;
-    
-    chatMutation.mutate(inputMessage);
+    chatMutation.mutate(inputMessage.trim());
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {

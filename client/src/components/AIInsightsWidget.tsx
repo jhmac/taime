@@ -3,8 +3,19 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 
+interface Insight {
+  id: string;
+  type: string;
+  severity: string;
+  title: string;
+  description: string;
+  isRead: boolean;
+  metadata?: { recommendation?: string };
+  createdAt: string;
+}
+
 export default function AIInsightsWidget() {
-  const { data: insights, isLoading } = useQuery({
+  const { data: insights, isLoading } = useQuery<Insight[]>({
     queryKey: ['/api/insights'],
   });
 
@@ -35,7 +46,7 @@ export default function AIInsightsWidget() {
     }
   };
 
-  const unreadInsights = insights?.filter((insight: any) => !insight.isRead) || [];
+  const unreadInsights = insights?.filter((insight) => !insight.isRead) || [];
 
   if (isLoading) {
     return (
@@ -96,7 +107,7 @@ export default function AIInsightsWidget() {
       </CardHeader>
       <CardContent>
         <div className="space-y-3">
-          {unreadInsights.slice(0, 3).map((insight: any) => (
+          {unreadInsights.slice(0, 3).map((insight) => (
             <div
               key={insight.id}
               className={`border rounded-lg p-3 ${getSeverityColor(insight.severity)}`}
