@@ -7,6 +7,21 @@ import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const { initAppPilot } = require('apppilot');
 
+process.on('uncaughtException', (err) => {
+  if (err.message?.includes('Cannot set property message') ||
+      err.message?.includes('EAI_AGAIN') ||
+      err.message?.includes('ECONNRESET')) {
+    console.error('Caught non-fatal error:', err.message);
+  } else {
+    console.error('Uncaught exception:', err);
+    process.exit(1);
+  }
+});
+
+process.on('unhandledRejection', (reason: any) => {
+  console.error('Unhandled rejection:', reason?.message || reason);
+});
+
 const app = express();
 
 app.use(helmet({
