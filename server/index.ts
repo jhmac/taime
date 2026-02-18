@@ -38,6 +38,7 @@ initAppPilot(app, {
   enableErrorTracking: true,
   enableHealth: true,
   enableDashboard: true,
+  forceDiscovery: true,
 });
 
 app.use((req, res, next) => {

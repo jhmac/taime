@@ -11,7 +11,7 @@
 ## Schedules
 - Error triage: every heartbeat
 - Performance check: every heartbeat
-- Codebase discovery: every 3 heartbeats
+- Codebase discovery: every 1 heartbeat
 - Approved queue: every heartbeat
 - Codebase analysis: weekly, Mondays
 - Self-improvement: weekly, Fridays
