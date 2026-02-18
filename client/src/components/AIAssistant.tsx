@@ -48,7 +48,7 @@ export default function AIAssistant() {
     retry: 1,
   });
 
-  const { data: conversationMessages = [] } = useQuery<ChatMessage[]>({
+  const { data: conversationMessages = [], isError: messagesError } = useQuery<ChatMessage[]>({
     queryKey: ['/api/ai-assistant/conversations', currentConvId, 'messages'],
     enabled: !!currentConvId,
   });
@@ -61,10 +61,13 @@ export default function AIAssistant() {
   });
 
   useEffect(() => {
-    if (currentConvId) {
+    if (currentConvId && !messagesError) {
       setLocalMessages(conversationMessages);
     }
-  }, [conversationMessages, currentConvId]);
+    if (messagesError && currentConvId) {
+      setLocalMessages([{ role: 'assistant', content: 'Could not load this conversation. Please try again.' }]);
+    }
+  }, [conversationMessages, currentConvId, messagesError]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -76,18 +79,23 @@ export default function AIAssistant() {
     }
   }, [isOpen, view]);
 
-  const chatConvIdRef = useRef<string | null>(null);
+  const convTokenRef = useRef(0);
+
+  useEffect(() => {
+    convTokenRef.current++;
+  }, [currentConvId]);
 
   const chatMutation = useMutation({
     mutationFn: async (msg: string) => {
-      chatConvIdRef.current = currentConvId;
-      return fetchWithTimeout('POST', '/api/ai-assistant/chat', {
+      const token = convTokenRef.current;
+      const data = await fetchWithTimeout('POST', '/api/ai-assistant/chat', {
         message: msg,
         conversationId: currentConvId,
       });
+      return { ...data, _convToken: token };
     },
     onSuccess: (data) => {
-      if (currentConvId !== chatConvIdRef.current && chatConvIdRef.current !== null) return;
+      if (data._convToken !== convTokenRef.current) return;
       if (!currentConvId) {
         setCurrentConvId(data.conversationId);
       }
@@ -98,17 +106,26 @@ export default function AIAssistant() {
       queryClient.invalidateQueries({ queryKey: ['/api/ai-assistant/conversations'] });
     },
     onError: (err: any) => {
-      setLocalMessages(prev => [...prev, {
-        role: 'assistant' as const,
-        content: getErrorMessage(err),
-      }]);
+      try {
+        setLocalMessages(prev => [...prev, {
+          role: 'assistant' as const,
+          content: getErrorMessage(err),
+        }]);
+      } catch {
+        setLocalMessages(prev => [...prev, {
+          role: 'assistant' as const,
+          content: "Something went wrong. Please try again.",
+        }]);
+      }
     },
   });
 
   const briefingMutation = useMutation({
     mutationFn: () => fetchWithTimeout('POST', '/api/ai-assistant/briefing', {}),
     onError: () => {
-      toast({ title: "Briefing Failed", description: "Could not generate your briefing. Please try again.", variant: "destructive" });
+      try {
+        toast({ title: "Briefing Failed", description: "Could not generate your briefing. Please try again.", variant: "destructive" });
+      } catch {}
     },
   });
 
@@ -120,6 +137,11 @@ export default function AIAssistant() {
         setCurrentConvId(null);
         setLocalMessages([]);
       }
+    },
+    onError: () => {
+      try {
+        toast({ title: "Delete Failed", description: "Could not delete conversation. Please try again.", variant: "destructive" });
+      } catch {}
     },
   });
 

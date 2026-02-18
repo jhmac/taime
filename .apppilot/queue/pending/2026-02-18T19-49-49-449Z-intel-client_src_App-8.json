@@ -1,0 +1,13 @@
+{
+  "filePath": "client/src/App.tsx",
+  "description": "The fetchClerkKey function in the useEffect has retry logic and a timeout, but the error handling does NOT differentiate between network errors and server errors. If the server returns a 500, it retries 3 times. Add logic to skip retries for 5xx errors (they won't resolve quickly).",
+  "successCriteria": [
+    "Retries only occur for network errors or timeouts, not 5xx server errors",
+    "Error message distinguishes between 'server unavailable' and 'connection timeout'",
+    "User sees a more helpful error message"
+  ],
+  "priority": "medium",
+  "category": "error-handling",
+  "source": "codebase-intel",
+  "createdAt": "2026-02-18T19:49:49.449Z"
+}

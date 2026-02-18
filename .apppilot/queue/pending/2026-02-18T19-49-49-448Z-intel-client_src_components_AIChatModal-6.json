@@ -1,0 +1,13 @@
+{
+  "filePath": "client/src/components/AIChatModal.tsx",
+  "description": "The useEffect that adds the welcome message on modal open uses a ref (welcomeShownRef) to track if the message was shown, but the ref is reset when isOpen is false. If the modal is opened, closed, and reopened rapidly, the ref reset logic could race with the welcome message insertion. Use a stable approach: check messages.length === 0 and isOpen, skip the ref.",
+  "successCriteria": [
+    "Welcome message logic does not depend on a ref that can race",
+    "Welcome message appears exactly once per modal open cycle",
+    "No duplicate welcome messages on rapid open/close"
+  ],
+  "priority": "low",
+  "category": "code-quality",
+  "source": "codebase-intel",
+  "createdAt": "2026-02-18T19:49:49.448Z"
+}

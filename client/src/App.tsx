@@ -44,7 +44,33 @@ function ProtectedRoute({ children, permission }: { children: React.ReactNode; p
     gcTime: 10 * 60 * 1000,
   });
 
+  const [loadingTimedOut, setLoadingTimedOut] = useState(false);
+  useEffect(() => {
+    if (isLoading || permissionsLoading) {
+      setLoadingTimedOut(false);
+      const timer = setTimeout(() => setLoadingTimedOut(true), 10000);
+      return () => clearTimeout(timer);
+    }
+  }, [isLoading, permissionsLoading]);
+
   if (isLoading || !user || permissionsLoading) {
+    if (loadingTimedOut) {
+      return (
+        <div className="min-h-screen bg-background p-4">
+          <div className="space-y-4 max-w-sm mx-auto mt-20">
+            <div className="rounded-lg border bg-card p-6">
+              <h3 className="text-lg font-semibold">Loading is taking too long</h3>
+              <p className="text-sm text-muted-foreground mt-2">
+                We're having trouble loading this page. Please try refreshing.
+              </p>
+              <button onClick={() => window.location.reload()} className="text-sm text-primary underline mt-3">
+                Refresh
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
@@ -101,16 +127,29 @@ function ProtectedRoute({ children, permission }: { children: React.ReactNode; p
 function AuthenticatedApp() {
   const { isAuthenticated, isLoading, user } = useAuth();
   const { showSetupModal, closeSetupModal } = usePayrollSetup();
+  const [authTimedOut, setAuthTimedOut] = useState(false);
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-      </div>
-    );
-  }
+  useEffect(() => {
+    if (isLoading || !isAuthenticated) {
+      setAuthTimedOut(false);
+      const timer = setTimeout(() => setAuthTimedOut(true), 10000);
+      return () => clearTimeout(timer);
+    }
+  }, [isLoading, isAuthenticated]);
 
-  if (!isAuthenticated) {
+  if (isLoading || !isAuthenticated) {
+    if (authTimedOut) {
+      return (
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="text-center space-y-3">
+            <p className="text-sm text-muted-foreground">Authentication is taking longer than expected.</p>
+            <button onClick={() => window.location.reload()} className="text-sm text-primary underline">
+              Refresh
+            </button>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
@@ -210,7 +249,8 @@ function App() {
         }
       } catch (err: any) {
         if (cancelled) return;
-        if (attempt < MAX_RETRIES) {
+        const isServerError = err?.message?.startsWith('HTTP 5');
+        if (attempt < MAX_RETRIES && !isServerError) {
           await new Promise(r => setTimeout(r, Math.min(1000 * 2 ** attempt, 8000)));
           return fetchClerkKey(attempt + 1);
         }

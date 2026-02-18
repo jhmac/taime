@@ -1,0 +1,13 @@
+{
+  "filePath": "client/src/components/AIAssistant.tsx",
+  "description": "The chatConvIdRef pattern is used to prevent race conditions when switching conversations, but the check 'if (currentConvId !== chatConvIdRef.current && chatConvIdRef.current !== null)' could fail if currentConvId is updated between mutation start and success. Use a more robust approach: store a unique mutation ID per request and validate it in onSuccess.",
+  "successCriteria": [
+    "chatMutation uses a unique ID per request to validate responses",
+    "Stale responses from old conversations are ignored reliably",
+    "No race conditions when rapidly switching conversations"
+  ],
+  "priority": "medium",
+  "category": "code-quality",
+  "source": "codebase-intel",
+  "createdAt": "2026-02-18T19:49:49.446Z"
+}

@@ -51,25 +51,29 @@ export default function AIChatModal({ isOpen, onClose }: AIChatModalProps) {
       setMessages(prev => [...prev, aiMessage]);
     },
     onError: (error: Error, _variables, context) => {
-      if (context?.optimisticMessage) {
-        setMessages(prev => prev.filter(m => m.id !== context.optimisticMessage.id));
-      }
-      if (isUnauthorizedError(error)) {
+      try {
+        if (context?.optimisticMessage) {
+          setMessages(prev => prev.filter(m => m.id !== context.optimisticMessage.id));
+        }
+        if (isUnauthorizedError(error)) {
+          toast({
+            title: "Unauthorized",
+            description: "You are logged out. Logging in again...",
+            variant: "destructive",
+          });
+          setTimeout(() => {
+            window.location.href = "/api/login";
+          }, 500);
+          return;
+        }
         toast({
-          title: "Unauthorized",
-          description: "You are logged out. Logging in again...",
+          title: "Chat Error",
+          description: getErrorMessage(error),
           variant: "destructive",
         });
-        setTimeout(() => {
-          window.location.href = "/api/login";
-        }, 500);
-        return;
+      } catch {
+        console.error('Error in chat error handler:', error);
       }
-      toast({
-        title: "Chat Error",
-        description: getErrorMessage(error),
-        variant: "destructive",
-      });
     },
   });
 
@@ -81,11 +85,10 @@ export default function AIChatModal({ isOpen, onClose }: AIChatModalProps) {
     scrollToBottom();
   }, [messages]);
 
-  const welcomeShownRef = useRef(false);
+  const prevOpenRef = useRef(false);
 
   useEffect(() => {
-    if (isOpen && messages.length === 0 && !welcomeShownRef.current) {
-      welcomeShownRef.current = true;
+    if (isOpen && !prevOpenRef.current) {
       const welcomeMessage: ChatMessage = {
         id: 'welcome',
         role: 'assistant',
@@ -94,11 +97,11 @@ export default function AIChatModal({ isOpen, onClose }: AIChatModalProps) {
       };
       setMessages([welcomeMessage]);
     }
-    if (!isOpen) {
-      welcomeShownRef.current = false;
+    if (!isOpen && prevOpenRef.current) {
       setMessages([]);
     }
-  }, [isOpen, user?.firstName]);
+    prevOpenRef.current = isOpen;
+  }, [isOpen]);
 
   const handleSendMessage = () => {
     if (!inputMessage.trim() || chatMutation.isPending) return;
