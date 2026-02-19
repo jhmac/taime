@@ -1,8 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,19 +9,24 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Switch } from "@/components/ui/switch";
-import type { User, Schedule, WorkLocation, Shop } from "@shared/schema";
+import { useAuth } from "@/hooks/useAuth";
+import { useLocation } from "wouter";
+import type { User, Schedule, WorkLocation } from "@shared/schema";
 import AIStaffingPanel from "@/components/AIStaffingPanel";
 
 export default function ScheduleManagement() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { user: currentUser } = useAuth();
+  const [, navigate] = useLocation();
   const [selectedWeek, setSelectedWeek] = useState(0);
   const [showCreateShift, setShowCreateShift] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState<string>('');
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [shiftFilter, setShiftFilter] = useState<'my' | 'all' | 'open'>('my');
 
-  // Fetch data
+  const isAdmin = currentUser?.role?.name === 'admin' || currentUser?.role?.name === 'owner';
+
   const { data: schedules = [], isLoading: schedulesLoading } = useQuery<Schedule[]>({
     queryKey: ["/api/schedules"],
   });
@@ -41,7 +45,6 @@ export default function ScheduleManagement() {
 
   const activeShop = connectedShops.find((s: any) => s.isActive) || (connectedShops.length > 0 ? connectedShops[0] : null);
 
-  // Create schedule mutation
   const createScheduleMutation = useMutation({
     mutationFn: async (scheduleData: any) => {
       const response = await fetch("/api/schedules", {
@@ -55,22 +58,14 @@ export default function ScheduleManagement() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/schedules"] });
       setShowCreateShift(false);
-      toast({
-        title: "Success",
-        description: "Shift created successfully!",
-      });
+      toast({ title: "Success", description: "Shift created successfully!" });
     },
     onError: () => {
-      toast({
-        title: "Error",
-        description: "Failed to create shift. Please try again.",
-        variant: "destructive",
-      });
+      toast({ title: "Error", description: "Failed to create shift. Please try again.", variant: "destructive" });
     },
   });
 
-  // Helper functions
-  const formatTime = (dateStr: string) => {
+  const formatTime = (dateStr: string | Date) => {
     return new Date(dateStr).toLocaleTimeString('en-US', {
       hour: 'numeric',
       minute: '2-digit',
@@ -82,7 +77,6 @@ export default function ScheduleManagement() {
     const today = new Date();
     const startOfWeek = new Date(today);
     startOfWeek.setDate(today.getDate() - today.getDay() + (weekOffset * 7));
-    
     const dates = [];
     for (let i = 0; i < 7; i++) {
       const date = new Date(startOfWeek);
@@ -94,35 +88,26 @@ export default function ScheduleManagement() {
 
   const formatWeekRange = (weekOffset: number) => {
     const dates = getWeekDates(weekOffset);
-    const start = dates[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    const end = dates[6].toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const start = dates[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const end = dates[6].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     return `${start} - ${end}`;
   };
 
   const handleCreateShift = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
-    
     const startDate = formData.get('startDate') as string;
     const startTime = formData.get('startTime') as string;
     const endDate = formData.get('endDate') as string;
     const endTime = formData.get('endTime') as string;
-    
-    const scheduleData = {
+    createScheduleMutation.mutate({
       userId: formData.get('userId') as string,
       startTime: new Date(`${startDate}T${startTime}`),
       endTime: new Date(`${endDate}T${endTime}`),
       title: formData.get('title') as string,
       location: formData.get('locationId') as string,
       notes: formData.get('description') as string,
-    };
-
-    createScheduleMutation.mutate(scheduleData);
-  };
-
-  const handleShiftClick = (schedule: Schedule) => {
-    // Handle shift click - could open edit dialog
-    console.log('Shift clicked:', schedule);
+    });
   };
 
   const weekDates = getWeekDates(selectedWeek);
@@ -136,10 +121,190 @@ export default function ScheduleManagement() {
     );
   }
 
+  if (!isAdmin) {
+    const mySchedules = schedules.filter(s =>
+      s.userId === currentUser?.id &&
+      weekDates.some(d => new Date(s.startTime).toDateString() === d.toDateString())
+    );
+
+    const allWeekSchedules = schedules.filter(s =>
+      weekDates.some(d => new Date(s.startTime).toDateString() === d.toDateString())
+    );
+    const filteredSchedules = shiftFilter === 'my'
+      ? mySchedules
+      : shiftFilter === 'all'
+        ? allWeekSchedules
+        : allWeekSchedules.filter(s => !s.userId);
+
+    const hasShifts = filteredSchedules.length > 0;
+
+    return (
+      <div className="min-h-screen bg-background p-4 md:p-6">
+        <div className="max-w-lg mx-auto space-y-4">
+          <div className="text-center space-y-1">
+            <p className="text-sm text-muted-foreground" data-testid="employee-week-range">
+              {formatWeekRange(selectedWeek)}
+            </p>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setSelectedWeek(selectedWeek - 1)}
+              data-testid="button-previous-week"
+            >
+              <i className="fas fa-chevron-left"></i>
+            </Button>
+
+            <div className="flex gap-1">
+              {weekDates.map((date) => {
+                const isToday = date.toDateString() === new Date().toDateString();
+                const hasShiftOnDay = mySchedules.some(s =>
+                  new Date(s.startTime).toDateString() === date.toDateString()
+                );
+                return (
+                  <div key={date.toISOString()} className="flex flex-col items-center gap-1">
+                    <span className="text-[10px] text-muted-foreground uppercase">
+                      {date.toLocaleDateString('en-US', { weekday: 'short' })}
+                    </span>
+                    <div
+                      className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-medium transition-colors ${
+                        isToday
+                          ? 'bg-primary text-primary-foreground'
+                          : hasShiftOnDay
+                            ? 'bg-primary/10 text-primary border border-primary/30'
+                            : 'text-muted-foreground'
+                      }`}
+                    >
+                      {date.getDate()}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setSelectedWeek(selectedWeek + 1)}
+              data-testid="button-next-week"
+            >
+              <i className="fas fa-chevron-right"></i>
+            </Button>
+          </div>
+
+          <div className="flex gap-2 justify-center">
+            {(['all', 'my', 'open'] as const).map(filter => (
+              <Button
+                key={filter}
+                variant={shiftFilter === filter ? 'default' : 'outline'}
+                size="sm"
+                className="text-xs px-4"
+                onClick={() => setShiftFilter(filter)}
+              >
+                {filter === 'all' ? 'All shifts' : filter === 'my' ? 'My shifts' : 'Open shifts'}
+              </Button>
+            ))}
+          </div>
+
+          {hasShifts ? (
+            <div className="space-y-2">
+              {weekDates.map(date => {
+                const dayShifts = filteredSchedules.filter(s =>
+                  new Date(s.startTime).toDateString() === date.toDateString()
+                );
+                if (dayShifts.length === 0) return null;
+                const isToday = date.toDateString() === new Date().toDateString();
+                return (
+                  <Card key={date.toISOString()}>
+                    <CardContent className="p-3">
+                      <div className="text-xs font-medium text-muted-foreground mb-2">
+                        {date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+                        {isToday && <span className="ml-1 text-primary">(Today)</span>}
+                      </div>
+                      {dayShifts.map(shift => {
+                        const shiftUser = users.find(u => u.id === shift.userId);
+                        return (
+                          <div key={shift.id} className="p-2 bg-primary/5 rounded border border-primary/10 mb-1">
+                            <div className="flex items-center justify-between">
+                              <div className="text-sm font-medium">
+                                {formatTime(shift.startTime)} - {formatTime(shift.endTime)}
+                              </div>
+                              {shift.title && (
+                                <Badge variant="outline" className="text-[10px]">{shift.title}</Badge>
+                              )}
+                            </div>
+                            {shiftFilter !== 'my' && shiftUser && (
+                              <div className="text-xs text-muted-foreground mt-1">
+                                {shiftUser.firstName} {shiftUser.lastName}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          ) : (
+            <Card>
+              <CardContent className="p-8 text-center">
+                <div className="mx-auto w-24 h-24 mb-4 opacity-30">
+                  <svg viewBox="0 0 100 100" className="w-full h-full text-muted-foreground">
+                    <rect x="10" y="10" width="30" height="30" rx="3" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="5,3" />
+                    <rect x="45" y="25" width="30" height="30" rx="3" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="5,3" />
+                    <rect x="25" y="50" width="30" height="30" rx="3" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="5,3" />
+                    <rect x="60" y="60" width="15" height="15" rx="2" fill="currentColor" opacity="0.2" />
+                  </svg>
+                </div>
+                <p className="text-base font-medium mb-1">You don't have any shifts this week</p>
+                <p className="text-sm text-muted-foreground">Check back later or ask your manager about upcoming shifts.</p>
+              </CardContent>
+            </Card>
+          )}
+
+          <div className="space-y-3 pt-2">
+            <Button
+              variant="outline"
+              className="w-full h-12 text-sm font-medium border-primary/30 text-primary hover:bg-primary/5"
+              onClick={() => navigate('/availability')}
+            >
+              <i className="fas fa-calendar-check mr-2"></i>
+              Update availability
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full h-12 text-sm font-medium border-primary/30 text-primary hover:bg-primary/5"
+              onClick={() => {
+                toast({ title: "Coming soon", description: "Time-off requests will be available soon." });
+              }}
+            >
+              <i className="fas fa-umbrella-beach mr-2"></i>
+              Submit time-off request
+            </Button>
+          </div>
+
+          <div className="text-center pt-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-xs text-muted-foreground"
+              onClick={() => setSelectedWeek(0)}
+              data-testid="button-current-week"
+            >
+              Back to current week
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background p-4 md:p-6">
       <div className="space-y-4">
-        {/* Controls */}
         <Card>
           <CardContent className="p-4">
             <div className="space-y-3">
@@ -163,7 +328,7 @@ export default function ScheduleManagement() {
                         </SelectTrigger>
                         <SelectContent>
                           {activeEmployees.length === 0 ? (
-                            <SelectItem value="" disabled>
+                            <SelectItem value="none" disabled>
                               No employees available
                             </SelectItem>
                           ) : (
@@ -180,64 +345,28 @@ export default function ScheduleManagement() {
                     <div className="grid grid-cols-2 gap-2">
                       <div>
                         <Label htmlFor="startDate" className="text-xs">Start Date</Label>
-                        <Input
-                          id="startDate"
-                          name="startDate"
-                          type="date"
-                          className="h-8 text-sm"
-                          required
-                          defaultValue={selectedDate.toISOString().split('T')[0]}
-                          data-testid="input-start-date"
-                        />
+                        <Input id="startDate" name="startDate" type="date" className="h-8 text-sm" required defaultValue={selectedDate.toISOString().split('T')[0]} data-testid="input-start-date" />
                       </div>
                       <div>
                         <Label htmlFor="startTime" className="text-xs">Start Time</Label>
-                        <Input
-                          id="startTime"
-                          name="startTime"
-                          type="time"
-                          className="h-8 text-sm"
-                          required
-                          data-testid="input-start-time"
-                        />
+                        <Input id="startTime" name="startTime" type="time" className="h-8 text-sm" required data-testid="input-start-time" />
                       </div>
                     </div>
                     
                     <div className="grid grid-cols-2 gap-2">
                       <div>
                         <Label htmlFor="endDate" className="text-xs">End Date</Label>
-                        <Input
-                          id="endDate"
-                          name="endDate"
-                          type="date"
-                          className="h-8 text-sm"
-                          required
-                          defaultValue={selectedDate.toISOString().split('T')[0]}
-                          data-testid="input-end-date"
-                        />
+                        <Input id="endDate" name="endDate" type="date" className="h-8 text-sm" required defaultValue={selectedDate.toISOString().split('T')[0]} data-testid="input-end-date" />
                       </div>
                       <div>
                         <Label htmlFor="endTime" className="text-xs">End Time</Label>
-                        <Input
-                          id="endTime"
-                          name="endTime"
-                          type="time"
-                          className="h-8 text-sm"
-                          required
-                          data-testid="input-end-time"
-                        />
+                        <Input id="endTime" name="endTime" type="time" className="h-8 text-sm" required data-testid="input-end-time" />
                       </div>
                     </div>
                     
                     <div>
                       <Label htmlFor="title" className="text-xs">Title</Label>
-                      <Input
-                        id="title"
-                        name="title"
-                        className="h-8 text-sm"
-                        placeholder="e.g., Morning Shift"
-                        data-testid="input-shift-title"
-                      />
+                      <Input id="title" name="title" className="h-8 text-sm" placeholder="e.g., Morning Shift" data-testid="input-shift-title" />
                     </div>
                     
                     <div>
@@ -258,20 +387,11 @@ export default function ScheduleManagement() {
                     
                     <div>
                       <Label htmlFor="description" className="text-xs">Description</Label>
-                      <Textarea
-                        id="description"
-                        name="description"
-                        className="text-sm"
-                        placeholder="Additional details..."
-                        rows={2}
-                        data-testid="textarea-description"
-                      />
+                      <Textarea id="description" name="description" className="text-sm" placeholder="Additional details..." rows={2} data-testid="textarea-description" />
                     </div>
                     
                     <div className="flex justify-end space-x-2 pt-2">
-                      <Button type="button" variant="outline" size="sm" onClick={() => setShowCreateShift(false)}>
-                        Cancel
-                      </Button>
+                      <Button type="button" variant="outline" size="sm" onClick={() => setShowCreateShift(false)}>Cancel</Button>
                       <Button type="submit" size="sm" disabled={createScheduleMutation.isPending} data-testid="button-save-shift">
                         {createScheduleMutation.isPending ? "Creating..." : "Create"}
                       </Button>
@@ -280,36 +400,19 @@ export default function ScheduleManagement() {
                 </DialogContent>
               </Dialog>
 
-              {/* Week Navigation */}
               <div className="flex items-center justify-between">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setSelectedWeek(selectedWeek - 1)}
-                  data-testid="button-previous-week"
-                >
+                <Button variant="outline" size="sm" onClick={() => setSelectedWeek(selectedWeek - 1)} data-testid="button-previous-week">
                   <i className="fas fa-chevron-left"></i>
                 </Button>
                 <span className="text-sm font-medium" data-testid="text-week-range">
                   {formatWeekRange(selectedWeek)}
                 </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setSelectedWeek(selectedWeek + 1)}
-                  data-testid="button-next-week"
-                >
+                <Button variant="outline" size="sm" onClick={() => setSelectedWeek(selectedWeek + 1)} data-testid="button-next-week">
                   <i className="fas fa-chevron-right"></i>
                 </Button>
               </div>
               
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full"
-                onClick={() => setSelectedWeek(0)}
-                data-testid="button-current-week"
-              >
+              <Button variant="outline" size="sm" className="w-full" onClick={() => setSelectedWeek(0)} data-testid="button-current-week">
                 Today
               </Button>
             </div>
@@ -320,7 +423,6 @@ export default function ScheduleManagement() {
           <AIStaffingPanel shopDomain={activeShop.shopDomain} />
         )}
 
-        {/* Mobile-Friendly Schedule View */}
         <Card>
           <CardContent className="p-2">
             <div className="space-y-3">
@@ -334,16 +436,10 @@ export default function ScheduleManagement() {
                   <Card key={employee.id} className="p-3">
                     <div className="flex items-center justify-between mb-2">
                       <div>
-                        <div className="font-medium text-sm">
-                          {employee.firstName} {employee.lastName}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          {employee.email}
-                        </div>
+                        <div className="font-medium text-sm">{employee.firstName} {employee.lastName}</div>
+                        <div className="text-xs text-muted-foreground">{employee.email}</div>
                       </div>
-                      <Badge variant="outline" className="text-xs">
-                        {employeeSchedules.length} shifts
-                      </Badge>
+                      <Badge variant="outline" className="text-xs">{employeeSchedules.length} shifts</Badge>
                     </div>
                     
                     <div className="space-y-2">
@@ -354,13 +450,11 @@ export default function ScheduleManagement() {
                         const isToday = date.toDateString() === new Date().toDateString();
                         
                         return (
-                          <div key={date.toISOString()} className={`p-2 rounded border ${
-                            isToday ? 'bg-blue-50 border-blue-200' : 'bg-muted/30'
-                          }`}>
+                          <div key={date.toISOString()} className={`p-2 rounded border ${isToday ? 'bg-blue-50 border-blue-200 dark:bg-blue-950/30 dark:border-blue-800' : 'bg-muted/30'}`}>
                             <div className="flex items-center justify-between">
                               <div className="text-xs font-medium">
                                 {date.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' })}
-                                {isToday && <span className="ml-1 text-blue-600">(Today)</span>}
+                                {isToday && <span className="ml-1 text-blue-600 dark:text-blue-400">(Today)</span>}
                               </div>
                               <Button
                                 variant="ghost"
@@ -379,11 +473,7 @@ export default function ScheduleManagement() {
                             {daySchedules.length > 0 ? (
                               <div className="mt-1 space-y-1">
                                 {daySchedules.map((schedule) => (
-                                  <div
-                                    key={schedule.id}
-                                    className="text-xs p-2 bg-blue-100 rounded border border-blue-200"
-                                    onClick={() => handleShiftClick(schedule)}
-                                  >
+                                  <div key={schedule.id} className="text-xs p-2 bg-blue-100 dark:bg-blue-900/30 rounded border border-blue-200 dark:border-blue-800">
                                     <div className="font-medium">
                                       {formatTime(schedule.startTime)} - {formatTime(schedule.endTime)}
                                     </div>

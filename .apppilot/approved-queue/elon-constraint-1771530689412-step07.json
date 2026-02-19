@@ -1,0 +1,14 @@
+{
+  "filePath": "server/index.ts",
+  "description": "[ELON] Verify CLERK_SECRET_KEY and CLERK_PUBLISHABLE_KEY are loaded from environment and passed to Clerk middleware correctly.",
+  "successCriteria": [
+    "Environment variables logged at startup (redacted)",
+    "Clerk middleware initialized with correct keys",
+    "Server startup fails fast if keys missing"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771530689412",
+  "priority": "high",
+  "step": 7,
+  "blockedCategory": "credentials"
+}

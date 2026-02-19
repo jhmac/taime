@@ -1,0 +1,16 @@
+{
+  "filePath": "server/routes/schedules.ts",
+  "description": "[ELON] Apply RBAC to scheduling routes. View schedule requires authenticated employee. Create/modify/delete shifts require Admin+. Shift template management requires Owner. Availability tracking allows self-submission.",
+  "successCriteria": [
+    "View schedule protected with requireAuth",
+    "Shift management protected with requireRole(['Owner', 'Admin'])",
+    "Shift templates protected with requireRole(['Owner'])",
+    "Employees can only submit their own availability",
+    "401 errors gone from crawl on /api/schedules routes"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771530657564",
+  "priority": "high",
+  "step": 4,
+  "blockedCategory": "auth"
+}

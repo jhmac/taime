@@ -1,0 +1,14 @@
+{
+  "filePath": "server/routes/time-entries.ts",
+  "description": "[ELON] Add error handling and auth validation logging to time-entries routes. Ensure auth middleware is applied correctly.",
+  "successCriteria": [
+    "Endpoint returns 200 for authenticated requests",
+    "Clear 401 response with message when auth missing",
+    "Logs show auth check execution"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771530689412",
+  "priority": "high",
+  "step": 3,
+  "blockedCategory": "auth"
+}

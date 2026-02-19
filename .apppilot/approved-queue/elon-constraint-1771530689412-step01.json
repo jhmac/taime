@@ -1,0 +1,14 @@
+{
+  "filePath": "server/middleware/auth.ts",
+  "description": "[ELON] Audit Clerk auth middleware to ensure it properly validates tokens and attaches user context to requests. Verify CLERK_SECRET_KEY is loaded correctly from environment.",
+  "successCriteria": [
+    "Middleware logs show successful token validation",
+    "req.auth object populated with userId on protected routes",
+    "No token parsing errors in server logs"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771530689412",
+  "priority": "high",
+  "step": 1,
+  "blockedCategory": "auth"
+}

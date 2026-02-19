@@ -1,0 +1,16 @@
+{
+  "filePath": "server/routes/time-entries.ts",
+  "description": "[ELON] Apply requireAuth() middleware to ALL time-entry routes. Clock-in/out endpoints need employee validation (user can only clock in as themselves unless Owner/Admin). Add geofencing check AFTER auth. Payroll report endpoints require Owner or Admin role.",
+  "successCriteria": [
+    "All routes wrapped with requireAuth middleware",
+    "Clock-in validates req.auth.userId matches target employee_id",
+    "Geofencing check happens after auth validation",
+    "Payroll routes protected with requireRole(['Owner', 'Admin'])",
+    "401 errors gone from crawl on /api/time-entries routes"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771530657564",
+  "priority": "high",
+  "step": 2,
+  "blockedCategory": "auth"
+}
