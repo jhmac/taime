@@ -6,6 +6,7 @@ import { ClerkProvider, SignedIn, SignedOut } from "@clerk/clerk-react";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
+import { initGlobalErrorHandlers } from "./lib/errorReporter";
 import Layout from "@/components/Layout";
 import Landing from "@/pages/Landing";
 import Dashboard from "@/pages/Dashboard";
@@ -226,6 +227,8 @@ function Router() {
     </>
   );
 }
+
+initGlobalErrorHandlers();
 
 function App() {
   const [clerkKey, setClerkKey] = useState<string | null>(null);

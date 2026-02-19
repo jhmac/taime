@@ -48,6 +48,12 @@ The backend is a Node.js Express.js server written in TypeScript. It uses Drizzl
 ### AI Services
 - **Anthropic Claude**: AI services for various platform functionalities (claude-sonnet-4-20250514 model)
 
+### Advanced Action Logging (AppPilot Integration)
+- **Server-side action logger**: Middleware in `server/services/actionLogger.ts` captures every API request with user context, action intent mapping, status codes, and failure details. Writes to `.apppilot/action-log.jsonl` and feeds 500/401/403 errors into `.apppilot/error-log.jsonl` for AppPilot/ELON analysis. Includes deep redaction of sensitive fields.
+- **Client-side error reporter**: `client/src/lib/errorReporter.ts` catches unhandled errors, promise rejections, and failed API calls. Batches and sends to `POST /api/client-errors`. Initialized globally via `initGlobalErrorHandlers()` in App.tsx.
+- **ELON integration**: `_loadActionLogInsights()` in elon.js reads action logs to identify top user failure patterns, feeding real-world usage data into constraint analysis.
+- **API endpoints**: `POST /api/client-errors` (unauthenticated, receives frontend errors), `GET /api/action-logs/summary` (authenticated, returns failure analytics).
+
 ### UI & Styling
 - **shadcn/ui**: Component library based on Radix UI
 - **Tailwind CSS**: Utility-first CSS framework

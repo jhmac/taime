@@ -1,4 +1,5 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
+import { reportApiError } from "./errorReporter";
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
@@ -39,7 +40,13 @@ export async function apiRequest(
     signal: options?.signal,
   });
 
-  await throwIfResNotOk(res);
+  if (!res.ok) {
+    const text = (await res.text()) || res.statusText;
+    let parsed: any;
+    try { parsed = JSON.parse(text); } catch { parsed = text; }
+    reportApiError(method, url, res.status, parsed);
+    throw new Error(`${res.status}: ${text}`);
+  }
   return res;
 }
 
@@ -50,7 +57,8 @@ export const getQueryFn: <T>(options: {
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
     const authHeaders = await getAuthHeaders();
-    const res = await fetch(queryKey.join("/") as string, {
+    const url = queryKey.join("/") as string;
+    const res = await fetch(url, {
       credentials: "include",
       headers: { ...authHeaders },
     });
@@ -59,7 +67,13 @@ export const getQueryFn: <T>(options: {
       return null;
     }
 
-    await throwIfResNotOk(res);
+    if (!res.ok) {
+      const text = (await res.text()) || res.statusText;
+      let parsed: any;
+      try { parsed = JSON.parse(text); } catch { parsed = text; }
+      reportApiError('GET', url.split('?')[0], res.status, parsed);
+      throw new Error(`${res.status}: ${text}`);
+    }
     return await res.json();
   };
 

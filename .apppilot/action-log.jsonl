@@ -1,0 +1,3 @@
+{"timestamp":"2026-02-19T21:21:36.295Z","type":"error","method":"GET","path":"/api/schedules","intent":"View schedules","statusCode":401,"duration":8,"success":false,"userAgent":"curl/8.14.1","ip":"127.0.0.1","errorMessage":"Unauthorized"}
+{"timestamp":"2026-02-19T21:21:37.355Z","type":"client-error","method":"CLIENT","path":"/dashboard","intent":"Clock In button","statusCode":0,"duration":0,"success":false,"errorMessage":"Clock in failed: geofence check error","userAgent":""}
+{"timestamp":"2026-02-19T21:21:37.357Z","type":"action","method":"POST","path":"/api/client-errors","intent":"POST /api/client-errors","statusCode":200,"duration":2,"success":true,"userAgent":"curl/8.14.1","ip":"127.0.0.1"}

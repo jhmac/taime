@@ -23,12 +23,25 @@ import { registerInsightRoutes } from "./routes/insights";
 import { registerClockEventRoutes } from "./routes/clockEvents";
 import { registerSopRoutes } from "./routes/sop";
 import { registerAiAssistantRoutes } from "./routes/aiAssistant";
+import { createActionLoggerMiddleware, handleClientErrorReport, getActionSummary } from "./services/actionLogger";
 import { initAppPilot } from 'apppilot';
 
 const wsConnections = new Map<string, WebSocket>();
 
 export async function registerRoutes(app: Express): Promise<Server> {
   await setupAuth(app);
+
+  app.use(createActionLoggerMiddleware());
+
+  app.post('/api/client-errors', (req, res) => handleClientErrorReport(req, res));
+
+  app.get('/api/action-logs/summary', isAuthenticated, (_req, res) => {
+    try {
+      res.json(getActionSummary());
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
 
   function broadcastToAll(data: any) {
     wsConnections.forEach((ws, userId) => {
