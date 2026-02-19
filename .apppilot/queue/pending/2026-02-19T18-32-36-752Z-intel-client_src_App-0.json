@@ -1,0 +1,13 @@
+{
+  "filePath": "client/src/App.tsx",
+  "description": "The ProtectedRoute component's permission check logic has a critical flaw: if `permission` prop is undefined, the check passes automatically for non-admin/owner users. Line 75-79 should require explicit permission grant or admin role, not allow access by default when no permission is specified.",
+  "successCriteria": [
+    "When permission prop is undefined, non-admin/owner users are denied access",
+    "Access is only granted if user has the specific permission OR has admin.manage_all",
+    "The logic clearly handles the undefined permission case with explicit denial"
+  ],
+  "priority": "high",
+  "category": "security",
+  "source": "codebase-intel",
+  "createdAt": "2026-02-19T18:32:36.752Z"
+}

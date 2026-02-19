@@ -871,13 +871,13 @@
       <button class="btn-discover" id="btn-discover" onclick="runDiscovery()">
         Run Discovery
       </button>
-      <button class="btn-continuous" id="btn-continuous" onclick="runContinuous()">
-        Run Continuous
+      <button class="btn-continuous" id="btn-continuous" onclick="runContinuous()" title="Runs ELON continuously until all critical, high, and medium priority issues are resolved">
+        ELON Continuous
       </button>
       <button class="btn-crawl" id="btn-crawl" onclick="runCrawl()">
         Crawl Site
       </button>
-      <button class="btn-elon" id="btn-elon" onclick="runElon()">
+      <button class="btn-elon" id="btn-elon" onclick="runElon()" title="Runs a single ELON cycle (discover top constraints and generate fix specs)">
         Run ELON
       </button>
       <button class="btn-stop-all" id="btn-stop-all" onclick="stopAll()" style="background:#f85149;color:#fff;display:none">
@@ -1437,39 +1437,65 @@
 
     async function runContinuous() {
       const btn = document.getElementById('btn-continuous');
+      const btnElon = document.getElementById('btn-elon');
       const status = document.getElementById('action-status');
       const cooldown = document.getElementById('action-cooldown');
 
       btn.disabled = true;
-      btn.innerHTML = '<span class="btn-spinner"></span> Running...';
+      btnElon.disabled = true;
+      btn.innerHTML = '<span class="btn-spinner"></span> ELON Running...';
       document.getElementById('btn-stop-all').style.display = 'inline-block';
 
       try {
-        await apiFetch('/continuous', { method: 'POST' });
+        const result = await apiFetch('/continuous', { method: 'POST' });
+        if (result.status === 'already-running') {
+          status.style.display = 'inline-flex';
+          status.style.color = 'var(--yellow)';
+          status.textContent = result.message || 'ELON is already running';
+          btn.disabled = false;
+          btnElon.disabled = false;
+          btn.innerHTML = 'ELON Continuous';
+          return;
+        }
+        if (result.status === 'failed') {
+          status.style.display = 'inline-flex';
+          status.style.color = 'var(--red)';
+          status.textContent = result.message || 'Failed to start';
+          btn.disabled = false;
+          btnElon.disabled = false;
+          btn.innerHTML = 'ELON Continuous';
+          return;
+        }
         status.style.display = 'inline-flex';
-        status.textContent = 'Continuous loop started — watch live activity below';
+        status.style.color = 'var(--green)';
+        status.textContent = 'ELON continuous started — will run until critical/high/medium issues are resolved';
         showLiveLog();
+
+        if (elonPollInterval) clearInterval(elonPollInterval);
+        elonPollInterval = setInterval(loadElonReport, 15000);
+        setTimeout(loadElonReport, 10000);
       } catch (e) {
         status.style.display = 'inline-flex';
         status.style.color = 'var(--red)';
         status.textContent = 'Failed: ' + e.message;
       }
 
-      let remaining = 120;
-      cooldown.style.display = 'inline';
-      cooldown.textContent = 'Cooldown: ' + remaining + 's';
-      const timer = setInterval(() => {
-        remaining--;
-        cooldown.textContent = 'Cooldown: ' + remaining + 's';
-        if (remaining <= 0) {
-          clearInterval(timer);
-          btn.disabled = false;
-          btn.innerHTML = 'Run Continuous';
-          cooldown.style.display = 'none';
-          status.style.display = 'none';
-          status.style.color = 'var(--green)';
-        }
-      }, 1000);
+      const checkDone = setInterval(async () => {
+        try {
+          const rs = await apiFetch('/status');
+          if (!rs.continuous && !rs.elon) {
+            clearInterval(checkDone);
+            btn.disabled = false;
+            btnElon.disabled = false;
+            btn.innerHTML = 'ELON Continuous';
+            cooldown.style.display = 'none';
+            status.style.display = 'none';
+            status.style.color = 'var(--green)';
+            if (elonPollInterval) { clearInterval(elonPollInterval); elonPollInterval = null; }
+            loadElonReport();
+          }
+        } catch {}
+      }, 10000);
     }
 
     function showLiveLog() { loadFeed(); }
@@ -1801,10 +1827,12 @@
 
     async function runElon() {
       const btn = document.getElementById('btn-elon');
+      const btnContinuous = document.getElementById('btn-continuous');
       const status = document.getElementById('action-status');
       const cooldown = document.getElementById('action-cooldown');
 
       btn.disabled = true;
+      btnContinuous.disabled = true;
       btn.innerHTML = '<span class="btn-spinner"></span> Running ELON...';
       document.getElementById('btn-stop-all').style.display = 'inline-block';
 
@@ -1819,6 +1847,7 @@
           status.style.color = 'var(--red)';
           status.textContent = result.message || 'ELON failed to start';
           btn.disabled = false;
+          btnContinuous.disabled = false;
           btn.innerHTML = 'Run ELON';
           return;
         } else {
@@ -1846,6 +1875,7 @@
         if (remaining <= 0) {
           clearInterval(timer);
           btn.disabled = false;
+          btnContinuous.disabled = false;
           btn.innerHTML = 'Run ELON';
           cooldown.style.display = 'none';
           status.style.display = 'none';

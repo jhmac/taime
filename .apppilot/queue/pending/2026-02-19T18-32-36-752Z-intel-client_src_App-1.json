@@ -1,0 +1,13 @@
+{
+  "filePath": "client/src/App.tsx",
+  "description": "The /api/clerk-key endpoint fetch has no error handling for network failures during the retry loop (lines 170-198). If all retries fail due to network issues, the user sees a generic error message but the app doesn't attempt to recover. Should distinguish between server errors (5xx) and network errors, and provide actionable guidance.",
+  "successCriteria": [
+    "Network errors (AbortError, fetch failures) are distinguished from server errors",
+    "Error messages specify whether to refresh or wait for server recovery",
+    "Failed network requests don't count against retry limit for server errors"
+  ],
+  "priority": "high",
+  "category": "error-handling",
+  "source": "codebase-intel",
+  "createdAt": "2026-02-19T18:32:36.752Z"
+}

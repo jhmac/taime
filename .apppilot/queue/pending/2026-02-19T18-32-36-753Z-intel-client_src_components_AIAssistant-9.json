@@ -1,0 +1,13 @@
+{
+  "filePath": "client/src/components/AIAssistant.tsx",
+  "description": "The HomeLocationSetter component's geolocation timeout is set to 15 seconds (line 268), but mobile devices with poor GPS signal could take longer. iOS specifically can be slow on first location request. Should increase timeout to 30 seconds and show progress feedback.",
+  "successCriteria": [
+    "Geolocation timeout increased to 30 seconds to accommodate slow GPS",
+    "Loading state shows elapsed time or progress indicator",
+    "Error message distinguishes between timeout and permission denial"
+  ],
+  "priority": "low",
+  "category": "code-quality",
+  "source": "codebase-intel",
+  "createdAt": "2026-02-19T18:32:36.753Z"
+}

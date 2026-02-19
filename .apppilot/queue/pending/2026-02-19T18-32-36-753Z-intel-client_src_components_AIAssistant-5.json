@@ -1,0 +1,13 @@
+{
+  "filePath": "client/src/components/AIAssistant.tsx",
+  "description": "The commuteData query refetches every 60 seconds when the commute view is open (line 46), but there's no mechanism to stop refetching if the data is stale or the user has no upcoming shift. This wastes API calls. Should add smart refetch logic: only refetch if shift is within next 4 hours and user has home location set.",
+  "successCriteria": [
+    "Commute data refetch only happens if user has an upcoming shift within 4 hours",
+    "Refetch stops automatically if commuteData indicates no shift or no home location",
+    "Refetch interval scales based on urgency (more frequent when leave time is near)"
+  ],
+  "priority": "medium",
+  "category": "performance",
+  "source": "codebase-intel",
+  "createdAt": "2026-02-19T18:32:36.753Z"
+}

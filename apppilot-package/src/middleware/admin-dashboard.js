@@ -303,71 +303,135 @@ function createAdminDashboard(options = {}) {
 
   function triggerContinuous(req, res) {
     if (continuousRunning) {
-      return res.json({ status: 'already-running', message: 'Continuous loop is already running' });
+      return res.json({ status: 'already-running', message: 'ELON continuous loop is already running' });
     }
-    const { runHeartbeatCycle } = require('../orchestrator.js');
+    if (elonRunning) {
+      return res.json({ status: 'already-running', message: 'ELON is already running a single cycle — wait for it to finish or stop it first' });
+    }
+
+    const { runElonLoop, getActiveConstraintCounts } = require('../elon.js');
+
+    const apiKey = process.env.APPPILOT_ANTHROPIC_KEY || process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      return res.json({ status: 'failed', message: 'No API key configured. Set APPPILOT_ANTHROPIC_KEY or ANTHROPIC_API_KEY.' });
+    }
 
     continuousRunning = true;
     continuousStopRequested = false;
-    res.json({ status: 'started', message: 'Continuous improvement loop started...' });
+    elonRunning = true;
+    elonStopRequested = false;
 
-    const maxCycles = 5;
-    let totalCycles = 0;
-    let totalChangesApplied = 0;
+    try {
+      const flagPath = path.join(dataDir, 'elon-stop-requested');
+      if (fs.existsSync(flagPath)) fs.unlinkSync(flagPath);
+    } catch {}
 
-    pushActivity('heartbeat', 'Continuous improvement loop starting...');
+    const maxRounds = parseInt(process.env.ELON_CONTINUOUS_MAX_ROUNDS) || 20;
+    const budgetPerRound = parseFloat(process.env.ELON_BUDGET) || 5.0;
+    const totalBudgetCap = parseFloat(process.env.ELON_CONTINUOUS_BUDGET) || 25.0;
+    const constraintsPerRound = parseInt(process.env.ELON_MAX_CONSTRAINTS) || 3;
 
-    async function runLoop() {
-      for (let i = 0; i < maxCycles; i++) {
-        if (continuousStopRequested) {
-          pushActivity('warning', 'Continuous loop stopped by user');
+    elonProgress.running = true;
+    elonProgress.phase = 'starting';
+    elonProgress.steps = [];
+    elonProgress.currentConstraint = null;
+    elonProgress.cycle = 0;
+    elonProgress.maxCycles = maxRounds;
+    elonProgress.budget = { spent: 0, max: totalBudgetCap };
+    elonProgress.startedAt = new Date().toISOString();
+
+    res.json({ status: 'started', message: 'ELON continuous loop started — will keep running until all critical/high/medium issues are resolved' });
+
+    pushActivity('heartbeat', 'ELON continuous loop starting — will run until critical/high/medium constraints are resolved...');
+
+    let totalSpent = 0;
+    let totalSolved = 0;
+    let round = 0;
+
+    async function runContinuousElonLoop() {
+      for (round = 0; round < maxRounds; round++) {
+        if (continuousStopRequested || elonStopRequested) {
+          elonStep('stopped', 'ELON continuous: Stopped by user', null, 'warning');
           break;
         }
-        if (i > 0) {
-          const pause = 5000 + Math.random() * 5000;
-          await new Promise(r => setTimeout(r, pause));
+
+        if (totalSpent >= totalBudgetCap) {
+          elonStep('budget-exhausted', `ELON continuous: Total budget exhausted ($${totalSpent.toFixed(2)}/$${totalBudgetCap.toFixed(2)})`, { budget: totalSpent }, 'warning');
+          break;
         }
-        if (continuousStopRequested) break;
+
+        const counts = getActiveConstraintCounts(dataDir);
+        if (round > 0 && !counts.hasActionable) {
+          elonStep('all-resolved', `ELON continuous: No more critical/high/medium constraints! (${counts.low} low-priority remain)`, { budget: totalSpent }, 'success');
+          break;
+        }
+
+        const roundBudget = Math.min(budgetPerRound, totalBudgetCap - totalSpent);
+        elonStep('round-start', `ELON continuous round ${round + 1}/${maxRounds}: ${counts.total} active constraints (${counts.critical} critical, ${counts.high} high, ${counts.medium} medium)`, { cycle: round + 1, budget: totalSpent }, 'thinking');
+        elonProgress.cycle = round + 1;
+
         try {
-          const result = await runHeartbeatCycle({
-            apiKey: process.env.APPPILOT_ANTHROPIC_KEY || process.env.ANTHROPIC_API_KEY,
+          const result = await runElonLoop({
+            apiKey,
             appUrl: `http://localhost:${process.env.PORT || 5000}`,
-            forceDiscovery: i === 0,
+            maxConstraints: constraintsPerRound,
+            budgetMax: roundBudget,
+            enableCrawl: true,
             projectRoot: projectRoot,
+            memory: memoryStore,
+            onProgress: (phase, message, detail, type) => {
+              elonStep(phase, message, detail, type);
+              if (detail?.budget) {
+                elonProgress.budget.spent = totalSpent + (detail.budget || 0);
+              }
+              if (detail?.constraint) {
+                elonProgress.currentConstraint = detail.constraint;
+              }
+            },
           });
-          totalCycles++;
-          if (result.steps) {
-            totalChangesApplied += result.steps.filter(s => s.status === 'completed').length;
-          }
-          pushActivity('info', 'Continuous cycle ' + (i+1) + '/' + maxCycles + ' completed');
-          if (memoryStore) {
-            memoryStore.logDaily(`Continuous loop cycle ${i + 1}/${maxCycles} completed`);
-          }
+
+          totalSpent += result.totalBudget || 0;
+          totalSolved += result.constraintsSolved || 0;
+          elonProgress.budget.spent = totalSpent;
+
+          elonStep('round-done', `Round ${round + 1} complete: ${result.constraintsSolved} solved, $${(result.totalBudget || 0).toFixed(2)} spent this round`, { budget: totalSpent }, result.constraintsSolved > 0 ? 'success' : 'info');
+
         } catch (err) {
-          pushActivity('error', 'Continuous cycle ' + (i+1) + ' failed: ' + err.message);
-          if (memoryStore) {
-            memoryStore.logDaily(`Continuous loop cycle ${i + 1} failed: ${err.message}`);
-          }
+          elonStep('round-error', `Round ${round + 1} failed: ${err.message}`, { budget: totalSpent }, 'error');
           if (err.message && (err.message.includes('429') || err.message.includes('rate limit'))) {
-            if (memoryStore) memoryStore.logDaily('Rate limited — pausing 60s before next cycle');
+            elonStep('rate-limited', 'Rate limited — pausing 60s before next round', { budget: totalSpent }, 'warning');
             await new Promise(r => setTimeout(r, 60000));
-          } else {
-            break;
           }
+        }
+
+        if (round < maxRounds - 1 && !continuousStopRequested && !elonStopRequested) {
+          elonStep('waiting', 'Waiting 10s before next round...', { budget: totalSpent }, 'info');
+          await new Promise(r => setTimeout(r, 10000));
         }
       }
+
       continuousRunning = false;
-      pushActivity('success', 'Continuous loop completed: ' + totalCycles + ' cycles, ' + totalChangesApplied + ' changes');
+      elonRunning = false;
+      elonProgress.running = false;
+      elonProgress.phase = 'complete';
+
+      const finalCounts = getActiveConstraintCounts(dataDir);
+      elonStep('complete', `ELON continuous complete: ${round} rounds, ${totalSolved} solved, ${finalCounts.total} remaining, $${totalSpent.toFixed(2)} total spent`, { budget: totalSpent }, 'success');
+      pushActivity('success', `ELON continuous complete: ${totalSolved} constraints solved across ${round} rounds, $${totalSpent.toFixed(2)} spent`);
       if (memoryStore) {
-        memoryStore.logDaily(`Continuous loop completed: ${totalCycles} cycles, ${totalChangesApplied} changes`);
+        memoryStore.logDaily(`ELON continuous completed: ${round} rounds, ${totalSolved} solved, $${totalSpent.toFixed(2)} spent`);
       }
     }
 
-    runLoop().catch(err => {
+    runContinuousElonLoop().catch(err => {
       continuousRunning = false;
-      pushActivity('error', 'Continuous loop failed: ' + err.message);
+      elonRunning = false;
+      elonProgress.running = false;
+      elonProgress.phase = 'error';
+      elonStep('error', 'ELON continuous failed: ' + err.message, null, 'error');
+      pushActivity('error', 'ELON continuous loop failed: ' + err.message);
       if (memoryStore) {
-        memoryStore.logDaily(`Continuous loop failed: ${err.message}`);
+        memoryStore.logDaily(`ELON continuous loop failed: ${err.message}`);
       }
     });
   }
@@ -570,7 +634,12 @@ function createAdminDashboard(options = {}) {
 
   function stopContinuous(req, res) {
     continuousStopRequested = true;
-    pushActivity('warning', 'Continuous loop stop requested by user');
+    elonStopRequested = true;
+    try {
+      fs.mkdirSync(dataDir, { recursive: true });
+      fs.writeFileSync(path.join(dataDir, 'elon-stop-requested'), 'stop');
+    } catch {}
+    pushActivity('warning', 'ELON continuous loop stop requested by user');
     res.json({ status: 'stop-requested' });
   }
 
@@ -848,6 +917,15 @@ function createAdminDashboard(options = {}) {
 
     app.get(`${basePath}/api/elon/execution-status`, authMiddleware, (req, res) => {
       res.json({ running: specsExecutionRunning });
+    });
+
+    app.get(`${basePath}/api/elon/constraint-counts`, authMiddleware, (req, res) => {
+      try {
+        const { getActiveConstraintCounts } = require('../elon.js');
+        res.json(getActiveConstraintCounts(dataDir));
+      } catch (err) {
+        res.json({ total: 0, critical: 0, high: 0, medium: 0, low: 0, hasActionable: false, error: err.message });
+      }
     });
 
     app.post(`${basePath}/api/stop/discovery`, authMiddleware, stopDiscovery);

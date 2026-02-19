@@ -1,0 +1,30 @@
+{
+  "type": "error-fix",
+  "error": {
+    "message": "specsFixesApplied is not defined",
+    "stack": "",
+    "file": "/apppilot/api/status",
+    "signature": "specsFixesApplied is not defined"
+  },
+  "suggestion": {
+    "action": "queue",
+    "isKnown": false,
+    "spec": {
+      "problem": "ReferenceError: specsFixesApplied is not defined in /apppilot/api/status endpoint",
+      "rootCause": "Variable specsFixesApplied is referenced but never declared or imported. Likely a typo or missing initialization in the status endpoint that returns AppPilot's current state.",
+      "successCriteria": [
+        "Status endpoint responds with 200 OK",
+        "Response includes all expected fields without throwing ReferenceError",
+        "Type checking passes with npx tsc --noEmit"
+      ],
+      "filePath": "apppilot/api/status.ts",
+      "requiresApproval": false,
+      "reasoning": "This is AppPilot's own code in /apppilot/api/ which is safe to modify. The fix is straightforward - either remove the reference if unused, or initialize the variable properly. Since this is a status endpoint, it likely should track specs applied count.",
+      "oldCode": null,
+      "newCode": null,
+      "analysisNote": "Need to inspect the actual file to see the context. The variable name suggests it should be a counter for applied fix specs. Most likely either: (1) should be reading from memory/state, (2) should be initialized to 0, or (3) is a typo of another variable name like 'fixesApplied'.",
+      "nextStep": "Read apppilot/api/status.ts to see full context and determine correct fix"
+    },
+    "reason": "path-not-in-safe-list"
+  }
+}

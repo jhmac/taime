@@ -759,6 +759,27 @@ function getElonStatus(dataDir) {
   };
 }
 
+function getActiveConstraintCounts(dataDir) {
+  const reportData = _loadElonReport(dataDir);
+  if (!reportData || !reportData.constraintLeaderboard) {
+    return { total: 0, critical: 0, high: 0, medium: 0, low: 0, hasActionable: false };
+  }
+  const active = reportData.constraintLeaderboard.filter(c => c.status === 'active');
+  const critical = active.filter(c => (c.score || 0) >= 9);
+  const high = active.filter(c => (c.score || 0) >= 7 && (c.score || 0) < 9);
+  const medium = active.filter(c => (c.score || 0) >= 4 && (c.score || 0) < 7);
+  const low = active.filter(c => (c.score || 0) < 4);
+  return {
+    total: active.length,
+    critical: critical.length,
+    high: high.length,
+    medium: medium.length,
+    low: low.length,
+    hasActionable: critical.length > 0 || high.length > 0 || medium.length > 0,
+    highest: active.length > 0 ? active[0] : null,
+  };
+}
+
 function listPendingSpecs(dataDir) {
   const pendingDir = path.join(dataDir, 'queue', 'pending');
   if (!fs.existsSync(pendingDir)) return [];
@@ -897,6 +918,7 @@ module.exports = {
   runElonLoop,
   evaluateConstraint,
   getElonStatus,
+  getActiveConstraintCounts,
   getElonSettings,
   updateElonSettings,
   listPendingSpecs,
