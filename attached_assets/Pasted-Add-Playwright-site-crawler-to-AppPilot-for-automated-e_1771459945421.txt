@@ -1,0 +1,94 @@
+Add Playwright site crawler to AppPilot for automated error detection
+Install Playwright and add a new "site-crawler" subagent that crawls the live app, captures errors, and feeds them to AppPilot's error log for automatic fixing.
+1. Install Playwright:
+bashnpm install playwright-core playwright
+npx playwright install chromium
+2. Create node_modules/apppilot/src/subagents/site-crawler.js:
+The crawler should:
+
+Start at the app's homepage
+Follow all internal links (same domain only)
+Visit up to 50 pages max per crawl
+On each page, capture:
+
+Console errors (page.on('console', ...) where type is 'error')
+Uncaught exceptions (page.on('pageerror', ...))
+Failed network requests (page.on('requestfailed', ...))
+HTTP errors from API calls (status >= 400)
+Broken images (naturalWidth === 0)
+Page load time (if over 3 seconds, log as performance issue)
+
+
+Write all errors to .apppilot/crawl-errors.json
+Format errors so AppPilot's error-resolver can process them:
+
+json{
+  "timestamp": "2026-02-18T...",
+  "errors": [
+    {
+      "type": "console-error",
+      "message": "TypeError: Cannot read property 'map' of undefined",
+      "url": "http://localhost:5000/products",
+      "stack": "...",
+      "severity": "high"
+    },
+    {
+      "type": "api-error",
+      "message": "GET /api/products returned 500",
+      "url": "http://localhost:5000/api/products",
+      "statusCode": 500,
+      "severity": "high"
+    },
+    {
+      "type": "slow-page",
+      "message": "Page took 4200ms to load",
+      "url": "http://localhost:5000/feed",
+      "loadTime": 4200,
+      "severity": "medium"
+    }
+  ]
+}
+3. Wire into the heartbeat orchestrator:
+Add a site_crawl step in node_modules/apppilot/src/orchestrator.js that runs after the health check. It should:
+
+Only run if config.enableCrawl is true (default false — opt-in)
+Run the crawler against config.appUrl
+Feed found errors into the existing process_error_log step
+Respect the budget (crawler itself is free, but processing errors through Claude costs money)
+
+4. Add a CLI command in bin/crawl.js:
+javascript#!/usr/bin/env node
+const { crawlSite } = require('../src/subagents/site-crawler.js');
+const appUrl = process.env.APP_URL || 'http://localhost:5000';
+console.log(`Crawling ${appUrl}...`);
+crawlSite({ appUrl, maxPages: 50 })
+  .then(r => {
+    console.log(`Crawled ${r.pagesVisited} pages, found ${r.errors.length} errors`);
+    if (r.errors.length > 0) {
+      console.log(JSON.stringify(r.errors, null, 2));
+    }
+  })
+  .catch(e => console.error('Crawl failed:', e.message));
+Add to package.json bin: "apppilot-crawl": "bin/crawl.js"
+5. Add a "Crawl Site" button to the dashboard next to the existing "Run Discovery" button. When clicked, it triggers a crawl and shows results in the error panel.
+Test:
+bashnpx apppilot-crawl
+```
+
+Should output something like:
+```
+Crawling http://localhost:5000...
+Crawled 12 pages, found 3 errors
+[
+  { "type": "console-error", "message": "...", "url": "...", "severity": "high" },
+  ...
+]
+Success criteria:
+
+Playwright crawls all reachable pages on the site
+Console errors, API failures, and slow pages are captured
+Errors are written to .apppilot/crawl-errors.json
+AppPilot's error-resolver can pick them up and generate fix specs
+Dashboard shows crawl results
+Crawl respects a page limit to avoid infinite loops on large sites
+
