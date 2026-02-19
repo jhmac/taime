@@ -47,14 +47,17 @@ export const requireAuth: RequestHandler = async (req: any, res, next) => {
         const primaryEmailObj = clerkUser.emailAddresses?.find(
           (e: any) => e.id === clerkUser.primaryEmailAddressId
         );
-        await storage.upsertUser({
+        const email = primaryEmailObj?.emailAddress || '';
+        const synced = await storage.upsertUser({
           id: auth.userId,
-          email: primaryEmailObj?.emailAddress || '',
+          email,
           firstName: clerkUser.firstName || '',
           lastName: clerkUser.lastName || '',
           profileImageUrl: clerkUser.imageUrl || '',
         });
-        userWithRole = await storage.getUserWithRole(auth.userId);
+        if (synced) {
+          userWithRole = await storage.getUserWithRole(synced.id);
+        }
       } catch (syncErr) {
         console.warn('[Auth] Auto-sync failed for', auth.userId, syncErr);
       }
@@ -80,7 +83,9 @@ export async function setupAuth(app: Express) {
 
   app.post('/api/auth/sync', requireAuth, async (req: any, res) => {
     try {
-      const clerkUser = await clerkClient.users.getUser(req.user.id);
+      const auth = getAuth(req);
+      const clerkUserId = auth?.userId || req.user.id;
+      const clerkUser = await clerkClient.users.getUser(clerkUserId);
       const primaryEmailObj = clerkUser.emailAddresses?.find(
         (e: any) => e.id === clerkUser.primaryEmailAddressId
       );
@@ -89,15 +94,15 @@ export async function setupAuth(app: Express) {
       const verifiedLastName = clerkUser.lastName || '';
       const verifiedImageUrl = clerkUser.imageUrl || '';
 
-      await storage.upsertUser({
-        id: req.user.id,
+      const synced = await storage.upsertUser({
+        id: clerkUserId,
         email: verifiedEmail,
         firstName: verifiedFirstName,
         lastName: verifiedLastName,
         profileImageUrl: verifiedImageUrl,
       });
 
-      const userWithRole = await storage.getUserWithRole(req.user.id);
+      const userWithRole = await storage.getUserWithRole(synced.id);
       res.json(userWithRole);
     } catch (error) {
       console.error("Error syncing user:", error);
