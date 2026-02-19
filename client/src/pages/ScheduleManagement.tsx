@@ -14,6 +14,7 @@ import { useLocation } from "wouter";
 import { cn } from "@/lib/utils";
 import type { User, Schedule, WorkLocation } from "@shared/schema";
 import AIStaffingPanel from "@/components/AIStaffingPanel";
+import AIScheduleGenerator from "@/components/AIScheduleGenerator";
 
 export default function ScheduleManagement() {
   const { toast } = useToast();
@@ -591,6 +592,8 @@ export default function ScheduleManagement() {
             </div>
           </CardContent>
         </Card>
+
+        <AIScheduleGenerator />
       </div>
     </div>
   );

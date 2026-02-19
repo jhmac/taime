@@ -1021,6 +1021,24 @@ export type InsertEmployeeTrainingProgress = z.infer<typeof insertEmployeeTraini
 export type CommuteAlert = typeof commuteAlerts.$inferSelect;
 export type InsertCommuteAlert = z.infer<typeof insertCommuteAlertSchema>;
 
+// AI Scheduling settings (singleton) - configures smart schedule generation
+export const aiSchedulingSettings = pgTable("ai_scheduling_settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  shiftBlocks: jsonb("shift_blocks").$type<Array<{ name: string; startTime: string; endTime: string }>>().default([]),
+  staffingTiers: jsonb("staffing_tiers").$type<Array<{ minRevenue: number; maxRevenue: number; employeeCount: number }>>().default([]),
+  minimumStaffing: integer("minimum_staffing").default(2),
+  updatedBy: varchar("updated_by").references(() => users.id),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertAiSchedulingSettingsSchema = createInsertSchema(aiSchedulingSettings).omit({
+  id: true,
+  updatedAt: true,
+});
+
+export type AiSchedulingSettings = typeof aiSchedulingSettings.$inferSelect;
+export type InsertAiSchedulingSettings = z.infer<typeof insertAiSchedulingSettingsSchema>;
+
 // Extended user type with role information
 export type UserWithRole = User & {
   role?: Role & {
