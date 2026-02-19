@@ -21,6 +21,31 @@ function createAdminDashboard(options = {}) {
     ownerConfig.authWindowMs || 15 * 60 * 1000
   );
 
+  const liveActivity = [];
+  const MAX_LIVE_ENTRIES = 100;
+
+  function pushActivity(type, message) {
+    const entry = {
+      timestamp: new Date().toISOString(),
+      type,
+      message,
+    };
+    liveActivity.unshift(entry);
+    if (liveActivity.length > MAX_LIVE_ENTRIES) liveActivity.length = MAX_LIVE_ENTRIES;
+  }
+
+  if (memoryStore && memoryStore.logDaily) {
+    const originalLogDaily = memoryStore.logDaily.bind(memoryStore);
+    memoryStore.logDaily = function(msg) {
+      originalLogDaily(msg);
+      const type = msg.toLowerCase().includes('error') || msg.toLowerCase().includes('failed') ? 'error'
+        : msg.toLowerCase().includes('complete') || msg.toLowerCase().includes('resolved') || msg.toLowerCase().includes('solved') ? 'success'
+        : msg.toLowerCase().includes('elon') ? 'heartbeat'
+        : 'info';
+      pushActivity(type, msg);
+    };
+  }
+
   function authMiddleware(req, res, next) {
     const ip = req.ip || req.connection.remoteAddress || 'unknown';
 
@@ -243,16 +268,20 @@ function createAdminDashboard(options = {}) {
 
     res.json({ status: 'started', message: 'Discovery cycle started...' });
 
+    pushActivity('heartbeat', 'Discovery cycle starting...');
+
     runHeartbeatCycle({
-      apiKey: process.env.ANTHROPIC_API_KEY,
+      apiKey: process.env.APPPILOT_ANTHROPIC_KEY || process.env.ANTHROPIC_API_KEY,
       appUrl: `http://localhost:${process.env.PORT || 5000}`,
       forceDiscovery: true,
       projectRoot: projectRoot,
     }).then(result => {
+      pushActivity('success', 'Discovery complete: ' + (result.status || 'completed'));
       if (memoryStore) {
         memoryStore.logDaily(`Manual discovery triggered from dashboard: ${result.status || 'completed'}`);
       }
     }).catch(err => {
+      pushActivity('error', 'Discovery failed: ' + err.message);
       if (memoryStore) {
         memoryStore.logDaily(`Manual discovery failed: ${err.message}`);
       }
@@ -268,6 +297,8 @@ function createAdminDashboard(options = {}) {
     let totalCycles = 0;
     let totalChangesApplied = 0;
 
+    pushActivity('heartbeat', 'Continuous improvement loop starting...');
+
     async function runLoop() {
       for (let i = 0; i < maxCycles; i++) {
         if (i > 0) {
@@ -276,7 +307,7 @@ function createAdminDashboard(options = {}) {
         }
         try {
           const result = await runHeartbeatCycle({
-            apiKey: process.env.ANTHROPIC_API_KEY,
+            apiKey: process.env.APPPILOT_ANTHROPIC_KEY || process.env.ANTHROPIC_API_KEY,
             appUrl: `http://localhost:${process.env.PORT || 5000}`,
             forceDiscovery: i === 0,
             projectRoot: projectRoot,
@@ -285,10 +316,12 @@ function createAdminDashboard(options = {}) {
           if (result.steps) {
             totalChangesApplied += result.steps.filter(s => s.status === 'completed').length;
           }
+          pushActivity('info', 'Continuous cycle ' + (i+1) + '/' + maxCycles + ' completed');
           if (memoryStore) {
             memoryStore.logDaily(`Continuous loop cycle ${i + 1}/${maxCycles} completed`);
           }
         } catch (err) {
+          pushActivity('error', 'Continuous cycle ' + (i+1) + ' failed: ' + err.message);
           if (memoryStore) {
             memoryStore.logDaily(`Continuous loop cycle ${i + 1} failed: ${err.message}`);
           }
@@ -300,6 +333,7 @@ function createAdminDashboard(options = {}) {
           }
         }
       }
+      pushActivity('success', 'Continuous loop completed: ' + totalCycles + ' cycles, ' + totalChangesApplied + ' changes');
       if (memoryStore) {
         memoryStore.logDaily(`Continuous loop completed: ${totalCycles} cycles, ${totalChangesApplied} changes`);
       }
@@ -316,6 +350,8 @@ function createAdminDashboard(options = {}) {
     const { crawlSite } = require('../subagents/site-crawler.js');
 
     res.json({ status: 'started', message: 'Site crawl started...' });
+
+    pushActivity('info', 'Site crawl starting...');
 
     crawlSite({
       appUrl: `http://localhost:${process.env.PORT || 5000}`,
@@ -350,7 +386,9 @@ function createAdminDashboard(options = {}) {
           memoryStore.saveKnownErrors(knownErrors);
         }
       }
+      pushActivity('success', 'Crawl complete: ' + result.pagesVisited + ' pages, ' + result.errors.length + ' errors');
     }).catch(err => {
+      pushActivity('error', 'Crawl failed: ' + err.message);
       if (memoryStore) {
         memoryStore.logDaily(`Site crawl failed: ${err.message}`);
       }
@@ -371,8 +409,10 @@ function createAdminDashboard(options = {}) {
     elonStopRequested = false;
     res.json({ status: 'started', message: 'ELON strategic loop started...' });
 
+    pushActivity('heartbeat', 'ELON strategic loop starting...');
+
     runElonLoop({
-      apiKey: process.env.ANTHROPIC_API_KEY,
+      apiKey: process.env.APPPILOT_ANTHROPIC_KEY || process.env.ANTHROPIC_API_KEY,
       appUrl: `http://localhost:${process.env.PORT || 5000}`,
       maxConstraints: parseInt(process.env.ELON_MAX_CONSTRAINTS) || 3,
       budgetMax: parseFloat(process.env.ELON_BUDGET) || 5.0,
@@ -381,11 +421,13 @@ function createAdminDashboard(options = {}) {
       memory: memoryStore,
     }).then(result => {
       elonRunning = false;
+      pushActivity('success', 'ELON complete: ' + result.constraintsSolved + ' constraints solved, $' + (result.totalBudget || 0).toFixed(2) + ' spent');
       if (memoryStore) {
         memoryStore.logDaily(`ELON loop completed: ${result.constraintsSolved} constraints solved, $${(result.totalBudget || 0).toFixed(2)} spent`);
       }
     }).catch(err => {
       elonRunning = false;
+      pushActivity('error', 'ELON failed: ' + err.message);
       if (memoryStore) {
         memoryStore.logDaily(`ELON loop failed: ${err.message}`);
       }
@@ -442,6 +484,11 @@ function createAdminDashboard(options = {}) {
     }
   }
 
+  function getLiveActivity(req, res) {
+    const limit = Math.min(parseInt(req.query.limit) || 30, 100);
+    res.json({ activity: liveActivity.slice(0, limit) });
+  }
+
   function mount(app) {
     app.get(`${basePath}/dashboard`, authMiddleware, serveDashboardHtml);
 
@@ -458,6 +505,8 @@ function createAdminDashboard(options = {}) {
     app.post(`${basePath}/api/continuous`, authMiddleware, triggerContinuous);
     app.post(`${basePath}/api/crawl`, authMiddleware, triggerCrawl);
     app.get(`${basePath}/api/crawl/results`, authMiddleware, getCrawlResults);
+
+    app.get(`${basePath}/api/live-activity`, authMiddleware, getLiveActivity);
 
     app.post(`${basePath}/api/elon/start`, authMiddleware, triggerElon);
     app.get(`${basePath}/api/elon/status`, authMiddleware, getElonStatus);
@@ -478,6 +527,7 @@ function createAdminDashboard(options = {}) {
     getSecurity,
     acknowledgeSecurity,
     serveDashboardHtml,
+    getLiveActivity,
     _owner: owner,
     _rateLimiter: rateLimiter,
   };

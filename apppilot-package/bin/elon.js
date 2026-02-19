@@ -44,9 +44,9 @@ function getArg(flag, envVar, defaultVal) {
 
 const { runElonLoop } = require('../src/elon.js');
 
-const apiKey = process.env.ANTHROPIC_API_KEY;
+const apiKey = process.env.APPPILOT_ANTHROPIC_KEY || process.env.ANTHROPIC_API_KEY;
 if (!apiKey) {
-  console.error('Error: ANTHROPIC_API_KEY environment variable is required');
+  console.error('Error: APPPILOT_ANTHROPIC_KEY or ANTHROPIC_API_KEY environment variable is required');
   process.exit(1);
 }
 

@@ -29,7 +29,7 @@ class Orchestrator {
     this.projectRoot = config.projectRoot || process.cwd();
     this.dataDir = config.dataDir || path.join(this.projectRoot, '.apppilot');
     this.identityDir = config.identityDir || this.projectRoot;
-    this.apiKey = config.apiKey || process.env.ANTHROPIC_API_KEY;
+    this.apiKey = config.apiKey || process.env.APPPILOT_ANTHROPIC_KEY || process.env.ANTHROPIC_API_KEY;
     this.appUrl = config.appUrl || process.env.APP_URL || 'http://localhost:3000';
     this.dryRun = config.dryRun || false;
     this.forceDiscovery = config.forceDiscovery || false;

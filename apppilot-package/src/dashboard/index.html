@@ -565,10 +565,10 @@
       </div>
     </div>
 
-    <div class="live-log" id="live-log">
+    <div class="live-log active" id="live-log">
       <div class="live-log-header">
         <span><span class="live-dot"></span>Live Activity</span>
-        <span style="font-weight:400;color:var(--text-muted);font-size:0.7rem">auto-refresh 10s</span>
+        <span style="font-weight:400;color:var(--text-muted);font-size:0.7rem">auto-refresh 5s</span>
       </div>
       <div class="live-log-body" id="live-log-body">
         <div class="live-log-entry">Waiting for activity...</div>
@@ -659,7 +659,7 @@
 
   <div class="footer">
     Edit identity files (SOUL.md, AGENTS.md, etc.) in the Replit editor &mdash; <a href="#">View in Replit Editor</a>
-    <br>AppPilot v0.1.0
+    <br>AppPilot v0.3.1
   </div>
 
   <script>
@@ -994,21 +994,21 @@
 
       if (liveLogInterval) clearInterval(liveLogInterval);
       loadLiveLog();
-      liveLogInterval = setInterval(loadLiveLog, 10000);
+      liveLogInterval = setInterval(loadLiveLog, 5000);
     }
 
     async function loadLiveLog() {
       try {
-        const data = await apiFetch('/feed?limit=20');
+        const data = await apiFetch('/live-activity?limit=30');
         const body = document.getElementById('live-log-body');
-        const feed = data.feed || [];
+        const activity = data.activity || [];
 
-        if (feed.length === 0) {
+        if (activity.length === 0) {
           body.innerHTML = '<div class="live-log-entry">Waiting for activity...</div>';
           return;
         }
 
-        body.innerHTML = feed.map(item => {
+        body.innerHTML = activity.map(item => {
           const type = item.type || 'info';
           let cls = '';
           if (type === 'error' || type === 'critical') cls = ' log-error';
@@ -1219,8 +1219,10 @@
 
     loadElonReport();
     refreshAll();
+    loadLiveLog();
     setInterval(refreshAll, 30000);
     setInterval(loadElonReport, 60000);
+    setInterval(loadLiveLog, 5000);
   </script>
 </body>
 </html>
