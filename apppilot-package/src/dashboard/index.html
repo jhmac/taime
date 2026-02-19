@@ -442,10 +442,20 @@
       flex-shrink: 0;
       font-family: 'SF Mono', 'Menlo', monospace;
       font-size: 0.72rem;
-      color: var(--yellow);
       padding: 1px 6px;
       border-radius: 3px;
+    }
+    .feed-cost.deduction {
+      color: var(--yellow);
       background: rgba(210,153,11,0.1);
+    }
+    .feed-cost.budget {
+      color: var(--green);
+      background: rgba(46,160,67,0.12);
+    }
+    .feed-cost.budget-exhausted {
+      color: var(--red);
+      background: rgba(248,81,73,0.12);
     }
 
     .footer {
@@ -1107,10 +1117,23 @@
       } catch {}
     }
 
+    let elonBudget = null;
+    let elonSpent = 0;
+
     function extractCost(message) {
       if (!message) return null;
       const match = message.match(/\$(\d+\.?\d*)/);
-      return match ? match[0] : null;
+      if (!match) return null;
+      const amount = parseFloat(match[1]);
+      const isBudget = /budget/i.test(message) || /ELON starting/i.test(message);
+      if (isBudget) {
+        elonBudget = amount;
+        elonSpent = 0;
+        return { text: match[0], type: 'budget' };
+      }
+      elonSpent += amount;
+      const exhausted = elonBudget !== null && elonSpent >= elonBudget;
+      return { text: match[0], type: exhausted ? 'budget-exhausted' : 'deduction' };
     }
 
     async function loadFeed() {
@@ -1151,15 +1174,33 @@
           return;
         }
 
+        elonBudget = null;
+        elonSpent = 0;
+        const chronological = [...display].reverse();
+        const costMap = [];
+        let budgetIdx = -1;
+        chronological.forEach((item, ci) => {
+          const c = extractCost(item.message);
+          costMap.push(c);
+          if (c && c.type === 'budget') budgetIdx = ci;
+        });
+        if (budgetIdx >= 0 && elonBudget !== null && elonSpent >= elonBudget) {
+          costMap[budgetIdx] = { text: costMap[budgetIdx].text, type: 'budget-exhausted' };
+        }
+        costMap.reverse();
+
         list.innerHTML = display.map((item, i) => {
           const type = item.type || 'info';
           const icon = ICONS[type] || 'i';
           const time = item.timestamp ? new Date(item.timestamp).toLocaleTimeString() : '';
-          const cost = extractCost(item.message);
+          const cost = costMap[i];
+          const badge = cost
+            ? '<span class="feed-cost ' + cost.type + '">' + esc(cost.text) + '</span>'
+            : '';
           return '<li class="feed-item" data-idx="' + i + '" onclick="this.classList.toggle(\'expanded\')">' +
             '<span class="feed-icon ' + type + '">' + icon + '</span>' +
             '<span class="feed-msg">' + esc(item.message) + '</span>' +
-            (cost ? '<span class="feed-cost">' + esc(cost) + '</span>' : '') +
+            badge +
             '<span class="feed-time">' + esc(time) + '</span>' +
             '</li>';
         }).join('');
