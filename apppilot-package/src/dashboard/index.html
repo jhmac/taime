@@ -480,6 +480,7 @@
     .live-log-entry.log-error { color: var(--red); }
     .live-log-entry.log-success { color: var(--green); }
     .live-log-entry.log-heartbeat { color: var(--accent); }
+    .log-warning { border-left-color: var(--yellow); }
 
     .footer {
       text-align: center;
@@ -509,6 +510,10 @@
       animation: spin 0.8s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
+    .btn-stop-all { background: var(--red); color: #fff; }
+    .btn-stop-all:hover { background: #da3633; }
+    .btn-stop { background: transparent; color: var(--red); border: 1px solid var(--red); padding: 4px 8px; font-size: 0.7rem; margin-left: 4px; }
+    .btn-stop:hover { background: rgba(248,81,73,0.15); }
   </style>
 </head>
 <body>
@@ -536,6 +541,9 @@
       </button>
       <button class="btn-elon" id="btn-elon" onclick="runElon()">
         Run ELON
+      </button>
+      <button class="btn-stop-all" id="btn-stop-all" onclick="stopAll()" style="background:#f85149;color:#fff;display:none">
+        ■ Stop All
       </button>
       <span class="action-status" id="action-status"></span>
       <span class="action-cooldown" id="action-cooldown"></span>
@@ -923,6 +931,7 @@
 
       btn.disabled = true;
       btn.innerHTML = '<span class="btn-spinner"></span> Running...';
+      document.getElementById('btn-stop-all').style.display = 'inline-block';
 
       try {
         await apiFetch('/discover', { method: 'POST' });
@@ -959,6 +968,7 @@
 
       btn.disabled = true;
       btn.innerHTML = '<span class="btn-spinner"></span> Running...';
+      document.getElementById('btn-stop-all').style.display = 'inline-block';
 
       try {
         await apiFetch('/continuous', { method: 'POST' });
@@ -999,21 +1009,49 @@
 
     async function loadLiveLog() {
       try {
-        const data = await apiFetch('/live-activity?limit=30');
+        const [liveData, feedData] = await Promise.all([
+          apiFetch('/live-activity?limit=30').catch(() => ({ activity: [] })),
+          apiFetch('/feed?limit=30').catch(() => ({ feed: [] })),
+        ]);
         const body = document.getElementById('live-log-body');
-        const activity = data.activity || [];
 
-        if (activity.length === 0) {
+        const liveItems = (liveData.activity || []).map(item => ({
+          timestamp: item.timestamp,
+          message: item.message,
+          type: item.type || 'info',
+          source: 'live',
+        }));
+
+        const feedItems = (feedData.feed || []).map(item => ({
+          timestamp: item.timestamp,
+          message: item.message,
+          type: item.type || 'info',
+          source: 'feed',
+        }));
+
+        const seen = new Set();
+        const merged = [...liveItems, ...feedItems].filter(item => {
+          const key = (item.message || '').substring(0, 80) + '|' + (item.timestamp || '').substring(0, 19);
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+
+        merged.sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
+        const display = merged.slice(0, 40);
+
+        if (display.length === 0) {
           body.innerHTML = '<div class="live-log-entry">Waiting for activity...</div>';
           return;
         }
 
-        body.innerHTML = activity.map(item => {
+        body.innerHTML = display.map(item => {
           const type = item.type || 'info';
           let cls = '';
           if (type === 'error' || type === 'critical') cls = ' log-error';
           else if (type === 'success') cls = ' log-success';
           else if (type === 'heartbeat') cls = ' log-heartbeat';
+          else if (type === 'warning') cls = ' log-warning';
 
           const time = item.timestamp ? new Date(item.timestamp).toLocaleTimeString() : '';
           return '<div class="live-log-entry' + cls + '">' +
@@ -1035,6 +1073,7 @@
 
       btn.disabled = true;
       btn.innerHTML = '<span class="btn-spinner"></span> Crawling...';
+      document.getElementById('btn-stop-all').style.display = 'inline-block';
 
       try {
         await apiFetch('/crawl', { method: 'POST' });
@@ -1110,6 +1149,7 @@
 
       btn.disabled = true;
       btn.innerHTML = '<span class="btn-spinner"></span> Running ELON...';
+      document.getElementById('btn-stop-all').style.display = 'inline-block';
 
       try {
         const result = await apiFetch('/elon/start', { method: 'POST' });
@@ -1152,6 +1192,36 @@
           }
         }
       }, 1000);
+    }
+
+    async function stopAll() {
+      try {
+        await apiFetch('/stop/all', { method: 'POST' });
+        const status = document.getElementById('action-status');
+        status.style.display = 'inline-flex';
+        status.style.color = 'var(--yellow)';
+        status.textContent = 'Stop requested for all operations...';
+        loadLiveLog();
+      } catch (e) {
+        alert('Failed to stop: ' + e.message);
+      }
+    }
+
+    async function stopDiscovery() {
+      try { await apiFetch('/stop/discovery', { method: 'POST' }); loadLiveLog(); } catch {}
+    }
+
+    async function stopContinuous() {
+      try { await apiFetch('/stop/continuous', { method: 'POST' }); loadLiveLog(); } catch {}
+    }
+
+    async function updateRunningStatus() {
+      try {
+        const data = await apiFetch('/running');
+        const stopBtn = document.getElementById('btn-stop-all');
+        const anyRunning = data.discovery || data.continuous || data.crawl || data.elon;
+        stopBtn.style.display = anyRunning ? 'inline-block' : 'none';
+      } catch {}
     }
 
     async function loadElonReport() {
@@ -1223,6 +1293,8 @@
     setInterval(refreshAll, 30000);
     setInterval(loadElonReport, 60000);
     setInterval(loadLiveLog, 5000);
+    updateRunningStatus();
+    setInterval(updateRunningStatus, 5000);
   </script>
 </body>
 </html>

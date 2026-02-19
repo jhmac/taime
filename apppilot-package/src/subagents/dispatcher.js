@@ -166,6 +166,20 @@ function isOverloadedError(err) {
   return msg.includes('529') || msg.toLowerCase().includes('overloaded');
 }
 
+function isAuthError(err) {
+  if (err && (err.status === 401 || err.status === 403)) return true;
+  const msg = (err && err.message) || '';
+  return msg.includes('invalid x-api-key') || msg.includes('invalid api key');
+}
+
+function isBillingError(err) {
+  if (err && err.status === 400) {
+    const msg = (err && err.message) || '';
+    return msg.toLowerCase().includes('credit balance') || msg.toLowerCase().includes('billing');
+  }
+  return false;
+}
+
 async function callClaudeAPI(apiKey, systemPrompt, userPrompt, model) {
   const Anthropic = require('@anthropic-ai/sdk');
   const client = new Anthropic({ apiKey, baseURL: process.env.ANTHROPIC_BASE_URL || undefined });
@@ -183,6 +197,10 @@ async function callClaudeAPI(apiKey, systemPrompt, userPrompt, model) {
       });
       return response.content[0].text;
     } catch (err) {
+      if (isAuthError(err) || isBillingError(err)) {
+        throw err;
+      }
+
       const retryable = isRateLimitError(err) || isOverloadedError(err);
 
       if (!retryable || attempt === maxRetries) {
@@ -247,9 +265,11 @@ async function delegateToSubagent(agentName, task, options = {}) {
   try {
     response = await callClaudeAPI(apiKey, systemPrompt, sanitizedTask, model);
   } catch (apiError) {
+    const isAuth = isAuthError(apiError);
+    const isBilling = isBillingError(apiError);
     const isRateLimit = isRateLimitError(apiError);
     const isOverload = isOverloadedError(apiError);
-    const errorType = isRateLimit ? 'rate-limited' : isOverload ? 'overloaded' : 'api-unreachable';
+    const errorType = isAuth ? 'invalid-api-key' : isBilling ? 'no-credits' : isRateLimit ? 'rate-limited' : isOverload ? 'overloaded' : 'api-unreachable';
     if (memory) {
       memory.logDaily(`Claude API ${errorType} for ${agentName}: ${apiError.message || apiError.status}`);
     }

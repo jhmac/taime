@@ -268,8 +268,13 @@ function createAdminDashboard(options = {}) {
   }
 
   function triggerDiscovery(req, res) {
+    if (discoveryRunning) {
+      return res.json({ status: 'already-running', message: 'Discovery is already running' });
+    }
     const { runHeartbeatCycle } = require('../orchestrator.js');
 
+    discoveryRunning = true;
+    discoveryStopRequested = false;
     res.json({ status: 'started', message: 'Discovery cycle started...' });
 
     pushActivity('heartbeat', 'Discovery cycle starting...');
@@ -280,11 +285,13 @@ function createAdminDashboard(options = {}) {
       forceDiscovery: true,
       projectRoot: projectRoot,
     }).then(result => {
+      discoveryRunning = false;
       pushActivity('success', 'Discovery complete: ' + (result.status || 'completed'));
       if (memoryStore) {
         memoryStore.logDaily(`Manual discovery triggered from dashboard: ${result.status || 'completed'}`);
       }
     }).catch(err => {
+      discoveryRunning = false;
       pushActivity('error', 'Discovery failed: ' + err.message);
       if (memoryStore) {
         memoryStore.logDaily(`Manual discovery failed: ${err.message}`);
@@ -293,8 +300,13 @@ function createAdminDashboard(options = {}) {
   }
 
   function triggerContinuous(req, res) {
+    if (continuousRunning) {
+      return res.json({ status: 'already-running', message: 'Continuous loop is already running' });
+    }
     const { runHeartbeatCycle } = require('../orchestrator.js');
 
+    continuousRunning = true;
+    continuousStopRequested = false;
     res.json({ status: 'started', message: 'Continuous improvement loop started...' });
 
     const maxCycles = 5;
@@ -305,10 +317,15 @@ function createAdminDashboard(options = {}) {
 
     async function runLoop() {
       for (let i = 0; i < maxCycles; i++) {
+        if (continuousStopRequested) {
+          pushActivity('warning', 'Continuous loop stopped by user');
+          break;
+        }
         if (i > 0) {
           const pause = 5000 + Math.random() * 5000;
           await new Promise(r => setTimeout(r, pause));
         }
+        if (continuousStopRequested) break;
         try {
           const result = await runHeartbeatCycle({
             apiKey: process.env.APPPILOT_ANTHROPIC_KEY || process.env.ANTHROPIC_API_KEY,
@@ -337,6 +354,7 @@ function createAdminDashboard(options = {}) {
           }
         }
       }
+      continuousRunning = false;
       pushActivity('success', 'Continuous loop completed: ' + totalCycles + ' cycles, ' + totalChangesApplied + ' changes');
       if (memoryStore) {
         memoryStore.logDaily(`Continuous loop completed: ${totalCycles} cycles, ${totalChangesApplied} changes`);
@@ -344,6 +362,8 @@ function createAdminDashboard(options = {}) {
     }
 
     runLoop().catch(err => {
+      continuousRunning = false;
+      pushActivity('error', 'Continuous loop failed: ' + err.message);
       if (memoryStore) {
         memoryStore.logDaily(`Continuous loop failed: ${err.message}`);
       }
@@ -351,8 +371,12 @@ function createAdminDashboard(options = {}) {
   }
 
   function triggerCrawl(req, res) {
+    if (crawlRunning) {
+      return res.json({ status: 'already-running', message: 'Crawl is already running' });
+    }
     const { crawlSite } = require('../subagents/site-crawler.js');
 
+    crawlRunning = true;
     res.json({ status: 'started', message: 'Site crawl started...' });
 
     pushActivity('info', 'Site crawl starting...');
@@ -390,8 +414,10 @@ function createAdminDashboard(options = {}) {
           memoryStore.saveKnownErrors(knownErrors);
         }
       }
+      crawlRunning = false;
       pushActivity('success', 'Crawl complete: ' + result.pagesVisited + ' pages, ' + result.errors.length + ' errors');
     }).catch(err => {
+      crawlRunning = false;
       pushActivity('error', 'Crawl failed: ' + err.message);
       if (memoryStore) {
         memoryStore.logDaily(`Site crawl failed: ${err.message}`);
@@ -399,6 +425,11 @@ function createAdminDashboard(options = {}) {
     });
   }
 
+  let discoveryRunning = false;
+  let discoveryStopRequested = false;
+  let continuousRunning = false;
+  let continuousStopRequested = false;
+  let crawlRunning = false;
   let elonRunning = false;
   let elonStopRequested = false;
 
@@ -457,7 +488,41 @@ function createAdminDashboard(options = {}) {
     } catch (err) {
       console.warn('[ELON] Failed to write stop flag:', err.message);
     }
+    pushActivity('warning', 'ELON stop requested by user');
     res.json({ status: 'stop-requested' });
+  }
+
+  function stopDiscovery(req, res) {
+    discoveryStopRequested = true;
+    pushActivity('warning', 'Discovery stop requested by user');
+    res.json({ status: 'stop-requested' });
+  }
+
+  function stopContinuous(req, res) {
+    continuousStopRequested = true;
+    pushActivity('warning', 'Continuous loop stop requested by user');
+    res.json({ status: 'stop-requested' });
+  }
+
+  function stopAll(req, res) {
+    discoveryStopRequested = true;
+    continuousStopRequested = true;
+    elonStopRequested = true;
+    try {
+      fs.mkdirSync(dataDir, { recursive: true });
+      fs.writeFileSync(path.join(dataDir, 'elon-stop-requested'), 'stop');
+    } catch {}
+    pushActivity('warning', 'All operations stop requested by user');
+    res.json({ status: 'stop-all-requested', discovery: discoveryRunning, continuous: continuousRunning, crawl: crawlRunning, elon: elonRunning });
+  }
+
+  function getRunningStatus(req, res) {
+    res.json({
+      discovery: discoveryRunning,
+      continuous: continuousRunning,
+      crawl: crawlRunning,
+      elon: elonRunning,
+    });
   }
 
   function getElonReport(req, res) {
@@ -516,6 +581,11 @@ function createAdminDashboard(options = {}) {
     app.get(`${basePath}/api/elon/status`, authMiddleware, getElonStatus);
     app.post(`${basePath}/api/elon/stop`, authMiddleware, stopElon);
     app.get(`${basePath}/api/elon/report`, authMiddleware, getElonReport);
+
+    app.post(`${basePath}/api/stop/discovery`, authMiddleware, stopDiscovery);
+    app.post(`${basePath}/api/stop/continuous`, authMiddleware, stopContinuous);
+    app.post(`${basePath}/api/stop/all`, authMiddleware, stopAll);
+    app.get(`${basePath}/api/running`, authMiddleware, getRunningStatus);
   }
 
   return {
