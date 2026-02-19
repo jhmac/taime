@@ -433,6 +433,34 @@ function createAdminDashboard(options = {}) {
   let elonRunning = false;
   let elonStopRequested = false;
 
+  const elonProgress = {
+    running: false,
+    phase: 'idle',
+    steps: [],
+    currentConstraint: null,
+    cycle: 0,
+    maxCycles: 0,
+    budget: { spent: 0, max: 0 },
+    startedAt: null,
+  };
+
+  function elonStep(phase, message, detail, type) {
+    elonProgress.phase = phase;
+    const step = {
+      id: 'step-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+      phase,
+      message,
+      detail: detail || null,
+      type: type || 'info',
+      timestamp: new Date().toISOString(),
+      duration: null,
+    };
+    elonProgress.steps.push(step);
+    if (elonProgress.steps.length > 200) elonProgress.steps = elonProgress.steps.slice(-150);
+    pushActivity(type === 'thinking' ? 'heartbeat' : type === 'error' ? 'error' : type === 'success' ? 'success' : 'info', message);
+    return step;
+  }
+
   function triggerElon(req, res) {
     if (elonRunning) {
       return res.json({ status: 'already-running', message: 'ELON is already running' });
@@ -445,29 +473,64 @@ function createAdminDashboard(options = {}) {
 
     const { runElonLoop } = require('../elon.js');
 
+    try {
+      const flagPath = path.join(dataDir, 'elon-stop-requested');
+      if (fs.existsSync(flagPath)) fs.unlinkSync(flagPath);
+    } catch {}
+
     elonRunning = true;
     elonStopRequested = false;
-    res.json({ status: 'started', message: 'ELON strategic loop started...' });
 
-    pushActivity('heartbeat', 'ELON strategic loop starting...');
+    const maxConstraints = parseInt(process.env.ELON_MAX_CONSTRAINTS) || 3;
+    const budgetMax = parseFloat(process.env.ELON_BUDGET) || 5.0;
+
+    elonProgress.running = true;
+    elonProgress.phase = 'starting';
+    elonProgress.steps = [];
+    elonProgress.currentConstraint = null;
+    elonProgress.cycle = 0;
+    elonProgress.maxCycles = maxConstraints;
+    elonProgress.budget = { spent: 0, max: budgetMax };
+    elonProgress.startedAt = new Date().toISOString();
+
+    elonStep('starting', 'ELON strategic loop starting...', null, 'thinking');
+
+    res.json({ status: 'started', message: 'ELON strategic loop started...' });
 
     runElonLoop({
       apiKey,
       appUrl: `http://localhost:${process.env.PORT || 5000}`,
-      maxConstraints: parseInt(process.env.ELON_MAX_CONSTRAINTS) || 3,
-      budgetMax: parseFloat(process.env.ELON_BUDGET) || 5.0,
+      maxConstraints,
+      budgetMax,
       enableCrawl: true,
       projectRoot: projectRoot,
       memory: memoryStore,
+      onProgress: (phase, message, detail, type) => {
+        elonStep(phase, message, detail, type);
+        if (phase === 'cycle-start') {
+          elonProgress.cycle = parseInt(detail?.cycle) || elonProgress.cycle + 1;
+        }
+        if (detail?.budget) {
+          elonProgress.budget.spent = detail.budget;
+        }
+        if (detail?.constraint) {
+          elonProgress.currentConstraint = detail.constraint;
+        }
+      },
     }).then(result => {
       elonRunning = false;
-      pushActivity('success', 'ELON complete: ' + result.constraintsSolved + ' constraints solved, $' + (result.totalBudget || 0).toFixed(2) + ' spent');
+      elonProgress.running = false;
+      elonProgress.phase = 'complete';
+      elonProgress.budget.spent = result.totalBudget || 0;
+      elonStep('complete', `ELON complete: ${result.constraintsSolved} constraints solved, $${(result.totalBudget || 0).toFixed(2)} spent`, null, 'success');
       if (memoryStore) {
         memoryStore.logDaily(`ELON loop completed: ${result.constraintsSolved} constraints solved, $${(result.totalBudget || 0).toFixed(2)} spent`);
       }
     }).catch(err => {
       elonRunning = false;
-      pushActivity('error', 'ELON failed: ' + err.message);
+      elonProgress.running = false;
+      elonProgress.phase = 'error';
+      elonStep('error', 'ELON failed: ' + err.message, null, 'error');
       if (memoryStore) {
         memoryStore.logDaily(`ELON loop failed: ${err.message}`);
       }
@@ -586,6 +649,19 @@ function createAdminDashboard(options = {}) {
     app.get(`${basePath}/api/elon/status`, authMiddleware, getElonStatus);
     app.post(`${basePath}/api/elon/stop`, authMiddleware, stopElon);
     app.get(`${basePath}/api/elon/report`, authMiddleware, getElonReport);
+    app.get(`${basePath}/api/elon/progress`, authMiddleware, (req, res) => {
+      const limit = parseInt(req.query.limit) || 50;
+      res.json({
+        running: elonProgress.running,
+        phase: elonProgress.phase,
+        cycle: elonProgress.cycle,
+        maxCycles: elonProgress.maxCycles,
+        budget: elonProgress.budget,
+        currentConstraint: elonProgress.currentConstraint,
+        startedAt: elonProgress.startedAt,
+        steps: elonProgress.steps.slice(-limit),
+      });
+    });
 
     app.post(`${basePath}/api/stop/discovery`, authMiddleware, stopDiscovery);
     app.post(`${basePath}/api/stop/continuous`, authMiddleware, stopContinuous);

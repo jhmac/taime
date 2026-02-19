@@ -160,6 +160,7 @@ async function runElonCycle(config) {
     budgetMax = 5.0,
     enableCrawl = true,
     memory = null,
+    onProgress = null,
   } = config;
 
   const context = loadContext(projectRoot);
@@ -167,13 +168,21 @@ async function runElonCycle(config) {
   const previousReport = _loadElonReport(dataDir);
   const budget = { spent: 0, max: budgetMax };
   const log = _createLogger(memory);
+  const progress = (phase, message, detail, type) => {
+    log(message);
+    if (onProgress) onProgress(phase, message, detail, type || 'info');
+  };
 
   let crawlResults = null;
   if (enableCrawl) {
-    log('ELON: Crawling site with Playwright...');
+    progress('crawling', 'Crawling site with Playwright...', null, 'thinking');
     crawlResults = await _performCrawl(appUrl, dataDir, 30, log);
+    const issueCount = crawlResults?.allIssues?.length || 0;
+    const pageCount = crawlResults?.pagesVisited || 0;
+    progress('crawl-done', `Crawl complete: ${pageCount} pages visited, ${issueCount} issues found`, { pages: pageCount, issues: issueCount }, issueCount > 0 ? 'warning' : 'success');
   }
 
+  progress('reading-code', 'Reading source code and project context...', null, 'thinking');
   const sourceCode = _readSourceFiles(projectRoot);
 
   const task = {
@@ -195,10 +204,10 @@ async function runElonCycle(config) {
 
   let analysis;
   try {
-    log('ELON: Asking Claude to identify limiting factor...');
+    progress('thinking', 'Asking Claude to identify the #1 limiting factor...', null, 'thinking');
     analysis = await delegateToSubagent('elon', task, _buildSubagentOptions({ context, budget, apiKey, projectRoot, memory }));
   } catch (err) {
-    log(`ELON: Analysis failed: ${err.message}`);
+    progress('error', `Analysis failed: ${err.message}`, null, 'error');
     return { status: 'failed', reason: 'ELON analysis failed: ' + err.message };
   }
 
@@ -206,14 +215,16 @@ async function runElonCycle(config) {
     const reason = analysis.reason === 'invalid-api-key' ? 'Invalid API key — check APPPILOT_ANTHROPIC_KEY or ANTHROPIC_API_KEY'
       : analysis.reason === 'no-credits' ? 'No API credits — add funds to your Anthropic account'
       : analysis.reason || 'API unavailable';
-    log(`ELON: Stopped — ${reason}`);
+    progress('error', `Stopped — ${reason}`, null, 'error');
     return { status: 'failed', reason };
   }
 
   if (!analysis || !analysis.limitingFactor) {
-    log('ELON: Could not identify a limiting factor');
+    progress('error', 'Could not identify a limiting factor', null, 'error');
     return { status: 'failed', reason: 'ELON could not identify a limiting factor', rawAnalysis: analysis };
   }
+
+  progress('analysis-done', `Found limiting factor: ${analysis.limitingFactor.description}`, { why: analysis.limitingFactor.why, category: analysis.limitingFactor.category }, 'success');
 
   const constraint = {
     id: 'constraint-' + Date.now(),
@@ -231,7 +242,7 @@ async function runElonCycle(config) {
     completionCriteria: analysis.completionCriteria || '',
   };
 
-  log(`ELON: Constraint identified (score ${constraint.score}/10): ${constraint.description}`);
+  progress('planning', `Creating improvement specs for: ${constraint.description}`, { constraint: { description: constraint.description, score: constraint.score } }, 'thinking');
 
   const specsCreated = _createSpecs(constraint, dataDir, maxSpecs);
 
@@ -244,7 +255,7 @@ async function runElonCycle(config) {
 
   const autoApproved = specsCreated.filter(s => !s.needsApproval).length;
   const pendingApproval = specsCreated.filter(s => s.needsApproval).length;
-  log(`ELON: Created ${specsCreated.length} specs (${autoApproved} auto-approved, ${pendingApproval} pending approval)`);
+  progress('specs-created', `Created ${specsCreated.length} improvement specs (${autoApproved} auto-approved, ${pendingApproval} need approval)`, { total: specsCreated.length, autoApproved, pendingApproval }, 'success');
 
   return {
     status: 'planned',
@@ -420,71 +431,86 @@ async function runElonLoop(config) {
     budgetMax = 10.0,
     enableCrawl = true,
     memory = null,
+    onProgress = null,
   } = config;
 
   const log = _createLogger(memory);
+  const progress = (phase, message, detail, type) => {
+    log(message);
+    if (onProgress) onProgress(phase, message, detail, type || 'info');
+  };
+
   let totalBudget = 0;
   let constraintsSolved = 0;
   let constraintsAttempted = 0;
 
+  progress('init', `ELON starting: ${maxConstraints} max cycles, $${budgetMax.toFixed(2)} budget`, { maxCycles: maxConstraints, budget: totalBudget }, 'thinking');
+
   for (let cycle = 0; cycle < maxConstraints; cycle++) {
     if (_isStopRequested(dataDir)) {
-      log('ELON: Stop requested — halting loop');
+      progress('stopped', 'ELON: Stop requested — halting loop', null, 'warning');
       break;
     }
     if (totalBudget >= budgetMax) {
-      log(`ELON: Budget exhausted ($${totalBudget.toFixed(2)}/$${budgetMax.toFixed(2)})`);
+      progress('budget-exhausted', `ELON: Budget exhausted ($${totalBudget.toFixed(2)}/$${budgetMax.toFixed(2)})`, { budget: totalBudget }, 'warning');
       break;
     }
+
+    progress('cycle-start', `Cycle ${cycle + 1}/${maxConstraints}: Starting analysis...`, { cycle: cycle + 1, budget: totalBudget }, 'thinking');
 
     const remainingBudget = budgetMax - totalBudget;
 
     const cycleResult = await runElonCycle({
       apiKey, appUrl, projectRoot, dataDir,
       budgetMax: Math.min(remainingBudget * 0.4, 3.0),
-      enableCrawl, memory,
+      enableCrawl, memory, onProgress,
     });
 
     totalBudget += cycleResult.budgetUsed || 0;
 
     if (cycleResult.status !== 'planned') {
-      log(`ELON: Cycle ${cycle + 1} failed: ${cycleResult.reason || cycleResult.status}`);
+      progress('cycle-failed', `Cycle ${cycle + 1} failed: ${cycleResult.reason || cycleResult.status}`, { budget: totalBudget }, 'error');
       break;
     }
 
     constraintsAttempted++;
-    log(`ELON: Cycle ${cycle + 1} — constraint: ${cycleResult.constraint.description} (score: ${cycleResult.constraint.score})`);
+    progress('constraint-found', `Constraint identified (score ${cycleResult.constraint.score}/10): ${cycleResult.constraint.description}`, { budget: totalBudget, constraint: { description: cycleResult.constraint.description, score: cycleResult.constraint.score, id: cycleResult.constraint.id } }, 'success');
 
     if (cycleResult.specsAutoApproved > 0 && totalBudget < budgetMax) {
-      if (_isStopRequested(dataDir)) { log('ELON: Stop requested — halting before spec execution'); break; }
+      if (_isStopRequested(dataDir)) { progress('stopped', 'ELON: Stop requested — halting before spec execution', null, 'warning'); break; }
+
+      progress('executing-specs', `Executing ${cycleResult.specsAutoApproved} auto-approved specs...`, { budget: totalBudget }, 'thinking');
 
       const specBudgetUsed = await _executeApprovedSpecs({
         dataDir, constraintId: cycleResult.constraint.id, projectRoot,
         budgetMax: Math.min(remainingBudget * 0.4, 3.0), apiKey, memory, log,
       });
       totalBudget += specBudgetUsed;
+      progress('specs-done', `Specs executed. Budget: $${totalBudget.toFixed(2)}`, { budget: totalBudget }, 'info');
     }
 
-    if (_isStopRequested(dataDir)) { log('ELON: Stop requested — halting before evaluation'); break; }
+    if (_isStopRequested(dataDir)) { progress('stopped', 'ELON: Stop requested — halting before evaluation', null, 'warning'); break; }
 
     if (totalBudget < budgetMax) {
+      progress('evaluating', 'Evaluating whether constraint is resolved...', { budget: totalBudget }, 'thinking');
       const evalResult = await evaluateConstraint({ apiKey, appUrl, projectRoot, dataDir, enableCrawl, memory });
       totalBudget += evalResult.budgetUsed || 0;
 
       if (evalResult.resolved) {
         constraintsSolved++;
-        log('ELON: Constraint resolved! Moving to next...');
+        progress('constraint-resolved', 'Constraint resolved! Moving to next...', { budget: totalBudget }, 'success');
       } else {
-        log(`ELON: Constraint not yet resolved. Status: ${evalResult.status}`);
+        progress('constraint-unresolved', `Constraint not yet resolved. Status: ${evalResult.status}`, { budget: totalBudget }, 'warning');
       }
     }
 
     if (cycle < maxConstraints - 1 && totalBudget < budgetMax) {
+      progress('waiting', 'Waiting before next cycle...', { budget: totalBudget }, 'info');
       await new Promise(r => setTimeout(r, 3000));
     }
   }
 
-  log(`ELON: Loop complete. Attempted: ${constraintsAttempted}, Solved: ${constraintsSolved}, Budget: $${totalBudget.toFixed(2)}`);
+  progress('complete', `ELON complete. Attempted: ${constraintsAttempted}, Solved: ${constraintsSolved}, Budget: $${totalBudget.toFixed(2)}`, { budget: totalBudget }, 'success');
   return { status: 'completed', constraintsAttempted, constraintsSolved, totalBudget };
 }
 
