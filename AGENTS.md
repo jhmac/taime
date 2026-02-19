@@ -158,10 +158,19 @@ LIBBY serves independent retail boutique owners — typically 1-5 store location
 - SOP compliance data is used for performance reviews — accuracy matters
 - Customer data in Style DNA is privacy-sensitive — never expose to unauthorized roles
 
+## Model Preferences
+- elon: opus
+- codebase-intel: opus
+- spec-executor: sonnet
+- error-resolver: sonnet
+- perf-optimizer: sonnet
+- self-improver: opus
+- scout: sonnet
+
 ## Cost Limits
 
 - Max per heartbeat: $2.00
-- Model routing: Haiku for analysis/classification, Sonnet for code generation and complex reasoning, Opus only if explicitly configured
+- Model routing: Haiku for analysis/classification, Sonnet for code generation and complex reasoning, Opus for strategic/deep-reasoning agents as configured in Model Preferences
 - Prefer cheapest model that can do the job
 - Be especially cost-conscious with AI pipeline fixes — test prompt changes with small samples before full deployment
 - Shopify API calls are rate-limited — batch operations where possible
