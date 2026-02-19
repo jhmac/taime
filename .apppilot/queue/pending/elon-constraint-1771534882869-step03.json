@@ -1,0 +1,13 @@
+{
+  "filePath": "server/routes/schedules.ts",
+  "description": "[ELON] Verify schedule routes work with fixed auth middleware",
+  "successCriteria": [
+    "GET /api/schedules returns schedule data",
+    "Schedule management features accessible"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771534882869",
+  "priority": "high",
+  "step": 3,
+  "blockedCategory": "auth"
+}

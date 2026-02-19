@@ -1,0 +1,14 @@
+{
+  "filePath": "server/middleware/auth.ts",
+  "description": "[ELON] Fix Clerk auth middleware to properly validate tokens and handle CORS preflight requests",
+  "successCriteria": [
+    "No more 401 errors on authenticated endpoints",
+    "CORS preflight requests return proper headers",
+    "Auth middleware logs show successful token validation"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771534784517",
+  "priority": "high",
+  "step": 1,
+  "blockedCategory": "auth"
+}

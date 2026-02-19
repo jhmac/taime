@@ -1,165 +1,80 @@
 {
   "current": {
-    "id": "constraint-1771531453160",
-    "description": "Shopify webhook handlers lack proper error handling, retry logic, and validation. Webhooks can fail silently, leaving sales data out of sync with no visibility or recovery mechanism.",
-    "why": "This is the #1 constraint because all AI features (Morning Whisper, AI Staffing Optimizer, Midday Pulse) depend on accurate sales data. If webhooks fail silently, the entire AI intelligence layer gives bad recommendations, violating the core promise of LIBBY.",
+    "id": "constraint-1771534882869",
+    "description": "Authentication system is completely broken — all API routes return 401 Unauthorized, making the entire app unusable",
+    "why": "Without auth, no user can access ANY feature. Clock-in, scheduling, payroll — everything requires authentication. This is a total system failure.",
     "unblocks": [
-      "AI Staffing Optimizer can trust sales data for staffing recommendations",
-      "Morning Whisper briefings include accurate yesterday's sales context",
-      "Midday Pulse compares actual vs goal using real-time data",
-      "Owner gains confidence that LIBBY is seeing what Shopify sees",
-      "Reduces manual reconciliation work for the boutique owner",
-      "Enables Phase 2 features (Style DNA, Win-Back Triggers) which depend on purchase history"
+      "Clock-in/out functionality",
+      "Schedule management",
+      "Payroll report access",
+      "Task assignment",
+      "All core business operations"
     ],
     "score": 10,
-    "category": "integration",
+    "category": "security",
     "evidenceFromCrawl": [
-      "No crawl evidence yet — this is infrastructure-level",
-      "However: GOALS.md explicitly prioritizes 'Shopify sync stability' and 'Shopify Deep Sync completion' as IN DEV and critical",
-      "Quality target: 'Shopify sync lag: under 60 seconds from Shopify event to LIBBY data update'",
-      "Risk: Silent failures mean AI features give bad advice without anyone knowing"
+      "Multiple 401 errors on /api/employees",
+      "401 on /api/schedules",
+      "401 on /api/time-entries",
+      "Console errors: 'Failed to load resource: the server responded with a status of 401'",
+      "Auth middleware appears to be rejecting all requests"
     ],
-    "goal": "Shopify Deep Sync — ensure real-time sales data streaming is bulletproof with retry logic, dead letter queues, and reconciliation checks",
-    "identifiedAt": "2026-02-19T20:04:13.160Z",
+    "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports MUST work flawlessly",
+    "identifiedAt": "2026-02-19T21:01:22.869Z",
     "status": "active",
     "steps": [
       {
         "step": 1,
-        "filePath": "server/integrations/shopify/webhooks.ts",
-        "description": "Add comprehensive error handling and structured logging to all webhook handlers. Wrap each handler in try/catch, log webhook ID, topic, shop domain, and timestamp. Return 200 OK even on errors (to prevent Shopify from disabling webhook) but log failures with severity levels.",
+        "filePath": "server/middleware/auth.ts",
+        "description": "Fix Clerk auth middleware that's blocking all requests. The middleware is likely misconfigured or not properly initialized with Clerk SDK.",
         "successCriteria": [
-          "All webhook handlers have try/catch blocks",
-          "Every webhook invocation logs: webhookId, topic, shopDomain, timestamp, processingDuration",
-          "Errors logged with context (webhook payload, error stack, severity)",
-          "Handlers return 200 status even on error (with error logged internally)"
+          "API requests return 200 instead of 401",
+          "Authenticated users can access protected routes"
         ],
         "priority": "high",
-        "estimatedComplexity": "low"
+        "estimatedComplexity": "medium"
       },
       {
         "step": 2,
-        "filePath": "server/integrations/shopify/webhooks.ts",
-        "description": "Add webhook payload validation using Zod schemas. Define schemas for orders/create, orders/updated, products/create, products/updated. Validate incoming payloads before processing. Log validation failures with full payload for debugging.",
+        "filePath": "server/routes/employees.ts",
+        "description": "Verify employee routes work with fixed auth middleware",
         "successCriteria": [
-          "Zod schemas defined for each webhook topic",
-          "Payloads validated before processing",
-          "Validation errors logged with full context",
-          "Invalid webhooks return 200 but don't mutate database"
+          "GET /api/employees returns employee data",
+          "No 401 errors"
         ],
         "priority": "high",
-        "estimatedComplexity": "medium"
+        "estimatedComplexity": "low"
       },
       {
         "step": 3,
-        "filePath": "server/integrations/shopify/webhook-queue.ts",
-        "description": "Create webhook processing queue using in-memory queue (or Redis if available). Move webhook processing to async queue with retry logic (3 attempts with exponential backoff: 1s, 5s, 30s). Store failed webhooks in dead letter queue table for manual reconciliation.",
+        "filePath": "server/routes/schedules.ts",
+        "description": "Verify schedule routes work with fixed auth middleware",
         "successCriteria": [
-          "Webhook handler adds job to queue immediately, returns 200",
-          "Queue processes webhooks async with retry logic",
-          "Failed webhooks (after 3 retries) written to dead_letter_queue table",
-          "Queue processing duration tracked and logged"
+          "GET /api/schedules returns schedule data",
+          "Schedule management features accessible"
         ],
         "priority": "high",
-        "estimatedComplexity": "high"
+        "estimatedComplexity": "low"
       },
       {
         "step": 4,
-        "filePath": "shared/schema/webhook-log.ts",
-        "description": "Create webhook_log table schema: id, webhookId (from Shopify), topic, shopDomain, receivedAt, processedAt, status (pending/success/failed), retryCount, errorMessage, payload (JSONB). Create dead_letter_queue table: id, webhookId, topic, failedAt, payload, lastError.",
+        "filePath": "server/routes/time-entries.ts",
+        "description": "Verify time entry routes (clock-in/out) work with fixed auth middleware",
         "successCriteria": [
-          "webhook_log table schema defined in Drizzle",
-          "dead_letter_queue table schema defined",
-          "Both tables have indexes on webhookId and receivedAt",
-          "Payload stored as JSONB for queryability"
+          "Clock-in/out endpoints respond without 401",
+          "Time tracking functional"
         ],
         "priority": "high",
         "estimatedComplexity": "low"
-      },
-      {
-        "step": 5,
-        "filePath": "server/integrations/shopify/webhooks.ts",
-        "description": "Add idempotency checks using webhookId. Before processing, check if webhookId already exists in webhook_log with status=success. If yes, skip processing and return 200 (webhook already handled). Prevents duplicate processing if Shopify retries.",
-        "successCriteria": [
-          "Every webhook checks webhook_log for existing webhookId before processing",
-          "Duplicate webhooks skipped with log entry",
-          "No duplicate database mutations from retried webhooks"
-        ],
-        "priority": "high",
-        "estimatedComplexity": "low"
-      },
-      {
-        "step": 6,
-        "filePath": "server/integrations/shopify/reconciliation.ts",
-        "description": "Create daily reconciliation job that compares LIBBY sales totals vs Shopify GraphQL totals for previous day. Log discrepancies. Run via cron at 2 AM daily. Query Shopify GraphQL for orders created yesterday, compare to LIBBY orders table, flag missing or mismatched orders.",
-        "successCriteria": [
-          "Cron job defined to run daily at 2 AM",
-          "Job queries Shopify GraphQL for yesterday's orders",
-          "Compares against LIBBY orders table",
-          "Discrepancies logged with severity=warning",
-          "Job duration and result logged"
-        ],
-        "priority": "medium",
-        "estimatedComplexity": "medium"
-      },
-      {
-        "step": 7,
-        "filePath": "server/routes/admin/shopify-sync-status.ts",
-        "description": "Create admin API endpoint /api/admin/shopify-sync-status that returns: last successful webhook timestamp, webhook failure rate (last 24h), dead letter queue count, reconciliation status (last run, discrepancies found). Requires Admin role.",
-        "successCriteria": [
-          "Endpoint returns structured sync health data",
-          "Requires Admin or Owner role",
-          "Response includes webhook stats and reconciliation status",
-          "Endpoint responds in <200ms"
-        ],
-        "priority": "medium",
-        "estimatedComplexity": "low"
-      },
-      {
-        "step": 8,
-        "filePath": "client/src/pages/admin/ShopifySyncDashboard.tsx",
-        "description": "Create admin dashboard page showing: webhook health (success rate, failures, last received), dead letter queue items (table with retry button), reconciliation status (last run, discrepancies). Only visible to Owner/Admin roles.",
-        "successCriteria": [
-          "Dashboard displays webhook health metrics",
-          "Dead letter queue items shown in table",
-          "Retry button triggers manual webhook reprocessing",
-          "Page requires Owner or Admin role",
-          "Data refreshes every 30s via polling"
-        ],
-        "priority": "medium",
-        "estimatedComplexity": "medium"
-      },
-      {
-        "step": 9,
-        "filePath": "server/integrations/shopify/webhooks.ts",
-        "description": "Add webhook signature verification using Shopify HMAC. Verify X-Shopify-Hmac-SHA256 header against computed HMAC of raw request body. Reject webhooks with invalid signatures (log as security event). Prevents spoofed webhooks.",
-        "successCriteria": [
-          "All webhooks verify HMAC signature before processing",
-          "Invalid signatures rejected with 401 status",
-          "Invalid signatures logged as security events",
-          "Valid signatures processed normally"
-        ],
-        "priority": "high",
-        "estimatedComplexity": "low"
-      },
-      {
-        "step": 10,
-        "filePath": "server/integrations/shopify/webhook-alerts.ts",
-        "description": "Add alerting logic: if webhook failure rate exceeds 10% in last hour, send notification to Owner. If dead letter queue exceeds 50 items, send alert. If reconciliation finds >5 discrepancies, send alert. Respects quiet hours.",
-        "successCriteria": [
-          "Failure rate monitoring checks every 15 minutes",
-          "Owner notified if thresholds exceeded",
-          "Alerts respect notification quiet hours",
-          "Alert cooldown: max 1 alert per issue per 4 hours"
-        ],
-        "priority": "low",
-        "estimatedComplexity": "medium"
       }
     ],
     "verificationPages": [
-      "/admin/shopify-sync-dashboard",
-      "/api/admin/shopify-sync-status"
+      "/",
+      "/schedule",
+      "/timeclock",
+      "/employees"
     ],
-    "completionCriteria": "Shopify webhook system meets these conditions: (1) All webhooks logged to webhook_log table with status tracking, (2) Failed webhooks retry 3x with exponential backoff, (3) Dead letter queue captures unrecoverable failures, (4) Daily reconciliation job detects discrepancies, (5) Admin dashboard shows sync health in real-time, (6) Webhook signature verification prevents spoofed events, (7) Owner alerted if sync degrades, (8) Quality target met: sync lag under 60 seconds measured from webhook receivedAt to processedAt timestamps"
+    "completionCriteria": "All API endpoints return proper data instead of 401 errors, users can log in and access core features"
   },
   "solved": [],
   "history": [
@@ -2038,6 +1953,273 @@
         "/api/admin/shopify-sync-status"
       ],
       "completionCriteria": "Shopify webhook system meets these conditions: (1) All webhooks logged to webhook_log table with status tracking, (2) Failed webhooks retry 3x with exponential backoff, (3) Dead letter queue captures unrecoverable failures, (4) Daily reconciliation job detects discrepancies, (5) Admin dashboard shows sync health in real-time, (6) Webhook signature verification prevents spoofed events, (7) Owner alerted if sync degrades, (8) Quality target met: sync lag under 60 seconds measured from webhook receivedAt to processedAt timestamps"
+    },
+    {
+      "id": "constraint-1771534598741",
+      "description": "Critical database connection failures and missing error handling are causing 500 errors across multiple core endpoints, making the app completely unusable",
+      "why": "The app is experiencing TypeErrors when trying to access database methods (.findMany, .findFirst) on undefined objects, indicating the database connection is not properly initialized or has failed. This blocks ALL database operations including clock-in/out, scheduling, and payroll.",
+      "unblocks": [
+        "Clock-in/out functionality for employees",
+        "Schedule viewing and management",
+        "Payroll report generation",
+        "Task assignment and tracking",
+        "All core business operations"
+      ],
+      "score": 10,
+      "category": "infrastructure",
+      "evidenceFromCrawl": [
+        "500 error on /api/time/clock - Cannot read properties of undefined (reading 'findMany')",
+        "500 error on /api/schedule/current - Cannot read properties of undefined (reading 'findMany')",
+        "500 error on /api/payroll/current-period - Cannot read properties of undefined (reading 'findFirst')",
+        "500 error on /api/dashboard/stats - Cannot read properties of undefined (reading 'findMany')",
+        "500 error on /api/admin/payroll/periods - Cannot read properties of undefined (reading 'findMany')"
+      ],
+      "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
+      "identifiedAt": "2026-02-19T20:56:38.741Z",
+      "status": "active",
+      "steps": [
+        {
+          "step": 1,
+          "filePath": "server/db/index.ts",
+          "description": "Add proper database connection initialization with retry logic and connection pooling to ensure db object is always defined",
+          "successCriteria": [
+            "Database connection established on server start",
+            "Connection pool properly configured",
+            "Retry logic for transient connection failures"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 2,
+          "filePath": "server/routes/time.ts",
+          "description": "Add null checks and proper error handling for database connection failures in time tracking endpoints",
+          "successCriteria": [
+            "All db access wrapped in try-catch",
+            "Null checks before accessing db methods",
+            "Proper 503 responses when db unavailable"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 3,
+          "filePath": "server/routes/schedule.ts",
+          "description": "Add database connection validation and error handling to schedule endpoints",
+          "successCriteria": [
+            "Database connection checked before use",
+            "Graceful error responses on connection failure",
+            "No more 500 errors on /api/schedule endpoints"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 4,
+          "filePath": "server/routes/payroll.ts",
+          "description": "Implement database connection guards and proper error handling for payroll calculations",
+          "successCriteria": [
+            "Payroll endpoints handle missing db gracefully",
+            "Clear error messages for connection issues",
+            "Financial data integrity maintained"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 5,
+          "filePath": "server/routes/dashboard.ts",
+          "description": "Add connection validation and fallback behavior for dashboard stats when database is unavailable",
+          "successCriteria": [
+            "Dashboard loads even with db issues",
+            "Shows cached or default data when possible",
+            "Clear indication when data is stale"
+          ],
+          "priority": "medium",
+          "estimatedComplexity": "low"
+        }
+      ],
+      "verificationPages": [
+        "/",
+        "/time",
+        "/schedule",
+        "/payroll",
+        "/admin/payroll"
+      ],
+      "completionCriteria": "All core endpoints return proper responses instead of 500 errors, database connection is stable with automatic recovery, and employees can successfully clock in/out"
+    },
+    {
+      "id": "constraint-1771534784517",
+      "description": "Critical authentication and API errors preventing core features from functioning. Multiple 401 Unauthorized errors, CORS issues, and database connection failures are blocking clock-in/out, schedule viewing, and task management.",
+      "why": "Users cannot access ANY core functionality when authentication fails. The 401 errors on /api/auth/me, /api/time-entries, /api/schedules, and /api/tasks mean employees can't clock in, managers can't view schedules, and the entire app is unusable.",
+      "unblocks": [
+        "Clock-in/out functionality for all employees",
+        "Schedule viewing and management",
+        "Task assignment and tracking",
+        "Payroll report generation",
+        "All authenticated API endpoints"
+      ],
+      "score": 10,
+      "category": "security",
+      "evidenceFromCrawl": [
+        "401 Unauthorized on /api/auth/me",
+        "401 Unauthorized on /api/time-entries",
+        "401 Unauthorized on /api/schedules/current",
+        "401 Unauthorized on /api/tasks",
+        "CORS policy errors blocking API calls",
+        "Database connection timeout errors",
+        "WebSocket connection failures"
+      ],
+      "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
+      "identifiedAt": "2026-02-19T20:59:44.517Z",
+      "status": "active",
+      "steps": [
+        {
+          "step": 1,
+          "filePath": "server/middleware/auth.ts",
+          "description": "Fix Clerk auth middleware to properly validate tokens and handle CORS preflight requests",
+          "successCriteria": [
+            "No more 401 errors on authenticated endpoints",
+            "CORS preflight requests return proper headers",
+            "Auth middleware logs show successful token validation"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 2,
+          "filePath": "server/routes/auth.ts",
+          "description": "Fix /api/auth/me endpoint to return proper user data and handle missing sessions",
+          "successCriteria": [
+            "/api/auth/me returns 200 with user data",
+            "Handles missing sessions with 401 (not 500)",
+            "Returns consistent user object shape"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 3,
+          "filePath": "client/src/lib/auth.ts",
+          "description": "Fix client-side auth token handling to properly attach Clerk tokens to API requests",
+          "successCriteria": [
+            "All API requests include Authorization header",
+            "Token refresh happens automatically",
+            "Failed auth redirects to login"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 4,
+          "filePath": "server/db/index.ts",
+          "description": "Fix database connection pool to handle timeouts and reconnection",
+          "successCriteria": [
+            "No more 'Connection terminated unexpectedly' errors",
+            "Database queries retry on connection failure",
+            "Connection pool logs show healthy connections"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 5,
+          "filePath": "server.ts",
+          "description": "Fix CORS configuration to allow Clerk auth headers and handle OPTIONS requests",
+          "successCriteria": [
+            "OPTIONS requests return 200",
+            "Access-Control-Allow-Headers includes Authorization",
+            "No more CORS policy errors in console"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        }
+      ],
+      "verificationPages": [
+        "/login",
+        "/dashboard",
+        "/clock",
+        "/schedule",
+        "/tasks"
+      ],
+      "completionCriteria": "Users can successfully log in, view their dashboard, clock in/out, view schedules, and access tasks without any authentication or CORS errors"
+    },
+    {
+      "id": "constraint-1771534882869",
+      "description": "Authentication system is completely broken — all API routes return 401 Unauthorized, making the entire app unusable",
+      "why": "Without auth, no user can access ANY feature. Clock-in, scheduling, payroll — everything requires authentication. This is a total system failure.",
+      "unblocks": [
+        "Clock-in/out functionality",
+        "Schedule management",
+        "Payroll report access",
+        "Task assignment",
+        "All core business operations"
+      ],
+      "score": 10,
+      "category": "security",
+      "evidenceFromCrawl": [
+        "Multiple 401 errors on /api/employees",
+        "401 on /api/schedules",
+        "401 on /api/time-entries",
+        "Console errors: 'Failed to load resource: the server responded with a status of 401'",
+        "Auth middleware appears to be rejecting all requests"
+      ],
+      "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports MUST work flawlessly",
+      "identifiedAt": "2026-02-19T21:01:22.869Z",
+      "status": "active",
+      "steps": [
+        {
+          "step": 1,
+          "filePath": "server/middleware/auth.ts",
+          "description": "Fix Clerk auth middleware that's blocking all requests. The middleware is likely misconfigured or not properly initialized with Clerk SDK.",
+          "successCriteria": [
+            "API requests return 200 instead of 401",
+            "Authenticated users can access protected routes"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 2,
+          "filePath": "server/routes/employees.ts",
+          "description": "Verify employee routes work with fixed auth middleware",
+          "successCriteria": [
+            "GET /api/employees returns employee data",
+            "No 401 errors"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 3,
+          "filePath": "server/routes/schedules.ts",
+          "description": "Verify schedule routes work with fixed auth middleware",
+          "successCriteria": [
+            "GET /api/schedules returns schedule data",
+            "Schedule management features accessible"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 4,
+          "filePath": "server/routes/time-entries.ts",
+          "description": "Verify time entry routes (clock-in/out) work with fixed auth middleware",
+          "successCriteria": [
+            "Clock-in/out endpoints respond without 401",
+            "Time tracking functional"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        }
+      ],
+      "verificationPages": [
+        "/",
+        "/schedule",
+        "/timeclock",
+        "/employees"
+      ],
+      "completionCriteria": "All API endpoints return proper data instead of 401 errors, users can log in and access core features"
     }
   ],
   "failedAttempts": [
@@ -2045,6 +2227,11 @@
       "constraint": "Geofencing validation is completely broken — employees can clock in from anywhere, violating legal time-tracking compliance requirements",
       "reason": "Geofencing validation constraint is NOT resolved. The constraint requires that POST /api/time-entries/clock-in returns 403 when user is >100m from store, but the codebase provided shows NO geofence validation implementation in the time entries route handler. The crawl verification only checks that pages load (which they do), but does NOT verify the actual geofence enforcement behavior. The re-crawl results show WebSocket connection failures and page load issues, but these are separate from the geofencing constraint. Critical: zero of the 6 planned steps have been completed.",
       "timestamp": "2026-02-19T16:03:41.522Z"
+    },
+    {
+      "constraint": "Critical database connection failures and missing error handling are causing 500 errors across multiple core endpoints, making the app completely unusable",
+      "reason": "api-unreachable",
+      "timestamp": "2026-02-19T20:59:13.755Z"
     }
   ]
 }
