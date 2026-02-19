@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { useLocation } from "wouter";
+import { cn } from "@/lib/utils";
 import type { User, Schedule, WorkLocation } from "@shared/schema";
 import AIStaffingPanel from "@/components/AIStaffingPanel";
 
@@ -24,6 +25,7 @@ export default function ScheduleManagement() {
   const [selectedEmployee, setSelectedEmployee] = useState<string>('');
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [shiftFilter, setShiftFilter] = useState<'my' | 'all' | 'open'>('my');
+  const [selectedDay, setSelectedDay] = useState<Date | null>(null);
 
   const isAdmin = currentUser?.role?.name === 'admin' || currentUser?.role?.name === 'owner';
 
@@ -105,8 +107,8 @@ export default function ScheduleManagement() {
       startTime: new Date(`${startDate}T${startTime}`),
       endTime: new Date(`${endDate}T${endTime}`),
       title: formData.get('title') as string,
-      location: formData.get('locationId') as string,
-      notes: formData.get('description') as string,
+      locationId: formData.get('locationId') as string,
+      description: formData.get('description') as string,
     });
   };
 
@@ -130,13 +132,52 @@ export default function ScheduleManagement() {
     const allWeekSchedules = schedules.filter(s =>
       weekDates.some(d => new Date(s.startTime).toDateString() === d.toDateString())
     );
-    const filteredSchedules = shiftFilter === 'my'
-      ? mySchedules
-      : shiftFilter === 'all'
-        ? allWeekSchedules
-        : allWeekSchedules.filter(s => !s.userId);
+    
+    const allUpcomingMyShifts = schedules
+      .filter(s => s.userId === currentUser?.id && new Date(s.startTime) >= new Date(new Date().setHours(0, 0, 0, 0)))
+      .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
 
+    const allUpcomingSchedules = schedules
+      .filter(s => new Date(s.startTime) >= new Date(new Date().setHours(0, 0, 0, 0)))
+      .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+
+    const getFilteredSchedules = () => {
+      if (shiftFilter === 'all' && !selectedDay) {
+        return allUpcomingSchedules;
+      }
+      
+      if (selectedDay) {
+        const daySchedules = schedules.filter(s =>
+          new Date(s.startTime).toDateString() === selectedDay.toDateString()
+        );
+        if (shiftFilter === 'my') return daySchedules.filter(s => s.userId === currentUser?.id);
+        if (shiftFilter === 'open') return daySchedules.filter(s => !s.userId);
+        return daySchedules;
+      }
+
+      if (shiftFilter === 'my') return mySchedules;
+      if (shiftFilter === 'open') return allWeekSchedules.filter(s => !s.userId);
+      return allWeekSchedules;
+    };
+
+    const filteredSchedules = getFilteredSchedules();
     const hasShifts = filteredSchedules.length > 0;
+    const showingAllUpcoming = shiftFilter === 'all' && !selectedDay;
+
+    const handleDayClick = (date: Date) => {
+      if (selectedDay && selectedDay.toDateString() === date.toDateString()) {
+        setSelectedDay(null);
+      } else {
+        setSelectedDay(date);
+      }
+    };
+
+    const groupedSchedules: Record<string, Schedule[]> = {};
+    filteredSchedules.forEach(s => {
+      const dayKey = new Date(s.startTime).toDateString();
+      if (!groupedSchedules[dayKey]) groupedSchedules[dayKey] = [];
+      groupedSchedules[dayKey].push(s);
+    });
 
     return (
       <div className="min-h-screen bg-background p-4 md:p-6">
@@ -151,7 +192,7 @@ export default function ScheduleManagement() {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setSelectedWeek(selectedWeek - 1)}
+              onClick={() => { setSelectedWeek(selectedWeek - 1); setSelectedDay(null); }}
               data-testid="button-previous-week"
             >
               <i className="fas fa-chevron-left"></i>
@@ -160,26 +201,44 @@ export default function ScheduleManagement() {
             <div className="flex gap-1">
               {weekDates.map((date) => {
                 const isToday = date.toDateString() === new Date().toDateString();
+                const isSelected = selectedDay && selectedDay.toDateString() === date.toDateString();
                 const hasShiftOnDay = mySchedules.some(s =>
                   new Date(s.startTime).toDateString() === date.toDateString()
                 );
+                const allShiftsOnDay = allWeekSchedules.filter(s =>
+                  new Date(s.startTime).toDateString() === date.toDateString()
+                );
                 return (
-                  <div key={date.toISOString()} className="flex flex-col items-center gap-1">
+                  <button
+                    key={date.toISOString()}
+                    onClick={() => handleDayClick(date)}
+                    className="flex flex-col items-center gap-1 group"
+                  >
                     <span className="text-[10px] text-muted-foreground uppercase">
                       {date.toLocaleDateString('en-US', { weekday: 'short' })}
                     </span>
                     <div
-                      className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-medium transition-colors ${
-                        isToday
-                          ? 'bg-primary text-primary-foreground'
-                          : hasShiftOnDay
-                            ? 'bg-primary/10 text-primary border border-primary/30'
-                            : 'text-muted-foreground'
-                      }`}
+                      className={cn(
+                        "w-9 h-9 rounded-full flex items-center justify-center text-sm font-medium transition-all",
+                        isSelected
+                          ? 'bg-primary text-primary-foreground ring-2 ring-primary/30'
+                          : isToday
+                            ? 'bg-primary text-primary-foreground'
+                            : hasShiftOnDay
+                              ? 'bg-primary/10 text-primary border border-primary/30'
+                              : 'text-muted-foreground hover:bg-muted'
+                      )}
                     >
                       {date.getDate()}
                     </div>
-                  </div>
+                    {allShiftsOnDay.length > 0 && (
+                      <div className="flex gap-0.5">
+                        {allShiftsOnDay.slice(0, 3).map((_, i) => (
+                          <div key={i} className="w-1 h-1 rounded-full bg-primary/60"></div>
+                        ))}
+                      </div>
+                    )}
+                  </button>
                 );
               })}
             </div>
@@ -187,7 +246,7 @@ export default function ScheduleManagement() {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setSelectedWeek(selectedWeek + 1)}
+              onClick={() => { setSelectedWeek(selectedWeek + 1); setSelectedDay(null); }}
               data-testid="button-next-week"
             >
               <i className="fas fa-chevron-right"></i>
@@ -201,44 +260,78 @@ export default function ScheduleManagement() {
                 variant={shiftFilter === filter ? 'default' : 'outline'}
                 size="sm"
                 className="text-xs px-4"
-                onClick={() => setShiftFilter(filter)}
+                onClick={() => {
+                  setShiftFilter(filter);
+                  if (filter === 'all') setSelectedDay(null);
+                }}
               >
                 {filter === 'all' ? 'All shifts' : filter === 'my' ? 'My shifts' : 'Open shifts'}
               </Button>
             ))}
           </div>
 
+          {selectedDay && (
+            <div className="bg-primary/5 border border-primary/10 rounded-lg px-3 py-2 flex items-center justify-between">
+              <span className="text-sm font-medium">
+                {selectedDay.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+              </span>
+              <Button variant="ghost" size="sm" className="text-xs h-6" onClick={() => setSelectedDay(null)}>
+                <i className="fas fa-times mr-1"></i>Clear
+              </Button>
+            </div>
+          )}
+
+          {showingAllUpcoming && (
+            <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900 rounded-lg px-3 py-2">
+              <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">
+                <i className="fas fa-calendar-alt mr-1"></i>
+                Showing all upcoming shifts ({filteredSchedules.length} total)
+              </span>
+            </div>
+          )}
+
           {hasShifts ? (
             <div className="space-y-2">
-              {weekDates.map(date => {
-                const dayShifts = filteredSchedules.filter(s =>
-                  new Date(s.startTime).toDateString() === date.toDateString()
-                );
-                if (dayShifts.length === 0) return null;
-                const isToday = date.toDateString() === new Date().toDateString();
+              {Object.entries(groupedSchedules).map(([dayKey, dayShifts]) => {
+                const dayDate = new Date(dayKey);
+                const isToday = dayDate.toDateString() === new Date().toDateString();
                 return (
-                  <Card key={date.toISOString()}>
+                  <Card key={dayKey}>
                     <CardContent className="p-3">
                       <div className="text-xs font-medium text-muted-foreground mb-2">
-                        {date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+                        {dayDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
                         {isToday && <span className="ml-1 text-primary">(Today)</span>}
                       </div>
                       {dayShifts.map(shift => {
                         const shiftUser = users.find(u => u.id === shift.userId);
+                        const isMine = shift.userId === currentUser?.id;
+                        const duration = ((new Date(shift.endTime).getTime() - new Date(shift.startTime).getTime()) / (1000 * 60 * 60)).toFixed(1);
                         return (
-                          <div key={shift.id} className="p-2 bg-primary/5 rounded border border-primary/10 mb-1">
+                          <div key={shift.id} className={cn(
+                            "p-2 rounded border mb-1",
+                            isMine
+                              ? "bg-primary/5 border-primary/10"
+                              : "bg-muted/30 border-border"
+                          )}>
                             <div className="flex items-center justify-between">
                               <div className="text-sm font-medium">
                                 {formatTime(shift.startTime)} - {formatTime(shift.endTime)}
                               </div>
-                              {shift.title && (
-                                <Badge variant="outline" className="text-[10px]">{shift.title}</Badge>
-                              )}
+                              <div className="flex items-center gap-1">
+                                <span className="text-[10px] text-muted-foreground">{duration}h</span>
+                                {shift.title && (
+                                  <Badge variant="outline" className="text-[10px]">{shift.title}</Badge>
+                                )}
+                              </div>
                             </div>
                             {shiftFilter !== 'my' && shiftUser && (
                               <div className="text-xs text-muted-foreground mt-1">
                                 {shiftUser.firstName} {shiftUser.lastName}
+                                {isMine && <span className="text-primary ml-1">(You)</span>}
                               </div>
+                            )}
+                            {shift.description && (
+                              <div className="text-xs text-muted-foreground mt-1 italic">{shift.description}</div>
                             )}
                           </div>
                         );
@@ -259,7 +352,11 @@ export default function ScheduleManagement() {
                     <rect x="60" y="60" width="15" height="15" rx="2" fill="currentColor" opacity="0.2" />
                   </svg>
                 </div>
-                <p className="text-base font-medium mb-1">You don't have any shifts this week</p>
+                <p className="text-base font-medium mb-1">
+                  {selectedDay
+                    ? `No shifts on ${selectedDay.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}`
+                    : 'You don\'t have any shifts this week'}
+                </p>
                 <p className="text-sm text-muted-foreground">Check back later or ask your manager about upcoming shifts.</p>
               </CardContent>
             </Card>
@@ -277,9 +374,7 @@ export default function ScheduleManagement() {
             <Button
               variant="outline"
               className="w-full h-12 text-sm font-medium border-primary/30 text-primary hover:bg-primary/5"
-              onClick={() => {
-                toast({ title: "Coming soon", description: "Time-off requests will be available soon." });
-              }}
+              onClick={() => navigate('/availability')}
             >
               <i className="fas fa-umbrella-beach mr-2"></i>
               Submit time-off request
@@ -291,7 +386,7 @@ export default function ScheduleManagement() {
               variant="ghost"
               size="sm"
               className="text-xs text-muted-foreground"
-              onClick={() => setSelectedWeek(0)}
+              onClick={() => { setSelectedWeek(0); setSelectedDay(null); }}
               data-testid="button-current-week"
             >
               Back to current week

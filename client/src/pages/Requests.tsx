@@ -5,17 +5,16 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
+import { cn } from '@/lib/utils';
+import type { TimeOffRequest } from '@shared/schema';
 
-interface AvailabilityRequest {
-  id: string;
-  userId: string;
-  type: string;
-  status: string;
-  startDate: string;
-  endDate?: string;
-  notes?: string;
-  createdAt: string;
-}
+const timeOffTypes: Record<string, { label: string; icon: string }> = {
+  vacation: { label: 'Vacation', icon: 'fas fa-umbrella-beach' },
+  sick: { label: 'Sick Leave', icon: 'fas fa-thermometer-half' },
+  personal: { label: 'Personal', icon: 'fas fa-user' },
+  unpaid: { label: 'Unpaid Leave', icon: 'fas fa-calendar-minus' },
+  other: { label: 'Other', icon: 'fas fa-ellipsis-h' },
+};
 
 export default function Requests() {
   const { user } = useAuth();
@@ -23,19 +22,22 @@ export default function Requests() {
   const queryClient = useQueryClient();
   const [, navigate] = useLocation();
 
-  const { data: requests = [], isLoading } = useQuery<AvailabilityRequest[]>({
-    queryKey: ['/api/availability-requests'],
-    retry: 1,
+  const { data: requests = [], isLoading } = useQuery<TimeOffRequest[]>({
+    queryKey: ['/api/time-off-requests'],
   });
 
   const cancelMutation = useMutation({
     mutationFn: async (id: string) => {
-      const res = await fetch(`/api/availability-requests/${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/time-off-requests/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'cancelled' }),
+      });
       if (!res.ok) throw new Error('Failed to cancel');
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/availability-requests'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/time-off-requests'] });
       toast({ title: 'Request cancelled' });
     },
     onError: () => {
@@ -44,16 +46,15 @@ export default function Requests() {
   });
 
   const myRequests = requests.filter(r => r.userId === user?.id);
-  const initials = `${(user?.firstName || '')[0] || ''}${(user?.lastName || '')[0] || ''}`.toUpperCase();
-
-  const formatDate = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  const formatTime = (d: string) => new Date(d).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
 
   const statusColors: Record<string, string> = {
-    pending: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
+    pending: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
     approved: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
     denied: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+    cancelled: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400',
   };
+
+  const formatDate = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
   return (
     <div className="min-h-screen bg-background">
@@ -86,53 +87,64 @@ export default function Requests() {
             </CardContent>
           </Card>
         ) : (
-          myRequests.map(req => (
-            <Card key={req.id}>
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    {req.type === 'time-off' ? 'Time Off Request' : 'Availability Request'}
-                  </span>
-                  <span className="text-xs text-muted-foreground">{formatTime(req.createdAt)}</span>
-                </div>
-
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-semibold">
-                    {initials}
+          myRequests.map(req => {
+            const typeInfo = timeOffTypes[req.type] || { label: req.type, icon: 'fas fa-calendar' };
+            return (
+              <Card key={req.id}>
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <i className={cn(typeInfo.icon, "text-muted-foreground")}></i>
+                      <span className="text-sm font-semibold">{typeInfo.label}</span>
+                    </div>
+                    <Badge className={cn("text-xs", statusColors[req.status] || statusColors.pending)}>
+                      {req.status === 'pending' ? 'Pending approval' : req.status.charAt(0).toUpperCase() + req.status.slice(1)}
+                    </Badge>
                   </div>
-                  <span className="text-sm font-medium">{user?.firstName} {user?.lastName}</span>
-                </div>
 
-                <Badge className={`text-xs mb-3 ${statusColors[req.status] || statusColors.pending}`}>
-                  {req.status === 'pending' ? 'Pending approval' : req.status.charAt(0).toUpperCase() + req.status.slice(1)}
-                </Badge>
-
-                <Card className="bg-muted/30">
-                  <CardContent className="p-3">
+                  <div className="bg-muted/30 rounded-lg p-3 mb-3">
                     <div className="flex items-center justify-between">
                       <div>
-                        <div className="text-xs text-muted-foreground">Start date</div>
-                        <div className="text-sm font-medium">{formatDate(req.startDate)}</div>
-                        {req.notes && <div className="text-xs text-muted-foreground mt-1">{req.notes}</div>}
+                        <div className="text-xs text-muted-foreground">Dates</div>
+                        <div className="text-sm font-medium">
+                          {formatDate(req.startDate as unknown as string)}
+                          {req.startDate !== req.endDate && (
+                            <> - {formatDate(req.endDate as unknown as string)}</>
+                          )}
+                        </div>
                       </div>
-                      <i className="fas fa-chevron-right text-xs text-muted-foreground"></i>
                     </div>
-                  </CardContent>
-                </Card>
+                    {req.reason && (
+                      <div className="mt-2 text-xs text-muted-foreground italic">"{req.reason}"</div>
+                    )}
+                  </div>
 
-                {req.status === 'pending' && (
-                  <Button
-                    variant="outline"
-                    className="w-full mt-3 text-destructive border-destructive/30 hover:bg-destructive/5"
-                    onClick={() => cancelMutation.mutate(req.id)}
-                    disabled={cancelMutation.isPending}
-                  >
-                    Cancel request
-                  </Button>
-                )}
-              </CardContent>
-            </Card>
-          ))
+                  {req.adminNotes && (
+                    <div className="text-xs text-muted-foreground bg-blue-50 dark:bg-blue-950/20 p-2 rounded mb-3">
+                      <i className="fas fa-comment-dots mr-1 text-blue-500"></i> Manager note: {req.adminNotes}
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-muted-foreground">
+                      Submitted {req.createdAt ? formatDate(req.createdAt as unknown as string) : ''}
+                    </span>
+                    {req.status === 'pending' && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-xs text-destructive hover:text-destructive"
+                        onClick={() => cancelMutation.mutate(req.id)}
+                        disabled={cancelMutation.isPending}
+                      >
+                        Cancel request
+                      </Button>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })
         )}
       </div>
     </div>
