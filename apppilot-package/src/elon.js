@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { delegateToSubagent } = require('./subagents/dispatcher');
 const { loadContext } = require('./context-loader');
-const { crawlSite, verifyCrawl } = require('./subagents/site-crawler');
+const { crawlSite, verifyCrawl, backendHealthCheck, isSessionValid } = require('./subagents/site-crawler');
 const { executeRalphLoop } = require('./ralph-loop');
 
 const TEMPLATES_DIR = path.join(__dirname, '..', 'templates');
@@ -205,6 +205,18 @@ async function _performCrawl(appUrl, dataDir, maxPages, log) {
   }
 }
 
+async function _performBackendCheck(appUrl, dataDir, log) {
+  try {
+    const results = await backendHealthCheck({ appUrl, dataDir });
+    log(`ELON: Backend health check: ${results.endpointsChecked} endpoints, ${results.errors.length} issues`);
+    results.allIssues = results.errors;
+    return results;
+  } catch (err) {
+    log(`ELON: Backend health check failed: ${err.message}`);
+    return null;
+  }
+}
+
 function _buildCrawlSummary(crawlResults) {
   if (!crawlResults) return { note: 'Crawl not available — analyze code only' };
   const issues = crawlResults.allIssues || [];
@@ -252,12 +264,19 @@ async function runElonCycle(config) {
   };
 
   let crawlResults = null;
-  if (enableCrawl) {
-    progress('crawling', 'Crawling site with Playwright...', null, 'thinking');
+  const crawlMode = config.crawlMode || (enableCrawl ? 'full' : false);
+  if (crawlMode === 'full') {
+    progress('crawling', 'Crawling site with Playwright (full UI + backend)...', null, 'thinking');
     crawlResults = await _performCrawl(appUrl, dataDir, 30, log);
     const issueCount = crawlResults?.allIssues?.length || 0;
     const pageCount = crawlResults?.pagesVisited || 0;
     progress('crawl-done', `Crawl complete: ${pageCount} pages visited, ${issueCount} issues found`, { pages: pageCount, issues: issueCount }, issueCount > 0 ? 'warning' : 'success');
+  } else if (crawlMode === 'backend-only') {
+    progress('backend-check', 'Running backend health check (no auth required)...', null, 'thinking');
+    crawlResults = await _performBackendCheck(appUrl, dataDir, log);
+    const issueCount = crawlResults?.errors?.length || 0;
+    const epCount = crawlResults?.endpointsChecked || 0;
+    progress('backend-check-done', `Backend check: ${epCount} endpoints, ${issueCount} issues`, { endpoints: epCount, issues: issueCount }, issueCount > 0 ? 'warning' : 'success');
   }
 
   progress('reading-code', 'Reading source code and project context...', null, 'thinking');
@@ -387,6 +406,7 @@ async function evaluateConstraint(config) {
     projectRoot = process.cwd(),
     dataDir = path.join(projectRoot, '.apppilot'),
     enableCrawl = true,
+    crawlMode = 'full',
     memory = null,
   } = config;
 
@@ -394,6 +414,7 @@ async function evaluateConstraint(config) {
   const elonLog = _loadElonLog(dataDir);
   const budget = { spent: 0, max: 2.0 };
   const log = _createLogger(memory);
+  const canCrawlFrontend = enableCrawl && crawlMode !== 'backend-only';
 
   if (!elonLog.current) {
     return { status: 'no-active-constraint' };
@@ -408,7 +429,7 @@ async function evaluateConstraint(config) {
   }
 
   let crawlVerification = null;
-  if (enableCrawl && constraint.verificationPages && constraint.verificationPages.length > 0) {
+  if (canCrawlFrontend && constraint.verificationPages && constraint.verificationPages.length > 0) {
     log('ELON: Verifying fix with Playwright...');
     try {
       crawlVerification = await verifyCrawl({ appUrl, pagesToCheck: constraint.verificationPages });
@@ -419,9 +440,11 @@ async function evaluateConstraint(config) {
   }
 
   let reCrawl = null;
-  if (enableCrawl) {
+  if (canCrawlFrontend) {
     log('ELON: Re-crawling site to confirm fix...');
     reCrawl = await _performCrawl(appUrl, dataDir, 15, log);
+  } else if (enableCrawl) {
+    log('ELON: Backend-only mode — skipping Playwright verification');
   }
 
   const sourceCode = _readSourceFiles(projectRoot);
@@ -542,7 +565,8 @@ async function runElonLoop(config) {
     const cycleResult = await runElonCycle({
       apiKey, appUrl, projectRoot, dataDir,
       budgetMax: Math.min(remainingBudget * 0.4, 3.0),
-      enableCrawl, memory, onProgress,
+      enableCrawl, crawlMode: config.crawlMode,
+      memory, onProgress,
     });
 
     totalBudget += cycleResult.budgetUsed || 0;
@@ -572,7 +596,7 @@ async function runElonLoop(config) {
 
     if (totalBudget < budgetMax) {
       progress('evaluating', 'Evaluating whether constraint is resolved...', { budget: totalBudget }, 'thinking');
-      const evalResult = await evaluateConstraint({ apiKey, appUrl, projectRoot, dataDir, enableCrawl, memory });
+      const evalResult = await evaluateConstraint({ apiKey, appUrl, projectRoot, dataDir, enableCrawl, crawlMode: config.crawlMode, memory });
       totalBudget += evalResult.budgetUsed || 0;
 
       if (evalResult.resolved) {

@@ -301,6 +301,8 @@ function createAdminDashboard(options = {}) {
     });
   }
 
+  let frontendAuthLost = false;
+
   function triggerContinuous(req, res) {
     if (continuousRunning) {
       return res.json({ status: 'already-running', message: 'ELON continuous loop is already running' });
@@ -310,6 +312,7 @@ function createAdminDashboard(options = {}) {
     }
 
     const { runElonLoop, getActiveConstraintCounts } = require('../elon.js');
+    const { isSessionValid } = require('../subagents/site-crawler.js');
 
     const apiKey = process.env.APPPILOT_ANTHROPIC_KEY || process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
@@ -320,6 +323,7 @@ function createAdminDashboard(options = {}) {
     continuousStopRequested = false;
     elonRunning = true;
     elonStopRequested = false;
+    frontendAuthLost = false;
 
     try {
       const flagPath = path.join(dataDir, 'elon-stop-requested');
@@ -342,7 +346,12 @@ function createAdminDashboard(options = {}) {
 
     res.json({ status: 'started', message: 'ELON continuous loop started — will keep running until all critical/high/medium issues are resolved' });
 
-    pushActivity('heartbeat', 'ELON continuous loop starting — will run until critical/high/medium constraints are resolved...');
+    const hadAuthAtStart = isSessionValid(dataDir);
+    if (hadAuthAtStart) {
+      pushActivity('heartbeat', 'ELON continuous starting with full mode (backend + frontend crawling)...');
+    } else {
+      pushActivity('heartbeat', 'ELON continuous starting in backend-only mode (sign in for ELON to enable frontend crawling)...');
+    }
 
     let totalSpent = 0;
     let totalSolved = 0;
@@ -366,9 +375,24 @@ function createAdminDashboard(options = {}) {
           break;
         }
 
+        const hasAuth = isSessionValid(dataDir);
+        let crawlMode = hasAuth ? 'full' : 'backend-only';
+
+        if (hadAuthAtStart && !hasAuth && !frontendAuthLost) {
+          frontendAuthLost = true;
+          elonStep('auth-lost', 'Frontend session expired — switching to backend-only mode. Sign in again to resume full crawling.', { budget: totalSpent }, 'warning');
+          pushActivity('warning', 'ELON: Frontend auth expired — continuing with backend-only analysis. Sign in for ELON to restore full crawling.');
+        } else if (frontendAuthLost && hasAuth) {
+          frontendAuthLost = false;
+          elonStep('auth-restored', 'Frontend session restored — resuming full crawling mode!', { budget: totalSpent }, 'success');
+          pushActivity('success', 'ELON: Frontend auth restored — full crawling resumed.');
+        }
+
+        const modeLabel = crawlMode === 'full' ? 'full (backend + UI)' : 'backend-only';
         const roundBudget = Math.min(budgetPerRound, totalBudgetCap - totalSpent);
-        elonStep('round-start', `ELON continuous round ${round + 1}/${maxRounds}: ${counts.total} active constraints (${counts.critical} critical, ${counts.high} high, ${counts.medium} medium)`, { cycle: round + 1, budget: totalSpent }, 'thinking');
+        elonStep('round-start', `ELON round ${round + 1}/${maxRounds} [${modeLabel}]: ${counts.total} active constraints (${counts.critical} critical, ${counts.high} high, ${counts.medium} medium)`, { cycle: round + 1, budget: totalSpent, crawlMode }, 'thinking');
         elonProgress.cycle = round + 1;
+        elonProgress.phase = crawlMode === 'full' ? 'running-full' : 'running-backend-only';
 
         try {
           const result = await runElonLoop({
@@ -377,6 +401,7 @@ function createAdminDashboard(options = {}) {
             maxConstraints: constraintsPerRound,
             budgetMax: roundBudget,
             enableCrawl: true,
+            crawlMode: crawlMode,
             projectRoot: projectRoot,
             memory: memoryStore,
             onProgress: (phase, message, detail, type) => {
@@ -414,6 +439,7 @@ function createAdminDashboard(options = {}) {
       elonRunning = false;
       elonProgress.running = false;
       elonProgress.phase = 'complete';
+      frontendAuthLost = false;
 
       const finalCounts = getActiveConstraintCounts(dataDir);
       elonStep('complete', `ELON continuous complete: ${round} rounds, ${totalSolved} solved, ${finalCounts.total} remaining, $${totalSpent.toFixed(2)} total spent`, { budget: totalSpent }, 'success');
@@ -428,6 +454,7 @@ function createAdminDashboard(options = {}) {
       elonRunning = false;
       elonProgress.running = false;
       elonProgress.phase = 'error';
+      frontendAuthLost = false;
       elonStep('error', 'ELON continuous failed: ' + err.message, null, 'error');
       pushActivity('error', 'ELON continuous loop failed: ' + err.message);
       if (memoryStore) {
@@ -861,6 +888,7 @@ function createAdminDashboard(options = {}) {
       continuous: continuousRunning,
       crawl: crawlRunning,
       elon: elonRunning,
+      frontendAuthLost: frontendAuthLost,
     });
   }
 

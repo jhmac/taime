@@ -536,8 +536,23 @@
     @keyframes spin { to { transform: rotate(360deg); } }
     .btn-stop-all { background: var(--red); color: #fff; }
     .btn-stop-all:hover { background: #da3633; }
-    .btn-stop { background: transparent; color: var(--red); border: 1px solid var(--red); padding: 4px 8px; font-size: 0.7rem; margin-left: 4px; }
+    .btn-stop { background: transparent; color: var(--red); border: 1px solid var(--red); padding: 4px 8px; font-size: 0.7rem; margin-left: -8px; }
     .btn-stop:hover { background: rgba(248,81,73,0.15); }
+
+    .auth-lost-alert {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 16px;
+      margin-bottom: 16px;
+      background: rgba(210,153,34,0.12);
+      border: 1px solid rgba(210,153,34,0.3);
+      border-radius: 8px;
+      font-size: 0.8rem;
+      color: var(--yellow);
+    }
+    .auth-lost-icon { font-size: 1.1rem; }
+    .auth-lost-msg { flex: 1; }
 
     .elon-progress-section {
       background: var(--card);
@@ -918,15 +933,18 @@
       <button class="btn-discover" id="btn-discover" onclick="runDiscovery()">
         Run Discovery
       </button>
+      <button class="btn-stop" id="btn-stop-discover" onclick="stopDiscovery()" style="display:none" title="Stop discovery">&#9632; Stop</button>
       <button class="btn-continuous" id="btn-continuous" onclick="runContinuous()" title="Runs ELON continuously until all critical, high, and medium priority issues are resolved">
         ELON Continuous
       </button>
+      <button class="btn-stop" id="btn-stop-continuous" onclick="stopContinuous()" style="display:none" title="Stop continuous loop">&#9632; Stop</button>
       <button class="btn-crawl" id="btn-crawl" onclick="runCrawl()">
         Crawl Site
       </button>
       <button class="btn-elon" id="btn-elon" onclick="runElon()" title="Runs a single ELON cycle (discover top constraints and generate fix specs)">
         Run ELON
       </button>
+      <button class="btn-stop" id="btn-stop-elon" onclick="stopElon()" style="display:none" title="Stop ELON">&#9632; Stop</button>
       <button class="btn-stop-all" id="btn-stop-all" onclick="stopAll()" style="background:#f85149;color:#fff;display:none">
         ■ Stop All
       </button>
@@ -937,6 +955,13 @@
         <button class="btn-crawler-auth" id="btn-crawler-login" onclick="openCrawlerLogin()" title="Sign in so ELON can crawl protected pages as an authenticated user">Sign In for ELON</button>
         <button class="btn-crawler-signout" id="btn-crawler-signout" onclick="clearCrawlerSession()" style="display:none" title="Remove stored session">Sign Out</button>
       </div>
+    </div>
+
+    <div class="auth-lost-alert" id="auth-lost-alert" style="display:none">
+      <span class="auth-lost-icon">&#9888;</span>
+      <span class="auth-lost-msg">Frontend session expired — ELON is continuing with backend-only analysis.</span>
+      <button class="btn-crawler-auth" onclick="openCrawlerLogin()" style="margin-left:8px;font-size:0.72rem">Sign In to Resume Full Crawling</button>
+      <button class="btn-dismiss-alert" onclick="document.getElementById('auth-lost-alert').style.display='none'" style="margin-left:auto;background:transparent;color:var(--text-muted);font-size:0.8rem;padding:4px 8px" title="Dismiss">&#10005;</button>
     </div>
 
     <div class="crawl-results" id="crawl-results">
@@ -1872,7 +1897,10 @@
         }
 
         dot.className = 'elon-status-dot ' + (data.running ? 'running' : data.phase === 'complete' ? 'complete' : data.phase === 'error' ? 'error' : '');
-        phaseEl.textContent = data.phase.replace(/-/g, ' ');
+        let phaseText = data.phase.replace(/-/g, ' ');
+        if (data.phase === 'running-full') phaseText = 'Full Mode (Backend + UI)';
+        else if (data.phase === 'running-backend-only') phaseText = 'Backend-Only Mode';
+        phaseEl.textContent = phaseText;
 
         if (data.running || data.phase === 'complete' || data.phase === 'error') {
           cycleEl.textContent = 'Cycle ' + data.cycle + '/' + data.maxCycles;
@@ -2018,6 +2046,63 @@
         const stopBtn = document.getElementById('btn-stop-all');
         const anyRunning = data.discovery || data.continuous || data.crawl || data.elon;
         stopBtn.style.display = anyRunning ? 'inline-block' : 'none';
+
+        document.getElementById('btn-stop-discover').style.display = data.discovery ? 'inline-block' : 'none';
+        document.getElementById('btn-stop-continuous').style.display = data.continuous ? 'inline-block' : 'none';
+        document.getElementById('btn-stop-elon').style.display = (data.elon && !data.continuous) ? 'inline-block' : 'none';
+
+        const alertEl = document.getElementById('auth-lost-alert');
+        if (data.frontendAuthLost && (data.continuous || data.elon)) {
+          alertEl.style.display = 'flex';
+        } else if (!data.continuous && !data.elon) {
+          alertEl.style.display = 'none';
+        }
+
+        if (data.discovery) {
+          document.getElementById('btn-discover').disabled = true;
+          document.getElementById('btn-discover').innerHTML = '<span class="btn-spinner"></span> Running...';
+        }
+        if (data.continuous) {
+          document.getElementById('btn-continuous').disabled = true;
+          document.getElementById('btn-elon').disabled = true;
+          document.getElementById('btn-continuous').innerHTML = '<span class="btn-spinner"></span> ELON Running...';
+        }
+        if (data.elon && !data.continuous) {
+          document.getElementById('btn-elon').disabled = true;
+          document.getElementById('btn-continuous').disabled = true;
+          document.getElementById('btn-elon').innerHTML = '<span class="btn-spinner"></span> Running ELON...';
+        }
+
+        if (!data.discovery) {
+          const btn = document.getElementById('btn-discover');
+          if (btn.disabled && !btn._cooldown) {
+            btn.disabled = false;
+            btn.innerHTML = 'Run Discovery';
+          }
+        }
+        if (!data.continuous && !data.elon) {
+          const btnC = document.getElementById('btn-continuous');
+          const btnE = document.getElementById('btn-elon');
+          if (btnC.disabled && !btnC._cooldown) {
+            btnC.disabled = false;
+            btnC.innerHTML = 'ELON Continuous';
+          }
+          if (btnE.disabled && !btnE._cooldown) {
+            btnE.disabled = false;
+            btnE.innerHTML = 'Run ELON';
+          }
+        }
+      } catch {}
+    }
+
+    async function stopElon() {
+      try {
+        await apiFetch('/elon/stop', { method: 'POST' });
+        const status = document.getElementById('action-status');
+        status.style.display = 'inline-flex';
+        status.style.color = 'var(--yellow)';
+        status.textContent = 'Stop requested for ELON...';
+        loadLiveLog();
       } catch {}
     }
 

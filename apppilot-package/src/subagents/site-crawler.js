@@ -420,4 +420,165 @@ async function verifyCrawl(options = {}) {
   };
 }
 
-module.exports = { crawlSite, verifyCrawl };
+async function backendHealthCheck(options = {}) {
+  const {
+    appUrl = 'http://localhost:5000',
+    dataDir = null,
+    timeout = 10000,
+  } = options;
+
+  const errors = [];
+  const checks = [];
+  const baseUrl = appUrl.replace(/\/+$/, '');
+
+  const publicEndpoints = [
+    { path: '/', method: 'GET', label: 'Homepage' },
+    { path: '/api/health', method: 'GET', label: 'Health endpoint' },
+  ];
+
+  const protectedEndpoints = [
+    { path: '/api/users', method: 'GET', label: 'Users API' },
+    { path: '/api/clock-events', method: 'GET', label: 'Clock events API' },
+    { path: '/api/schedules', method: 'GET', label: 'Schedules API' },
+    { path: '/api/tasks', method: 'GET', label: 'Tasks API' },
+    { path: '/api/messages', method: 'GET', label: 'Messages API' },
+    { path: '/api/settings', method: 'GET', label: 'Settings API' },
+  ];
+
+  const http = require('http');
+  const https = require('https');
+  const lib = baseUrl.startsWith('https') ? https : http;
+
+  async function checkEndpoint(endpoint) {
+    return new Promise((resolve) => {
+      const url = `${baseUrl}${endpoint.path}`;
+      const startTime = Date.now();
+      const req = lib.get(url, { timeout }, (res) => {
+        const loadTime = Date.now() - startTime;
+        let body = '';
+        res.on('data', chunk => body += chunk);
+        res.on('end', () => {
+          resolve({
+            endpoint: endpoint.path,
+            label: endpoint.label,
+            status: res.statusCode,
+            loadTime,
+            ok: res.statusCode < 500,
+            body: body.substring(0, 500),
+          });
+        });
+      });
+      req.on('error', (err) => {
+        resolve({
+          endpoint: endpoint.path,
+          label: endpoint.label,
+          status: 0,
+          loadTime: Date.now() - startTime,
+          ok: false,
+          error: err.message,
+        });
+      });
+      req.on('timeout', () => {
+        req.destroy();
+        resolve({
+          endpoint: endpoint.path,
+          label: endpoint.label,
+          status: 0,
+          loadTime: timeout,
+          ok: false,
+          error: 'timeout',
+        });
+      });
+    });
+  }
+
+  for (const ep of publicEndpoints) {
+    const result = await checkEndpoint(ep);
+    checks.push(result);
+    if (!result.ok) {
+      errors.push({
+        type: 'backend-error',
+        message: `${ep.label} (${ep.path}) ${result.error ? 'failed: ' + result.error : 'returned ' + result.status}`,
+        url: `${baseUrl}${ep.path}`,
+        severity: result.status >= 500 ? 'high' : 'medium',
+        statusCode: result.status,
+      });
+    }
+    if (result.loadTime > 3000) {
+      errors.push({
+        type: 'slow-endpoint',
+        message: `${ep.label} (${ep.path}) took ${result.loadTime}ms`,
+        url: `${baseUrl}${ep.path}`,
+        severity: 'medium',
+        loadTime: result.loadTime,
+      });
+    }
+  }
+
+  for (const ep of protectedEndpoints) {
+    const result = await checkEndpoint(ep);
+    checks.push(result);
+    if (result.status === 401 || result.status === 403) {
+      // Expected — auth required
+    } else if (result.status >= 500) {
+      errors.push({
+        type: 'backend-error',
+        message: `${ep.label} (${ep.path}) returned server error ${result.status}`,
+        url: `${baseUrl}${ep.path}`,
+        severity: 'high',
+        statusCode: result.status,
+      });
+    } else if (result.status === 0) {
+      errors.push({
+        type: 'backend-error',
+        message: `${ep.label} (${ep.path}) ${result.error || 'unreachable'}`,
+        url: `${baseUrl}${ep.path}`,
+        severity: 'high',
+      });
+    }
+    if (result.loadTime > 3000 && result.status > 0) {
+      errors.push({
+        type: 'slow-endpoint',
+        message: `${ep.label} (${ep.path}) took ${result.loadTime}ms`,
+        url: `${baseUrl}${ep.path}`,
+        severity: 'medium',
+        loadTime: result.loadTime,
+      });
+    }
+  }
+
+  const result = {
+    timestamp: new Date().toISOString(),
+    type: 'backend-health-check',
+    endpointsChecked: checks.length,
+    errors,
+    checks,
+    authenticated: false,
+    pagesVisited: checks.length,
+  };
+
+  if (dataDir) {
+    try {
+      if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(dataDir, 'backend-health.json'),
+        JSON.stringify(result, null, 2)
+      );
+    } catch {}
+  }
+
+  return result;
+}
+
+function isSessionValid(dataDir) {
+  try {
+    const sessionFile = path.join(dataDir || path.join(process.cwd(), '.apppilot'), 'crawler-session.json');
+    if (!fs.existsSync(sessionFile)) return false;
+    const data = JSON.parse(fs.readFileSync(sessionFile, 'utf-8'));
+    if (!data.sessionToken) return false;
+    if (data.expiresAt && new Date(data.expiresAt) < new Date()) return false;
+    return true;
+  } catch { return false; }
+}
+
+module.exports = { crawlSite, verifyCrawl, backendHealthCheck, isSessionValid };
