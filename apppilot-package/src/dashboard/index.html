@@ -139,8 +139,8 @@
 
     .feed-list {
       list-style: none;
-      max-height: none;
-      overflow-y: visible;
+      max-height: 600px;
+      overflow-y: auto;
     }
     .feed-item {
       display: flex;
@@ -450,8 +450,9 @@
       background: rgba(210,153,11,0.1);
     }
     .feed-cost.budget {
-      color: var(--green);
-      background: rgba(46,160,67,0.12);
+      color: #2ee66a;
+      background: rgba(46,230,106,0.18);
+      font-weight: 600;
     }
     .feed-cost.budget-exhausted {
       color: var(--red);
@@ -962,7 +963,7 @@
           <span class="elon-pending-count" id="elon-approved-count">0</span>
         </div>
         <div class="elon-pending-actions">
-          <button class="btn-approve-all" id="btn-execute-approved" onclick="executeApprovedSpecs()" style="background:#2563eb">▶ Execute Approved Specs</button>
+          <span id="btn-execute-approved" style="font-size:0.72rem;color:var(--text-muted)">auto-executes on approval</span>
         </div>
       </div>
       <div id="elon-execution-status" style="padding:8px 12px;font-size:0.78rem;color:var(--text-muted);display:none"></div>
@@ -995,7 +996,10 @@
       <div class="panel">
         <div class="panel-header">
           <span><span style="width:8px;height:8px;border-radius:50%;background:var(--green);animation:pulse 1.5s ease-in-out infinite;margin-right:8px;display:inline-block"></span>Activity Feed</span>
-          <span style="font-weight:400;color:var(--text-muted);font-size:0.7rem" id="feed-count">0 entries &middot; auto-refresh 5s</span>
+          <span style="display:flex;align-items:center;gap:12px">
+            <span id="budget-tracker" style="font-family:'SF Mono','Menlo',monospace;font-size:0.72rem;font-weight:600;display:none"></span>
+            <span style="font-weight:400;color:var(--text-muted);font-size:0.7rem" id="feed-count">0 entries &middot; auto-refresh 5s</span>
+          </span>
         </div>
         <div class="panel-body">
           <ul class="feed-list" id="feed-list">
@@ -1188,6 +1192,20 @@
           costMap[budgetIdx] = { text: costMap[budgetIdx].text, type: 'budget-exhausted' };
         }
         costMap.reverse();
+
+        const tracker = document.getElementById('budget-tracker');
+        if (elonBudget !== null) {
+          const remaining = Math.max(0, elonBudget - elonSpent).toFixed(2);
+          const exhausted = elonSpent >= elonBudget;
+          tracker.style.display = 'inline';
+          tracker.style.color = exhausted ? 'var(--red)' : '#2ee66a';
+          tracker.style.background = exhausted ? 'rgba(248,81,73,0.12)' : 'rgba(46,230,106,0.12)';
+          tracker.style.padding = '2px 8px';
+          tracker.style.borderRadius = '4px';
+          tracker.textContent = 'Budget: $' + remaining + ' / $' + elonBudget.toFixed(2);
+        } else {
+          tracker.style.display = 'none';
+        }
 
         list.innerHTML = display.map((item, i) => {
           const type = item.type || 'info';

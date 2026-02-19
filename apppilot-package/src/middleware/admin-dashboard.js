@@ -693,6 +693,40 @@ function createAdminDashboard(options = {}) {
       }
     });
 
+    let specsExecutionRunning = false;
+
+    function triggerAutoExecute() {
+      if (specsExecutionRunning) return;
+      const apiKey = process.env.APPPILOT_ANTHROPIC_KEY || process.env.ANTHROPIC_API_KEY;
+      if (!apiKey) return;
+      specsExecutionRunning = true;
+      pushActivity('info', 'Auto-executing approved specs...');
+      const { executeApprovedSpecs } = require('../elon.js');
+      const budgetMax = parseFloat(process.env.ELON_BUDGET) || 5.0;
+      executeApprovedSpecs({
+        apiKey, projectRoot, dataDir, budgetMax, memory: memoryStore,
+        onProgress: (phase, message, detail, type) => {
+          pushActivity(type === 'thinking' ? 'heartbeat' : type === 'error' ? 'error' : type === 'success' ? 'success' : 'info', message);
+          if (elonProgress.steps) {
+            elonProgress.steps.push({
+              id: 'exec-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+              phase, message, detail: detail || null, type: type || 'info',
+              timestamp: new Date().toISOString(), duration: null,
+            });
+            if (elonProgress.steps.length > 200) elonProgress.steps = elonProgress.steps.slice(-150);
+          }
+        },
+      }).then(result => {
+        specsExecutionRunning = false;
+        pushActivity('success', `Specs execution complete: ${result.succeeded} succeeded, ${result.failed} failed`);
+        if (memoryStore) memoryStore.logDaily(`ELON specs auto-execution: ${result.succeeded} succeeded, ${result.failed} failed, $${(result.budgetUsed || 0).toFixed(2)} spent`);
+      }).catch(err => {
+        specsExecutionRunning = false;
+        pushActivity('error', `Specs execution failed: ${err.message}`);
+        if (memoryStore) memoryStore.logDaily(`ELON specs auto-execution failed: ${err.message}`);
+      });
+    }
+
     app.post(`${basePath}/api/elon/pending/:id/approve`, authMiddleware, (req, res) => {
       try {
         const { approveSpec } = require('../elon.js');
@@ -700,6 +734,7 @@ function createAdminDashboard(options = {}) {
         if (result.success) {
           owner.logOwnerAction('elon_spec_approve', { id: req.params.id }, dataDir);
           pushActivity('success', 'ELON spec approved: ' + req.params.id);
+          triggerAutoExecute();
         }
         res.json(result);
       } catch (err) {
@@ -728,14 +763,13 @@ function createAdminDashboard(options = {}) {
         if (result.success) {
           owner.logOwnerAction('elon_spec_approve_all', result, dataDir);
           pushActivity('success', `All ${result.approved} ELON specs approved`);
+          triggerAutoExecute();
         }
         res.json(result);
       } catch (err) {
         res.status(500).json({ error: err.message });
       }
     });
-
-    let specsExecutionRunning = false;
 
     app.post(`${basePath}/api/elon/execute-approved`, authMiddleware, (req, res) => {
       if (specsExecutionRunning) {
