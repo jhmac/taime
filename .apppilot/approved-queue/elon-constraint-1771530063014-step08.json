@@ -1,0 +1,14 @@
+{
+  "filePath": "server/db/connection.ts",
+  "description": "[ELON] Extract database connection logic into dedicated module with connection pooling config, health check function, graceful shutdown handler. Export singleton connection instance.",
+  "successCriteria": [
+    "Connection pool properly configured with min/max connections",
+    "Health check function tests database connectivity",
+    "Graceful shutdown closes connections on SIGTERM",
+    "Module exports stable singleton instance"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771530063014",
+  "priority": "medium",
+  "step": 8
+}

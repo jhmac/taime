@@ -1,0 +1,14 @@
+{
+  "filePath": "server/utils/logger.ts",
+  "description": "[ELON] Create structured logging utility to replace console.log. Support log levels (debug, info, warn, error), add context fields (requestId, userId, endpoint), integrate with error tracking.",
+  "successCriteria": [
+    "Logger exports debug, info, warn, error functions",
+    "All log entries include timestamp and level",
+    "Error logs include stack traces",
+    "Logger is imported and used in at least one fixed file"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771530063014",
+  "priority": "medium",
+  "step": 7
+}

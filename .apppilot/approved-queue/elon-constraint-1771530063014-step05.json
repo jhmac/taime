@@ -1,0 +1,15 @@
+{
+  "filePath": "server/routes/api/employees.ts",
+  "description": "[ELON] Add comprehensive error handling to employees endpoint. Wrap database queries in try/catch, handle RBAC permission failures, add input validation with Zod, return proper status codes (200, 403, 503).",
+  "successCriteria": [
+    "Successful queries return 200 with employee data",
+    "Permission failures return 403 with clear message",
+    "Database failures return 503 with structured error",
+    "All database queries use parameterized inputs via Drizzle"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771530063014",
+  "priority": "high",
+  "step": 5,
+  "blockedCategory": "permissions"
+}

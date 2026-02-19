@@ -1,0 +1,15 @@
+{
+  "filePath": "server/routes/health.ts",
+  "description": "[ELON] Implement proper health check endpoint with database connectivity test, Clerk auth service check, and graceful error responses. Return 503 (Service Unavailable) with detailed error info when dependencies fail instead of 500.",
+  "successCriteria": [
+    "Health endpoint returns 200 when all services are healthy",
+    "Health endpoint returns 503 with structured error when database is down",
+    "Health endpoint includes response time metrics",
+    "No unhandled promise rejections in health check"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771530063014",
+  "priority": "high",
+  "step": 2,
+  "blockedCategory": "auth"
+}

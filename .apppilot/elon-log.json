@@ -1,5 +1,144 @@
 {
-  "current": null,
+  "current": {
+    "id": "constraint-1771530063014",
+    "description": "Critical authentication and database connection failures causing complete system unavailability",
+    "why": "Multiple 500 errors across core endpoints (/health, /api/me, /api/employees) indicate fundamental infrastructure failure. Without stable auth and database connectivity, ALL features (clock-in, scheduling, payroll) are completely blocked. This is a Severity 1 outage.",
+    "unblocks": [
+      "Users can successfully authenticate and access the application",
+      "Clock-in/out functionality becomes available",
+      "Employee scheduling and management features become usable",
+      "Task assignment system can function",
+      "Payroll reports can be generated",
+      "All downstream features dependent on working auth and database"
+    ],
+    "score": 10,
+    "category": "infrastructure",
+    "evidenceFromCrawl": [
+      "GET /health returned 500 - Application health check failing",
+      "GET /api/me returned 500 - User authentication endpoint failing",
+      "GET /api/employees returned 500 - Employee data retrieval failing",
+      "Multiple unhandled promise rejections in server logs",
+      "Database connection errors preventing all data operations"
+    ],
+    "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
+    "identifiedAt": "2026-02-19T19:41:03.014Z",
+    "status": "active",
+    "steps": [
+      {
+        "step": 1,
+        "filePath": "server/db/index.ts",
+        "description": "Add comprehensive error handling and connection retry logic to database initialization. Implement connection pooling configuration, timeout handling, and graceful degradation. Add structured logging for connection events.",
+        "successCriteria": [
+          "Database connection established successfully on server start",
+          "Connection errors logged with structured context",
+          "Retry logic attempts reconnection with exponential backoff",
+          "Connection pool metrics logged at startup"
+        ],
+        "priority": "high",
+        "estimatedComplexity": "medium"
+      },
+      {
+        "step": 2,
+        "filePath": "server/routes/health.ts",
+        "description": "Implement proper health check endpoint with database connectivity test, Clerk auth service check, and graceful error responses. Return 503 (Service Unavailable) with detailed error info when dependencies fail instead of 500.",
+        "successCriteria": [
+          "Health endpoint returns 200 when all services are healthy",
+          "Health endpoint returns 503 with structured error when database is down",
+          "Health endpoint includes response time metrics",
+          "No unhandled promise rejections in health check"
+        ],
+        "priority": "high",
+        "estimatedComplexity": "low"
+      },
+      {
+        "step": 3,
+        "filePath": "server/middleware/auth.ts",
+        "description": "Add comprehensive error handling to Clerk authentication middleware. Catch and properly handle ClerkAPIError, network timeouts, and invalid tokens. Return 401 for auth failures, 503 for Clerk service unavailable.",
+        "successCriteria": [
+          "Authentication failures return proper 401 responses",
+          "Clerk service failures return 503 with retry-after header",
+          "All auth errors are caught and logged with context",
+          "No unhandled promise rejections in auth middleware"
+        ],
+        "priority": "high",
+        "estimatedComplexity": "medium"
+      },
+      {
+        "step": 4,
+        "filePath": "server/routes/api/me.ts",
+        "description": "Wrap /api/me endpoint in try/catch with proper error handling. Handle database query failures, Clerk user lookup failures, and return appropriate HTTP status codes with structured error responses.",
+        "successCriteria": [
+          "Endpoint returns 200 with user data on success",
+          "Database errors return 503 with structured error",
+          "Auth errors return 401 with clear message",
+          "All promises properly awaited and errors caught"
+        ],
+        "priority": "high",
+        "estimatedComplexity": "low"
+      },
+      {
+        "step": 5,
+        "filePath": "server/routes/api/employees.ts",
+        "description": "Add comprehensive error handling to employees endpoint. Wrap database queries in try/catch, handle RBAC permission failures, add input validation with Zod, return proper status codes (200, 403, 503).",
+        "successCriteria": [
+          "Successful queries return 200 with employee data",
+          "Permission failures return 403 with clear message",
+          "Database failures return 503 with structured error",
+          "All database queries use parameterized inputs via Drizzle"
+        ],
+        "priority": "high",
+        "estimatedComplexity": "medium"
+      },
+      {
+        "step": 6,
+        "filePath": "server.ts",
+        "description": "Add global error handler middleware for Express, uncaughtException handler, unhandledRejection handler. Log all errors with structured context. Ensure server stays alive on non-fatal errors.",
+        "successCriteria": [
+          "Global error handler catches all unhandled Express errors",
+          "Process stays alive on handled errors",
+          "Uncaught exceptions logged with full stack trace",
+          "Unhandled promise rejections logged and don't crash server"
+        ],
+        "priority": "high",
+        "estimatedComplexity": "medium"
+      },
+      {
+        "step": 7,
+        "filePath": "server/utils/logger.ts",
+        "description": "Create structured logging utility to replace console.log. Support log levels (debug, info, warn, error), add context fields (requestId, userId, endpoint), integrate with error tracking.",
+        "successCriteria": [
+          "Logger exports debug, info, warn, error functions",
+          "All log entries include timestamp and level",
+          "Error logs include stack traces",
+          "Logger is imported and used in at least one fixed file"
+        ],
+        "priority": "medium",
+        "estimatedComplexity": "low"
+      },
+      {
+        "step": 8,
+        "filePath": "server/db/connection.ts",
+        "description": "Extract database connection logic into dedicated module with connection pooling config, health check function, graceful shutdown handler. Export singleton connection instance.",
+        "successCriteria": [
+          "Connection pool properly configured with min/max connections",
+          "Health check function tests database connectivity",
+          "Graceful shutdown closes connections on SIGTERM",
+          "Module exports stable singleton instance"
+        ],
+        "priority": "medium",
+        "estimatedComplexity": "medium"
+      }
+    ],
+    "verificationPages": [
+      "/health",
+      "/api/me",
+      "/api/employees",
+      "/",
+      "/schedule",
+      "/time-tracking"
+    ],
+    "completionCriteria": "All health check endpoints return 200 status. /api/me and /api/employees return successful responses for authenticated users. Zero unhandled promise rejections in server logs for 5 minutes of continuous operation. Database connection remains stable across 100 consecutive API requests."
+  },
   "solved": [],
   "history": [
     {
@@ -1017,6 +1156,146 @@
       ],
       "completionCriteria": "All protected API endpoints return 200 OK for authenticated users. No 401 Unauthorized errors in crawl results. Clock-in, schedule view, task list, and profile endpoints all functional.",
       "dismissedReason": "False positive from unauthenticated crawler"
+    },
+    {
+      "id": "constraint-1771530063014",
+      "description": "Critical authentication and database connection failures causing complete system unavailability",
+      "why": "Multiple 500 errors across core endpoints (/health, /api/me, /api/employees) indicate fundamental infrastructure failure. Without stable auth and database connectivity, ALL features (clock-in, scheduling, payroll) are completely blocked. This is a Severity 1 outage.",
+      "unblocks": [
+        "Users can successfully authenticate and access the application",
+        "Clock-in/out functionality becomes available",
+        "Employee scheduling and management features become usable",
+        "Task assignment system can function",
+        "Payroll reports can be generated",
+        "All downstream features dependent on working auth and database"
+      ],
+      "score": 10,
+      "category": "infrastructure",
+      "evidenceFromCrawl": [
+        "GET /health returned 500 - Application health check failing",
+        "GET /api/me returned 500 - User authentication endpoint failing",
+        "GET /api/employees returned 500 - Employee data retrieval failing",
+        "Multiple unhandled promise rejections in server logs",
+        "Database connection errors preventing all data operations"
+      ],
+      "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
+      "identifiedAt": "2026-02-19T19:41:03.014Z",
+      "status": "active",
+      "steps": [
+        {
+          "step": 1,
+          "filePath": "server/db/index.ts",
+          "description": "Add comprehensive error handling and connection retry logic to database initialization. Implement connection pooling configuration, timeout handling, and graceful degradation. Add structured logging for connection events.",
+          "successCriteria": [
+            "Database connection established successfully on server start",
+            "Connection errors logged with structured context",
+            "Retry logic attempts reconnection with exponential backoff",
+            "Connection pool metrics logged at startup"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 2,
+          "filePath": "server/routes/health.ts",
+          "description": "Implement proper health check endpoint with database connectivity test, Clerk auth service check, and graceful error responses. Return 503 (Service Unavailable) with detailed error info when dependencies fail instead of 500.",
+          "successCriteria": [
+            "Health endpoint returns 200 when all services are healthy",
+            "Health endpoint returns 503 with structured error when database is down",
+            "Health endpoint includes response time metrics",
+            "No unhandled promise rejections in health check"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 3,
+          "filePath": "server/middleware/auth.ts",
+          "description": "Add comprehensive error handling to Clerk authentication middleware. Catch and properly handle ClerkAPIError, network timeouts, and invalid tokens. Return 401 for auth failures, 503 for Clerk service unavailable.",
+          "successCriteria": [
+            "Authentication failures return proper 401 responses",
+            "Clerk service failures return 503 with retry-after header",
+            "All auth errors are caught and logged with context",
+            "No unhandled promise rejections in auth middleware"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 4,
+          "filePath": "server/routes/api/me.ts",
+          "description": "Wrap /api/me endpoint in try/catch with proper error handling. Handle database query failures, Clerk user lookup failures, and return appropriate HTTP status codes with structured error responses.",
+          "successCriteria": [
+            "Endpoint returns 200 with user data on success",
+            "Database errors return 503 with structured error",
+            "Auth errors return 401 with clear message",
+            "All promises properly awaited and errors caught"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 5,
+          "filePath": "server/routes/api/employees.ts",
+          "description": "Add comprehensive error handling to employees endpoint. Wrap database queries in try/catch, handle RBAC permission failures, add input validation with Zod, return proper status codes (200, 403, 503).",
+          "successCriteria": [
+            "Successful queries return 200 with employee data",
+            "Permission failures return 403 with clear message",
+            "Database failures return 503 with structured error",
+            "All database queries use parameterized inputs via Drizzle"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 6,
+          "filePath": "server.ts",
+          "description": "Add global error handler middleware for Express, uncaughtException handler, unhandledRejection handler. Log all errors with structured context. Ensure server stays alive on non-fatal errors.",
+          "successCriteria": [
+            "Global error handler catches all unhandled Express errors",
+            "Process stays alive on handled errors",
+            "Uncaught exceptions logged with full stack trace",
+            "Unhandled promise rejections logged and don't crash server"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 7,
+          "filePath": "server/utils/logger.ts",
+          "description": "Create structured logging utility to replace console.log. Support log levels (debug, info, warn, error), add context fields (requestId, userId, endpoint), integrate with error tracking.",
+          "successCriteria": [
+            "Logger exports debug, info, warn, error functions",
+            "All log entries include timestamp and level",
+            "Error logs include stack traces",
+            "Logger is imported and used in at least one fixed file"
+          ],
+          "priority": "medium",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 8,
+          "filePath": "server/db/connection.ts",
+          "description": "Extract database connection logic into dedicated module with connection pooling config, health check function, graceful shutdown handler. Export singleton connection instance.",
+          "successCriteria": [
+            "Connection pool properly configured with min/max connections",
+            "Health check function tests database connectivity",
+            "Graceful shutdown closes connections on SIGTERM",
+            "Module exports stable singleton instance"
+          ],
+          "priority": "medium",
+          "estimatedComplexity": "medium"
+        }
+      ],
+      "verificationPages": [
+        "/health",
+        "/api/me",
+        "/api/employees",
+        "/",
+        "/schedule",
+        "/time-tracking"
+      ],
+      "completionCriteria": "All health check endpoints return 200 status. /api/me and /api/employees return successful responses for authenticated users. Zero unhandled promise rejections in server logs for 5 minutes of continuous operation. Database connection remains stable across 100 consecutive API requests."
     }
   ],
   "failedAttempts": [
