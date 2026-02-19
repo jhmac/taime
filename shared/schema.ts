@@ -245,11 +245,32 @@ export const payrollPeriods = pgTable("payroll_periods", {
 export const userAvailability = pgTable("user_availability", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").references(() => users.id).notNull(),
-  payrollPeriodId: varchar("payroll_period_id").references(() => payrollPeriods.id).notNull(),
+  payrollPeriodId: varchar("payroll_period_id").references(() => payrollPeriods.id),
   date: timestamp("date").notNull(),
   timeSlot: varchar("time_slot").notNull(), // 'morning', 'afternoon', 'evening', 'overnight'
   isAvailable: boolean("is_available").default(true),
+  startTime: varchar("start_time"), // custom start time e.g. "09:00"
+  endTime: varchar("end_time"), // custom end time e.g. "17:00"
+  notes: text("notes"),
   submittedAt: timestamp("submitted_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Time-off requests
+export const timeOffRequests = pgTable("time_off_requests", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  type: varchar("type").notNull(), // 'vacation', 'sick', 'personal', 'unpaid', 'other'
+  status: varchar("status").notNull().default("pending"), // 'pending', 'approved', 'denied', 'cancelled'
+  startDate: timestamp("start_date").notNull(),
+  endDate: timestamp("end_date").notNull(),
+  allDay: boolean("all_day").default(true),
+  startTime: varchar("start_time"), // for partial day requests
+  endTime: varchar("end_time"),
+  reason: text("reason"),
+  adminNotes: text("admin_notes"),
+  reviewedBy: varchar("reviewed_by").references(() => users.id),
+  reviewedAt: timestamp("reviewed_at"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -653,6 +674,12 @@ export const insertUserAvailabilitySchema = createInsertSchema(userAvailability)
   submittedAt: true,
 });
 
+export const insertTimeOffRequestSchema = createInsertSchema(timeOffRequests).omit({
+  id: true,
+  createdAt: true,
+  reviewedAt: true,
+});
+
 export const insertPayPeriodSettingsSchema = createInsertSchema(payPeriodSettings).omit({
   id: true,
   createdAt: true,
@@ -734,6 +761,8 @@ export type Message = typeof messages.$inferSelect;
 export type InsertMessage = z.infer<typeof insertMessageSchema>;
 export type UserAvailability = typeof userAvailability.$inferSelect;
 export type InsertUserAvailability = z.infer<typeof insertUserAvailabilitySchema>;
+export type TimeOffRequest = typeof timeOffRequests.$inferSelect;
+export type InsertTimeOffRequest = z.infer<typeof insertTimeOffRequestSchema>;
 export type WorkLocation = typeof workLocations.$inferSelect;
 export type InsertWorkLocation = z.infer<typeof insertWorkLocationSchema>;
 export type PayrollPeriod = typeof payrollPeriods.$inferSelect;
