@@ -735,6 +735,60 @@ function createAdminDashboard(options = {}) {
       }
     });
 
+    let specsExecutionRunning = false;
+
+    app.post(`${basePath}/api/elon/execute-approved`, authMiddleware, (req, res) => {
+      if (specsExecutionRunning) {
+        return res.json({ status: 'already-running', message: 'Specs are already being executed' });
+      }
+
+      const apiKey = process.env.APPPILOT_ANTHROPIC_KEY || process.env.ANTHROPIC_API_KEY;
+      if (!apiKey) {
+        return res.json({ status: 'failed', message: 'No API key configured.' });
+      }
+
+      specsExecutionRunning = true;
+      res.json({ status: 'started', message: 'Executing approved specs...' });
+
+      const { executeApprovedSpecs } = require('../elon.js');
+      const budgetMax = parseFloat(process.env.ELON_BUDGET) || 5.0;
+
+      executeApprovedSpecs({
+        apiKey,
+        projectRoot,
+        dataDir,
+        budgetMax,
+        memory: memoryStore,
+        onProgress: (phase, message, detail, type) => {
+          pushActivity(type === 'thinking' ? 'heartbeat' : type === 'error' ? 'error' : type === 'success' ? 'success' : 'info', message);
+          if (elonProgress.steps) {
+            elonProgress.steps.push({
+              id: 'exec-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+              phase, message, detail: detail || null, type: type || 'info',
+              timestamp: new Date().toISOString(), duration: null,
+            });
+            if (elonProgress.steps.length > 200) elonProgress.steps = elonProgress.steps.slice(-150);
+          }
+        },
+      }).then(result => {
+        specsExecutionRunning = false;
+        pushActivity('success', `Specs execution complete: ${result.succeeded} succeeded, ${result.failed} failed`);
+        if (memoryStore) {
+          memoryStore.logDaily(`ELON specs execution: ${result.succeeded} succeeded, ${result.failed} failed, $${(result.budgetUsed || 0).toFixed(2)} spent`);
+        }
+      }).catch(err => {
+        specsExecutionRunning = false;
+        pushActivity('error', `Specs execution failed: ${err.message}`);
+        if (memoryStore) {
+          memoryStore.logDaily(`ELON specs execution failed: ${err.message}`);
+        }
+      });
+    });
+
+    app.get(`${basePath}/api/elon/execution-status`, authMiddleware, (req, res) => {
+      res.json({ running: specsExecutionRunning });
+    });
+
     app.post(`${basePath}/api/stop/discovery`, authMiddleware, stopDiscovery);
     app.post(`${basePath}/api/stop/continuous`, authMiddleware, stopContinuous);
     app.post(`${basePath}/api/stop/all`, authMiddleware, stopAll);

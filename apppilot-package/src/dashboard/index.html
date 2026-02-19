@@ -979,6 +979,19 @@
       </div>
     </div>
 
+    <div class="elon-pending-section" id="elon-execute-section" style="display:none">
+      <div class="elon-pending-header">
+        <div>
+          <strong>Approved Specs Queue</strong>
+          <span class="elon-pending-count" id="elon-approved-count">0</span>
+        </div>
+        <div class="elon-pending-actions">
+          <button class="btn-approve-all" id="btn-execute-approved" onclick="executeApprovedSpecs()" style="background:#2563eb">▶ Execute Approved Specs</button>
+        </div>
+      </div>
+      <div id="elon-execution-status" style="padding:8px 12px;font-size:0.78rem;color:var(--text-muted);display:none"></div>
+    </div>
+
     <div class="live-log active" id="live-log">
       <div class="live-log-header">
         <span><span class="live-dot"></span>Live Activity</span>
@@ -1642,6 +1655,7 @@
       try {
         await apiFetch('/elon/pending/' + encodeURIComponent(id) + '/approve', { method: 'POST' });
         loadPendingSpecs();
+        loadApprovedQueue();
       } catch (err) {
         alert('Failed to approve: ' + err.message);
       }
@@ -1660,8 +1674,59 @@
       try {
         await apiFetch('/elon/pending/approve-all', { method: 'POST' });
         loadPendingSpecs();
+        loadApprovedQueue();
       } catch (err) {
         alert('Failed to approve all: ' + err.message);
+      }
+    }
+
+    async function loadApprovedQueue() {
+      try {
+        const data = await apiFetch('/queue');
+        const approved = data.approved || [];
+        const section = document.getElementById('elon-execute-section');
+        const countEl = document.getElementById('elon-approved-count');
+        countEl.textContent = approved.length;
+        section.style.display = approved.length > 0 ? 'block' : 'none';
+
+        const execStatus = await apiFetch('/elon/execution-status');
+        const btn = document.getElementById('btn-execute-approved');
+        const statusEl = document.getElementById('elon-execution-status');
+        if (execStatus.running) {
+          btn.disabled = true;
+          btn.textContent = '⟳ Executing...';
+          btn.style.opacity = '0.6';
+          statusEl.style.display = 'block';
+          statusEl.textContent = 'Specs are being executed. Check Live Activity for progress.';
+        } else {
+          btn.disabled = false;
+          btn.textContent = '▶ Execute Approved Specs';
+          btn.style.opacity = '1';
+          statusEl.style.display = 'none';
+        }
+      } catch {}
+    }
+
+    async function executeApprovedSpecs() {
+      try {
+        const btn = document.getElementById('btn-execute-approved');
+        btn.disabled = true;
+        btn.textContent = '⟳ Starting...';
+        btn.style.opacity = '0.6';
+        const statusEl = document.getElementById('elon-execution-status');
+        statusEl.style.display = 'block';
+        statusEl.textContent = 'Starting execution of approved specs...';
+
+        await apiFetch('/elon/execute-approved', { method: 'POST' });
+
+        btn.textContent = '⟳ Executing...';
+        statusEl.textContent = 'Specs are being executed. Check Live Activity for progress.';
+      } catch (err) {
+        alert('Failed to start execution: ' + err.message);
+        const btn = document.getElementById('btn-execute-approved');
+        btn.disabled = false;
+        btn.textContent = '▶ Execute Approved Specs';
+        btn.style.opacity = '1';
       }
     }
 
@@ -1893,7 +1958,9 @@
     setInterval(refreshAll, 30000);
     setInterval(loadElonProgress, 2000);
     loadPendingSpecs();
+    loadApprovedQueue();
     setInterval(loadPendingSpecs, 10000);
+    setInterval(loadApprovedQueue, 8000);
     setInterval(loadElonReport, 60000);
     setInterval(loadLiveLog, 5000);
     updateRunningStatus();

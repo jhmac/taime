@@ -811,6 +811,80 @@ function approveAllSpecs(dataDir) {
   return { success: true, approved, total: specs.length };
 }
 
+async function executeApprovedSpecs(config) {
+  const {
+    apiKey,
+    projectRoot = process.cwd(),
+    dataDir = path.join(projectRoot, '.apppilot'),
+    budgetMax = 5.0,
+    memory = null,
+    onProgress = null,
+  } = config;
+
+  const context = loadContext(projectRoot);
+  const specBudget = { spent: 0, max: budgetMax };
+  const approvedDir = path.join(dataDir, 'approved-queue');
+  const log = _createLogger(memory);
+  const progress = (phase, message, detail, type) => {
+    log(message);
+    if (onProgress) onProgress(phase, message, detail, type || 'info');
+  };
+
+  if (!fs.existsSync(approvedDir)) {
+    return { status: 'no-specs', executed: 0, succeeded: 0, failed: 0, budgetUsed: 0 };
+  }
+
+  const specFiles = fs.readdirSync(approvedDir)
+    .filter(f => f.endsWith('.json'))
+    .sort();
+
+  if (specFiles.length === 0) {
+    return { status: 'no-specs', executed: 0, succeeded: 0, failed: 0, budgetUsed: 0 };
+  }
+
+  progress('executing', `Executing ${specFiles.length} approved specs...`, { total: specFiles.length }, 'thinking');
+
+  let executed = 0;
+  let succeeded = 0;
+  let failed = 0;
+
+  for (const specFile of specFiles) {
+    if (specBudget.spent >= specBudget.max) {
+      progress('budget-limit', `Budget limit reached ($${specBudget.spent.toFixed(2)}/$${specBudget.max.toFixed(2)})`, null, 'warning');
+      break;
+    }
+    if (_isStopRequested(dataDir)) {
+      progress('stopped', 'Execution stopped by user', null, 'warning');
+      break;
+    }
+
+    const specPath = path.join(approvedDir, specFile);
+    try {
+      progress('spec-executing', `Executing: ${specFile}`, { file: specFile }, 'thinking');
+      const loopResult = await executeRalphLoop(specPath, context, specBudget, {
+        projectRoot, dataDir, memory, apiKey,
+        identityDir: projectRoot, templatesDir: TEMPLATES_DIR,
+      });
+      executed++;
+      if (loopResult.status === 'completed' || loopResult.status === 'success') {
+        succeeded++;
+        progress('spec-done', `Spec completed: ${specFile}`, { file: specFile, status: loopResult.status }, 'success');
+      } else {
+        failed++;
+        progress('spec-failed', `Spec finished with status ${loopResult.status}: ${specFile}`, { file: specFile, status: loopResult.status }, 'warning');
+      }
+    } catch (err) {
+      executed++;
+      failed++;
+      progress('spec-error', `Spec failed: ${specFile} — ${err.message}`, { file: specFile, error: err.message }, 'error');
+    }
+  }
+
+  progress('complete', `Execution complete: ${succeeded} succeeded, ${failed} failed out of ${executed} executed. Budget: $${specBudget.spent.toFixed(2)}`, { executed, succeeded, failed, budgetUsed: specBudget.spent }, 'success');
+
+  return { status: 'completed', executed, succeeded, failed, budgetUsed: specBudget.spent };
+}
+
 module.exports = {
   runElonCycle,
   runElonLoop,
@@ -822,4 +896,5 @@ module.exports = {
   approveSpec,
   rejectSpec,
   approveAllSpecs,
+  executeApprovedSpecs,
 };
