@@ -1,0 +1,14 @@
+{
+  "filePath": "server/routes/tasks.ts",
+  "description": "[ELON] Enable task creation for admins — verify POST /api/tasks has correct permission checks and accepts valid task payloads",
+  "successCriteria": [
+    "Admin role can create tasks via POST /api/tasks",
+    "Valid task payload passes Zod validation",
+    "Task is saved to database and returns 201 with created task object"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771530238574",
+  "priority": "high",
+  "step": 6,
+  "blockedCategory": "permissions"
+}

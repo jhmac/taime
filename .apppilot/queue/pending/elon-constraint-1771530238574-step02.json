@@ -1,0 +1,14 @@
+{
+  "filePath": "server/routes/auth.ts",
+  "description": "[ELON] Fix session endpoint to properly return Clerk session data — ensure GET /api/auth/session returns user object with role and permissions, not 401",
+  "successCriteria": [
+    "GET /api/auth/session returns 200 with user data when authenticated",
+    "Response includes userId, role, and permissions array",
+    "Unauthenticated requests return 401 with proper error shape"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771530238574",
+  "priority": "high",
+  "step": 2,
+  "blockedCategory": "auth"
+}

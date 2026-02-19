@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-02-19T19:40:31.093Z",
+  "timestamp": "2026-02-19T19:43:26.534Z",
   "pagesVisited": 1,
   "errors": [
     {
@@ -20,13 +20,6 @@
       "url": "http://localhost:5000",
       "stack": "SyntaxError: Failed to construct 'WebSocket': The URL 'ws://localhost:undefined/?token=8_j91QP7YubU' is invalid.\n    at setupWebSocket (http://localhost:5000/@vite/client:536:19)\n    at fallback (http://localhost:5000/@vite/client:509:16)\n    at WebSocket.<anonymous> (http://localhost:5000/@vite/client:555:7)",
       "severity": "high"
-    },
-    {
-      "type": "slow-page",
-      "message": "Page took 9165ms to load",
-      "url": "http://localhost:5000",
-      "loadTime": 9165,
-      "severity": "medium"
     }
   ],
   "authenticated": false,
@@ -35,13 +28,6 @@
       "type": "request-failed",
       "message": "GET https://replit.com/public/js/replit-dev-banner.js failed: net::ERR_BLOCKED_BY_ORB",
       "url": "https://replit.com/public/js/replit-dev-banner.js",
-      "severity": "medium"
-    },
-    {
-      "type": "slow-page",
-      "message": "Page took 9165ms to load",
-      "url": "http://localhost:5000",
-      "loadTime": 9165,
       "severity": "medium"
     },
     {

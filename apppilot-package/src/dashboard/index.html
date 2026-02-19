@@ -291,8 +291,11 @@
       display: flex;
       align-items: center;
       gap: 8px;
-      margin-left: auto;
       font-size: 0.75rem;
+      width: 100%;
+      margin-top: 8px;
+      padding-top: 10px;
+      border-top: 1px solid var(--card-border);
     }
     .crawler-auth-status {
       display: inline-flex;
@@ -920,7 +923,7 @@
   <div class="topbar">
     <div class="topbar-left">
       <h1 id="agent-name">AppPilot</h1>
-      <span id="status-badge" class="badge badge-healthy">Healthy</span>
+      <span id="status-badge" class="badge badge-healthy" title="System health based on recent error count"></span>
     </div>
     <div class="topbar-right">
       <span id="last-heartbeat">Last heartbeat: --</span>
@@ -1168,8 +1171,20 @@
         document.getElementById('agent-name').textContent = data.agentName || 'AppPilot';
 
         const badge = document.getElementById('status-badge');
-        badge.className = 'badge badge-' + (data.status || 'healthy');
-        badge.textContent = (data.status || 'healthy').charAt(0).toUpperCase() + (data.status || 'healthy').slice(1);
+        const statusVal = data.status || 'healthy';
+        badge.className = 'badge badge-' + statusVal;
+        const statusLabels = {
+          healthy: 'Healthy',
+          degraded: 'Issues Found',
+          alert: 'Alert',
+        };
+        const statusTips = {
+          healthy: 'All systems operating normally',
+          degraded: 'ELON found unresolved issues — review the constraint list below',
+          alert: 'Critical issue detected — immediate attention needed',
+        };
+        badge.textContent = statusLabels[statusVal] || statusVal.charAt(0).toUpperCase() + statusVal.slice(1);
+        badge.title = statusTips[statusVal] || '';
 
         if (data.lastHeartbeat) {
           document.getElementById('last-heartbeat').textContent = 'Last heartbeat: ' + new Date(data.lastHeartbeat).toLocaleString();

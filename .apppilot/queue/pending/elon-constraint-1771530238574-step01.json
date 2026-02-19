@@ -1,0 +1,14 @@
+{
+  "filePath": "server/middleware/auth.ts",
+  "description": "[ELON] Audit Clerk middleware integration — verify clerkMiddleware is properly configured, check if requireAuth() is blocking legitimate requests, ensure session tokens are being validated correctly",
+  "successCriteria": [
+    "Middleware logs show successful session validation",
+    "Test user can authenticate and receive valid session token",
+    "Auth middleware passes requests with valid Clerk tokens"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771530238574",
+  "priority": "high",
+  "step": 1,
+  "blockedCategory": "auth"
+}
