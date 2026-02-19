@@ -15,6 +15,8 @@ function createAdminDashboard(options = {}) {
     basePath = '/apppilot',
   } = options;
 
+  let specsFixesApplied = 0;
+
   const owner = new OwnerVerification(ownerConfig);
   const rateLimiter = new AuthRateLimiter(
     ownerConfig.maxAuthAttempts || 10,
@@ -88,7 +90,7 @@ function createAdminDashboard(options = {}) {
       status: _computeStatus(knownErrors, identityProtection),
       lastHeartbeat: lastHeartbeat ? lastHeartbeat.timestamp || lastHeartbeat.details?.timestamp : null,
       stats: {
-        fixesApplied: knownErrors.errors.filter(e => e.status === 'resolved').length,
+        fixesApplied: knownErrors.errors.filter(e => e.status === 'resolved').length + (specsFixesApplied || 0),
         errorsToday: _countErrorsToday(knownErrors),
         p95: stats.p95 || 0,
         heartbeatsCompleted: _countHeartbeats(memoryStore),
@@ -700,28 +702,53 @@ function createAdminDashboard(options = {}) {
       const apiKey = process.env.APPPILOT_ANTHROPIC_KEY || process.env.ANTHROPIC_API_KEY;
       if (!apiKey) return;
       specsExecutionRunning = true;
-      pushActivity('info', 'Auto-executing approved specs...');
       const { executeApprovedSpecs } = require('../elon.js');
       const budgetMax = parseFloat(process.env.ELON_BUDGET) || 5.0;
+
+      const approvedDir = path.join(dataDir, 'approved-queue');
+      let specCount = 0;
+      try { specCount = fs.readdirSync(approvedDir).filter(f => f.endsWith('.json')).length; } catch {}
+
+      elonProgress.running = true;
+      elonProgress.phase = 'executing-specs';
+      elonProgress.startedAt = new Date().toISOString();
+      elonProgress.budget = { spent: 0, max: budgetMax };
+      elonProgress.cycle = 0;
+      elonProgress.maxCycles = specCount;
+      pushActivity('info', `Executing ${specCount} approved specs, $${budgetMax.toFixed(2)} budget`);
+
       executeApprovedSpecs({
         apiKey, projectRoot, dataDir, budgetMax, memory: memoryStore,
         onProgress: (phase, message, detail, type) => {
           pushActivity(type === 'thinking' ? 'heartbeat' : type === 'error' ? 'error' : type === 'success' ? 'success' : 'info', message);
-          if (elonProgress.steps) {
-            elonProgress.steps.push({
-              id: 'exec-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
-              phase, message, detail: detail || null, type: type || 'info',
-              timestamp: new Date().toISOString(), duration: null,
-            });
-            if (elonProgress.steps.length > 200) elonProgress.steps = elonProgress.steps.slice(-150);
+          if (detail && detail.budget !== undefined) {
+            elonProgress.budget.spent = detail.budget;
           }
+          if (phase === 'spec-done') {
+            elonProgress.cycle++;
+            specsFixesApplied++;
+          }
+          if (phase === 'spec-failed' || phase === 'spec-error') {
+            elonProgress.cycle++;
+          }
+          elonProgress.steps.push({
+            id: 'exec-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+            phase, message, detail: detail || null, type: type || 'info',
+            timestamp: new Date().toISOString(), duration: null,
+          });
+          if (elonProgress.steps.length > 200) elonProgress.steps = elonProgress.steps.slice(-150);
         },
       }).then(result => {
         specsExecutionRunning = false;
-        pushActivity('success', `Specs execution complete: ${result.succeeded} succeeded, ${result.failed} failed`);
+        elonProgress.running = false;
+        elonProgress.phase = 'complete';
+        elonProgress.budget.spent = result.budgetUsed || 0;
+        pushActivity('success', `Specs execution complete: ${result.succeeded} succeeded, ${result.failed} failed, $${(result.budgetUsed || 0).toFixed(2)} spent`);
         if (memoryStore) memoryStore.logDaily(`ELON specs auto-execution: ${result.succeeded} succeeded, ${result.failed} failed, $${(result.budgetUsed || 0).toFixed(2)} spent`);
       }).catch(err => {
         specsExecutionRunning = false;
+        elonProgress.running = false;
+        elonProgress.phase = 'error';
         pushActivity('error', `Specs execution failed: ${err.message}`);
         if (memoryStore) memoryStore.logDaily(`ELON specs auto-execution failed: ${err.message}`);
       });

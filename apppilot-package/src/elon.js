@@ -765,7 +765,6 @@ function listPendingSpecs(dataDir) {
   try {
     return fs.readdirSync(pendingDir)
       .filter(f => f.endsWith('.json'))
-      .sort()
       .map(f => {
         try {
           const content = JSON.parse(fs.readFileSync(path.join(pendingDir, f), 'utf-8'));
@@ -773,7 +772,8 @@ function listPendingSpecs(dataDir) {
         } catch {
           return { id: f.replace('.json', ''), filename: f, error: 'parse_failed' };
         }
-      });
+      })
+      .sort((a, b) => (b.constraint?.score || b.score || 0) - (a.constraint?.score || a.score || 0));
   } catch {
     return [];
   }
@@ -836,7 +836,14 @@ async function executeApprovedSpecs(config) {
 
   const specFiles = fs.readdirSync(approvedDir)
     .filter(f => f.endsWith('.json'))
-    .sort();
+    .map(f => {
+      try {
+        const spec = JSON.parse(fs.readFileSync(path.join(approvedDir, f), 'utf8'));
+        return { file: f, score: spec.constraint?.score || spec.score || 0 };
+      } catch { return { file: f, score: 0 }; }
+    })
+    .sort((a, b) => b.score - a.score)
+    .map(s => s.file);
 
   if (specFiles.length === 0) {
     return { status: 'no-specs', executed: 0, succeeded: 0, failed: 0, budgetUsed: 0 };

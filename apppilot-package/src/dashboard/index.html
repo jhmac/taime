@@ -139,7 +139,7 @@
 
     .feed-list {
       list-style: none;
-      max-height: 600px;
+      max-height: 900px;
       overflow-y: auto;
     }
     .feed-item {
@@ -1116,6 +1116,29 @@
 
     let elonBudget = null;
     let elonSpent = 0;
+    let progressBudgetMax = null;
+    let progressBudgetSpent = null;
+
+    function updateBudgetTracker() {
+      const tracker = document.getElementById('budget-tracker');
+      const totalBudget = progressBudgetMax || elonBudget;
+      const spent = progressBudgetSpent !== null ? progressBudgetSpent : elonSpent;
+      if (totalBudget !== null && totalBudget > 0) {
+        const remaining = Math.max(0, totalBudget - spent).toFixed(2);
+        const exhausted = spent >= totalBudget;
+        const remColor = exhausted ? 'var(--red)' : '#2ee66a';
+        tracker.style.display = 'inline-flex';
+        tracker.style.alignItems = 'center';
+        tracker.style.gap = '0';
+        tracker.style.padding = '0';
+        tracker.style.background = 'none';
+        tracker.innerHTML =
+          '<span style="color:#2ee66a;background:rgba(46,230,106,0.12);padding:2px 8px;border-radius:4px 0 0 4px">$' + totalBudget.toFixed(2) + '</span>' +
+          '<span style="color:' + remColor + ';background:' + (exhausted ? 'rgba(248,81,73,0.12)' : 'rgba(46,230,106,0.08)') + ';padding:2px 8px;border-radius:0 4px 4px 0;border-left:1px solid rgba(255,255,255,0.1)">Remaining: $' + remaining + '</span>';
+      } else {
+        tracker.style.display = 'none';
+      }
+    }
 
     function extractCost(message) {
       if (!message) return null;
@@ -1186,22 +1209,7 @@
         }
         costMap.reverse();
 
-        const tracker = document.getElementById('budget-tracker');
-        if (elonBudget !== null) {
-          const remaining = Math.max(0, elonBudget - elonSpent).toFixed(2);
-          const exhausted = elonSpent >= elonBudget;
-          const remColor = exhausted ? 'var(--red)' : '#2ee66a';
-          tracker.style.display = 'inline-flex';
-          tracker.style.alignItems = 'center';
-          tracker.style.gap = '0';
-          tracker.style.padding = '0';
-          tracker.style.background = 'none';
-          tracker.innerHTML =
-            '<span style="color:#2ee66a;background:rgba(46,230,106,0.12);padding:2px 8px;border-radius:4px 0 0 4px">$' + elonBudget.toFixed(2) + '</span>' +
-            '<span style="color:' + remColor + ';background:' + (exhausted ? 'rgba(248,81,73,0.12)' : 'rgba(46,230,106,0.08)') + ';padding:2px 8px;border-radius:0 4px 4px 0;border-left:1px solid rgba(255,255,255,0.1)">Remaining: $' + remaining + '</span>';
-        } else {
-          tracker.style.display = 'none';
-        }
+        updateBudgetTracker();
 
         list.innerHTML = display.map((item, i) => {
           const type = item.type || 'info';
@@ -1280,19 +1288,22 @@
           ...qApproved.map(s => ({
             name: s.title || s.action || s.filename || s.id,
             cost: s.estimatedCost || '~$0.02',
+            score: s.constraint?.score || s.score || 0,
             source: 'approved',
           })),
           ...ePending.map(s => ({
             name: s.title || s.action || s.filename || s.id,
             cost: '~$0.02',
+            score: s.constraint?.score || s.score || 0,
             source: 'pending',
           })),
           ...qPending.map(item => ({
             name: item.title || item.action || item.id,
             cost: item.estimatedCost || '~$0.02',
+            score: 0,
             source: 'pending',
           })),
-        ];
+        ].sort((a, b) => b.score - a.score);
 
         if (tasks.length === 0) {
           container.innerHTML = '<div class="empty">No upcoming tasks</div>';
@@ -1612,11 +1623,13 @@
           const desc = spec.description || 'No description';
           const cat = spec.blockedCategory || 'unknown';
           const filePath = spec.filePath || '';
+          const score = spec.constraint?.score || spec.score || 0;
           const criteria = (spec.successCriteria || []).join(', ');
           return '<div class="elon-pending-item">' +
             '<div class="elon-pending-info">' +
               '<div class="elon-pending-desc">' + esc(desc) + '</div>' +
               '<div class="elon-pending-meta">' +
+                (score > 0 ? '<span style="color:' + (score >= 7 ? 'var(--red)' : score >= 4 ? 'var(--yellow)' : 'var(--green)') + ';font-size:0.65rem;font-weight:600">' + score + '/10</span>' : '') +
                 '<span class="elon-pending-cat">' + esc(cat) + '</span>' +
                 (filePath ? '<span class="elon-pending-file">' + esc(filePath) + '</span>' : '') +
               '</div>' +
@@ -1722,6 +1735,12 @@
         const barContainer = document.getElementById('elon-progress-bar-container');
         const bar = document.getElementById('elon-progress-bar');
         const stepsEl = document.getElementById('elon-steps');
+
+        if (data.budget && data.budget.max > 0) {
+          progressBudgetMax = data.budget.max;
+          progressBudgetSpent = data.budget.spent || 0;
+          updateBudgetTracker();
+        }
 
         dot.className = 'elon-status-dot ' + (data.running ? 'running' : data.phase === 'complete' ? 'complete' : data.phase === 'error' ? 'error' : '');
         phaseEl.textContent = data.phase.replace(/-/g, ' ');
