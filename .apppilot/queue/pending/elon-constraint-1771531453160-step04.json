@@ -1,0 +1,15 @@
+{
+  "filePath": "shared/schema/webhook-log.ts",
+  "description": "[ELON] Create webhook_log table schema: id, webhookId (from Shopify), topic, shopDomain, receivedAt, processedAt, status (pending/success/failed), retryCount, errorMessage, payload (JSONB). Create dead_letter_queue table: id, webhookId, topic, failedAt, payload, lastError.",
+  "successCriteria": [
+    "webhook_log table schema defined in Drizzle",
+    "dead_letter_queue table schema defined",
+    "Both tables have indexes on webhookId and receivedAt",
+    "Payload stored as JSONB for queryability"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771531453160",
+  "priority": "high",
+  "step": 4,
+  "blockedCategory": "database"
+}

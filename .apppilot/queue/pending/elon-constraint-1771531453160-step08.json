@@ -1,0 +1,16 @@
+{
+  "filePath": "client/src/pages/admin/ShopifySyncDashboard.tsx",
+  "description": "[ELON] Create admin dashboard page showing: webhook health (success rate, failures, last received), dead letter queue items (table with retry button), reconciliation status (last run, discrepancies). Only visible to Owner/Admin roles.",
+  "successCriteria": [
+    "Dashboard displays webhook health metrics",
+    "Dead letter queue items shown in table",
+    "Retry button triggers manual webhook reprocessing",
+    "Page requires Owner or Admin role",
+    "Data refreshes every 30s via polling"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771531453160",
+  "priority": "medium",
+  "step": 8,
+  "blockedCategory": "permissions"
+}

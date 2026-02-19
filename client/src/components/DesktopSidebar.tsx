@@ -11,7 +11,9 @@ const generalNavItems = [
   { path: '/availability', icon: 'fas fa-clock', label: 'Availability' },
   { path: '/communication', icon: 'fas fa-comments', label: 'Messages' },
   { path: '/learning', icon: 'fas fa-graduation-cap', label: 'Learning' },
-];
+  { path: '/requests', icon: 'fas fa-file-alt', label: 'Requests', employeeOnly: true },
+  { path: '/team-directory', icon: 'fas fa-users', label: 'Team', employeeOnly: true },
+] as const;
 
 const managementNavItems = [
   { path: '/tasks', icon: 'fas fa-clipboard-list', label: 'Tasks', permission: 'tasks.view_all' },
@@ -81,9 +83,11 @@ export default function DesktopSidebar() {
       </div>
 
       <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
-        {generalNavItems.map(item => (
-          <NavButton key={item.path} {...item} />
-        ))}
+        {generalNavItems
+          .filter(item => !('employeeOnly' in item && item.employeeOnly) || !isAdmin)
+          .map(item => (
+            <NavButton key={item.path} path={item.path} icon={item.icon} label={item.label} />
+          ))}
 
         {showManagement && (
           <>

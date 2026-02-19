@@ -26,6 +26,11 @@ import TaskManagement from "@/pages/TaskManagement";
 import Analytics from "@/pages/Analytics";
 import Performance from "@/pages/Performance";
 import Learning from "@/pages/Learning";
+import MoreMenu from "@/pages/MoreMenu";
+import Requests from "@/pages/Requests";
+import TeamDirectory from "@/pages/TeamDirectory";
+import EmployeeSettings from "@/pages/EmployeeSettings";
+import SupportPage from "@/pages/Support";
 import NotFound from "@/pages/not-found";
 import OfflineIndicator from "@/components/OfflineIndicator";
 import SmartClockPrompt from "@/components/SmartClockPrompt";
@@ -194,6 +199,11 @@ function AuthenticatedApp() {
       </Route>
       <Route path="/performance" component={Performance} />
       <Route path="/learning" component={Learning} />
+      <Route path="/more" component={MoreMenu} />
+      <Route path="/requests" component={Requests} />
+      <Route path="/team-directory" component={TeamDirectory} />
+      <Route path="/employee-settings" component={EmployeeSettings} />
+      <Route path="/support" component={SupportPage} />
       <Route path="/admin">
         <ProtectedRoute permission="admin.manage_all"><AdminSettings /></ProtectedRoute>
       </Route>

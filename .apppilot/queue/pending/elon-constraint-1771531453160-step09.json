@@ -1,0 +1,15 @@
+{
+  "filePath": "server/integrations/shopify/webhooks.ts",
+  "description": "[ELON] Add webhook signature verification using Shopify HMAC. Verify X-Shopify-Hmac-SHA256 header against computed HMAC of raw request body. Reject webhooks with invalid signatures (log as security event). Prevents spoofed webhooks.",
+  "successCriteria": [
+    "All webhooks verify HMAC signature before processing",
+    "Invalid signatures rejected with 401 status",
+    "Invalid signatures logged as security events",
+    "Valid signatures processed normally"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771531453160",
+  "priority": "high",
+  "step": 9,
+  "blockedCategory": "security"
+}

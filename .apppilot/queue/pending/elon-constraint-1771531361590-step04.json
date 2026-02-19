@@ -1,0 +1,15 @@
+{
+  "filePath": "server/middleware/rbac.ts",
+  "description": "[ELON] Audit RBAC middleware — verify permission checks use correct Clerk user metadata structure and role/permission lookups work",
+  "successCriteria": [
+    "requirePermission() middleware exists and checks Clerk metadata",
+    "Role hierarchy (Owner > Admin > Employee) is enforced",
+    "Permission checks return 403 with clear error messages",
+    "Permission list matches GOALS.md (30+ permissions)"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771531361590",
+  "priority": "high",
+  "step": 4,
+  "blockedCategory": "permissions"
+}

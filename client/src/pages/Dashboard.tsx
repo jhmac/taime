@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
+import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -11,7 +12,7 @@ import ChoresWidget from '@/components/ChoresWidget';
 import TeamActivityFeed from '@/components/TeamActivityFeed';
 import AIInsightsWidget from '@/components/AIInsightsWidget';
 import AIChatModal from '@/components/AIChatModal';
-import type { UserWithRole } from '@shared/schema';
+import type { UserWithRole, Schedule } from '@shared/schema';
 
 export default function Dashboard() {
   const { user } = useAuth() as { user: UserWithRole | undefined, isLoading: boolean, isAuthenticated: boolean, error: any };
@@ -21,16 +22,14 @@ export default function Dashboard() {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [showAIChat, setShowAIChat] = useState(false);
 
+  const { data: schedules = [] } = useQuery<Schedule[]>({
+    queryKey: ['/api/schedules'],
+  });
+
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
-
-  const formatTime = (date: Date) =>
-    date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true });
-
-  const formatDate = (date: Date) =>
-    date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
 
   const getGreeting = () => {
     const hour = currentTime.getHours();
@@ -38,6 +37,144 @@ export default function Dashboard() {
     if (hour < 17) return 'Good afternoon';
     return 'Good evening';
   };
+
+  const myUpcomingShifts = schedules
+    .filter(s => s.userId === user?.id && new Date(s.startTime) >= new Date())
+    .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
+    .slice(0, 3);
+
+  const hasUpcomingShifts = myUpcomingShifts.length > 0;
+
+  if (isMobile) {
+    return (
+      <div className="min-h-full bg-background">
+        <div className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground p-5 rounded-b-2xl">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center text-sm font-semibold">
+                {user?.profileImageUrl ? (
+                  <img src={user.profileImageUrl} alt="" className="w-10 h-10 rounded-full object-cover" />
+                ) : (
+                  `${(user?.firstName || '')[0] || ''}${(user?.lastName || '')[0] || ''}`
+                )}
+              </div>
+              <div>
+                <h1 className="text-base font-bold">Dashboard</h1>
+              </div>
+            </div>
+            <Button
+              onClick={() => setShowAIChat(true)}
+              size="icon"
+              className="bg-white/20 hover:bg-white/30 text-white rounded-full h-9 w-9"
+            >
+              <i className="fas fa-robot text-sm"></i>
+            </Button>
+          </div>
+          <div className="text-center py-2">
+            <p className="text-sm opacity-80 mb-2">{getGreeting()}</p>
+            <TimeClockWidget />
+          </div>
+        </div>
+
+        <div className="p-4 space-y-4">
+          <Card>
+            <CardContent className="p-4">
+              <h3 className="text-sm font-semibold mb-1">My earnings</h3>
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-bold">$0.00</span>
+                <span className="text-xs text-muted-foreground">This pay period</span>
+              </div>
+              <button
+                onClick={() => navigate('/payroll')}
+                className="text-sm text-primary font-medium mt-3 flex items-center gap-2"
+              >
+                View earnings details <i className="fas fa-chevron-right text-xs"></i>
+              </button>
+            </CardContent>
+          </Card>
+
+          {hasUpcomingShifts ? (
+            <Card>
+              <CardContent className="p-4">
+                <h3 className="text-sm font-semibold mb-3">Upcoming shifts</h3>
+                <div className="space-y-2">
+                  {myUpcomingShifts.map(shift => (
+                    <div key={shift.id} className="flex items-center gap-3 p-2 bg-muted/30 rounded-lg">
+                      <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                        <i className="fas fa-calendar-day text-primary text-sm"></i>
+                      </div>
+                      <div className="flex-1">
+                        <div className="text-sm font-medium">
+                          {new Date(shift.startTime).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {new Date(shift.startTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })} -
+                          {new Date(shift.endTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <button
+                  onClick={() => navigate('/schedules')}
+                  className="text-sm text-primary font-medium mt-3 flex items-center gap-2"
+                >
+                  View all shifts <i className="fas fa-chevron-right text-xs"></i>
+                </button>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardContent className="p-6 text-center">
+                <div className="mx-auto w-20 h-20 mb-3 opacity-30">
+                  <svg viewBox="0 0 100 100" className="w-full h-full text-muted-foreground">
+                    <rect x="10" y="10" width="30" height="30" rx="3" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="5,3" />
+                    <rect x="45" y="25" width="30" height="30" rx="3" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="5,3" />
+                    <rect x="25" y="50" width="30" height="30" rx="3" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="5,3" />
+                  </svg>
+                </div>
+                <h3 className="text-base font-bold mb-1">No upcoming shifts</h3>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Nice, time to rest! Or time to update your availability
+                </p>
+                <Button
+                  onClick={() => navigate('/availability')}
+                  className="rounded-full px-6"
+                >
+                  Update availability
+                </Button>
+                <button
+                  onClick={() => navigate('/schedules')}
+                  className="text-sm text-primary font-medium mt-4 flex items-center gap-2 mx-auto"
+                >
+                  View all shifts <i className="fas fa-chevron-right text-xs"></i>
+                </button>
+              </CardContent>
+            </Card>
+          )}
+
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between mb-1">
+                <h3 className="text-sm font-semibold">Cheer on your team</h3>
+              </div>
+              <p className="text-sm text-muted-foreground mb-3">
+                Give a shout out to a teammate who went above and beyond.
+              </p>
+              <button
+                onClick={() => navigate('/communication')}
+                className="text-sm text-primary font-medium flex items-center gap-2"
+              >
+                Give a shout out <i className="fas fa-chevron-right text-xs"></i>
+              </button>
+            </CardContent>
+          </Card>
+        </div>
+
+        <AIChatModal isOpen={showAIChat} onClose={() => setShowAIChat(false)} />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-full bg-background">
@@ -48,7 +185,7 @@ export default function Dashboard() {
               {getGreeting()}, {user?.firstName}!
             </h1>
             <p className="text-sm opacity-80">
-              {formatDate(currentTime)} &bull; {formatTime(currentTime)}
+              {currentTime.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} &bull; {currentTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true })}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -72,21 +209,20 @@ export default function Dashboard() {
         </p>
       </section>
 
-      <div className={isMobile ? "space-y-4 p-4" : "grid grid-cols-2 gap-6 p-6"}>
-        <div className="space-y-4 md:space-y-6">
+      <div className="grid grid-cols-2 gap-6 p-6">
+        <div className="space-y-6">
           <TimeClockWidget />
           <ScheduleWidget />
         </div>
-
-        <div className="space-y-4 md:space-y-6">
+        <div className="space-y-6">
           <ChoresWidget />
           <AIInsightsWidget />
         </div>
       </div>
 
-      <div className={isMobile ? "px-4 pb-4" : "px-6 pb-6"}>
+      <div className="px-6 pb-6">
         <h3 className="font-semibold text-sm mb-3 text-muted-foreground uppercase tracking-wide">Quick Actions</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-4 gap-3">
           <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => navigate('/schedules')}>
             <CardContent className="p-4 flex flex-col items-center text-center">
               <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center mb-2">
@@ -122,11 +258,9 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {!isMobile && (
-        <div className="px-6 pb-6">
-          <TeamActivityFeed />
-        </div>
-      )}
+      <div className="px-6 pb-6">
+        <TeamActivityFeed />
+      </div>
 
       <AIChatModal isOpen={showAIChat} onClose={() => setShowAIChat(false)} />
     </div>

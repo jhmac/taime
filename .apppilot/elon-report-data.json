@@ -1,9 +1,9 @@
 {
-  "totalCycles": 13,
+  "totalCycles": 15,
   "constraintsSolved": 0,
-  "constraintsActive": 4,
-  "totalBudgetSpent": 0.24499999999999994,
-  "pagesCrawled": 13,
+  "constraintsActive": 6,
+  "totalBudgetSpent": 0.285,
+  "pagesCrawled": 29,
   "issuesFound": 48,
   "issuesResolved": 0,
   "constraintLeaderboard": [
@@ -330,19 +330,55 @@
         "Task assignment becomes functional",
         "All authenticated features become usable"
       ]
+    },
+    {
+      "id": "constraint-1771531361590",
+      "description": "Critical authentication and authorization failures blocking all protected routes and RBAC enforcement",
+      "score": 10,
+      "status": "active",
+      "category": "security",
+      "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
+      "identifiedAt": "2026-02-19T20:02:41.590Z",
+      "evidenceFromCrawl": [
+        "401 Unauthorized errors on multiple API endpoints",
+        "403 Forbidden errors suggesting RBAC misconfiguration",
+        "Protected routes returning auth errors instead of data",
+        "Clock-in/scheduling features likely inaccessible due to auth failures"
+      ],
+      "unblocks": [
+        "Employees can clock in/out reliably",
+        "Managers can view schedules and assign tasks",
+        "Owners can access payroll reports",
+        "All RBAC-protected features become functional",
+        "API performance can be measured accurately (currently masked by auth failures)",
+        "Shopify sync can proceed (likely blocked by auth on webhook routes)"
+      ]
+    },
+    {
+      "id": "constraint-1771531453160",
+      "description": "Shopify webhook handlers lack proper error handling, retry logic, and validation. Webhooks can fail silently, leaving sales data out of sync with no visibility or recovery mechanism.",
+      "score": 10,
+      "status": "active",
+      "category": "integration",
+      "goal": "Shopify Deep Sync — ensure real-time sales data streaming is bulletproof with retry logic, dead letter queues, and reconciliation checks",
+      "identifiedAt": "2026-02-19T20:04:13.160Z",
+      "evidenceFromCrawl": [
+        "No crawl evidence yet — this is infrastructure-level",
+        "However: GOALS.md explicitly prioritizes 'Shopify sync stability' and 'Shopify Deep Sync completion' as IN DEV and critical",
+        "Quality target: 'Shopify sync lag: under 60 seconds from Shopify event to LIBBY data update'",
+        "Risk: Silent failures mean AI features give bad advice without anyone knowing"
+      ],
+      "unblocks": [
+        "AI Staffing Optimizer can trust sales data for staffing recommendations",
+        "Morning Whisper briefings include accurate yesterday's sales context",
+        "Midday Pulse compares actual vs goal using real-time data",
+        "Owner gains confidence that LIBBY is seeing what Shopify sees",
+        "Reduces manual reconciliation work for the boutique owner",
+        "Enables Phase 2 features (Style DNA, Win-Back Triggers) which depend on purchase history"
+      ]
     }
   ],
   "crawlHistory": [
-    {
-      "timestamp": "2026-02-19T16:03:41.523Z",
-      "pagesVisited": 1,
-      "issuesFound": 4
-    },
-    {
-      "timestamp": "2026-02-19T16:04:27.410Z",
-      "pagesVisited": 1,
-      "issuesFound": 4
-    },
     {
       "timestamp": "2026-02-19T17:45:20.957Z",
       "pagesVisited": 1,
@@ -382,6 +418,16 @@
       "timestamp": "2026-02-19T19:51:29.415Z",
       "pagesVisited": 1,
       "issuesFound": 4
+    },
+    {
+      "timestamp": "2026-02-19T20:02:41.592Z",
+      "pagesVisited": 8,
+      "issuesFound": 0
+    },
+    {
+      "timestamp": "2026-02-19T20:04:13.164Z",
+      "pagesVisited": 8,
+      "issuesFound": 0
     }
   ],
   "goalsProgress": [],
@@ -529,6 +575,28 @@
       "result": "planned",
       "crawlPages": 1,
       "crawlIssues": 4
+    },
+    {
+      "cycle": 14,
+      "timestamp": "2026-02-19T20:02:41.593Z",
+      "constraint": "Critical authentication and authorization failures blocking all protected routes and RBAC enforcement",
+      "score": 10,
+      "specsCreated": 8,
+      "budgetUsed": 0.02,
+      "result": "planned",
+      "crawlPages": 8,
+      "crawlIssues": 0
+    },
+    {
+      "cycle": 15,
+      "timestamp": "2026-02-19T20:04:13.164Z",
+      "constraint": "Shopify webhook handlers lack proper error handling, retry logic, and validation. Webhooks can fail silently, leaving sales data out of sync with no visibility or recovery mechanism.",
+      "score": 10,
+      "specsCreated": 10,
+      "budgetUsed": 0.02,
+      "result": "planned",
+      "crawlPages": 8,
+      "crawlIssues": 0
     }
   ],
   "failedAttempts": [
@@ -539,122 +607,165 @@
     }
   ],
   "activeConstraint": {
-    "id": "constraint-1771530689412",
-    "description": "Critical authentication and data fetching failures preventing users from accessing core features",
-    "why": "Multiple 401 Unauthorized errors and failed API calls mean users cannot clock in, view schedules, or access any authenticated features. This is a complete blocker for the app's primary use case.",
+    "id": "constraint-1771531453160",
+    "description": "Shopify webhook handlers lack proper error handling, retry logic, and validation. Webhooks can fail silently, leaving sales data out of sync with no visibility or recovery mechanism.",
+    "why": "This is the #1 constraint because all AI features (Morning Whisper, AI Staffing Optimizer, Midday Pulse) depend on accurate sales data. If webhooks fail silently, the entire AI intelligence layer gives bad recommendations, violating the core promise of LIBBY.",
     "unblocks": [
-      "Employees can clock in/out reliably",
-      "Managers can view and edit schedules",
-      "Payroll reports become accessible",
-      "Task assignment becomes functional",
-      "All authenticated features become usable"
+      "AI Staffing Optimizer can trust sales data for staffing recommendations",
+      "Morning Whisper briefings include accurate yesterday's sales context",
+      "Midday Pulse compares actual vs goal using real-time data",
+      "Owner gains confidence that LIBBY is seeing what Shopify sees",
+      "Reduces manual reconciliation work for the boutique owner",
+      "Enables Phase 2 features (Style DNA, Win-Back Triggers) which depend on purchase history"
     ],
     "score": 10,
-    "category": "security",
+    "category": "integration",
     "evidenceFromCrawl": [
-      "401 Unauthorized on GET /api/time-entries",
-      "401 Unauthorized on GET /api/schedules",
-      "401 Unauthorized on GET /api/employees/current",
-      "NetworkError when attempting to fetch resource on /api/employees",
-      "Failed to load resource on /api/schedules (401)",
-      "Multiple pages showing blank or error states due to auth failures"
+      "No crawl evidence yet — this is infrastructure-level",
+      "However: GOALS.md explicitly prioritizes 'Shopify sync stability' and 'Shopify Deep Sync completion' as IN DEV and critical",
+      "Quality target: 'Shopify sync lag: under 60 seconds from Shopify event to LIBBY data update'",
+      "Risk: Silent failures mean AI features give bad advice without anyone knowing"
     ],
-    "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
-    "identifiedAt": "2026-02-19T19:51:29.412Z",
+    "goal": "Shopify Deep Sync — ensure real-time sales data streaming is bulletproof with retry logic, dead letter queues, and reconciliation checks",
+    "identifiedAt": "2026-02-19T20:04:13.160Z",
     "status": "active",
     "steps": [
       {
         "step": 1,
-        "filePath": "server/middleware/auth.ts",
-        "description": "Audit Clerk auth middleware to ensure it properly validates tokens and attaches user context to requests. Verify CLERK_SECRET_KEY is loaded correctly from environment.",
+        "filePath": "server/integrations/shopify/webhooks.ts",
+        "description": "Add comprehensive error handling and structured logging to all webhook handlers. Wrap each handler in try/catch, log webhook ID, topic, shop domain, and timestamp. Return 200 OK even on errors (to prevent Shopify from disabling webhook) but log failures with severity levels.",
         "successCriteria": [
-          "Middleware logs show successful token validation",
-          "req.auth object populated with userId on protected routes",
-          "No token parsing errors in server logs"
+          "All webhook handlers have try/catch blocks",
+          "Every webhook invocation logs: webhookId, topic, shopDomain, timestamp, processingDuration",
+          "Errors logged with context (webhook payload, error stack, severity)",
+          "Handlers return 200 status even on error (with error logged internally)"
         ],
         "priority": "high",
         "estimatedComplexity": "low"
       },
       {
         "step": 2,
-        "filePath": "server/routes/employees.ts",
-        "description": "Add detailed error logging to /api/employees/current endpoint to identify why 401s are being returned. Verify Clerk userId is being extracted correctly.",
+        "filePath": "server/integrations/shopify/webhooks.ts",
+        "description": "Add webhook payload validation using Zod schemas. Define schemas for orders/create, orders/updated, products/create, products/updated. Validate incoming payloads before processing. Log validation failures with full payload for debugging.",
         "successCriteria": [
-          "Endpoint logs userId from Clerk on each request",
-          "Clear error messages when auth fails",
-          "Returns 200 with employee data when auth succeeds"
+          "Zod schemas defined for each webhook topic",
+          "Payloads validated before processing",
+          "Validation errors logged with full context",
+          "Invalid webhooks return 200 but don't mutate database"
         ],
         "priority": "high",
-        "estimatedComplexity": "low"
+        "estimatedComplexity": "medium"
       },
       {
         "step": 3,
-        "filePath": "server/routes/time-entries.ts",
-        "description": "Add error handling and auth validation logging to time-entries routes. Ensure auth middleware is applied correctly.",
+        "filePath": "server/integrations/shopify/webhook-queue.ts",
+        "description": "Create webhook processing queue using in-memory queue (or Redis if available). Move webhook processing to async queue with retry logic (3 attempts with exponential backoff: 1s, 5s, 30s). Store failed webhooks in dead letter queue table for manual reconciliation.",
         "successCriteria": [
-          "Endpoint returns 200 for authenticated requests",
-          "Clear 401 response with message when auth missing",
-          "Logs show auth check execution"
+          "Webhook handler adds job to queue immediately, returns 200",
+          "Queue processes webhooks async with retry logic",
+          "Failed webhooks (after 3 retries) written to dead_letter_queue table",
+          "Queue processing duration tracked and logged"
         ],
         "priority": "high",
-        "estimatedComplexity": "low"
+        "estimatedComplexity": "high"
       },
       {
         "step": 4,
-        "filePath": "server/routes/schedules.ts",
-        "description": "Verify schedules routes have auth middleware applied and return proper error responses. Add logging for debugging.",
+        "filePath": "shared/schema/webhook-log.ts",
+        "description": "Create webhook_log table schema: id, webhookId (from Shopify), topic, shopDomain, receivedAt, processedAt, status (pending/success/failed), retryCount, errorMessage, payload (JSONB). Create dead_letter_queue table: id, webhookId, topic, failedAt, payload, lastError.",
         "successCriteria": [
-          "Auth middleware confirmed on all schedule routes",
-          "401 responses include helpful error messages",
-          "Successful requests return schedule data"
+          "webhook_log table schema defined in Drizzle",
+          "dead_letter_queue table schema defined",
+          "Both tables have indexes on webhookId and receivedAt",
+          "Payload stored as JSONB for queryability"
         ],
         "priority": "high",
         "estimatedComplexity": "low"
       },
       {
         "step": 5,
-        "filePath": "client/src/lib/api.ts",
-        "description": "Verify API client is sending Clerk session token in Authorization header for all authenticated requests. Add token refresh logic if missing.",
+        "filePath": "server/integrations/shopify/webhooks.ts",
+        "description": "Add idempotency checks using webhookId. Before processing, check if webhookId already exists in webhook_log with status=success. If yes, skip processing and return 200 (webhook already handled). Prevents duplicate processing if Shopify retries.",
         "successCriteria": [
-          "Authorization header included on all protected API calls",
-          "Token refresh happens before expiry",
-          "Failed requests trigger re-authentication flow"
+          "Every webhook checks webhook_log for existing webhookId before processing",
+          "Duplicate webhooks skipped with log entry",
+          "No duplicate database mutations from retried webhooks"
         ],
         "priority": "high",
-        "estimatedComplexity": "medium"
+        "estimatedComplexity": "low"
       },
       {
         "step": 6,
-        "filePath": "client/src/hooks/useAuth.ts",
-        "description": "Ensure Clerk auth hook properly exposes session token and handles token expiration. Add error boundary for auth failures.",
+        "filePath": "server/integrations/shopify/reconciliation.ts",
+        "description": "Create daily reconciliation job that compares LIBBY sales totals vs Shopify GraphQL totals for previous day. Log discrepancies. Run via cron at 2 AM daily. Query Shopify GraphQL for orders created yesterday, compare to LIBBY orders table, flag missing or mismatched orders.",
         "successCriteria": [
-          "Hook returns valid token when user is authenticated",
-          "Hook triggers login redirect when token is missing",
-          "Token expiration handled gracefully"
+          "Cron job defined to run daily at 2 AM",
+          "Job queries Shopify GraphQL for yesterday's orders",
+          "Compares against LIBBY orders table",
+          "Discrepancies logged with severity=warning",
+          "Job duration and result logged"
         ],
-        "priority": "high",
+        "priority": "medium",
         "estimatedComplexity": "medium"
       },
       {
         "step": 7,
-        "filePath": "server/index.ts",
-        "description": "Verify CLERK_SECRET_KEY and CLERK_PUBLISHABLE_KEY are loaded from environment and passed to Clerk middleware correctly.",
+        "filePath": "server/routes/admin/shopify-sync-status.ts",
+        "description": "Create admin API endpoint /api/admin/shopify-sync-status that returns: last successful webhook timestamp, webhook failure rate (last 24h), dead letter queue count, reconciliation status (last run, discrepancies found). Requires Admin role.",
         "successCriteria": [
-          "Environment variables logged at startup (redacted)",
-          "Clerk middleware initialized with correct keys",
-          "Server startup fails fast if keys missing"
+          "Endpoint returns structured sync health data",
+          "Requires Admin or Owner role",
+          "Response includes webhook stats and reconciliation status",
+          "Endpoint responds in <200ms"
+        ],
+        "priority": "medium",
+        "estimatedComplexity": "low"
+      },
+      {
+        "step": 8,
+        "filePath": "client/src/pages/admin/ShopifySyncDashboard.tsx",
+        "description": "Create admin dashboard page showing: webhook health (success rate, failures, last received), dead letter queue items (table with retry button), reconciliation status (last run, discrepancies). Only visible to Owner/Admin roles.",
+        "successCriteria": [
+          "Dashboard displays webhook health metrics",
+          "Dead letter queue items shown in table",
+          "Retry button triggers manual webhook reprocessing",
+          "Page requires Owner or Admin role",
+          "Data refreshes every 30s via polling"
+        ],
+        "priority": "medium",
+        "estimatedComplexity": "medium"
+      },
+      {
+        "step": 9,
+        "filePath": "server/integrations/shopify/webhooks.ts",
+        "description": "Add webhook signature verification using Shopify HMAC. Verify X-Shopify-Hmac-SHA256 header against computed HMAC of raw request body. Reject webhooks with invalid signatures (log as security event). Prevents spoofed webhooks.",
+        "successCriteria": [
+          "All webhooks verify HMAC signature before processing",
+          "Invalid signatures rejected with 401 status",
+          "Invalid signatures logged as security events",
+          "Valid signatures processed normally"
         ],
         "priority": "high",
         "estimatedComplexity": "low"
+      },
+      {
+        "step": 10,
+        "filePath": "server/integrations/shopify/webhook-alerts.ts",
+        "description": "Add alerting logic: if webhook failure rate exceeds 10% in last hour, send notification to Owner. If dead letter queue exceeds 50 items, send alert. If reconciliation finds >5 discrepancies, send alert. Respects quiet hours.",
+        "successCriteria": [
+          "Failure rate monitoring checks every 15 minutes",
+          "Owner notified if thresholds exceeded",
+          "Alerts respect notification quiet hours",
+          "Alert cooldown: max 1 alert per issue per 4 hours"
+        ],
+        "priority": "low",
+        "estimatedComplexity": "medium"
       }
     ],
     "verificationPages": [
-      "/",
-      "/time-clock",
-      "/schedules",
-      "/employees",
-      "/payroll"
+      "/admin/shopify-sync-dashboard",
+      "/api/admin/shopify-sync-status"
     ],
-    "completionCriteria": "All authenticated API endpoints return 200 OK with valid data when called from the frontend. Crawl shows zero 401 errors on protected routes. Users can successfully clock in, view schedules, and access employee data."
+    "completionCriteria": "Shopify webhook system meets these conditions: (1) All webhooks logged to webhook_log table with status tracking, (2) Failed webhooks retry 3x with exponential backoff, (3) Dead letter queue captures unrecoverable failures, (4) Daily reconciliation job detects discrepancies, (5) Admin dashboard shows sync health in real-time, (6) Webhook signature verification prevents spoofed events, (7) Owner alerted if sync degrades, (8) Quality target met: sync lag under 60 seconds measured from webhook receivedAt to processedAt timestamps"
   }
 }
