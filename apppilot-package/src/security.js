@@ -369,28 +369,32 @@ class CommandValidator {
 
 class AuthRateLimiter {
   constructor(maxAttempts = 10, windowMs = 15 * 60 * 1000) {
-    this.attempts = new Map();
+    this.failures = new Map();
     this.maxAttempts = maxAttempts;
     this.windowMs = windowMs;
   }
 
   check(ip) {
     const now = Date.now();
-    const record = this.attempts.get(ip);
-    if (!record || (now - record.firstAttempt > this.windowMs)) {
-      this.attempts.set(ip, { count: 1, firstAttempt: now });
+    const record = this.failures.get(ip);
+    if (!record) return true;
+    if (now - record.firstAttempt > this.windowMs) {
+      this.failures.delete(ip);
       return true;
     }
-    record.count++;
-    return record.count <= this.maxAttempts;
+    return record.count < this.maxAttempts;
   }
 
   recordFailure(ip) {
-    // Already tracked in check(), but this explicitly logs it
-    const record = this.attempts.get(ip);
-    if (record) {
-      console.warn(`[SECURITY] Auth failure from ${ip}: attempt ${record.count}/${this.maxAttempts}`);
+    const now = Date.now();
+    const record = this.failures.get(ip);
+    if (!record || (now - record.firstAttempt > this.windowMs)) {
+      this.failures.set(ip, { count: 1, firstAttempt: now });
+    } else {
+      record.count++;
     }
+    const r = this.failures.get(ip);
+    console.warn(`[SECURITY] Auth failure from ${ip}: attempt ${r.count}/${this.maxAttempts}`);
   }
 }
 

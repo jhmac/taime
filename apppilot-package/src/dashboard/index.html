@@ -1157,6 +1157,13 @@
           status.style.display = 'inline-flex';
           status.style.color = 'var(--yellow)';
           status.textContent = 'ELON is already running';
+        } else if (result.status === 'failed') {
+          status.style.display = 'inline-flex';
+          status.style.color = 'var(--red)';
+          status.textContent = result.message || 'ELON failed to start';
+          btn.disabled = false;
+          btn.innerHTML = 'Run ELON';
+          return;
         } else {
           status.style.display = 'inline-flex';
           status.style.color = 'var(--green)';

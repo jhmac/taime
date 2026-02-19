@@ -202,6 +202,14 @@ async function runElonCycle(config) {
     return { status: 'failed', reason: 'ELON analysis failed: ' + err.message };
   }
 
+  if (analysis && analysis.action === 'skip') {
+    const reason = analysis.reason === 'invalid-api-key' ? 'Invalid API key — check APPPILOT_ANTHROPIC_KEY or ANTHROPIC_API_KEY'
+      : analysis.reason === 'no-credits' ? 'No API credits — add funds to your Anthropic account'
+      : analysis.reason || 'API unavailable';
+    log(`ELON: Stopped — ${reason}`);
+    return { status: 'failed', reason };
+  }
+
   if (!analysis || !analysis.limitingFactor) {
     log('ELON: Could not identify a limiting factor');
     return { status: 'failed', reason: 'ELON could not identify a limiting factor', rawAnalysis: analysis };

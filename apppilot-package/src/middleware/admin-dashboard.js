@@ -438,6 +438,11 @@ function createAdminDashboard(options = {}) {
       return res.json({ status: 'already-running', message: 'ELON is already running' });
     }
 
+    const apiKey = process.env.APPPILOT_ANTHROPIC_KEY || process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      return res.json({ status: 'failed', message: 'No API key configured. Set APPPILOT_ANTHROPIC_KEY or ANTHROPIC_API_KEY.' });
+    }
+
     const { runElonLoop } = require('../elon.js');
 
     elonRunning = true;
@@ -447,7 +452,7 @@ function createAdminDashboard(options = {}) {
     pushActivity('heartbeat', 'ELON strategic loop starting...');
 
     runElonLoop({
-      apiKey: process.env.APPPILOT_ANTHROPIC_KEY || process.env.ANTHROPIC_API_KEY,
+      apiKey,
       appUrl: `http://localhost:${process.env.PORT || 5000}`,
       maxConstraints: parseInt(process.env.ELON_MAX_CONSTRAINTS) || 3,
       budgetMax: parseFloat(process.env.ELON_BUDGET) || 5.0,
