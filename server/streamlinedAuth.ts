@@ -40,12 +40,26 @@ export const requireAuth: RequestHandler = async (req: any, res, next) => {
   }
   
   try {
-    const userWithRole = await storage.getUserWithRole(auth.userId);
-    if (userWithRole) {
-      req.user = userWithRole;
-    } else {
-      req.user = { id: auth.userId };
+    let userWithRole = await storage.getUserWithRole(auth.userId);
+    if (!userWithRole) {
+      try {
+        const clerkUser = await clerkClient.users.getUser(auth.userId);
+        const primaryEmailObj = clerkUser.emailAddresses?.find(
+          (e: any) => e.id === clerkUser.primaryEmailAddressId
+        );
+        await storage.upsertUser({
+          id: auth.userId,
+          email: primaryEmailObj?.emailAddress || '',
+          firstName: clerkUser.firstName || '',
+          lastName: clerkUser.lastName || '',
+          profileImageUrl: clerkUser.imageUrl || '',
+        });
+        userWithRole = await storage.getUserWithRole(auth.userId);
+      } catch (syncErr) {
+        console.warn('[Auth] Auto-sync failed for', auth.userId, syncErr);
+      }
     }
+    req.user = userWithRole || { id: auth.userId };
     next();
   } catch (error) {
     req.user = { id: auth.userId };

@@ -1,0 +1,15 @@
+{
+  "filePath": "server/utils/logger.ts",
+  "description": "[ELON] Create structured logging utility to replace console.log. Include log levels (debug, info, warn, error), request context injection, timestamp formatting, and optional JSON output for production. Export logger instance to use across all routes and middleware.",
+  "successCriteria": [
+    "Logger supports debug/info/warn/error levels",
+    "Includes timestamps on all log entries",
+    "Can inject request context (userId, endpoint, method)",
+    "JSON output mode for production logs"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771523120953",
+  "priority": "medium",
+  "step": 9,
+  "blockedCategory": "security"
+}

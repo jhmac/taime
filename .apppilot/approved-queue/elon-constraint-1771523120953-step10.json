@@ -1,0 +1,15 @@
+{
+  "filePath": "server/routes/health.ts",
+  "description": "[ELON] Create comprehensive health check endpoint that tests: database connectivity, Clerk API reachability, basic query performance, available connection pool slots. Return structured health status with individual component checks. Used by monitoring and deployment health checks.",
+  "successCriteria": [
+    "GET /health returns 200 when all systems healthy",
+    "Returns 503 with component breakdown when any system unhealthy",
+    "Tests database with simple query",
+    "Reports connection pool status",
+    "Response includes timestamp and version info"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771523120953",
+  "priority": "medium",
+  "step": 10
+}
