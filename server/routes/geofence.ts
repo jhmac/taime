@@ -6,9 +6,9 @@ export function registerGeofenceRoutes(app: Express, storage: IStorage, isAuthen
   app.post('/api/geofence/check', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const { latitude, longitude } = req.body;
+      const { latitude, longitude, wifiSsid } = req.body;
       
-      const result = await geofencingService.checkUserLocation(userId, latitude, longitude);
+      const result = await geofencingService.checkLocationOrWifi(userId, latitude, longitude, wifiSsid);
       res.json(result);
     } catch (error) {
       console.error("Error checking geofence:", error);

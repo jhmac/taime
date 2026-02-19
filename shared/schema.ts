@@ -90,6 +90,7 @@ export const workLocations = pgTable("work_locations", {
   latitude: decimal("latitude", { precision: 10, scale: 8 }),
   longitude: decimal("longitude", { precision: 11, scale: 8 }),
   radius: integer("radius").default(100), // meters
+  wifiSsid: varchar("wifi_ssid"),
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
 });

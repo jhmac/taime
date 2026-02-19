@@ -11,11 +11,8 @@ export interface GeofenceEvent {
 }
 
 export class GeofencingService {
-  /**
-   * Calculate distance between two coordinates using Haversine formula
-   */
   private calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const R = 6371000; // Earth's radius in meters
+    const R = 6371000;
     const φ1 = (lat1 * Math.PI) / 180;
     const φ2 = (lat2 * Math.PI) / 180;
     const Δφ = ((lat2 - lat1) * Math.PI) / 180;
@@ -26,16 +23,14 @@ export class GeofencingService {
               Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
-    return R * c; // Distance in meters
+    return R * c;
   }
 
-  /**
-   * Check if user is within any work location
-   */
   async checkUserLocation(userId: string, latitude: number, longitude: number): Promise<{
     isInWorkLocation: boolean;
     location?: any;
     distance?: number;
+    verifiedVia?: 'gps';
   }> {
     try {
       const workLocations = await storage.getAllWorkLocations();
@@ -55,6 +50,7 @@ export class GeofencingService {
             isInWorkLocation: true,
             location,
             distance,
+            verifiedVia: 'gps',
           };
         }
       }
@@ -66,6 +62,66 @@ export class GeofencingService {
       console.error('Error checking user location:', error);
       throw error;
     }
+  }
+
+  async checkWifiSsid(wifiSsid: string): Promise<{
+    isInWorkLocation: boolean;
+    location?: any;
+    verifiedVia?: 'wifi';
+  }> {
+    try {
+      if (!wifiSsid || !wifiSsid.trim()) {
+        return { isInWorkLocation: false };
+      }
+
+      const workLocations = await storage.getAllWorkLocations();
+      const normalizedSsid = wifiSsid.trim().toLowerCase();
+      
+      for (const location of workLocations) {
+        if (!location.wifiSsid) continue;
+        const locationSsid = location.wifiSsid.trim().toLowerCase();
+        if (locationSsid === normalizedSsid) {
+          return {
+            isInWorkLocation: true,
+            location,
+            verifiedVia: 'wifi',
+          };
+        }
+      }
+
+      return { isInWorkLocation: false };
+    } catch (error) {
+      console.error('Error checking WiFi SSID:', error);
+      throw error;
+    }
+  }
+
+  async checkLocationOrWifi(
+    userId: string,
+    latitude?: number,
+    longitude?: number,
+    wifiSsid?: string
+  ): Promise<{
+    isInWorkLocation: boolean;
+    location?: any;
+    distance?: number;
+    verifiedVia?: 'gps' | 'wifi';
+  }> {
+    if (wifiSsid) {
+      const wifiResult = await this.checkWifiSsid(wifiSsid);
+      if (wifiResult.isInWorkLocation) {
+        return wifiResult;
+      }
+    }
+
+    if (latitude !== undefined && longitude !== undefined && latitude !== 0 && longitude !== 0) {
+      const gpsResult = await this.checkUserLocation(userId, latitude, longitude);
+      if (gpsResult.isInWorkLocation) {
+        return gpsResult;
+      }
+    }
+
+    return { isInWorkLocation: false };
   }
 
   /**
