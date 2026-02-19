@@ -663,6 +663,78 @@ function createAdminDashboard(options = {}) {
       });
     });
 
+    app.get(`${basePath}/api/elon/settings`, authMiddleware, (req, res) => {
+      try {
+        const { getElonSettings } = require('../elon.js');
+        res.json(getElonSettings(dataDir));
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    app.post(`${basePath}/api/elon/settings`, authMiddleware, (req, res) => {
+      try {
+        const { updateElonSettings } = require('../elon.js');
+        const result = updateElonSettings(dataDir, req.body);
+        owner.logOwnerAction('elon_settings_update', req.body, dataDir);
+        pushActivity('info', 'ELON auto-approve settings updated');
+        res.json(result);
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    app.get(`${basePath}/api/elon/pending`, authMiddleware, (req, res) => {
+      try {
+        const { listPendingSpecs } = require('../elon.js');
+        res.json({ specs: listPendingSpecs(dataDir) });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    app.post(`${basePath}/api/elon/pending/:id/approve`, authMiddleware, (req, res) => {
+      try {
+        const { approveSpec } = require('../elon.js');
+        const result = approveSpec(dataDir, req.params.id);
+        if (result.success) {
+          owner.logOwnerAction('elon_spec_approve', { id: req.params.id }, dataDir);
+          pushActivity('success', 'ELON spec approved: ' + req.params.id);
+        }
+        res.json(result);
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    app.post(`${basePath}/api/elon/pending/:id/reject`, authMiddleware, (req, res) => {
+      try {
+        const { rejectSpec } = require('../elon.js');
+        const result = rejectSpec(dataDir, req.params.id);
+        if (result.success) {
+          owner.logOwnerAction('elon_spec_reject', { id: req.params.id }, dataDir);
+          pushActivity('warning', 'ELON spec rejected: ' + req.params.id);
+        }
+        res.json(result);
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    app.post(`${basePath}/api/elon/pending/approve-all`, authMiddleware, (req, res) => {
+      try {
+        const { approveAllSpecs } = require('../elon.js');
+        const result = approveAllSpecs(dataDir);
+        if (result.success) {
+          owner.logOwnerAction('elon_spec_approve_all', result, dataDir);
+          pushActivity('success', `All ${result.approved} ELON specs approved`);
+        }
+        res.json(result);
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
     app.post(`${basePath}/api/stop/discovery`, authMiddleware, stopDiscovery);
     app.post(`${basePath}/api/stop/continuous`, authMiddleware, stopContinuous);
     app.post(`${basePath}/api/stop/all`, authMiddleware, stopAll);

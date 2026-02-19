@@ -1,0 +1,9 @@
+{
+  "auth": false,
+  "security": false,
+  "permissions": false,
+  "database": false,
+  "payments": false,
+  "deletions": false,
+  "credentials": false
+}

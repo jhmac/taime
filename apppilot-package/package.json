@@ -1,6 +1,6 @@
 {
   "name": "apppilot",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "Autonomous AI agent that monitors, analyzes, and improves your app. Includes ELON strategic constraint solver and Playwright site crawler.",
   "main": "src/index.js",
   "bin": {

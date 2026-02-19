@@ -9,7 +9,57 @@ const { executeRalphLoop } = require('./ralph-loop');
 
 const TEMPLATES_DIR = path.join(__dirname, '..', 'templates');
 const SEVERITY_ORDER = { high: 0, medium: 1, low: 2 };
-const SENSITIVE_KEYWORDS = ['auth', 'security', 'permission', 'role', 'delete', 'drop', 'migration', 'schema', 'payment', 'billing', 'credential', 'secret', 'key'];
+const SENSITIVE_CATEGORIES = {
+  auth: ['auth', 'login', 'logout', 'session', 'token', 'oauth', 'sso'],
+  security: ['security', 'vulnerability', 'exploit', 'injection', 'xss', 'csrf'],
+  permissions: ['permission', 'role', 'access', 'admin', 'privilege'],
+  database: ['migration', 'schema', 'drop', 'alter', 'table', 'column', 'index'],
+  payments: ['payment', 'billing', 'stripe', 'charge', 'subscription', 'invoice'],
+  deletions: ['delete', 'remove', 'purge', 'destroy', 'truncate'],
+  credentials: ['credential', 'secret', 'key', 'password', 'api.?key', 'env'],
+};
+
+const SETTINGS_FILE = 'elon-settings.json';
+
+function _loadElonSettings(dataDir) {
+  const defaults = {};
+  for (const cat of Object.keys(SENSITIVE_CATEGORIES)) {
+    defaults[cat] = false;
+  }
+  const settingsPath = path.join(dataDir, SETTINGS_FILE);
+  try {
+    const saved = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+    return { ...defaults, ...saved };
+  } catch {
+    return defaults;
+  }
+}
+
+function _saveElonSettings(dataDir, settings) {
+  _writeJson(path.join(dataDir, SETTINGS_FILE), settings);
+}
+
+function getElonSettings(dataDir) {
+  const settings = _loadElonSettings(dataDir);
+  const categories = Object.keys(SENSITIVE_CATEGORIES).map(cat => ({
+    id: cat,
+    label: cat.charAt(0).toUpperCase() + cat.slice(1),
+    keywords: SENSITIVE_CATEGORIES[cat],
+    autoApprove: !!settings[cat],
+  }));
+  return { categories, raw: settings };
+}
+
+function updateElonSettings(dataDir, updates) {
+  const settings = _loadElonSettings(dataDir);
+  for (const [key, val] of Object.entries(updates)) {
+    if (key in SENSITIVE_CATEGORIES) {
+      settings[key] = !!val;
+    }
+  }
+  _saveElonSettings(dataDir, settings);
+  return getElonSettings(dataDir);
+}
 
 function _readJson(filePath, fallback) {
   try {
@@ -118,9 +168,21 @@ function _readSourceFiles(projectRoot) {
   return sections.join('\n\n---\n\n');
 }
 
-function _needsOwnerApproval(step) {
+function _needsOwnerApproval(step, dataDir) {
   const desc = (step.description || '').toLowerCase();
-  return SENSITIVE_KEYWORDS.some(k => desc.includes(k));
+  const settings = dataDir ? _loadElonSettings(dataDir) : {};
+
+  for (const [category, keywords] of Object.entries(SENSITIVE_CATEGORIES)) {
+    if (settings[category]) continue;
+    for (const kw of keywords) {
+      if (kw.includes('?') || kw.includes('*')) {
+        if (new RegExp(kw, 'i').test(desc)) return { needsApproval: true, category };
+      } else if (desc.includes(kw)) {
+        return { needsApproval: true, category };
+      }
+    }
+  }
+  return { needsApproval: false, category: null };
 }
 
 async function _performCrawl(appUrl, dataDir, maxPages, log) {
@@ -289,13 +351,14 @@ function _createSpecs(constraint, dataDir, maxSpecs) {
       step: step.step,
     };
 
-    const needsApproval = _needsOwnerApproval(step);
-    const targetDir = needsApproval ? pendingDir : approvedDir;
-    const prefix = needsApproval ? 'pending' : 'approved';
+    const approval = _needsOwnerApproval(step, dataDir);
+    const targetDir = approval.needsApproval ? pendingDir : approvedDir;
+    const prefix = approval.needsApproval ? 'pending' : 'approved';
     const filename = `elon-${constraint.id}-step${String(step.step).padStart(2, '0')}.json`;
 
+    if (approval.category) spec.blockedCategory = approval.category;
     _writeJson(path.join(targetDir, filename), spec);
-    specsCreated.push({ filename, dir: prefix, description: step.description, needsApproval });
+    specsCreated.push({ filename, dir: prefix, description: step.description, needsApproval: approval.needsApproval, blockedCategory: approval.category });
   }
 
   return specsCreated;
@@ -696,9 +759,67 @@ function getElonStatus(dataDir) {
   };
 }
 
+function listPendingSpecs(dataDir) {
+  const pendingDir = path.join(dataDir, 'queue', 'pending');
+  if (!fs.existsSync(pendingDir)) return [];
+  try {
+    return fs.readdirSync(pendingDir)
+      .filter(f => f.endsWith('.json'))
+      .sort()
+      .map(f => {
+        try {
+          const content = JSON.parse(fs.readFileSync(path.join(pendingDir, f), 'utf-8'));
+          return { id: f.replace('.json', ''), filename: f, ...content };
+        } catch {
+          return { id: f.replace('.json', ''), filename: f, error: 'parse_failed' };
+        }
+      });
+  } catch {
+    return [];
+  }
+}
+
+function approveSpec(dataDir, specId) {
+  const pendingDir = path.join(dataDir, 'queue', 'pending');
+  const approvedDir = path.join(dataDir, 'approved-queue');
+  const filename = specId.endsWith('.json') ? specId : specId + '.json';
+  const sourcePath = path.join(pendingDir, filename);
+  if (!fs.existsSync(sourcePath)) return { success: false, error: 'Spec not found' };
+  fs.mkdirSync(approvedDir, { recursive: true });
+  fs.renameSync(sourcePath, path.join(approvedDir, filename));
+  return { success: true, action: 'approved', id: specId };
+}
+
+function rejectSpec(dataDir, specId) {
+  const pendingDir = path.join(dataDir, 'queue', 'pending');
+  const rejectedDir = path.join(dataDir, 'rejected-queue');
+  const filename = specId.endsWith('.json') ? specId : specId + '.json';
+  const sourcePath = path.join(pendingDir, filename);
+  if (!fs.existsSync(sourcePath)) return { success: false, error: 'Spec not found' };
+  fs.mkdirSync(rejectedDir, { recursive: true });
+  fs.renameSync(sourcePath, path.join(rejectedDir, filename));
+  return { success: true, action: 'rejected', id: specId };
+}
+
+function approveAllSpecs(dataDir) {
+  const specs = listPendingSpecs(dataDir);
+  let approved = 0;
+  for (const spec of specs) {
+    const result = approveSpec(dataDir, spec.filename || spec.id + '.json');
+    if (result.success) approved++;
+  }
+  return { success: true, approved, total: specs.length };
+}
+
 module.exports = {
   runElonCycle,
   runElonLoop,
   evaluateConstraint,
   getElonStatus,
+  getElonSettings,
+  updateElonSettings,
+  listPendingSpecs,
+  approveSpec,
+  rejectSpec,
+  approveAllSpecs,
 };
