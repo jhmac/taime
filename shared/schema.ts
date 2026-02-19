@@ -71,6 +71,7 @@ export const users = pgTable("users", {
   startDate: timestamp("start_date"),
   pin: varchar("pin"),
   showInSchedule: boolean("show_in_schedule").default(true),
+  targetWeeklyHours: decimal("target_weekly_hours", { precision: 5, scale: 1 }),
   sendLocationAlerts: boolean("send_location_alerts").default(true),
   includeInTimeClockErrors: boolean("include_in_time_clock_errors").default(true),
   eligibleForOpenShifts: boolean("eligible_for_open_shifts").default(true),
