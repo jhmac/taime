@@ -1,0 +1,14 @@
+{
+  "filePath": "server/routes/members.ts",
+  "description": "[ELON] Fix member directory routes to allow all authenticated users to view basic member info while restricting sensitive operations (edit profiles, view full details) to appropriate roles.",
+  "successCriteria": [
+    "GET /members works for all authenticated users",
+    "Basic profile info (name, role, photo) visible to all",
+    "Profile editing requires 'members:write' or user editing own profile",
+    "Sensitive fields (payroll, availability) restricted by permission"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771517067408",
+  "priority": "high",
+  "step": 7
+}

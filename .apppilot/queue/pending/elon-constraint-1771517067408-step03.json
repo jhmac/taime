@@ -1,0 +1,14 @@
+{
+  "filePath": "server/routes/time-entries.ts",
+  "description": "[ELON] Ensure time entries routes properly apply auth middleware chain (requireAuth → requirePermission). Verify clock-in/clock-out endpoints have correct permission requirements and handle authenticated user context properly.",
+  "successCriteria": [
+    "All time-entries routes have requireAuth middleware applied",
+    "Clock-in/clock-out routes require 'time:clock-in' permission",
+    "Routes correctly read userId from req.auth.userId",
+    "Geofencing validation uses authenticated user's assigned location"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771517067408",
+  "priority": "high",
+  "step": 3
+}

@@ -1,0 +1,14 @@
+{
+  "filePath": "client/src/lib/api-client.ts",
+  "description": "[ELON] Fix API client to properly attach Clerk session tokens to all requests and handle 401 responses by triggering re-authentication flow.",
+  "successCriteria": [
+    "API client includes Clerk session token in Authorization header",
+    "401 responses trigger Clerk sign-in redirect",
+    "Token refresh is handled automatically before expiry",
+    "Clear error messages for auth failures"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771517067408",
+  "priority": "high",
+  "step": 9
+}

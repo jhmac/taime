@@ -1,0 +1,14 @@
+{
+  "filePath": "server/routes/tasks.ts",
+  "description": "[ELON] Ensure task routes properly apply auth middleware and handle permission checks for task viewing (all users) vs task assignment (managers only).",
+  "successCriteria": [
+    "GET /tasks works for all authenticated users",
+    "Users see tasks assigned to them",
+    "Task creation requires 'tasks:create' permission",
+    "Task assignment requires 'tasks:assign' permission"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771517067408",
+  "priority": "high",
+  "step": 5
+}

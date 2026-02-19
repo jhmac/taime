@@ -1,0 +1,13 @@
+{
+  "filePath": ".env.example",
+  "description": "[ELON] Document all required environment variables with examples. Include CLERK_SECRET_KEY, CLERK_PUBLISHABLE_KEY, DATABASE_URL, and their expected formats. Add validation rules.",
+  "successCriteria": [
+    "All required env vars are documented",
+    "Format examples are provided for each variable",
+    "Security notes included for sensitive keys"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771516827223",
+  "priority": "medium",
+  "step": 5
+}
