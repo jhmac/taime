@@ -23,6 +23,7 @@ import { registerInsightRoutes } from "./routes/insights";
 import { registerClockEventRoutes } from "./routes/clockEvents";
 import { registerSopRoutes } from "./routes/sop";
 import { registerAiAssistantRoutes } from "./routes/aiAssistant";
+import { initAppPilot } from 'apppilot';
 
 const wsConnections = new Map<string, WebSocket>();
 
@@ -57,6 +58,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerClockEventRoutes(app, storage, isAuthenticated);
   registerSopRoutes(app, storage, isAuthenticated);
   registerAiAssistantRoutes(app, storage, isAuthenticated);
+
+  // AppPilot Dashboard
+  initAppPilot(app, {
+    projectRoot: process.cwd(),
+    dashboardPath: '/apppilot/dashboard'
+  });
 
   const httpServer = createServer(app);
 
