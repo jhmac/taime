@@ -3,6 +3,74 @@
 const fs = require('fs');
 const path = require('path');
 
+async function _loadStoredSession(dataDir) {
+  try {
+    const sessionFile = path.join(dataDir || path.join(process.cwd(), '.apppilot'), 'crawler-session.json');
+    if (!fs.existsSync(sessionFile)) return null;
+    const data = JSON.parse(fs.readFileSync(sessionFile, 'utf-8'));
+    if (data.expiresAt && new Date(data.expiresAt) < new Date()) {
+      console.log('[Crawler] Stored session expired — crawling without auth');
+      return null;
+    }
+    if (!data.sessionToken) return null;
+    return data;
+  } catch { return null; }
+}
+
+async function _authenticateWithStoredSession(context, page, appUrl, dataDir) {
+  const session = await _loadStoredSession(dataDir);
+  if (!session) {
+    console.log('[Crawler] No stored session found — use "Sign In for ELON" in the dashboard');
+    return false;
+  }
+
+  try {
+    const parsedUrl = new URL(appUrl);
+    await context.addCookies([{
+      name: '__session',
+      value: session.sessionToken,
+      domain: parsedUrl.hostname,
+      path: '/',
+      httpOnly: true,
+      secure: false,
+      sameSite: 'Lax',
+    }]);
+
+    await page.goto(appUrl, { waitUntil: 'networkidle', timeout: 20000 });
+    await page.waitForTimeout(2000);
+
+    const isAuth = await page.evaluate(() => {
+      try {
+        return window.Clerk && window.Clerk.user ? true : false;
+      } catch { return false; }
+    });
+
+    if (isAuth) {
+      console.log(`[Crawler] Authenticated as ${session.userEmail || session.userId} via stored session`);
+      return true;
+    }
+
+    const testResp = await page.evaluate(async () => {
+      try {
+        const r = await fetch('/api/users/me');
+        return { status: r.status, ok: r.ok };
+      } catch (e) { return { error: e.message }; }
+    });
+    
+    if (testResp && testResp.ok) {
+      console.log(`[Crawler] Authenticated (API confirmed) as ${session.userEmail || session.userId}`);
+      return true;
+    }
+
+    console.log(`[Crawler] Stored session did not authenticate (API: ${JSON.stringify(testResp)}) — session may have expired. Use "Sign In for ELON" to re-authenticate.`);
+    return false;
+
+  } catch (err) {
+    console.log(`[Crawler] Auth with stored session failed: ${err.message}`);
+    return false;
+  }
+}
+
 async function crawlSite(options = {}) {
   const {
     appUrl = 'http://localhost:5000',
@@ -32,6 +100,7 @@ async function crawlSite(options = {}) {
   const queue = [appUrl];
   const baseUrl = new URL(appUrl);
   let pagesVisited = 0;
+  let authenticated = false;
 
   let browser;
   try {
@@ -50,6 +119,19 @@ async function crawlSite(options = {}) {
     ignoreHTTPSErrors: true,
     viewport: { width: 1280, height: 720 },
   });
+
+  try {
+    const authPage = await context.newPage();
+    authenticated = await _authenticateWithStoredSession(context, authPage, appUrl, dataDir);
+    await authPage.close().catch(() => {});
+    if (authenticated) {
+      console.log('[Crawler] Proceeding with authenticated crawl');
+    } else {
+      console.log('[Crawler] Proceeding with unauthenticated crawl (401s on protected routes expected)');
+    }
+  } catch (err) {
+    console.log('[Crawler] Auth phase failed:', err.message, '— continuing unauthenticated');
+  }
 
   try {
     while (queue.length > 0 && pagesVisited < maxPages) {
@@ -90,6 +172,7 @@ async function crawlSite(options = {}) {
     timestamp: new Date().toISOString(),
     pagesVisited,
     errors,
+    authenticated,
   };
 
   if (dataDir) {

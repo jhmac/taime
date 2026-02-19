@@ -491,6 +491,206 @@ function createAdminDashboard(options = {}) {
     });
   }
 
+  const crawlerSessionFile = path.join(dataDir, 'crawler-session.json');
+
+  function saveCrawlerSession(sessionData) {
+    try {
+      if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+      fs.writeFileSync(crawlerSessionFile, JSON.stringify({
+        ...sessionData,
+        savedAt: new Date().toISOString(),
+      }, null, 2));
+      return true;
+    } catch { return false; }
+  }
+
+  function loadCrawlerSession() {
+    try {
+      if (!fs.existsSync(crawlerSessionFile)) return null;
+      const data = JSON.parse(fs.readFileSync(crawlerSessionFile, 'utf-8'));
+      if (data.expiresAt && new Date(data.expiresAt) < new Date()) {
+        fs.unlinkSync(crawlerSessionFile);
+        return null;
+      }
+      return data;
+    } catch { return null; }
+  }
+
+  function getCrawlerSessionStatus(req, res) {
+    const session = loadCrawlerSession();
+    if (!session) {
+      return res.json({ authenticated: false });
+    }
+    const expiresAt = session.expiresAt ? new Date(session.expiresAt) : null;
+    const hoursRemaining = expiresAt ? Math.max(0, (expiresAt - Date.now()) / 3600000) : null;
+    res.json({
+      authenticated: true,
+      userEmail: session.userEmail || 'unknown',
+      userId: session.userId || 'unknown',
+      savedAt: session.savedAt,
+      expiresAt: session.expiresAt,
+      hoursRemaining: hoursRemaining ? Math.round(hoursRemaining * 10) / 10 : null,
+    });
+  }
+
+  function storeCrawlerSession(req, res) {
+    const { sessionToken, userId, userEmail, expiresAt } = req.body || {};
+    if (!sessionToken) {
+      return res.status(400).json({ error: 'Missing sessionToken' });
+    }
+    const saved = saveCrawlerSession({ sessionToken, userId, userEmail, expiresAt });
+    if (saved) {
+      pushActivity('success', `ELON crawler signed in as ${userEmail || userId || 'admin'}`);
+      if (memoryStore) {
+        memoryStore.logDaily(`Crawler session stored for ${userEmail || userId}`);
+      }
+      res.json({ status: 'ok', message: 'Crawler session stored' });
+    } else {
+      res.status(500).json({ error: 'Failed to save session' });
+    }
+  }
+
+  function clearCrawlerSession(req, res) {
+    try {
+      if (fs.existsSync(crawlerSessionFile)) fs.unlinkSync(crawlerSessionFile);
+      pushActivity('info', 'ELON crawler session cleared');
+      res.json({ status: 'ok' });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+
+  function serveCrawlerLoginPage(req, res) {
+    const clerkPubKey = process.env.CLERK_PUBLISHABLE_KEY || '';
+    const apppilotKey = req.query.key || '';
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ELON Crawler - Sign In</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0f1117; color: #e1e4e8;
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100vh; padding: 20px;
+    }
+    .card {
+      background: #1a1b26; border: 1px solid #2a2b3a; border-radius: 12px;
+      padding: 40px; max-width: 420px; width: 100%; text-align: center;
+    }
+    h2 { font-size: 1.4rem; margin-bottom: 8px; }
+    .subtitle { color: #8b949e; font-size: 0.85rem; margin-bottom: 24px; }
+    .status { margin: 20px 0; padding: 12px; border-radius: 8px; font-size: 0.85rem; }
+    .status-waiting { background: rgba(88,166,255,0.1); border: 1px solid rgba(88,166,255,0.3); color: #58a6ff; }
+    .status-success { background: rgba(63,185,80,0.1); border: 1px solid rgba(63,185,80,0.3); color: #3fb950; }
+    .status-error { background: rgba(248,81,73,0.1); border: 1px solid rgba(248,81,73,0.3); color: #f85149; }
+    .spinner { display: inline-block; width: 20px; height: 20px; border: 2px solid #333; border-top-color: #7c3aed; border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 8px; vertical-align: middle; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .info { font-size: 0.75rem; color: #636c76; margin-top: 16px; }
+    .user-info { margin-top: 12px; font-size: 0.8rem; color: #8b949e; }
+    .lock-icon { font-size: 2rem; margin-bottom: 16px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="lock-icon">&#128274;</div>
+    <h2>Sign In for ELON Crawler</h2>
+    <p class="subtitle">Log in with your admin account so ELON can crawl protected pages and find real issues.</p>
+    <div id="status" class="status status-waiting">
+      <span class="spinner"></span> Waiting for Clerk to load...
+    </div>
+    <div id="user-info" class="user-info" style="display:none"></div>
+    <p class="info">Your session will be stored securely on the server. ELON will use it to crawl as an authenticated user. The session lasts until it expires in Clerk (typically 7+ days).</p>
+  </div>
+
+  <script>
+    const CLERK_PUB_KEY = '${clerkPubKey}';
+    const API_KEY = '${apppilotKey}';
+    const BASE_PATH = '${basePath}';
+
+    function setStatus(text, type) {
+      const el = document.getElementById('status');
+      el.className = 'status status-' + type;
+      el.innerHTML = (type === 'waiting' ? '<span class="spinner"></span> ' : '') + text;
+    }
+
+    async function storeSession(token, userId, email, expiresAt) {
+      try {
+        const resp = await fetch(BASE_PATH + '/api/crawler-session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-apppilot-key': API_KEY },
+          body: JSON.stringify({ sessionToken: token, userId, userEmail: email, expiresAt }),
+        });
+        const data = await resp.json();
+        if (resp.ok) {
+          setStatus('&#10003; Session stored! ELON can now crawl as ' + (email || userId) + '. You can close this window.', 'success');
+          document.getElementById('user-info').style.display = 'block';
+          document.getElementById('user-info').textContent = 'Signed in as: ' + (email || userId);
+          if (window.opener) {
+            window.opener.postMessage({ type: 'crawler-auth-success', email, userId }, window.location.origin);
+          }
+        } else {
+          setStatus('Failed to store session: ' + (data.error || 'unknown error'), 'error');
+        }
+      } catch (err) {
+        setStatus('Network error: ' + err.message, 'error');
+      }
+    }
+
+    function loadClerk() {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/@clerk/clerk-js@latest/dist/clerk.browser.js';
+      script.crossOrigin = 'anonymous';
+      script.onload = initClerk;
+      script.onerror = () => setStatus('Failed to load Clerk SDK', 'error');
+      document.head.appendChild(script);
+    }
+
+    async function initClerk() {
+      try {
+        setStatus('Initializing authentication...', 'waiting');
+        const clerk = new window.Clerk(CLERK_PUB_KEY);
+        await clerk.load();
+
+        if (clerk.user) {
+          setStatus('Already signed in! Capturing session...', 'waiting');
+          const token = await clerk.session.getToken();
+          const email = clerk.user.primaryEmailAddress?.emailAddress || '';
+          const userId = clerk.user.id;
+          const exp = clerk.session.expireAt;
+          await storeSession(token, userId, email, exp);
+        } else {
+          setStatus('Please sign in with your admin account...', 'waiting');
+          clerk.addListener(async (evt) => {
+            if (clerk.user) {
+              setStatus('Signed in! Capturing session...', 'waiting');
+              const token = await clerk.session.getToken();
+              const email = clerk.user.primaryEmailAddress?.emailAddress || '';
+              const userId = clerk.user.id;
+              const exp = clerk.session.expireAt;
+              await storeSession(token, userId, email, exp);
+            }
+          });
+          clerk.openSignIn({
+            afterSignInUrl: window.location.href,
+            afterSignUpUrl: window.location.href,
+          });
+        }
+      } catch (err) {
+        setStatus('Clerk init error: ' + err.message, 'error');
+      }
+    }
+
+    loadClerk();
+  </script>
+</body>
+</html>`;
+    res.type('html').send(html);
+  }
+
   let discoveryRunning = false;
   let discoveryStopRequested = false;
   let continuousRunning = false;
@@ -713,6 +913,11 @@ function createAdminDashboard(options = {}) {
     app.post(`${basePath}/api/continuous`, authMiddleware, triggerContinuous);
     app.post(`${basePath}/api/crawl`, authMiddleware, triggerCrawl);
     app.get(`${basePath}/api/crawl/results`, authMiddleware, getCrawlResults);
+
+    app.get(`${basePath}/crawler-login`, authMiddleware, serveCrawlerLoginPage);
+    app.get(`${basePath}/api/crawler-session`, authMiddleware, getCrawlerSessionStatus);
+    app.post(`${basePath}/api/crawler-session`, authMiddleware, storeCrawlerSession);
+    app.delete(`${basePath}/api/crawler-session`, authMiddleware, clearCrawlerSession);
 
     app.get(`${basePath}/api/live-activity`, authMiddleware, getLiveActivity);
 

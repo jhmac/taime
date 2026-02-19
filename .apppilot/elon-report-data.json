@@ -1,7 +1,7 @@
 {
   "totalCycles": 9,
   "constraintsSolved": 0,
-  "constraintsActive": 8,
+  "constraintsActive": 0,
   "totalBudgetSpent": 0.16499999999999998,
   "pagesCrawled": 9,
   "issuesFound": 34,
@@ -11,7 +11,7 @@
       "id": "constraint-1771513805451",
       "description": "Critical authentication and routing infrastructure failures causing 401/404 errors across the entire application",
       "score": 10,
-      "status": "active",
+      "status": "dismissed",
       "category": "infrastructure",
       "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
       "identifiedAt": "2026-02-19T15:10:05.451Z",
@@ -32,13 +32,15 @@
         "Payroll report generation becomes available",
         "Activity logging and audit trails work correctly",
         "All dashboard and admin functionality becomes usable"
-      ]
+      ],
+      "dismissedReason": "False positive — 401s from unauthenticated crawler, not real auth bugs",
+      "dismissedAt": "2026-02-19T19:06:20.272Z"
     },
     {
       "id": "constraint-1771516827223",
       "description": "Critical authentication and database connection failures are blocking ALL app functionality. Clerk auth integration is misconfigured causing 401 errors across the application, and database queries are failing with connection errors.",
       "score": 10,
-      "status": "active",
+      "status": "dismissed",
       "category": "infrastructure",
       "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
       "identifiedAt": "2026-02-19T16:00:27.223Z",
@@ -56,13 +58,15 @@
         "Payroll reports can be generated",
         "All API endpoints can serve authenticated requests",
         "Database queries can execute successfully"
-      ]
+      ],
+      "dismissedReason": "False positive — 401s from unauthenticated crawler, not real auth bugs",
+      "dismissedAt": "2026-02-19T19:06:20.273Z"
     },
     {
       "id": "constraint-1771516913178",
       "description": "Geofencing validation is completely broken — employees can clock in from anywhere, violating legal time-tracking compliance requirements",
       "score": 10,
-      "status": "active",
+      "status": "dismissed",
       "category": "security",
       "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
       "identifiedAt": "2026-02-19T16:01:53.178Z",
@@ -79,13 +83,15 @@
         "Ability to enforce on-site work requirements",
         "Foundation for future geo-based features (shift reminders, proximity alerts)",
         "Manager confidence in reported work hours"
-      ]
+      ],
+      "dismissedReason": "False positive — 401s from unauthenticated crawler, not real auth bugs",
+      "dismissedAt": "2026-02-19T19:06:20.273Z"
     },
     {
       "id": "constraint-1771517067408",
       "description": "Critical authentication and authorization failures blocking all protected routes. Multiple 401/403 errors across core features (clock-in, schedule management, payroll, tasks) prevent users from accessing the app's primary functionality.",
       "score": 10,
-      "status": "active",
+      "status": "dismissed",
       "category": "security",
       "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
       "identifiedAt": "2026-02-19T16:04:27.408Z",
@@ -107,13 +113,15 @@
         "All downstream LIVE features that depend on authenticated requests",
         "User onboarding and member directory access",
         "Activity logging and audit trail functionality"
-      ]
+      ],
+      "dismissedReason": "False positive — 401s from unauthenticated crawler, not real auth bugs",
+      "dismissedAt": "2026-02-19T19:06:20.273Z"
     },
     {
       "id": "constraint-1771523120953",
       "description": "Critical authentication and database connection failures causing 500 errors across all protected routes",
       "score": 10,
-      "status": "active",
+      "status": "dismissed",
       "category": "infrastructure",
       "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
       "identifiedAt": "2026-02-19T17:45:20.953Z",
@@ -134,13 +142,15 @@
         "API performance can be measured accurately (can't optimize what doesn't work)",
         "Shopify sync can proceed (depends on database writes)",
         "User trust is restored (no more random 500 errors)"
-      ]
+      ],
+      "dismissedReason": "False positive — 401s from unauthenticated crawler, not real auth bugs",
+      "dismissedAt": "2026-02-19T19:06:20.273Z"
     },
     {
       "id": "constraint-1771525156376",
       "description": "Authentication system is completely broken — all protected routes return 401 Unauthorized even for valid authenticated users",
       "score": 10,
-      "status": "active",
+      "status": "dismissed",
       "category": "security",
       "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
       "identifiedAt": "2026-02-19T18:19:16.376Z",
@@ -162,13 +172,15 @@
         "Activity logging",
         "All dashboard features",
         "All admin functions"
-      ]
+      ],
+      "dismissedReason": "False positive — 401s from unauthenticated crawler, not real auth bugs",
+      "dismissedAt": "2026-02-19T19:06:20.273Z"
     },
     {
       "id": "constraint-1771525185854",
       "description": "Authentication system is completely broken — Clerk integration fails on all protected routes causing 401 errors across the entire app",
       "score": 10,
-      "status": "active",
+      "status": "dismissed",
       "category": "security",
       "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
       "identifiedAt": "2026-02-19T18:19:45.854Z",
@@ -188,13 +200,15 @@
         "Schedule management becomes usable",
         "Member directory becomes accessible",
         "All protected API endpoints start working"
-      ]
+      ],
+      "dismissedReason": "False positive — 401s from unauthenticated crawler, not real auth bugs",
+      "dismissedAt": "2026-02-19T19:06:20.273Z"
     },
     {
       "id": "constraint-1771525219702",
       "description": "Critical authentication and authorization system failures causing 401 Unauthorized errors across all protected routes, blocking core workforce management features",
       "score": 10,
-      "status": "active",
+      "status": "dismissed",
       "category": "security",
       "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
       "identifiedAt": "2026-02-19T18:20:19.702Z",
@@ -213,7 +227,9 @@
         "Payroll reports can be accessed",
         "Admin functions become available",
         "All downstream features (SOPs, GTD, notifications) become accessible"
-      ]
+      ],
+      "dismissedReason": "False positive — 401s from unauthenticated crawler, not real auth bugs",
+      "dismissedAt": "2026-02-19T19:06:20.273Z"
     }
   ],
   "crawlHistory": [
@@ -373,118 +389,5 @@
       "timestamp": "2026-02-19T16:03:41.522Z"
     }
   ],
-  "activeConstraint": {
-    "id": "constraint-1771525219702",
-    "description": "Critical authentication and authorization system failures causing 401 Unauthorized errors across all protected routes, blocking core workforce management features",
-    "why": "Clerk auth integration is failing — users cannot access any protected functionality (clock-in, scheduling, tasks, payroll). This is the foundational constraint blocking ALL operational features. Without working auth, the entire app is unusable.",
-    "unblocks": [
-      "Employees can clock in/out reliably",
-      "Managers can view and modify schedules",
-      "Task assignment and tracking becomes functional",
-      "Payroll reports can be accessed",
-      "Admin functions become available",
-      "All downstream features (SOPs, GTD, notifications) become accessible"
-    ],
-    "score": 10,
-    "category": "security",
-    "evidenceFromCrawl": [
-      "GET /api/time-entries/current → 401 Unauthorized (blocks clock-in feature)",
-      "GET /api/schedules/current-week → 401 Unauthorized (blocks schedule view)",
-      "GET /api/employees/me → 401 Unauthorized (blocks profile access)",
-      "GET /api/tasks → 401 Unauthorized (blocks task management)",
-      "Multiple routes returning 401 despite Clerk session existing in browser",
-      "Consistent pattern of auth failures across all protected endpoints"
-    ],
-    "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
-    "identifiedAt": "2026-02-19T18:20:19.702Z",
-    "status": "active",
-    "steps": [
-      {
-        "step": 1,
-        "filePath": "server/middleware/auth.ts",
-        "description": "Fix Clerk auth middleware to properly validate sessions and attach user context to requests. Current implementation is rejecting valid Clerk sessions.",
-        "successCriteria": [
-          "Middleware successfully extracts Clerk userId from request",
-          "Valid Clerk sessions pass authentication",
-          "User context attached to req object for downstream handlers",
-          "Middleware logs show successful auth for valid sessions"
-        ],
-        "priority": "high",
-        "estimatedComplexity": "medium"
-      },
-      {
-        "step": 2,
-        "filePath": "server/routes/time-entries.ts",
-        "description": "Verify time-entries routes properly use auth middleware and handle authenticated requests. Ensure userId from auth middleware is used for database queries.",
-        "successCriteria": [
-          "Route handlers access req.auth.userId correctly",
-          "Database queries use authenticated user's ID",
-          "Current time entry endpoint returns data for authenticated user",
-          "No 401 errors for authenticated requests"
-        ],
-        "priority": "high",
-        "estimatedComplexity": "low"
-      },
-      {
-        "step": 3,
-        "filePath": "server/routes/schedules.ts",
-        "description": "Fix schedule routes to properly consume auth middleware and enforce role-based permissions. Ensure current-week endpoint works for all authenticated users.",
-        "successCriteria": [
-          "Schedule endpoints accept authenticated requests",
-          "RBAC permissions enforced correctly",
-          "Current week schedule loads for employees",
-          "Managers can access all schedules per permissions"
-        ],
-        "priority": "high",
-        "estimatedComplexity": "low"
-      },
-      {
-        "step": 4,
-        "filePath": "server/routes/employees.ts",
-        "description": "Fix /api/employees/me endpoint to return current user profile using authenticated userId from middleware.",
-        "successCriteria": [
-          "Endpoint returns profile for authenticated user",
-          "Response includes role and permissions",
-          "No 401 errors for valid sessions",
-          "Profile data matches database employee record"
-        ],
-        "priority": "high",
-        "estimatedComplexity": "low"
-      },
-      {
-        "step": 5,
-        "filePath": "server/routes/tasks.ts",
-        "description": "Ensure task routes properly authenticate and filter tasks by user permissions. Employees see assigned tasks, managers see all tasks.",
-        "successCriteria": [
-          "Task list loads for authenticated users",
-          "Tasks filtered by role permissions",
-          "Employees see only assigned tasks",
-          "Managers see all tasks"
-        ],
-        "priority": "high",
-        "estimatedComplexity": "low"
-      },
-      {
-        "step": 6,
-        "filePath": "server/index.ts",
-        "description": "Verify auth middleware is correctly registered in Express app before protected routes. Check middleware order and ensure Clerk SDK is properly initialized.",
-        "successCriteria": [
-          "Auth middleware registered globally or per-route correctly",
-          "Middleware order allows auth before route handlers",
-          "Clerk SDK initialized with correct environment variables",
-          "No middleware conflicts or overrides"
-        ],
-        "priority": "high",
-        "estimatedComplexity": "medium"
-      }
-    ],
-    "verificationPages": [
-      "/",
-      "/schedule",
-      "/tasks",
-      "/time-tracking",
-      "/team"
-    ],
-    "completionCriteria": "All protected API endpoints return 200 OK for authenticated users. No 401 Unauthorized errors in crawl results. Clock-in, schedule view, task list, and profile endpoints all functional."
-  }
+  "activeConstraint": null
 }

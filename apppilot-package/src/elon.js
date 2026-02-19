@@ -209,18 +209,23 @@ function _buildCrawlSummary(crawlResults) {
   if (!crawlResults) return { note: 'Crawl not available — analyze code only' };
   const issues = crawlResults.allIssues || [];
   const authExpected = crawlResults.authExpected || [];
-  return {
+  const isAuthenticated = crawlResults.authenticated === true;
+  const summary = {
     pagesVisited: crawlResults.pagesVisited,
     totalIssues: issues.length,
+    authenticated: isAuthenticated,
     highSeverity: issues.filter(i => i.severity === 'high'),
     mediumSeverity: issues.filter(i => i.severity === 'medium'),
     topIssues: issues.slice(0, 20).map(i => ({
       type: i.type, message: i.message, url: i.url, severity: i.severity,
     })),
-    note: authExpected.length > 0
-      ? `IMPORTANT: ${authExpected.length} API routes returned 401/403 because the crawler is not authenticated. This is EXPECTED behavior — these routes require Clerk authentication. Do NOT treat 401/403 on protected /api/ routes as bugs. Focus only on 404, 500, and other non-auth errors.`
-      : null,
   };
+  if (isAuthenticated) {
+    summary.note = 'Crawler was authenticated as admin user via Clerk sign-in token. All errors found are real issues visible to logged-in users.';
+  } else if (authExpected.length > 0) {
+    summary.note = `IMPORTANT: ${authExpected.length} API routes returned 401/403 because the crawler is NOT authenticated. This is EXPECTED behavior — these routes require Clerk authentication. Do NOT treat 401/403 on protected /api/ routes as bugs. Focus only on 404, 500, and other non-auth errors.`;
+  }
+  return summary;
 }
 
 async function runElonCycle(config) {

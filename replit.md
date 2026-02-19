@@ -28,6 +28,7 @@ The backend is a Node.js Express.js server written in TypeScript. It uses Drizzl
 - **In-App Messaging**: Supports real-time team chat, direct messages, and announcements via WebSockets.
 - **Push Notifications**: Implements Web Push API for critical alerts like clock-out reminders, schedule updates, and task assignments.
 - **Offline Mode**: Utilizes a service worker with IndexedDB for offline data storage and background synchronization for time entries.
+- **ELON Authenticated Crawling**: Manual popup login flow (similar to Replit's approach) where admin signs in via Clerk in a popup window, session token is stored server-side in `.apppilot/crawler-session.json`, and ELON's Playwright crawler reuses it for authenticated page crawling. Session persists for days (until Clerk expiry). Dashboard shows auth status with "Sign In for ELON" button. Routes: GET/POST/DELETE `/apppilot/api/crawler-session`, GET `/apppilot/crawler-login`. Files: `apppilot-package/src/middleware/admin-dashboard.js`, `apppilot-package/src/subagents/site-crawler.js`.
 
 ## External Dependencies
 

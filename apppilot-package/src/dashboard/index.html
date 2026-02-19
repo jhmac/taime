@@ -287,6 +287,53 @@
       margin-bottom: 20px;
       flex-wrap: wrap;
     }
+    .crawler-auth {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-left: auto;
+      font-size: 0.75rem;
+    }
+    .crawler-auth-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 0.7rem;
+      font-weight: 500;
+    }
+    .crawler-auth-status.signed-in {
+      background: rgba(63,185,80,0.15);
+      color: var(--green);
+    }
+    .crawler-auth-status.signed-out {
+      background: rgba(248,81,73,0.1);
+      color: var(--text-muted);
+    }
+    .btn-crawler-auth {
+      background: transparent;
+      border: 1px solid var(--card-border);
+      color: var(--text);
+      padding: 6px 14px;
+      font-size: 0.75rem;
+      border-radius: 6px;
+    }
+    .btn-crawler-auth:hover:not(:disabled) {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .btn-crawler-signout {
+      background: transparent;
+      border: 1px solid rgba(248,81,73,0.3);
+      color: var(--red);
+      padding: 4px 10px;
+      font-size: 0.7rem;
+      border-radius: 4px;
+    }
+    .btn-crawler-signout:hover:not(:disabled) {
+      background: rgba(248,81,73,0.1);
+    }
     .btn-discover {
       background: var(--accent);
       color: #fff;
@@ -885,6 +932,11 @@
       </button>
       <span class="action-status" id="action-status"></span>
       <span class="action-cooldown" id="action-cooldown"></span>
+      <div class="crawler-auth" id="crawler-auth-section">
+        <span class="crawler-auth-status signed-out" id="crawler-auth-status">&#128274; Not signed in</span>
+        <button class="btn-crawler-auth" id="btn-crawler-login" onclick="openCrawlerLogin()" title="Sign in so ELON can crawl protected pages as an authenticated user">Sign In for ELON</button>
+        <button class="btn-crawler-signout" id="btn-crawler-signout" onclick="clearCrawlerSession()" style="display:none" title="Remove stored session">Sign Out</button>
+      </div>
     </div>
 
     <div class="crawl-results" id="crawl-results">
@@ -1391,6 +1443,7 @@
         loadSecurity(),
         loadQueue(),
         loadMetrics(),
+        loadCrawlerAuthStatus(),
       ]);
       spinner.style.display = 'none';
     }
@@ -1557,7 +1610,8 @@
         const errors = data.errors || [];
 
         panel.classList.add('active');
-        summary.textContent = (data.pagesVisited || 0) + ' pages crawled, ' + errors.length + ' errors';
+        const authLabel = data.authenticated ? ' (authenticated)' : ' (unauthenticated)';
+        summary.textContent = (data.pagesVisited || 0) + ' pages crawled' + authLabel + ', ' + errors.length + ' errors';
 
         if (errors.length === 0) {
           body.innerHTML = '<div class="empty">No errors found</div>';
@@ -1574,6 +1628,55 @@
             '<div class="crawl-error-url">' + esc(err.url || '') + '</div>' +
             '</div></div>';
         }).join('');
+      } catch {}
+    }
+
+    async function loadCrawlerAuthStatus() {
+      try {
+        const data = await apiFetch('/crawler-session');
+        const statusEl = document.getElementById('crawler-auth-status');
+        const loginBtn = document.getElementById('btn-crawler-login');
+        const signoutBtn = document.getElementById('btn-crawler-signout');
+        if (data.authenticated) {
+          const hrs = data.hoursRemaining ? ' (' + data.hoursRemaining + 'h left)' : '';
+          statusEl.className = 'crawler-auth-status signed-in';
+          statusEl.innerHTML = '&#128275; ' + (data.userEmail || 'Signed in') + hrs;
+          loginBtn.textContent = 'Refresh Session';
+          signoutBtn.style.display = 'inline-block';
+        } else {
+          statusEl.className = 'crawler-auth-status signed-out';
+          statusEl.innerHTML = '&#128274; Not signed in';
+          loginBtn.textContent = 'Sign In for ELON';
+          signoutBtn.style.display = 'none';
+        }
+      } catch {}
+    }
+
+    function openCrawlerLogin() {
+      const url = BASE_PATH + '/crawler-login?key=' + encodeURIComponent(API_KEY);
+      const w = 500, h = 650;
+      const left = (screen.width - w) / 2;
+      const top = (screen.height - h) / 2;
+      const popup = window.open(url, 'elon-crawler-login', 'width=' + w + ',height=' + h + ',left=' + left + ',top=' + top + ',toolbar=no,menubar=no');
+      window.addEventListener('message', function onMsg(evt) {
+        if (evt.data && evt.data.type === 'crawler-auth-success') {
+          window.removeEventListener('message', onMsg);
+          loadCrawlerAuthStatus();
+          if (popup && !popup.closed) popup.close();
+        }
+      });
+      const checkClosed = setInterval(() => {
+        if (popup && popup.closed) {
+          clearInterval(checkClosed);
+          loadCrawlerAuthStatus();
+        }
+      }, 1000);
+    }
+
+    async function clearCrawlerSession() {
+      try {
+        await apiFetch('/crawler-session', { method: 'DELETE' });
+        loadCrawlerAuthStatus();
       } catch {}
     }
 

@@ -8,6 +8,61 @@
       "firstSeen": "2026-02-19T17:41:36.424Z",
       "lastSeen": "2026-02-19T17:41:39.362Z",
       "status": "new"
+    },
+    {
+      "signature": "crawl:request-failed:GET https://replit.com/public/js/replit-dev-banner.js failed: net::ERR_BLOCKED_B",
+      "message": "GET https://replit.com/public/js/replit-dev-banner.js failed: net::ERR_BLOCKED_BY_ORB",
+      "status": "new",
+      "occurrences": 2,
+      "firstSeen": "2026-02-19T19:08:01.751Z",
+      "lastSeen": "2026-02-19T19:10:37.648Z",
+      "source": "site-crawler",
+      "severity": "medium",
+      "url": "https://replit.com/public/js/replit-dev-banner.js"
+    },
+    {
+      "signature": "crawl:console-error:WebSocket connection to 'ws://localhost:5000/?token=WIQayglIFIgB' failed: Error ",
+      "message": "WebSocket connection to 'ws://localhost:5000/?token=WIQayglIFIgB' failed: Error during WebSocket handshake: Unexpected response code: 400",
+      "status": "new",
+      "occurrences": 1,
+      "firstSeen": "2026-02-19T19:08:01.751Z",
+      "lastSeen": "2026-02-19T19:08:01.751Z",
+      "source": "site-crawler",
+      "severity": "high",
+      "url": "http://localhost:5000"
+    },
+    {
+      "signature": "crawl:uncaught-exception:Failed to construct 'WebSocket': The URL 'ws://localhost:undefined/?token=WIQayg",
+      "message": "Failed to construct 'WebSocket': The URL 'ws://localhost:undefined/?token=WIQayglIFIgB' is invalid.",
+      "status": "new",
+      "occurrences": 1,
+      "firstSeen": "2026-02-19T19:08:01.751Z",
+      "lastSeen": "2026-02-19T19:08:01.751Z",
+      "source": "site-crawler",
+      "severity": "high",
+      "url": "http://localhost:5000"
+    },
+    {
+      "signature": "crawl:console-error:WebSocket connection to 'ws://localhost:5000/?token=ACmrv-jsKNmG' failed: Error ",
+      "message": "WebSocket connection to 'ws://localhost:5000/?token=ACmrv-jsKNmG' failed: Error during WebSocket handshake: Unexpected response code: 400",
+      "status": "new",
+      "occurrences": 1,
+      "firstSeen": "2026-02-19T19:10:37.648Z",
+      "lastSeen": "2026-02-19T19:10:37.648Z",
+      "source": "site-crawler",
+      "severity": "high",
+      "url": "http://localhost:5000"
+    },
+    {
+      "signature": "crawl:uncaught-exception:Failed to construct 'WebSocket': The URL 'ws://localhost:undefined/?token=ACmrv-",
+      "message": "Failed to construct 'WebSocket': The URL 'ws://localhost:undefined/?token=ACmrv-jsKNmG' is invalid.",
+      "status": "new",
+      "occurrences": 1,
+      "firstSeen": "2026-02-19T19:10:37.648Z",
+      "lastSeen": "2026-02-19T19:10:37.648Z",
+      "source": "site-crawler",
+      "severity": "high",
+      "url": "http://localhost:5000"
     }
   ]
 }
