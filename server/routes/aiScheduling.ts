@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
-import { aiSchedulingSettings, shopifyDailySales, users, userAvailability, schedules, shops } from "@shared/schema";
+import { aiSchedulingSettings, shopifyDailySales, users, userAvailability, schedules, shops, roles } from "@shared/schema";
 import { eq, and, gte, lte, desc } from "drizzle-orm";
 import { db } from "../db";
 import { claudeService } from "../services/claudeService";
@@ -272,6 +272,7 @@ export function registerAiSchedulingRoutes(app: Express, storage: IStorage, isAu
             id: u.id,
             name: `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.email || 'Unknown',
             availability: userAvail,
+            targetWeeklyHours: u.targetWeeklyHours ? parseFloat(u.targetWeeklyHours) : null,
           };
         });
 
@@ -288,7 +289,15 @@ ${days.map(d => `- ${d.date} (${d.dayName}): Predicted revenue $${d.predictedRev
 MINIMUM STAFFING: Always have at least ${settings.minimumStaffing} employees at any time.
 
 AVAILABLE EMPLOYEES:
-${employeeList.map(e => `- ${e.name} (ID: ${e.id}): ${Object.entries(e.availability).map(([date, status]) => `${date}=${status}`).join(', ')}`).join('\n')}
+${employeeList.map(e => {
+  const targetInfo = e.targetWeeklyHours ? ` [TARGET: ${e.targetWeeklyHours} hrs/week]` : '';
+  return `- ${e.name} (ID: ${e.id})${targetInfo}: ${Object.entries(e.availability).map(([date, status]) => `${date}=${status}`).join(', ')}`;
+}).join('\n')}
+
+${employeeList.some(e => e.targetWeeklyHours) ? `
+EMPLOYEES WITH TARGET HOURS (must be prioritized):
+${employeeList.filter(e => e.targetWeeklyHours).map(e => `- ${e.name}: needs ${e.targetWeeklyHours} hours per week`).join('\n')}
+` : ''}
 
 RULES:
 1. Each shift block needs enough employees to meet the required staff count for that day.
@@ -296,7 +305,9 @@ RULES:
 3. Never schedule an employee on a day they are unavailable.
 4. Employees with no explicit availability are available by default.
 5. Try to give employees consistent shift blocks when possible.
-6. Each employee should work at most one shift block per day.
+6. Employees MAY work multiple shift blocks per day if needed to meet their target weekly hours.
+7. PRIORITY: Employees with target weekly hours MUST be scheduled first and given enough shifts to reach their target. These are full-time employees who need guaranteed hours. Calculate how many shift blocks they need across the week to meet their target, and assign them before filling remaining slots with other employees.
+8. Example: If an employee has a target of 40 hours/week and each shift block is 5 hours, they need 8 shift blocks spread across available days. Assign them to multiple blocks per day when needed.
 
 Respond in JSON format ONLY with no additional text:
 {
@@ -415,6 +426,90 @@ Respond in JSON format ONLY with no additional text:
     } catch (error) {
       console.error("Error applying AI schedule:", error);
       res.status(500).json({ message: "Failed to apply schedule" });
+    }
+  });
+
+  app.get("/api/ai-scheduling/roster", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
+      if (!isAdmin) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const allUsers = await db.select({
+        id: users.id,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        email: users.email,
+        employmentType: users.employmentType,
+        showInSchedule: users.showInSchedule,
+        targetWeeklyHours: users.targetWeeklyHours,
+        roleId: users.roleId,
+        isActive: users.isActive,
+      }).from(users).where(eq(users.isActive, true));
+
+      const allRoles = await db.select().from(roles);
+      const roleMap = Object.fromEntries(allRoles.map(r => [r.id, r.name]));
+
+      const roster = allUsers.map(u => ({
+        id: u.id,
+        name: `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.email || 'Unknown',
+        email: u.email,
+        employmentType: u.employmentType,
+        roleName: u.roleId ? roleMap[u.roleId] || 'Unknown' : 'No Role',
+        showInSchedule: u.showInSchedule ?? true,
+        targetWeeklyHours: u.targetWeeklyHours ? parseFloat(u.targetWeeklyHours) : null,
+      }));
+
+      res.json(roster);
+    } catch (error) {
+      console.error("Error fetching scheduling roster:", error);
+      res.status(500).json({ message: "Failed to fetch roster" });
+    }
+  });
+
+  app.put("/api/ai-scheduling/roster/:employeeId", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
+      if (!isAdmin) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const { employeeId } = req.params;
+      const { showInSchedule, targetWeeklyHours } = req.body;
+
+      const updateData: any = {};
+      if (typeof showInSchedule === 'boolean') {
+        updateData.showInSchedule = showInSchedule;
+      }
+      if (targetWeeklyHours !== undefined) {
+        if (targetWeeklyHours === null) {
+          updateData.targetWeeklyHours = null;
+        } else {
+          const parsed = parseFloat(targetWeeklyHours);
+          if (isNaN(parsed) || parsed < 0 || parsed > 80) {
+            return res.status(400).json({ message: "Target weekly hours must be between 0 and 80" });
+          }
+          updateData.targetWeeklyHours = String(Math.round(parsed * 2) / 2);
+        }
+      }
+
+      if (Object.keys(updateData).length === 0) {
+        return res.status(400).json({ message: "No valid fields to update" });
+      }
+
+      await db.update(users)
+        .set(updateData)
+        .where(eq(users.id, employeeId));
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error updating roster entry:", error);
+      res.status(500).json({ message: "Failed to update employee scheduling settings" });
     }
   });
 }

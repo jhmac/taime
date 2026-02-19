@@ -7,7 +7,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
-import { Plus, Trash2, Clock, DollarSign, Users, Save } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { Badge } from '@/components/ui/badge';
+import { Plus, Trash2, Clock, DollarSign, Users, Save, UserCheck, UserX, Target } from 'lucide-react';
 
 interface ShiftBlock {
   name: string;
@@ -91,12 +93,122 @@ export default function AISchedulingSection() {
     setStaffingTiers(updated);
   };
 
+  interface RosterEmployee {
+    id: string;
+    name: string;
+    email: string;
+    employmentType: string;
+    roleName: string;
+    showInSchedule: boolean;
+    targetWeeklyHours: number | null;
+  }
+
+  const { data: roster, isLoading: rosterLoading } = useQuery<RosterEmployee[]>({
+    queryKey: ['/api/ai-scheduling/roster'],
+  });
+
+  const rosterMutation = useMutation({
+    mutationFn: async ({ employeeId, data }: { employeeId: string; data: { showInSchedule?: boolean; targetWeeklyHours?: number | null } }) => {
+      return apiRequest('PUT', `/api/ai-scheduling/roster/${employeeId}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/ai-scheduling/roster'] });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to update employee.", variant: "destructive" });
+    },
+  });
+
   if (isLoading) {
     return <div className="p-4">Loading settings...</div>;
   }
 
   return (
     <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <UserCheck className="h-4 w-4" />
+            Employee Scheduling Roster
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Choose which employees appear on the AI-generated schedule. Owners, admins, or other non-floor staff
+            can be excluded. Set target weekly hours for full-time employees so the AI prioritizes giving them enough shifts.
+          </p>
+        </CardHeader>
+        <CardContent>
+          {rosterLoading ? (
+            <div className="text-sm text-muted-foreground">Loading employees...</div>
+          ) : !roster || roster.length === 0 ? (
+            <div className="text-sm text-muted-foreground">No active employees found.</div>
+          ) : (
+            <div className="space-y-2">
+              <div className="grid grid-cols-[1fr_auto_auto_auto] gap-4 text-xs font-medium text-muted-foreground px-3 pb-1">
+                <div>Employee</div>
+                <div className="text-center w-24">On Schedule</div>
+                <div className="text-center w-28">Target Hrs/Wk</div>
+                <div className="w-8"></div>
+              </div>
+              {roster.map((emp) => (
+                <div key={emp.id} className={`grid grid-cols-[1fr_auto_auto_auto] gap-4 items-center p-3 rounded-lg ${emp.showInSchedule ? 'bg-muted/50' : 'bg-muted/20 opacity-70'}`}>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium">{emp.name}</span>
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                        {emp.roleName}
+                      </Badge>
+                    </div>
+                    <div className="text-xs text-muted-foreground">{emp.email} · {emp.employmentType || 'Not set'}</div>
+                  </div>
+                  <div className="flex justify-center w-24">
+                    <Switch
+                      checked={emp.showInSchedule}
+                      onCheckedChange={(checked) => {
+                        rosterMutation.mutate({ employeeId: emp.id, data: { showInSchedule: checked } });
+                      }}
+                    />
+                  </div>
+                  <div className="w-28">
+                    {emp.showInSchedule ? (
+                      <Input
+                        type="number"
+                        min={0}
+                        max={80}
+                        step={0.5}
+                        placeholder="None"
+                        defaultValue={emp.targetWeeklyHours ?? ''}
+                        onBlur={(e) => {
+                          const val = e.target.value === '' ? null : parseFloat(e.target.value);
+                          if (val !== emp.targetWeeklyHours) {
+                            rosterMutation.mutate({ employeeId: emp.id, data: { targetWeeklyHours: val } });
+                          }
+                        }}
+                        className="h-8 text-sm"
+                      />
+                    ) : (
+                      <span className="text-xs text-muted-foreground flex items-center gap-1">
+                        <UserX className="h-3 w-3" /> Excluded
+                      </span>
+                    )}
+                  </div>
+                  <div className="w-8">
+                    {emp.targetWeeklyHours && emp.showInSchedule && (
+                      <Target className="h-4 w-4 text-blue-500" />
+                    )}
+                  </div>
+                </div>
+              ))}
+              <p className="text-xs text-muted-foreground mt-2 px-1">
+                Employees with "On Schedule" turned off will never appear in AI-generated schedules.
+                Target hours tell the AI to prioritize giving that employee enough shifts to reach their goal each week.
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Separator />
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
