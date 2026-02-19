@@ -827,6 +827,26 @@ function createAdminDashboard(options = {}) {
     app.post(`${basePath}/api/stop/continuous`, authMiddleware, stopContinuous);
     app.post(`${basePath}/api/stop/all`, authMiddleware, stopAll);
     app.get(`${basePath}/api/running`, authMiddleware, getRunningStatus);
+
+    setTimeout(() => {
+      const approvedDir = path.join(dataDir, 'approved-queue');
+      if (fs.existsSync(approvedDir)) {
+        const files = fs.readdirSync(approvedDir).filter(f => f.endsWith('.json'));
+        if (files.length > 0) {
+          pushActivity('info', `Found ${files.length} approved specs on startup, auto-executing...`);
+          triggerAutoExecute();
+        }
+      }
+    }, 5000);
+
+    setInterval(() => {
+      if (specsExecutionRunning) return;
+      const approvedDir = path.join(dataDir, 'approved-queue');
+      if (fs.existsSync(approvedDir)) {
+        const files = fs.readdirSync(approvedDir).filter(f => f.endsWith('.json'));
+        if (files.length > 0) triggerAutoExecute();
+      }
+    }, 30000);
   }
 
   return {

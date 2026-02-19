@@ -1022,9 +1022,9 @@
         </div>
 
         <div class="panel">
-          <div class="panel-header">Pending Queue</div>
+          <div class="panel-header">Upcoming Tasks</div>
           <div class="panel-body padded">
-            <div id="queue-list"><div class="empty">Loading...</div></div>
+            <div id="queue-list" style="max-height:200px;overflow-y:auto"><div class="empty">Loading...</div></div>
           </div>
         </div>
 
@@ -1032,13 +1032,6 @@
           <div class="panel-header">Security Alerts</div>
           <div class="panel-body padded">
             <div id="alerts-list"><div class="empty">Loading...</div></div>
-          </div>
-        </div>
-
-        <div class="panel">
-          <div class="panel-header">Top Errors</div>
-          <div class="panel-body padded">
-            <div id="errors-list"><div class="empty">Loading...</div></div>
           </div>
         </div>
 
@@ -1197,12 +1190,15 @@
         if (elonBudget !== null) {
           const remaining = Math.max(0, elonBudget - elonSpent).toFixed(2);
           const exhausted = elonSpent >= elonBudget;
-          tracker.style.display = 'inline';
-          tracker.style.color = exhausted ? 'var(--red)' : '#2ee66a';
-          tracker.style.background = exhausted ? 'rgba(248,81,73,0.12)' : 'rgba(46,230,106,0.12)';
-          tracker.style.padding = '2px 8px';
-          tracker.style.borderRadius = '4px';
-          tracker.textContent = 'Budget: $' + remaining + ' / $' + elonBudget.toFixed(2);
+          const remColor = exhausted ? 'var(--red)' : '#2ee66a';
+          tracker.style.display = 'inline-flex';
+          tracker.style.alignItems = 'center';
+          tracker.style.gap = '0';
+          tracker.style.padding = '0';
+          tracker.style.background = 'none';
+          tracker.innerHTML =
+            '<span style="color:#2ee66a;background:rgba(46,230,106,0.12);padding:2px 8px;border-radius:4px 0 0 4px">$' + elonBudget.toFixed(2) + '</span>' +
+            '<span style="color:' + remColor + ';background:' + (exhausted ? 'rgba(248,81,73,0.12)' : 'rgba(46,230,106,0.08)') + ';padding:2px 8px;border-radius:0 4px 4px 0;border-left:1px solid rgba(255,255,255,0.1)">Remaining: $' + remaining + '</span>';
         } else {
           tracker.style.display = 'none';
         }
@@ -1271,44 +1267,45 @@
 
     async function loadQueue() {
       try {
-        const data = await apiFetch('/queue');
+        const [queueData, elonPending] = await Promise.all([
+          apiFetch('/queue').catch(() => ({ pending: [], approved: [] })),
+          apiFetch('/elon/pending').catch(() => ({ specs: [] })),
+        ]);
         const container = document.getElementById('queue-list');
-        const pending = data.pending || [];
+        const qPending = queueData.pending || [];
+        const qApproved = queueData.approved || [];
+        const ePending = elonPending.specs || [];
 
-        if (pending.length === 0) {
-          container.innerHTML = '<div class="empty">No pending items</div>';
+        const tasks = [
+          ...qApproved.map(s => ({
+            name: s.title || s.action || s.filename || s.id,
+            cost: s.estimatedCost || '~$0.02',
+            source: 'approved',
+          })),
+          ...ePending.map(s => ({
+            name: s.title || s.action || s.filename || s.id,
+            cost: '~$0.02',
+            source: 'pending',
+          })),
+          ...qPending.map(item => ({
+            name: item.title || item.action || item.id,
+            cost: item.estimatedCost || '~$0.02',
+            source: 'pending',
+          })),
+        ];
+
+        if (tasks.length === 0) {
+          container.innerHTML = '<div class="empty">No upcoming tasks</div>';
           return;
         }
 
-        container.innerHTML = pending.map(item => {
-          return '<div class="queue-item">' +
-            '<div class="queue-item-info">' +
-            '<div class="queue-item-name">' + esc(item.title || item.action || item.id) + '</div>' +
-            '<div class="queue-item-meta">' + esc(item.source || '') + '</div>' +
-            '</div>' +
-            '<div class="queue-actions">' +
-            '<button class="btn-approve" onclick="approveItem(\'' + esc(item.id) + '\')">Approve</button>' +
-            '<button class="btn-reject" onclick="rejectItem(\'' + esc(item.id) + '\')">Reject</button>' +
-            '</div></div>';
-        }).join('');
-      } catch {}
-    }
-
-    async function loadErrors() {
-      try {
-        const data = await apiFetch('/errors');
-        const container = document.getElementById('errors-list');
-        const errors = (data.errors || []).slice(0, 5);
-
-        if (errors.length === 0) {
-          container.innerHTML = '<div class="empty">No errors recorded</div>';
-          return;
-        }
-
-        container.innerHTML = errors.map(e => {
-          return '<div class="error-row">' +
-            '<span class="error-msg">' + esc(e.message || e.signature || 'Unknown') + '</span>' +
-            '<span class="error-count">' + (e.occurrences || 1) + '</span>' +
+        container.innerHTML = tasks.map(t => {
+          const badge = t.source === 'pending'
+            ? '<span style="font-size:0.65rem;color:var(--yellow);background:rgba(210,153,11,0.12);padding:1px 5px;border-radius:3px;margin-left:6px">pending</span>'
+            : '<span style="font-size:0.65rem;color:#2ee66a;background:rgba(46,230,106,0.12);padding:1px 5px;border-radius:3px;margin-left:6px">queued</span>';
+          return '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid rgba(42,43,58,0.3);font-size:0.78rem">' +
+            '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:70%">' + esc(t.name) + badge + '</span>' +
+            '<span style="font-family:\'SF Mono\',monospace;font-size:0.7rem;color:var(--yellow);flex-shrink:0">' + esc(t.cost) + '</span>' +
             '</div>';
         }).join('');
       } catch {}
@@ -1382,7 +1379,6 @@
         loadFeed(),
         loadSecurity(),
         loadQueue(),
-        loadErrors(),
         loadMetrics(),
       ]);
       spinner.style.display = 'none';
