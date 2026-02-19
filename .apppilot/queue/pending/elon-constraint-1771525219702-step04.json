@@ -1,0 +1,15 @@
+{
+  "filePath": "server/routes/employees.ts",
+  "description": "[ELON] Fix /api/employees/me endpoint to return current user profile using authenticated userId from middleware.",
+  "successCriteria": [
+    "Endpoint returns profile for authenticated user",
+    "Response includes role and permissions",
+    "No 401 errors for valid sessions",
+    "Profile data matches database employee record"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771525219702",
+  "priority": "high",
+  "step": 4,
+  "blockedCategory": "auth"
+}

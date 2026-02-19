@@ -1,0 +1,15 @@
+{
+  "filePath": "server/routes/time-entries.ts",
+  "description": "[ELON] Verify time-entries routes properly use auth middleware and handle authenticated requests. Ensure userId from auth middleware is used for database queries.",
+  "successCriteria": [
+    "Route handlers access req.auth.userId correctly",
+    "Database queries use authenticated user's ID",
+    "Current time entry endpoint returns data for authenticated user",
+    "No 401 errors for authenticated requests"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771525219702",
+  "priority": "high",
+  "step": 2,
+  "blockedCategory": "auth"
+}

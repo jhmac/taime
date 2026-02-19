@@ -1,0 +1,15 @@
+{
+  "filePath": "server/routes/schedules.ts",
+  "description": "[ELON] Fix schedule routes to properly consume auth middleware and enforce role-based permissions. Ensure current-week endpoint works for all authenticated users.",
+  "successCriteria": [
+    "Schedule endpoints accept authenticated requests",
+    "RBAC permissions enforced correctly",
+    "Current week schedule loads for employees",
+    "Managers can access all schedules per permissions"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771525219702",
+  "priority": "high",
+  "step": 3,
+  "blockedCategory": "auth"
+}

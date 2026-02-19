@@ -1,0 +1,14 @@
+{
+  "filePath": "server/middleware/auth.ts",
+  "description": "[ELON] Fix Clerk authentication middleware to properly validate session tokens. Current implementation is rejecting all requests. Need to ensure Clerk SDK is initialized correctly, tokens are extracted from Authorization header or cookies, and validation passes for authenticated users.",
+  "successCriteria": [
+    "Authenticated requests to /api/auth/me return 200 OK with user data",
+    "Valid Clerk session tokens are properly validated",
+    "Middleware correctly extracts auth token from request headers"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771525156376",
+  "priority": "high",
+  "step": 1,
+  "blockedCategory": "auth"
+}

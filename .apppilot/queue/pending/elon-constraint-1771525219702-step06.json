@@ -1,0 +1,15 @@
+{
+  "filePath": "server/index.ts",
+  "description": "[ELON] Verify auth middleware is correctly registered in Express app before protected routes. Check middleware order and ensure Clerk SDK is properly initialized.",
+  "successCriteria": [
+    "Auth middleware registered globally or per-route correctly",
+    "Middleware order allows auth before route handlers",
+    "Clerk SDK initialized with correct environment variables",
+    "No middleware conflicts or overrides"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771525219702",
+  "priority": "high",
+  "step": 6,
+  "blockedCategory": "auth"
+}

@@ -1,0 +1,14 @@
+{
+  "filePath": "server/routes/auth.ts",
+  "description": "[ELON] Verify /api/auth/me endpoint correctly retrieves user from Clerk and returns user data with role information. Ensure it handles both Clerk SDK calls and database lookups for employee records.",
+  "successCriteria": [
+    "/api/auth/me returns 200 with user data when authenticated",
+    "Response includes userId, email, role, and employee profile if exists",
+    "Proper error handling for missing employee records"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771525185854",
+  "priority": "high",
+  "step": 2,
+  "blockedCategory": "auth"
+}

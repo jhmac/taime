@@ -1,0 +1,14 @@
+{
+  "filePath": "server/middleware/auth.ts",
+  "description": "[ELON] Fix Clerk middleware configuration — ensure it properly validates JWT tokens and attaches user context to request object. Check environment variables are loaded correctly (CLERK_SECRET_KEY, CLERK_PUBLISHABLE_KEY).",
+  "successCriteria": [
+    "Middleware successfully validates Clerk JWT tokens",
+    "req.auth object is populated with userId and sessionId",
+    "Protected routes no longer return 401 for authenticated requests"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771525185854",
+  "priority": "high",
+  "step": 1,
+  "blockedCategory": "auth"
+}

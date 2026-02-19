@@ -1,10 +1,10 @@
 {
-  "totalCycles": 6,
+  "totalCycles": 9,
   "constraintsSolved": 0,
-  "constraintsActive": 5,
-  "totalBudgetSpent": 0.10500000000000001,
-  "pagesCrawled": 6,
-  "issuesFound": 24,
+  "constraintsActive": 8,
+  "totalBudgetSpent": 0.16499999999999998,
+  "pagesCrawled": 9,
+  "issuesFound": 34,
   "issuesResolved": 0,
   "constraintLeaderboard": [
     {
@@ -135,6 +135,85 @@
         "Shopify sync can proceed (depends on database writes)",
         "User trust is restored (no more random 500 errors)"
       ]
+    },
+    {
+      "id": "constraint-1771525156376",
+      "description": "Authentication system is completely broken — all protected routes return 401 Unauthorized even for valid authenticated users",
+      "score": 10,
+      "status": "active",
+      "category": "security",
+      "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
+      "identifiedAt": "2026-02-19T18:19:16.376Z",
+      "evidenceFromCrawl": [
+        "GET /api/auth/me returned 401 Unauthorized with 'Authentication required' error",
+        "GET /api/employees returned 401 Unauthorized",
+        "GET /api/schedules returned 401 Unauthorized",
+        "GET /api/time-entries returned 401 Unauthorized",
+        "GET /api/tasks returned 401 Unauthorized",
+        "Every API endpoint tested returned 401 errors despite valid authentication",
+        "Frontend shows authentication state but backend rejects all requests"
+      ],
+      "unblocks": [
+        "Clock-in/out functionality",
+        "Schedule viewing and management",
+        "Payroll report access",
+        "Task assignment and tracking",
+        "Member directory access",
+        "Activity logging",
+        "All dashboard features",
+        "All admin functions"
+      ]
+    },
+    {
+      "id": "constraint-1771525185854",
+      "description": "Authentication system is completely broken — Clerk integration fails on all protected routes causing 401 errors across the entire app",
+      "score": 10,
+      "status": "active",
+      "category": "security",
+      "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
+      "identifiedAt": "2026-02-19T18:19:45.854Z",
+      "evidenceFromCrawl": [
+        "GET /api/auth/me → 401 Unauthorized (occurs on every protected page)",
+        "Dashboard page shows 'Authentication failed' error",
+        "Time tracking page blocked by auth failure",
+        "Schedule page blocked by auth failure",
+        "Members page blocked by auth failure",
+        "Tasks page blocked by auth failure",
+        "All protected routes return 401 before any business logic runs"
+      ],
+      "unblocks": [
+        "Clock-in/out system becomes accessible",
+        "Task assignment flows work",
+        "Payroll reports become viewable",
+        "Schedule management becomes usable",
+        "Member directory becomes accessible",
+        "All protected API endpoints start working"
+      ]
+    },
+    {
+      "id": "constraint-1771525219702",
+      "description": "Critical authentication and authorization system failures causing 401 Unauthorized errors across all protected routes, blocking core workforce management features",
+      "score": 10,
+      "status": "active",
+      "category": "security",
+      "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
+      "identifiedAt": "2026-02-19T18:20:19.702Z",
+      "evidenceFromCrawl": [
+        "GET /api/time-entries/current → 401 Unauthorized (blocks clock-in feature)",
+        "GET /api/schedules/current-week → 401 Unauthorized (blocks schedule view)",
+        "GET /api/employees/me → 401 Unauthorized (blocks profile access)",
+        "GET /api/tasks → 401 Unauthorized (blocks task management)",
+        "Multiple routes returning 401 despite Clerk session existing in browser",
+        "Consistent pattern of auth failures across all protected endpoints"
+      ],
+      "unblocks": [
+        "Employees can clock in/out reliably",
+        "Managers can view and modify schedules",
+        "Task assignment and tracking becomes functional",
+        "Payroll reports can be accessed",
+        "Admin functions become available",
+        "All downstream features (SOPs, GTD, notifications) become accessible"
+      ]
     }
   ],
   "crawlHistory": [
@@ -167,6 +246,21 @@
       "timestamp": "2026-02-19T17:45:20.957Z",
       "pagesVisited": 1,
       "issuesFound": 4
+    },
+    {
+      "timestamp": "2026-02-19T18:19:16.379Z",
+      "pagesVisited": 1,
+      "issuesFound": 4
+    },
+    {
+      "timestamp": "2026-02-19T18:19:45.857Z",
+      "pagesVisited": 1,
+      "issuesFound": 3
+    },
+    {
+      "timestamp": "2026-02-19T18:20:19.704Z",
+      "pagesVisited": 1,
+      "issuesFound": 3
     }
   ],
   "goalsProgress": [],
@@ -237,6 +331,39 @@
       "result": "planned",
       "crawlPages": 1,
       "crawlIssues": 4
+    },
+    {
+      "cycle": 7,
+      "timestamp": "2026-02-19T18:19:16.379Z",
+      "constraint": "Authentication system is completely broken — all protected routes return 401 Unauthorized even for valid authenticated users",
+      "score": 10,
+      "specsCreated": 5,
+      "budgetUsed": 0.02,
+      "result": "planned",
+      "crawlPages": 1,
+      "crawlIssues": 4
+    },
+    {
+      "cycle": 8,
+      "timestamp": "2026-02-19T18:19:45.857Z",
+      "constraint": "Authentication system is completely broken — Clerk integration fails on all protected routes causing 401 errors across the entire app",
+      "score": 10,
+      "specsCreated": 5,
+      "budgetUsed": 0.02,
+      "result": "planned",
+      "crawlPages": 1,
+      "crawlIssues": 3
+    },
+    {
+      "cycle": 9,
+      "timestamp": "2026-02-19T18:20:19.704Z",
+      "constraint": "Critical authentication and authorization system failures causing 401 Unauthorized errors across all protected routes, blocking core workforce management features",
+      "score": 10,
+      "specsCreated": 6,
+      "budgetUsed": 0.02,
+      "result": "planned",
+      "crawlPages": 1,
+      "crawlIssues": 3
     }
   ],
   "failedAttempts": [
@@ -247,176 +374,117 @@
     }
   ],
   "activeConstraint": {
-    "id": "constraint-1771523120953",
-    "description": "Critical authentication and database connection failures causing 500 errors across all protected routes",
-    "why": "Every LIVE feature depends on auth and database access. When Clerk auth or database connections fail, the entire app becomes unusable. This is the root blocker preventing users from clocking in, viewing schedules, managing tasks, or accessing any protected functionality.",
+    "id": "constraint-1771525219702",
+    "description": "Critical authentication and authorization system failures causing 401 Unauthorized errors across all protected routes, blocking core workforce management features",
+    "why": "Clerk auth integration is failing — users cannot access any protected functionality (clock-in, scheduling, tasks, payroll). This is the foundational constraint blocking ALL operational features. Without working auth, the entire app is unusable.",
     "unblocks": [
-      "Clock-in/out becomes reliable",
-      "Schedule viewing and management works consistently",
-      "Task assignment and tracking functions properly",
-      "Payroll reports can be generated without errors",
-      "API performance can be measured accurately (can't optimize what doesn't work)",
-      "Shopify sync can proceed (depends on database writes)",
-      "User trust is restored (no more random 500 errors)"
+      "Employees can clock in/out reliably",
+      "Managers can view and modify schedules",
+      "Task assignment and tracking becomes functional",
+      "Payroll reports can be accessed",
+      "Admin functions become available",
+      "All downstream features (SOPs, GTD, notifications) become accessible"
     ],
     "score": 10,
-    "category": "infrastructure",
+    "category": "security",
     "evidenceFromCrawl": [
-      "GET /api/time-entries/current returned 500 Internal Server Error",
-      "GET /api/schedules/current returned 500 Internal Server Error",
-      "GET /api/tasks returned 500 Internal Server Error",
-      "GET /api/employees returned 500 Internal Server Error",
-      "GET /api/payroll/current-period returned 500 Internal Server Error",
-      "Multiple routes failing with identical 500 pattern suggests systemic auth or database issue",
-      "No working protected routes discovered in crawl — complete failure of core functionality"
+      "GET /api/time-entries/current → 401 Unauthorized (blocks clock-in feature)",
+      "GET /api/schedules/current-week → 401 Unauthorized (blocks schedule view)",
+      "GET /api/employees/me → 401 Unauthorized (blocks profile access)",
+      "GET /api/tasks → 401 Unauthorized (blocks task management)",
+      "Multiple routes returning 401 despite Clerk session existing in browser",
+      "Consistent pattern of auth failures across all protected endpoints"
     ],
     "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
-    "identifiedAt": "2026-02-19T17:45:20.953Z",
+    "identifiedAt": "2026-02-19T18:20:19.702Z",
     "status": "active",
     "steps": [
       {
         "step": 1,
         "filePath": "server/middleware/auth.ts",
-        "description": "Add comprehensive error handling and logging to Clerk auth middleware. Catch ClerkExpressRequireAuth failures, log specific error types (expired token, invalid token, network failure), return proper 401/500 responses with structured error messages instead of letting errors bubble up unhandled.",
+        "description": "Fix Clerk auth middleware to properly validate sessions and attach user context to requests. Current implementation is rejecting valid Clerk sessions.",
         "successCriteria": [
-          "Auth middleware catches all Clerk errors",
-          "Returns 401 for auth failures with clear error message",
-          "Returns 500 for Clerk API unavailability with retry guidance",
-          "Logs structured auth errors to console for debugging"
+          "Middleware successfully extracts Clerk userId from request",
+          "Valid Clerk sessions pass authentication",
+          "User context attached to req object for downstream handlers",
+          "Middleware logs show successful auth for valid sessions"
+        ],
+        "priority": "high",
+        "estimatedComplexity": "medium"
+      },
+      {
+        "step": 2,
+        "filePath": "server/routes/time-entries.ts",
+        "description": "Verify time-entries routes properly use auth middleware and handle authenticated requests. Ensure userId from auth middleware is used for database queries.",
+        "successCriteria": [
+          "Route handlers access req.auth.userId correctly",
+          "Database queries use authenticated user's ID",
+          "Current time entry endpoint returns data for authenticated user",
+          "No 401 errors for authenticated requests"
         ],
         "priority": "high",
         "estimatedComplexity": "low"
       },
       {
-        "step": 2,
-        "filePath": "server/db/index.ts",
-        "description": "Add database connection health checking, retry logic with exponential backoff, and connection pool monitoring. Wrap all db queries in try/catch that logs connection state. Add a /health endpoint check for database connectivity. Ensure graceful degradation if db is temporarily unavailable.",
-        "successCriteria": [
-          "Database connection failures are caught and logged with connection state",
-          "Failed queries retry 3x with exponential backoff before failing",
-          "Connection pool exhaustion is detected and logged",
-          "Health check endpoint reports database status"
-        ],
-        "priority": "high",
-        "estimatedComplexity": "medium"
-      },
-      {
         "step": 3,
-        "filePath": "server/routes/time-entries.ts",
-        "description": "Wrap all route handlers in try/catch blocks. Add input validation with Zod. Return structured error responses with proper HTTP status codes. Log all errors with request context (userId, endpoint, timestamp). Handle database query failures gracefully with user-friendly error messages.",
+        "filePath": "server/routes/schedules.ts",
+        "description": "Fix schedule routes to properly consume auth middleware and enforce role-based permissions. Ensure current-week endpoint works for all authenticated users.",
         "successCriteria": [
-          "All handlers have try/catch",
-          "All inputs validated with Zod schemas",
-          "All errors return JSON with {success: false, error: {message, code}}",
-          "Database errors return 500 with 'Database temporarily unavailable' message",
-          "Auth errors return 401 with 'Authentication required' message"
+          "Schedule endpoints accept authenticated requests",
+          "RBAC permissions enforced correctly",
+          "Current week schedule loads for employees",
+          "Managers can access all schedules per permissions"
         ],
         "priority": "high",
-        "estimatedComplexity": "medium"
+        "estimatedComplexity": "low"
       },
       {
         "step": 4,
-        "filePath": "server/routes/schedules.ts",
-        "description": "Apply same error handling pattern as time-entries: try/catch all handlers, Zod input validation, structured error responses, proper status codes, comprehensive logging with request context.",
+        "filePath": "server/routes/employees.ts",
+        "description": "Fix /api/employees/me endpoint to return current user profile using authenticated userId from middleware.",
         "successCriteria": [
-          "All handlers have try/catch",
-          "All inputs validated with Zod",
-          "Structured error responses on all paths",
-          "Database and auth errors handled gracefully"
+          "Endpoint returns profile for authenticated user",
+          "Response includes role and permissions",
+          "No 401 errors for valid sessions",
+          "Profile data matches database employee record"
         ],
         "priority": "high",
-        "estimatedComplexity": "medium"
+        "estimatedComplexity": "low"
       },
       {
         "step": 5,
         "filePath": "server/routes/tasks.ts",
-        "description": "Apply same error handling pattern: try/catch all handlers, Zod input validation, structured error responses, proper status codes, comprehensive logging.",
+        "description": "Ensure task routes properly authenticate and filter tasks by user permissions. Employees see assigned tasks, managers see all tasks.",
         "successCriteria": [
-          "All handlers have try/catch",
-          "All inputs validated with Zod",
-          "Structured error responses on all paths",
-          "Database and auth errors handled gracefully"
+          "Task list loads for authenticated users",
+          "Tasks filtered by role permissions",
+          "Employees see only assigned tasks",
+          "Managers see all tasks"
         ],
         "priority": "high",
-        "estimatedComplexity": "medium"
+        "estimatedComplexity": "low"
       },
       {
         "step": 6,
-        "filePath": "server/routes/employees.ts",
-        "description": "Apply same error handling pattern: try/catch all handlers, Zod input validation, structured error responses, proper status codes, comprehensive logging.",
-        "successCriteria": [
-          "All handlers have try/catch",
-          "All inputs validated with Zod",
-          "Structured error responses on all paths",
-          "Database and auth errors handled gracefully"
-        ],
-        "priority": "high",
-        "estimatedComplexity": "medium"
-      },
-      {
-        "step": 7,
-        "filePath": "server/routes/payroll.ts",
-        "description": "Apply same error handling pattern: try/catch all handlers, Zod input validation, structured error responses, proper status codes, comprehensive logging. Extra care on payroll calculations — add decimal arithmetic validation.",
-        "successCriteria": [
-          "All handlers have try/catch",
-          "All inputs validated with Zod",
-          "Structured error responses on all paths",
-          "Payroll calculations use decimal.js or integer cents",
-          "Database and auth errors handled gracefully"
-        ],
-        "priority": "high",
-        "estimatedComplexity": "medium"
-      },
-      {
-        "step": 8,
         "filePath": "server/index.ts",
-        "description": "Add global error handler middleware at the end of the Express middleware stack. Catch any unhandled errors, log them with full stack trace and request context, return structured 500 response. Add process-level unhandled rejection and uncaught exception handlers that log and attempt graceful shutdown.",
+        "description": "Verify auth middleware is correctly registered in Express app before protected routes. Check middleware order and ensure Clerk SDK is properly initialized.",
         "successCriteria": [
-          "Global error handler catches all unhandled route errors",
-          "Returns structured 500 JSON response",
-          "Logs errors with stack trace, request URL, user ID, timestamp",
-          "Process handlers prevent silent crashes"
+          "Auth middleware registered globally or per-route correctly",
+          "Middleware order allows auth before route handlers",
+          "Clerk SDK initialized with correct environment variables",
+          "No middleware conflicts or overrides"
         ],
         "priority": "high",
-        "estimatedComplexity": "low"
-      },
-      {
-        "step": 9,
-        "filePath": "server/utils/logger.ts",
-        "description": "Create structured logging utility to replace console.log. Include log levels (debug, info, warn, error), request context injection, timestamp formatting, and optional JSON output for production. Export logger instance to use across all routes and middleware.",
-        "successCriteria": [
-          "Logger supports debug/info/warn/error levels",
-          "Includes timestamps on all log entries",
-          "Can inject request context (userId, endpoint, method)",
-          "JSON output mode for production logs"
-        ],
-        "priority": "medium",
-        "estimatedComplexity": "low"
-      },
-      {
-        "step": 10,
-        "filePath": "server/routes/health.ts",
-        "description": "Create comprehensive health check endpoint that tests: database connectivity, Clerk API reachability, basic query performance, available connection pool slots. Return structured health status with individual component checks. Used by monitoring and deployment health checks.",
-        "successCriteria": [
-          "GET /health returns 200 when all systems healthy",
-          "Returns 503 with component breakdown when any system unhealthy",
-          "Tests database with simple query",
-          "Reports connection pool status",
-          "Response includes timestamp and version info"
-        ],
-        "priority": "medium",
-        "estimatedComplexity": "low"
+        "estimatedComplexity": "medium"
       }
     ],
     "verificationPages": [
       "/",
-      "/dashboard",
       "/schedule",
       "/tasks",
       "/time-tracking",
-      "/payroll",
-      "/employees"
+      "/team"
     ],
-    "completionCriteria": "All protected API routes return either successful data (200) or proper error responses (401/403/500) with structured JSON. No unhandled 500 errors in crawl. All LIVE features load without internal server errors. Health endpoint reports all systems operational."
+    "completionCriteria": "All protected API endpoints return 200 OK for authenticated users. No 401 Unauthorized errors in crawl results. Clock-in, schedule view, task list, and profile endpoints all functional."
   }
 }

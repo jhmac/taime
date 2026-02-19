@@ -1,0 +1,14 @@
+{
+  "filePath": "server/index.ts",
+  "description": "[ELON] Verify Clerk middleware is applied in correct order in Express middleware stack — must come before route handlers but after body parsers. Check CORS configuration allows credentials.",
+  "successCriteria": [
+    "Clerk middleware registered before all protected routes",
+    "CORS allows credentials and Clerk headers",
+    "No middleware conflicts that prevent auth from working"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771525185854",
+  "priority": "high",
+  "step": 5,
+  "blockedCategory": "credentials"
+}
