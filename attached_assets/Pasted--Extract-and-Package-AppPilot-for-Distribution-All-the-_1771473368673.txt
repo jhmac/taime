@@ -1,0 +1,313 @@
+# Extract and Package AppPilot for Distribution
+
+All the latest features (ELON, Playwright crawler, continuous loop, ELON-REPORT, dashboard buttons) are working in this app’s `node_modules/apppilot/`. I need to extract it into a clean package that I can install in other Replit apps.
+
+## Step 1: Copy patched source out of node_modules
+
+```bash
+rm -rf ~/workspace/apppilot-package
+mkdir -p ~/workspace/apppilot-package
+cp -r node_modules/apppilot/* ~/workspace/apppilot-package/
+```
+
+## Step 2: Clean up the package
+
+In `~/workspace/apppilot-package/`:
+
+1. **Remove debug code** — search all files in `src/` and `bin/` for:
+- `console.log` statements that were added for debugging (keep intentional logging like cycle progress and error messages)
+- Any `// TODO` or `// HACK` or `// TEMP` comments with temporary code
+- Any hardcoded paths like `/home/runner/workspace` — replace with relative paths or `process.cwd()`
+1. **Verify no app-specific data leaked in** — check that no ShopTok-specific code, API keys, store IDs, or customer data ended up in the package files. The package should be completely app-agnostic.
+1. **Verify all new files exist:**
+- `src/elon.js` — ELON constraint solver engine
+- `src/site-crawler.js` — Playwright site crawler
+- `bin/elon.js` — ELON CLI command
+- `bin/crawl.js` — Crawl CLI command
+- `bin/continuous.js` — Continuous loop CLI command
+- `bin/apppilot.js` — Init CLI command (existing)
+- `bin/heartbeat.js` — Heartbeat CLI command (existing)
+- `templates/subagents/elon.md` — ELON subagent template
+- `src/dashboard/index.html` — Dashboard with ELON, Crawl, Discovery buttons
+1. **Make sure all template files are generic** — check `templates/` folder:
+- `GOALS-template.md` should have placeholder text, not ShopTok content
+- `SOUL-template.md` should have placeholder owner email
+- `AGENTS-template.md` should have generic safe paths like `src/**`, `server/**`
+- No ShopTok-specific references in any template file
+
+## Step 3: Update package.json
+
+Edit `~/workspace/apppilot-package/package.json`:
+
+```json
+{
+  "name": "apppilot",
+  "version": "0.3.0",
+  "description": "Autonomous AI agent that monitors, analyzes, and improves your app. Includes ELON strategic constraint solver and Playwright site crawler.",
+  "main": "src/index.js",
+  "bin": {
+    "apppilot": "bin/apppilot.js",
+    "apppilot-heartbeat": "bin/heartbeat.js",
+    "apppilot-elon": "bin/elon.js",
+    "apppilot-crawl": "bin/crawl.js",
+    "apppilot-continuous": "bin/continuous.js"
+  },
+  "files": [
+    "src/",
+    "templates/",
+    "bin/",
+    "README.md"
+  ],
+  "scripts": {
+    "heartbeat": "node bin/heartbeat.js",
+    "elon": "node bin/elon.js",
+    "crawl": "node bin/crawl.js",
+    "continuous": "node bin/continuous.js"
+  },
+  "peerDependencies": {
+    "express": ">=4.18.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.30.0",
+    "marked": "^12.0.0",
+    "glob": "^10.0.0",
+    "gray-matter": "^4.0.3",
+    "proper-lockfile": "^4.1.2",
+    "playwright": "^1.40.0",
+    "playwright-core": "^1.40.0"
+  }
+}
+```
+
+Make sure:
+
+- Version is `0.3.0` (was 0.2.0)
+- All 5 bin commands are listed
+- Playwright is in dependencies
+- `files` array includes all necessary directories
+- No devDependencies that would bloat the package
+
+## Step 4: Update the init script
+
+Check `~/workspace/apppilot-package/bin/apppilot.js` and make sure:
+
+1. It does NOT copy or overwrite the host app’s `package.json` (this was a bug in 0.2.0)
+1. It creates the `.apppilot/` directory structure including new directories needed by ELON:
+   
+   ```
+   .apppilot/
+   .apppilot/approved-queue/
+   .apppilot/queue/pending/
+   .apppilot/completed/
+   .apppilot/failed/
+   .apppilot/backups/
+   .apppilot/memory/
+   .apppilot/decisions/
+   ```
+1. It copies all template files to the project root:
+- SOUL.md, AGENTS.md, GOALS.md, IDENTITY.md, USER.md, TOOLS.md, HEARTBEAT.md
+1. It generates identity checksums
+1. It updates .gitignore
+1. It prints clear next steps including the new commands
+
+The init output should look like:
+
+```
+apppilot init — setting up your project...
+  [dir] .apppilot/
+  [dir] .apppilot/approved-queue/
+  [dir] .apppilot/queue/pending/
+  [dir] .apppilot/completed/
+  [dir] .apppilot/failed/
+  [dir] .apppilot/backups/
+  [dir] .apppilot/memory/
+  [dir] .apppilot/decisions/
+  [copy] SOUL.md (edit this for your app)
+  [copy] AGENTS.md (edit this for your app)
+  [copy] GOALS.md (edit this for your app)
+  [copy] IDENTITY.md
+  [copy] USER.md
+  [copy] TOOLS.md
+  [copy] HEARTBEAT.md
+  [gen] identity checksums
+  [update] .gitignore
+
+Done! Next steps:
+  1. Edit GOALS.md — your app's mission, priorities, and what to fix/ignore
+  2. Edit AGENTS.md — which file paths AppPilot can safely modify
+  3. Edit SOUL.md — set your owner email and app identity
+  4. Set environment variables:
+     ANTHROPIC_API_KEY (required)
+     ANTHROPIC_BASE_URL (if using Replit AI proxy)
+  5. Install Playwright browser: npx playwright install chromium
+
+  Commands:
+    npx apppilot-heartbeat    — run a monitoring + fix cycle
+    npx apppilot-elon         — find and fix limiting factors
+    npx apppilot-crawl        — crawl site for errors
+    npx apppilot-continuous   — continuous improvement loop
+```
+
+## Step 5: Write a README
+
+Create `~/workspace/apppilot-package/README.md`:
+
+```markdown
+# AppPilot
+
+Autonomous AI agent that monitors, analyzes, and improves your app. Uses Claude to find issues, generate fixes, and apply them — with rollback safety.
+
+## Install
+
+npm install ./apppilot-0.3.0.tgz
+
+## Setup
+
+npx apppilot init
+npx playwright install chromium
+
+Edit GOALS.md, AGENTS.md, and SOUL.md for your app.
+
+Set environment variables:
+- ANTHROPIC_API_KEY (required)
+- ANTHROPIC_BASE_URL (if using Replit AI proxy)
+
+## Commands
+
+| Command | What it does |
+|---------|-------------|
+| npx apppilot init | Set up AppPilot in your project |
+| npx apppilot-heartbeat | Run one monitoring + fix cycle |
+| npx apppilot-elon | Find and solve limiting factors with Playwright |
+| npx apppilot-crawl | Crawl your site and report errors |
+| npx apppilot-continuous | Keep fixing until all high/medium issues are resolved |
+
+## Features
+
+- **Ralph Loop** — specs go in, code changes come out, tests validate
+- **ELON** — strategic constraint solver that finds what's most blocking your goals
+- **Playwright Crawler** — crawls your live site like a real user to find errors
+- **Auto-approval** — safe changes apply automatically, risky ones wait for you
+- **Dashboard** — web UI at /apppilot/dashboard showing status, errors, queue
+- **Memory** — ELON-REPORT.md tracks everything tested, passed, failed, and trending
+- **Rollback** — every change is backed up and reverted if tests fail
+- **Identity Protection** — SHA-256 checksums on config files prevent tampering
+
+## Files
+
+| File | Purpose |
+|------|---------|
+| GOALS.md | Your app's mission, priorities, quality targets |
+| AGENTS.md | Safe file paths and protected paths |
+| SOUL.md | Agent identity and owner verification |
+| ELON.md | Current constraint focus (auto-generated) |
+| ELON-REPORT.md | Full test results and progress report (auto-generated) |
+
+## Version 0.3.0 Changelog
+- Added ELON strategic constraint solver
+- Added Playwright site crawler
+- Added continuous improvement loop
+- Added ELON-REPORT.md memory and reporting
+- Added dashboard buttons for ELON, Crawl, Discovery
+- Fixed: init no longer overwrites host app's package.json
+- Fixed: JSON parser handles markdown-wrapped responses
+- Fixed: Path safety strips descriptions from patterns
+- Fixed: curl in command whitelist
+- Fixed: Test retry with recompilation delay
+- Fixed: Smart code truncation (50KB limit)
+```
+
+## Step 6: Verify everything works
+
+Before packaging, test:
+
+```bash
+cd ~/workspace/apppilot-package
+
+# Check all source files exist
+echo "=== Source files ==="
+ls src/
+ls src/subagents/
+ls src/middleware/
+ls src/dashboard/
+
+echo "=== CLI commands ==="
+ls bin/
+
+echo "=== Templates ==="
+ls templates/
+ls templates/subagents/
+
+echo "=== No ShopTok references ==="
+grep -r "shoptok\|ShopTok\|SHOPTOK" src/ bin/ templates/ || echo "Clean — no app-specific references"
+
+echo "=== No hardcoded paths ==="
+grep -r "/home/runner" src/ bin/ || echo "Clean — no hardcoded paths"
+
+echo "=== No leaked secrets ==="
+grep -r "sk-\|api_key\|password\|secret" src/ bin/ --include="*.js" | grep -v "process.env\|apiKey\|API_KEY\|internalKey" || echo "Clean — no leaked secrets"
+
+echo "=== Package.json version ==="
+cat package.json | grep version
+```
+
+## Step 7: Pack it
+
+```bash
+cd ~/workspace/apppilot-package
+npm pack
+ls -la apppilot-0.3.0.tgz
+echo "Package size:"
+du -h apppilot-0.3.0.tgz
+```
+
+## Step 8: Test install in this app
+
+```bash
+cd ~/workspace
+
+# Remove old version
+rm -rf node_modules/apppilot
+
+# Install from local package
+npm install ./apppilot-package/apppilot-0.3.0.tgz
+
+# Verify it works
+export ANTHROPIC_API_KEY="$AI_INTEGRATIONS_ANTHROPIC_API_KEY"
+export ANTHROPIC_BASE_URL="$AI_INTEGRATIONS_ANTHROPIC_BASE_URL"
+
+# Quick heartbeat test
+npx apppilot-heartbeat
+
+# Quick crawl test (if playwright is installed)
+npx apppilot-crawl
+```
+
+## Step 9: Copy the tgz to an accessible location
+
+```bash
+cp ~/workspace/apppilot-package/apppilot-0.3.0.tgz ~/workspace/apppilot-0.3.0.tgz
+echo "✅ Package ready at: ~/workspace/apppilot-0.3.0.tgz"
+echo ""
+echo "To install in another app:"
+echo "  1. Upload apppilot-0.3.0.tgz to the target Replit project"
+echo "  2. npm install ./apppilot-0.3.0.tgz"
+echo "  3. npx apppilot init"
+echo "  4. npx playwright install chromium"
+echo "  5. Edit GOALS.md, AGENTS.md, SOUL.md"
+echo "  6. npx apppilot-heartbeat"
+```
+
+## Success Criteria:
+
+- Package version is 0.3.0
+- All 5 CLI commands work: init, heartbeat, elon, crawl, continuous
+- No ShopTok-specific code in the package
+- No hardcoded paths or leaked secrets
+- Init does NOT overwrite host app’s package.json
+- Templates are generic with placeholder text
+- Playwright is listed as a dependency
+- README documents all commands and features
+- Package installs cleanly in this app
+- Heartbeat runs successfully after reinstall
+- tgz file is ready for upload to other Replit projects

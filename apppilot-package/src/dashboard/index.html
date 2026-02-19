@@ -1,0 +1,1226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AppPilot Dashboard</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --card: #1a1b26;
+      --card-border: #2a2b3a;
+      --accent: #7c3aed;
+      --accent-hover: #6d28d9;
+      --text: #e1e4e8;
+      --text-secondary: #8b949e;
+      --text-muted: #636c76;
+      --green: #3fb950;
+      --yellow: #d29922;
+      --red: #f85149;
+      --blue: #58a6ff;
+      --radius: 8px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    button {
+      cursor: pointer;
+      border: none;
+      font-family: inherit;
+      font-size: 0.8rem;
+      border-radius: 4px;
+      padding: 6px 12px;
+      font-weight: 500;
+      transition: background 0.15s, opacity 0.15s;
+    }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--card-border);
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .topbar-left { display: flex; align-items: center; gap: 12px; }
+    .topbar h1 { font-size: 1.25rem; font-weight: 600; }
+    .topbar-right { display: flex; align-items: center; gap: 12px; font-size: 0.8rem; color: var(--text-secondary); }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.75rem;
+      font-weight: 500;
+      padding: 3px 10px;
+      border-radius: 20px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .badge-healthy { background: rgba(63,185,80,0.15); color: var(--green); }
+    .badge-degraded { background: rgba(210,153,34,0.15); color: var(--yellow); }
+    .badge-alert { background: rgba(248,81,73,0.15); color: var(--red); }
+    .badge::before {
+      content: '';
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .container { max-width: 1400px; margin: 0 auto; padding: 20px 24px; }
+
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    @media (max-width: 900px) {
+      .stats-row { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    .stat-card {
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      padding: 16px;
+    }
+    .stat-card .label {
+      font-size: 0.7rem;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+    }
+    .stat-card .value {
+      font-size: 1.75rem;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .main-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 16px;
+    }
+    @media (max-width: 900px) {
+      .main-grid { grid-template-columns: 1fr; }
+    }
+
+    .panel {
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--card-border);
+      font-size: 0.85rem;
+      font-weight: 600;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    .panel-body { padding: 0; }
+    .panel-body.padded { padding: 16px; }
+
+    .feed-list {
+      list-style: none;
+      max-height: 500px;
+      overflow-y: auto;
+    }
+    .feed-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 10px 16px;
+      border-bottom: 1px solid rgba(42,43,58,0.5);
+      font-size: 0.8rem;
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+    .feed-item:hover { background: rgba(124,58,237,0.05); }
+    .feed-item:last-child { border-bottom: none; }
+    .feed-icon {
+      flex-shrink: 0;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.7rem;
+      margin-top: 1px;
+    }
+    .feed-icon.info { background: rgba(88,166,255,0.15); color: var(--blue); }
+    .feed-icon.error { background: rgba(248,81,73,0.15); color: var(--red); }
+    .feed-icon.critical { background: rgba(248,81,73,0.25); color: var(--red); }
+    .feed-icon.warning { background: rgba(210,153,34,0.15); color: var(--yellow); }
+    .feed-icon.success { background: rgba(63,185,80,0.15); color: var(--green); }
+    .feed-icon.heartbeat { background: rgba(124,58,237,0.15); color: var(--accent); }
+    .feed-icon.security { background: rgba(248,81,73,0.15); color: var(--red); }
+    .feed-time { color: var(--text-muted); font-size: 0.7rem; white-space: nowrap; }
+    .feed-msg { color: var(--text-secondary); word-break: break-word; }
+    .feed-detail { display: none; padding: 8px 16px 8px 48px; font-size: 0.75rem; color: var(--text-muted); background: rgba(0,0,0,0.2); }
+    .feed-item.expanded + .feed-detail { display: block; }
+
+    .sidebar-sections { display: flex; flex-direction: column; gap: 16px; }
+
+    .section-title {
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-secondary);
+      margin-bottom: 8px;
+    }
+
+    .checksum-list { list-style: none; }
+    .checksum-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 0;
+      font-size: 0.75rem;
+      border-bottom: 1px solid rgba(42,43,58,0.3);
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    .checksum-item:last-child { border-bottom: none; }
+    .checksum-file { font-weight: 500; }
+    .checksum-hash { font-family: 'SF Mono', 'Menlo', monospace; font-size: 0.65rem; color: var(--text-muted); }
+    .checksum-ok { color: var(--green); }
+    .checksum-changed { color: var(--red); }
+
+    .queue-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(42,43,58,0.3);
+      font-size: 0.8rem;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    .queue-item:last-child { border-bottom: none; }
+    .queue-item-info { flex: 1; min-width: 0; }
+    .queue-item-name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .queue-item-meta { font-size: 0.7rem; color: var(--text-muted); }
+    .queue-actions { display: flex; gap: 6px; flex-shrink: 0; }
+    .btn-approve { background: var(--green); color: #000; }
+    .btn-approve:hover { opacity: 0.85; }
+    .btn-reject { background: var(--red); color: #fff; }
+    .btn-reject:hover { opacity: 0.85; }
+    .btn-ack { background: var(--accent); color: #fff; }
+    .btn-ack:hover { background: var(--accent-hover); }
+
+    .error-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 0;
+      font-size: 0.8rem;
+      border-bottom: 1px solid rgba(42,43,58,0.3);
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    .error-row:last-child { border-bottom: none; }
+    .error-msg { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); }
+    .error-count {
+      background: rgba(248,81,73,0.15);
+      color: var(--red);
+      font-size: 0.7rem;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+
+    .perf-bars { display: flex; flex-direction: column; gap: 6px; }
+    .perf-bar-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.75rem;
+    }
+    .perf-bar-label { width: 50px; text-align: right; color: var(--text-muted); flex-shrink: 0; }
+    .perf-bar-track {
+      flex: 1;
+      height: 16px;
+      background: rgba(42,43,58,0.5);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .perf-bar-fill {
+      height: 100%;
+      border-radius: 3px;
+      background: var(--accent);
+      transition: width 0.3s;
+    }
+    .perf-bar-value { width: 50px; font-variant-numeric: tabular-nums; color: var(--text-secondary); font-size: 0.7rem; flex-shrink: 0; }
+
+    .alert-item {
+      padding: 6px 0;
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      border-bottom: 1px solid rgba(42,43,58,0.3);
+    }
+    .alert-item:last-child { border-bottom: none; }
+
+    .action-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+    .btn-discover {
+      background: var(--accent);
+      color: #fff;
+      padding: 10px 20px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      border-radius: 6px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn-discover:hover:not(:disabled) { background: var(--accent-hover); }
+    .btn-continuous {
+      background: var(--green);
+      color: #000;
+      padding: 10px 20px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      border-radius: 6px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn-continuous:hover:not(:disabled) { opacity: 0.85; }
+    .action-status {
+      font-size: 0.8rem;
+      color: var(--green);
+      display: none;
+      align-items: center;
+      gap: 6px;
+    }
+    .action-cooldown {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      display: none;
+    }
+    .btn-crawl {
+      background: var(--blue);
+      color: #fff;
+      padding: 10px 20px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      border-radius: 6px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn-crawl:hover:not(:disabled) { opacity: 0.85; }
+    .btn-elon {
+      background: linear-gradient(135deg, #f97316, #ef4444);
+      color: #fff;
+      padding: 10px 20px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      border-radius: 6px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn-elon:hover:not(:disabled) { opacity: 0.85; }
+    .elon-panel {
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      margin-bottom: 20px;
+      display: none;
+    }
+    .elon-panel.active { display: block; }
+    .elon-constraint-card {
+      background: rgba(249,115,22,0.08);
+      border: 1px solid rgba(249,115,22,0.2);
+      border-radius: 6px;
+      padding: 12px;
+      margin-bottom: 10px;
+    }
+    .elon-constraint-title { font-weight: 600; color: var(--text); margin-bottom: 4px; }
+    .elon-constraint-why { font-size: 0.78rem; color: var(--text-secondary); margin-bottom: 6px; }
+    .elon-score { display: inline-block; background: var(--red); color: #fff; font-size: 0.7rem; font-weight: 700; padding: 2px 8px; border-radius: 10px; }
+    .elon-score.high { background: var(--red); }
+    .elon-score.medium { background: var(--yellow); color: #000; }
+    .elon-score.low { background: var(--green); color: #000; }
+    .elon-table { width: 100%; font-size: 0.75rem; border-collapse: collapse; }
+    .elon-table th { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--card-border); color: var(--text-muted); font-weight: 500; }
+    .elon-table td { padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,0.03); color: var(--text-secondary); }
+    .elon-table tr:last-child td { border-bottom: none; }
+    .btn-spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    .btn-continuous .btn-spinner {
+      border: 2px solid rgba(0,0,0,0.3);
+      border-top-color: #000;
+    }
+
+    .crawl-results {
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      margin-bottom: 20px;
+      display: none;
+    }
+    .crawl-results.active { display: block; }
+    .crawl-results-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--card-border);
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+    .crawl-results-body {
+      max-height: 400px;
+      overflow-y: auto;
+      padding: 8px 0;
+    }
+    .crawl-error-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 8px 16px;
+      border-bottom: 1px solid rgba(42,43,58,0.3);
+      font-size: 0.8rem;
+    }
+    .crawl-error-item:last-child { border-bottom: none; }
+    .crawl-severity {
+      font-size: 0.65rem;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 10px;
+      text-transform: uppercase;
+      flex-shrink: 0;
+    }
+    .crawl-severity.high { background: rgba(248,81,73,0.15); color: var(--red); }
+    .crawl-severity.medium { background: rgba(210,153,34,0.15); color: var(--yellow); }
+    .crawl-severity.low { background: rgba(88,166,255,0.15); color: var(--blue); }
+    .crawl-error-info { flex: 1; min-width: 0; }
+    .crawl-error-type { font-weight: 500; color: var(--text); margin-bottom: 2px; }
+    .crawl-error-msg { color: var(--text-secondary); word-break: break-word; }
+    .crawl-error-url { font-size: 0.7rem; color: var(--text-muted); margin-top: 2px; }
+
+    .live-log {
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      margin-bottom: 20px;
+      display: none;
+    }
+    .live-log.active { display: block; }
+    .live-log-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--card-border);
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+    .live-log-header .live-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      animation: pulse 1.5s ease-in-out infinite;
+      margin-right: 8px;
+      display: inline-block;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+    .live-log-body {
+      max-height: 300px;
+      overflow-y: auto;
+      padding: 8px 0;
+      font-family: 'SF Mono', 'Menlo', monospace;
+      font-size: 0.75rem;
+    }
+    .live-log-entry {
+      padding: 4px 16px;
+      color: var(--text-secondary);
+      border-bottom: 1px solid rgba(42,43,58,0.2);
+    }
+    .live-log-entry:last-child { border-bottom: none; }
+    .live-log-entry .log-time { color: var(--text-muted); margin-right: 8px; }
+    .live-log-entry.log-error { color: var(--red); }
+    .live-log-entry.log-success { color: var(--green); }
+    .live-log-entry.log-heartbeat { color: var(--accent); }
+
+    .footer {
+      text-align: center;
+      padding: 24px;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      border-top: 1px solid var(--card-border);
+      margin-top: 24px;
+    }
+
+    .empty { color: var(--text-muted); font-size: 0.8rem; padding: 16px 0; text-align: center; }
+
+    .refresh-indicator {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .spinner {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border: 2px solid var(--text-muted);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="topbar-left">
+      <h1 id="agent-name">AppPilot</h1>
+      <span id="status-badge" class="badge badge-healthy">Healthy</span>
+    </div>
+    <div class="topbar-right">
+      <span id="last-heartbeat">Last heartbeat: --</span>
+      <span class="refresh-indicator"><span class="spinner" id="refresh-spinner" style="display:none"></span><span id="refresh-text">Auto-refresh: 30s</span></span>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="action-bar">
+      <button class="btn-discover" id="btn-discover" onclick="runDiscovery()">
+        Run Discovery
+      </button>
+      <button class="btn-continuous" id="btn-continuous" onclick="runContinuous()">
+        Run Continuous
+      </button>
+      <button class="btn-crawl" id="btn-crawl" onclick="runCrawl()">
+        Crawl Site
+      </button>
+      <button class="btn-elon" id="btn-elon" onclick="runElon()">
+        Run ELON
+      </button>
+      <span class="action-status" id="action-status"></span>
+      <span class="action-cooldown" id="action-cooldown"></span>
+    </div>
+
+    <div class="crawl-results" id="crawl-results">
+      <div class="crawl-results-header">
+        <span>Crawl Results</span>
+        <span style="font-weight:400;color:var(--text-muted);font-size:0.7rem" id="crawl-summary">--</span>
+      </div>
+      <div class="crawl-results-body" id="crawl-results-body">
+        <div class="empty">No crawl results yet</div>
+      </div>
+    </div>
+
+    <div class="elon-panel" id="elon-panel">
+      <div class="panel-header" style="display:flex;justify-content:space-between;align-items:center">
+        <span>ELON Strategic Constraint Solver</span>
+        <span style="font-weight:400;color:var(--text-muted);font-size:0.7rem" id="elon-summary">--</span>
+      </div>
+      <div id="elon-constraint" style="padding:12px">
+        <div class="empty">No active constraint. Click "Run ELON" to start.</div>
+      </div>
+      <div id="elon-leaderboard" style="padding:0 12px 12px">
+      </div>
+      <div id="elon-cycles" style="padding:0 12px 12px">
+      </div>
+    </div>
+
+    <div class="live-log" id="live-log">
+      <div class="live-log-header">
+        <span><span class="live-dot"></span>Live Activity</span>
+        <span style="font-weight:400;color:var(--text-muted);font-size:0.7rem">auto-refresh 10s</span>
+      </div>
+      <div class="live-log-body" id="live-log-body">
+        <div class="live-log-entry">Waiting for activity...</div>
+      </div>
+    </div>
+
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="label">Fixes Applied</div>
+        <div class="value" id="stat-fixes">--</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Errors Today</div>
+        <div class="value" id="stat-errors" style="color: var(--text)">--</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">p95 Response</div>
+        <div class="value" id="stat-p95">--</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Heartbeats</div>
+        <div class="value" id="stat-heartbeats">--</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Security Alerts</div>
+        <div class="value" id="stat-security" style="color: var(--text)">--</div>
+      </div>
+    </div>
+
+    <div class="main-grid">
+      <div class="panel">
+        <div class="panel-header">
+          <span>Activity Feed</span>
+          <span style="font-weight:400;color:var(--text-muted);font-size:0.7rem" id="feed-count">0 entries</span>
+        </div>
+        <div class="panel-body">
+          <ul class="feed-list" id="feed-list">
+            <li class="empty">Loading...</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="sidebar-sections">
+        <div class="panel">
+          <div class="panel-header">
+            <span>Security Status</span>
+            <button class="btn-ack" id="btn-acknowledge" style="display:none" onclick="acknowledgeSecurity()">Acknowledge Changes</button>
+          </div>
+          <div class="panel-body padded">
+            <ul class="checksum-list" id="checksum-list">
+              <li class="empty">Loading...</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">Pending Queue</div>
+          <div class="panel-body padded">
+            <div id="queue-list"><div class="empty">Loading...</div></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">Security Alerts</div>
+          <div class="panel-body padded">
+            <div id="alerts-list"><div class="empty">Loading...</div></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">Top Errors</div>
+          <div class="panel-body padded">
+            <div id="errors-list"><div class="empty">Loading...</div></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">Performance</div>
+          <div class="panel-body padded">
+            <div class="perf-bars" id="perf-bars">
+              <div class="empty">Loading...</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    Edit identity files (SOUL.md, AGENTS.md, etc.) in the Replit editor &mdash; <a href="#">View in Replit Editor</a>
+    <br>AppPilot v0.1.0
+  </div>
+
+  <script>
+    const API_BASE = window.location.pathname.replace(/\/dashboard\/?$/, '/api');
+    const AUTH_KEY = new URLSearchParams(window.location.search).get('key') || '';
+
+    function apiHeaders() {
+      const h = { 'Content-Type': 'application/json' };
+      if (AUTH_KEY) h['X-AppPilot-Key'] = AUTH_KEY;
+      return h;
+    }
+
+    async function apiFetch(endpoint, opts = {}) {
+      const url = API_BASE + endpoint + (endpoint.includes('?') ? '&' : '?') + 'key=' + encodeURIComponent(AUTH_KEY);
+      const res = await fetch(url, { headers: apiHeaders(), ...opts });
+      if (!res.ok) throw new Error(`API ${res.status}`);
+      return res.json();
+    }
+
+    function esc(s) {
+      const d = document.createElement('div');
+      d.textContent = s || '';
+      return d.innerHTML;
+    }
+
+    const ICONS = {
+      info: 'i',
+      error: '!',
+      critical: '!!',
+      warning: '?',
+      success: '+',
+      heartbeat: '~',
+      security: '#',
+    };
+
+    async function loadStatus() {
+      try {
+        const data = await apiFetch('/status');
+        document.getElementById('agent-name').textContent = data.agentName || 'AppPilot';
+
+        const badge = document.getElementById('status-badge');
+        badge.className = 'badge badge-' + (data.status || 'healthy');
+        badge.textContent = (data.status || 'healthy').charAt(0).toUpperCase() + (data.status || 'healthy').slice(1);
+
+        if (data.lastHeartbeat) {
+          document.getElementById('last-heartbeat').textContent = 'Last heartbeat: ' + new Date(data.lastHeartbeat).toLocaleString();
+        }
+
+        const s = data.stats || {};
+        document.getElementById('stat-fixes').textContent = s.fixesApplied || 0;
+
+        const errEl = document.getElementById('stat-errors');
+        errEl.textContent = s.errorsToday || 0;
+        errEl.style.color = (s.errorsToday > 0) ? 'var(--yellow)' : 'var(--green)';
+
+        document.getElementById('stat-p95').textContent = (s.p95 || 0) + 'ms';
+        document.getElementById('stat-heartbeats').textContent = s.heartbeatsCompleted || 0;
+
+        const secEl = document.getElementById('stat-security');
+        secEl.textContent = s.securityAlerts || 0;
+        secEl.style.color = (s.securityAlerts > 0) ? 'var(--red)' : 'var(--green)';
+      } catch {}
+    }
+
+    async function loadFeed() {
+      try {
+        const data = await apiFetch('/feed?limit=50');
+        const list = document.getElementById('feed-list');
+        const feed = data.feed || [];
+
+        document.getElementById('feed-count').textContent = feed.length + ' entries';
+
+        if (feed.length === 0) {
+          list.innerHTML = '<li class="empty">No activity yet</li>';
+          return;
+        }
+
+        list.innerHTML = feed.map((item, i) => {
+          const type = item.type || 'info';
+          const icon = ICONS[type] || 'i';
+          const time = item.timestamp ? new Date(item.timestamp).toLocaleTimeString() : '';
+          return '<li class="feed-item" data-idx="' + i + '" onclick="this.classList.toggle(\'expanded\')">' +
+            '<span class="feed-icon ' + type + '">' + icon + '</span>' +
+            '<span class="feed-msg">' + esc(item.message) + '</span>' +
+            '<span class="feed-time">' + esc(time) + '</span>' +
+            '</li>';
+        }).join('');
+      } catch {}
+    }
+
+    async function loadSecurity() {
+      try {
+        const data = await apiFetch('/security');
+        const list = document.getElementById('checksum-list');
+        const checksums = data.checksums || {};
+        const changes = data.changes || [];
+        const changedFiles = changes.map(c => c.file);
+
+        const ackBtn = document.getElementById('btn-acknowledge');
+        ackBtn.style.display = changes.length > 0 ? 'inline-block' : 'none';
+
+        if (Object.keys(checksums).length === 0) {
+          list.innerHTML = '<li class="empty">No identity files tracked</li>';
+          return;
+        }
+
+        list.innerHTML = Object.entries(checksums).map(([file, hash]) => {
+          const changed = changedFiles.includes(file);
+          return '<li class="checksum-item">' +
+            '<span class="checksum-file">' + esc(file) + '</span>' +
+            '<span class="checksum-hash ' + (changed ? 'checksum-changed' : 'checksum-ok') + '">' +
+            (changed ? 'MODIFIED' : esc(hash.slice(0, 12) + '...')) +
+            '</span></li>';
+        }).join('');
+
+        const alertsList = document.getElementById('alerts-list');
+        const alerts = data.alerts || [];
+        const blocked = data.blockedActions || [];
+
+        if (alerts.length === 0 && blocked.length === 0) {
+          alertsList.innerHTML = '<div class="empty">No security alerts</div>';
+        } else {
+          let html = '';
+          alerts.forEach(a => {
+            html += '<div class="alert-item">Injection pattern detected in ' + esc(a.file) + ' (' + a.patternCount + ' patterns)</div>';
+          });
+          blocked.forEach(b => {
+            html += '<div class="alert-item">Blocked: ' + esc(b.action) + (b.reasons.length ? ' - ' + esc(b.reasons.join(', ')) : '') + '</div>';
+          });
+          alertsList.innerHTML = html;
+        }
+      } catch {}
+    }
+
+    async function loadQueue() {
+      try {
+        const data = await apiFetch('/queue');
+        const container = document.getElementById('queue-list');
+        const pending = data.pending || [];
+
+        if (pending.length === 0) {
+          container.innerHTML = '<div class="empty">No pending items</div>';
+          return;
+        }
+
+        container.innerHTML = pending.map(item => {
+          return '<div class="queue-item">' +
+            '<div class="queue-item-info">' +
+            '<div class="queue-item-name">' + esc(item.title || item.action || item.id) + '</div>' +
+            '<div class="queue-item-meta">' + esc(item.source || '') + '</div>' +
+            '</div>' +
+            '<div class="queue-actions">' +
+            '<button class="btn-approve" onclick="approveItem(\'' + esc(item.id) + '\')">Approve</button>' +
+            '<button class="btn-reject" onclick="rejectItem(\'' + esc(item.id) + '\')">Reject</button>' +
+            '</div></div>';
+        }).join('');
+      } catch {}
+    }
+
+    async function loadErrors() {
+      try {
+        const data = await apiFetch('/errors');
+        const container = document.getElementById('errors-list');
+        const errors = (data.errors || []).slice(0, 5);
+
+        if (errors.length === 0) {
+          container.innerHTML = '<div class="empty">No errors recorded</div>';
+          return;
+        }
+
+        container.innerHTML = errors.map(e => {
+          return '<div class="error-row">' +
+            '<span class="error-msg">' + esc(e.message || e.signature || 'Unknown') + '</span>' +
+            '<span class="error-count">' + (e.occurrences || 1) + '</span>' +
+            '</div>';
+        }).join('');
+      } catch {}
+    }
+
+    async function loadMetrics() {
+      try {
+        const data = await apiFetch('/metrics');
+        const container = document.getElementById('perf-bars');
+        const current = data.current || {};
+
+        const bars = [
+          { label: 'p50', value: current.p50 || 0 },
+          { label: 'p95', value: current.p95 || 0 },
+          { label: 'p99', value: current.p99 || 0 },
+        ];
+
+        const maxVal = Math.max(...bars.map(b => b.value), 1);
+
+        container.innerHTML = bars.map(b => {
+          const pct = Math.min((b.value / maxVal) * 100, 100);
+          return '<div class="perf-bar-row">' +
+            '<span class="perf-bar-label">' + b.label + '</span>' +
+            '<div class="perf-bar-track"><div class="perf-bar-fill" style="width:' + pct + '%"></div></div>' +
+            '<span class="perf-bar-value">' + b.value + 'ms</span>' +
+            '</div>';
+        }).join('');
+
+        if (current.errorRate !== undefined) {
+          container.innerHTML += '<div class="perf-bar-row">' +
+            '<span class="perf-bar-label">Err%</span>' +
+            '<div class="perf-bar-track"><div class="perf-bar-fill" style="width:' + Math.min(parseFloat(current.errorRate), 100) + '%;background:var(--red)"></div></div>' +
+            '<span class="perf-bar-value">' + current.errorRate + '%</span></div>';
+        }
+      } catch {}
+    }
+
+    async function approveItem(id) {
+      try {
+        await apiFetch('/queue/' + id + '/approve', { method: 'POST' });
+        loadQueue();
+      } catch (e) {
+        alert('Failed to approve: ' + e.message);
+      }
+    }
+
+    async function rejectItem(id) {
+      try {
+        await apiFetch('/queue/' + id + '/reject', { method: 'POST' });
+        loadQueue();
+      } catch (e) {
+        alert('Failed to reject: ' + e.message);
+      }
+    }
+
+    async function acknowledgeSecurity() {
+      try {
+        await apiFetch('/security/acknowledge', { method: 'POST' });
+        loadSecurity();
+        loadStatus();
+      } catch (e) {
+        alert('Failed to acknowledge: ' + e.message);
+      }
+    }
+
+    async function refreshAll() {
+      const spinner = document.getElementById('refresh-spinner');
+      spinner.style.display = 'inline-block';
+      await Promise.all([
+        loadStatus(),
+        loadFeed(),
+        loadSecurity(),
+        loadQueue(),
+        loadErrors(),
+        loadMetrics(),
+      ]);
+      spinner.style.display = 'none';
+    }
+
+    let liveLogInterval = null;
+    let lastFeedCount = 0;
+
+    async function runDiscovery() {
+      const btn = document.getElementById('btn-discover');
+      const status = document.getElementById('action-status');
+      const cooldown = document.getElementById('action-cooldown');
+
+      btn.disabled = true;
+      btn.innerHTML = '<span class="btn-spinner"></span> Running...';
+
+      try {
+        await apiFetch('/discover', { method: 'POST' });
+        status.style.display = 'inline-flex';
+        status.textContent = 'Discovery started — refresh in 30s to see results';
+        showLiveLog();
+      } catch (e) {
+        status.style.display = 'inline-flex';
+        status.style.color = 'var(--red)';
+        status.textContent = 'Failed: ' + e.message;
+      }
+
+      let remaining = 60;
+      cooldown.style.display = 'inline';
+      cooldown.textContent = 'Cooldown: ' + remaining + 's';
+      const timer = setInterval(() => {
+        remaining--;
+        cooldown.textContent = 'Cooldown: ' + remaining + 's';
+        if (remaining <= 0) {
+          clearInterval(timer);
+          btn.disabled = false;
+          btn.innerHTML = 'Run Discovery';
+          cooldown.style.display = 'none';
+          status.style.display = 'none';
+          status.style.color = 'var(--green)';
+        }
+      }, 1000);
+    }
+
+    async function runContinuous() {
+      const btn = document.getElementById('btn-continuous');
+      const status = document.getElementById('action-status');
+      const cooldown = document.getElementById('action-cooldown');
+
+      btn.disabled = true;
+      btn.innerHTML = '<span class="btn-spinner"></span> Running...';
+
+      try {
+        await apiFetch('/continuous', { method: 'POST' });
+        status.style.display = 'inline-flex';
+        status.textContent = 'Continuous loop started — watch live activity below';
+        showLiveLog();
+      } catch (e) {
+        status.style.display = 'inline-flex';
+        status.style.color = 'var(--red)';
+        status.textContent = 'Failed: ' + e.message;
+      }
+
+      let remaining = 120;
+      cooldown.style.display = 'inline';
+      cooldown.textContent = 'Cooldown: ' + remaining + 's';
+      const timer = setInterval(() => {
+        remaining--;
+        cooldown.textContent = 'Cooldown: ' + remaining + 's';
+        if (remaining <= 0) {
+          clearInterval(timer);
+          btn.disabled = false;
+          btn.innerHTML = 'Run Continuous';
+          cooldown.style.display = 'none';
+          status.style.display = 'none';
+          status.style.color = 'var(--green)';
+        }
+      }, 1000);
+    }
+
+    function showLiveLog() {
+      const panel = document.getElementById('live-log');
+      panel.classList.add('active');
+
+      if (liveLogInterval) clearInterval(liveLogInterval);
+      loadLiveLog();
+      liveLogInterval = setInterval(loadLiveLog, 10000);
+    }
+
+    async function loadLiveLog() {
+      try {
+        const data = await apiFetch('/feed?limit=20');
+        const body = document.getElementById('live-log-body');
+        const feed = data.feed || [];
+
+        if (feed.length === 0) {
+          body.innerHTML = '<div class="live-log-entry">Waiting for activity...</div>';
+          return;
+        }
+
+        body.innerHTML = feed.map(item => {
+          const type = item.type || 'info';
+          let cls = '';
+          if (type === 'error' || type === 'critical') cls = ' log-error';
+          else if (type === 'success') cls = ' log-success';
+          else if (type === 'heartbeat') cls = ' log-heartbeat';
+
+          const time = item.timestamp ? new Date(item.timestamp).toLocaleTimeString() : '';
+          return '<div class="live-log-entry' + cls + '">' +
+            '<span class="log-time">' + esc(time) + '</span>' +
+            esc(item.message) +
+            '</div>';
+        }).join('');
+
+        body.scrollTop = 0;
+      } catch {}
+    }
+
+    let crawlPollInterval = null;
+
+    async function runCrawl() {
+      const btn = document.getElementById('btn-crawl');
+      const status = document.getElementById('action-status');
+      const cooldown = document.getElementById('action-cooldown');
+
+      btn.disabled = true;
+      btn.innerHTML = '<span class="btn-spinner"></span> Crawling...';
+
+      try {
+        await apiFetch('/crawl', { method: 'POST' });
+        status.style.display = 'inline-flex';
+        status.textContent = 'Crawl started — results will appear below when complete';
+        showLiveLog();
+
+        if (crawlPollInterval) clearInterval(crawlPollInterval);
+        crawlPollInterval = setInterval(loadCrawlResults, 10000);
+        setTimeout(loadCrawlResults, 15000);
+      } catch (e) {
+        status.style.display = 'inline-flex';
+        status.style.color = 'var(--red)';
+        status.textContent = 'Failed: ' + e.message;
+      }
+
+      let remaining = 90;
+      cooldown.style.display = 'inline';
+      cooldown.textContent = 'Cooldown: ' + remaining + 's';
+      const timer = setInterval(() => {
+        remaining--;
+        cooldown.textContent = 'Cooldown: ' + remaining + 's';
+        if (remaining <= 0) {
+          clearInterval(timer);
+          btn.disabled = false;
+          btn.innerHTML = 'Crawl Site';
+          cooldown.style.display = 'none';
+          status.style.display = 'none';
+          status.style.color = 'var(--green)';
+          if (crawlPollInterval) {
+            clearInterval(crawlPollInterval);
+            crawlPollInterval = null;
+          }
+        }
+      }, 1000);
+    }
+
+    async function loadCrawlResults() {
+      try {
+        const data = await apiFetch('/crawl/results');
+        const panel = document.getElementById('crawl-results');
+        const body = document.getElementById('crawl-results-body');
+        const summary = document.getElementById('crawl-summary');
+        const errors = data.errors || [];
+
+        panel.classList.add('active');
+        summary.textContent = (data.pagesVisited || 0) + ' pages crawled, ' + errors.length + ' errors';
+
+        if (errors.length === 0) {
+          body.innerHTML = '<div class="empty">No errors found</div>';
+          return;
+        }
+
+        body.innerHTML = errors.map(err => {
+          const sev = err.severity || 'medium';
+          return '<div class="crawl-error-item">' +
+            '<span class="crawl-severity ' + sev + '">' + sev + '</span>' +
+            '<div class="crawl-error-info">' +
+            '<div class="crawl-error-type">' + esc(err.type || 'unknown') + '</div>' +
+            '<div class="crawl-error-msg">' + esc(err.message || '') + '</div>' +
+            '<div class="crawl-error-url">' + esc(err.url || '') + '</div>' +
+            '</div></div>';
+        }).join('');
+      } catch {}
+    }
+
+    let elonPollInterval = null;
+
+    async function runElon() {
+      const btn = document.getElementById('btn-elon');
+      const status = document.getElementById('action-status');
+      const cooldown = document.getElementById('action-cooldown');
+
+      btn.disabled = true;
+      btn.innerHTML = '<span class="btn-spinner"></span> Running ELON...';
+
+      try {
+        const result = await apiFetch('/elon/start', { method: 'POST' });
+        if (result.status === 'already-running') {
+          status.style.display = 'inline-flex';
+          status.style.color = 'var(--yellow)';
+          status.textContent = 'ELON is already running';
+        } else {
+          status.style.display = 'inline-flex';
+          status.style.color = 'var(--green)';
+          status.textContent = 'ELON started — finding limiting factors...';
+          showLiveLog();
+        }
+
+        if (elonPollInterval) clearInterval(elonPollInterval);
+        elonPollInterval = setInterval(loadElonReport, 15000);
+        setTimeout(loadElonReport, 10000);
+      } catch (e) {
+        status.style.display = 'inline-flex';
+        status.style.color = 'var(--red)';
+        status.textContent = 'Failed: ' + e.message;
+      }
+
+      let remaining = 180;
+      cooldown.style.display = 'inline';
+      cooldown.textContent = 'Cooldown: ' + remaining + 's';
+      const timer = setInterval(() => {
+        remaining--;
+        cooldown.textContent = 'Cooldown: ' + remaining + 's';
+        if (remaining <= 0) {
+          clearInterval(timer);
+          btn.disabled = false;
+          btn.innerHTML = 'Run ELON';
+          cooldown.style.display = 'none';
+          status.style.display = 'none';
+          status.style.color = 'var(--green)';
+          if (elonPollInterval) {
+            clearInterval(elonPollInterval);
+            elonPollInterval = null;
+          }
+        }
+      }, 1000);
+    }
+
+    async function loadElonReport() {
+      try {
+        const data = await apiFetch('/elon/report');
+        const panel = document.getElementById('elon-panel');
+        const constraintEl = document.getElementById('elon-constraint');
+        const leaderboardEl = document.getElementById('elon-leaderboard');
+        const cyclesEl = document.getElementById('elon-cycles');
+        const summaryEl = document.getElementById('elon-summary');
+
+        if (!data || data.totalCycles === 0) return;
+
+        panel.classList.add('active');
+        summaryEl.textContent = 'Cycles: ' + data.totalCycles + ' | Solved: ' + (data.constraintsSolved || 0) + ' | Budget: $' + (data.totalBudgetSpent || 0).toFixed(2);
+
+        if (data.activeConstraint) {
+          const c = data.activeConstraint;
+          const scoreClass = c.score >= 7 ? 'high' : c.score >= 4 ? 'medium' : 'low';
+          constraintEl.innerHTML =
+            '<div class="elon-constraint-card">' +
+            '<div class="elon-constraint-title">' + esc(c.description) + '</div>' +
+            '<div class="elon-constraint-why">' + esc(c.why || '') + '</div>' +
+            '<span class="elon-score ' + scoreClass + '">Score: ' + c.score + '/10</span> ' +
+            '<span style="font-size:0.7rem;color:var(--text-muted);margin-left:8px">' + esc(c.category || '') + '</span>' +
+            (c.evidenceFromCrawl && c.evidenceFromCrawl.length > 0 ?
+              '<div style="margin-top:8px;font-size:0.72rem;color:var(--text-muted)"><b>Crawl evidence:</b> ' +
+              c.evidenceFromCrawl.slice(0, 3).map(e => esc(e)).join(' | ') + '</div>' : '') +
+            '</div>';
+        } else {
+          constraintEl.innerHTML = '<div class="empty">No active constraint</div>';
+        }
+
+        if (data.constraintLeaderboard && data.constraintLeaderboard.length > 0) {
+          let tableHtml = '<table class="elon-table"><thead><tr><th>#</th><th>Constraint</th><th>Score</th><th>Status</th><th>Category</th></tr></thead><tbody>';
+          data.constraintLeaderboard.forEach((c, i) => {
+            const statusIcon = c.status === 'solved' ? '✅' : c.status === 'active' ? '🔴' : '⏳';
+            tableHtml += '<tr>' +
+              '<td>' + (i + 1) + '</td>' +
+              '<td>' + esc((c.description || '').substring(0, 50)) + '</td>' +
+              '<td>' + (c.score || 0) + '/10</td>' +
+              '<td>' + statusIcon + ' ' + esc(c.status || '') + '</td>' +
+              '<td>' + esc(c.category || '-') + '</td>' +
+              '</tr>';
+          });
+          tableHtml += '</tbody></table>';
+          leaderboardEl.innerHTML = '<div style="font-size:0.78rem;font-weight:600;margin-bottom:6px;color:var(--text)">Constraint Leaderboard</div>' + tableHtml;
+        }
+
+        if (data.cycleHistory && data.cycleHistory.length > 0) {
+          let cycleHtml = '<div style="font-size:0.78rem;font-weight:600;margin-bottom:6px;color:var(--text)">Recent Cycles</div>';
+          const recent = data.cycleHistory.slice(-5).reverse();
+          for (const cycle of recent) {
+            const resultIcon = cycle.result === 'solved' ? '✅' : cycle.result === 'planned' ? '⏳' : '🔴';
+            cycleHtml += '<div style="font-size:0.72rem;color:var(--text-secondary);padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.03)">' +
+              '<b>Cycle ' + cycle.cycle + '</b> ' + resultIcon + ' ' +
+              esc((cycle.constraint || '').substring(0, 40)) +
+              ' (score: ' + (cycle.score || 0) + ', $' + (cycle.budgetUsed || 0).toFixed(3) + ')' +
+              '</div>';
+          }
+          cyclesEl.innerHTML = cycleHtml;
+        }
+      } catch {}
+    }
+
+    loadElonReport();
+    refreshAll();
+    setInterval(refreshAll, 30000);
+    setInterval(loadElonReport, 60000);
+  </script>
+</body>
+</html>
