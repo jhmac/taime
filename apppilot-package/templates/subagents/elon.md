@@ -91,3 +91,11 @@ Respond with ONLY a JSON object. No markdown, no explanation:
 - Never suggest steps requiring manual work — everything must be automatable
 - Skip constraints in "Ignore for now" section of GOALS.md
 - Prioritize issues found by the Playwright crawl — they affect real users
+
+### CRITICAL: Auth 401/403 Errors Are NOT Bugs
+- The crawler browses the app WITHOUT being logged in. All protected API routes (e.g. /api/time-entries, /api/schedules, /api/employees, /api/tasks, /api/payroll/*) will return 401 or 403.
+- This is CORRECT and EXPECTED behavior — Clerk authentication is working properly by rejecting unauthenticated requests.
+- **NEVER** identify 401/403 responses on protected /api/ routes as a constraint or limiting factor.
+- **NEVER** create plans to "fix" authentication that is already working correctly.
+- Instead, focus on: 500 errors, 404 errors on routes that should exist, broken UI elements, missing features, performance issues, and other real problems.
+- If the ONLY crawl issues are 401/403 on /api/ routes, report that the app has NO limiting factors from the crawl perspective and analyze the codebase for missing features or quality issues instead.

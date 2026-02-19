@@ -98,15 +98,22 @@ function _createLogger(memory) {
 }
 
 function _aggregateCrawlIssues(crawlResults) {
-  const allIssues = [
+  const rawIssues = [
     ...(crawlResults.errors || []),
     ...(crawlResults.warnings || []),
     ...(crawlResults.performance || []),
     ...(crawlResults.consoleErrors || []),
     ...(crawlResults.networkFailures || []),
   ];
+  const allIssues = rawIssues.filter(i => {
+    if (i.type === 'auth-expected') return false;
+    if (i.severity === 'info') return false;
+    if (i.type === 'api-error' && (i.statusCode === 401 || i.statusCode === 403)) return false;
+    return true;
+  });
   allIssues.sort((a, b) => (SEVERITY_ORDER[a.severity] || 2) - (SEVERITY_ORDER[b.severity] || 2));
   crawlResults.allIssues = allIssues;
+  crawlResults.authExpected = rawIssues.filter(i => i.type === 'auth-expected' || (i.type === 'api-error' && (i.statusCode === 401 || i.statusCode === 403)));
   return allIssues;
 }
 
@@ -201,6 +208,7 @@ async function _performCrawl(appUrl, dataDir, maxPages, log) {
 function _buildCrawlSummary(crawlResults) {
   if (!crawlResults) return { note: 'Crawl not available — analyze code only' };
   const issues = crawlResults.allIssues || [];
+  const authExpected = crawlResults.authExpected || [];
   return {
     pagesVisited: crawlResults.pagesVisited,
     totalIssues: issues.length,
@@ -209,6 +217,9 @@ function _buildCrawlSummary(crawlResults) {
     topIssues: issues.slice(0, 20).map(i => ({
       type: i.type, message: i.message, url: i.url, severity: i.severity,
     })),
+    note: authExpected.length > 0
+      ? `IMPORTANT: ${authExpected.length} API routes returned 401/403 because the crawler is not authenticated. This is EXPECTED behavior — these routes require Clerk authentication. Do NOT treat 401/403 on protected /api/ routes as bugs. Focus only on 404, 500, and other non-auth errors.`
+      : null,
   };
 }
 

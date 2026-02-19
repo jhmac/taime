@@ -148,13 +148,24 @@ async function crawlPage(context, url, baseUrl, timeout) {
     if (response.status() >= 400) {
       const reqUrl = response.url();
       if (reqUrl.includes('/api/') || reqUrl.includes('/apppilot/')) {
-        pageErrors.push({
-          type: 'api-error',
-          message: `${response.request().method()} ${reqUrl} returned ${response.status()}`,
-          url: reqUrl,
-          statusCode: response.status(),
-          severity: response.status() >= 500 ? 'high' : 'medium',
-        });
+        const status = response.status();
+        if (status === 401 || status === 403) {
+          pageErrors.push({
+            type: 'auth-expected',
+            message: `${response.request().method()} ${reqUrl} returned ${status} (expected — requires authentication)`,
+            url: reqUrl,
+            statusCode: status,
+            severity: 'info',
+          });
+        } else {
+          pageErrors.push({
+            type: 'api-error',
+            message: `${response.request().method()} ${reqUrl} returned ${status}`,
+            url: reqUrl,
+            statusCode: status,
+            severity: status >= 500 ? 'high' : 'medium',
+          });
+        }
       }
     }
   });

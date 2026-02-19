@@ -40,3 +40,4 @@ Respond with ONLY a JSON object:
 - If re-crawl still shows the same error types from the constraint evidence, it's NOT resolved
 - A constraint can be partially resolved — mention what's fixed and what remains
 - If you can't determine (insufficient data), say status: "constraint-active" with reason
+- IMPORTANT: 401/403 responses on /api/ routes are EXPECTED when crawling without authentication. Do NOT count these as evidence of unresolved constraints. The app uses Clerk authentication — unauthenticated API requests SHOULD return 401.
