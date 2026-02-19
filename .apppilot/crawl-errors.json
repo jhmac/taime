@@ -1,0 +1,32 @@
+{
+  "timestamp": "2026-02-19T00:18:06.389Z",
+  "pagesVisited": 1,
+  "errors": [
+    {
+      "type": "request-failed",
+      "message": "GET https://replit.com/public/js/replit-dev-banner.js failed: net::ERR_BLOCKED_BY_ORB",
+      "url": "https://replit.com/public/js/replit-dev-banner.js",
+      "severity": "medium"
+    },
+    {
+      "type": "console-error",
+      "message": "WebSocket connection to 'ws://localhost:5000/?token=dxqmNCbkxMTl' failed: Error during WebSocket handshake: Unexpected response code: 400",
+      "url": "http://localhost:5000",
+      "severity": "high"
+    },
+    {
+      "type": "uncaught-exception",
+      "message": "Failed to construct 'WebSocket': The URL 'ws://localhost:undefined/?token=dxqmNCbkxMTl' is invalid.",
+      "url": "http://localhost:5000",
+      "stack": "SyntaxError: Failed to construct 'WebSocket': The URL 'ws://localhost:undefined/?token=dxqmNCbkxMTl' is invalid.\n    at setupWebSocket (http://localhost:5000/@vite/client:536:19)\n    at fallback (http://localhost:5000/@vite/client:509:16)\n    at WebSocket.<anonymous> (http://localhost:5000/@vite/client:555:7)",
+      "severity": "high"
+    },
+    {
+      "type": "slow-page",
+      "message": "Page took 7496ms to load",
+      "url": "http://localhost:5000",
+      "loadTime": 7496,
+      "severity": "medium"
+    }
+  ]
+}
