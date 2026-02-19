@@ -170,8 +170,8 @@ async function callClaudeAPI(apiKey, systemPrompt, userPrompt, model) {
   const Anthropic = require('@anthropic-ai/sdk');
   const client = new Anthropic({ apiKey, baseURL: process.env.ANTHROPIC_BASE_URL || undefined });
 
-  const maxRetries = 4;
-  const baseDelay = 10000;
+  const maxRetries = 2;
+  const baseDelay = 2000;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {

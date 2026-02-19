@@ -25,6 +25,10 @@ function createAdminDashboard(options = {}) {
   const MAX_LIVE_ENTRIES = 100;
 
   function pushActivity(type, message) {
+    if (typeof message === 'string' && (message.includes('429') || message.toLowerCase().includes('rate limit'))) {
+      message = 'Claude API Rate Limit (429) - retrying shortly...';
+      type = 'warning';
+    }
     const entry = {
       timestamp: new Date().toISOString(),
       type,
