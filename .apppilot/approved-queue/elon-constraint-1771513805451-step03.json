@@ -1,0 +1,15 @@
+{
+  "filePath": "server/routes/employees.ts",
+  "description": "[ELON] Ensure employees route handler exists, is properly exported, and implements GET /api/employees with Clerk RBAC checks. Add proper error handling and pagination.",
+  "successCriteria": [
+    "Route responds with 200 and employee list for authorized users",
+    "Returns 403 for users without employee:read permission",
+    "Includes pagination parameters (limit, offset)",
+    "Has Zod input validation for query params",
+    "Uses Drizzle ORM for database queries"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771513805451",
+  "priority": "high",
+  "step": 3
+}

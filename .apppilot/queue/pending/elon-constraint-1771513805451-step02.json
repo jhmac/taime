@@ -1,0 +1,14 @@
+{
+  "filePath": "server/routes/auth.ts",
+  "description": "[ELON] Fix /api/auth/session endpoint to properly return Clerk session data. Ensure it handles both authenticated and unauthenticated states gracefully with proper status codes and error messages.",
+  "successCriteria": [
+    "Returns 200 with session data when authenticated",
+    "Returns 401 with clear error message when not authenticated",
+    "Includes proper TypeScript types for session response",
+    "Has try/catch error handling"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771513805451",
+  "priority": "high",
+  "step": 2
+}

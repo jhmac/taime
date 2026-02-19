@@ -1,0 +1,211 @@
+{
+  "totalCycles": 1,
+  "constraintsSolved": 0,
+  "constraintsActive": 1,
+  "totalBudgetSpent": 0.02,
+  "pagesCrawled": 1,
+  "issuesFound": 4,
+  "issuesResolved": 0,
+  "constraintLeaderboard": [
+    {
+      "id": "constraint-1771513805451",
+      "description": "Critical authentication and routing infrastructure failures causing 401/404 errors across the entire application",
+      "score": 10,
+      "status": "active",
+      "category": "infrastructure",
+      "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
+      "identifiedAt": "2026-02-19T15:10:05.451Z",
+      "evidenceFromCrawl": [
+        "GET /api/auth/session → 401 (auth check failing for legitimate users)",
+        "GET /api/employees → 404 (employee management completely unavailable)",
+        "GET /api/time-entries → 404 (clock-in/out data inaccessible)",
+        "GET /api/schedules → 404 (scheduling system unreachable)",
+        "GET /api/tasks → 404 (task management broken)",
+        "GET /api/payroll/periods → 404 (payroll reports unavailable)",
+        "GET /api/activity-log → 404 (audit trail not working)",
+        "Multiple dashboard pages return empty/error states due to failed API calls"
+      ],
+      "unblocks": [
+        "Clock-in/out functionality becomes accessible to authenticated users",
+        "Schedule management and viewing becomes possible",
+        "Task assignment and tracking can function",
+        "Payroll report generation becomes available",
+        "Activity logging and audit trails work correctly",
+        "All dashboard and admin functionality becomes usable"
+      ]
+    }
+  ],
+  "crawlHistory": [
+    {
+      "timestamp": "2026-02-19T15:10:05.453Z",
+      "pagesVisited": 1,
+      "issuesFound": 4
+    }
+  ],
+  "goalsProgress": [],
+  "qualityTargets": [],
+  "cycleHistory": [
+    {
+      "cycle": 1,
+      "timestamp": "2026-02-19T15:10:05.453Z",
+      "constraint": "Critical authentication and routing infrastructure failures causing 401/404 errors across the entire application",
+      "score": 10,
+      "specsCreated": 8,
+      "budgetUsed": 0.02,
+      "result": "planned",
+      "crawlPages": 1,
+      "crawlIssues": 4
+    }
+  ],
+  "failedAttempts": [],
+  "activeConstraint": {
+    "id": "constraint-1771513805451",
+    "description": "Critical authentication and routing infrastructure failures causing 401/404 errors across the entire application",
+    "why": "Authentication middleware is failing or misconfigured, causing legitimate user requests to be rejected. Multiple core routes return 404, indicating missing or incorrectly mounted route handlers. This blocks ALL user workflows — employees can't clock in, managers can't view schedules, owners can't access reports. This is a foundational infrastructure failure.",
+    "unblocks": [
+      "Clock-in/out functionality becomes accessible to authenticated users",
+      "Schedule management and viewing becomes possible",
+      "Task assignment and tracking can function",
+      "Payroll report generation becomes available",
+      "Activity logging and audit trails work correctly",
+      "All dashboard and admin functionality becomes usable"
+    ],
+    "score": 10,
+    "category": "infrastructure",
+    "evidenceFromCrawl": [
+      "GET /api/auth/session → 401 (auth check failing for legitimate users)",
+      "GET /api/employees → 404 (employee management completely unavailable)",
+      "GET /api/time-entries → 404 (clock-in/out data inaccessible)",
+      "GET /api/schedules → 404 (scheduling system unreachable)",
+      "GET /api/tasks → 404 (task management broken)",
+      "GET /api/payroll/periods → 404 (payroll reports unavailable)",
+      "GET /api/activity-log → 404 (audit trail not working)",
+      "Multiple dashboard pages return empty/error states due to failed API calls"
+    ],
+    "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
+    "identifiedAt": "2026-02-19T15:10:05.451Z",
+    "status": "active",
+    "steps": [
+      {
+        "step": 1,
+        "filePath": "server.ts",
+        "description": "Verify Express route mounting order and middleware chain. Ensure Clerk auth middleware is correctly configured and routes are mounted in proper order (health check first, auth middleware, then protected routes). Check that all route handlers are actually imported and mounted.",
+        "successCriteria": [
+          "All route imports are present and not undefined",
+          "Clerk middleware is applied before protected routes",
+          "Route mounting order follows: health → auth → api routes",
+          "No route path conflicts or duplicates"
+        ],
+        "priority": "high",
+        "estimatedComplexity": "medium"
+      },
+      {
+        "step": 2,
+        "filePath": "server/routes/auth.ts",
+        "description": "Fix /api/auth/session endpoint to properly return Clerk session data. Ensure it handles both authenticated and unauthenticated states gracefully with proper status codes and error messages.",
+        "successCriteria": [
+          "Returns 200 with session data when authenticated",
+          "Returns 401 with clear error message when not authenticated",
+          "Includes proper TypeScript types for session response",
+          "Has try/catch error handling"
+        ],
+        "priority": "high",
+        "estimatedComplexity": "low"
+      },
+      {
+        "step": 3,
+        "filePath": "server/routes/employees.ts",
+        "description": "Ensure employees route handler exists, is properly exported, and implements GET /api/employees with Clerk RBAC checks. Add proper error handling and pagination.",
+        "successCriteria": [
+          "Route responds with 200 and employee list for authorized users",
+          "Returns 403 for users without employee:read permission",
+          "Includes pagination parameters (limit, offset)",
+          "Has Zod input validation for query params",
+          "Uses Drizzle ORM for database queries"
+        ],
+        "priority": "high",
+        "estimatedComplexity": "medium"
+      },
+      {
+        "step": 4,
+        "filePath": "server/routes/time-entries.ts",
+        "description": "Create or fix time-entries route handler with GET endpoint that returns time entries for authorized users. Must include proper RBAC checks (employees see own entries, managers see all).",
+        "successCriteria": [
+          "Returns 200 with time entries array",
+          "Filters by employee ID for non-manager roles",
+          "Includes date range filtering",
+          "Has proper error handling and logging",
+          "Uses parameterized Drizzle queries"
+        ],
+        "priority": "high",
+        "estimatedComplexity": "medium"
+      },
+      {
+        "step": 5,
+        "filePath": "server/routes/schedules.ts",
+        "description": "Create or fix schedules route handler with GET endpoint. Must support date range queries and respect RBAC (employees see own schedule, managers see all).",
+        "successCriteria": [
+          "Returns 200 with schedule data",
+          "Filters by date range query params",
+          "Respects role-based access control",
+          "Includes related shift and employee data",
+          "Has Zod validation for query parameters"
+        ],
+        "priority": "high",
+        "estimatedComplexity": "medium"
+      },
+      {
+        "step": 6,
+        "filePath": "server/routes/tasks.ts",
+        "description": "Create or fix tasks route handler with GET endpoint. Must support filtering by assignee and status, with proper RBAC enforcement.",
+        "successCriteria": [
+          "Returns 200 with tasks array",
+          "Supports filtering by assignee, status, priority",
+          "Employees see own tasks, managers see all tasks",
+          "Has proper error handling",
+          "Uses Drizzle ORM with pagination"
+        ],
+        "priority": "high",
+        "estimatedComplexity": "medium"
+      },
+      {
+        "step": 7,
+        "filePath": "server/routes/payroll.ts",
+        "description": "Create or fix payroll route handler with GET /api/payroll/periods endpoint. Must calculate pay periods and return payroll data with proper manager-only access control.",
+        "successCriteria": [
+          "Returns 200 with payroll periods array",
+          "Restricts access to Owner/Admin roles only",
+          "Includes accurate time entry aggregation",
+          "Uses decimal arithmetic for pay calculations",
+          "Has comprehensive error handling"
+        ],
+        "priority": "high",
+        "estimatedComplexity": "high"
+      },
+      {
+        "step": 8,
+        "filePath": "server/routes/activity-log.ts",
+        "description": "Create or fix activity-log route handler with GET endpoint. Must return audit trail events with proper admin-only access control and pagination.",
+        "successCriteria": [
+          "Returns 200 with activity log entries",
+          "Restricts to Admin/Owner roles",
+          "Supports pagination and date filtering",
+          "Includes actor and action details",
+          "Has proper error handling"
+        ],
+        "priority": "high",
+        "estimatedComplexity": "low"
+      }
+    ],
+    "verificationPages": [
+      "/",
+      "/dashboard",
+      "/schedule",
+      "/employees",
+      "/tasks",
+      "/reports/payroll",
+      "/activity"
+    ],
+    "completionCriteria": "All API endpoints return proper responses (200 for authorized requests, 401 for unauthenticated, 403 for unauthorized). Crawl shows zero 404 errors on API routes and zero 401 errors for authenticated test user. All dashboard pages load successfully with data."
+  }
+}
