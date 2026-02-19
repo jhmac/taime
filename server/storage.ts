@@ -29,6 +29,7 @@ import {
   trainingModules,
   employeeTrainingProgress,
   commuteAlerts,
+  timeOffRequests,
   type User,
   type UpsertUser,
   type TimeEntry,
@@ -49,6 +50,8 @@ import {
   type InsertPayrollPeriod,
   type UserAvailability,
   type InsertUserAvailability,
+  type TimeOffRequest,
+  type InsertTimeOffRequest,
   type PayPeriodSettings,
   type InsertPayPeriodSettings,
   type ScheduleConfirmation,
@@ -145,7 +148,16 @@ export interface IStorage {
   // Availability operations
   submitAvailability(availability: InsertUserAvailability[]): Promise<UserAvailability[]>;
   getUserAvailability(userId: string, payrollPeriodId?: string): Promise<UserAvailability[]>;
+  getUserAvailabilityByDateRange(userId: string, startDate: Date, endDate: Date): Promise<UserAvailability[]>;
   getAllAvailabilityForPeriod(payrollPeriodId: string): Promise<UserAvailability[]>;
+  getAllAvailabilityByDateRange(startDate: Date, endDate: Date): Promise<UserAvailability[]>;
+
+  // Time-off request operations
+  createTimeOffRequest(request: InsertTimeOffRequest): Promise<TimeOffRequest>;
+  getTimeOffRequests(userId?: string): Promise<TimeOffRequest[]>;
+  getTimeOffRequest(id: string): Promise<TimeOffRequest | undefined>;
+  updateTimeOffRequest(id: string, updates: Partial<TimeOffRequest>): Promise<TimeOffRequest>;
+  deleteTimeOffRequest(id: string): Promise<void>;
   
   // Work location operations
   createWorkLocation(location: InsertWorkLocation): Promise<WorkLocation>;
@@ -627,27 +639,33 @@ export class DatabaseStorage implements IStorage {
     const result = [];
     
     for (const avail of availability) {
-      // Check if availability already exists for this user, period, date, and time slot
+      const conditions: any[] = [
+        eq(userAvailability.userId, avail.userId),
+        eq(userAvailability.date, avail.date),
+        eq(userAvailability.timeSlot, avail.timeSlot)
+      ];
+      if (avail.payrollPeriodId) {
+        conditions.push(eq(userAvailability.payrollPeriodId, avail.payrollPeriodId));
+      }
+
       const existing = await db
         .select()
         .from(userAvailability)
-        .where(and(
-          eq(userAvailability.userId, avail.userId),
-          eq(userAvailability.payrollPeriodId, avail.payrollPeriodId),
-          eq(userAvailability.date, avail.date),
-          eq(userAvailability.timeSlot, avail.timeSlot)
-        ));
+        .where(and(...conditions));
 
       if (existing.length > 0) {
-        // Update existing
         const [updated] = await db
           .update(userAvailability)
-          .set({ isAvailable: avail.isAvailable })
+          .set({ 
+            isAvailable: avail.isAvailable,
+            startTime: avail.startTime,
+            endTime: avail.endTime,
+            notes: avail.notes,
+          })
           .where(eq(userAvailability.id, existing[0].id))
           .returning();
         result.push(updated);
       } else {
-        // Create new
         const [created] = await db.insert(userAvailability).values(avail).returning();
         result.push(created);
       }
@@ -657,7 +675,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getUserAvailability(userId: string, payrollPeriodId?: string): Promise<UserAvailability[]> {
-    const conditions = [eq(userAvailability.userId, userId)];
+    const conditions: any[] = [eq(userAvailability.userId, userId)];
     if (payrollPeriodId) {
       conditions.push(eq(userAvailability.payrollPeriodId, payrollPeriodId));
     }
@@ -669,12 +687,76 @@ export class DatabaseStorage implements IStorage {
       .orderBy(userAvailability.date, userAvailability.timeSlot);
   }
 
+  async getUserAvailabilityByDateRange(userId: string, startDate: Date, endDate: Date): Promise<UserAvailability[]> {
+    return await db
+      .select()
+      .from(userAvailability)
+      .where(and(
+        eq(userAvailability.userId, userId),
+        gte(userAvailability.date, startDate),
+        lte(userAvailability.date, endDate)
+      ))
+      .orderBy(userAvailability.date, userAvailability.timeSlot);
+  }
+
   async getAllAvailabilityForPeriod(payrollPeriodId: string): Promise<UserAvailability[]> {
     return await db
       .select()
       .from(userAvailability)
       .where(eq(userAvailability.payrollPeriodId, payrollPeriodId))
       .orderBy(userAvailability.date, userAvailability.timeSlot);
+  }
+
+  async getAllAvailabilityByDateRange(startDate: Date, endDate: Date): Promise<UserAvailability[]> {
+    return await db
+      .select()
+      .from(userAvailability)
+      .where(and(
+        gte(userAvailability.date, startDate),
+        lte(userAvailability.date, endDate)
+      ))
+      .orderBy(userAvailability.userId, userAvailability.date, userAvailability.timeSlot);
+  }
+
+  // Time-off request operations
+  async createTimeOffRequest(request: InsertTimeOffRequest): Promise<TimeOffRequest> {
+    const [created] = await db.insert(timeOffRequests).values(request).returning();
+    return created;
+  }
+
+  async getTimeOffRequests(userId?: string): Promise<TimeOffRequest[]> {
+    if (userId) {
+      return await db
+        .select()
+        .from(timeOffRequests)
+        .where(eq(timeOffRequests.userId, userId))
+        .orderBy(desc(timeOffRequests.createdAt));
+    }
+    return await db
+      .select()
+      .from(timeOffRequests)
+      .orderBy(desc(timeOffRequests.createdAt));
+  }
+
+  async getTimeOffRequest(id: string): Promise<TimeOffRequest | undefined> {
+    const [request] = await db
+      .select()
+      .from(timeOffRequests)
+      .where(eq(timeOffRequests.id, id));
+    return request;
+  }
+
+  async updateTimeOffRequest(id: string, updates: Partial<TimeOffRequest>): Promise<TimeOffRequest> {
+    const [updated] = await db
+      .update(timeOffRequests)
+      .set(updates)
+      .where(eq(timeOffRequests.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteTimeOffRequest(id: string): Promise<void> {
+    await db.delete(timeOffRequests).where(eq(timeOffRequests.id, id));
   }
 
   // Work location operations
