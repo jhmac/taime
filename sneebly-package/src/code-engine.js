@@ -1,8 +1,8 @@
 'use strict';
 
 const fs = require('fs');
-const fsPromises = require('fs').promises;
 const path = require('path');
+const { mkdir, writeFile, unlink } = fs.promises;
 const { execSync, spawn } = require('child_process');
 const http = require('http');
 const { IDENTITY_FILES, CommandValidator } = require('./security');
@@ -348,21 +348,19 @@ class CodeEngine {
     } catch {}
   }
 
-  async createFile(filePath, content, projectRoot) {
-    const root = projectRoot || this.projectRoot;
-    const fullPath = path.resolve(root, filePath);
-
+  async createFile(filePath, content) {
     const safetyCheck = this._checkSafety(filePath);
     if (!safetyCheck.safe) return { success: false, error: safetyCheck.reason };
+
+    const fullPath = path.resolve(this.projectRoot, filePath);
 
     if (fs.existsSync(fullPath)) {
       return { success: false, error: `File already exists: ${filePath}. Use applyChange to modify existing files.` };
     }
 
     try {
-      const dir = path.dirname(fullPath);
-      await fsPromises.mkdir(dir, { recursive: true });
-      await fsPromises.writeFile(fullPath, content, 'utf-8');
+      await mkdir(path.dirname(fullPath), { recursive: true });
+      await writeFile(fullPath, content, 'utf-8');
     } catch (err) {
       return { success: false, error: `Failed to create file: ${err.message}` };
     }
@@ -370,7 +368,7 @@ class CodeEngine {
     if (JS_EXTENSIONS.has(path.extname(fullPath).toLowerCase())) {
       const syntaxCheck = this.verifySyntax(filePath);
       if (!syntaxCheck.valid) {
-        try { await fsPromises.unlink(fullPath); } catch {}
+        try { await unlink(fullPath); } catch {}
         return { success: false, error: `Syntax errors in created file: ${syntaxCheck.issues.join(', ')}` };
       }
     }
@@ -379,8 +377,9 @@ class CodeEngine {
   }
 
   async deleteFile(filePath) {
+    const fullPath = path.isAbsolute(filePath) ? filePath : path.resolve(this.projectRoot, filePath);
     try {
-      await fsPromises.unlink(filePath);
+      await unlink(fullPath);
       return { success: true };
     } catch (err) {
       return { success: false, error: err.message };

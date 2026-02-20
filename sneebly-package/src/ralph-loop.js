@@ -6,26 +6,36 @@ const { executeSpec } = require('./subagents/spec-executor');
 const { CodeEngine } = require('./code-engine');
 const { CommandValidator } = require('./security');
 
-function _emptyBackupInfo() {
-  return { backups: {}, newFiles: [] };
-}
+const EMPTY_BACKUP = Object.freeze({ backups: {}, newFiles: [] });
 
 function _rollbackAndMark(engine, backupInfo, result, memory, reason) {
-  const backupMap = backupInfo.backups || backupInfo;
-  const newFiles = backupInfo.newFiles || [];
-  const allFiles = [...Object.keys(backupMap), ...newFiles];
+  const allFiles = [...Object.keys(backupInfo.backups || {}), ...(backupInfo.newFiles || [])];
+  if (allFiles.length === 0) return;
 
-  if (allFiles.length > 0) {
-    engine.rollbackMultiple(backupInfo);
-    for (const fp of allFiles) {
-      const idx = result.changes.findIndex(c => c.filePath === fp && c.applied && !c.rolledBack);
-      if (idx !== -1) result.changes[idx].rolledBack = true;
+  engine.rollbackMultiple(backupInfo);
+  for (const fp of allFiles) {
+    const entry = result.changes.find(c => c.filePath === fp && c.applied && !c.rolledBack);
+    if (entry) entry.rolledBack = true;
+  }
+
+  if (memory) memory.logDaily(`Ralph Loop: ${reason}. Rolled back ${allFiles.length} file(s)`);
+}
+
+async function _validateAndRollback(engine, backupInfo, result, spec, memory) {
+  if (spec.testCommand) {
+    const testResult = engine.runTests(spec.testCommand);
+    if (!testResult.passed && !testResult.warning) {
+      _rollbackAndMark(engine, backupInfo, result, memory, 'tests failed after changes');
+      return { ok: false, reason: 'tests failed' };
     }
   }
 
-  if (memory) {
-    memory.logDaily(`Ralph Loop: ${reason}. Rolled back ${allFiles.length} file(s)`);
+  if (spec.runtimeValidation) {
+    const runtimeOk = await _runRuntimeValidation(engine, backupInfo, result, spec, memory);
+    if (!runtimeOk) return { ok: false, reason: 'runtime validation failed' };
   }
+
+  return { ok: true };
 }
 
 async function _applySingleChange(engine, execResult, result, memory) {
@@ -34,7 +44,7 @@ async function _applySingleChange(engine, execResult, result, memory) {
 
   if (!applyResult.applied) {
     result.changes.push({ filePath, applied: false, reason: applyResult.reason });
-    return { success: false, backups: _emptyBackupInfo() };
+    return { success: false, backups: EMPTY_BACKUP };
   }
 
   const syntaxCheck = engine.verifySyntax(filePath);
@@ -43,7 +53,7 @@ async function _applySingleChange(engine, execResult, result, memory) {
     const reason = `Syntax error after change: ${syntaxCheck.issues.join(', ')}`;
     result.changes.push({ filePath, applied: false, reason, rolledBack: true });
     if (memory) memory.logDaily(`Ralph Loop: syntax check failed for ${filePath}: ${syntaxCheck.issues.join(', ')} — rolled back`);
-    return { success: false, backups: _emptyBackupInfo() };
+    return { success: false, backups: EMPTY_BACKUP };
   }
 
   result.changes.push({ filePath, applied: true, backupPath: applyResult.backupPath, description, fuzzyMatched: applyResult.fuzzyMatched || false });
@@ -185,55 +195,30 @@ async function executeRalphLoop(specPath, context, budget, options = {}) {
 
     if (execResult.status === 'dry-run') { result.status = 'dry-run'; break; }
 
-    let changeBackups = _emptyBackupInfo();
+    let changeBackups = EMPTY_BACKUP;
+    let historyStatus = 'change-applied';
+    let historyExtra = {};
 
     if (execResult.status === 'create') {
-      const createResult = await engine.createFile(execResult.filePath, execResult.content, projectRoot);
+      const createResult = await engine.createFile(execResult.filePath, execResult.content);
       if (!createResult.success) {
         result.changes.push({ filePath: execResult.filePath, applied: false, reason: createResult.error });
-        consecutiveStuck++;
         iterationHistory.push({ iteration: result.iterations, status: 'create-failed', reason: createResult.error });
         continue;
       }
       result.changes.push({ filePath: execResult.filePath, applied: true, created: true, description: execResult.description });
       changeBackups = { backups: {}, newFiles: [execResult.filePath] };
+      historyStatus = 'created';
+      historyExtra = { filesCreated: [execResult.filePath] };
 
-      if (spec.testCommand) {
-        const testResult = engine.runTests(spec.testCommand);
-        if (!testResult.passed && !testResult.warning) {
-          await engine.deleteFile(createResult.filePath);
-          result.changes[result.changes.length - 1].rolledBack = true;
-          iterationHistory.push({ iteration: result.iterations, status: 'create-failed', reason: 'tests failed after file creation' });
-          if (memory) memory.logDaily(`Ralph Loop: tests failed after creating ${execResult.filePath} — rolled back`);
-          continue;
-        }
-      }
-
-      if (spec.runtimeValidation) {
-        const runtimeOk = await _runRuntimeValidation(engine, changeBackups, result, spec, memory);
-        if (!runtimeOk) {
-          await engine.deleteFile(createResult.filePath);
-          result.changes[result.changes.length - 1].rolledBack = true;
-          iterationHistory.push({ iteration: result.iterations, status: 'create-failed', reason: 'runtime validation failed after file creation' });
-          continue;
-        }
-      }
-
-      iterationHistory.push({ iteration: result.iterations, status: 'created', filesCreated: [execResult.filePath] });
-      if (memory) memory.logDaily(`Ralph Loop: created file ${execResult.filePath}`);
-      continue;
-    }
-
-    if (execResult.status === 'multi-create' && Array.isArray(execResult.files)) {
+    } else if (execResult.status === 'multi-create' && Array.isArray(execResult.files)) {
       const createdFiles = [];
       let createFailed = false;
 
       for (const file of execResult.files) {
-        const createResult = await engine.createFile(file.filePath, file.content, projectRoot);
+        const createResult = await engine.createFile(file.filePath, file.content);
         if (!createResult.success) {
-          for (const created of createdFiles) {
-            await engine.deleteFile(path.resolve(projectRoot, created));
-          }
+          for (const prev of createdFiles) await engine.deleteFile(prev);
           result.changes.push({ filePath: file.filePath, applied: false, reason: createResult.error, atomicRollback: createdFiles.length > 0 });
           if (memory) memory.logDaily(`Ralph Loop: multi-create failed on ${file.filePath}: ${createResult.error} — rolled back ${createdFiles.length} file(s)`);
           iterationHistory.push({ iteration: result.iterations, status: 'create-failed', reason: `multi-create failed on ${file.filePath}: ${createResult.error}` });
@@ -247,79 +232,38 @@ async function executeRalphLoop(specPath, context, budget, options = {}) {
       if (createFailed) continue;
 
       changeBackups = { backups: {}, newFiles: createdFiles };
+      historyStatus = 'created';
+      historyExtra = { filesCreated: createdFiles };
 
-      if (spec.testCommand) {
-        const testResult = engine.runTests(spec.testCommand);
-        if (!testResult.passed && !testResult.warning) {
-          for (const created of createdFiles) {
-            await engine.deleteFile(path.resolve(projectRoot, created));
-          }
-          for (let ci = result.changes.length - createdFiles.length; ci < result.changes.length; ci++) {
-            result.changes[ci].rolledBack = true;
-          }
-          if (memory) memory.logDaily(`Ralph Loop: tests failed after multi-create — rolled back ${createdFiles.length} file(s)`);
-          iterationHistory.push({ iteration: result.iterations, status: 'create-failed', reason: 'tests failed after multi-create' });
-          continue;
-        }
-      }
-
-      if (spec.runtimeValidation) {
-        const runtimeOk = await _runRuntimeValidation(engine, changeBackups, result, spec, memory);
-        if (!runtimeOk) {
-          for (const created of createdFiles) {
-            await engine.deleteFile(path.resolve(projectRoot, created));
-          }
-          for (let ci = result.changes.length - createdFiles.length; ci < result.changes.length; ci++) {
-            result.changes[ci].rolledBack = true;
-          }
-          iterationHistory.push({ iteration: result.iterations, status: 'create-failed', reason: 'runtime validation failed after multi-create' });
-          continue;
-        }
-      }
-
-      iterationHistory.push({ iteration: result.iterations, status: 'created', filesCreated: createdFiles });
-      if (memory) memory.logDaily(`Ralph Loop: created ${createdFiles.length} file(s): ${createdFiles.join(', ')}`);
-      continue;
-    }
-
-    // TODO: Mixed operations (create + change in one step) can be handled by having
-    // the spec executor emit separate iterations — a 'create' followed by a 'change'.
-    // A future 'multi-mixed' status could handle atomic create+change in one batch.
-
-    if (execResult.status === 'multi-change' && Array.isArray(execResult.changes)) {
+    } else if (execResult.status === 'multi-change' && Array.isArray(execResult.changes)) {
       const multiResult = await _applyMultiFileChanges(engine, execResult.changes, result, memory);
       if (!multiResult.success) continue;
       changeBackups = multiResult.backups;
+      historyExtra = { changeDescription: execResult.changes.map(c => c.description).join('; ') };
+
     } else if (execResult.status === 'change') {
       const singleResult = await _applySingleChange(engine, execResult, result, memory);
       if (!singleResult.success) continue;
       changeBackups = singleResult.backups;
+      historyExtra = { changeDescription: execResult.description || 'applied' };
+
     } else {
       continue;
     }
 
-    if (spec.testCommand) {
-      const testResult = engine.runTests(spec.testCommand);
-      if (!testResult.passed && !testResult.warning) {
-        _rollbackAndMark(engine, changeBackups, result, memory, 'tests failed after changes');
-        iterationHistory.push({ iteration: result.iterations, status: 'test-failed', reason: 'tests failed after applying change' });
-        continue;
-      }
+    const validation = await _validateAndRollback(engine, changeBackups, result, spec, memory);
+    if (!validation.ok) {
+      iterationHistory.push({ iteration: result.iterations, status: `${historyStatus === 'created' ? 'create' : 'change'}-failed`, reason: validation.reason });
+      continue;
     }
 
-    if (spec.runtimeValidation) {
-      const runtimeOk = await _runRuntimeValidation(engine, changeBackups, result, spec, memory);
-      if (!runtimeOk) {
-        iterationHistory.push({ iteration: result.iterations, status: 'runtime-failed', reason: 'runtime validation failed after change' });
-        continue;
-      }
+    iterationHistory.push({ iteration: result.iterations, status: historyStatus, ...historyExtra });
+    if (memory) {
+      const desc = historyExtra.filesCreated
+        ? `created ${historyExtra.filesCreated.length} file(s): ${historyExtra.filesCreated.join(', ')}`
+        : historyExtra.changeDescription || 'applied changes';
+      memory.logDaily(`Ralph Loop: ${desc}`);
     }
-
-    iterationHistory.push({
-      iteration: result.iterations,
-      status: 'change-applied',
-      changeDescription: execResult.description || (execResult.changes ? execResult.changes.map(c => c.description).join('; ') : 'applied'),
-    });
   }
 
   if (result.status === 'pending') {
