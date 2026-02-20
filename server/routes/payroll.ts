@@ -326,29 +326,36 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
         firstPayPeriodEnd, 
         isAutomationEnabled, 
         notificationUserId,
-        isSetupComplete 
+        isSetupComplete,
+        daysBeforeNotification,
+        scheduleGenerationDays,
       } = req.body;
+
+      const settingsPayload: any = {
+        intervalType,
+        firstPayPeriodStart: new Date(firstPayPeriodStart),
+        firstPayPeriodEnd: new Date(firstPayPeriodEnd),
+        isAutomationEnabled,
+        notificationUserId,
+        isSetupComplete,
+      };
+      if (typeof daysBeforeNotification === 'number') {
+        settingsPayload.daysBeforeNotification = daysBeforeNotification;
+      }
+      if (typeof scheduleGenerationDays === 'number') {
+        settingsPayload.scheduleGenerationDays = scheduleGenerationDays;
+      }
 
       const existingSettings = await storage.getPayrollSettings();
       
       if (existingSettings) {
         await storage.updatePayrollSettings(existingSettings.id, {
-          intervalType,
-          firstPayPeriodStart: new Date(firstPayPeriodStart),
-          firstPayPeriodEnd: new Date(firstPayPeriodEnd),
-          isAutomationEnabled,
-          notificationUserId,
-          isSetupComplete,
+          ...settingsPayload,
           updatedBy: userId,
         });
       } else {
         await storage.createPayrollSettings({
-          intervalType,
-          firstPayPeriodStart: new Date(firstPayPeriodStart),
-          firstPayPeriodEnd: new Date(firstPayPeriodEnd),
-          isAutomationEnabled,
-          notificationUserId,
-          isSetupComplete,
+          ...settingsPayload,
           createdBy: userId,
         });
       }
@@ -360,7 +367,7 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
       });
 
       if (isAutomationEnabled) {
-        await payrollAutomationService.scheduleNextPayrollPeriods(intervalType, new Date(firstPayPeriodEnd));
+        await payrollAutomationService.scheduleNextPayrollPeriods(intervalType, new Date(firstPayPeriodEnd), 6);
       }
 
       res.json({ message: "Payroll setup completed successfully" });
