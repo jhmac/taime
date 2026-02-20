@@ -983,6 +983,55 @@
       </div>
     </div>
 
+    <div class="crawl-results" id="integration-health-panel" style="margin-top:8px">
+      <div class="crawl-results-header" style="display:flex;justify-content:space-between;align-items:center">
+        <span>Integration Health</span>
+        <div style="display:flex;gap:6px;align-items:center">
+          <span style="font-weight:400;font-size:0.7rem" id="health-overall">--</span>
+          <button class="btn-action" onclick="refreshIntegrationHealth()" style="font-size:0.65rem;padding:2px 8px">Refresh</button>
+        </div>
+      </div>
+      <div id="health-body" style="padding:8px;font-size:0.75rem">
+        <div class="empty">No health check data yet</div>
+      </div>
+    </div>
+
+    <div class="crawl-results" id="scenario-panel" style="margin-top:8px">
+      <div class="crawl-results-header" style="display:flex;justify-content:space-between;align-items:center">
+        <span>Scenario Tests</span>
+        <div style="display:flex;gap:6px;align-items:center">
+          <span style="font-weight:400;font-size:0.7rem" id="scenario-summary">--</span>
+          <button class="btn-action" onclick="runScenarioTests()" style="font-size:0.65rem;padding:2px 8px">Run Tests</button>
+        </div>
+      </div>
+      <div id="scenario-body" style="padding:8px;font-size:0.75rem">
+        <div class="empty">No scenario test results yet</div>
+      </div>
+    </div>
+
+    <div class="crawl-results" id="regression-panel" style="margin-top:8px">
+      <div class="crawl-results-header" style="display:flex;justify-content:space-between;align-items:center">
+        <span>Regression Tracker</span>
+        <span style="font-weight:400;font-size:0.7rem" id="regression-summary">--</span>
+      </div>
+      <div id="regression-body" style="padding:8px;font-size:0.75rem">
+        <div class="empty">No regression data yet</div>
+      </div>
+    </div>
+
+    <div class="crawl-results" id="dev-mode-panel" style="margin-top:8px">
+      <div class="crawl-results-header" style="display:flex;justify-content:space-between;align-items:center">
+        <span>Dev / Test Mode</span>
+        <div style="display:flex;gap:6px;align-items:center">
+          <span style="font-weight:400;font-size:0.7rem" id="dev-mode-status">--</span>
+          <button class="btn-action" id="dev-mode-toggle" onclick="toggleDevMode()" style="font-size:0.65rem;padding:2px 8px">Enable</button>
+        </div>
+      </div>
+      <div id="dev-mode-body" style="padding:6px 8px;font-size:0.72rem;color:var(--text-muted)">
+        Enable dev mode for test fixture creation. Auto-warns if left on &gt;24 hours.
+      </div>
+    </div>
+
     <div class="elon-panel" id="elon-panel">
       <div class="panel-header" style="display:flex;justify-content:space-between;align-items:center">
         <span>ELON Strategic Constraint Solver</span>
@@ -2248,10 +2297,148 @@
       } catch {}
     }
 
+    async function refreshIntegrationHealth() {
+      const el = document.getElementById('health-body');
+      const overall = document.getElementById('health-overall');
+      try {
+        el.innerHTML = '<div class="empty">Checking integrations...</div>';
+        const res = await fetch(BASE + '/api/integration-health?refresh=true');
+        const data = await res.json();
+        const statusColors = { healthy: '#22c55e', degraded: '#eab308', unhealthy: '#ef4444', unknown: '#6b7280' };
+        overall.textContent = data.overall || '--';
+        overall.style.color = statusColors[data.overall] || '#6b7280';
+        if (!data.integrations || data.integrations.length === 0) {
+          el.innerHTML = '<div class="empty">No integrations found</div>';
+          return;
+        }
+        let html = '<div style="display:grid;gap:6px">';
+        for (const integ of data.integrations) {
+          const color = statusColors[integ.status] || '#6b7280';
+          const icon = integ.status === 'healthy' ? '&#10003;' : integ.status === 'degraded' ? '&#9888;' : integ.status === 'unhealthy' ? '&#10007;' : '?';
+          html += '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border)">';
+          html += '<span style="color:' + color + ';font-size:0.9rem">' + icon + '</span>';
+          html += '<span style="font-weight:500">' + esc(integ.integration) + '</span>';
+          html += '<span style="color:' + color + ';font-size:0.7rem;margin-left:auto">' + esc(integ.status) + '</span>';
+          if (integ.errors && integ.errors.length > 0) {
+            html += '<span style="color:#ef4444;font-size:0.65rem;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(integ.errors[0]) + '">' + esc(integ.errors[0]) + '</span>';
+          }
+          html += '</div>';
+        }
+        html += '</div>';
+        el.innerHTML = html;
+      } catch (err) {
+        el.innerHTML = '<div class="empty" style="color:#ef4444">Failed: ' + esc(err.message) + '</div>';
+      }
+    }
+
+    async function loadScenarioResults() {
+      const el = document.getElementById('scenario-body');
+      const summary = document.getElementById('scenario-summary');
+      try {
+        const res = await fetch(BASE + '/api/scenario-results');
+        const data = await res.json();
+        if (!data.results || data.results.length === 0) {
+          summary.textContent = '--';
+          return;
+        }
+        summary.textContent = data.passed + '/' + data.totalScenarios + ' passed';
+        summary.style.color = data.failed > 0 ? '#ef4444' : '#22c55e';
+        let html = '<div style="display:grid;gap:4px">';
+        for (const r of data.results) {
+          const color = r.status === 'passed' ? '#22c55e' : r.status === 'failed' ? '#ef4444' : '#eab308';
+          const icon = r.status === 'passed' ? '&#10003;' : r.status === 'failed' ? '&#10007;' : '&#9679;';
+          html += '<div style="display:flex;align-items:center;gap:8px;padding:3px 0;border-bottom:1px solid var(--border)">';
+          html += '<span style="color:' + color + '">' + icon + '</span>';
+          html += '<span>' + esc(r.name || r.id) + '</span>';
+          html += '<span style="color:var(--text-muted);font-size:0.65rem;margin-left:auto">' + esc(r.category || '') + '</span>';
+          html += '</div>';
+        }
+        html += '</div>';
+        el.innerHTML = html;
+      } catch {}
+    }
+
+    async function runScenarioTests() {
+      const el = document.getElementById('scenario-body');
+      el.innerHTML = '<div class="empty">Running scenario tests... this may take a minute.</div>';
+      try {
+        await fetch(BASE + '/api/run-scenarios', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        setTimeout(loadScenarioResults, 15000);
+      } catch (err) {
+        el.innerHTML = '<div class="empty" style="color:#ef4444">Failed: ' + esc(err.message) + '</div>';
+      }
+    }
+
+    async function loadRegressions() {
+      const el = document.getElementById('regression-body');
+      const summary = document.getElementById('regression-summary');
+      try {
+        const res = await fetch(BASE + '/api/regressions');
+        const data = await res.json();
+        if (!data.escalated || data.escalated.length === 0) {
+          summary.textContent = 'No regressions';
+          summary.style.color = '#22c55e';
+          el.innerHTML = '<div class="empty" style="color:#22c55e">No recurring failures detected</div>';
+          return;
+        }
+        summary.textContent = data.escalated.length + ' escalated';
+        summary.style.color = '#ef4444';
+        let html = '<div style="display:grid;gap:4px">';
+        for (const r of data.escalated) {
+          html += '<div style="padding:4px 0;border-bottom:1px solid var(--border)">';
+          html += '<div style="display:flex;justify-content:space-between"><span style="font-weight:500">' + esc(r.id) + '</span>';
+          html += '<span style="color:#ef4444;font-size:0.65rem">score: ' + r.score + '</span></div>';
+          html += '<div style="color:var(--text-muted);font-size:0.65rem">' + r.consecutiveFailures + ' consecutive failures, ' + r.totalFailures + ' total</div>';
+          html += '</div>';
+        }
+        html += '</div>';
+        el.innerHTML = html;
+      } catch {}
+    }
+
+    async function loadDevMode() {
+      try {
+        const res = await fetch(BASE + '/api/dev-mode');
+        const data = await res.json();
+        const statusEl = document.getElementById('dev-mode-status');
+        const toggleEl = document.getElementById('dev-mode-toggle');
+        const bodyEl = document.getElementById('dev-mode-body');
+        if (data.enabled) {
+          statusEl.textContent = 'ENABLED';
+          statusEl.style.color = '#eab308';
+          toggleEl.textContent = 'Disable';
+          const hours = data.enabledForHours ? Math.round(data.enabledForHours * 10) / 10 : 0;
+          bodyEl.innerHTML = 'Dev mode active for ' + hours + ' hours.' + (data.warning ? ' <span style="color:#ef4444;font-weight:500">' + esc(data.warning) + '</span>' : '');
+        } else {
+          statusEl.textContent = 'Disabled';
+          statusEl.style.color = '#6b7280';
+          toggleEl.textContent = 'Enable';
+          bodyEl.innerHTML = 'Enable dev mode for test fixture creation. Auto-warns if left on &gt;24 hours.';
+        }
+      } catch {}
+    }
+
+    async function toggleDevMode() {
+      try {
+        const statusEl = document.getElementById('dev-mode-status');
+        const enabling = statusEl.textContent !== 'ENABLED';
+        await fetch(BASE + '/api/dev-mode', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: enabling }),
+        });
+        loadDevMode();
+      } catch {}
+    }
+
     loadElonProgress();
     loadElonReport();
     refreshAll();
     loadFeed();
+    loadScenarioResults();
+    loadRegressions();
+    loadDevMode();
+    refreshIntegrationHealth();
     setInterval(refreshAll, 30000);
     setInterval(loadElonProgress, 2000);
     loadPendingSpecs();
@@ -2262,6 +2449,8 @@
     setInterval(loadFeed, 5000);
     updateRunningStatus();
     setInterval(updateRunningStatus, 5000);
+    setInterval(loadRegressions, 60000);
+    setInterval(loadDevMode, 30000);
   </script>
 </body>
 </html>

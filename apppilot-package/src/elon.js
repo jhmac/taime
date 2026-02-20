@@ -6,6 +6,10 @@ const { delegateToSubagent } = require('./subagents/dispatcher');
 const { loadContext } = require('./context-loader');
 const { crawlSite, verifyCrawl, backendHealthCheck, isSessionValid } = require('./subagents/site-crawler');
 const { executeRalphLoop } = require('./ralph-loop');
+const { runAllHealthChecks, loadLastHealthCheck } = require('./integration-health');
+const { runScenarios, loadLastResults: loadLastScenarioResults, getDevModeStatus } = require('./scenario-runner');
+const { recordResult, getEscalatedIssues, getRegressionSummary } = require('./regression-tracker');
+const { buildDependencyIndex, getFilesForEndpoint, getFilesForIntegration, saveIndex, loadIndex } = require('./dependency-index');
 
 const TEMPLATES_DIR = path.join(__dirname, '..', 'templates');
 const SEVERITY_ORDER = { high: 0, medium: 1, low: 2 };
@@ -330,6 +334,103 @@ async function _performBackendCheck(appUrl, dataDir, log) {
   }
 }
 
+async function _performIntegrationHealthCheck(appUrl, dataDir, log) {
+  try {
+    const healthResults = await runAllHealthChecks({ appUrl, dataDir, skipExpensive: true });
+    log(`ELON: Integration health: ${healthResults.overall} (${healthResults.issues.length} issues across ${healthResults.integrations.length} integrations)`);
+
+    for (const integration of healthResults.integrations) {
+      recordResult(dataDir, {
+        id: `integration:${integration.integration}`,
+        type: 'integration-health',
+        status: integration.status,
+        message: integration.errors.length > 0 ? integration.errors[0] : `${integration.integration}: ${integration.status}`,
+        details: integration.details,
+      });
+    }
+
+    return healthResults;
+  } catch (err) {
+    log(`ELON: Integration health check failed: ${err.message}`);
+    return null;
+  }
+}
+
+async function _performScenarioTests(appUrl, dataDir, log) {
+  try {
+    const sessionFile = path.join(dataDir, 'crawler-session.json');
+    let sessionData = null;
+    try {
+      if (fs.existsSync(sessionFile)) {
+        sessionData = JSON.parse(fs.readFileSync(sessionFile, 'utf-8'));
+      }
+    } catch {}
+
+    const scenarioResults = await runScenarios({
+      appUrl,
+      dataDir,
+      sessionData,
+      onProgress: (phase, message) => log(`ELON scenario: ${message}`),
+    });
+
+    log(`ELON: Scenarios: ${scenarioResults.passed} passed, ${scenarioResults.failed} failed out of ${scenarioResults.totalScenarios}`);
+
+    for (const result of scenarioResults.results) {
+      recordResult(dataDir, {
+        id: `scenario:${result.id}`,
+        type: 'scenario-test',
+        status: result.status,
+        message: result.status === 'failed'
+          ? (result.steps.find(s => s.status === 'failed')?.error || 'Scenario failed')
+          : `${result.name}: passed`,
+        details: { steps: result.steps.length, pageErrors: result.pageErrors?.length || 0 },
+      });
+    }
+
+    return scenarioResults;
+  } catch (err) {
+    log(`ELON: Scenario tests failed: ${err.message}`);
+    return null;
+  }
+}
+
+function _buildIntegrationSummary(healthResults, scenarioResults, dataDir) {
+  const summary = { integrationIssues: [], scenarioFailures: [], regressions: [] };
+
+  if (healthResults && healthResults.issues) {
+    for (const issue of healthResults.issues) {
+      summary.integrationIssues.push({
+        integration: issue.integration,
+        severity: issue.severity,
+        message: issue.message,
+        status: issue.status,
+      });
+    }
+  }
+
+  if (scenarioResults && scenarioResults.results) {
+    for (const result of scenarioResults.results) {
+      if (result.status === 'failed') {
+        const failedStep = result.steps.find(s => s.status === 'failed');
+        summary.scenarioFailures.push({
+          scenario: result.name,
+          category: result.category,
+          priority: result.priority,
+          failedStep: failedStep ? failedStep.description : 'unknown',
+          error: failedStep ? failedStep.error : 'unknown',
+          pageErrors: (result.pageErrors || []).slice(0, 3),
+        });
+      }
+    }
+  }
+
+  if (dataDir) {
+    summary.regressions = getEscalatedIssues(dataDir, 3);
+  }
+
+  return summary;
+}
+
 function _buildCrawlSummary(crawlResults) {
   if (!crawlResults) return { note: 'Crawl not available — analyze code only' };
   const issues = (crawlResults.allIssues || []).filter(i => !AUTH_STATUS_CODES.has(i.statusCode));
@@ -396,6 +497,33 @@ async function runElonCycle(config) {
     _aggregateCrawlIssues(crawlResults);
   }
 
+  progress('health-check', 'Running integration health checks...', null, 'thinking');
+  let healthResults = null;
+  let scenarioResults = null;
+  try {
+    healthResults = await _performIntegrationHealthCheck(appUrl, dataDir, log);
+    if (healthResults && healthResults.issues.length > 0) {
+      progress('health-issues', `Integration issues found: ${healthResults.issues.map(i => `${i.integration}: ${i.message}`).join(', ')}`, { issues: healthResults.issues.length }, 'warning');
+    }
+  } catch (err) { log(`ELON: Health check error: ${err.message}`); }
+
+  progress('scenarios', 'Running scenario tests...', null, 'thinking');
+  try {
+    scenarioResults = await _performScenarioTests(appUrl, dataDir, log);
+    if (scenarioResults && scenarioResults.failed > 0) {
+      progress('scenario-failures', `${scenarioResults.failed} scenario(s) failed`, { failed: scenarioResults.failed }, 'warning');
+    }
+  } catch (err) { log(`ELON: Scenario test error: ${err.message}`); }
+
+  const integrationSummary = _buildIntegrationSummary(healthResults, scenarioResults, dataDir);
+
+  progress('building-index', 'Building dependency index...', null, 'thinking');
+  let depIndex = null;
+  try {
+    depIndex = buildDependencyIndex(projectRoot);
+    saveIndex(dataDir, depIndex);
+  } catch (err) { log(`ELON: Dependency index error: ${err.message}`); }
+
   progress('reading-code', 'Reading source code and project context...', null, 'thinking');
   const sourceCode = _readSourceFiles(projectRoot, elonLog.current);
 
@@ -411,6 +539,7 @@ async function runElonCycle(config) {
     soul: context.soul ? (context.soul.content || context.raw.soul) : 'No SOUL.md found',
     codebase: sourceCode.substring(0, 25000),
     crawlResults: _buildCrawlSummary(crawlResults),
+    integrationHealth: integrationSummary,
     previousConstraints: elonLog.solved || [],
     currentConstraint: elonLog.current || null,
     blockedConstraints: blockedConstraints.slice(0, 30),

@@ -1288,6 +1288,106 @@ function createAdminDashboard(options = {}) {
         if (files.length > 0) triggerAutoExecute();
       }
     }, 30000);
+
+    app.get(`${basePath}/api/integration-health`, authMiddleware, async (req, res) => {
+      try {
+        const { runAllHealthChecks, loadLastHealthCheck } = require('../integration-health');
+        const fresh = req.query.refresh === 'true';
+        if (fresh) {
+          const appUrl = `http://localhost:${process.env.PORT || 5000}`;
+          const results = await runAllHealthChecks({ appUrl, dataDir, skipExpensive: !!req.query.skipExpensive });
+          pushActivity('info', `Integration health check: ${results.overall} (${results.issues.length} issues)`);
+          return res.json(results);
+        }
+        const cached = loadLastHealthCheck(dataDir);
+        if (cached) return res.json(cached);
+        const appUrl = `http://localhost:${process.env.PORT || 5000}`;
+        const results = await runAllHealthChecks({ appUrl, dataDir, skipExpensive: true });
+        res.json(results);
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    app.get(`${basePath}/api/scenario-results`, authMiddleware, (req, res) => {
+      try {
+        const { loadLastResults } = require('../scenario-runner');
+        const results = loadLastResults(dataDir);
+        res.json(results || { totalScenarios: 0, passed: 0, failed: 0, results: [] });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    app.post(`${basePath}/api/run-scenarios`, authMiddleware, async (req, res) => {
+      try {
+        const { runScenarios } = require('../scenario-runner');
+        const appUrl = `http://localhost:${process.env.PORT || 5000}`;
+        let sessionData = null;
+        try {
+          const sessionFile = path.join(dataDir, 'crawler-session.json');
+          if (fs.existsSync(sessionFile)) sessionData = JSON.parse(fs.readFileSync(sessionFile, 'utf-8'));
+        } catch {}
+        res.json({ status: 'started', message: 'Running scenario tests...' });
+        pushActivity('info', 'Running scenario tests...');
+        runScenarios({ appUrl, dataDir, sessionData, scenarioIds: req.body.scenarioIds || null }).then(results => {
+          pushActivity(results.failed > 0 ? 'warning' : 'success', `Scenarios: ${results.passed} passed, ${results.failed} failed`);
+        }).catch(err => {
+          pushActivity('error', `Scenario tests failed: ${err.message}`);
+        });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    app.get(`${basePath}/api/dev-mode`, authMiddleware, (req, res) => {
+      try {
+        const { getDevModeStatus } = require('../scenario-runner');
+        const status = getDevModeStatus(dataDir);
+        res.json(status);
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    app.post(`${basePath}/api/dev-mode`, authMiddleware, (req, res) => {
+      try {
+        const { setDevMode } = require('../scenario-runner');
+        const { enabled } = req.body;
+        const result = setDevMode(dataDir, enabled, req.body.userId || 'admin');
+        owner.logOwnerAction(enabled ? 'dev_mode_enabled' : 'dev_mode_disabled', {}, dataDir);
+        pushActivity(enabled ? 'warning' : 'info', enabled ? 'Dev/test mode ENABLED — test data features active. Remember to disable before deploying!' : 'Dev/test mode disabled — test data features deactivated');
+        res.json(result);
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    app.get(`${basePath}/api/regressions`, authMiddleware, (req, res) => {
+      try {
+        const { getRegressionSummary, getEscalatedIssues } = require('../regression-tracker');
+        res.json({
+          summary: getRegressionSummary(dataDir),
+          escalated: getEscalatedIssues(dataDir, parseInt(req.query.minScore) || 3),
+        });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    app.get(`${basePath}/api/dependency-index`, authMiddleware, (req, res) => {
+      try {
+        const { loadIndex } = require('../dependency-index');
+        const index = loadIndex(dataDir);
+        if (index) return res.json(index);
+        const { buildDependencyIndex, saveIndex } = require('../dependency-index');
+        const freshIndex = buildDependencyIndex(projectRoot);
+        saveIndex(dataDir, freshIndex);
+        res.json(freshIndex);
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
   }
 
   return {

@@ -50,6 +50,14 @@ The backend is a Node.js Express.js server written in TypeScript. It uses Drizzl
 ### AI Services
 - **Anthropic Claude**: AI services for various platform functionalities (claude-sonnet-4-20250514 model)
 
+### ELON Deep Testing & Autonomous Improvement
+- **Integration Health Monitor**: `apppilot-package/src/integration-health.js` probes Shopify, Nylas, Claude AI, Database, and WebSocket integrations. Checks API connectivity, token validity, and configuration without exposing secrets. Dashboard route: `GET /apppilot/api/integration-health`. Results feed into ELON's constraint analysis.
+- **Scenario Test Runner**: `apppilot-package/src/scenario-runner.js` executes JSON-defined Playwright test scripts for critical user journeys (Shopify connect, clock-in/out, schedule management, payroll, API health). Supports authenticated sessions. Dashboard routes: `GET /apppilot/api/scenario-results`, `POST /apppilot/api/run-scenarios`.
+- **Regression Tracker**: `apppilot-package/src/regression-tracker.js` tracks test/health failures over time with escalation scoring (consecutive failures × rate × duration). Dashboard route: `GET /apppilot/api/regressions`. Escalated issues get priority in ELON's constraint analysis.
+- **Dependency Index**: `apppilot-package/src/dependency-index.js` maps routes→services→schema→pages for integration-aware code context. Helps ELON find all related files when fixing integration bugs. Dashboard route: `GET /apppilot/api/dependency-index`.
+- **Dev Mode Toggle**: Test fixture creation mode with 24-hour auto-warning. Routes: `GET/POST /apppilot/api/dev-mode`. Owner action logged.
+- **ELON Cycle Integration**: All modules wired into `elon.js` `runElonCycle()` — health checks, scenario tests, regression data, and dependency index all feed into Claude's constraint analysis. Integration health issues, scenario failures, and escalated regressions appear as additional evidence alongside crawl results.
+
 ### Advanced Action Logging (AppPilot Integration)
 - **Server-side action logger**: Middleware in `server/services/actionLogger.ts` captures every API request with user context, action intent mapping, status codes, and failure details. Writes to `.apppilot/action-log.jsonl` and feeds 500/401/403 errors into `.apppilot/error-log.jsonl` for AppPilot/ELON analysis. Includes deep redaction of sensitive fields.
 - **Client-side error reporter**: `client/src/lib/errorReporter.ts` catches unhandled errors, promise rejections, and failed API calls. Batches and sends to `POST /api/client-errors`. Initialized globally via `initGlobalErrorHandlers()` in App.tsx.

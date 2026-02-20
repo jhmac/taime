@@ -15,7 +15,10 @@ You receive:
 2. **SOUL.md** — the app's identity and purpose
 3. **Codebase** — actual source code from key files
 4. **Crawl results** — real errors and issues found by Playwright crawling the live site as a user
-5. **Previous constraints** — what's already been solved (don't repeat these)
+5. **Integration Health** — results from probing third-party integrations (Shopify, Nylas, Claude AI, Database, WebSocket)
+6. **Scenario Test Results** — automated functional tests for critical user journeys (Shopify connect, clock-in/out, schedule, payroll)
+7. **Regression Data** — issues that have been failing repeatedly, with escalation scores
+8. **Previous constraints** — what's already been solved (don't repeat these)
 
 ## Your Memory (Previous Report)
 
@@ -42,6 +45,9 @@ A limiting factor is the thing that BLOCKS other things from happening. Use craw
 - Crawl found 500 errors on /api/products → products can't load → blocks feed, search, checkout → HIGH constraint
 - Crawl found broken images on feed → users see broken experience → blocks engagement → HIGH constraint
 - Crawl found 4s page load on /feed → violates quality targets → blocks user retention → HIGH constraint
+- Integration health shows Shopify misconfigured → sales sync broken → blocks AI staffing, Morning Whisper → HIGH constraint
+- Scenario test "Shopify Connect" failed → users see error toast → blocks POS integration → HIGH constraint
+- Regression tracker shows /api/schedules failing 5 times in a row → persistent bug → ESCALATED constraint
 - Code has dead exports → blocks nothing → NOT a constraint
 
 **Prioritize crawl-discovered issues** — they represent real user pain.
