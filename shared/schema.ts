@@ -1063,6 +1063,7 @@ export const aiSchedulingSettings = pgTable("ai_scheduling_settings", {
   shiftBlocks: jsonb("shift_blocks").$type<Array<{ name: string; startTime: string; endTime: string }>>().default([]),
   staffingTiers: jsonb("staffing_tiers").$type<Array<{ minRevenue: number; maxRevenue: number; employeeCount: number }>>().default([]),
   minimumStaffing: integer("minimum_staffing").default(2),
+  storeHours: jsonb("store_hours").$type<Array<{ day: number; openTime: string; closeTime: string; isClosed: boolean }>>().default([]),
   updatedBy: varchar("updated_by").references(() => users.id),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

@@ -81,6 +81,15 @@ export function registerAiSchedulingRoutes(app: Express, storage: IStorage, isAu
             { minRevenue: 5001, maxRevenue: 10000, employeeCount: 5 },
           ],
           minimumStaffing: 2,
+          storeHours: [
+            { day: 0, openTime: "09:00", closeTime: "21:00", isClosed: true },
+            { day: 1, openTime: "09:00", closeTime: "21:00", isClosed: false },
+            { day: 2, openTime: "09:00", closeTime: "21:00", isClosed: false },
+            { day: 3, openTime: "09:00", closeTime: "21:00", isClosed: false },
+            { day: 4, openTime: "09:00", closeTime: "21:00", isClosed: false },
+            { day: 5, openTime: "09:00", closeTime: "21:00", isClosed: false },
+            { day: 6, openTime: "09:00", closeTime: "21:00", isClosed: false },
+          ],
         });
       }
     } catch (error) {
@@ -98,7 +107,7 @@ export function registerAiSchedulingRoutes(app: Express, storage: IStorage, isAu
         return res.status(403).json({ message: "Admin access required" });
       }
 
-      const { shiftBlocks, staffingTiers, minimumStaffing } = req.body;
+      const { shiftBlocks, staffingTiers, minimumStaffing, storeHours } = req.body;
 
       const existing = await db.select().from(aiSchedulingSettings).limit(1);
 
@@ -108,6 +117,7 @@ export function registerAiSchedulingRoutes(app: Express, storage: IStorage, isAu
             shiftBlocks: shiftBlocks || existing[0].shiftBlocks,
             staffingTiers: staffingTiers || existing[0].staffingTiers,
             minimumStaffing: minimumStaffing ?? existing[0].minimumStaffing,
+            storeHours: storeHours !== undefined ? storeHours : existing[0].storeHours,
             updatedBy: userId,
             updatedAt: new Date(),
           })
@@ -117,6 +127,7 @@ export function registerAiSchedulingRoutes(app: Express, storage: IStorage, isAu
           shiftBlocks: shiftBlocks || [],
           staffingTiers: staffingTiers || [],
           minimumStaffing: minimumStaffing ?? 2,
+          storeHours: storeHours || [],
           updatedBy: userId,
         });
       }
@@ -155,7 +166,10 @@ export function registerAiSchedulingRoutes(app: Express, storage: IStorage, isAu
           { minRevenue: 5001, maxRevenue: 10000, employeeCount: 5 },
         ],
         minimumStaffing: 2,
+        storeHours: [],
       };
+
+      const storeHoursArray = (settings.storeHours as any[]) || [];
 
       const start = new Date(startDate);
       const end = new Date(endDate);
@@ -280,15 +294,29 @@ export function registerAiSchedulingRoutes(app: Express, storage: IStorage, isAu
 
       const shiftBlocks = (settings.shiftBlocks as any[]) || [];
 
+      const storeHoursInfo = storeHoursArray.length === 7
+        ? `\nSTORE HOURS:\n${storeHoursArray.map((sh: any) => {
+            const dayName = dayNames[sh.day];
+            return sh.isClosed ? `${dayName}: CLOSED` : `${dayName}: ${sh.openTime} - ${sh.closeTime}`;
+          }).join('\n')}\n`
+        : '';
+
+      const closedDays = new Set<number>();
+      for (const sh of storeHoursArray) {
+        if (sh.isClosed) closedDays.add(sh.day);
+      }
+
+      const schedulableDays = days.filter(d => !closedDays.has(d.dayOfWeek));
+
       const prompt = `You are a workforce scheduling AI that ONLY outputs valid JSON. No markdown, no explanations, no text before or after the JSON object.
 
 DATA:
 
 SHIFT BLOCKS: ${JSON.stringify(shiftBlocks.map((b: any) => ({ name: b.name, start: b.startTime, end: b.endTime })))}
-
+${storeHoursInfo}
 SCHEDULE PERIOD:
-${days.map(d => `${d.date} (${d.dayName}): revenue=$${d.predictedRevenue}, need ${d.requiredStaff} staff${d.matchedLastYearDate ? ` (matched ${d.matchedLastYearDate})` : ''}`).join('\n')}
-
+${schedulableDays.map(d => `${d.date} (${d.dayName}): revenue=$${d.predictedRevenue}, need ${d.requiredStaff} staff${d.matchedLastYearDate ? ` (matched ${d.matchedLastYearDate})` : ''}`).join('\n')}
+${closedDays.size > 0 ? `\nCLOSED DAYS (DO NOT schedule anyone): ${days.filter(d => closedDays.has(d.dayOfWeek)).map(d => `${d.date} (${d.dayName})`).join(', ')}\n` : ''}
 MIN STAFFING: ${settings.minimumStaffing}
 
 EMPLOYEES:
@@ -303,6 +331,8 @@ RULES:
 3. Employees without explicit availability are available by default.
 4. Employees with TARGET hours are full-time and MUST be prioritized — give them enough shifts to meet their weekly target before assigning others.
 5. Employees MAY work multiple shift blocks per day to meet targets.
+6. NEVER schedule shifts outside store operating hours. All shift times must fall within store hours for that day.
+7. NEVER schedule anyone on days the store is closed.
 
 OUTPUT INSTRUCTIONS: Return ONLY a single JSON object. Do NOT include any text, markdown formatting, or code fences. The response must start with { and end with }.
 

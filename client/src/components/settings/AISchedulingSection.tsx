@@ -9,7 +9,9 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Trash2, Clock, DollarSign, Users, Save, UserCheck, UserX, Target } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Plus, Trash2, Clock, DollarSign, Users, Save, UserCheck, UserX, Target, Store, Copy } from 'lucide-react';
 
 interface ShiftBlock {
   name: string;
@@ -23,6 +25,23 @@ interface StaffingTier {
   employeeCount: number;
 }
 
+interface StoreHourEntry {
+  day: number;
+  openTime: string;
+  closeTime: string;
+  isClosed: boolean;
+}
+
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const DAY_ABBREV = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+const DEFAULT_STORE_HOURS: StoreHourEntry[] = DAY_NAMES.map((_, i) => ({
+  day: i,
+  openTime: '09:00',
+  closeTime: '21:00',
+  isClosed: i === 0,
+}));
+
 export default function AISchedulingSection() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -34,6 +53,9 @@ export default function AISchedulingSection() {
   const [shiftBlocks, setShiftBlocks] = useState<ShiftBlock[]>([]);
   const [staffingTiers, setStaffingTiers] = useState<StaffingTier[]>([]);
   const [minimumStaffing, setMinimumStaffing] = useState(2);
+  const [storeHours, setStoreHours] = useState<StoreHourEntry[]>(DEFAULT_STORE_HOURS);
+  const [copyFromDay, setCopyFromDay] = useState<number | null>(null);
+  const [copyTargets, setCopyTargets] = useState<number[]>([]);
 
   useEffect(() => {
     if (settings) {
@@ -47,12 +69,13 @@ export default function AISchedulingSection() {
         { minRevenue: 5001, maxRevenue: 10000, employeeCount: 5 },
       ]);
       setMinimumStaffing(settings.minimumStaffing ?? 2);
+      setStoreHours(settings.storeHours?.length === 7 ? settings.storeHours : DEFAULT_STORE_HOURS);
     }
   }, [settings]);
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      return apiRequest('PUT', '/api/ai-scheduling/settings', { shiftBlocks, staffingTiers, minimumStaffing });
+      return apiRequest('PUT', '/api/ai-scheduling/settings', { shiftBlocks, staffingTiers, minimumStaffing, storeHours });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/ai-scheduling/settings'] });
@@ -62,6 +85,25 @@ export default function AISchedulingSection() {
       toast({ title: "Error", description: "Failed to save settings.", variant: "destructive" });
     },
   });
+
+  const updateStoreHour = (dayIndex: number, field: keyof StoreHourEntry, value: any) => {
+    const updated = [...storeHours];
+    updated[dayIndex] = { ...updated[dayIndex], [field]: value };
+    setStoreHours(updated);
+  };
+
+  const handleCopyHours = () => {
+    if (copyFromDay === null || copyTargets.length === 0) return;
+    const source = storeHours[copyFromDay];
+    const updated = [...storeHours];
+    copyTargets.forEach(targetDay => {
+      updated[targetDay] = { ...updated[targetDay], openTime: source.openTime, closeTime: source.closeTime, isClosed: source.isClosed };
+    });
+    setStoreHours(updated);
+    setCopyFromDay(null);
+    setCopyTargets([]);
+    toast({ title: "Copied", description: `${DAY_NAMES[copyFromDay]} hours copied to ${copyTargets.map(d => DAY_ABBREV[d]).join(', ')}.` });
+  };
 
   const addShiftBlock = () => {
     setShiftBlocks([...shiftBlocks, { name: "", startTime: "09:00", endTime: "17:00" }]);
@@ -125,6 +167,115 @@ export default function AISchedulingSection() {
 
   return (
     <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Store className="h-4 w-4" />
+            Store Hours
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Set your store's operating hours for each day of the week. The AI will only schedule shifts within these hours.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {storeHours.map((entry, index) => (
+            <div key={index} className={`flex items-center gap-3 p-3 rounded-lg ${entry.isClosed ? 'bg-muted/20 opacity-60' : 'bg-muted/50'}`}>
+              <div className="w-24 font-medium text-sm">{DAY_NAMES[index]}</div>
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={!entry.isClosed}
+                  onCheckedChange={(open) => updateStoreHour(index, 'isClosed', !open)}
+                />
+                <span className="text-xs text-muted-foreground w-12">{entry.isClosed ? 'Closed' : 'Open'}</span>
+              </div>
+              {!entry.isClosed && (
+                <>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="time"
+                      value={entry.openTime}
+                      onChange={(e) => updateStoreHour(index, 'openTime', e.target.value)}
+                      className="h-8 w-32"
+                    />
+                    <span className="text-sm text-muted-foreground">to</span>
+                    <Input
+                      type="time"
+                      value={entry.closeTime}
+                      onChange={(e) => updateStoreHour(index, 'closeTime', e.target.value)}
+                      className="h-8 w-32"
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+          ))}
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-1 mt-2">
+                <Copy className="h-3 w-3" /> Copy Hours to Other Days
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-72" align="start">
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-xs font-medium">Copy from</Label>
+                  <div className="flex flex-wrap gap-1.5 mt-1">
+                    {DAY_ABBREV.map((name, i) => (
+                      <Button
+                        key={i}
+                        variant={copyFromDay === i ? "default" : "outline"}
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                        onClick={() => { setCopyFromDay(i); setCopyTargets([]); }}
+                      >
+                        {name}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+                {copyFromDay !== null && (
+                  <>
+                    <Separator />
+                    <div>
+                      <Label className="text-xs font-medium">
+                        Copy to ({storeHours[copyFromDay].isClosed ? 'Closed' : `${storeHours[copyFromDay].openTime} - ${storeHours[copyFromDay].closeTime}`})
+                      </Label>
+                      <div className="space-y-1.5 mt-1.5">
+                        {DAY_NAMES.map((name, i) => {
+                          if (i === copyFromDay) return null;
+                          return (
+                            <label key={i} className="flex items-center gap-2 cursor-pointer">
+                              <Checkbox
+                                checked={copyTargets.includes(i)}
+                                onCheckedChange={(checked) => {
+                                  setCopyTargets(prev => checked ? [...prev, i] : prev.filter(d => d !== i));
+                                }}
+                              />
+                              <span className="text-sm">{name}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <Button
+                      size="sm"
+                      disabled={copyTargets.length === 0}
+                      onClick={handleCopyHours}
+                      className="w-full gap-1"
+                    >
+                      <Copy className="h-3 w-3" />
+                      Copy to {copyTargets.length} day{copyTargets.length !== 1 ? 's' : ''}
+                    </Button>
+                  </>
+                )}
+              </div>
+            </PopoverContent>
+          </Popover>
+        </CardContent>
+      </Card>
+
+      <Separator />
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
