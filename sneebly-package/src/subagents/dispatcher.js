@@ -319,7 +319,8 @@ async function delegateToSubagent(agentName, task, options = {}) {
 
   const systemPrompt = buildSystemPrompt(context) + '\n\n---\n\n' + parsed.content.trim();
 
-  const sanitizedTask = InputSanitizer.wrapAsData('task-data', typeof task === 'string' ? task : JSON.stringify(task, null, 2));
+  const taskStr = typeof task === 'string' ? task : JSON.stringify(task, null, 2);
+  const sanitizedTask = InputSanitizer.wrapAsData('task-data', taskStr, { trusted: true });
 
   if (dryRun) {
     return {
