@@ -1,119 +1,94 @@
 {
   "current": {
-    "id": "constraint-1771547711974",
-    "description": "Multiple critical API endpoints are returning 404 errors, completely breaking core functionality including clock-in/out, scheduling, payroll, and task management",
-    "why": "The app's foundation features are completely non-functional. Users cannot clock in, view schedules, access payroll data, or manage tasks. This is a crisis-level constraint blocking all business operations.",
+    "id": "constraint-1771560155195",
+    "description": "Critical API endpoints are returning 404 errors, preventing core functionality from working. The /api/time-clock/entries endpoint is completely broken, blocking employees from viewing their time entries. Multiple other critical endpoints like /api/schedule/current and /api/tasks are also failing.",
+    "why": "Without working time-clock and schedule APIs, employees cannot clock in/out or view their schedules - the most fundamental features of LIBBY. This blocks payroll accuracy, schedule visibility, and task management.",
     "unblocks": [
-      "Employees can clock in/out for shifts",
-      "Managers can view and create schedules",
-      "Payroll reports can be generated",
-      "Tasks can be assigned and tracked",
-      "Basic business operations can resume"
+      "Employees can clock in/out reliably",
+      "Managers can view and export payroll reports",
+      "Schedule visibility for all staff",
+      "Task assignment and tracking functionality",
+      "Dashboard data population",
+      "WebSocket real-time updates for shift changes"
     ],
     "score": 10,
     "category": "infrastructure",
     "evidenceFromCrawl": [
-      "GET /api/clock/status - 404 Not Found",
-      "POST /api/clock/in - 404 Not Found",
-      "POST /api/clock/out - 404 Not Found",
-      "GET /api/schedules - 404 Not Found",
-      "GET /api/shifts - 404 Not Found",
-      "GET /api/payroll/periods - 404 Not Found",
-      "GET /api/payroll/reports/current - 404 Not Found",
-      "GET /api/tasks - 404 Not Found",
-      "GET /api/employees - 404 Not Found",
-      "GET /api/activity-logs - 404 Not Found"
+      "GET /api/time-clock/entries?startDate=2024-12-29&endDate=2025-01-04 → 404 Not Found",
+      "GET /api/schedule/current → 404 Not Found",
+      "GET /api/tasks?assignedTo=user_123&status=pending → 404 Not Found",
+      "GET /api/admin/payroll/periods → 404 Not Found",
+      "Multiple dashboard components showing 'Failed to load' due to 404 API errors"
     ],
     "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
-    "identifiedAt": "2026-02-20T00:35:11.974Z",
+    "identifiedAt": "2026-02-20T04:02:35.195Z",
     "status": "active",
     "steps": [
       {
         "step": 1,
         "filePath": "server/routes/index.ts",
-        "description": "Create or fix the main route registration file to properly mount all API route modules",
+        "description": "Add missing route registrations for time-clock, schedule, tasks, and payroll endpoints. The route files likely exist but aren't mounted in the main router.",
         "successCriteria": [
-          "All route modules are imported and registered with the Express app"
+          "All critical API endpoints return 200 OK instead of 404",
+          "Time entries load successfully",
+          "Schedule data displays correctly"
         ],
         "priority": "high",
-        "estimatedComplexity": "medium"
+        "estimatedComplexity": "low"
       },
       {
         "step": 2,
-        "filePath": "server/routes/clock.ts",
-        "description": "Create or fix clock-in/out routes including /api/clock/status, /api/clock/in, and /api/clock/out endpoints",
+        "filePath": "server/routes/time-clock.ts",
+        "description": "Verify time-clock routes are properly exported and handle the /entries endpoint with date query parameters",
         "successCriteria": [
-          "Clock endpoints return 200 status",
-          "Proper error handling implemented",
-          "Database queries use Drizzle ORM"
+          "GET /api/time-clock/entries returns time entry data",
+          "Query parameters for date filtering work correctly"
         ],
         "priority": "high",
         "estimatedComplexity": "medium"
       },
       {
         "step": 3,
-        "filePath": "server/routes/schedules.ts",
-        "description": "Create or fix schedule management routes including /api/schedules and /api/shifts endpoints",
+        "filePath": "server/routes/schedule.ts",
+        "description": "Ensure schedule routes handle /current endpoint to return current week's schedule",
         "successCriteria": [
-          "Schedule endpoints return 200 status",
-          "Shift data properly queried from database"
+          "GET /api/schedule/current returns schedule data",
+          "Schedule calendar displays shifts correctly"
         ],
         "priority": "high",
         "estimatedComplexity": "medium"
       },
       {
         "step": 4,
-        "filePath": "server/routes/payroll.ts",
-        "description": "Create or fix payroll routes including /api/payroll/periods and /api/payroll/reports/current endpoints",
-        "successCriteria": [
-          "Payroll endpoints return 200 status",
-          "Payroll calculations use proper decimal arithmetic"
-        ],
-        "priority": "high",
-        "estimatedComplexity": "high"
-      },
-      {
-        "step": 5,
         "filePath": "server/routes/tasks.ts",
-        "description": "Create or fix task management routes including /api/tasks endpoint with CRUD operations",
+        "description": "Fix task routes to handle query parameters for filtering by assignee and status",
         "successCriteria": [
-          "Tasks endpoint returns 200 status",
-          "Proper task assignment logic implemented"
+          "GET /api/tasks returns task list",
+          "Query parameter filtering works for assignedTo and status"
         ],
         "priority": "high",
         "estimatedComplexity": "medium"
       },
       {
-        "step": 6,
-        "filePath": "server/routes/employees.ts",
-        "description": "Create or fix employee management routes including /api/employees endpoint",
+        "step": 5,
+        "filePath": "server/routes/admin/payroll.ts",
+        "description": "Ensure payroll admin routes are mounted and handle /periods endpoint",
         "successCriteria": [
-          "Employees endpoint returns 200 status",
-          "Proper RBAC checks implemented"
+          "GET /api/admin/payroll/periods returns payroll period data",
+          "Payroll reports load successfully"
         ],
         "priority": "high",
-        "estimatedComplexity": "low"
-      },
-      {
-        "step": 7,
-        "filePath": "server/routes/activity-logs.ts",
-        "description": "Create or fix activity logging routes including /api/activity-logs endpoint",
-        "successCriteria": [
-          "Activity logs endpoint returns 200 status",
-          "Proper pagination implemented"
-        ],
-        "priority": "medium",
-        "estimatedComplexity": "low"
+        "estimatedComplexity": "medium"
       }
     ],
     "verificationPages": [
-      "/",
+      "/dashboard",
+      "/time-clock",
       "/schedule",
-      "/payroll",
       "/tasks",
-      "/employees"
+      "/admin/payroll"
     ],
-    "completionCriteria": "All core API endpoints return 200 status codes instead of 404, and the app's foundation features (clock-in/out, scheduling, payroll, tasks) are functional"
+    "completionCriteria": "All critical API endpoints return valid data instead of 404 errors, and core features (clock-in, schedule viewing, task management) work without errors"
   },
   "solved": [],
   "history": [
@@ -2375,6 +2350,281 @@
         "/employees"
       ],
       "completionCriteria": "All core API endpoints return 200 status codes instead of 404, and the app's foundation features (clock-in/out, scheduling, payroll, tasks) are functional"
+    },
+    {
+      "id": "constraint-1771559928578",
+      "description": "Critical authentication and API errors are breaking core functionality - users cannot log in, clock in/out, or access any authenticated features due to Clerk auth failures and missing API route handlers",
+      "why": "Without working authentication, the entire app is unusable. Clock-in/out (the #1 priority feature) requires auth. All LIVE features depend on users being authenticated.",
+      "unblocks": [
+        "Clock-in/out functionality",
+        "Geofencing validation",
+        "Schedule viewing and management",
+        "Payroll report generation",
+        "Task assignment and tracking",
+        "All authenticated API endpoints"
+      ],
+      "score": 10,
+      "category": "security",
+      "evidenceFromCrawl": [
+        "404 errors on critical auth endpoints: /api/clerk/webhook, /api/auth/me, /api/auth/setup",
+        "CORS errors blocking API calls from frontend",
+        "Missing organization context causing Clerk initialization failures",
+        "Frontend routing to non-existent paths like /api/clerk/webhook",
+        "Auth state not properly synchronized between frontend and backend"
+      ],
+      "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
+      "identifiedAt": "2026-02-20T03:58:48.578Z",
+      "status": "active",
+      "steps": [
+        {
+          "step": 1,
+          "filePath": "server.ts",
+          "description": "Add proper CORS configuration to allow frontend-backend communication",
+          "successCriteria": [
+            "No more CORS errors in console",
+            "Frontend can successfully call backend APIs"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 2,
+          "filePath": "server/routes/auth.ts",
+          "description": "Create missing auth routes including /api/auth/me and /api/auth/setup endpoints",
+          "successCriteria": [
+            "Auth endpoints return 200 status",
+            "User authentication state properly retrieved"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 3,
+          "filePath": "server/routes/clerk-webhook.ts",
+          "description": "Implement Clerk webhook handler for user/organization sync events",
+          "successCriteria": [
+            "Webhook endpoint responds to Clerk events",
+            "User data properly synced to database"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 4,
+          "filePath": "client/src/lib/auth.ts",
+          "description": "Fix Clerk initialization to properly handle organization context",
+          "successCriteria": [
+            "No Clerk initialization errors",
+            "Organization context properly set"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 5,
+          "filePath": "server/middleware/auth.ts",
+          "description": "Create auth middleware to protect API routes and validate Clerk sessions",
+          "successCriteria": [
+            "Protected routes require valid auth",
+            "401 errors for unauthenticated requests"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        }
+      ],
+      "verificationPages": [
+        "/",
+        "/login",
+        "/dashboard",
+        "/time-clock",
+        "/schedule"
+      ],
+      "completionCriteria": "Users can successfully log in, access the dashboard, and use clock-in/out functionality without any auth errors"
+    },
+    {
+      "id": "constraint-1771560049696",
+      "description": "Critical authentication and API errors preventing core workforce management features from functioning. Multiple 401 Unauthorized errors on clock-in/out endpoints and 404s on schedule endpoints indicate auth middleware or route configuration is broken.",
+      "why": "Without working auth, employees can't clock in/out, managers can't view schedules, and payroll data can't be accessed. This breaks the entire foundation of LIBBY's workforce management.",
+      "unblocks": [
+        "Employee clock-in/out functionality",
+        "Schedule viewing and management",
+        "Payroll report generation",
+        "Task assignment and tracking",
+        "Geofencing validation",
+        "Real-time shift updates via WebSocket"
+      ],
+      "score": 10,
+      "category": "security",
+      "evidenceFromCrawl": [
+        "GET /api/schedules 404 Not Found",
+        "POST /api/clock/in 401 Unauthorized",
+        "GET /api/payroll/periods 401 Unauthorized",
+        "Multiple 'Failed to fetch' errors on workforce pages",
+        "Console errors: 'Cannot read properties of undefined (reading 'map')' on schedule data"
+      ],
+      "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
+      "identifiedAt": "2026-02-20T04:00:49.696Z",
+      "status": "active",
+      "steps": [
+        {
+          "step": 1,
+          "filePath": "server/routes/index.ts",
+          "description": "Fix route registration for schedule, clock, and payroll endpoints. The 404 errors suggest these routes aren't being mounted properly.",
+          "successCriteria": [
+            "GET /api/schedules returns 200 or 401 (not 404)",
+            "POST /api/clock/in returns 200 or 401 (not 404)",
+            "All workforce routes are properly registered"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 2,
+          "filePath": "server/middleware/auth.ts",
+          "description": "Fix Clerk authentication middleware to properly validate requests. The 401 errors suggest auth tokens aren't being processed correctly.",
+          "successCriteria": [
+            "Authenticated requests receive proper user context",
+            "401 errors include proper WWW-Authenticate headers",
+            "Auth middleware correctly extracts Clerk session"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 3,
+          "filePath": "server/routes/schedules.ts",
+          "description": "Ensure schedule routes exist and handle errors gracefully. Fix any undefined data issues causing map errors.",
+          "successCriteria": [
+            "GET /api/schedules returns valid schedule data",
+            "Proper error handling for empty schedules",
+            "No console errors about undefined properties"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 4,
+          "filePath": "server/routes/clock.ts",
+          "description": "Create or fix clock-in/out endpoints with proper auth checks and geofencing validation.",
+          "successCriteria": [
+            "POST /api/clock/in accepts valid clock-in requests",
+            "Geofencing validation works correctly",
+            "Response time under 200ms p95"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 5,
+          "filePath": "client/src/lib/api-client.ts",
+          "description": "Fix API client to properly include Clerk auth headers on all requests. Ensure error handling for 401 responses.",
+          "successCriteria": [
+            "All API requests include Authorization header",
+            "401 errors trigger re-authentication flow",
+            "Network errors are properly caught and logged"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        }
+      ],
+      "verificationPages": [
+        "/schedule",
+        "/clock",
+        "/payroll",
+        "/tasks"
+      ],
+      "completionCriteria": "Employees can successfully clock in/out, view schedules, and generate payroll reports without authentication or routing errors"
+    },
+    {
+      "id": "constraint-1771560155195",
+      "description": "Critical API endpoints are returning 404 errors, preventing core functionality from working. The /api/time-clock/entries endpoint is completely broken, blocking employees from viewing their time entries. Multiple other critical endpoints like /api/schedule/current and /api/tasks are also failing.",
+      "why": "Without working time-clock and schedule APIs, employees cannot clock in/out or view their schedules - the most fundamental features of LIBBY. This blocks payroll accuracy, schedule visibility, and task management.",
+      "unblocks": [
+        "Employees can clock in/out reliably",
+        "Managers can view and export payroll reports",
+        "Schedule visibility for all staff",
+        "Task assignment and tracking functionality",
+        "Dashboard data population",
+        "WebSocket real-time updates for shift changes"
+      ],
+      "score": 10,
+      "category": "infrastructure",
+      "evidenceFromCrawl": [
+        "GET /api/time-clock/entries?startDate=2024-12-29&endDate=2025-01-04 → 404 Not Found",
+        "GET /api/schedule/current → 404 Not Found",
+        "GET /api/tasks?assignedTo=user_123&status=pending → 404 Not Found",
+        "GET /api/admin/payroll/periods → 404 Not Found",
+        "Multiple dashboard components showing 'Failed to load' due to 404 API errors"
+      ],
+      "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
+      "identifiedAt": "2026-02-20T04:02:35.195Z",
+      "status": "active",
+      "steps": [
+        {
+          "step": 1,
+          "filePath": "server/routes/index.ts",
+          "description": "Add missing route registrations for time-clock, schedule, tasks, and payroll endpoints. The route files likely exist but aren't mounted in the main router.",
+          "successCriteria": [
+            "All critical API endpoints return 200 OK instead of 404",
+            "Time entries load successfully",
+            "Schedule data displays correctly"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 2,
+          "filePath": "server/routes/time-clock.ts",
+          "description": "Verify time-clock routes are properly exported and handle the /entries endpoint with date query parameters",
+          "successCriteria": [
+            "GET /api/time-clock/entries returns time entry data",
+            "Query parameters for date filtering work correctly"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 3,
+          "filePath": "server/routes/schedule.ts",
+          "description": "Ensure schedule routes handle /current endpoint to return current week's schedule",
+          "successCriteria": [
+            "GET /api/schedule/current returns schedule data",
+            "Schedule calendar displays shifts correctly"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 4,
+          "filePath": "server/routes/tasks.ts",
+          "description": "Fix task routes to handle query parameters for filtering by assignee and status",
+          "successCriteria": [
+            "GET /api/tasks returns task list",
+            "Query parameter filtering works for assignedTo and status"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 5,
+          "filePath": "server/routes/admin/payroll.ts",
+          "description": "Ensure payroll admin routes are mounted and handle /periods endpoint",
+          "successCriteria": [
+            "GET /api/admin/payroll/periods returns payroll period data",
+            "Payroll reports load successfully"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        }
+      ],
+      "verificationPages": [
+        "/dashboard",
+        "/time-clock",
+        "/schedule",
+        "/tasks",
+        "/admin/payroll"
+      ],
+      "completionCriteria": "All critical API endpoints return valid data instead of 404 errors, and core features (clock-in, schedule viewing, task management) work without errors"
     }
   ],
   "failedAttempts": [
