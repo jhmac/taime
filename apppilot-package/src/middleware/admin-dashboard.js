@@ -669,19 +669,41 @@ function createAdminDashboard(options = {}) {
 
     function loadClerk() {
       const script = document.createElement('script');
+      script.setAttribute('data-clerk-publishable-key', CLERK_PUB_KEY);
       script.src = 'https://cdn.jsdelivr.net/npm/@clerk/clerk-js@latest/dist/clerk.browser.js';
       script.crossOrigin = 'anonymous';
-      script.onload = initClerk;
+      script.async = true;
       script.onerror = () => setStatus('Failed to load Clerk SDK', 'error');
       document.head.appendChild(script);
+
+      waitForClerk();
     }
 
-    async function initClerk() {
-      try {
-        setStatus('Initializing authentication...', 'waiting');
-        const clerk = new window.Clerk(CLERK_PUB_KEY);
-        await clerk.load();
+    function waitForClerk() {
+      let attempts = 0;
+      const maxAttempts = 50;
+      const interval = setInterval(async () => {
+        attempts++;
+        if (window.Clerk && window.Clerk.loaded) {
+          clearInterval(interval);
+          await onClerkReady(window.Clerk);
+        } else if (window.Clerk && typeof window.Clerk.load === 'function' && !window.Clerk.loaded) {
+          clearInterval(interval);
+          try {
+            await window.Clerk.load();
+            await onClerkReady(window.Clerk);
+          } catch (err) {
+            setStatus('Clerk load error: ' + err.message, 'error');
+          }
+        } else if (attempts >= maxAttempts) {
+          clearInterval(interval);
+          setStatus('Timed out waiting for Clerk to load. Refresh and try again.', 'error');
+        }
+      }, 200);
+    }
 
+    async function onClerkReady(clerk) {
+      try {
         if (clerk.user) {
           setStatus('Already signed in! Capturing session...', 'waiting');
           const token = await clerk.session.getToken();
@@ -691,7 +713,7 @@ function createAdminDashboard(options = {}) {
           await storeSession(token, userId, email, exp);
         } else {
           setStatus('Please sign in with your admin account...', 'waiting');
-          clerk.addListener(async (evt) => {
+          clerk.addListener(async () => {
             if (clerk.user) {
               setStatus('Signed in! Capturing session...', 'waiting');
               const token = await clerk.session.getToken();
@@ -707,7 +729,7 @@ function createAdminDashboard(options = {}) {
           });
         }
       } catch (err) {
-        setStatus('Clerk init error: ' + err.message, 'error');
+        setStatus('Clerk error: ' + err.message, 'error');
       }
     }
 

@@ -1698,7 +1698,14 @@
       const w = 500, h = 650;
       const left = (screen.width - w) / 2;
       const top = (screen.height - h) / 2;
-      const popup = window.open(url, 'elon-crawler-login', 'width=' + w + ',height=' + h + ',left=' + left + ',top=' + top + ',toolbar=no,menubar=no');
+      let popup = null;
+      try {
+        popup = window.open(url, 'elon-crawler-login', 'width=' + w + ',height=' + h + ',left=' + left + ',top=' + top + ',toolbar=no,menubar=no');
+      } catch (e) {}
+      if (!popup || popup.closed) {
+        window.location.href = url;
+        return;
+      }
       window.addEventListener('message', function onMsg(evt) {
         if (evt.data && evt.data.type === 'crawler-auth-success') {
           window.removeEventListener('message', onMsg);
