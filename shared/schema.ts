@@ -101,9 +101,14 @@ export const workLocations = pgTable("work_locations", {
   address: text("address"),
   latitude: decimal("latitude", { precision: 10, scale: 8 }),
   longitude: decimal("longitude", { precision: 11, scale: 8 }),
-  radius: integer("radius").default(100), // meters
+  radius: integer("radius").default(100),
   wifiSsid: varchar("wifi_ssid"),
   isActive: boolean("is_active").default(true),
+  geofenceType: varchar("geofence_type", { length: 20 }).default("radius"),
+  geofencePolygon: jsonb("geofence_polygon").$type<Array<{ lat: number; lng: number }>>(),
+  geofenceGraceMinutes: integer("geofence_grace_minutes").default(5),
+  geofenceEnabled: boolean("geofence_enabled").default(true),
+  autoClockOut: boolean("auto_clock_out").default(true),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -1091,6 +1096,61 @@ export const insertManagerNoteSchema = createInsertSchema(managerNotes).omit({
 });
 export type ManagerNote = typeof managerNotes.$inferSelect;
 export type InsertManagerNote = z.infer<typeof insertManagerNoteSchema>;
+
+// Work pattern templates for quick assignment
+export const workPatternTemplates = pgTable("work_pattern_templates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name").notNull(),
+  description: text("description"),
+  pattern: jsonb("pattern").$type<Array<{ day: number; status: 'required' | 'available' | 'preferred_off' | 'hard_off' }>>().notNull(),
+  isDefault: boolean("is_default").default(false),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertWorkPatternTemplateSchema = createInsertSchema(workPatternTemplates).omit({
+  id: true,
+  createdAt: true,
+});
+export type WorkPatternTemplate = typeof workPatternTemplates.$inferSelect;
+export type InsertWorkPatternTemplate = z.infer<typeof insertWorkPatternTemplateSchema>;
+
+// Per-employee recurring work patterns (which days they work each week)
+export const userWorkPatterns = pgTable("user_work_patterns", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  dayOfWeek: integer("day_of_week").notNull(),
+  status: varchar("status", { length: 20 }).notNull().default('available'),
+  templateId: varchar("template_id").references(() => workPatternTemplates.id),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertUserWorkPatternSchema = createInsertSchema(userWorkPatterns).omit({
+  id: true,
+  updatedAt: true,
+});
+export type UserWorkPattern = typeof userWorkPatterns.$inferSelect;
+export type InsertUserWorkPattern = z.infer<typeof insertUserWorkPatternSchema>;
+
+// Geofence events log for audit trail
+export const geofenceEvents = pgTable("geofence_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  locationId: varchar("location_id").references(() => workLocations.id).notNull(),
+  eventType: varchar("event_type", { length: 20 }).notNull(),
+  latitude: decimal("latitude", { precision: 10, scale: 8 }),
+  longitude: decimal("longitude", { precision: 11, scale: 8 }),
+  distanceFromCenter: decimal("distance_from_center", { precision: 10, scale: 2 }),
+  timeEntryId: varchar("time_entry_id").references(() => timeEntries.id),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertGeofenceEventSchema = createInsertSchema(geofenceEvents).omit({
+  id: true,
+  createdAt: true,
+});
+export type GeofenceEvent = typeof geofenceEvents.$inferSelect;
+export type InsertGeofenceEvent = z.infer<typeof insertGeofenceEventSchema>;
 
 // Extended user type with role information
 export type UserWithRole = User & {

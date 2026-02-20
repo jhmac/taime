@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { useGeolocation } from '@/hooks/useGeolocation';
@@ -9,6 +9,7 @@ import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
 import { isUnauthorizedError } from '@/lib/authUtils';
 import type { TimeEntry, WorkLocation } from '@shared/schema';
+import { MapPin, Shield, AlertTriangle, CheckCircle2, XCircle, Wifi } from 'lucide-react';
 
 export default function TimeClockWidget() {
   const { user } = useAuth();
@@ -16,6 +17,15 @@ export default function TimeClockWidget() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [geofenceStatus, setGeofenceStatus] = useState<{
+    isInWorkLocation: boolean;
+    location: { id: string; name: string; radius?: number; geofenceType?: string } | null;
+    distance: number | null;
+    boundaryProximity: number | null;
+    nearestLocation: { id: string; name: string; distance: number } | null;
+    boundaryWarning: boolean;
+  } | null>(null);
+  const previousPositionRef = useRef<{ lat: number; lng: number } | null>(null);
 
   const { data: activeTimeEntry, isLoading: activeEntryLoading } = useQuery<TimeEntry | null>({
     queryKey: ['/api/time-entries/active'],
@@ -119,6 +129,51 @@ export default function TimeClockWidget() {
 
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (!activeTimeEntry || !position) return;
+
+    const checkGeofence = async () => {
+      try {
+        const response = await apiRequest('POST', '/api/geofence/monitor', {
+          latitude: position.latitude,
+          longitude: position.longitude,
+          previousLatitude: previousPositionRef.current?.lat,
+          previousLongitude: previousPositionRef.current?.lng,
+        });
+        const result = await response.json();
+        
+        const isNearBoundary = result.isInWorkLocation && 
+          result.boundaryProximity != null && result.boundaryProximity > 0.8;
+        
+        setGeofenceStatus(prev => {
+          if (!result.isInWorkLocation && prev?.isInWorkLocation) {
+            toast({
+              title: "Boundary Alert",
+              description: "You've left your work location. If you don't return soon, you may be auto clocked out.",
+              variant: "destructive",
+            });
+          }
+          return {
+            isInWorkLocation: result.isInWorkLocation,
+            location: result.location,
+            distance: result.distance,
+            boundaryProximity: result.boundaryProximity,
+            nearestLocation: result.nearestLocation,
+            boundaryWarning: isNearBoundary,
+          };
+        });
+
+        previousPositionRef.current = { lat: position.latitude, lng: position.longitude };
+      } catch (error) {
+        console.error("Geofence check failed:", error);
+      }
+    };
+
+    checkGeofence();
+    const interval = setInterval(checkGeofence, 60000);
+    return () => clearInterval(interval);
+  }, [activeTimeEntry, position]);
 
   const handleClockAction = async () => {
     if (activeTimeEntry) {
@@ -308,13 +363,60 @@ export default function TimeClockWidget() {
           )}
         </Button>
 
+        {/* Geofence Status */}
+        {activeTimeEntry && geofenceStatus && (
+          <div className={`rounded-lg p-3 text-sm ${
+            geofenceStatus.boundaryWarning
+              ? 'bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800'
+              : geofenceStatus.isInWorkLocation
+                ? 'bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800'
+                : 'bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800'
+          }`}>
+            <div className="flex items-center gap-2">
+              {geofenceStatus.boundaryWarning ? (
+                <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
+              ) : geofenceStatus.isInWorkLocation ? (
+                <Shield className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
+              ) : (
+                <XCircle className="h-4 w-4 text-red-600 dark:text-red-400 shrink-0" />
+              )}
+              <div className="text-left flex-1">
+                <p className={`font-medium ${
+                  geofenceStatus.boundaryWarning ? 'text-amber-800 dark:text-amber-300' :
+                  geofenceStatus.isInWorkLocation ? 'text-blue-800 dark:text-blue-300' :
+                  'text-red-800 dark:text-red-300'
+                }`}>
+                  {geofenceStatus.boundaryWarning ? 'Near Boundary' :
+                   geofenceStatus.isInWorkLocation ? `Inside ${geofenceStatus.location?.name || 'Work Zone'}` :
+                   'Outside Work Zone'}
+                </p>
+                <p className={`text-xs ${
+                  geofenceStatus.boundaryWarning ? 'text-amber-600 dark:text-amber-400' :
+                  geofenceStatus.isInWorkLocation ? 'text-blue-600 dark:text-blue-400' :
+                  'text-red-600 dark:text-red-400'
+                }`}>
+                  {geofenceStatus.boundaryWarning
+                    ? 'You are near the edge of your work area'
+                    : geofenceStatus.isInWorkLocation
+                      ? 'Geofence verified'
+                      : geofenceStatus.nearestLocation
+                        ? `Nearest: ${geofenceStatus.nearestLocation.name} (${Math.round(geofenceStatus.nearestLocation.distance || 0)}m away)`
+                        : 'Return to work location to stay clocked in'}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Location Status */}
-        <div className="flex items-center justify-center space-x-2 text-sm">
-          <i className={`${locationStatus.icon} ${locationStatus.color}`}></i>
-          <span className="text-muted-foreground" data-testid="location-status">
-            {locationLoading ? 'Getting location...' : locationStatus.text}
-          </span>
-        </div>
+        {!activeTimeEntry && (
+          <div className="flex items-center justify-center space-x-2 text-sm">
+            <i className={`${locationStatus.icon} ${locationStatus.color}`}></i>
+            <span className="text-muted-foreground" data-testid="location-status">
+              {locationLoading ? 'Getting location...' : locationStatus.text}
+            </span>
+          </div>
+        )}
 
         {/* Quick Stats */}
         <div className="grid grid-cols-2 gap-3 pt-2">

@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
-import { aiSchedulingSettings, shopifyDailySales, users, userAvailability, schedules, shops, roles } from "@shared/schema";
-import { eq, and, gte, lte, desc } from "drizzle-orm";
+import { aiSchedulingSettings, shopifyDailySales, users, userAvailability, schedules, shops, roles, workPatternTemplates, userWorkPatterns } from "@shared/schema";
+import { eq, and, gte, lte, desc, inArray } from "drizzle-orm";
 import { db } from "../db";
 import Anthropic from '@anthropic-ai/sdk';
 import rateLimit from "express-rate-limit";
@@ -254,6 +254,13 @@ export function registerAiSchedulingRoutes(app: Express, storage: IStorage, isAu
           lte(userAvailability.date, end)
         ));
 
+      const allWorkPatterns = await db.select().from(userWorkPatterns);
+      const workPatternsByUser: Record<string, Record<number, string>> = {};
+      for (const wp of allWorkPatterns) {
+        if (!workPatternsByUser[wp.userId]) workPatternsByUser[wp.userId] = {};
+        workPatternsByUser[wp.userId][wp.dayOfWeek] = wp.status;
+      }
+
       const availabilityByUserDate: Record<string, Record<string, { isAvailable: boolean; startTime?: string; endTime?: string; timeSlot: string }[]>> = {};
       for (const avail of availabilityResult) {
         const dateKey = new Date(avail.date).toISOString().split('T')[0];
@@ -275,11 +282,21 @@ export function registerAiSchedulingRoutes(app: Express, storage: IStorage, isAu
         .filter(u => u.showInSchedule !== false)
         .map(u => {
           const userAvail: Record<string, any> = {};
+          const userPatterns = workPatternsByUser[u.id] || {};
+
           for (const day of days) {
             const explicitAvail = availabilityByUserDate[u.id]?.[day.date];
-            if (explicitAvail) {
+            const workPattern = userPatterns[day.dayOfWeek];
+
+            if (workPattern === 'hard_off') {
+              userAvail[day.date] = 'HARD_OFF';
+            } else if (explicitAvail) {
               const unavailable = explicitAvail.some(a => a.isAvailable === false);
-              userAvail[day.date] = unavailable ? 'unavailable' : 'available';
+              userAvail[day.date] = unavailable ? 'unavailable' : (workPattern === 'required' ? 'REQUIRED' : 'available');
+            } else if (workPattern === 'required') {
+              userAvail[day.date] = 'REQUIRED';
+            } else if (workPattern === 'preferred_off') {
+              userAvail[day.date] = 'preferred_off';
             } else {
               userAvail[day.date] = 'available';
             }
@@ -325,14 +342,22 @@ ${employeeList.map(e => {
   return `${e.name} (${e.id})${targetInfo}: ${Object.entries(e.availability).map(([date, status]) => `${date}=${status}`).join(', ')}`;
 }).join('\n')}
 
+AVAILABILITY STATUS KEY:
+- REQUIRED = employee MUST be scheduled this day (their recurring work pattern demands it)
+- HARD_OFF = employee MUST NOT be scheduled this day (their recurring day off)
+- preferred_off = employee prefers not to work but CAN be scheduled if needed
+- available = employee can work
+- unavailable = employee cannot work this specific date
+
 RULES:
 1. Meet required staff count per day per shift block.
-2. Distribute shifts fairly. Never schedule unavailable employees.
-3. Employees without explicit availability are available by default.
+2. Distribute shifts fairly. Never schedule unavailable or HARD_OFF employees.
+3. REQUIRED days: employees marked REQUIRED on a date MUST be scheduled that day.
 4. Employees with TARGET hours are full-time and MUST be prioritized — give them enough shifts to meet their weekly target before assigning others.
 5. Employees MAY work multiple shift blocks per day to meet targets.
 6. NEVER schedule shifts outside store operating hours. All shift times must fall within store hours for that day.
 7. NEVER schedule anyone on days the store is closed.
+8. preferred_off employees should only be scheduled as a last resort to fill minimum staffing.
 
 OUTPUT INSTRUCTIONS: Return ONLY a single JSON object. Do NOT include any text, markdown formatting, or code fences. The response must start with { and end with }.
 
@@ -556,6 +581,132 @@ Required JSON structure:
     } catch (error) {
       console.error("Error updating roster entry:", error);
       res.status(500).json({ message: "Failed to update employee scheduling settings" });
+    }
+  });
+
+  app.get("/api/ai-scheduling/work-pattern-templates", isAuthenticated, async (req: any, res) => {
+    try {
+      const templates = await db.select().from(workPatternTemplates).orderBy(workPatternTemplates.name);
+      res.json(templates);
+    } catch (error) {
+      console.error("Error fetching work pattern templates:", error);
+      res.status(500).json({ message: "Failed to fetch templates" });
+    }
+  });
+
+  app.get("/api/ai-scheduling/work-patterns", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const isAdmin = userPermissions.some((p: any) => p.name === 'admin.manage_all');
+      if (!isAdmin) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const allUsers = await db.select().from(users).where(eq(users.isActive, true));
+      const allPatterns = await db.select().from(userWorkPatterns);
+      const allRoles = await db.select().from(roles);
+      const roleMap = Object.fromEntries(allRoles.map(r => [r.id, r.name]));
+
+      const patternsByUser: Record<string, any[]> = {};
+      for (const p of allPatterns) {
+        if (!patternsByUser[p.userId]) patternsByUser[p.userId] = [];
+        patternsByUser[p.userId].push(p);
+      }
+
+      const result = allUsers.map(u => ({
+        id: u.id,
+        name: `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.email || 'Unknown',
+        roleName: u.roleId ? roleMap[u.roleId] || 'Unknown' : 'No Role',
+        patterns: patternsByUser[u.id] || [],
+      }));
+
+      res.json(result);
+    } catch (error) {
+      console.error("Error fetching work patterns:", error);
+      res.status(500).json({ message: "Failed to fetch work patterns" });
+    }
+  });
+
+  app.put("/api/ai-scheduling/work-patterns/:employeeId", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const isAdmin = userPermissions.some((p: any) => p.name === 'admin.manage_all');
+      if (!isAdmin) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const { employeeId } = req.params;
+      const { patterns, templateId } = req.body;
+
+      if (!patterns || !Array.isArray(patterns) || patterns.length !== 7) {
+        return res.status(400).json({ message: "Must provide patterns for all 7 days" });
+      }
+
+      const validStatuses = ['required', 'available', 'preferred_off', 'hard_off'];
+      for (const p of patterns) {
+        if (typeof p.day !== 'number' || p.day < 0 || p.day > 6) {
+          return res.status(400).json({ message: "Invalid day of week" });
+        }
+        if (!validStatuses.includes(p.status)) {
+          return res.status(400).json({ message: `Invalid status: ${p.status}` });
+        }
+      }
+
+      await db.delete(userWorkPatterns).where(eq(userWorkPatterns.userId, employeeId));
+
+      const values = patterns.map((p: any) => ({
+        userId: employeeId,
+        dayOfWeek: p.day,
+        status: p.status,
+        templateId: templateId || null,
+      }));
+
+      await db.insert(userWorkPatterns).values(values);
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error updating work patterns:", error);
+      res.status(500).json({ message: "Failed to update work patterns" });
+    }
+  });
+
+  app.post("/api/ai-scheduling/work-patterns/bulk-apply", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const isAdmin = userPermissions.some((p: any) => p.name === 'admin.manage_all');
+      if (!isAdmin) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const { employeeIds, patterns, templateId } = req.body;
+
+      if (!employeeIds || !Array.isArray(employeeIds) || employeeIds.length === 0) {
+        return res.status(400).json({ message: "Must provide at least one employee ID" });
+      }
+      if (!patterns || !Array.isArray(patterns) || patterns.length !== 7) {
+        return res.status(400).json({ message: "Must provide patterns for all 7 days" });
+      }
+
+      await db.delete(userWorkPatterns).where(inArray(userWorkPatterns.userId, employeeIds));
+
+      const values = employeeIds.flatMap((empId: string) =>
+        patterns.map((p: any) => ({
+          userId: empId,
+          dayOfWeek: p.day,
+          status: p.status,
+          templateId: templateId || null,
+        }))
+      );
+
+      await db.insert(userWorkPatterns).values(values);
+
+      res.json({ success: true, updated: employeeIds.length });
+    } catch (error) {
+      console.error("Error bulk applying work patterns:", error);
+      res.status(500).json({ message: "Failed to apply patterns" });
     }
   });
 }

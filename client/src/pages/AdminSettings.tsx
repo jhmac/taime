@@ -31,12 +31,15 @@ import NotificationsSection from '@/components/settings/NotificationsSection';
 import PerformanceScoringSection from '@/components/settings/PerformanceScoringSection';
 import SOPManagementSection from '@/components/settings/SOPManagementSection';
 import AISchedulingSection from '@/components/settings/AISchedulingSection';
+import WorkPatternsSection from '@/components/settings/WorkPatternsSection';
+import GeofenceMapSection from '@/components/settings/GeofenceMapSection';
 
 const SIDEBAR_SECTIONS = [
   {
     category: 'Location',
     items: [
       { id: 'basic-info', label: 'Basic info', icon: MapPin },
+      { id: 'geofencing', label: 'Geofencing', icon: Shield },
       { id: 'pos-connection', label: 'POS connection', icon: Store },
     ],
   },
@@ -525,10 +528,17 @@ export default function AdminSettings() {
         return <TeamPermissionsSection />;
       case 'performance-scoring':
         return <PerformanceScoringSection />;
+      case 'geofencing':
+        return <GeofenceMapSection />;
       case 'sop-management':
         return <SOPManagementSection />;
       case 'ai-scheduling':
-        return <AISchedulingSection />;
+        return (
+          <div className="space-y-6">
+            <AISchedulingSection />
+            <WorkPatternsSection />
+          </div>
+        );
       case 'manager-log':
         return (
           <ManagerLogSection
@@ -614,7 +624,7 @@ export default function AdminSettings() {
             <h1 className="text-lg font-semibold">Settings</h1>
           </div>
         </div>
-        {activeSection !== 'profile' && activeSection !== 'notifications' && activeSection !== 'manager-log' && activeSection !== 'team-permissions' && activeSection !== 'pos-connection' && activeSection !== 'performance-scoring' && activeSection !== 'sop-management' && activeSection !== 'ai-scheduling' && (
+        {activeSection !== 'profile' && activeSection !== 'notifications' && activeSection !== 'manager-log' && activeSection !== 'team-permissions' && activeSection !== 'pos-connection' && activeSection !== 'performance-scoring' && activeSection !== 'sop-management' && activeSection !== 'ai-scheduling' && activeSection !== 'geofencing' && (
           <Button onClick={handleSaveSettings} disabled={updateSettingsMutation.isPending} size="sm">
             {updateSettingsMutation.isPending ? 'Saving...' : 'Save changes'}
           </Button>
