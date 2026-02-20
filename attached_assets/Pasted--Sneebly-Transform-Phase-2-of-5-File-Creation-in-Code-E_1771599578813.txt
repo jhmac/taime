@@ -1,0 +1,110 @@
+# Sneebly Transform — Phase 2 of 5: File Creation in Code Engine & Ralph Loop
+
+**What this does:** Adds the ability to CREATE new files (not just edit existing ones). This is the core unlock that makes build mode possible. Without this, Sneebly can only modify files — it can't scaffold new ones.
+
+**Prerequisite:** Phase 1 (brand rename) must be complete.
+
+**Verify before starting:** Open `src/code-engine.js` and `src/ralph-loop.js` and read them. Understand the existing patterns before adding to them.
+
+---
+
+## PROMPT
+
+I need you to add file creation capabilities to Sneebly's Code Engine and Ralph Loop. Currently Sneebly can only EDIT existing files. After this change, it will also be able to CREATE new files from scratch — which is needed for build mode.
+
+**IMPORTANT:** Read each file fully before modifying. Follow the existing code patterns exactly (same error handling style, same logging, same variable naming conventions). Do NOT rewrite files — make surgical additions.
+
+### Part A: Add `createFile` method to Code Engine
+
+**File: `src/code-engine.js`**
+
+Read this file first. Look at how `applyChange`, `backup`, and `rollback` work. Your new methods should follow the same patterns.
+
+**Check the imports at the top.** The file probably uses `const fs = require('fs')` (sync). You'll need the promises version for async operations. If only sync `fs` is imported, add `const fsPromises = require('fs').promises;` and use `fsPromises` in the new methods. Do NOT rename the existing `fs` import.
+
+Add these two methods to the CodeEngine class (or module, depending on how it's structured):
+
+#### `createFile(filePath, content, projectRoot)`
+
+This creates a brand new file. It should:
+
+1. Resolve the full path using `path.resolve(projectRoot, filePath)`
+2. Run the EXISTING `_checkSafety` method on the full path — same safety checks as editing
+3. Check if the file ALREADY EXISTS — if it does, return `{ success: false, error: 'File already exists: ${filePath}. Use applyChange to modify existing files.' }`. Use `fs.existsSync` or `fsPromises.access` with a try/catch.
+4. Create parent directories if they don't exist — `fsPromises.mkdir(dir, { recursive: true })`
+5. Write the file content — `fsPromises.writeFile(fullPath, content, 'utf-8')`
+6. If the file extension is .js, .ts, .jsx, or .tsx, run the EXISTING `verifySyntax` method on it
+7. If syntax verification fails, DELETE the file you just created (don't leave broken files) and return `{ success: false, error: 'Syntax errors: ...' }`
+8. Return `{ success: true, filePath: fullPath }`
+
+#### `deleteFile(filePath)`
+
+This deletes a file (used for rollback when a created file needs to be undone). It should:
+
+1. Try to `fsPromises.unlink(filePath)`
+2. Return `{ success: true }` or `{ success: false, error: error.message }`
+
+This is intentionally simple — it's a cleanup method for rollback, not a general-purpose delete.
+
+### Part B: Add "create" handling to Ralph Loop
+
+**File: `src/ralph-loop.js`**
+
+Read this file first. Find the main execution loop in `executeRalphLoop` (or whatever the main function is called). Look at how it handles the spec executor's response — there should be conditions for:
+- `SPEC_COMPLETE`
+- `result.status === 'change'`
+- `result.status === 'multi-change'`
+- `result.status === 'stuck'`
+
+Add handling for two new status types. Add these BEFORE the existing `'change'` handler:
+
+#### Handle `status: 'create'` (single file creation)
+
+When the spec executor returns `{ status: 'create', filePath: '...', content: '...' }`:
+
+1. Call `codeEngine.createFile(result.filePath, result.content, projectRoot)`
+2. If creation fails → set iteration status to `'create-failed'`, increment stuck counter
+3. If creation succeeds → run test command if the spec has one (same pattern as existing change tests)
+4. If tests fail after creation → delete the created file (rollback), set status to `'create-failed'`
+5. If runtime validation is configured → run it (same pattern as existing)
+6. If runtime fails → delete the created file, set status to `'create-failed'`
+7. If everything passes → set iteration status to `'created'`, reset stuck counter
+8. Record `filesCreated: [result.filePath]` in the iteration history
+
+#### Handle `status: 'multi-create'` (multiple file creation)
+
+When the spec executor returns `{ status: 'multi-create', files: [{ filePath, content }, ...] }`:
+
+1. Create files ONE AT A TIME in order
+2. Track which files were successfully created in a `createdFiles` array
+3. If ANY file fails to create → delete ALL previously created files in this batch (rollback) → return failure
+4. After all files created → run test command if specified
+5. If tests fail → delete ALL created files → return failure
+6. If everything passes → set iteration status to `'created'`
+
+**The key principle is atomic operations:** either ALL files in a multi-create succeed, or NONE of them persist. Same as the existing `_applyMultiFileChanges` pattern.
+
+### Part C: Handle mixed operations
+
+In some cases, a build step might need to BOTH create a new file AND modify an existing one (e.g., create `server/routes/users.ts` and add an import to `server/routes/index.ts`).
+
+Check if the existing `'multi-change'` handler could be extended, or if the spec executor's response format already supports mixed operations. If not, add a note in the code with a TODO comment — this can be handled in a later phase by having the Ralph Loop execute a create spec followed by a change spec as separate iterations.
+
+### Verification
+
+After making these changes:
+
+1. Add a simple test or console log that verifies `createFile` works:
+```javascript
+// Quick test (remove after verification):
+// const ce = new CodeEngine();
+// const result = await ce.createFile('test-build-mode.txt', 'hello world', process.cwd());
+// console.log('createFile test:', result);
+// await ce.deleteFile(path.resolve(process.cwd(), 'test-build-mode.txt'));
+```
+
+2. Check that the existing `applyChange` and `rollback` methods still work unchanged
+3. Run `npm test` if tests exist
+4. Start the app and verify no errors
+
+Tell me when this phase is complete. Show me the new `createFile` method and the new status handlers in the Ralph Loop so I can verify they match the existing code patterns.

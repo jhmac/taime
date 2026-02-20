@@ -1,6 +1,7 @@
 'use strict';
 
 const fs = require('fs');
+const fsPromises = require('fs').promises;
 const path = require('path');
 const { execSync, spawn } = require('child_process');
 const http = require('http');
@@ -345,6 +346,45 @@ class CodeEngine {
         try { fs.unlinkSync(path.join(this.backupsDir, file)); } catch {}
       }
     } catch {}
+  }
+
+  async createFile(filePath, content, projectRoot) {
+    const root = projectRoot || this.projectRoot;
+    const fullPath = path.resolve(root, filePath);
+
+    const safetyCheck = this._checkSafety(filePath);
+    if (!safetyCheck.safe) return { success: false, error: safetyCheck.reason };
+
+    if (fs.existsSync(fullPath)) {
+      return { success: false, error: `File already exists: ${filePath}. Use applyChange to modify existing files.` };
+    }
+
+    try {
+      const dir = path.dirname(fullPath);
+      await fsPromises.mkdir(dir, { recursive: true });
+      await fsPromises.writeFile(fullPath, content, 'utf-8');
+    } catch (err) {
+      return { success: false, error: `Failed to create file: ${err.message}` };
+    }
+
+    if (JS_EXTENSIONS.has(path.extname(fullPath).toLowerCase())) {
+      const syntaxCheck = this.verifySyntax(filePath);
+      if (!syntaxCheck.valid) {
+        try { await fsPromises.unlink(fullPath); } catch {}
+        return { success: false, error: `Syntax errors in created file: ${syntaxCheck.issues.join(', ')}` };
+      }
+    }
+
+    return { success: true, filePath: fullPath };
+  }
+
+  async deleteFile(filePath) {
+    try {
+      await fsPromises.unlink(filePath);
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
   }
 
   _checkSafety(filePath) {

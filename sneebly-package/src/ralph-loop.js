@@ -187,6 +187,105 @@ async function executeRalphLoop(specPath, context, budget, options = {}) {
 
     let changeBackups = _emptyBackupInfo();
 
+    if (execResult.status === 'create') {
+      const createResult = await engine.createFile(execResult.filePath, execResult.content, projectRoot);
+      if (!createResult.success) {
+        result.changes.push({ filePath: execResult.filePath, applied: false, reason: createResult.error });
+        consecutiveStuck++;
+        iterationHistory.push({ iteration: result.iterations, status: 'create-failed', reason: createResult.error });
+        continue;
+      }
+      result.changes.push({ filePath: execResult.filePath, applied: true, created: true, description: execResult.description });
+      changeBackups = { backups: {}, newFiles: [execResult.filePath] };
+
+      if (spec.testCommand) {
+        const testResult = engine.runTests(spec.testCommand);
+        if (!testResult.passed && !testResult.warning) {
+          await engine.deleteFile(createResult.filePath);
+          result.changes[result.changes.length - 1].rolledBack = true;
+          iterationHistory.push({ iteration: result.iterations, status: 'create-failed', reason: 'tests failed after file creation' });
+          if (memory) memory.logDaily(`Ralph Loop: tests failed after creating ${execResult.filePath} — rolled back`);
+          continue;
+        }
+      }
+
+      if (spec.runtimeValidation) {
+        const runtimeOk = await _runRuntimeValidation(engine, changeBackups, result, spec, memory);
+        if (!runtimeOk) {
+          await engine.deleteFile(createResult.filePath);
+          result.changes[result.changes.length - 1].rolledBack = true;
+          iterationHistory.push({ iteration: result.iterations, status: 'create-failed', reason: 'runtime validation failed after file creation' });
+          continue;
+        }
+      }
+
+      iterationHistory.push({ iteration: result.iterations, status: 'created', filesCreated: [execResult.filePath] });
+      if (memory) memory.logDaily(`Ralph Loop: created file ${execResult.filePath}`);
+      continue;
+    }
+
+    if (execResult.status === 'multi-create' && Array.isArray(execResult.files)) {
+      const createdFiles = [];
+      let createFailed = false;
+
+      for (const file of execResult.files) {
+        const createResult = await engine.createFile(file.filePath, file.content, projectRoot);
+        if (!createResult.success) {
+          for (const created of createdFiles) {
+            await engine.deleteFile(path.resolve(projectRoot, created));
+          }
+          result.changes.push({ filePath: file.filePath, applied: false, reason: createResult.error, atomicRollback: createdFiles.length > 0 });
+          if (memory) memory.logDaily(`Ralph Loop: multi-create failed on ${file.filePath}: ${createResult.error} — rolled back ${createdFiles.length} file(s)`);
+          iterationHistory.push({ iteration: result.iterations, status: 'create-failed', reason: `multi-create failed on ${file.filePath}: ${createResult.error}` });
+          createFailed = true;
+          break;
+        }
+        createdFiles.push(file.filePath);
+        result.changes.push({ filePath: file.filePath, applied: true, created: true, description: file.description });
+      }
+
+      if (createFailed) continue;
+
+      changeBackups = { backups: {}, newFiles: createdFiles };
+
+      if (spec.testCommand) {
+        const testResult = engine.runTests(spec.testCommand);
+        if (!testResult.passed && !testResult.warning) {
+          for (const created of createdFiles) {
+            await engine.deleteFile(path.resolve(projectRoot, created));
+          }
+          for (let ci = result.changes.length - createdFiles.length; ci < result.changes.length; ci++) {
+            result.changes[ci].rolledBack = true;
+          }
+          if (memory) memory.logDaily(`Ralph Loop: tests failed after multi-create — rolled back ${createdFiles.length} file(s)`);
+          iterationHistory.push({ iteration: result.iterations, status: 'create-failed', reason: 'tests failed after multi-create' });
+          continue;
+        }
+      }
+
+      if (spec.runtimeValidation) {
+        const runtimeOk = await _runRuntimeValidation(engine, changeBackups, result, spec, memory);
+        if (!runtimeOk) {
+          for (const created of createdFiles) {
+            await engine.deleteFile(path.resolve(projectRoot, created));
+          }
+          for (let ci = result.changes.length - createdFiles.length; ci < result.changes.length; ci++) {
+            result.changes[ci].rolledBack = true;
+          }
+          iterationHistory.push({ iteration: result.iterations, status: 'create-failed', reason: 'runtime validation failed after multi-create' });
+          continue;
+        }
+      }
+
+      iterationHistory.push({ iteration: result.iterations, status: 'created', filesCreated: createdFiles });
+      if (memory) memory.logDaily(`Ralph Loop: created ${createdFiles.length} file(s): ${createdFiles.join(', ')}`);
+      continue;
+    }
+
+    // TODO: Mixed operations (create + change in one step) can be handled by having
+    // the spec executor emit separate iterations — a 'create' followed by a 'change'.
+    // A future 'multi-mixed' status could handle atomic create+change in one batch.
+
     if (execResult.status === 'multi-change' && Array.isArray(execResult.changes)) {
       const multiResult = await _applyMultiFileChanges(engine, execResult.changes, result, memory);
       if (!multiResult.success) continue;
