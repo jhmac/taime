@@ -500,27 +500,38 @@ export default function GeofenceMapSection() {
     }
   };
 
-  const displayLocation: WorkLocation | null = isCreating
-    ? {
+  const [displayLocation, setDisplayLocation] = useState<WorkLocation | null>(null);
+
+  useEffect(() => {
+    if (isCreating) {
+      setDisplayLocation({
         id: 'new', name: formName, address: formAddress,
         latitude: formLat || null, longitude: formLng || null,
         radius: formRadius, isActive: true,
         geofenceType: formGeofenceType,
-        geofencePolygon: null,
+        geofencePolygon: formPolygon,
         geofenceGraceMinutes: formGraceMinutes,
         geofenceEnabled: formGeofenceEnabled,
         autoClockOut: formAutoClockOut,
-      }
-    : isEditing && selectedLocation
-      ? {
-          ...selectedLocation,
-          latitude: formLat || selectedLocation.latitude,
-          longitude: formLng || selectedLocation.longitude,
-          radius: formRadius,
-          geofenceType: formGeofenceType,
-          geofencePolygon: null,
-        }
-      : selectedLocation;
+      });
+    } else if (isEditing && selectedLocation) {
+      setDisplayLocation({
+        ...selectedLocation,
+        name: formName,
+        address: formAddress,
+        latitude: formLat || selectedLocation.latitude,
+        longitude: formLng || selectedLocation.longitude,
+        radius: formRadius,
+        geofenceType: formGeofenceType,
+        geofencePolygon: formPolygon,
+        geofenceGraceMinutes: formGraceMinutes,
+        geofenceEnabled: formGeofenceEnabled,
+        autoClockOut: formAutoClockOut,
+      });
+    } else {
+      setDisplayLocation(selectedLocation);
+    }
+  }, [isCreating, isEditing, selectedLocation, formName, formAddress, formLat, formLng, formRadius, formGeofenceType, formPolygon, formGraceMinutes, formGeofenceEnabled, formAutoClockOut]);
 
   if (isLoading) {
     return <div className="p-4">Loading locations...</div>;
