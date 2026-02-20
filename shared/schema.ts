@@ -200,7 +200,8 @@ export const payPeriodSettings = pgTable("pay_period_settings", {
   automaticConflictResolution: boolean("automatic_conflict_resolution").default(true),
   firstPayPeriodStart: timestamp("first_pay_period_start"),
   firstPayPeriodEnd: timestamp("first_pay_period_end"),
-  notificationUserId: varchar("notification_user_id").references(() => users.id), // User who receives payroll confirmations
+  payDayOfWeek: integer("pay_day_of_week").default(5), // 0=Sunday, 1=Monday...5=Friday, 6=Saturday
+  notificationUserId: varchar("notification_user_id").references(() => users.id),
   isSetupComplete: boolean("is_setup_complete").default(false),
   createdBy: varchar("created_by").references(() => users.id),
   updatedBy: varchar("updated_by").references(() => users.id),

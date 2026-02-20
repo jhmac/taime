@@ -10,26 +10,35 @@ class PayrollAutomationService {
   async scheduleNextPayrollPeriods(intervalType: string, lastEndDate: Date, periodsToCreate: number = 3) {
     try {
       const periods = [];
+      const existingPeriods = await storage.getPayrollPeriods();
       let currentStartDate = new Date(lastEndDate);
-      currentStartDate.setDate(currentStartDate.getDate() + 1); // Start the day after the last period ends
+      currentStartDate.setDate(currentStartDate.getDate() + 1);
 
       for (let i = 0; i < periodsToCreate; i++) {
         const endDate = this.calculateEndDate(currentStartDate, intervalType);
         
-        const period = await storage.createPayrollPeriod({
-          startDate: new Date(currentStartDate),
-          endDate: endDate,
-          workflowState: 'created',
-          automationMetadata: {
-            createdByAI: true,
-            intervalType,
-            sequence: i + 1
-          }
+        const duplicate = existingPeriods.some(p => {
+          const eStart = new Date(p.startDate).toISOString().split('T')[0];
+          const eEnd = new Date(p.endDate).toISOString().split('T')[0];
+          const nStart = currentStartDate.toISOString().split('T')[0];
+          const nEnd = endDate.toISOString().split('T')[0];
+          return eStart === nStart && eEnd === nEnd;
         });
 
-        periods.push(period);
+        if (!duplicate) {
+          const period = await storage.createPayrollPeriod({
+            startDate: new Date(currentStartDate),
+            endDate: endDate,
+            workflowState: 'created',
+            automationMetadata: {
+              createdByAI: true,
+              intervalType,
+              sequence: i + 1
+            }
+          });
+          periods.push(period);
+        }
         
-        // Set next start date
         currentStartDate = new Date(endDate);
         currentStartDate.setDate(currentStartDate.getDate() + 1);
       }

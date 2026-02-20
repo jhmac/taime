@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-02-19T21:01:04.831Z",
+  "timestamp": "2026-02-20T00:12:37.494Z",
   "pagesVisited": 1,
   "errors": [
     {
@@ -10,22 +10,22 @@
     },
     {
       "type": "console-error",
-      "message": "WebSocket connection to 'ws://localhost:5000/?token=5qqkR8hLV1VX' failed: Error during WebSocket handshake: Unexpected response code: 400",
+      "message": "WebSocket connection to 'ws://localhost:5000/?token=PlJBg0YcHN1A' failed: Error during WebSocket handshake: Unexpected response code: 400",
       "url": "http://localhost:5000",
       "severity": "high"
     },
     {
       "type": "uncaught-exception",
-      "message": "Failed to construct 'WebSocket': The URL 'ws://localhost:undefined/?token=5qqkR8hLV1VX' is invalid.",
+      "message": "Failed to construct 'WebSocket': The URL 'ws://localhost:undefined/?token=PlJBg0YcHN1A' is invalid.",
       "url": "http://localhost:5000",
-      "stack": "SyntaxError: Failed to construct 'WebSocket': The URL 'ws://localhost:undefined/?token=5qqkR8hLV1VX' is invalid.\n    at setupWebSocket (http://localhost:5000/@vite/client:536:19)\n    at fallback (http://localhost:5000/@vite/client:509:16)\n    at WebSocket.<anonymous> (http://localhost:5000/@vite/client:555:7)",
+      "stack": "SyntaxError: Failed to construct 'WebSocket': The URL 'ws://localhost:undefined/?token=PlJBg0YcHN1A' is invalid.\n    at setupWebSocket (http://localhost:5000/@vite/client:536:19)\n    at fallback (http://localhost:5000/@vite/client:509:16)\n    at WebSocket.<anonymous> (http://localhost:5000/@vite/client:555:7)",
       "severity": "high"
     },
     {
       "type": "slow-page",
-      "message": "Page took 3079ms to load",
+      "message": "Page took 6950ms to load",
       "url": "http://localhost:5000",
-      "loadTime": 3079,
+      "loadTime": 6950,
       "severity": "medium"
     }
   ],

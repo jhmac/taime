@@ -329,6 +329,7 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
         isSetupComplete,
         daysBeforeNotification,
         scheduleGenerationDays,
+        payDayOfWeek,
       } = req.body;
 
       const settingsPayload: any = {
@@ -345,6 +346,9 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
       if (typeof scheduleGenerationDays === 'number') {
         settingsPayload.scheduleGenerationDays = scheduleGenerationDays;
       }
+      if (typeof payDayOfWeek === 'number' && payDayOfWeek >= 0 && payDayOfWeek <= 6) {
+        settingsPayload.payDayOfWeek = payDayOfWeek;
+      }
 
       const existingSettings = await storage.getPayrollSettings();
       
@@ -360,11 +364,21 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
         });
       }
 
-      await storage.createPayrollPeriod({
-        startDate: new Date(firstPayPeriodStart),
-        endDate: new Date(firstPayPeriodEnd),
-        workflowState: 'created',
+      const existingPeriods = await storage.getPayrollPeriods();
+      const firstStart = new Date(firstPayPeriodStart).toISOString().split('T')[0];
+      const firstEnd = new Date(firstPayPeriodEnd).toISOString().split('T')[0];
+      const alreadyExists = existingPeriods.some(p => {
+        const s = new Date(p.startDate).toISOString().split('T')[0];
+        const e = new Date(p.endDate).toISOString().split('T')[0];
+        return s === firstStart && e === firstEnd;
       });
+      if (!alreadyExists) {
+        await storage.createPayrollPeriod({
+          startDate: new Date(firstPayPeriodStart),
+          endDate: new Date(firstPayPeriodEnd),
+          workflowState: 'created',
+        });
+      }
 
       if (isAutomationEnabled) {
         await payrollAutomationService.scheduleNextPayrollPeriods(intervalType, new Date(firstPayPeriodEnd), 6);
@@ -374,6 +388,252 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
     } catch (error) {
       console.error("Error setting up payroll:", error);
       res.status(500).json({ message: "Failed to setup payroll" });
+    }
+  });
+
+  app.get('/api/payroll/periods/:id/review', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canManage = userPermissions.some(p => p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all');
+      if (!canManage) return res.status(403).json({ message: "Payroll management access required" });
+
+      const period = await storage.getPayrollPeriod(req.params.id);
+      if (!period) return res.status(404).json({ message: "Pay period not found" });
+
+      const start = new Date(period.startDate);
+      const end = new Date(period.endDate);
+      const timeEntriesData = await storage.getAllTimeEntries(start, end);
+      const schedulesData = await storage.getAllSchedules(start, end);
+      const allUsers = await db.select().from(users);
+      const [settings] = await db.select().from(companySettings).limit(1);
+      const holidayRules = await storage.getAllHolidayPayRules();
+
+      const overtimeThreshold = settings?.overtimeThresholdHours || 40;
+      const overtimeMultiplier = parseFloat(settings?.overtimeMultiplier || "1.50");
+
+      const employeeMap: Record<string, {
+        userId: string;
+        name: string;
+        email: string;
+        phone: string;
+        totalHours: number;
+        scheduledHours: number;
+        regularHours: number;
+        overtimeHours: number;
+        holidayHours: number;
+        breakMinutes: number;
+        hourlyRate: number;
+        regularPay: number;
+        overtimePay: number;
+        holidayPayExtra: number;
+        totalPay: number;
+        timeEntries: any[];
+        schedules: any[];
+        discrepancies: any[];
+      }> = {};
+
+      const userMap = new Map(allUsers.map(u => [u.id, u]));
+
+      for (const entry of timeEntriesData) {
+        const user = userMap.get(entry.userId);
+        if (!user) continue;
+        if (!employeeMap[entry.userId]) {
+          employeeMap[entry.userId] = {
+            userId: entry.userId,
+            name: `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email || 'Unknown',
+            email: user.email || '',
+            phone: (user as any).phone || '',
+            totalHours: 0,
+            scheduledHours: 0,
+            regularHours: 0,
+            overtimeHours: 0,
+            holidayHours: 0,
+            breakMinutes: 0,
+            hourlyRate: parseFloat(user.hourlyRate || "0"),
+            regularPay: 0,
+            overtimePay: 0,
+            holidayPayExtra: 0,
+            totalPay: 0,
+            timeEntries: [],
+            schedules: [],
+            discrepancies: [],
+          };
+        }
+
+        const clockIn = new Date(entry.clockInTime);
+        const clockOut = entry.clockOutTime ? new Date(entry.clockOutTime) : null;
+        const hours = clockOut
+          ? (clockOut.getTime() - clockIn.getTime()) / (1000 * 60 * 60) - (entry.breakMinutes || 0) / 60
+          : 0;
+        employeeMap[entry.userId].totalHours += hours;
+        employeeMap[entry.userId].breakMinutes += entry.breakMinutes || 0;
+        employeeMap[entry.userId].timeEntries.push({
+          id: entry.id,
+          clockInTime: entry.clockInTime,
+          clockOutTime: entry.clockOutTime,
+          breakMinutes: entry.breakMinutes,
+          hours: Math.round(hours * 100) / 100,
+          notes: entry.notes,
+          isApproved: entry.isApproved,
+          missingClockOut: !clockOut,
+        });
+
+        if (!clockOut) {
+          const daySchedules = schedulesData.filter(s =>
+            s.userId === entry.userId &&
+            new Date(s.startTime).toDateString() === clockIn.toDateString()
+          );
+          employeeMap[entry.userId].discrepancies.push({
+            type: 'missing_clock_out',
+            date: clockIn.toISOString(),
+            message: 'Employee did not clock out',
+            scheduledShift: daySchedules.length > 0 ? {
+              start: daySchedules[0].startTime,
+              end: daySchedules[0].endTime,
+              scheduledHours: (new Date(daySchedules[0].endTime).getTime() - new Date(daySchedules[0].startTime).getTime()) / (1000 * 60 * 60),
+            } : null,
+          });
+        }
+
+        const entryMonth = clockIn.getMonth() + 1;
+        const entryDay = clockIn.getDate();
+        const matchingHoliday = holidayRules.find(r => r.month === entryMonth && r.day === entryDay);
+        if (matchingHoliday) {
+          const mult = parseFloat(matchingHoliday.payMultiplier);
+          employeeMap[entry.userId].holidayHours += hours;
+          employeeMap[entry.userId].holidayPayExtra += hours * employeeMap[entry.userId].hourlyRate * (mult - 1);
+        }
+      }
+
+      for (const schedule of schedulesData) {
+        const uid = schedule.userId;
+        if (!employeeMap[uid]) {
+          const user = userMap.get(uid);
+          if (!user) continue;
+          employeeMap[uid] = {
+            userId: uid,
+            name: `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email || 'Unknown',
+            email: user.email || '',
+            phone: (user as any).phone || '',
+            totalHours: 0,
+            scheduledHours: 0,
+            regularHours: 0,
+            overtimeHours: 0,
+            holidayHours: 0,
+            breakMinutes: 0,
+            hourlyRate: parseFloat(user.hourlyRate || "0"),
+            regularPay: 0,
+            overtimePay: 0,
+            holidayPayExtra: 0,
+            totalPay: 0,
+            timeEntries: [],
+            schedules: [],
+            discrepancies: [],
+          };
+        }
+        const schedHours = (new Date(schedule.endTime).getTime() - new Date(schedule.startTime).getTime()) / (1000 * 60 * 60);
+        employeeMap[uid].scheduledHours += schedHours;
+        employeeMap[uid].schedules.push({
+          id: schedule.id,
+          startTime: schedule.startTime,
+          endTime: schedule.endTime,
+          title: schedule.title,
+        });
+
+        const hasEntry = timeEntriesData.some(e =>
+          e.userId === uid &&
+          new Date(e.clockInTime).toDateString() === new Date(schedule.startTime).toDateString()
+        );
+        if (!hasEntry) {
+          employeeMap[uid].discrepancies.push({
+            type: 'no_show',
+            date: new Date(schedule.startTime).toISOString(),
+            message: 'Scheduled but did not clock in',
+            scheduledShift: {
+              start: schedule.startTime,
+              end: schedule.endTime,
+              scheduledHours: schedHours,
+            },
+          });
+        }
+      }
+
+      for (const emp of Object.values(employeeMap)) {
+        emp.regularHours = Math.min(emp.totalHours, overtimeThreshold);
+        emp.overtimeHours = Math.max(0, emp.totalHours - overtimeThreshold);
+        emp.regularPay = Math.round(emp.regularHours * emp.hourlyRate * 100) / 100;
+        emp.overtimePay = Math.round(emp.overtimeHours * emp.hourlyRate * overtimeMultiplier * 100) / 100;
+        emp.totalPay = Math.round((emp.regularPay + emp.overtimePay + emp.holidayPayExtra) * 100) / 100;
+      }
+
+      const employees = Object.values(employeeMap).sort((a, b) => a.name.localeCompare(b.name));
+      const totalDiscrepancies = employees.reduce((sum, e) => sum + e.discrepancies.length, 0);
+
+      res.json({
+        period: {
+          id: period.id,
+          startDate: period.startDate,
+          endDate: period.endDate,
+          workflowState: period.workflowState,
+          isProcessed: period.isProcessed,
+        },
+        employees,
+        summary: {
+          totalEmployees: employees.length,
+          totalHours: Math.round(employees.reduce((s, e) => s + e.totalHours, 0) * 100) / 100,
+          totalScheduledHours: Math.round(employees.reduce((s, e) => s + e.scheduledHours, 0) * 100) / 100,
+          totalPay: Math.round(employees.reduce((s, e) => s + e.totalPay, 0) * 100) / 100,
+          totalDiscrepancies,
+        },
+      });
+    } catch (error) {
+      console.error("Error getting payroll review:", error);
+      res.status(500).json({ message: "Failed to get payroll review" });
+    }
+  });
+
+  app.post('/api/payroll/periods/:id/approve', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canManage = userPermissions.some(p => p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all');
+      if (!canManage) return res.status(403).json({ message: "Payroll management access required" });
+
+      const period = await storage.getPayrollPeriod(req.params.id);
+      if (!period) return res.status(404).json({ message: "Pay period not found" });
+
+      await storage.updatePayrollPeriod(req.params.id, {
+        workflowState: 'processed',
+        isProcessed: true,
+        processedBy: userId,
+        processedAt: new Date(),
+      });
+
+      res.json({ message: "Payroll approved successfully" });
+    } catch (error) {
+      console.error("Error approving payroll:", error);
+      res.status(500).json({ message: "Failed to approve payroll" });
+    }
+  });
+
+  app.post('/api/payroll/periods/:id/email-export', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canManage = userPermissions.some(p => p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all');
+      if (!canManage) return res.status(403).json({ message: "Payroll management access required" });
+
+      const { email } = req.body;
+      if (!email) return res.status(400).json({ message: "Accountant email is required" });
+
+      const period = await storage.getPayrollPeriod(req.params.id);
+      if (!period) return res.status(404).json({ message: "Pay period not found" });
+
+      res.json({ message: `Payroll export would be emailed to ${email}. Email integration pending setup.` });
+    } catch (error) {
+      console.error("Error emailing payroll:", error);
+      res.status(500).json({ message: "Failed to email payroll" });
     }
   });
 
