@@ -10,8 +10,7 @@ import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { MapPin, Plus, Trash2, Circle, Pentagon, Crosshair, Save, Settings2, Shield, Clock } from 'lucide-react';
+import { MapPin, Plus, Trash2, Circle, Pentagon, Crosshair, Save, Settings2, Shield, Clock, Search, Undo2 } from 'lucide-react';
 
 declare global {
   interface Window {
@@ -48,12 +47,30 @@ function loadLeaflet(): Promise<void> {
   });
 }
 
-function MapComponent({ location, onLocationChange, onPolygonChange, isDrawing, drawMode }: {
+async function geocodeAddress(address: string): Promise<{ lat: number; lng: number } | null> {
+  try {
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&limit=1`,
+      { headers: { 'Accept': 'application/json' } }
+    );
+    const results = await response.json();
+    if (results && results.length > 0) {
+      return { lat: parseFloat(results[0].lat), lng: parseFloat(results[0].lon) };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function MapComponent({ location, onLocationChange, onPolygonChange, isDrawing, drawMode, flyToCoords, externalPolygonPoints }: {
   location: WorkLocation | null;
   onLocationChange: (lat: number, lng: number) => void;
   onPolygonChange: (points: Array<{ lat: number; lng: number }>) => void;
   isDrawing: boolean;
   drawMode: 'radius' | 'polygon';
+  flyToCoords: { lat: number; lng: number } | null;
+  externalPolygonPoints: Array<{ lat: number; lng: number }>;
 }) {
   const mapRef = useRef<any>(null);
   const mapInstanceRef = useRef<any>(null);
@@ -62,6 +79,15 @@ function MapComponent({ location, onLocationChange, onPolygonChange, isDrawing, 
   const polygonRef = useRef<any>(null);
   const polygonPointsRef = useRef<Array<{ lat: number; lng: number }>>([]);
   const markersRef = useRef<any[]>([]);
+  const isDrawingRef = useRef(isDrawing);
+  const drawModeRef = useRef(drawMode);
+  const onLocationChangeRef = useRef(onLocationChange);
+  const onPolygonChangeRef = useRef(onPolygonChange);
+
+  useEffect(() => { isDrawingRef.current = isDrawing; }, [isDrawing]);
+  useEffect(() => { drawModeRef.current = drawMode; }, [drawMode]);
+  useEffect(() => { onLocationChangeRef.current = onLocationChange; }, [onLocationChange]);
+  useEffect(() => { onPolygonChangeRef.current = onPolygonChange; }, [onPolygonChange]);
 
   useEffect(() => {
     loadLeaflet().then(() => {
@@ -84,19 +110,23 @@ function MapComponent({ location, onLocationChange, onPolygonChange, isDrawing, 
       }
 
       map.on('click', (e: any) => {
-        if (isDrawing && drawMode === 'polygon') {
+        if (isDrawingRef.current && drawModeRef.current === 'polygon') {
           polygonPointsRef.current.push({ lat: e.latlng.lat, lng: e.latlng.lng });
-          const m = L.circleMarker(e.latlng, { radius: 5, fillColor: '#3b82f6', fillOpacity: 1, color: '#fff', weight: 2 }).addTo(map);
+          const m = L.circleMarker(e.latlng, {
+            radius: 6, fillColor: '#3b82f6', fillOpacity: 1, color: '#fff', weight: 2
+          }).addTo(map);
           markersRef.current.push(m);
+
           if (polygonPointsRef.current.length >= 2) {
             if (polygonRef.current) map.removeLayer(polygonRef.current);
-            polygonRef.current = L.polygon(polygonPointsRef.current.map((p: any) => [p.lat, p.lng]), {
-              color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 0.15, weight: 2,
-            }).addTo(map);
+            polygonRef.current = L.polygon(
+              polygonPointsRef.current.map((p: any) => [p.lat, p.lng]),
+              { color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 0.15, weight: 2 }
+            ).addTo(map);
           }
-          onPolygonChange([...polygonPointsRef.current]);
-        } else if (!isDrawing) {
-          onLocationChange(e.latlng.lat, e.latlng.lng);
+          onPolygonChangeRef.current([...polygonPointsRef.current]);
+        } else if (!isDrawingRef.current) {
+          onLocationChangeRef.current(e.latlng.lat, e.latlng.lng);
         }
       });
     });
@@ -121,6 +151,8 @@ function MapComponent({ location, onLocationChange, onPolygonChange, isDrawing, 
     if (polygonRef.current) map.removeLayer(polygonRef.current);
     markersRef.current.forEach((m: any) => map.removeLayer(m));
     markersRef.current = [];
+
+    if (!loc.latitude || !loc.longitude) return;
 
     markerRef.current = L.marker([lat, lng], {
       icon: L.divIcon({
@@ -159,18 +191,58 @@ function MapComponent({ location, onLocationChange, onPolygonChange, isDrawing, 
   }, [location, updateMapDisplay]);
 
   useEffect(() => {
+    if (flyToCoords && mapInstanceRef.current) {
+      mapInstanceRef.current.setView([flyToCoords.lat, flyToCoords.lng], 17, { animate: true });
+    }
+  }, [flyToCoords]);
+
+  useEffect(() => {
+    if (!mapInstanceRef.current) return;
+    const map = mapInstanceRef.current;
+
     if (isDrawing && drawMode === 'polygon') {
       polygonPointsRef.current = [];
-      markersRef.current.forEach((m: any) => {
-        if (mapInstanceRef.current) mapInstanceRef.current.removeLayer(m);
-      });
+      markersRef.current.forEach((m: any) => map.removeLayer(m));
       markersRef.current = [];
-      if (polygonRef.current && mapInstanceRef.current) {
-        mapInstanceRef.current.removeLayer(polygonRef.current);
+      if (polygonRef.current) {
+        map.removeLayer(polygonRef.current);
         polygonRef.current = null;
       }
+      map.getContainer().style.cursor = 'crosshair';
+    } else {
+      map.getContainer().style.cursor = '';
     }
   }, [isDrawing, drawMode]);
+
+  useEffect(() => {
+    if (!mapInstanceRef.current || !window.L) return;
+    if (drawModeRef.current !== 'polygon') return;
+    const L = window.L;
+    const map = mapInstanceRef.current;
+
+    polygonPointsRef.current = [...externalPolygonPoints];
+
+    markersRef.current.forEach((m: any) => map.removeLayer(m));
+    markersRef.current = [];
+    if (polygonRef.current) {
+      map.removeLayer(polygonRef.current);
+      polygonRef.current = null;
+    }
+
+    externalPolygonPoints.forEach(p => {
+      const m = L.circleMarker([p.lat, p.lng], {
+        radius: 6, fillColor: '#3b82f6', fillOpacity: 1, color: '#fff', weight: 2
+      }).addTo(map);
+      markersRef.current.push(m);
+    });
+
+    if (externalPolygonPoints.length >= 2) {
+      polygonRef.current = L.polygon(
+        externalPolygonPoints.map(p => [p.lat, p.lng]),
+        { color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 0.15, weight: 2 }
+      ).addTo(map);
+    }
+  }, [externalPolygonPoints]);
 
   return (
     <div ref={mapRef} className="w-full h-[400px] rounded-lg border" style={{ zIndex: 0 }} />
@@ -190,6 +262,8 @@ export default function GeofenceMapSection() {
   const [isCreating, setIsCreating] = useState(false);
   const [isDrawing, setIsDrawing] = useState(false);
   const [drawMode, setDrawMode] = useState<'radius' | 'polygon'>('radius');
+  const [flyToCoords, setFlyToCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [geocoding, setGeocoding] = useState(false);
 
   const [formName, setFormName] = useState('');
   const [formAddress, setFormAddress] = useState('');
@@ -203,20 +277,26 @@ export default function GeofenceMapSection() {
   const [formAutoClockOut, setFormAutoClockOut] = useState(true);
 
   const createMutation = useMutation({
-    mutationFn: async (data: any) => apiRequest('POST', '/api/work-locations', data),
+    mutationFn: async (data: any) => {
+      const res = await apiRequest('POST', '/api/work-locations', data);
+      return res.json();
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/work-locations'] });
       setIsCreating(false);
       resetForm();
       toast({ title: "Location Created", description: "New store location added with geofence." });
     },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to create location.", variant: "destructive" });
+    onError: (error: any) => {
+      toast({ title: "Error", description: error.message || "Failed to create location.", variant: "destructive" });
     },
   });
 
   const updateMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: any }) => apiRequest('PUT', `/api/work-locations/${id}`, data),
+    mutationFn: async ({ id, data }: { id: string; data: any }) => {
+      const res = await apiRequest('PUT', `/api/work-locations/${id}`, data);
+      return res.json();
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/work-locations'] });
       setIsEditing(false);
@@ -264,29 +344,82 @@ export default function GeofenceMapSection() {
   };
 
   const handleSave = () => {
-    const data = {
-      name: formName,
-      address: formAddress || null,
-      latitude: formLat ? parseFloat(formLat) : null,
-      longitude: formLng ? parseFloat(formLng) : null,
-      radius: formRadius,
-      geofenceType: formGeofenceType,
-      geofencePolygon: formGeofenceType === 'polygon' ? formPolygon : null,
-      geofenceGraceMinutes: formGraceMinutes,
-      geofenceEnabled: formGeofenceEnabled,
-      autoClockOut: formAutoClockOut,
-    };
+    if (!formName.trim()) {
+      toast({ title: "Missing Info", description: "Please enter a location name.", variant: "destructive" });
+      return;
+    }
 
-    if (isEditing && selectedLocation) {
-      updateMutation.mutate({ id: selectedLocation.id, data });
+    if (formGeofenceType === 'polygon') {
+      if (formPolygon.length < 3) {
+        toast({ title: "Missing Boundary", description: "Please draw at least 3 points for a polygon boundary.", variant: "destructive" });
+        return;
+      }
+      const center = formPolygon.reduce(
+        (acc, p) => ({ lat: acc.lat + p.lat / formPolygon.length, lng: acc.lng + p.lng / formPolygon.length }),
+        { lat: 0, lng: 0 }
+      );
+      const data = {
+        name: formName.trim(),
+        address: formAddress.trim() || null,
+        latitude: center.lat,
+        longitude: center.lng,
+        radius: formRadius,
+        geofenceType: 'polygon',
+        geofencePolygon: formPolygon,
+        geofenceGraceMinutes: formGraceMinutes,
+        geofenceEnabled: formGeofenceEnabled,
+        autoClockOut: formAutoClockOut,
+      };
+      if (isEditing && selectedLocation) {
+        updateMutation.mutate({ id: selectedLocation.id, data });
+      } else {
+        createMutation.mutate(data);
+      }
     } else {
-      createMutation.mutate(data);
+      if (!formLat || !formLng) {
+        toast({ title: "Missing Location", description: "Please click the map or enter an address to set the location.", variant: "destructive" });
+        return;
+      }
+      const data = {
+        name: formName.trim(),
+        address: formAddress.trim() || null,
+        latitude: parseFloat(formLat),
+        longitude: parseFloat(formLng),
+        radius: formRadius,
+        geofenceType: 'radius',
+        geofencePolygon: null,
+        geofenceGraceMinutes: formGraceMinutes,
+        geofenceEnabled: formGeofenceEnabled,
+        autoClockOut: formAutoClockOut,
+      };
+      if (isEditing && selectedLocation) {
+        updateMutation.mutate({ id: selectedLocation.id, data });
+      } else {
+        createMutation.mutate(data);
+      }
     }
   };
 
   const handleMapClick = (lat: number, lng: number) => {
-    setFormLat(lat.toFixed(8));
-    setFormLng(lng.toFixed(8));
+    if (isCreating || isEditing) {
+      setFormLat(lat.toFixed(8));
+      setFormLng(lng.toFixed(8));
+    }
+  };
+
+  const handleAddressLookup = async () => {
+    if (!formAddress.trim()) return;
+    setGeocoding(true);
+    const coords = await geocodeAddress(formAddress.trim());
+    setGeocoding(false);
+    if (coords) {
+      setFormLat(coords.lat.toFixed(8));
+      setFormLng(coords.lng.toFixed(8));
+      setFlyToCoords({ lat: coords.lat, lng: coords.lng });
+      toast({ title: "Address Found", description: "Map moved to the address location. You can fine-tune by clicking the map." });
+    } else {
+      toast({ title: "Address Not Found", description: "Could not find that address. Try a more specific address or click the map directly.", variant: "destructive" });
+    }
   };
 
   const startCreate = () => {
@@ -303,10 +436,32 @@ export default function GeofenceMapSection() {
     setIsCreating(false);
   };
 
+  const handleUndoLastPoint = () => {
+    if (formPolygon.length > 0) {
+      setFormPolygon(prev => prev.slice(0, -1));
+    }
+  };
+
   const displayLocation: WorkLocation | null = isCreating
-    ? { id: 'new', name: formName, address: formAddress, latitude: formLat, longitude: formLng, radius: formRadius, isActive: true, geofenceType: formGeofenceType, geofencePolygon: formGeofenceType === 'polygon' ? formPolygon : null, geofenceGraceMinutes: formGraceMinutes, geofenceEnabled: formGeofenceEnabled, autoClockOut: formAutoClockOut }
+    ? {
+        id: 'new', name: formName, address: formAddress,
+        latitude: formLat || null, longitude: formLng || null,
+        radius: formRadius, isActive: true,
+        geofenceType: formGeofenceType,
+        geofencePolygon: formGeofenceType === 'polygon' ? formPolygon : null,
+        geofenceGraceMinutes: formGraceMinutes,
+        geofenceEnabled: formGeofenceEnabled,
+        autoClockOut: formAutoClockOut,
+      }
     : isEditing && selectedLocation
-      ? { ...selectedLocation, latitude: formLat, longitude: formLng, radius: formRadius, geofenceType: formGeofenceType, geofencePolygon: formGeofenceType === 'polygon' ? formPolygon : null }
+      ? {
+          ...selectedLocation,
+          latitude: formLat || selectedLocation.latitude,
+          longitude: formLng || selectedLocation.longitude,
+          radius: formRadius,
+          geofenceType: formGeofenceType,
+          geofencePolygon: formGeofenceType === 'polygon' ? formPolygon : null,
+        }
       : selectedLocation;
 
   if (isLoading) {
@@ -323,7 +478,6 @@ export default function GeofenceMapSection() {
           </CardTitle>
           <p className="text-sm text-muted-foreground">
             Add your store locations and draw geofence boundaries on the map. Employees will be tracked within these boundaries when clocked in.
-            Click the map to set a location, then configure the geofence shape and settings.
           </p>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -334,7 +488,14 @@ export default function GeofenceMapSection() {
                 variant={selectedLocation?.id === loc.id ? "default" : "outline"}
                 size="sm"
                 className="gap-1.5"
-                onClick={() => { setSelectedLocation(loc); setIsEditing(false); setIsCreating(false); }}
+                onClick={() => {
+                  setSelectedLocation(loc);
+                  setIsEditing(false);
+                  setIsCreating(false);
+                  if (loc.latitude && loc.longitude) {
+                    setFlyToCoords({ lat: parseFloat(loc.latitude), lng: parseFloat(loc.longitude) });
+                  }
+                }}
               >
                 <MapPin className="h-3 w-3" />
                 {loc.name}
@@ -350,12 +511,27 @@ export default function GeofenceMapSection() {
             </Button>
           </div>
 
+          {isDrawing && (
+            <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-lg p-3 flex items-center gap-2">
+              <Crosshair className="h-4 w-4 text-blue-600 shrink-0" />
+              <p className="text-sm text-blue-800 dark:text-blue-300 flex-1">
+                Drawing mode active — click on the map to add points to your polygon boundary.
+                {formPolygon.length > 0 && ` (${formPolygon.length} point${formPolygon.length !== 1 ? 's' : ''} placed)`}
+              </p>
+              <Button variant="outline" size="sm" className="h-7 text-xs shrink-0" onClick={() => setIsDrawing(false)}>
+                Done Drawing
+              </Button>
+            </div>
+          )}
+
           <MapComponent
             location={displayLocation}
             onLocationChange={handleMapClick}
             onPolygonChange={setFormPolygon}
             isDrawing={isDrawing}
             drawMode={drawMode}
+            flyToCoords={flyToCoords}
+            externalPolygonPoints={formPolygon}
           />
 
           {(isCreating || isEditing) && (
@@ -367,25 +543,46 @@ export default function GeofenceMapSection() {
                 </Button>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-xs">Location Name</Label>
-                  <Input value={formName} onChange={e => setFormName(e.target.value)} placeholder="Main Store" />
+              <div>
+                <Label className="text-xs">Location Name</Label>
+                <Input value={formName} onChange={e => setFormName(e.target.value)} placeholder="Main Store" />
+              </div>
+
+              <div>
+                <Label className="text-xs">Address</Label>
+                <div className="flex gap-2">
+                  <Input
+                    value={formAddress}
+                    onChange={e => setFormAddress(e.target.value)}
+                    placeholder="123 Main St, City, State"
+                    className="flex-1"
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAddressLookup(); } }}
+                    onBlur={() => { if (formAddress.trim()) handleAddressLookup(); }}
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1 shrink-0"
+                    onClick={handleAddressLookup}
+                    disabled={geocoding || !formAddress.trim()}
+                  >
+                    <Search className="h-3 w-3" />
+                    {geocoding ? 'Searching...' : 'Find on Map'}
+                  </Button>
                 </div>
-                <div>
-                  <Label className="text-xs">Address</Label>
-                  <Input value={formAddress} onChange={e => setFormAddress(e.target.value)} placeholder="123 Main St" />
-                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Type an address and the map will auto-locate when you leave the field. You can also click "Find on Map" or click directly on the map.
+                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label className="text-xs">Latitude</Label>
-                  <Input value={formLat} onChange={e => setFormLat(e.target.value)} placeholder="Click map to set" />
+                  <Input value={formLat} onChange={e => setFormLat(e.target.value)} placeholder="Auto-set from address/map" readOnly className="bg-muted/50" />
                 </div>
                 <div>
                   <Label className="text-xs">Longitude</Label>
-                  <Input value={formLng} onChange={e => setFormLng(e.target.value)} placeholder="Click map to set" />
+                  <Input value={formLng} onChange={e => setFormLng(e.target.value)} placeholder="Auto-set from address/map" readOnly className="bg-muted/50" />
                 </div>
               </div>
 
@@ -396,7 +593,16 @@ export default function GeofenceMapSection() {
                   <Shield className="h-4 w-4 text-blue-500" />
                   <span className="text-sm font-medium">Geofence Boundary</span>
                 </div>
-                <Select value={formGeofenceType} onValueChange={(v: 'radius' | 'polygon') => setFormGeofenceType(v)}>
+                <Select value={formGeofenceType} onValueChange={(v: 'radius' | 'polygon') => {
+                  setFormGeofenceType(v);
+                  setIsDrawing(false);
+                  if (v === 'polygon') {
+                    setDrawMode('polygon');
+                    setFormPolygon([]);
+                  } else {
+                    setDrawMode('radius');
+                  }
+                }}>
                   <SelectTrigger className="w-36 h-8">
                     <SelectValue />
                   </SelectTrigger>
@@ -439,24 +645,45 @@ export default function GeofenceMapSection() {
                 </div>
               ) : (
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
                     <p className="text-xs text-muted-foreground">
-                      Click points on the map to draw a custom boundary. {formPolygon.length < 3 ? `Need ${3 - formPolygon.length} more point(s).` : `${formPolygon.length} points drawn.`}
+                      {formPolygon.length === 0
+                        ? 'Click "Start Drawing" then click on the map to place boundary points.'
+                        : formPolygon.length < 3
+                          ? `${formPolygon.length} point${formPolygon.length !== 1 ? 's' : ''} placed — need at least ${3 - formPolygon.length} more.`
+                          : `${formPolygon.length} points — boundary complete.`}
                     </p>
                     <div className="flex gap-1">
-                      <Button
-                        variant={isDrawing ? "default" : "outline"}
-                        size="sm"
-                        className="gap-1 h-7 text-xs"
-                        onClick={() => { setIsDrawing(!isDrawing); setDrawMode('polygon'); }}
-                      >
-                        <Crosshair className="h-3 w-3" />
-                        {isDrawing ? 'Stop Drawing' : 'Draw Boundary'}
-                      </Button>
-                      {formPolygon.length > 0 && (
-                        <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => { setFormPolygon([]); setIsDrawing(true); }}>
-                          Clear
+                      {!isDrawing ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="gap-1 h-7 text-xs"
+                          onClick={() => { setIsDrawing(true); setDrawMode('polygon'); }}
+                        >
+                          <Crosshair className="h-3 w-3" />
+                          {formPolygon.length > 0 ? 'Redraw Boundary' : 'Start Drawing'}
                         </Button>
+                      ) : (
+                        <Button
+                          variant="default"
+                          size="sm"
+                          className="gap-1 h-7 text-xs"
+                          onClick={() => setIsDrawing(false)}
+                        >
+                          <Crosshair className="h-3 w-3" />
+                          Done Drawing
+                        </Button>
+                      )}
+                      {formPolygon.length > 0 && (
+                        <>
+                          <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={handleUndoLastPoint}>
+                            <Undo2 className="h-3 w-3" /> Undo
+                          </Button>
+                          <Button variant="ghost" size="sm" className="h-7 text-xs text-destructive" onClick={() => { setFormPolygon([]); setIsDrawing(true); setDrawMode('polygon'); }}>
+                            Clear All
+                          </Button>
+                        </>
                       )}
                     </div>
                   </div>
@@ -511,7 +738,7 @@ export default function GeofenceMapSection() {
                 <div className="flex-1" />
                 <Button
                   onClick={handleSave}
-                  disabled={!formName || !formLat || !formLng || createMutation.isPending || updateMutation.isPending}
+                  disabled={!formName || createMutation.isPending || updateMutation.isPending}
                   className="gap-1.5"
                 >
                   <Save className="h-3.5 w-3.5" />
