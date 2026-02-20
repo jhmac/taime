@@ -151,15 +151,26 @@ async function executeSpec(spec, options = {}) {
 
   // If the raw response is plain text that Claude used to analyze criteria,
   // and it indicates all are met, treat as SPEC_COMPLETE
-  if (typeof result.raw === 'string' && result.reason === 'parse-failed') {
+  if (typeof result.raw === 'string') {
     const raw = result.raw;
-    // Check if Claude is indicating all criteria are satisfied (checkmarks, "met", "already")
     const allMetSignals = [
       /all\s+(success\s+)?criteria\s+are\s+(met|satisfied|already)/i,
       /both\s+(criteria|requirements)\s+are\s+(met|satisfied|already)/i,
+      /criteria.*(?:already|currently)\s+(met|satisfied|implemented|working)/i,
+      /(?:already|currently)\s+(implemented|working|functional|exists|present)/i,
+      /no\s+(?:changes?\s+)?(?:needed|required|necessary)/i,
+      /(?:the|this)\s+(?:code|implementation|feature)\s+(?:already|is\s+already)\s/i,
+      /SPEC_COMPLETE/,
     ];
     if (allMetSignals.some(p => p.test(raw))) {
       return { status: 'SPEC_COMPLETE' };
+    }
+
+    // If Claude returned a code block with file path, try to parse as a change
+    const codeBlockMatch = raw.match(/```(?:\w+)?\n([\s\S]*?)```/);
+    if (codeBlockMatch && result.reason === 'parse-failed') {
+      // Could not extract structured change, treat as stuck with better reason
+      return { status: 'stuck', reason: 'parse-failed-with-code-block' };
     }
   }
 

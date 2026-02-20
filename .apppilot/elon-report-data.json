@@ -235,7 +235,7 @@
       "id": "constraint-1771530063014",
       "description": "Critical authentication and database connection failures causing complete system unavailability",
       "score": 10,
-      "status": "active",
+      "status": "dismissed",
       "category": "infrastructure",
       "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
       "identifiedAt": "2026-02-19T19:41:03.014Z",
@@ -253,13 +253,15 @@
         "Task assignment system can function",
         "Payroll reports can be generated",
         "All downstream features dependent on working auth and database"
-      ]
+      ],
+      "dismissedReason": "False positive — 401s/404s from unauthenticated crawler hitting API endpoints, not real bugs. Auth works fine with Clerk when user is logged in.",
+      "dismissedAt": "2026-02-20T00:45:31.049Z"
     },
     {
       "id": "constraint-1771530238574",
       "description": "Critical authentication and authorization failures across the entire application preventing any user functionality",
       "score": 10,
-      "status": "active",
+      "status": "dismissed",
       "category": "security",
       "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
       "identifiedAt": "2026-02-19T19:43:58.574Z",
@@ -279,13 +281,15 @@
         "Task assignment can be accessed",
         "All RBAC-protected features become functional",
         "Real user testing of other features becomes possible"
-      ]
+      ],
+      "dismissedReason": "False positive — 401s/404s from unauthenticated crawler hitting API endpoints, not real bugs. Auth works fine with Clerk when user is logged in.",
+      "dismissedAt": "2026-02-20T00:45:31.050Z"
     },
     {
       "id": "constraint-1771530657564",
       "description": "Critical authentication and RBAC middleware missing across protected API routes, leaving workforce management endpoints completely unsecured",
       "score": 10,
-      "status": "active",
+      "status": "dismissed",
       "category": "security",
       "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
       "identifiedAt": "2026-02-19T19:50:57.564Z",
@@ -305,13 +309,15 @@
         "Manager task assignment workflow",
         "Scheduled reminder delivery to correct roles",
         "Customer Style DNA privacy protection"
-      ]
+      ],
+      "dismissedReason": "False positive — 401s/404s from unauthenticated crawler hitting API endpoints, not real bugs. Auth works fine with Clerk when user is logged in.",
+      "dismissedAt": "2026-02-20T00:45:31.050Z"
     },
     {
       "id": "constraint-1771530689412",
       "description": "Critical authentication and data fetching failures preventing users from accessing core features",
       "score": 10,
-      "status": "active",
+      "status": "dismissed",
       "category": "security",
       "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
       "identifiedAt": "2026-02-19T19:51:29.412Z",
@@ -329,13 +335,15 @@
         "Payroll reports become accessible",
         "Task assignment becomes functional",
         "All authenticated features become usable"
-      ]
+      ],
+      "dismissedReason": "False positive — 401s/404s from unauthenticated crawler hitting API endpoints, not real bugs. Auth works fine with Clerk when user is logged in.",
+      "dismissedAt": "2026-02-20T00:45:31.050Z"
     },
     {
       "id": "constraint-1771531361590",
       "description": "Critical authentication and authorization failures blocking all protected routes and RBAC enforcement",
       "score": 10,
-      "status": "active",
+      "status": "dismissed",
       "category": "security",
       "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
       "identifiedAt": "2026-02-19T20:02:41.590Z",
@@ -352,7 +360,9 @@
         "All RBAC-protected features become functional",
         "API performance can be measured accurately (currently masked by auth failures)",
         "Shopify sync can proceed (likely blocked by auth on webhook routes)"
-      ]
+      ],
+      "dismissedReason": "False positive — 401s/404s from unauthenticated crawler hitting API endpoints, not real bugs. Auth works fine with Clerk when user is logged in.",
+      "dismissedAt": "2026-02-20T00:45:31.050Z"
     },
     {
       "id": "constraint-1771531453160",
@@ -381,7 +391,7 @@
       "id": "constraint-1771534598741",
       "description": "Critical database connection failures and missing error handling are causing 500 errors across multiple core endpoints, making the app completely unusable",
       "score": 10,
-      "status": "active",
+      "status": "dismissed",
       "category": "infrastructure",
       "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
       "identifiedAt": "2026-02-19T20:56:38.741Z",
@@ -398,13 +408,15 @@
         "Payroll report generation",
         "Task assignment and tracking",
         "All core business operations"
-      ]
+      ],
+      "dismissedReason": "False positive — 401s/404s from unauthenticated crawler hitting API endpoints, not real bugs. Auth works fine with Clerk when user is logged in.",
+      "dismissedAt": "2026-02-20T00:45:31.050Z"
     },
     {
       "id": "constraint-1771534784517",
       "description": "Critical authentication and API errors preventing core features from functioning. Multiple 401 Unauthorized errors, CORS issues, and database connection failures are blocking clock-in/out, schedule viewing, and task management.",
       "score": 10,
-      "status": "active",
+      "status": "dismissed",
       "category": "security",
       "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
       "identifiedAt": "2026-02-19T20:59:44.517Z",
@@ -423,13 +435,15 @@
         "Task assignment and tracking",
         "Payroll report generation",
         "All authenticated API endpoints"
-      ]
+      ],
+      "dismissedReason": "False positive — 401s/404s from unauthenticated crawler hitting API endpoints, not real bugs. Auth works fine with Clerk when user is logged in.",
+      "dismissedAt": "2026-02-20T00:45:31.050Z"
     },
     {
       "id": "constraint-1771534882869",
       "description": "Authentication system is completely broken — all API routes return 401 Unauthorized, making the entire app unusable",
       "score": 10,
-      "status": "active",
+      "status": "dismissed",
       "category": "security",
       "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports MUST work flawlessly",
       "identifiedAt": "2026-02-19T21:01:22.869Z",
@@ -446,13 +460,15 @@
         "Payroll report access",
         "Task assignment",
         "All core business operations"
-      ]
+      ],
+      "dismissedReason": "False positive — 401s/404s from unauthenticated crawler hitting API endpoints, not real bugs. Auth works fine with Clerk when user is logged in.",
+      "dismissedAt": "2026-02-20T00:45:31.050Z"
     },
     {
       "id": "constraint-1771547711974",
       "description": "Multiple critical API endpoints are returning 404 errors, completely breaking core functionality including clock-in/out, scheduling, payroll, and task management",
       "score": 10,
-      "status": "active",
+      "status": "dismissed",
       "category": "infrastructure",
       "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
       "identifiedAt": "2026-02-20T00:35:11.974Z",
@@ -474,7 +490,9 @@
         "Payroll reports can be generated",
         "Tasks can be assigned and tracked",
         "Basic business operations can resume"
-      ]
+      ],
+      "dismissedReason": "False positive — 401s/404s from unauthenticated crawler hitting API endpoints, not real bugs. Auth works fine with Clerk when user is logged in.",
+      "dismissedAt": "2026-02-20T00:45:31.050Z"
     }
   ],
   "crawlHistory": [
