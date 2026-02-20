@@ -222,6 +222,56 @@ export function registerAdminRoutes(app: Express, storage: IStorage, isAuthentic
     }
   });
 
+  app.post('/api/holiday-pay-rules/bulk', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canManage = userPermissions.some(p => p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all');
+
+      if (!canManage) {
+        return res.status(403).json({ message: "Admin or payroll management access required" });
+      }
+
+      const { holidays } = req.body;
+      if (!Array.isArray(holidays) || holidays.length === 0) {
+        return res.status(400).json({ message: "Please provide an array of holidays" });
+      }
+
+      const existingRules = await storage.getAllHolidayPayRules();
+      const saved = [];
+      for (const h of holidays) {
+        if (!h.name || typeof h.month !== 'number' || typeof h.day !== 'number') continue;
+        if (h.month < 1 || h.month > 12 || h.day < 1 || h.day > 31) continue;
+        const multiplier = typeof h.payMultiplier === 'number' && h.payMultiplier > 0 && h.payMultiplier <= 5 ? h.payMultiplier : 1.5;
+
+        const existing = existingRules.find(r => r.month === h.month && r.day === h.day);
+        if (existing) {
+          const updated = await storage.updateHolidayPayRule(existing.id, {
+            name: h.name,
+            payMultiplier: multiplier.toFixed(2),
+            isActive: true,
+          });
+          saved.push(updated);
+        } else {
+          const rule = await storage.createHolidayPayRule({
+            name: h.name,
+            month: h.month,
+            day: h.day,
+            payMultiplier: multiplier.toFixed(2),
+            isActive: true,
+            createdBy: userId,
+          });
+          saved.push(rule);
+        }
+      }
+
+      res.json({ rules: saved, count: saved.length });
+    } catch (error) {
+      console.error("Error bulk creating holiday pay rules:", error);
+      res.status(500).json({ message: "Failed to save holiday pay rules" });
+    }
+  });
+
   app.get('/api/holiday-pay-rules', isAuthenticated, async (req: any, res) => {
     try {
       const rules = await storage.getAllHolidayPayRules();
