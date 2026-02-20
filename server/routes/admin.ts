@@ -1,6 +1,5 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
-import { insertWorkLocationSchema } from "@shared/schema";
 import { z } from "zod";
 
 const companySettingsUpdateSchema = z.object({
@@ -133,77 +132,7 @@ export function registerAdminRoutes(app: Express, storage: IStorage, isAuthentic
     }
   });
 
-  app.post('/api/work-locations', isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.id;
-      const user = await storage.getUser(userId);
-      
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canManageLocations = userPermissions.some(p => p.name === 'admin.manage_locations');
-      
-      if (!canManageLocations) {
-        return res.status(403).json({ message: "Location management access required" });
-      }
-
-      const data = insertWorkLocationSchema.parse(req.body);
-      const location = await storage.createWorkLocation(data);
-      res.json(location);
-    } catch (error) {
-      console.error("Error creating work location:", error);
-      res.status(400).json({ message: (error as Error).message });
-    }
-  });
-
-  app.get('/api/work-locations', isAuthenticated, async (req: any, res) => {
-    try {
-      const locations = await storage.getAllWorkLocations();
-      res.json(locations);
-    } catch (error) {
-      console.error("Error fetching work locations:", error);
-      res.status(500).json({ message: "Failed to fetch work locations" });
-    }
-  });
-
-  app.put('/api/work-locations/:id', isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canManageLocations = userPermissions.some(p => p.name === 'admin.manage_locations' || p.name === 'admin.manage_all');
-      if (!canManageLocations) {
-        return res.status(403).json({ message: "Location management access required" });
-      }
-      const locationAllowedFields = ['name', 'address', 'latitude', 'longitude', 'radius', 'isActive'];
-      const locationUpdates: Record<string, any> = {};
-      for (const key of locationAllowedFields) {
-        if (req.body[key] !== undefined) {
-          locationUpdates[key] = req.body[key];
-        }
-      }
-      const updated = await storage.updateWorkLocation(req.params.id, locationUpdates);
-      await storage.createActivityLog({ userId, action: 'update', targetType: 'work_location', targetId: req.params.id, details: `Updated work location: ${updated.name}` });
-      res.json(updated);
-    } catch (error) {
-      console.error("Error updating work location:", error);
-      res.status(400).json({ message: (error as Error).message });
-    }
-  });
-
-  app.delete('/api/work-locations/:id', isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canManageLocations = userPermissions.some(p => p.name === 'admin.manage_locations' || p.name === 'admin.manage_all');
-      if (!canManageLocations) {
-        return res.status(403).json({ message: "Location management access required" });
-      }
-      await storage.deleteWorkLocation(req.params.id);
-      await storage.createActivityLog({ userId, action: 'delete', targetType: 'work_location', targetId: req.params.id, details: 'Deleted work location' });
-      res.json({ message: "Location deleted" });
-    } catch (error) {
-      console.error("Error deleting work location:", error);
-      res.status(400).json({ message: (error as Error).message });
-    }
-  });
+  // Work location routes are handled in geofence.ts to avoid duplication
 
   app.get('/api/activity-logs', isAuthenticated, async (req: any, res) => {
     try {

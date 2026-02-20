@@ -142,8 +142,8 @@ export function registerGeofenceRoutes(app: Express, storage: IStorage, isAuthen
     try {
       const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
-      const isAdmin = userPermissions.some((p: any) => p.name === 'admin.manage_all');
-      if (!isAdmin) {
+      const canManage = userPermissions.some((p: any) => p.name === 'admin.manage_all' || p.name === 'admin.manage_locations');
+      if (!canManage) {
         return res.status(403).json({ message: "Admin access required" });
       }
 
@@ -177,8 +177,8 @@ export function registerGeofenceRoutes(app: Express, storage: IStorage, isAuthen
     try {
       const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
-      const isAdmin = userPermissions.some((p: any) => p.name === 'admin.manage_all');
-      if (!isAdmin) {
+      const canManage = userPermissions.some((p: any) => p.name === 'admin.manage_all' || p.name === 'admin.manage_locations');
+      if (!canManage) {
         return res.status(403).json({ message: "Admin access required" });
       }
 
@@ -217,8 +217,8 @@ export function registerGeofenceRoutes(app: Express, storage: IStorage, isAuthen
     try {
       const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
-      const isAdmin = userPermissions.some((p: any) => p.name === 'admin.manage_all');
-      if (!isAdmin) {
+      const canManage = userPermissions.some((p: any) => p.name === 'admin.manage_all' || p.name === 'admin.manage_locations');
+      if (!canManage) {
         return res.status(403).json({ message: "Admin access required" });
       }
 

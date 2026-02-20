@@ -83,11 +83,71 @@ function MapComponent({ location, onLocationChange, onPolygonChange, isDrawing, 
   const drawModeRef = useRef(drawMode);
   const onLocationChangeRef = useRef(onLocationChange);
   const onPolygonChangeRef = useRef(onPolygonChange);
+  const skipNextDisplayUpdate = useRef(false);
+  const lastExternalUpdateRef = useRef<string>('');
 
   useEffect(() => { isDrawingRef.current = isDrawing; }, [isDrawing]);
   useEffect(() => { drawModeRef.current = drawMode; }, [drawMode]);
   useEffect(() => { onLocationChangeRef.current = onLocationChange; }, [onLocationChange]);
   useEffect(() => { onPolygonChangeRef.current = onPolygonChange; }, [onPolygonChange]);
+
+  const renderPolygonMarkers = useCallback((points: Array<{ lat: number; lng: number }>, editable: boolean) => {
+    if (!mapInstanceRef.current || !window.L) return;
+    const L = window.L;
+    const map = mapInstanceRef.current;
+
+    markersRef.current.forEach((m: any) => map.removeLayer(m));
+    markersRef.current = [];
+    if (polygonRef.current) {
+      map.removeLayer(polygonRef.current);
+      polygonRef.current = null;
+    }
+
+    points.forEach((p, idx) => {
+      if (editable) {
+        const m = L.marker([p.lat, p.lng], {
+          draggable: true,
+          icon: L.divIcon({
+            className: 'polygon-point-marker',
+            html: `<div style="background:#3b82f6;width:12px;height:12px;border-radius:50%;border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,0.3);cursor:grab;"></div>`,
+            iconSize: [12, 12],
+            iconAnchor: [6, 6],
+          }),
+        }).addTo(map);
+        m.on('dragend', () => {
+          const pos = m.getLatLng();
+          polygonPointsRef.current[idx] = { lat: pos.lat, lng: pos.lng };
+          skipNextDisplayUpdate.current = true;
+          onPolygonChangeRef.current([...polygonPointsRef.current]);
+        });
+        m.on('drag', () => {
+          const pos = m.getLatLng();
+          const tempPoints = [...polygonPointsRef.current];
+          tempPoints[idx] = { lat: pos.lat, lng: pos.lng };
+          if (polygonRef.current) map.removeLayer(polygonRef.current);
+          if (tempPoints.length >= 2) {
+            polygonRef.current = L.polygon(
+              tempPoints.map((pt: any) => [pt.lat, pt.lng]),
+              { color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 0.15, weight: 2 }
+            ).addTo(map);
+          }
+        });
+        markersRef.current.push(m);
+      } else {
+        const m = L.circleMarker([p.lat, p.lng], {
+          radius: 6, fillColor: '#3b82f6', fillOpacity: 1, color: '#fff', weight: 2
+        }).addTo(map);
+        markersRef.current.push(m);
+      }
+    });
+
+    if (points.length >= 2) {
+      polygonRef.current = L.polygon(
+        points.map(pt => [pt.lat, pt.lng]),
+        { color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 0.15, weight: 2 }
+      ).addTo(map);
+    }
+  }, []);
 
   useEffect(() => {
     loadLeaflet().then(() => {
@@ -106,26 +166,18 @@ function MapComponent({ location, onLocationChange, onPolygonChange, isDrawing, 
       mapInstanceRef.current = map;
 
       if (location?.latitude && location?.longitude) {
-        updateMapDisplay(location);
+        updateMapDisplay(location, true);
       }
 
       map.on('click', (e: any) => {
         if (isDrawingRef.current && drawModeRef.current === 'polygon') {
           polygonPointsRef.current.push({ lat: e.latlng.lat, lng: e.latlng.lng });
-          const m = L.circleMarker(e.latlng, {
-            radius: 6, fillColor: '#3b82f6', fillOpacity: 1, color: '#fff', weight: 2
-          }).addTo(map);
-          markersRef.current.push(m);
-
-          if (polygonPointsRef.current.length >= 2) {
-            if (polygonRef.current) map.removeLayer(polygonRef.current);
-            polygonRef.current = L.polygon(
-              polygonPointsRef.current.map((p: any) => [p.lat, p.lng]),
-              { color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 0.15, weight: 2 }
-            ).addTo(map);
-          }
+          skipNextDisplayUpdate.current = true;
+          renderPolygonMarkers([...polygonPointsRef.current], false);
           onPolygonChangeRef.current([...polygonPointsRef.current]);
-        } else if (!isDrawingRef.current) {
+        } else if (drawModeRef.current === 'polygon' && !isDrawingRef.current) {
+          return;
+        } else {
           onLocationChangeRef.current(e.latlng.lat, e.latlng.lng);
         }
       });
@@ -139,7 +191,7 @@ function MapComponent({ location, onLocationChange, onPolygonChange, isDrawing, 
     };
   }, []);
 
-  const updateMapDisplay = useCallback((loc: WorkLocation) => {
+  const updateMapDisplay = useCallback((loc: WorkLocation, shouldFitBounds: boolean) => {
     if (!mapInstanceRef.current || !window.L) return;
     const L = window.L;
     const map = mapInstanceRef.current;
@@ -148,29 +200,19 @@ function MapComponent({ location, onLocationChange, onPolygonChange, isDrawing, 
 
     if (markerRef.current) map.removeLayer(markerRef.current);
     if (circleRef.current) map.removeLayer(circleRef.current);
-    if (polygonRef.current) map.removeLayer(polygonRef.current);
-    markersRef.current.forEach((m: any) => map.removeLayer(m));
-    markersRef.current = [];
 
     if (!loc.latitude || !loc.longitude) return;
 
-    markerRef.current = L.marker([lat, lng], {
-      icon: L.divIcon({
-        className: 'custom-marker',
-        html: `<div style="background:#3b82f6;width:24px;height:24px;border-radius:50%;border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.3);"></div>`,
-        iconSize: [24, 24],
-        iconAnchor: [12, 12],
-      }),
-    }).addTo(map);
+    if ((loc.geofenceType || 'radius') !== 'polygon') {
+      markerRef.current = L.marker([lat, lng], {
+        icon: L.divIcon({
+          className: 'custom-marker',
+          html: `<div style="background:#3b82f6;width:24px;height:24px;border-radius:50%;border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.3);"></div>`,
+          iconSize: [24, 24],
+          iconAnchor: [12, 12],
+        }),
+      }).addTo(map);
 
-    const geofenceType = loc.geofenceType || 'radius';
-    if (geofenceType === 'polygon' && loc.geofencePolygon && loc.geofencePolygon.length >= 3) {
-      polygonRef.current = L.polygon(
-        loc.geofencePolygon.map((p: any) => [p.lat, p.lng]),
-        { color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 0.15, weight: 2, dashArray: '5,5' }
-      ).addTo(map);
-      map.fitBounds(polygonRef.current.getBounds(), { padding: [50, 50] });
-    } else {
       const radius = loc.radius || 100;
       circleRef.current = L.circle([lat, lng], {
         radius,
@@ -180,13 +222,21 @@ function MapComponent({ location, onLocationChange, onPolygonChange, isDrawing, 
         weight: 2,
         dashArray: '5,5',
       }).addTo(map);
-      map.fitBounds(circleRef.current.getBounds(), { padding: [50, 50] });
+      if (shouldFitBounds) {
+        map.fitBounds(circleRef.current.getBounds(), { padding: [50, 50] });
+      }
     }
   }, []);
 
   useEffect(() => {
-    if (location && location.latitude && location.longitude && mapInstanceRef.current) {
-      updateMapDisplay(location);
+    if (!mapInstanceRef.current) return;
+    if (skipNextDisplayUpdate.current) {
+      skipNextDisplayUpdate.current = false;
+      return;
+    }
+    if (drawModeRef.current === 'polygon') return;
+    if (location && location.latitude && location.longitude) {
+      updateMapDisplay(location, false);
     }
   }, [location, updateMapDisplay]);
 
@@ -211,38 +261,29 @@ function MapComponent({ location, onLocationChange, onPolygonChange, isDrawing, 
       map.getContainer().style.cursor = 'crosshair';
     } else {
       map.getContainer().style.cursor = '';
+      if (drawMode === 'polygon' && polygonPointsRef.current.length >= 1) {
+        renderPolygonMarkers([...polygonPointsRef.current], true);
+      }
     }
-  }, [isDrawing, drawMode]);
+  }, [isDrawing, drawMode, renderPolygonMarkers]);
 
   useEffect(() => {
     if (!mapInstanceRef.current || !window.L) return;
     if (drawModeRef.current !== 'polygon') return;
-    const L = window.L;
-    const map = mapInstanceRef.current;
+
+    const key = JSON.stringify(externalPolygonPoints);
+    if (key === lastExternalUpdateRef.current) return;
+    lastExternalUpdateRef.current = key;
+
+    if (skipNextDisplayUpdate.current) {
+      skipNextDisplayUpdate.current = false;
+      return;
+    }
 
     polygonPointsRef.current = [...externalPolygonPoints];
-
-    markersRef.current.forEach((m: any) => map.removeLayer(m));
-    markersRef.current = [];
-    if (polygonRef.current) {
-      map.removeLayer(polygonRef.current);
-      polygonRef.current = null;
-    }
-
-    externalPolygonPoints.forEach(p => {
-      const m = L.circleMarker([p.lat, p.lng], {
-        radius: 6, fillColor: '#3b82f6', fillOpacity: 1, color: '#fff', weight: 2
-      }).addTo(map);
-      markersRef.current.push(m);
-    });
-
-    if (externalPolygonPoints.length >= 2) {
-      polygonRef.current = L.polygon(
-        externalPolygonPoints.map(p => [p.lat, p.lng]),
-        { color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 0.15, weight: 2 }
-      ).addTo(map);
-    }
-  }, [externalPolygonPoints]);
+    const editable = !isDrawingRef.current && externalPolygonPoints.length >= 1;
+    renderPolygonMarkers(externalPolygonPoints, editable);
+  }, [externalPolygonPoints, renderPolygonMarkers]);
 
   return (
     <div ref={mapRef} className="w-full h-[400px] rounded-lg border" style={{ zIndex: 0 }} />
@@ -336,11 +377,14 @@ export default function GeofenceMapSection() {
     setFormLat(loc.latitude || '');
     setFormLng(loc.longitude || '');
     setFormRadius(loc.radius || 100);
-    setFormGeofenceType((loc.geofenceType as 'radius' | 'polygon') || 'radius');
+    const geoType = (loc.geofenceType as 'radius' | 'polygon') || 'radius';
+    setFormGeofenceType(geoType);
+    setDrawMode(geoType);
     setFormPolygon(loc.geofencePolygon || []);
     setFormGraceMinutes(loc.geofenceGraceMinutes ?? 5);
     setFormGeofenceEnabled(loc.geofenceEnabled !== false);
     setFormAutoClockOut(loc.autoClockOut !== false);
+    setIsDrawing(false);
   };
 
   const handleSave = () => {
@@ -448,7 +492,7 @@ export default function GeofenceMapSection() {
         latitude: formLat || null, longitude: formLng || null,
         radius: formRadius, isActive: true,
         geofenceType: formGeofenceType,
-        geofencePolygon: formGeofenceType === 'polygon' ? formPolygon : null,
+        geofencePolygon: null,
         geofenceGraceMinutes: formGraceMinutes,
         geofenceEnabled: formGeofenceEnabled,
         autoClockOut: formAutoClockOut,
@@ -460,7 +504,7 @@ export default function GeofenceMapSection() {
           longitude: formLng || selectedLocation.longitude,
           radius: formRadius,
           geofenceType: formGeofenceType,
-          geofencePolygon: formGeofenceType === 'polygon' ? formPolygon : null,
+          geofencePolygon: null,
         }
       : selectedLocation;
 
