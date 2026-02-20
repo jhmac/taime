@@ -1,0 +1,18 @@
+{
+  "filePath": "client/src/pages/Settings/Integrations.tsx",
+  "description": "[ELON] Add Shopify integration card to Settings > Integrations page. Show connection status, shop domain (if connected), last sync timestamp, and orders synced count. Add 'Connect Shopify' button that redirects to /api/shopify/install. Add 'Disconnect' button (admin-only) that revokes access token and clears shopify_credentials. Add 'Sync Now' button (admin-only) that calls POST /api/shopify/sync-now and shows progress toast.",
+  "successCriteria": [
+    "Integrations page displays Shopify connection status",
+    "Connect button redirects to Shopify OAuth flow",
+    "Disconnect button clears credentials and updates UI",
+    "Sync Now button triggers sync and shows success/error toast",
+    "Non-admin users cannot see Disconnect or Sync Now buttons"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "source": "elon-fix",
+  "createdAt": "2026-02-20T17:38:10.171Z",
+  "elonConstraintId": "constraint-1771609090169",
+  "priority": "medium",
+  "step": 8,
+  "blockedCategory": "auth"
+}

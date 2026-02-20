@@ -4,20 +4,25 @@
       "id": "integration:shopify",
       "type": "integration-health",
       "firstSeen": "2026-02-20T17:35:46.765Z",
-      "lastChecked": "2026-02-20T17:35:46.765Z",
+      "lastChecked": "2026-02-20T17:38:22.800Z",
       "lastStatus": "healthy",
-      "totalChecks": 1,
+      "totalChecks": 2,
       "totalFailures": 0,
       "consecutiveFailures": 0,
       "firstFailed": null,
       "lastFailed": null,
-      "lastPassed": "2026-02-20T17:35:46.765Z",
+      "lastPassed": "2026-02-20T17:38:22.800Z",
       "escalationScore": 0,
       "history": [
         {
           "status": "healthy",
           "message": "shopify: healthy",
           "timestamp": "2026-02-20T17:35:46.765Z"
+        },
+        {
+          "status": "healthy",
+          "message": "shopify: healthy",
+          "timestamp": "2026-02-20T17:38:22.800Z"
         }
       ]
     },
@@ -25,20 +30,25 @@
       "id": "integration:nylas",
       "type": "integration-health",
       "firstSeen": "2026-02-20T17:35:46.765Z",
-      "lastChecked": "2026-02-20T17:35:46.765Z",
+      "lastChecked": "2026-02-20T17:38:22.801Z",
       "lastStatus": "healthy",
-      "totalChecks": 1,
+      "totalChecks": 2,
       "totalFailures": 0,
       "consecutiveFailures": 0,
       "firstFailed": null,
       "lastFailed": null,
-      "lastPassed": "2026-02-20T17:35:46.765Z",
+      "lastPassed": "2026-02-20T17:38:22.801Z",
       "escalationScore": 0,
       "history": [
         {
           "status": "healthy",
           "message": "nylas: healthy",
           "timestamp": "2026-02-20T17:35:46.765Z"
+        },
+        {
+          "status": "healthy",
+          "message": "nylas: healthy",
+          "timestamp": "2026-02-20T17:38:22.801Z"
         }
       ]
     },
@@ -46,20 +56,25 @@
       "id": "integration:claude-ai",
       "type": "integration-health",
       "firstSeen": "2026-02-20T17:35:46.766Z",
-      "lastChecked": "2026-02-20T17:35:46.766Z",
+      "lastChecked": "2026-02-20T17:38:22.802Z",
       "lastStatus": "skipped",
-      "totalChecks": 1,
+      "totalChecks": 2,
       "totalFailures": 0,
       "consecutiveFailures": 0,
       "firstFailed": null,
       "lastFailed": null,
-      "lastPassed": null,
+      "lastPassed": "2026-02-20T17:38:22.802Z",
       "escalationScore": 0,
       "history": [
         {
           "status": "skipped",
           "message": "claude-ai: skipped",
           "timestamp": "2026-02-20T17:35:46.766Z"
+        },
+        {
+          "status": "skipped",
+          "message": "claude-ai: skipped",
+          "timestamp": "2026-02-20T17:38:22.802Z"
         }
       ]
     },
@@ -67,20 +82,25 @@
       "id": "integration:database",
       "type": "integration-health",
       "firstSeen": "2026-02-20T17:35:46.766Z",
-      "lastChecked": "2026-02-20T17:35:46.766Z",
+      "lastChecked": "2026-02-20T17:38:22.802Z",
       "lastStatus": "healthy",
-      "totalChecks": 1,
+      "totalChecks": 2,
       "totalFailures": 0,
       "consecutiveFailures": 0,
       "firstFailed": null,
       "lastFailed": null,
-      "lastPassed": "2026-02-20T17:35:46.766Z",
+      "lastPassed": "2026-02-20T17:38:22.802Z",
       "escalationScore": 0,
       "history": [
         {
           "status": "healthy",
           "message": "database: healthy",
           "timestamp": "2026-02-20T17:35:46.766Z"
+        },
+        {
+          "status": "healthy",
+          "message": "database: healthy",
+          "timestamp": "2026-02-20T17:38:22.802Z"
         }
       ]
     },
@@ -88,20 +108,25 @@
       "id": "integration:websocket",
       "type": "integration-health",
       "firstSeen": "2026-02-20T17:35:46.766Z",
-      "lastChecked": "2026-02-20T17:35:46.766Z",
+      "lastChecked": "2026-02-20T17:38:22.803Z",
       "lastStatus": "healthy",
-      "totalChecks": 1,
+      "totalChecks": 2,
       "totalFailures": 0,
       "consecutiveFailures": 0,
       "firstFailed": null,
       "lastFailed": null,
-      "lastPassed": "2026-02-20T17:35:46.766Z",
+      "lastPassed": "2026-02-20T17:38:22.803Z",
       "escalationScore": 0,
       "history": [
         {
           "status": "healthy",
           "message": "websocket: healthy",
           "timestamp": "2026-02-20T17:35:46.766Z"
+        },
+        {
+          "status": "healthy",
+          "message": "websocket: healthy",
+          "timestamp": "2026-02-20T17:38:22.803Z"
         }
       ]
     },
@@ -232,5 +257,5 @@
       ]
     }
   ],
-  "lastUpdated": "2026-02-20T17:37:11.858Z"
+  "lastUpdated": "2026-02-20T17:38:22.803Z"
 }

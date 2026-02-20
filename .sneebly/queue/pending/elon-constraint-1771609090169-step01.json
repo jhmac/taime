@@ -1,0 +1,17 @@
+{
+  "filePath": "server/routes/shopify.ts",
+  "description": "[ELON] Create Shopify OAuth flow with install, callback, and token storage. Use Shopify's official @shopify/shopify-api SDK. Store access tokens in new shopify_credentials table (shop domain, access token, scopes, installed_at timestamp). Handle authorization URL generation, token exchange, and scope validation (read_orders, read_products, read_customers minimum).",
+  "successCriteria": [
+    "GET /api/shopify/install returns OAuth authorization URL",
+    "GET /api/shopify/callback?code=XXX&shop=YYY exchanges code for access token",
+    "Access token stored in shopify_credentials table",
+    "POST /api/shopify/install with valid shop domain initiates OAuth flow"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "source": "elon-fix",
+  "createdAt": "2026-02-20T17:38:10.169Z",
+  "elonConstraintId": "constraint-1771609090169",
+  "priority": "high",
+  "step": 1,
+  "blockedCategory": "auth"
+}

@@ -1,0 +1,17 @@
+{
+  "filePath": "server/routes/api.ts",
+  "description": "[ELON] Add GET /api/shopify/status endpoint returning { connected: boolean, shop_domain: string, last_sync: timestamp, orders_synced: number }. Add POST /api/shopify/sync-now endpoint to trigger manual reconciliation (admin-only, requires MANAGE_INTEGRATIONS permission). Update /health endpoint to include Shopify connection status.",
+  "successCriteria": [
+    "GET /api/shopify/status returns correct connected status",
+    "POST /api/shopify/sync-now triggers ShopifySyncService.reconcile()",
+    "Admin users can call sync-now, non-admins get 403",
+    "/health endpoint includes shopify: { connected: boolean }"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "source": "elon-fix",
+  "createdAt": "2026-02-20T17:38:10.170Z",
+  "elonConstraintId": "constraint-1771609090169",
+  "priority": "medium",
+  "step": 6,
+  "blockedCategory": "permissions"
+}

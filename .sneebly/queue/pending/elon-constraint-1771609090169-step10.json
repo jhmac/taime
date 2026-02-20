@@ -1,0 +1,18 @@
+{
+  "filePath": "server/services/shopify-reconciliation.ts",
+  "description": "[ELON] Create scheduled reconciliation job (runs every 6 hours via cron or setInterval). Queries Shopify for order count in last 7 days, compares to shopify_orders table count. If discrepancy > 5%, triggers full sync via ShopifySyncService.fetchRecentOrders(). Logs reconciliation results to activity_log. Sends notification to owner if sync fails 3 times in a row (uses existing notification system).",
+  "successCriteria": [
+    "Reconciliation job runs every 6 hours (verify with logs)",
+    "Discrepancies detected when order counts don't match",
+    "Full sync triggered when discrepancy threshold exceeded",
+    "Owner notified after 3 consecutive sync failures",
+    "Job can be manually triggered via /api/shopify/reconcile endpoint"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "source": "elon-fix",
+  "createdAt": "2026-02-20T17:38:10.171Z",
+  "elonConstraintId": "constraint-1771609090169",
+  "priority": "medium",
+  "step": 10,
+  "blockedCategory": "database"
+}

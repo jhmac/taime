@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-02-20T17:35:46.764Z",
+  "timestamp": "2026-02-20T17:38:22.800Z",
   "overall": "healthy",
   "integrations": [
     {
@@ -12,7 +12,7 @@
         "shopsEndpoint": "requires-auth"
       },
       "errors": [],
-      "timestamp": "2026-02-20T17:35:46.511Z"
+      "timestamp": "2026-02-20T17:38:22.020Z"
     },
     {
       "integration": "nylas",
@@ -23,14 +23,14 @@
         "grantValid": true
       },
       "errors": [],
-      "timestamp": "2026-02-20T17:35:46.513Z"
+      "timestamp": "2026-02-20T17:38:22.021Z"
     },
     {
       "integration": "claude-ai",
       "status": "skipped",
       "details": {},
       "errors": [],
-      "timestamp": "2026-02-20T17:35:46.515Z"
+      "timestamp": "2026-02-20T17:38:22.022Z"
     },
     {
       "integration": "database",
@@ -40,7 +40,7 @@
         "appResponding": true
       },
       "errors": [],
-      "timestamp": "2026-02-20T17:35:46.515Z"
+      "timestamp": "2026-02-20T17:38:22.022Z"
     },
     {
       "integration": "websocket",
@@ -50,7 +50,7 @@
         "note": "WebSocket endpoint configured (connection test requires browser context)"
       },
       "errors": [],
-      "timestamp": "2026-02-20T17:35:46.515Z"
+      "timestamp": "2026-02-20T17:38:22.023Z"
     }
   ],
   "issues": []

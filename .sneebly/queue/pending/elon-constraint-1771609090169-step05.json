@@ -1,0 +1,18 @@
+{
+  "filePath": "server/services/shopify-sync.ts",
+  "description": "[ELON] Create ShopifySyncService with methods: fetchRecentOrders() (pulls last 7 days of orders via Shopify Admin API), syncOrder() (inserts/updates single order in DB), and reconcile() (compares Shopify order count vs. DB count, flags discrepancies). Use Shopify GraphQL Admin API for efficient queries. Implement retry logic with exponential backoff for rate limit errors (429). Log all sync operations to activity_log.",
+  "successCriteria": [
+    "fetchRecentOrders() returns array of orders from Shopify API",
+    "syncOrder() inserts new order into shopify_orders table",
+    "syncOrder() updates existing order if order_number already exists",
+    "reconcile() detects when DB has fewer orders than Shopify",
+    "Rate limit errors trigger exponential backoff retry (3 attempts max)"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "source": "elon-fix",
+  "createdAt": "2026-02-20T17:38:10.170Z",
+  "elonConstraintId": "constraint-1771609090169",
+  "priority": "high",
+  "step": 5,
+  "blockedCategory": "permissions"
+}

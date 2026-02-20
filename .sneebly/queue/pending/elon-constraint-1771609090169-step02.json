@@ -1,0 +1,18 @@
+{
+  "filePath": "server/routes/shopify-webhooks.ts",
+  "description": "[ELON] Create webhook receiver endpoints for orders/create, orders/updated, and products/update. Verify HMAC signatures using Shopify secret. Parse webhook payload, extract sales data (order_number, total_price, line_items, created_at, customer info), and insert into new shopify_orders table. Log webhook receipt in activity_log. Handle idempotency using webhook event_id to prevent duplicate processing.",
+  "successCriteria": [
+    "POST /api/shopify/webhooks/orders accepts valid Shopify webhook",
+    "HMAC signature verification passes for authentic webhooks",
+    "Order data inserted into shopify_orders table",
+    "Duplicate webhooks detected and skipped (idempotency check)",
+    "Invalid HMAC returns 401 Unauthorized"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "source": "elon-fix",
+  "createdAt": "2026-02-20T17:38:10.170Z",
+  "elonConstraintId": "constraint-1771609090169",
+  "priority": "high",
+  "step": 2,
+  "blockedCategory": "database"
+}
