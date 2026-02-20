@@ -1032,6 +1032,32 @@
       </div>
     </div>
 
+    <div class="panel" id="build-mode-section" style="margin-bottom:20px">
+      <div class="panel-header">
+        <span>&#128296; Build Mode</span>
+      </div>
+      <div class="panel-body padded">
+        <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px">
+          <span style="color:var(--text-secondary)">Current Mode:</span>
+          <span id="elon-mode-badge" style="padding:4px 12px;border-radius:4px;font-weight:bold;color:white;background:#666">...</span>
+        </div>
+        <div style="margin-bottom:8px">
+          <span style="color:var(--text-secondary)">Phase:</span> <strong id="build-phase-display">—</strong>
+        </div>
+        <div style="margin-bottom:8px">
+          <span style="color:var(--text-secondary)">Current Milestone:</span> <span id="build-milestone-display" style="color:var(--text-secondary)">—</span>
+        </div>
+        <div style="margin-bottom:8px">
+          <span style="color:var(--text-secondary)">Constraint:</span> <span id="build-constraint-display" style="color:var(--text-secondary)">—</span>
+        </div>
+        <div style="margin-top:12px;display:flex;gap:8px">
+          <button onclick="setElonMode('build')" style="background:var(--blue);color:#fff">Force Build</button>
+          <button onclick="setElonMode('fix')" style="background:var(--red);color:#fff">Force Fix</button>
+          <button onclick="setElonMode('auto')" style="background:var(--green);color:#000;font-weight:bold">Auto Mode</button>
+        </div>
+      </div>
+    </div>
+
     <div class="elon-panel" id="elon-panel">
       <div class="panel-header" style="display:flex;justify-content:space-between;align-items:center">
         <span>ELON Strategic Constraint Solver</span>
@@ -1184,7 +1210,7 @@
 
   <div class="footer">
     Edit identity files (SOUL.md, AGENTS.md, etc.) in the Replit editor &mdash; <a href="#">View in Replit Editor</a>
-    <br>Sneebly v0.3.1
+    <br>Sneebly v0.4.0
   </div>
 
   <script>
@@ -1539,6 +1565,7 @@
         loadQueue(),
         loadMetrics(),
         loadCrawlerAuthStatus(),
+        loadBuildState(),
       ]);
       spinner.style.display = 'none';
     }
@@ -2431,6 +2458,43 @@
       } catch {}
     }
 
+    async function loadBuildState() {
+      try {
+        const data = await apiFetch('/build-state');
+
+        const badge = document.getElementById('elon-mode-badge');
+        if (badge) {
+          badge.textContent = (data.mode || 'auto').toUpperCase();
+          badge.style.background = data.mode === 'build' ? '#2563eb' : data.mode === 'fix' ? '#dc2626' : '#16a34a';
+        }
+
+        const phase = document.getElementById('build-phase-display');
+        if (phase) phase.textContent = data.buildState?.currentPhase ? 'Phase ' + data.buildState.currentPhase : '—';
+
+        const milestone = document.getElementById('build-milestone-display');
+        if (milestone) milestone.textContent = data.buildState?.currentMilestone || '—';
+
+        const constraint = document.getElementById('build-constraint-display');
+        if (constraint) constraint.textContent = data.buildState?.currentConstraint || '—';
+      } catch (e) {
+        console.error('Failed to load build state:', e);
+      }
+    }
+
+    async function setElonMode(mode) {
+      try {
+        await apiFetch('/elon/mode', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode })
+        });
+        await loadBuildState();
+      } catch (e) {
+        console.error('Failed to set mode:', e);
+      }
+    }
+
+    loadBuildState();
     loadElonProgress();
     loadElonReport();
     refreshAll();

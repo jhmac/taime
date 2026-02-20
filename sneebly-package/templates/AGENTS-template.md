@@ -43,6 +43,26 @@ node_modules/**
 .git/**
 ```
 
+## Safe to Create New Files In
+<!-- Build mode can scaffold new files in these directories -->
+- server/routes/
+- server/services/
+- server/utils/
+- client/src/pages/
+- client/src/components/
+- client/src/hooks/
+- client/src/lib/
+- shared/
+
+## Build Mode Rules
+1. When creating new files, follow the existing project structure exactly.
+2. New routes must be registered in the main routes file.
+3. New schema tables must use the same ORM patterns as existing tables.
+4. New pages must use the existing routing setup.
+5. Import paths must match the project's alias configuration.
+6. Always check what already exists before creating.
+7. Generated code must be COMPLETE — no placeholders or TODOs.
+
 ## Coding Standards
 
 - Follow existing code conventions (indentation, naming, imports)

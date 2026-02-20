@@ -1174,6 +1174,33 @@ function createAdminDashboard(options = {}) {
       res.json({ running: specsExecutionRunning });
     });
 
+    app.get(`${basePath}/api/build-state`, authMiddleware, (req, res) => {
+      try {
+        const { loadBuildState, getElonMode } = require('../elon');
+        const buildState = loadBuildState(dataDir);
+        const mode = getElonMode({ context: { goals: {} }, dataDir });
+        res.json({ mode, buildState: buildState || { currentPhase: 1, hasUnbuiltMilestones: false } });
+      } catch (error) {
+        res.json({ mode: 'unknown', buildState: null, error: error.message });
+      }
+    });
+
+    app.post(`${basePath}/api/elon/mode`, authMiddleware, (req, res) => {
+      try {
+        const { saveElonLog } = require('../elon');
+        const { mode } = req.body;
+        if (!['build', 'fix', 'auto'].includes(mode)) {
+          return res.status(400).json({ success: false, error: 'Mode must be: build, fix, or auto' });
+        }
+        saveElonLog(dataDir, { modeOverride: mode === 'auto' ? null : mode });
+        owner.logOwnerAction('elon_mode_change', { mode }, dataDir);
+        pushActivity('info', 'ELON mode set to: ' + mode.toUpperCase());
+        res.json({ success: true, mode });
+      } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+      }
+    });
+
     app.get(`${basePath}/api/elon/constraint-counts`, authMiddleware, (req, res) => {
       try {
         const { getActiveConstraintCounts } = require('../elon.js');
