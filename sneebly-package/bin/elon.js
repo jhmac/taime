@@ -47,6 +47,7 @@ function getArg(flag, envVar, defaultVal) {
 
 const path = require('path');
 const { runElonLoop, getElonMode, saveElonLog } = require('../src/elon.js');
+const { loadContext } = require('../src/context-loader.js');
 
 const modeArg = args.find(a => a.startsWith('--mode='));
 const forcedMode = modeArg ? modeArg.split('=')[1] : null;
@@ -69,8 +70,8 @@ const maxConstraints = parseInt(getArg('--max', 'ELON_MAX_CONSTRAINTS', '5')) ||
 const enableCrawl = !args.includes('--no-crawl') && process.env.ELON_CRAWL !== 'false';
 const appUrl = getArg('--url', 'APP_URL', 'http://localhost:5000');
 
-const config = { context: { goals: {} }, dataDir };
-const currentMode = getElonMode(config);
+const context = loadContext(projectRoot);
+const currentMode = getElonMode({ context, dataDir });
 
 console.log('ELON starting — identifying limiting factors...');
 console.log(`   Mode: ${currentMode}`);

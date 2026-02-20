@@ -1021,6 +1021,41 @@ function createAdminDashboard(options = {}) {
 
     let specsExecutionRunning = false;
 
+    function _specProgressHandler(prefix) {
+      return (phase, message, detail, type) => {
+        const activityType = type === 'thinking' ? 'heartbeat' : type === 'error' ? 'error' : type === 'success' ? 'success' : 'info';
+        pushActivity(activityType, message);
+        if (detail && detail.budget !== undefined) {
+          elonProgress.budget.spent = detail.budget;
+        }
+        if (phase === 'spec-done') { elonProgress.cycle++; specsFixesApplied++; }
+        if (phase === 'spec-failed' || phase === 'spec-error') { elonProgress.cycle++; }
+        elonProgress.steps.push({
+          id: prefix + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+          phase, message, detail: detail || null, type: type || 'info',
+          timestamp: new Date().toISOString(), duration: null,
+        });
+        if (elonProgress.steps.length > 200) elonProgress.steps = elonProgress.steps.slice(-150);
+      };
+    }
+
+    function _handleSpecsComplete(result, label) {
+      specsExecutionRunning = false;
+      elonProgress.running = false;
+      elonProgress.phase = 'complete';
+      elonProgress.budget.spent = result.budgetUsed || 0;
+      pushActivity('success', `${label}: ${result.succeeded} succeeded, ${result.failed} failed, $${(result.budgetUsed || 0).toFixed(2)} spent`);
+      if (memoryStore) memoryStore.logDaily(`ELON ${label}: ${result.succeeded} succeeded, ${result.failed} failed, $${(result.budgetUsed || 0).toFixed(2)} spent`);
+    }
+
+    function _handleSpecsError(err, label) {
+      specsExecutionRunning = false;
+      elonProgress.running = false;
+      elonProgress.phase = 'error';
+      pushActivity('error', `${label} failed: ${err.message}`);
+      if (memoryStore) memoryStore.logDaily(`ELON ${label} failed: ${err.message}`);
+    }
+
     function triggerAutoExecute() {
       if (specsExecutionRunning) return;
       const apiKey = process.env.SNEEBLY_ANTHROPIC_KEY || process.env.ANTHROPIC_API_KEY;
@@ -1043,39 +1078,10 @@ function createAdminDashboard(options = {}) {
 
       executeApprovedSpecs({
         apiKey, projectRoot, dataDir, budgetMax, memory: memoryStore,
-        onProgress: (phase, message, detail, type) => {
-          pushActivity(type === 'thinking' ? 'heartbeat' : type === 'error' ? 'error' : type === 'success' ? 'success' : 'info', message);
-          if (detail && detail.budget !== undefined) {
-            elonProgress.budget.spent = detail.budget;
-          }
-          if (phase === 'spec-done') {
-            elonProgress.cycle++;
-            specsFixesApplied++;
-          }
-          if (phase === 'spec-failed' || phase === 'spec-error') {
-            elonProgress.cycle++;
-          }
-          elonProgress.steps.push({
-            id: 'exec-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
-            phase, message, detail: detail || null, type: type || 'info',
-            timestamp: new Date().toISOString(), duration: null,
-          });
-          if (elonProgress.steps.length > 200) elonProgress.steps = elonProgress.steps.slice(-150);
-        },
-      }).then(result => {
-        specsExecutionRunning = false;
-        elonProgress.running = false;
-        elonProgress.phase = 'complete';
-        elonProgress.budget.spent = result.budgetUsed || 0;
-        pushActivity('success', `Specs execution complete: ${result.succeeded} succeeded, ${result.failed} failed, $${(result.budgetUsed || 0).toFixed(2)} spent`);
-        if (memoryStore) memoryStore.logDaily(`ELON specs auto-execution: ${result.succeeded} succeeded, ${result.failed} failed, $${(result.budgetUsed || 0).toFixed(2)} spent`);
-      }).catch(err => {
-        specsExecutionRunning = false;
-        elonProgress.running = false;
-        elonProgress.phase = 'error';
-        pushActivity('error', `Specs execution failed: ${err.message}`);
-        if (memoryStore) memoryStore.logDaily(`ELON specs auto-execution failed: ${err.message}`);
-      });
+        onProgress: _specProgressHandler('exec-'),
+      })
+        .then(result => _handleSpecsComplete(result, 'specs auto-execution'))
+        .catch(err => _handleSpecsError(err, 'specs auto-execution'));
     }
 
     app.post(`${basePath}/api/elon/pending/:id/approve`, authMiddleware, (req, res) => {
@@ -1139,35 +1145,11 @@ function createAdminDashboard(options = {}) {
       const budgetMax = parseFloat(process.env.ELON_BUDGET) || 5.0;
 
       executeApprovedSpecs({
-        apiKey,
-        projectRoot,
-        dataDir,
-        budgetMax,
-        memory: memoryStore,
-        onProgress: (phase, message, detail, type) => {
-          pushActivity(type === 'thinking' ? 'heartbeat' : type === 'error' ? 'error' : type === 'success' ? 'success' : 'info', message);
-          if (elonProgress.steps) {
-            elonProgress.steps.push({
-              id: 'exec-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
-              phase, message, detail: detail || null, type: type || 'info',
-              timestamp: new Date().toISOString(), duration: null,
-            });
-            if (elonProgress.steps.length > 200) elonProgress.steps = elonProgress.steps.slice(-150);
-          }
-        },
-      }).then(result => {
-        specsExecutionRunning = false;
-        pushActivity('success', `Specs execution complete: ${result.succeeded} succeeded, ${result.failed} failed`);
-        if (memoryStore) {
-          memoryStore.logDaily(`ELON specs execution: ${result.succeeded} succeeded, ${result.failed} failed, $${(result.budgetUsed || 0).toFixed(2)} spent`);
-        }
-      }).catch(err => {
-        specsExecutionRunning = false;
-        pushActivity('error', `Specs execution failed: ${err.message}`);
-        if (memoryStore) {
-          memoryStore.logDaily(`ELON specs execution failed: ${err.message}`);
-        }
-      });
+        apiKey, projectRoot, dataDir, budgetMax, memory: memoryStore,
+        onProgress: _specProgressHandler('exec-'),
+      })
+        .then(result => _handleSpecsComplete(result, 'specs execution'))
+        .catch(err => _handleSpecsError(err, 'specs execution'));
     });
 
     app.get(`${basePath}/api/elon/execution-status`, authMiddleware, (req, res) => {
@@ -1176,10 +1158,18 @@ function createAdminDashboard(options = {}) {
 
     app.get(`${basePath}/api/build-state`, authMiddleware, (req, res) => {
       try {
-        const { loadBuildState, getElonMode } = require('../elon');
+        const { loadBuildState, getElonMode, getElonStatus } = require('../elon');
+        const { loadContext } = require('../context-loader');
+        const context = loadContext(projectRoot);
         const buildState = loadBuildState(dataDir);
-        const mode = getElonMode({ context: { goals: {} }, dataDir });
-        res.json({ mode, buildState: buildState || { currentPhase: 1, hasUnbuiltMilestones: false } });
+        const mode = getElonMode({ context, dataDir });
+        const status = getElonStatus(dataDir);
+        res.json({
+          mode,
+          buildState: buildState || { currentPhase: 1, hasUnbuiltMilestones: false },
+          currentConstraint: status.currentConstraint || null,
+          currentMilestone: status.currentMilestone || null,
+        });
       } catch (error) {
         res.json({ mode: 'unknown', buildState: null, error: error.message });
       }

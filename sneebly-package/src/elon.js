@@ -315,28 +315,30 @@ function _createSpecsFromPlan({ plan, constraintId, constraintDesc, source, data
       : `elon-${constraintId}-step${String(step.step).padStart(2, '0')}`;
 
     const spec = {
-      id: isBuild ? specId : undefined,
       filePath: step.filePath,
       description: isBuild ? step.description : '[ELON] ' + step.description,
       successCriteria: step.successCriteria || [],
       testCommand: step.testCommand || 'curl -s http://localhost:' + (process.env.PORT || 5000) + '/health',
       source,
-      ...(isBuild ? {
-        action: step.action || 'create',
-        relatedFiles: step.relatedFiles || [],
-        constraint: constraintDesc,
-      } : {
-        elonConstraintId: constraintId,
-        priority: step.priority || 'medium',
-        step: step.step,
-      }),
-      ...extraFields,
       createdAt: new Date().toISOString(),
     };
 
+    if (isBuild) {
+      spec.id = specId;
+      spec.action = step.action || 'create';
+      spec.relatedFiles = step.relatedFiles || [];
+      spec.constraint = constraintDesc;
+    } else {
+      spec.elonConstraintId = constraintId;
+      spec.priority = step.priority || 'medium';
+      spec.step = step.step;
+    }
+
+    Object.assign(spec, extraFields);
+
     const approval = _needsOwnerApproval(step, dataDir);
     const targetDir = approval.needsApproval ? pendingDir : approvedDir;
-    const filename = isBuild ? `${specId}.json` : `${specId}.json`;
+    const filename = `${specId}.json`;
 
     if (approval.category) spec.blockedCategory = approval.category;
     _writeJson(path.join(targetDir, filename), spec);
@@ -475,7 +477,6 @@ async function runElonBuildCycle(config) {
     lastModeResult: 'specs-generated',
     currentConstraint: analysis.constraint,
     consecutiveFixCycles: 0,
-    modeOverride: null
   });
 
   return {

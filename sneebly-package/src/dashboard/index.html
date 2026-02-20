@@ -2472,10 +2472,10 @@
         if (phase) phase.textContent = data.buildState?.currentPhase ? 'Phase ' + data.buildState.currentPhase : '—';
 
         const milestone = document.getElementById('build-milestone-display');
-        if (milestone) milestone.textContent = data.buildState?.currentMilestone || '—';
+        if (milestone) milestone.textContent = data.currentMilestone || data.buildState?.currentMilestone || '—';
 
         const constraint = document.getElementById('build-constraint-display');
-        if (constraint) constraint.textContent = data.buildState?.currentConstraint || '—';
+        if (constraint) constraint.textContent = data.currentConstraint || data.buildState?.currentConstraint || '—';
       } catch (e) {
         console.error('Failed to load build state:', e);
       }

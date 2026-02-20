@@ -34,6 +34,25 @@ const DATA_DIRS = [
   '.sneebly/decisions',
 ];
 
+function _writeJsonIfNotExists(filePath, data, label) {
+  if (fs.existsSync(filePath)) return false;
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+  if (label) console.log(`  [gen] ${label}`);
+  return true;
+}
+
+function _copyDirTemplates(srcDir, destDir, ext, pathPrefix) {
+  if (!fs.existsSync(srcDir)) return;
+  if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
+  for (const file of fs.readdirSync(srcDir).filter(f => f.endsWith(ext))) {
+    const dest = path.join(destDir, file);
+    if (!fs.existsSync(dest)) {
+      fs.copyFileSync(path.join(srcDir, file), dest);
+      console.log(`  [copy] ${pathPrefix}${file}`);
+    }
+  }
+}
+
 function init() {
   console.log('sneebly init — setting up your project...\n');
 
@@ -89,42 +108,20 @@ function init() {
   fs.writeFileSync(checksumPath, JSON.stringify(checksums, null, 2));
   console.log('  [gen] identity checksums');
 
-  const knownErrorsPath = path.join(TARGET_DIR, '.sneebly', 'known-errors.json');
-  if (!fs.existsSync(knownErrorsPath)) {
-    fs.writeFileSync(knownErrorsPath, JSON.stringify({ errors: [] }, null, 2));
-  }
-  const metricsPath = path.join(TARGET_DIR, '.sneebly', 'metrics.json');
-  if (!fs.existsSync(metricsPath)) {
-    fs.writeFileSync(metricsPath, JSON.stringify({ snapshots: [] }, null, 2));
-  }
+  _writeJsonIfNotExists(path.join(TARGET_DIR, '.sneebly', 'known-errors.json'), { errors: [] });
+  _writeJsonIfNotExists(path.join(TARGET_DIR, '.sneebly', 'metrics.json'), { snapshots: [] });
+  _writeJsonIfNotExists(
+    path.join(TARGET_DIR, '.sneebly', 'build-state.json'),
+    { currentPhase: 1, hasUnbuiltMilestones: true, completed: [], failed: [], lastUpdated: null },
+    'build-state.json'
+  );
 
-  const buildStatePath = path.join(TARGET_DIR, '.sneebly', 'build-state.json');
-  if (!fs.existsSync(buildStatePath)) {
-    fs.writeFileSync(buildStatePath, JSON.stringify({
-      currentPhase: 1,
-      hasUnbuiltMilestones: true,
-      completed: [],
-      failed: [],
-      lastUpdated: null
-    }, null, 2));
-    console.log('  [gen] build-state.json');
-  }
-
-  const subagentTemplateDir = path.join(TEMPLATE_DIR, 'subagents');
-  const targetSubagentDir = path.join(TARGET_DIR, '.sneebly', 'subagents');
-  if (fs.existsSync(subagentTemplateDir)) {
-    if (!fs.existsSync(targetSubagentDir)) {
-      fs.mkdirSync(targetSubagentDir, { recursive: true });
-    }
-    const subagentFiles = fs.readdirSync(subagentTemplateDir).filter(f => f.endsWith('.md'));
-    for (const file of subagentFiles) {
-      const destFile = path.join(targetSubagentDir, file);
-      if (!fs.existsSync(destFile)) {
-        fs.copyFileSync(path.join(subagentTemplateDir, file), destFile);
-        console.log('  [copy] .sneebly/subagents/' + file);
-      }
-    }
-  }
+  _copyDirTemplates(
+    path.join(TEMPLATE_DIR, 'subagents'),
+    path.join(TARGET_DIR, '.sneebly', 'subagents'),
+    '.md',
+    '.sneebly/subagents/'
+  );
 
   const gitignorePath = path.join(TARGET_DIR, '.gitignore');
   const gitignoreEntries = [
