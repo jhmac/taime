@@ -1,0 +1,1159 @@
+{
+  "routes": {
+    "admin": {
+      "file": "server/routes/admin.ts",
+      "imports": [],
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/api/company-settings"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/company-settings"
+        },
+        {
+          "method": "POST",
+          "path": "/api/work-locations"
+        },
+        {
+          "method": "GET",
+          "path": "/api/work-locations"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/work-locations/:id"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/work-locations/:id"
+        },
+        {
+          "method": "GET",
+          "path": "/api/activity-logs"
+        },
+        {
+          "method": "POST",
+          "path": "/api/holiday-pay-rules/bulk"
+        },
+        {
+          "method": "GET",
+          "path": "/api/holiday-pay-rules"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/holiday-pay-rules/:id"
+        },
+        {
+          "method": "PATCH",
+          "path": "/api/holiday-pay-rules/:id"
+        }
+      ],
+      "size": 15799
+    },
+    "ai": {
+      "file": "server/routes/ai.ts",
+      "imports": [],
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/api/ai/assign-chores"
+        },
+        {
+          "method": "POST",
+          "path": "/api/ai/chat"
+        },
+        {
+          "method": "POST",
+          "path": "/api/ai/detect-anomalies"
+        },
+        {
+          "method": "POST",
+          "path": "/api/ai/parse-holiday-pay"
+        }
+      ],
+      "size": 8456
+    },
+    "aiAssistant": {
+      "file": "server/routes/aiAssistant.ts",
+      "imports": [],
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/api/ai-assistant/conversations"
+        },
+        {
+          "method": "POST",
+          "path": "/api/ai-assistant/conversations"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/ai-assistant/conversations/:id"
+        },
+        {
+          "method": "GET",
+          "path": "/api/ai-assistant/conversations/:id/messages"
+        },
+        {
+          "method": "POST",
+          "path": "/api/ai-assistant/chat"
+        },
+        {
+          "method": "POST",
+          "path": "/api/ai-assistant/briefing"
+        },
+        {
+          "method": "GET",
+          "path": "/api/ai-assistant/commute"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/ai-assistant/home-location"
+        },
+        {
+          "method": "GET",
+          "path": "/api/ai-assistant/commute-alerts"
+        }
+      ],
+      "size": 14017
+    },
+    "aiScheduling": {
+      "file": "server/routes/aiScheduling.ts",
+      "imports": [],
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/api/ai-scheduling/settings"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/ai-scheduling/settings"
+        },
+        {
+          "method": "POST",
+          "path": "/api/ai-scheduling/generate"
+        },
+        {
+          "method": "POST",
+          "path": "/api/ai-scheduling/apply"
+        },
+        {
+          "method": "GET",
+          "path": "/api/ai-scheduling/roster"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/ai-scheduling/roster/:employeeId"
+        }
+      ],
+      "size": 20498
+    },
+    "analytics": {
+      "file": "server/routes/analytics.ts",
+      "imports": [],
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/api/analytics/dashboard"
+        }
+      ],
+      "size": 5943
+    },
+    "auth": {
+      "file": "server/routes/auth.ts",
+      "imports": [],
+      "endpoints": [],
+      "size": 179
+    },
+    "availability": {
+      "file": "server/routes/availability.ts",
+      "imports": [],
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/api/availability"
+        },
+        {
+          "method": "GET",
+          "path": "/api/availability"
+        },
+        {
+          "method": "GET",
+          "path": "/api/availability/period/:periodId"
+        },
+        {
+          "method": "GET",
+          "path": "/api/availability/all"
+        },
+        {
+          "method": "POST",
+          "path": "/api/time-off-requests"
+        },
+        {
+          "method": "GET",
+          "path": "/api/time-off-requests"
+        },
+        {
+          "method": "PATCH",
+          "path": "/api/time-off-requests/:id"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/time-off-requests/:id"
+        }
+      ],
+      "size": 6499
+    },
+    "chores": {
+      "file": "server/routes/chores.ts",
+      "imports": [],
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/api/chores/day/:dayOfWeek"
+        },
+        {
+          "method": "GET",
+          "path": "/api/chores/schedule"
+        },
+        {
+          "method": "POST",
+          "path": "/api/chores/assign"
+        },
+        {
+          "method": "POST",
+          "path": "/api/chores/signoff"
+        },
+        {
+          "method": "GET",
+          "path": "/api/chores/zone/:zone"
+        }
+      ],
+      "size": 3376
+    },
+    "clockEvents": {
+      "file": "server/routes/clockEvents.ts",
+      "imports": [],
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/api/clock-events"
+        },
+        {
+          "method": "GET",
+          "path": "/api/clock-events"
+        },
+        {
+          "method": "GET",
+          "path": "/api/performance/scores"
+        },
+        {
+          "method": "GET",
+          "path": "/api/performance/scores/:userId"
+        },
+        {
+          "method": "GET",
+          "path": "/api/performance/settings"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/performance/settings"
+        }
+      ],
+      "size": 9795
+    },
+    "communication": {
+      "file": "server/routes/communication.ts",
+      "imports": [],
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/api/messages"
+        },
+        {
+          "method": "GET",
+          "path": "/api/messages"
+        },
+        {
+          "method": "POST",
+          "path": "/api/groups"
+        },
+        {
+          "method": "GET",
+          "path": "/api/groups"
+        },
+        {
+          "method": "GET",
+          "path": "/api/groups/:groupId/messages"
+        },
+        {
+          "method": "GET",
+          "path": "/api/groups/:groupId/members"
+        },
+        {
+          "method": "POST",
+          "path": "/api/groups/:groupId/members"
+        }
+      ],
+      "size": 4787
+    },
+    "geofence": {
+      "file": "server/routes/geofence.ts",
+      "imports": [],
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/api/geofence/check"
+        },
+        {
+          "method": "POST",
+          "path": "/api/geofence/event"
+        }
+      ],
+      "size": 1297
+    },
+    "insights": {
+      "file": "server/routes/insights.ts",
+      "imports": [],
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/api/insights"
+        }
+      ],
+      "size": 833
+    },
+    "payroll": {
+      "file": "server/routes/payroll.ts",
+      "imports": [],
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/api/payroll/analyze"
+        },
+        {
+          "method": "GET",
+          "path": "/api/payroll/periods"
+        },
+        {
+          "method": "POST",
+          "path": "/api/payroll/periods"
+        },
+        {
+          "method": "GET",
+          "path": "/api/payroll/settings"
+        },
+        {
+          "method": "POST",
+          "path": "/api/payroll/settings"
+        },
+        {
+          "method": "POST",
+          "path": "/api/payroll/automation/trigger"
+        },
+        {
+          "method": "GET",
+          "path": "/api/payroll/export"
+        },
+        {
+          "method": "GET",
+          "path": "/api/payroll/periods/:id/workflow-logs"
+        },
+        {
+          "method": "GET",
+          "path": "/api/payroll/periods/:id/confirmations"
+        },
+        {
+          "method": "POST",
+          "path": "/api/payroll/periods/:id/confirm-schedule"
+        },
+        {
+          "method": "POST",
+          "path": "/api/payroll/automation/initialize"
+        },
+        {
+          "method": "POST",
+          "path": "/api/payroll/setup"
+        },
+        {
+          "method": "GET",
+          "path": "/api/payroll/periods/:id/review"
+        },
+        {
+          "method": "POST",
+          "path": "/api/payroll/periods/:id/approve"
+        },
+        {
+          "method": "POST",
+          "path": "/api/payroll/periods/:id/email-export"
+        },
+        {
+          "method": "GET",
+          "path": "/api/payroll/setup-status"
+        }
+      ],
+      "size": 25679
+    },
+    "push": {
+      "file": "server/routes/push.ts",
+      "imports": [],
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/api/push/subscribe"
+        },
+        {
+          "method": "POST",
+          "path": "/api/push/test"
+        }
+      ],
+      "size": 1398
+    },
+    "roles": {
+      "file": "server/routes/roles.ts",
+      "imports": [],
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/api/roles"
+        },
+        {
+          "method": "POST",
+          "path": "/api/roles"
+        },
+        {
+          "method": "PATCH",
+          "path": "/api/roles/:id"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/roles/:id"
+        },
+        {
+          "method": "GET",
+          "path": "/api/permissions"
+        },
+        {
+          "method": "GET",
+          "path": "/api/roles/all-permissions"
+        },
+        {
+          "method": "GET",
+          "path": "/api/roles/:id/permissions"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/roles/:id/permissions"
+        }
+      ],
+      "size": 6331
+    },
+    "schedules": {
+      "file": "server/routes/schedules.ts",
+      "imports": [],
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/api/schedules"
+        },
+        {
+          "method": "GET",
+          "path": "/api/schedules"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/schedules/:id"
+        },
+        {
+          "method": "POST",
+          "path": "/api/schedules/create-from-availability"
+        }
+      ],
+      "size": 5181
+    },
+    "shopify": {
+      "file": "server/routes/shopify.ts",
+      "imports": [],
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/api/shopify/auth"
+        },
+        {
+          "method": "GET",
+          "path": "/api/shopify/auth/callback"
+        },
+        {
+          "method": "GET",
+          "path": "/api/shopify/shops"
+        },
+        {
+          "method": "POST",
+          "path": "/api/shopify/disconnect"
+        },
+        {
+          "method": "POST",
+          "path": "/api/shopify/sync-sales"
+        },
+        {
+          "method": "GET",
+          "path": "/api/shopify/sales-data"
+        },
+        {
+          "method": "GET",
+          "path": "/api/shopify/staffing-recommendations"
+        },
+        {
+          "method": "GET",
+          "path": "/api/shopify/labor-cost-ratio"
+        },
+        {
+          "method": "GET",
+          "path": "/api/shopify/yoy-comparison"
+        },
+        {
+          "method": "GET",
+          "path": "/api/shopify/ai-staffing"
+        }
+      ],
+      "size": 35446
+    },
+    "sop": {
+      "file": "server/routes/sop.ts",
+      "imports": [],
+      "endpoints": [
+        {
+          "method": "GET",
+          "path": "/api/sop/categories"
+        },
+        {
+          "method": "POST",
+          "path": "/api/sop/categories"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/sop/categories/:id"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/sop/categories/:id"
+        },
+        {
+          "method": "GET",
+          "path": "/api/sop/documents"
+        },
+        {
+          "method": "GET",
+          "path": "/api/sop/documents/:id"
+        },
+        {
+          "method": "POST",
+          "path": "/api/sop/documents"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/sop/documents/:id"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/sop/documents/:id"
+        },
+        {
+          "method": "GET",
+          "path": "/api/sop/search"
+        },
+        {
+          "method": "GET",
+          "path": "/api/training/modules"
+        },
+        {
+          "method": "POST",
+          "path": "/api/training/modules"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/training/modules/:id"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/training/modules/:id"
+        },
+        {
+          "method": "GET",
+          "path": "/api/training/progress"
+        },
+        {
+          "method": "POST",
+          "path": "/api/training/progress"
+        }
+      ],
+      "size": 9563
+    },
+    "tasks": {
+      "file": "server/routes/tasks.ts",
+      "imports": [],
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/api/tasks"
+        },
+        {
+          "method": "GET",
+          "path": "/api/tasks"
+        },
+        {
+          "method": "PATCH",
+          "path": "/api/tasks/:id"
+        },
+        {
+          "method": "POST",
+          "path": "/api/tasks/:id/image"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/tasks/:id"
+        }
+      ],
+      "size": 5461
+    },
+    "timeEntries": {
+      "file": "server/routes/timeEntries.ts",
+      "imports": [],
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/api/time-entries"
+        },
+        {
+          "method": "GET",
+          "path": "/api/time-entries"
+        },
+        {
+          "method": "GET",
+          "path": "/api/time-entries/active"
+        },
+        {
+          "method": "PATCH",
+          "path": "/api/time-entries/:id"
+        }
+      ],
+      "size": 5370
+    },
+    "users": {
+      "file": "server/routes/users.ts",
+      "imports": [],
+      "endpoints": [
+        {
+          "method": "POST",
+          "path": "/api/users"
+        },
+        {
+          "method": "POST",
+          "path": "/api/users/:userId/resend-invite"
+        },
+        {
+          "method": "GET",
+          "path": "/api/users"
+        },
+        {
+          "method": "GET",
+          "path": "/api/users/:userId"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/users/:userId"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/users/:userId/pay-rate"
+        },
+        {
+          "method": "DELETE",
+          "path": "/api/users/:userId"
+        },
+        {
+          "method": "PUT",
+          "path": "/api/users/:userId/role"
+        },
+        {
+          "method": "PATCH",
+          "path": "/api/users/:id/role"
+        },
+        {
+          "method": "GET",
+          "path": "/api/users/:id/permissions"
+        }
+      ],
+      "size": 9945
+    }
+  },
+  "services": {
+    "actionLogger": {
+      "file": "server/services/actionLogger.ts",
+      "imports": [],
+      "exports": [
+        "createActionLoggerMiddleware",
+        "handleClientErrorReport",
+        "getRecentActionLogs",
+        "getFailedActions",
+        "getActionSummary"
+      ],
+      "size": 11522,
+      "envVars": []
+    },
+    "automationService": {
+      "file": "server/services/automationService.ts",
+      "imports": [],
+      "exports": [
+        "AutomationWorkflowService",
+        "automationService"
+      ],
+      "size": 13199,
+      "envVars": []
+    },
+    "claudeService": {
+      "file": "server/services/claudeService.ts",
+      "imports": [],
+      "exports": [
+        "ScheduleOptimizationRequest",
+        "ChoreAssignmentRequest",
+        "AnomalyDetectionRequest",
+        "PayrollAnalysisRequest",
+        "ClaudeService",
+        "claudeService"
+      ],
+      "size": 19086,
+      "envVars": [
+        "ANTHROPIC_API_KEY"
+      ]
+    },
+    "emailService": {
+      "file": "server/services/emailService.ts",
+      "imports": [],
+      "exports": [
+        "sendTeamInviteEmail"
+      ],
+      "size": 2822,
+      "envVars": [
+        "NYLAS_API_KEY",
+        "NYLAS_GRANT_ID"
+      ]
+    },
+    "geofencingService": {
+      "file": "server/services/geofencingService.ts",
+      "imports": [],
+      "exports": [
+        "GeofenceEvent",
+        "GeofencingService",
+        "geofencingService"
+      ],
+      "size": 8156,
+      "envVars": []
+    },
+    "notificationService": {
+      "file": "server/services/notificationService.ts",
+      "imports": [],
+      "exports": [
+        "NotificationPayload",
+        "NotificationService",
+        "notificationService"
+      ],
+      "size": 7720,
+      "envVars": [
+        "VAPID_PUBLIC_KEY",
+        "VAPID_PRIVATE_KEY"
+      ]
+    },
+    "payrollAutomationService": {
+      "file": "server/services/payrollAutomationService.ts",
+      "imports": [],
+      "exports": [
+        "payrollAutomationService"
+      ],
+      "size": 10093,
+      "envVars": []
+    },
+    "shopifyService": {
+      "file": "server/services/shopifyService.ts",
+      "imports": [],
+      "exports": [
+        "ShopifyOrder",
+        "ShopifyService"
+      ],
+      "size": 8216,
+      "envVars": []
+    }
+  },
+  "pages": {
+    "AdminDashboard": {
+      "file": "client/src/pages/AdminDashboard.tsx",
+      "apiCalls": [
+        "/api/time-entries",
+        "/api/schedules",
+        "/api/tasks",
+        "/api/insights",
+        "/api/users",
+        "/api/ai/assign-chores"
+      ],
+      "size": 25843
+    },
+    "AdminSettings": {
+      "file": "client/src/pages/AdminSettings.tsx",
+      "apiCalls": [
+        "/api/company-settings",
+        "/api/work-locations",
+        "/api/activity-logs",
+        "/api/holiday-pay-rules",
+        "/api/shopify/shops",
+        "/api/shopify/sales-data",
+        "/api/shopify/sales-data?shop=${encodeURIComponent(connectedShop.shopDomain)}",
+        "/api/shopify/staffing-recommendations",
+        "/api/shopify/staffing-recommendations?shop=${encodeURIComponent(connectedShop.shopDomain)}",
+        "/api/work-locations/${id}",
+        "/api/shopify/auth?shop=${encodeURIComponent(domain)}",
+        "/api/shopify/disconnect",
+        "/api/shopify/sync-sales",
+        "/api/ai/parse-holiday-pay",
+        "/api/holiday-pay-rules/${id}"
+      ],
+      "size": 28603
+    },
+    "Analytics": {
+      "file": "client/src/pages/Analytics.tsx",
+      "apiCalls": [
+        "/api/analytics/dashboard",
+        "/api/shopify/shops",
+        "/api/ai/detect-anomalies",
+        "/api/insights"
+      ],
+      "size": 20419
+    },
+    "Availability": {
+      "file": "client/src/pages/Availability.tsx",
+      "apiCalls": [
+        "/api/availability",
+        "/api/availability?startDate=${startParam}&endDate=${endParam}",
+        "/api/time-off-requests",
+        "/api/time-off-requests/${id}"
+      ],
+      "size": 29178
+    },
+    "Communication": {
+      "file": "client/src/pages/Communication.tsx",
+      "apiCalls": [
+        "/api/messages",
+        "/api/groups",
+        "/api/users"
+      ],
+      "size": 35973
+    },
+    "Dashboard": {
+      "file": "client/src/pages/Dashboard.tsx",
+      "apiCalls": [
+        "/api/schedules"
+      ],
+      "size": 12461
+    },
+    "EmployeeSettings": {
+      "file": "client/src/pages/EmployeeSettings.tsx",
+      "apiCalls": [],
+      "size": 3193
+    },
+    "HR": {
+      "file": "client/src/pages/HR.tsx",
+      "apiCalls": [
+        "/api/auth/permissions",
+        "/api/time-entries",
+        "/api/tasks",
+        "/api/schedules"
+      ],
+      "size": 32255
+    },
+    "Landing": {
+      "file": "client/src/pages/Landing.tsx",
+      "apiCalls": [],
+      "size": 3346
+    },
+    "Learning": {
+      "file": "client/src/pages/Learning.tsx",
+      "apiCalls": [
+        "/api/training/modules",
+        "/api/training/progress",
+        "/api/sop/documents"
+      ],
+      "size": 12758
+    },
+    "MoreMenu": {
+      "file": "client/src/pages/MoreMenu.tsx",
+      "apiCalls": [],
+      "size": 3481
+    },
+    "Operations": {
+      "file": "client/src/pages/Operations.tsx",
+      "apiCalls": [
+        "/api/auth/permissions",
+        "/api/time-entries",
+        "/api/schedules"
+      ],
+      "size": 13626
+    },
+    "PayPeriodManagement": {
+      "file": "client/src/pages/PayPeriodManagement.tsx",
+      "apiCalls": [
+        "/api/auth/permissions",
+        "/api/payroll/periods",
+        "/api/payroll/settings",
+        "/api/payroll/setup-status",
+        "/api/holiday-pay-rules",
+        "/api/payroll/setup",
+        "/api/holiday-pay-rules/bulk",
+        "/api/payroll/periods/${periodId}/approve",
+        "/api/time-entries/${entryId}",
+        "/api/payroll/periods/${periodId}/email-export",
+        "/api/holiday-pay-rules/${id}"
+      ],
+      "size": 52722
+    },
+    "Performance": {
+      "file": "client/src/pages/Performance.tsx",
+      "apiCalls": [
+        "/api/users"
+      ],
+      "size": 14766
+    },
+    "Requests": {
+      "file": "client/src/pages/Requests.tsx",
+      "apiCalls": [
+        "/api/time-off-requests",
+        "/api/time-off-requests/${id}"
+      ],
+      "size": 6798
+    },
+    "RoleManagement": {
+      "file": "client/src/pages/RoleManagement.tsx",
+      "apiCalls": [
+        "/api/roles",
+        "/api/permissions",
+        "/api/roles/all-permissions",
+        "/api/roles/${newRole.id}/permissions",
+        "/api/roles/${roleId}/permissions"
+      ],
+      "size": 24128
+    },
+    "ScheduleManagement": {
+      "file": "client/src/pages/ScheduleManagement.tsx",
+      "apiCalls": [
+        "/api/schedules",
+        "/api/schedules?startDate=${startDateParam}&endDate=${endDateParam}",
+        "/api/users",
+        "/api/work-locations",
+        "/api/shopify/shops",
+        "/api/schedules/${id}",
+        "/api/ai-scheduling/generate",
+        "/api/ai-scheduling/apply"
+      ],
+      "size": 34198
+    },
+    "Support": {
+      "file": "client/src/pages/Support.tsx",
+      "apiCalls": [],
+      "size": 2229
+    },
+    "TaskManagement": {
+      "file": "client/src/pages/TaskManagement.tsx",
+      "apiCalls": [
+        "/api/auth/permissions",
+        "/api/tasks",
+        "/api/users",
+        "/api/tasks/${id}",
+        "/api/ai/assign-chores",
+        "/api/tasks/${task.id}/image"
+      ],
+      "size": 40827
+    },
+    "Team": {
+      "file": "client/src/pages/Team.tsx",
+      "apiCalls": [
+        "/api/users",
+        "/api/roles",
+        "/api/auth/permissions",
+        "/api/users/${userId}/role",
+        "/api/users/${userId}/pay-rate",
+        "/api/users/${userId}"
+      ],
+      "size": 21245
+    },
+    "TeamDirectory": {
+      "file": "client/src/pages/TeamDirectory.tsx",
+      "apiCalls": [
+        "/api/users"
+      ],
+      "size": 4000
+    },
+    "TeamMember": {
+      "file": "client/src/pages/TeamMember.tsx",
+      "apiCalls": [
+        "/api/users",
+        "/api/roles",
+        "/api/auth/permissions",
+        "/api/time-entries",
+        "/api/tasks",
+        "/api/users/${userId}"
+      ],
+      "size": 28885
+    },
+    "not-found": {
+      "file": "client/src/pages/not-found.tsx",
+      "apiCalls": [],
+      "size": 711
+    }
+  },
+  "components": {},
+  "schema": [
+    {
+      "variable": "sessions",
+      "tableName": "sessions"
+    },
+    {
+      "variable": "roles",
+      "tableName": "roles"
+    },
+    {
+      "variable": "permissions",
+      "tableName": "permissions"
+    },
+    {
+      "variable": "rolePermissions",
+      "tableName": "role_permissions"
+    },
+    {
+      "variable": "users",
+      "tableName": "users"
+    },
+    {
+      "variable": "workLocations",
+      "tableName": "work_locations"
+    },
+    {
+      "variable": "timeEntries",
+      "tableName": "time_entries"
+    },
+    {
+      "variable": "schedules",
+      "tableName": "schedules"
+    },
+    {
+      "variable": "tasks",
+      "tableName": "tasks"
+    },
+    {
+      "variable": "chatGroups",
+      "tableName": "chat_groups"
+    },
+    {
+      "variable": "groupMembers",
+      "tableName": "group_members"
+    },
+    {
+      "variable": "messages",
+      "tableName": "messages"
+    },
+    {
+      "variable": "payPeriodSettings",
+      "tableName": "pay_period_settings"
+    },
+    {
+      "variable": "payrollPeriods",
+      "tableName": "payroll_periods"
+    },
+    {
+      "variable": "userAvailability",
+      "tableName": "user_availability"
+    },
+    {
+      "variable": "timeOffRequests",
+      "tableName": "time_off_requests"
+    },
+    {
+      "variable": "scheduleConfirmations",
+      "tableName": "schedule_confirmations"
+    },
+    {
+      "variable": "workflowLogs",
+      "tableName": "workflow_logs"
+    },
+    {
+      "variable": "aiInsights",
+      "tableName": "ai_insights"
+    },
+    {
+      "variable": "companySettings",
+      "tableName": "company_settings"
+    },
+    {
+      "variable": "activityLogs",
+      "tableName": "activity_logs"
+    },
+    {
+      "variable": "clockEvents",
+      "tableName": "clock_events"
+    },
+    {
+      "variable": "performanceScoreSettings",
+      "tableName": "performance_score_settings"
+    },
+    {
+      "variable": "pushSubscriptions",
+      "tableName": "push_subscriptions"
+    },
+    {
+      "variable": "holidayPayRules",
+      "tableName": "holiday_pay_rules"
+    },
+    {
+      "variable": "shops",
+      "tableName": "shops"
+    },
+    {
+      "variable": "userShops",
+      "tableName": "user_shops"
+    },
+    {
+      "variable": "shopifyDailySales",
+      "tableName": "shopify_daily_sales"
+    },
+    {
+      "variable": "sopCategories",
+      "tableName": "sop_categories"
+    },
+    {
+      "variable": "sopDocuments",
+      "tableName": "sop_documents"
+    },
+    {
+      "variable": "aiChatConversations",
+      "tableName": "ai_chat_conversations"
+    },
+    {
+      "variable": "aiChatMessages",
+      "tableName": "ai_chat_messages"
+    },
+    {
+      "variable": "trainingModules",
+      "tableName": "training_modules"
+    },
+    {
+      "variable": "employeeTrainingProgress",
+      "tableName": "employee_training_progress"
+    },
+    {
+      "variable": "commuteAlerts",
+      "tableName": "commute_alerts"
+    },
+    {
+      "variable": "aiSchedulingSettings",
+      "tableName": "ai_scheduling_settings"
+    }
+  ],
+  "buildTime": "2026-02-20T17:37:11.859Z"
+}

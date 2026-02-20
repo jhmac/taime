@@ -1,0 +1,236 @@
+{
+  "entries": [
+    {
+      "id": "integration:shopify",
+      "type": "integration-health",
+      "firstSeen": "2026-02-20T17:35:46.765Z",
+      "lastChecked": "2026-02-20T17:35:46.765Z",
+      "lastStatus": "healthy",
+      "totalChecks": 1,
+      "totalFailures": 0,
+      "consecutiveFailures": 0,
+      "firstFailed": null,
+      "lastFailed": null,
+      "lastPassed": "2026-02-20T17:35:46.765Z",
+      "escalationScore": 0,
+      "history": [
+        {
+          "status": "healthy",
+          "message": "shopify: healthy",
+          "timestamp": "2026-02-20T17:35:46.765Z"
+        }
+      ]
+    },
+    {
+      "id": "integration:nylas",
+      "type": "integration-health",
+      "firstSeen": "2026-02-20T17:35:46.765Z",
+      "lastChecked": "2026-02-20T17:35:46.765Z",
+      "lastStatus": "healthy",
+      "totalChecks": 1,
+      "totalFailures": 0,
+      "consecutiveFailures": 0,
+      "firstFailed": null,
+      "lastFailed": null,
+      "lastPassed": "2026-02-20T17:35:46.765Z",
+      "escalationScore": 0,
+      "history": [
+        {
+          "status": "healthy",
+          "message": "nylas: healthy",
+          "timestamp": "2026-02-20T17:35:46.765Z"
+        }
+      ]
+    },
+    {
+      "id": "integration:claude-ai",
+      "type": "integration-health",
+      "firstSeen": "2026-02-20T17:35:46.766Z",
+      "lastChecked": "2026-02-20T17:35:46.766Z",
+      "lastStatus": "skipped",
+      "totalChecks": 1,
+      "totalFailures": 0,
+      "consecutiveFailures": 0,
+      "firstFailed": null,
+      "lastFailed": null,
+      "lastPassed": null,
+      "escalationScore": 0,
+      "history": [
+        {
+          "status": "skipped",
+          "message": "claude-ai: skipped",
+          "timestamp": "2026-02-20T17:35:46.766Z"
+        }
+      ]
+    },
+    {
+      "id": "integration:database",
+      "type": "integration-health",
+      "firstSeen": "2026-02-20T17:35:46.766Z",
+      "lastChecked": "2026-02-20T17:35:46.766Z",
+      "lastStatus": "healthy",
+      "totalChecks": 1,
+      "totalFailures": 0,
+      "consecutiveFailures": 0,
+      "firstFailed": null,
+      "lastFailed": null,
+      "lastPassed": "2026-02-20T17:35:46.766Z",
+      "escalationScore": 0,
+      "history": [
+        {
+          "status": "healthy",
+          "message": "database: healthy",
+          "timestamp": "2026-02-20T17:35:46.766Z"
+        }
+      ]
+    },
+    {
+      "id": "integration:websocket",
+      "type": "integration-health",
+      "firstSeen": "2026-02-20T17:35:46.766Z",
+      "lastChecked": "2026-02-20T17:35:46.766Z",
+      "lastStatus": "healthy",
+      "totalChecks": 1,
+      "totalFailures": 0,
+      "consecutiveFailures": 0,
+      "firstFailed": null,
+      "lastFailed": null,
+      "lastPassed": "2026-02-20T17:35:46.766Z",
+      "escalationScore": 0,
+      "history": [
+        {
+          "status": "healthy",
+          "message": "websocket: healthy",
+          "timestamp": "2026-02-20T17:35:46.766Z"
+        }
+      ]
+    },
+    {
+      "id": "scenario:shopify-connect",
+      "type": "scenario-test",
+      "firstSeen": "2026-02-20T17:37:11.827Z",
+      "lastChecked": "2026-02-20T17:37:11.827Z",
+      "lastStatus": "failed",
+      "totalChecks": 1,
+      "totalFailures": 1,
+      "consecutiveFailures": 1,
+      "firstFailed": "2026-02-20T17:37:11.827Z",
+      "lastFailed": "2026-02-20T17:37:11.827Z",
+      "lastPassed": null,
+      "escalationScore": 7,
+      "history": [
+        {
+          "status": "failed",
+          "message": "None of the selectors found: text=POS connection, text=Shopify, [href*=\"shopify\"]",
+          "timestamp": "2026-02-20T17:37:11.827Z"
+        }
+      ]
+    },
+    {
+      "id": "scenario:clock-in-page",
+      "type": "scenario-test",
+      "firstSeen": "2026-02-20T17:37:11.828Z",
+      "lastChecked": "2026-02-20T17:37:11.828Z",
+      "lastStatus": "failed",
+      "totalChecks": 1,
+      "totalFailures": 1,
+      "consecutiveFailures": 1,
+      "firstFailed": "2026-02-20T17:37:11.828Z",
+      "lastFailed": "2026-02-20T17:37:11.828Z",
+      "lastPassed": null,
+      "escalationScore": 7,
+      "history": [
+        {
+          "status": "failed",
+          "message": "None of the selectors found: text=Clock In, text=Clock Out, button:has-text(\"Clock\")",
+          "timestamp": "2026-02-20T17:37:11.828Z"
+        }
+      ]
+    },
+    {
+      "id": "scenario:schedule-page",
+      "type": "scenario-test",
+      "firstSeen": "2026-02-20T17:37:11.837Z",
+      "lastChecked": "2026-02-20T17:37:11.837Z",
+      "lastStatus": "failed",
+      "totalChecks": 1,
+      "totalFailures": 1,
+      "consecutiveFailures": 1,
+      "firstFailed": "2026-02-20T17:37:11.837Z",
+      "lastFailed": "2026-02-20T17:37:11.837Z",
+      "lastPassed": null,
+      "escalationScore": 7,
+      "history": [
+        {
+          "status": "failed",
+          "message": "None of the selectors found: text=Schedule, text=Calendar, [class*=\"calendar\"]",
+          "timestamp": "2026-02-20T17:37:11.837Z"
+        }
+      ]
+    },
+    {
+      "id": "scenario:payroll-page",
+      "type": "scenario-test",
+      "firstSeen": "2026-02-20T17:37:11.847Z",
+      "lastChecked": "2026-02-20T17:37:11.847Z",
+      "lastStatus": "failed",
+      "totalChecks": 1,
+      "totalFailures": 1,
+      "consecutiveFailures": 1,
+      "firstFailed": "2026-02-20T17:37:11.847Z",
+      "lastFailed": "2026-02-20T17:37:11.847Z",
+      "lastPassed": null,
+      "escalationScore": 7,
+      "history": [
+        {
+          "status": "failed",
+          "message": "None of the selectors found: text=Payroll, text=Pay Period, text=Export",
+          "timestamp": "2026-02-20T17:37:11.847Z"
+        }
+      ]
+    },
+    {
+      "id": "scenario:api-health-endpoints",
+      "type": "scenario-test",
+      "firstSeen": "2026-02-20T17:37:11.857Z",
+      "lastChecked": "2026-02-20T17:37:11.857Z",
+      "lastStatus": "failed",
+      "totalChecks": 1,
+      "totalFailures": 1,
+      "consecutiveFailures": 1,
+      "firstFailed": "2026-02-20T17:37:11.857Z",
+      "lastFailed": "2026-02-20T17:37:11.857Z",
+      "lastPassed": null,
+      "escalationScore": 7,
+      "history": [
+        {
+          "status": "failed",
+          "message": "API call failed: Failed to fetch",
+          "timestamp": "2026-02-20T17:37:11.857Z"
+        }
+      ]
+    },
+    {
+      "id": "scenario:authenticated-api-health",
+      "type": "scenario-test",
+      "firstSeen": "2026-02-20T17:37:11.858Z",
+      "lastChecked": "2026-02-20T17:37:11.858Z",
+      "lastStatus": "failed",
+      "totalChecks": 1,
+      "totalFailures": 1,
+      "consecutiveFailures": 1,
+      "firstFailed": "2026-02-20T17:37:11.858Z",
+      "lastFailed": "2026-02-20T17:37:11.858Z",
+      "lastPassed": null,
+      "escalationScore": 7,
+      "history": [
+        {
+          "status": "failed",
+          "message": "API call failed: Failed to fetch",
+          "timestamp": "2026-02-20T17:37:11.858Z"
+        }
+      ]
+    }
+  ],
+  "lastUpdated": "2026-02-20T17:37:11.858Z"
+}

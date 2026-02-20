@@ -1,0 +1,57 @@
+{
+  "timestamp": "2026-02-20T17:35:46.764Z",
+  "overall": "healthy",
+  "integrations": [
+    {
+      "integration": "shopify",
+      "status": "healthy",
+      "details": {
+        "apiKeyConfigured": true,
+        "apiSecretConfigured": true,
+        "apiKeyPrefix": "11bb7e...",
+        "shopsEndpoint": "requires-auth"
+      },
+      "errors": [],
+      "timestamp": "2026-02-20T17:35:46.511Z"
+    },
+    {
+      "integration": "nylas",
+      "status": "healthy",
+      "details": {
+        "apiKeyConfigured": true,
+        "grantIdConfigured": true,
+        "grantValid": true
+      },
+      "errors": [],
+      "timestamp": "2026-02-20T17:35:46.513Z"
+    },
+    {
+      "integration": "claude-ai",
+      "status": "skipped",
+      "details": {},
+      "errors": [],
+      "timestamp": "2026-02-20T17:35:46.515Z"
+    },
+    {
+      "integration": "database",
+      "status": "healthy",
+      "details": {
+        "configured": true,
+        "appResponding": true
+      },
+      "errors": [],
+      "timestamp": "2026-02-20T17:35:46.515Z"
+    },
+    {
+      "integration": "websocket",
+      "status": "healthy",
+      "details": {
+        "endpointConfigured": true,
+        "note": "WebSocket endpoint configured (connection test requires browser context)"
+      },
+      "errors": [],
+      "timestamp": "2026-02-20T17:35:46.515Z"
+    }
+  ],
+  "issues": []
+}
