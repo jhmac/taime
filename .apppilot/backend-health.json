@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-02-19T20:03:21.850Z",
+  "timestamp": "2026-02-20T00:34:46.220Z",
   "type": "backend-health-check",
   "endpointsChecked": 8,
   "errors": [],
@@ -8,7 +8,7 @@
       "endpoint": "/",
       "label": "Homepage",
       "status": 200,
-      "loadTime": 5,
+      "loadTime": 12,
       "ok": true,
       "body": "<!DOCTYPE html>\n<html lang=\"en\">\n  <head>\n    <script type=\"module\">\nimport { createHotContext } from \"/@vite/client\";\nconst hot = createHotContext(\"/__dummy__runtime-error-plugin\");\n\nfunction sendError(error) {\n  if (!(error instanceof Error)) {\n    error = new Error(\"(unknown runtime error)\");\n  }\n  const serialized = {\n    message: error.message,\n    stack: error.stack,\n  };\n  hot.send(\"runtime-error-plugin:error\", serialized);\n}\n\nwindow.addEventListener(\"error\", (evt) => {\n  sendError(evt.er"
     },
@@ -16,7 +16,7 @@
       "endpoint": "/api/health",
       "label": "Health endpoint",
       "status": 200,
-      "loadTime": 11,
+      "loadTime": 18,
       "ok": true,
       "body": "<!DOCTYPE html>\n<html lang=\"en\">\n  <head>\n    <script type=\"module\">\nimport { createHotContext } from \"/@vite/client\";\nconst hot = createHotContext(\"/__dummy__runtime-error-plugin\");\n\nfunction sendError(error) {\n  if (!(error instanceof Error)) {\n    error = new Error(\"(unknown runtime error)\");\n  }\n  const serialized = {\n    message: error.message,\n    stack: error.stack,\n  };\n  hot.send(\"runtime-error-plugin:error\", serialized);\n}\n\nwindow.addEventListener(\"error\", (evt) => {\n  sendError(evt.er"
     },
@@ -24,7 +24,7 @@
       "endpoint": "/api/users",
       "label": "Users API",
       "status": 401,
-      "loadTime": 5,
+      "loadTime": 6,
       "ok": true,
       "body": "{\"message\":\"Unauthorized\"}"
     },
@@ -32,7 +32,7 @@
       "endpoint": "/api/clock-events",
       "label": "Clock events API",
       "status": 401,
-      "loadTime": 4,
+      "loadTime": 6,
       "ok": true,
       "body": "{\"message\":\"Unauthorized\"}"
     },
@@ -40,7 +40,7 @@
       "endpoint": "/api/schedules",
       "label": "Schedules API",
       "status": 401,
-      "loadTime": 1,
+      "loadTime": 2,
       "ok": true,
       "body": "{\"message\":\"Unauthorized\"}"
     },
@@ -48,7 +48,7 @@
       "endpoint": "/api/tasks",
       "label": "Tasks API",
       "status": 401,
-      "loadTime": 2,
+      "loadTime": 1,
       "ok": true,
       "body": "{\"message\":\"Unauthorized\"}"
     },
@@ -56,7 +56,7 @@
       "endpoint": "/api/messages",
       "label": "Messages API",
       "status": 401,
-      "loadTime": 1,
+      "loadTime": 2,
       "ok": true,
       "body": "{\"message\":\"Unauthorized\"}"
     },

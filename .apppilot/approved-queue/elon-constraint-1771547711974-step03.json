@@ -1,0 +1,12 @@
+{
+  "filePath": "server/routes/schedules.ts",
+  "description": "[ELON] Create or fix schedule management routes including /api/schedules and /api/shifts endpoints",
+  "successCriteria": [
+    "Schedule endpoints return 200 status",
+    "Shift data properly queried from database"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771547711974",
+  "priority": "high",
+  "step": 3
+}

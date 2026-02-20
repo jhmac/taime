@@ -1,0 +1,12 @@
+{
+  "filePath": "server/routes/tasks.ts",
+  "description": "[ELON] Create or fix task management routes including /api/tasks endpoint with CRUD operations",
+  "successCriteria": [
+    "Tasks endpoint returns 200 status",
+    "Proper task assignment logic implemented"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771547711974",
+  "priority": "high",
+  "step": 5
+}

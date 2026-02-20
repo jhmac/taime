@@ -1,0 +1,13 @@
+{
+  "filePath": "server/routes/clock.ts",
+  "description": "[ELON] Create or fix clock-in/out routes including /api/clock/status, /api/clock/in, and /api/clock/out endpoints",
+  "successCriteria": [
+    "Clock endpoints return 200 status",
+    "Proper error handling implemented",
+    "Database queries use Drizzle ORM"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771547711974",
+  "priority": "high",
+  "step": 2
+}
