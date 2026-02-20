@@ -1,6 +1,6 @@
-# GOALS.md — AppPilot North Star for LIBBY
+# GOALS.md — Sneebly North Star for LIBBY
 
-<!-- AppPilot reads this to prioritize what to analyze, fix, and improve. -->
+<!-- Sneebly reads this to prioritize what to analyze, fix, and improve. -->
 <!-- Update this as LIBBY evolves — it's your direct line to the agent. -->
 
 ## Mission
@@ -24,7 +24,7 @@ LIBBY is built on six proven methodologies: 2 Second Lean (continuous improvemen
 
 ## Current Priorities
 
-AppPilot works top-down. Higher = fix first.
+Sneebly works top-down. Higher = fix first.
 
 1. **Reliability of LIVE features** — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly. These are the foundation. A broken clock-in at 9:30 AM on a Saturday is a crisis.
 2. **API performance** — Every endpoint under 500ms p95. The app is used on mobile devices in retail stores with variable connectivity. Slow = unusable.
@@ -49,7 +49,7 @@ AppPilot works top-down. Higher = fix first.
 - Zero unhandled promise rejections in production logs
 - TypeScript strict mode: zero type errors
 
-## What's Built (AppPilot: don't rebuild these, improve them)
+## What's Built (Sneebly: don't rebuild these, improve them)
 
 ### LIVE — In Production
 - Digital Clock-In/Out with break logging (mobile-first)
@@ -216,7 +216,7 @@ Theme: "Ready for thousands of boutiques"
 - Never store derived data that can be computed from source data (except for performance-critical caches with TTLs)
 - All environment variables must be accessed through a centralized config module, never `process.env` directly in route handlers
 
-## Success Metrics (For AppPilot to Track)
+## Success Metrics (For Sneebly to Track)
 
 ### Operational Health
 - Zero unhandled errors in production logs for 24+ hours

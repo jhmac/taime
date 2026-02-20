@@ -1,6 +1,6 @@
 <!-- PROTECTED FILE -->
 
-# AppPilot User Context
+# Sneebly User Context
 
 ## Owner
 Name: [Your name]

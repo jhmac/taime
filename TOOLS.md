@@ -1,6 +1,6 @@
 <!-- PROTECTED FILE -->
 
-# AppPilot Tools
+# Sneebly Tools
 
 ## Allowed Shell Commands (whitelist — everything else is blocked by code)
 - npm test
@@ -15,7 +15,7 @@
 
 ## API Integrations
 - Claude API (via @anthropic-ai/sdk) — subagent reasoning
-- App internal API (/health, /apppilot/api/*) — monitoring
+- App internal API (/health, /sneebly/api/*) — monitoring
 
 ## File Operations
 - Read any project file (for analysis)

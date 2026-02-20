@@ -2,7 +2,7 @@
 <!-- NOTE: The heartbeat EXECUTION ORDER is hardcoded in orchestrator.js for security. -->
 <!-- This file configures THRESHOLDS and SCHEDULES only. -->
 
-# AppPilot Heartbeat Configuration
+# Sneebly Heartbeat Configuration
 
 ## Budget
 - Max API spend per heartbeat: $1.50 (stop processing if exceeded)

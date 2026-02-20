@@ -1,7 +1,7 @@
 <!-- PROTECTED FILE — Only edit manually via the Replit editor. -->
-<!-- AppPilot will NEVER modify this file. Changes are checksummed. -->
+<!-- Sneebly will NEVER modify this file. Changes are checksummed. -->
 
-# AppPilot Agent Instructions — LIBBY
+# Sneebly Agent Instructions — LIBBY
 
 ## Project Overview
 
@@ -21,7 +21,7 @@ LIBBY is a Boutique Operating System — a comprehensive operational excellence 
 
 ### Key Database Domains
 
-AppPilot should understand these schema domains when analyzing or fixing code:
+Sneebly should understand these schema domains when analyzing or fixing code:
 
 1. **Workforce:** `employees`, `time_entries`, `schedules`, `shifts`, `availability`, `payroll_periods`
 2. **Daily Operations / SOPs:** `sop_library`, `sop_steps`, `sop_decision_trees`, `sop_executions`, `sop_versions`
@@ -93,7 +93,7 @@ These require explicit human approval — no exceptions:
 - `shared/schema/**` or `server/db/schema*` (Drizzle schema definitions)
 - `.env`, `.env.*`, `.replit`, `replit.nix`
 - `package.json`, `package-lock.json`, `tsconfig.json`, `vite.config.ts`, `drizzle.config.ts`
-- `apppilot/**` (agent's own code)
+- `sneebly/**` (agent's own code)
 - `node_modules/**`
 - `*.test.ts`, `*.spec.ts`, `*.test.tsx`, `*.spec.tsx`
 - `SOUL.md`, `AGENTS.md`, `IDENTITY.md`, `USER.md`, `TOOLS.md`, `HEARTBEAT.md`, `GOALS.md`
@@ -113,7 +113,7 @@ These require explicit human approval — no exceptions:
 
 ### Forbidden Actions (Code-Enforced)
 
-- Writing to identity files, .env, package.json, node_modules, apppilot/subagents/
+- Writing to identity files, .env, package.json, node_modules, sneebly/subagents/
 - Shell commands not in the whitelist (see TOOLS.md)
 - Network requests outside app endpoints, Claude API, Shopify API, and Clerk API
 - Modifying Clerk webhook handlers or OAuth flows

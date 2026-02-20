@@ -3,7 +3,7 @@
     {
       "signature": "specsFixesApplied is not defined",
       "message": "specsFixesApplied is not defined",
-      "file": "/apppilot/api/status",
+      "file": "/sneebly/api/status",
       "occurrences": 4,
       "firstSeen": "2026-02-19T17:41:36.424Z",
       "lastSeen": "2026-02-19T17:41:39.362Z",
