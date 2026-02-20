@@ -134,20 +134,25 @@
       "id": "scenario:shopify-connect",
       "type": "scenario-test",
       "firstSeen": "2026-02-20T17:37:11.827Z",
-      "lastChecked": "2026-02-20T17:37:11.827Z",
+      "lastChecked": "2026-02-20T17:39:47.454Z",
       "lastStatus": "failed",
-      "totalChecks": 1,
-      "totalFailures": 1,
-      "consecutiveFailures": 1,
+      "totalChecks": 2,
+      "totalFailures": 2,
+      "consecutiveFailures": 2,
       "firstFailed": "2026-02-20T17:37:11.827Z",
-      "lastFailed": "2026-02-20T17:37:11.827Z",
+      "lastFailed": "2026-02-20T17:39:47.454Z",
       "lastPassed": null,
-      "escalationScore": 7,
+      "escalationScore": 9,
       "history": [
         {
           "status": "failed",
           "message": "None of the selectors found: text=POS connection, text=Shopify, [href*=\"shopify\"]",
           "timestamp": "2026-02-20T17:37:11.827Z"
+        },
+        {
+          "status": "failed",
+          "message": "None of the selectors found: text=POS connection, text=Shopify, [href*=\"shopify\"]",
+          "timestamp": "2026-02-20T17:39:47.454Z"
         }
       ]
     },
@@ -155,20 +160,25 @@
       "id": "scenario:clock-in-page",
       "type": "scenario-test",
       "firstSeen": "2026-02-20T17:37:11.828Z",
-      "lastChecked": "2026-02-20T17:37:11.828Z",
+      "lastChecked": "2026-02-20T17:39:47.455Z",
       "lastStatus": "failed",
-      "totalChecks": 1,
-      "totalFailures": 1,
-      "consecutiveFailures": 1,
+      "totalChecks": 2,
+      "totalFailures": 2,
+      "consecutiveFailures": 2,
       "firstFailed": "2026-02-20T17:37:11.828Z",
-      "lastFailed": "2026-02-20T17:37:11.828Z",
+      "lastFailed": "2026-02-20T17:39:47.455Z",
       "lastPassed": null,
-      "escalationScore": 7,
+      "escalationScore": 9,
       "history": [
         {
           "status": "failed",
           "message": "None of the selectors found: text=Clock In, text=Clock Out, button:has-text(\"Clock\")",
           "timestamp": "2026-02-20T17:37:11.828Z"
+        },
+        {
+          "status": "failed",
+          "message": "None of the selectors found: text=Clock In, text=Clock Out, button:has-text(\"Clock\")",
+          "timestamp": "2026-02-20T17:39:47.455Z"
         }
       ]
     },
@@ -176,20 +186,25 @@
       "id": "scenario:schedule-page",
       "type": "scenario-test",
       "firstSeen": "2026-02-20T17:37:11.837Z",
-      "lastChecked": "2026-02-20T17:37:11.837Z",
+      "lastChecked": "2026-02-20T17:39:47.470Z",
       "lastStatus": "failed",
-      "totalChecks": 1,
-      "totalFailures": 1,
-      "consecutiveFailures": 1,
+      "totalChecks": 2,
+      "totalFailures": 2,
+      "consecutiveFailures": 2,
       "firstFailed": "2026-02-20T17:37:11.837Z",
-      "lastFailed": "2026-02-20T17:37:11.837Z",
+      "lastFailed": "2026-02-20T17:39:47.470Z",
       "lastPassed": null,
-      "escalationScore": 7,
+      "escalationScore": 9,
       "history": [
         {
           "status": "failed",
           "message": "None of the selectors found: text=Schedule, text=Calendar, [class*=\"calendar\"]",
           "timestamp": "2026-02-20T17:37:11.837Z"
+        },
+        {
+          "status": "failed",
+          "message": "None of the selectors found: text=Schedule, text=Calendar, [class*=\"calendar\"]",
+          "timestamp": "2026-02-20T17:39:47.470Z"
         }
       ]
     },
@@ -197,20 +212,25 @@
       "id": "scenario:payroll-page",
       "type": "scenario-test",
       "firstSeen": "2026-02-20T17:37:11.847Z",
-      "lastChecked": "2026-02-20T17:37:11.847Z",
+      "lastChecked": "2026-02-20T17:39:47.470Z",
       "lastStatus": "failed",
-      "totalChecks": 1,
-      "totalFailures": 1,
-      "consecutiveFailures": 1,
+      "totalChecks": 2,
+      "totalFailures": 2,
+      "consecutiveFailures": 2,
       "firstFailed": "2026-02-20T17:37:11.847Z",
-      "lastFailed": "2026-02-20T17:37:11.847Z",
+      "lastFailed": "2026-02-20T17:39:47.470Z",
       "lastPassed": null,
-      "escalationScore": 7,
+      "escalationScore": 9,
       "history": [
         {
           "status": "failed",
           "message": "None of the selectors found: text=Payroll, text=Pay Period, text=Export",
           "timestamp": "2026-02-20T17:37:11.847Z"
+        },
+        {
+          "status": "failed",
+          "message": "None of the selectors found: text=Payroll, text=Pay Period, text=Export",
+          "timestamp": "2026-02-20T17:39:47.470Z"
         }
       ]
     },
@@ -218,20 +238,25 @@
       "id": "scenario:api-health-endpoints",
       "type": "scenario-test",
       "firstSeen": "2026-02-20T17:37:11.857Z",
-      "lastChecked": "2026-02-20T17:37:11.857Z",
+      "lastChecked": "2026-02-20T17:39:47.480Z",
       "lastStatus": "failed",
-      "totalChecks": 1,
-      "totalFailures": 1,
-      "consecutiveFailures": 1,
+      "totalChecks": 2,
+      "totalFailures": 2,
+      "consecutiveFailures": 2,
       "firstFailed": "2026-02-20T17:37:11.857Z",
-      "lastFailed": "2026-02-20T17:37:11.857Z",
+      "lastFailed": "2026-02-20T17:39:47.480Z",
       "lastPassed": null,
-      "escalationScore": 7,
+      "escalationScore": 9,
       "history": [
         {
           "status": "failed",
           "message": "API call failed: Failed to fetch",
           "timestamp": "2026-02-20T17:37:11.857Z"
+        },
+        {
+          "status": "failed",
+          "message": "API call failed: Failed to fetch",
+          "timestamp": "2026-02-20T17:39:47.480Z"
         }
       ]
     },
@@ -239,23 +264,28 @@
       "id": "scenario:authenticated-api-health",
       "type": "scenario-test",
       "firstSeen": "2026-02-20T17:37:11.858Z",
-      "lastChecked": "2026-02-20T17:37:11.858Z",
+      "lastChecked": "2026-02-20T17:39:47.481Z",
       "lastStatus": "failed",
-      "totalChecks": 1,
-      "totalFailures": 1,
-      "consecutiveFailures": 1,
+      "totalChecks": 2,
+      "totalFailures": 2,
+      "consecutiveFailures": 2,
       "firstFailed": "2026-02-20T17:37:11.858Z",
-      "lastFailed": "2026-02-20T17:37:11.858Z",
+      "lastFailed": "2026-02-20T17:39:47.481Z",
       "lastPassed": null,
-      "escalationScore": 7,
+      "escalationScore": 9,
       "history": [
         {
           "status": "failed",
           "message": "API call failed: Failed to fetch",
           "timestamp": "2026-02-20T17:37:11.858Z"
+        },
+        {
+          "status": "failed",
+          "message": "API call failed: Failed to fetch",
+          "timestamp": "2026-02-20T17:39:47.481Z"
         }
       ]
     }
   ],
-  "lastUpdated": "2026-02-20T17:38:22.803Z"
+  "lastUpdated": "2026-02-20T17:39:47.481Z"
 }

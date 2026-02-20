@@ -1,0 +1,16 @@
+{
+  "filePath": "server/index.ts",
+  "description": "[ELON] Add database connection health check at server startup. Test database connectivity before starting Express server. Log connection success or detailed failure. If connection fails, exit with clear error message rather than starting a broken server.",
+  "successCriteria": [
+    "Health check runs before server.listen()",
+    "Connection test uses actual database query (SELECT 1)",
+    "Success is logged",
+    "Failure logs detailed error and exits with non-zero code"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "source": "elon-fix",
+  "createdAt": "2026-02-20T17:40:13.264Z",
+  "elonConstraintId": "constraint-1771609213263",
+  "priority": "high",
+  "step": 7
+}

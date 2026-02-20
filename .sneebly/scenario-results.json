@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-02-20T17:37:11.826Z",
+  "timestamp": "2026-02-20T17:39:47.454Z",
   "totalScenarios": 6,
   "passed": 0,
   "failed": 6,
@@ -17,42 +17,42 @@
           "action": "navigate",
           "status": "passed",
           "error": null,
-          "duration": 2432
+          "duration": 2463
         },
         {
           "description": "Navigate to settings page",
           "action": "navigate",
           "status": "passed",
           "error": null,
-          "duration": 1075
+          "duration": 1044
         },
         {
           "description": "Look for Shopify/POS connection link",
           "action": "waitForSelector",
           "status": "failed",
           "error": "None of the selectors found: text=POS connection, text=Shopify, [href*=\"shopify\"]",
-          "duration": 15000
+          "duration": 15002
         },
         {
           "description": "Click POS connection",
           "action": "click",
           "status": "failed",
           "error": "Could not click any of: text=POS connection, [href*=\"shopify\"], text=Shopify Integration",
-          "duration": 1006
+          "duration": 1007
         },
         {
           "description": "Verify Shopify integration panel loads",
           "action": "waitForSelector",
           "status": "failed",
           "error": "None of the selectors found: text=Shopify Integration, text=Connect your Shopify",
-          "duration": 10003
+          "duration": 10002
         },
         {
           "description": "Verify no error toasts appear on page load",
           "action": "checkNoErrors",
           "status": "passed",
           "error": null,
-          "duration": 505
+          "duration": 504
         },
         {
           "description": "Verify Shopify API key is configured",
@@ -75,8 +75,8 @@
         "WebSocket connection to 'ws://localhost:5000/?token=y2BSXs0rq5FG' failed: Error during WebSocket handshake: Unexpected response code: 400",
         "Failed to construct 'WebSocket': The URL 'ws://localhost:undefined/?token=y2BSXs0rq5FG' is invalid."
       ],
-      "screenshot": "/home/runner/workspace/.sneebly/screenshots/shopify-connect-1771608977014.png",
-      "timestamp": "2026-02-20T17:36:17.058Z"
+      "screenshot": "/home/runner/workspace/.sneebly/screenshots/shopify-connect-1771609132971.png",
+      "timestamp": "2026-02-20T17:38:53.021Z"
     },
     {
       "id": "clock-in-page",
@@ -90,29 +90,29 @@
           "action": "navigate",
           "status": "passed",
           "error": null,
-          "duration": 2729
+          "duration": 2386
         },
         {
           "description": "Look for clock in/out button",
           "action": "waitForSelector",
           "status": "failed",
           "error": "None of the selectors found: text=Clock In, text=Clock Out, button:has-text(\"Clock\")",
-          "duration": 15004
+          "duration": 15003
         },
         {
           "description": "No error messages on time clock page",
           "action": "checkNoErrors",
           "status": "passed",
           "error": null,
-          "duration": 503
+          "duration": 504
         }
       ],
       "pageErrors": [
         "WebSocket connection to 'ws://localhost:5000/?token=y2BSXs0rq5FG' failed: Error during WebSocket handshake: Unexpected response code: 400",
         "Failed to construct 'WebSocket': The URL 'ws://localhost:undefined/?token=y2BSXs0rq5FG' is invalid."
       ],
-      "screenshot": "/home/runner/workspace/.sneebly/screenshots/clock-in-page-1771608995321.png",
-      "timestamp": "2026-02-20T17:36:35.384Z"
+      "screenshot": "/home/runner/workspace/.sneebly/screenshots/clock-in-page-1771609150946.png",
+      "timestamp": "2026-02-20T17:39:11.005Z"
     },
     {
       "id": "schedule-page",
@@ -126,29 +126,29 @@
           "action": "navigate",
           "status": "passed",
           "error": null,
-          "duration": 2733
+          "duration": 2605
         },
         {
           "description": "Verify schedule UI loads",
           "action": "waitForSelector",
           "status": "failed",
           "error": "None of the selectors found: text=Schedule, text=Calendar, [class*=\"calendar\"]",
-          "duration": 15003
+          "duration": 15001
         },
         {
           "description": "No errors on schedule page",
           "action": "checkNoErrors",
           "status": "passed",
           "error": null,
-          "duration": 505
+          "duration": 503
         }
       ],
       "pageErrors": [
         "WebSocket connection to 'ws://localhost:5000/?token=y2BSXs0rq5FG' failed: Error during WebSocket handshake: Unexpected response code: 400",
         "Failed to construct 'WebSocket': The URL 'ws://localhost:undefined/?token=y2BSXs0rq5FG' is invalid."
       ],
-      "screenshot": "/home/runner/workspace/.sneebly/screenshots/schedule-page-1771609013666.png",
-      "timestamp": "2026-02-20T17:36:53.709Z"
+      "screenshot": "/home/runner/workspace/.sneebly/screenshots/schedule-page-1771609169145.png",
+      "timestamp": "2026-02-20T17:39:29.217Z"
     },
     {
       "id": "payroll-page",
@@ -162,29 +162,29 @@
           "action": "navigate",
           "status": "passed",
           "error": null,
-          "duration": 2263
+          "duration": 2426
         },
         {
           "description": "Verify payroll UI loads",
           "action": "waitForSelector",
           "status": "failed",
           "error": "None of the selectors found: text=Payroll, text=Pay Period, text=Export",
-          "duration": 15000
+          "duration": 15002
         },
         {
           "description": "No errors on payroll page",
           "action": "checkNoErrors",
           "status": "passed",
           "error": null,
-          "duration": 505
+          "duration": 504
         }
       ],
       "pageErrors": [
         "WebSocket connection to 'ws://localhost:5000/?token=y2BSXs0rq5FG' failed: Error during WebSocket handshake: Unexpected response code: 400",
         "Failed to construct 'WebSocket': The URL 'ws://localhost:undefined/?token=y2BSXs0rq5FG' is invalid."
       ],
-      "screenshot": "/home/runner/workspace/.sneebly/screenshots/payroll-page-1771609031507.png",
-      "timestamp": "2026-02-20T17:37:11.573Z"
+      "screenshot": "/home/runner/workspace/.sneebly/screenshots/payroll-page-1771609187175.png",
+      "timestamp": "2026-02-20T17:39:47.256Z"
     },
     {
       "id": "api-health-endpoints",
@@ -205,7 +205,7 @@
           "action": "apiCheck",
           "status": "failed",
           "error": "API call failed: Failed to fetch",
-          "duration": 22
+          "duration": 10
         }
       ],
       "pageErrors": [
@@ -215,8 +215,8 @@
         "Access to fetch at 'http://localhost:5000/' from origin 'null' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.",
         "Failed to load resource: net::ERR_FAILED"
       ],
-      "screenshot": "/home/runner/workspace/.sneebly/screenshots/api-health-endpoints-1771609031636.png",
-      "timestamp": "2026-02-20T17:37:11.692Z"
+      "screenshot": "/home/runner/workspace/.sneebly/screenshots/api-health-endpoints-1771609187299.png",
+      "timestamp": "2026-02-20T17:39:47.339Z"
     },
     {
       "id": "authenticated-api-health",
@@ -237,49 +237,49 @@
           "action": "apiCheck",
           "status": "failed",
           "error": "API call failed: Failed to fetch",
-          "duration": 8
+          "duration": 5
         },
         {
           "description": "Schedules API returns array",
           "action": "apiCheck",
           "status": "failed",
           "error": "API call failed: Failed to fetch",
-          "duration": 6
+          "duration": 4
         },
         {
           "description": "Tasks API returns array",
           "action": "apiCheck",
           "status": "failed",
           "error": "API call failed: Failed to fetch",
-          "duration": 5
+          "duration": 4
         },
         {
           "description": "Company settings returns object",
           "action": "apiCheck",
           "status": "failed",
           "error": "API call failed: Failed to fetch",
-          "duration": 6
+          "duration": 4
         },
         {
           "description": "Payroll settings returns object",
           "action": "apiCheck",
           "status": "failed",
           "error": "API call failed: Failed to fetch",
-          "duration": 5
+          "duration": 4
         },
         {
           "description": "Shopify shops returns array",
           "action": "apiCheck",
           "status": "failed",
           "error": "API call failed: Failed to fetch",
-          "duration": 5
+          "duration": 4
         },
         {
           "description": "Holiday pay rules returns array",
           "action": "apiCheck",
           "status": "failed",
           "error": "API call failed: Failed to fetch",
-          "duration": 5
+          "duration": 3
         }
       ],
       "pageErrors": [
@@ -294,8 +294,8 @@
         "Access to fetch at 'http://localhost:5000/api/company-settings' from origin 'null' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.",
         "Failed to load resource: net::ERR_FAILED"
       ],
-      "screenshot": "/home/runner/workspace/.sneebly/screenshots/authenticated-api-health-1771609031765.png",
-      "timestamp": "2026-02-20T17:37:11.802Z"
+      "screenshot": "/home/runner/workspace/.sneebly/screenshots/authenticated-api-health-1771609187399.png",
+      "timestamp": "2026-02-20T17:39:47.430Z"
     }
   ],
   "devModeActive": false

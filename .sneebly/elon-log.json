@@ -1,173 +1,131 @@
 {
   "current": {
-    "id": "constraint-1771609090169",
-    "description": "Shopify integration is completely broken — no OAuth flow, no webhook handlers, no sales data sync, blocking AI Staffing Optimizer, Midday Pulse, and Morning Whisper",
-    "why": "Without Shopify integration, the app cannot access sales data. This blocks multiple high-priority AI features (AI Staffing Optimizer, Midday Pulse, Morning Whisper) and makes the app fundamentally incomplete for its core retail boutique use case. The crawl found no Shopify-related routes or webhook endpoints, and the codebase analysis shows missing OAuth flow, missing webhook handlers, and no sales sync infrastructure.",
+    "id": "constraint-1771609213263",
+    "description": "Critical database connection failure causing 500 errors on all employee-facing API endpoints",
+    "why": "The Drizzle ORM database connection is failing or misconfigured, causing every endpoint that touches the database to return 500 errors. This blocks clock-in/out, schedule viewing, task assignment, and payroll — all LIVE features marked as highest priority.",
     "unblocks": [
-      "AI Staffing Optimizer can analyze real sales patterns",
-      "Midday Pulse can compare actual vs. target sales",
-      "Morning Whisper can include yesterday's sales context",
-      "Daily Debrief can capture sales performance",
-      "Opening/Closing Checklist SOPs can reference sales targets",
-      "Manager dashboards can display real-time sales metrics",
-      "Pattern recognition can detect sales trends for SOP updates"
+      "Clock-in/out functionality becomes operational",
+      "Schedule viewing and management works",
+      "Task assignment and tracking becomes possible",
+      "Payroll reports can be generated",
+      "Employee directory loads correctly",
+      "All database-dependent API routes become functional"
     ],
     "score": 10,
-    "category": "integration",
+    "category": "infrastructure",
     "evidenceFromCrawl": [
-      "No /api/shopify/* routes found in crawl results",
-      "No Shopify OAuth callback endpoint detected",
-      "No webhook receiver endpoints for sales data",
-      "Integration health shows 'Shopify: NOT CONFIGURED'",
-      "Scenario test 'Shopify Connect' failed with 'No OAuth flow found'"
+      "GET /api/time-entries → 500 Internal Server Error",
+      "GET /api/schedules → 500 Internal Server Error",
+      "GET /api/employees → 500 Internal Server Error",
+      "GET /api/tasks → 500 Internal Server Error",
+      "GET /api/payroll/periods → 500 Internal Server Error",
+      "GET /api/availability → 500 Internal Server Error",
+      "POST /api/time-entries → 500 Internal Server Error"
     ],
-    "goal": "Shopify Deep Sync completion — ensure real-time sales data streaming is bulletproof with retry logic, dead letter queues, and reconciliation checks",
-    "identifiedAt": "2026-02-20T17:38:10.169Z",
+    "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
+    "identifiedAt": "2026-02-20T17:40:13.263Z",
     "status": "active",
     "steps": [
       {
         "step": 1,
-        "filePath": "server/routes/shopify.ts",
-        "description": "Create Shopify OAuth flow with install, callback, and token storage. Use Shopify's official @shopify/shopify-api SDK. Store access tokens in new shopify_credentials table (shop domain, access token, scopes, installed_at timestamp). Handle authorization URL generation, token exchange, and scope validation (read_orders, read_products, read_customers minimum).",
+        "filePath": "server/db/index.ts",
+        "description": "Verify Drizzle database connection setup. Check that DATABASE_URL environment variable is properly accessed, Neon serverless connection pooling is configured correctly, and connection options include ssl: true for Neon. Add connection error handling and logging.",
         "successCriteria": [
-          "GET /api/shopify/install returns OAuth authorization URL",
-          "GET /api/shopify/callback?code=XXX&shop=YYY exchanges code for access token",
-          "Access token stored in shopify_credentials table",
-          "POST /api/shopify/install with valid shop domain initiates OAuth flow"
+          "Database client exports successfully",
+          "Connection string is valid and references Replit Secrets",
+          "SSL configuration is present for Neon",
+          "Error handling logs connection failures"
         ],
         "priority": "high",
-        "estimatedComplexity": "high"
+        "estimatedComplexity": "low"
       },
       {
         "step": 2,
-        "filePath": "server/routes/shopify-webhooks.ts",
-        "description": "Create webhook receiver endpoints for orders/create, orders/updated, and products/update. Verify HMAC signatures using Shopify secret. Parse webhook payload, extract sales data (order_number, total_price, line_items, created_at, customer info), and insert into new shopify_orders table. Log webhook receipt in activity_log. Handle idempotency using webhook event_id to prevent duplicate processing.",
+        "filePath": "server/routes/time-entries.ts",
+        "description": "Add proper error handling and logging to time-entries routes. Wrap database queries in try-catch blocks. Log specific error details (error type, message, stack trace) to help diagnose database connection issues. Return structured error responses.",
         "successCriteria": [
-          "POST /api/shopify/webhooks/orders accepts valid Shopify webhook",
-          "HMAC signature verification passes for authentic webhooks",
-          "Order data inserted into shopify_orders table",
-          "Duplicate webhooks detected and skipped (idempotency check)",
-          "Invalid HMAC returns 401 Unauthorized"
+          "All route handlers have try-catch blocks",
+          "Errors are logged with structured context",
+          "Errors return proper JSON shape: { success: false, error: { message, code } }",
+          "HTTP status codes match error types (500 for DB errors)"
         ],
         "priority": "high",
-        "estimatedComplexity": "medium"
+        "estimatedComplexity": "low"
       },
       {
         "step": 3,
-        "filePath": "shared/schema/shopify.ts",
-        "description": "Define Drizzle schema for shopify_credentials (id, shop_domain, access_token, scopes, installed_at, updated_at) and shopify_orders (id, shop_domain, order_number, total_price_cents, currency, line_items_json, customer_id, customer_email, created_at, synced_at, webhook_event_id). Add indexes on order_number (unique constraint with shop_domain), created_at (for date range queries), and webhook_event_id (for idempotency checks).",
+        "filePath": "server/routes/schedules.ts",
+        "description": "Add proper error handling and logging to schedules routes. Wrap database queries in try-catch blocks. Log specific error details. Return structured error responses.",
         "successCriteria": [
-          "Schema file compiles with zero TypeScript errors",
-          "Tables include all specified fields with correct types",
-          "Indexes defined for performance-critical queries",
-          "Foreign key relationships documented in comments"
+          "All route handlers have try-catch blocks",
+          "Errors are logged with structured context",
+          "Errors return proper JSON shape",
+          "HTTP status codes match error types"
         ],
         "priority": "high",
         "estimatedComplexity": "low"
       },
       {
         "step": 4,
-        "filePath": "server/db/migrations/0008_add_shopify_tables.sql",
-        "description": "Generate migration to create shopify_credentials and shopify_orders tables with proper constraints, indexes, and foreign keys. Use BIGINT for price_cents to avoid floating point. Use JSONB for line_items_json. Add unique constraint on (shop_domain, order_number) for shopify_orders. Add unique constraint on (shop_domain, webhook_event_id) for idempotency.",
+        "filePath": "server/routes/employees.ts",
+        "description": "Add proper error handling and logging to employees routes. Wrap database queries in try-catch blocks. Log specific error details. Return structured error responses.",
         "successCriteria": [
-          "Migration runs without errors on local database",
-          "Tables created with correct columns and types",
-          "Unique constraints enforced (test duplicate insert fails)",
-          "Indexes present (check with \\d shopify_orders in psql)"
+          "All route handlers have try-catch blocks",
+          "Errors are logged with structured context",
+          "Errors return proper JSON shape",
+          "HTTP status codes match error types"
         ],
         "priority": "high",
         "estimatedComplexity": "low"
       },
       {
         "step": 5,
-        "filePath": "server/services/shopify-sync.ts",
-        "description": "Create ShopifySyncService with methods: fetchRecentOrders() (pulls last 7 days of orders via Shopify Admin API), syncOrder() (inserts/updates single order in DB), and reconcile() (compares Shopify order count vs. DB count, flags discrepancies). Use Shopify GraphQL Admin API for efficient queries. Implement retry logic with exponential backoff for rate limit errors (429). Log all sync operations to activity_log.",
+        "filePath": "server/routes/tasks.ts",
+        "description": "Add proper error handling and logging to tasks routes. Wrap database queries in try-catch blocks. Log specific error details. Return structured error responses.",
         "successCriteria": [
-          "fetchRecentOrders() returns array of orders from Shopify API",
-          "syncOrder() inserts new order into shopify_orders table",
-          "syncOrder() updates existing order if order_number already exists",
-          "reconcile() detects when DB has fewer orders than Shopify",
-          "Rate limit errors trigger exponential backoff retry (3 attempts max)"
+          "All route handlers have try-catch blocks",
+          "Errors are logged with structured context",
+          "Errors return proper JSON shape",
+          "HTTP status codes match error types"
         ],
         "priority": "high",
-        "estimatedComplexity": "high"
+        "estimatedComplexity": "low"
       },
       {
         "step": 6,
-        "filePath": "server/routes/api.ts",
-        "description": "Add GET /api/shopify/status endpoint returning { connected: boolean, shop_domain: string, last_sync: timestamp, orders_synced: number }. Add POST /api/shopify/sync-now endpoint to trigger manual reconciliation (admin-only, requires MANAGE_INTEGRATIONS permission). Update /health endpoint to include Shopify connection status.",
+        "filePath": "server/routes/payroll.ts",
+        "description": "Add proper error handling and logging to payroll routes. Wrap database queries in try-catch blocks. Log specific error details. Return structured error responses.",
         "successCriteria": [
-          "GET /api/shopify/status returns correct connected status",
-          "POST /api/shopify/sync-now triggers ShopifySyncService.reconcile()",
-          "Admin users can call sync-now, non-admins get 403",
-          "/health endpoint includes shopify: { connected: boolean }"
+          "All route handlers have try-catch blocks",
+          "Errors are logged with structured context",
+          "Errors return proper JSON shape",
+          "HTTP status codes match error types"
         ],
-        "priority": "medium",
+        "priority": "high",
         "estimatedComplexity": "low"
       },
       {
         "step": 7,
-        "filePath": "server/services/ai-staffing-optimizer.ts",
-        "description": "Update AI Staffing Optimizer to query shopify_orders table for historical sales data instead of placeholder data. Calculate hourly sales patterns for last 30 days, group by day_of_week and hour. Feed this into Claude prompt as context for staffing recommendations. Handle edge case where no Shopify data exists yet (fallback to sensible defaults, log warning).",
+        "filePath": "server/index.ts",
+        "description": "Add database connection health check at server startup. Test database connectivity before starting Express server. Log connection success or detailed failure. If connection fails, exit with clear error message rather than starting a broken server.",
         "successCriteria": [
-          "AI Staffing Optimizer queries shopify_orders table",
-          "Hourly sales aggregation calculates correctly (test with sample data)",
-          "Claude prompt includes actual sales patterns in context",
-          "Graceful fallback when shopify_orders table is empty",
-          "Recommendation quality improves (manually verify one output)"
-        ],
-        "priority": "medium",
-        "estimatedComplexity": "medium"
-      },
-      {
-        "step": 8,
-        "filePath": "client/src/pages/Settings/Integrations.tsx",
-        "description": "Add Shopify integration card to Settings > Integrations page. Show connection status, shop domain (if connected), last sync timestamp, and orders synced count. Add 'Connect Shopify' button that redirects to /api/shopify/install. Add 'Disconnect' button (admin-only) that revokes access token and clears shopify_credentials. Add 'Sync Now' button (admin-only) that calls POST /api/shopify/sync-now and shows progress toast.",
-        "successCriteria": [
-          "Integrations page displays Shopify connection status",
-          "Connect button redirects to Shopify OAuth flow",
-          "Disconnect button clears credentials and updates UI",
-          "Sync Now button triggers sync and shows success/error toast",
-          "Non-admin users cannot see Disconnect or Sync Now buttons"
-        ],
-        "priority": "medium",
-        "estimatedComplexity": "medium"
-      },
-      {
-        "step": 9,
-        "filePath": "server/services/webhook-manager.ts",
-        "description": "Create WebhookManager service to auto-register Shopify webhooks on installation. After OAuth callback succeeds, call Shopify API to create webhooks for orders/create, orders/updated, products/update pointing to /api/shopify/webhooks/orders and /api/shopify/webhooks/products. Store webhook IDs in shopify_credentials table. Handle webhook registration failures gracefully (log error, allow manual retry).",
-        "successCriteria": [
-          "Webhooks auto-register after successful OAuth installation",
-          "Webhook IDs stored in shopify_credentials.webhooks_json field",
-          "Registration failures logged to activity_log with ERROR level",
-          "Manual retry mechanism available via Settings UI or API endpoint"
+          "Health check runs before server.listen()",
+          "Connection test uses actual database query (SELECT 1)",
+          "Success is logged",
+          "Failure logs detailed error and exits with non-zero code"
         ],
         "priority": "high",
-        "estimatedComplexity": "medium"
-      },
-      {
-        "step": 10,
-        "filePath": "server/services/shopify-reconciliation.ts",
-        "description": "Create scheduled reconciliation job (runs every 6 hours via cron or setInterval). Queries Shopify for order count in last 7 days, compares to shopify_orders table count. If discrepancy > 5%, triggers full sync via ShopifySyncService.fetchRecentOrders(). Logs reconciliation results to activity_log. Sends notification to owner if sync fails 3 times in a row (uses existing notification system).",
-        "successCriteria": [
-          "Reconciliation job runs every 6 hours (verify with logs)",
-          "Discrepancies detected when order counts don't match",
-          "Full sync triggered when discrepancy threshold exceeded",
-          "Owner notified after 3 consecutive sync failures",
-          "Job can be manually triggered via /api/shopify/reconcile endpoint"
-        ],
-        "priority": "medium",
         "estimatedComplexity": "medium"
       }
     ],
     "verificationPages": [
-      "/settings/integrations",
-      "/api/shopify/status",
-      "/api/shopify/install",
-      "/health"
+      "/api/time-entries",
+      "/api/schedules",
+      "/api/employees",
+      "/api/tasks",
+      "/api/payroll/periods"
     ],
-    "completionCriteria": "Shopify integration fully operational: OAuth flow completes successfully, webhooks receive and process orders, shopify_orders table populates with real data, AI Staffing Optimizer uses actual sales patterns, reconciliation job detects and fixes sync issues, integration health shows 'Shopify: CONNECTED', and Scenario test 'Shopify Connect' passes."
+    "completionCriteria": "All employee-facing API endpoints return proper responses (200 with data for successful auth, 401/403 for missing auth) instead of 500 errors. Database connection is stable and verified on server startup."
   },
   "solved": [],
   "history": [
@@ -340,9 +298,137 @@
         "/health"
       ],
       "completionCriteria": "Shopify integration fully operational: OAuth flow completes successfully, webhooks receive and process orders, shopify_orders table populates with real data, AI Staffing Optimizer uses actual sales patterns, reconciliation job detects and fixes sync issues, integration health shows 'Shopify: CONNECTED', and Scenario test 'Shopify Connect' passes."
+    },
+    {
+      "id": "constraint-1771609213263",
+      "description": "Critical database connection failure causing 500 errors on all employee-facing API endpoints",
+      "why": "The Drizzle ORM database connection is failing or misconfigured, causing every endpoint that touches the database to return 500 errors. This blocks clock-in/out, schedule viewing, task assignment, and payroll — all LIVE features marked as highest priority.",
+      "unblocks": [
+        "Clock-in/out functionality becomes operational",
+        "Schedule viewing and management works",
+        "Task assignment and tracking becomes possible",
+        "Payroll reports can be generated",
+        "Employee directory loads correctly",
+        "All database-dependent API routes become functional"
+      ],
+      "score": 10,
+      "category": "infrastructure",
+      "evidenceFromCrawl": [
+        "GET /api/time-entries → 500 Internal Server Error",
+        "GET /api/schedules → 500 Internal Server Error",
+        "GET /api/employees → 500 Internal Server Error",
+        "GET /api/tasks → 500 Internal Server Error",
+        "GET /api/payroll/periods → 500 Internal Server Error",
+        "GET /api/availability → 500 Internal Server Error",
+        "POST /api/time-entries → 500 Internal Server Error"
+      ],
+      "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
+      "identifiedAt": "2026-02-20T17:40:13.263Z",
+      "status": "active",
+      "steps": [
+        {
+          "step": 1,
+          "filePath": "server/db/index.ts",
+          "description": "Verify Drizzle database connection setup. Check that DATABASE_URL environment variable is properly accessed, Neon serverless connection pooling is configured correctly, and connection options include ssl: true for Neon. Add connection error handling and logging.",
+          "successCriteria": [
+            "Database client exports successfully",
+            "Connection string is valid and references Replit Secrets",
+            "SSL configuration is present for Neon",
+            "Error handling logs connection failures"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 2,
+          "filePath": "server/routes/time-entries.ts",
+          "description": "Add proper error handling and logging to time-entries routes. Wrap database queries in try-catch blocks. Log specific error details (error type, message, stack trace) to help diagnose database connection issues. Return structured error responses.",
+          "successCriteria": [
+            "All route handlers have try-catch blocks",
+            "Errors are logged with structured context",
+            "Errors return proper JSON shape: { success: false, error: { message, code } }",
+            "HTTP status codes match error types (500 for DB errors)"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 3,
+          "filePath": "server/routes/schedules.ts",
+          "description": "Add proper error handling and logging to schedules routes. Wrap database queries in try-catch blocks. Log specific error details. Return structured error responses.",
+          "successCriteria": [
+            "All route handlers have try-catch blocks",
+            "Errors are logged with structured context",
+            "Errors return proper JSON shape",
+            "HTTP status codes match error types"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 4,
+          "filePath": "server/routes/employees.ts",
+          "description": "Add proper error handling and logging to employees routes. Wrap database queries in try-catch blocks. Log specific error details. Return structured error responses.",
+          "successCriteria": [
+            "All route handlers have try-catch blocks",
+            "Errors are logged with structured context",
+            "Errors return proper JSON shape",
+            "HTTP status codes match error types"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 5,
+          "filePath": "server/routes/tasks.ts",
+          "description": "Add proper error handling and logging to tasks routes. Wrap database queries in try-catch blocks. Log specific error details. Return structured error responses.",
+          "successCriteria": [
+            "All route handlers have try-catch blocks",
+            "Errors are logged with structured context",
+            "Errors return proper JSON shape",
+            "HTTP status codes match error types"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 6,
+          "filePath": "server/routes/payroll.ts",
+          "description": "Add proper error handling and logging to payroll routes. Wrap database queries in try-catch blocks. Log specific error details. Return structured error responses.",
+          "successCriteria": [
+            "All route handlers have try-catch blocks",
+            "Errors are logged with structured context",
+            "Errors return proper JSON shape",
+            "HTTP status codes match error types"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 7,
+          "filePath": "server/index.ts",
+          "description": "Add database connection health check at server startup. Test database connectivity before starting Express server. Log connection success or detailed failure. If connection fails, exit with clear error message rather than starting a broken server.",
+          "successCriteria": [
+            "Health check runs before server.listen()",
+            "Connection test uses actual database query (SELECT 1)",
+            "Success is logged",
+            "Failure logs detailed error and exits with non-zero code"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        }
+      ],
+      "verificationPages": [
+        "/api/time-entries",
+        "/api/schedules",
+        "/api/employees",
+        "/api/tasks",
+        "/api/payroll/periods"
+      ],
+      "completionCriteria": "All employee-facing API endpoints return proper responses (200 with data for successful auth, 401/403 for missing auth) instead of 500 errors. Database connection is stable and verified on server startup."
     }
   ],
   "failedAttempts": [],
-  "lastUpdated": "2026-02-20T17:38:10.174Z",
-  "consecutiveFixCycles": 1
+  "lastUpdated": "2026-02-20T17:40:13.268Z",
+  "consecutiveFixCycles": 2
 }
