@@ -364,19 +364,47 @@ export default function TeamMember() {
             </p>
             <div className="flex items-center gap-2 mt-1 text-sm flex-wrap">
               {member.phone && (
-                <a href={`tel:${member.phone}`} className="flex items-center gap-1 text-purple-600 hover:underline">
+                <a 
+                  href={`tel:${member.phone}`} 
+                  className="flex items-center gap-1 text-purple-600 hover:underline"
+                  onClick={(e) => {
+                    if (canEdit) {
+                      e.preventDefault();
+                      setActiveTab("personal");
+                      setEditingContact(true);
+                    }
+                  }}
+                >
                   <Phone className="h-3 w-3" />
                   {member.phone}
                 </a>
               )}
               {member.phone && <span className="text-muted-foreground">|</span>}
               {member.email ? (
-                <a href={`mailto:${member.email}`} className="flex items-center gap-1 text-purple-600 hover:underline">
+                <a 
+                  href={`mailto:${member.email}`} 
+                  className="flex items-center gap-1 text-purple-600 hover:underline"
+                  onClick={(e) => {
+                    if (canEdit) {
+                      e.preventDefault();
+                      setActiveTab("personal");
+                      setEditingContact(true);
+                    }
+                  }}
+                >
                   <Mail className="h-3 w-3" />
                   {member.email}
                 </a>
               ) : (
-                <span className="text-purple-600 cursor-pointer hover:underline flex items-center gap-1">
+                <span 
+                  className="text-purple-600 cursor-pointer hover:underline flex items-center gap-1"
+                  onClick={() => {
+                    if (canEdit) {
+                      setActiveTab("personal");
+                      setEditingContact(true);
+                    }
+                  }}
+                >
                   <Mail className="h-3 w-3" />
                   Add email address
                 </span>
@@ -680,158 +708,210 @@ export default function TeamMember() {
       {activeTab === "personal" && (
         <div className="space-y-6">
           <div>
-            <h2 className="text-lg font-bold mb-3">Contact Information</h2>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-lg font-bold">Personal Information</h2>
+              {canEdit && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-purple-400 text-purple-600"
+                  onClick={() => setEditingContact(!editingContact)}
+                >
+                  <Pencil className="h-3 w-3 mr-1" />
+                  {editingContact ? "Cancel" : "Edit"}
+                </Button>
+              )}
+            </div>
             <div className="border rounded-lg p-4">
-              <div className="flex justify-between items-start">
-                <div className="grid grid-cols-2 gap-x-12 gap-y-4 text-sm flex-1">
-                  <p className="font-semibold">Preferred name</p>
-                  {editingContact ? (
-                    <div className="flex gap-2">
+              {editingContact ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-xs font-semibold text-muted-foreground uppercase">Preferred Name</label>
                       <Input
-                        defaultValue={m.preferredName || `${member.firstName || ""} ${member.lastName || ""}`}
-                        className="h-8"
-                        id="pref-name"
+                        defaultValue={member.preferredName || `${member.firstName || ""} ${member.lastName || ""}`}
+                        className="mt-1"
+                        onBlur={(e) => updateUserMutation.mutate({ preferredName: e.target.value })}
                       />
                     </div>
-                  ) : (
-                    <p>{m.preferredName || `${member.firstName || ""} ${member.lastName || ""}`}</p>
-                  )}
-
-                  <p className="font-semibold">Personal email</p>
-                  {editingContact ? (
-                    <Input defaultValue={m.personalEmail || ""} className="h-8" id="personal-email" />
-                  ) : (
-                    <p>{m.personalEmail || "--"}</p>
-                  )}
-
-                  <p className="font-semibold">Mobile number</p>
-                  {editingContact ? (
-                    <Input defaultValue={member.phone || ""} className="h-8" id="mobile-number" />
-                  ) : (
-                    <p>{member.phone || "--"}</p>
-                  )}
-
-                  <p className="font-semibold">Emergency contact</p>
-                  {editingContact ? (
-                    <div className="space-y-2">
-                      <Input defaultValue={m.emergencyContactName || ""} placeholder="Name" className="h-8" id="ec-name" />
-                      <Input defaultValue={m.emergencyContactPhone || ""} placeholder="Phone" className="h-8" id="ec-phone" />
+                    <div>
+                      <label className="text-xs font-semibold text-muted-foreground uppercase">Personal Email</label>
+                      <Input
+                        defaultValue={member.email || ""}
+                        className="mt-1"
+                        onBlur={(e) => updateUserMutation.mutate({ email: e.target.value })}
+                      />
                     </div>
-                  ) : (
-                    <p>
-                      {m.emergencyContactName
-                        ? `${m.emergencyContactName}${m.emergencyContactPhone ? ` - ${m.emergencyContactPhone}` : ""}`
-                        : "--"}
-                    </p>
-                  )}
+                    <div>
+                      <label className="text-xs font-semibold text-muted-foreground uppercase">Phone Number</label>
+                      <Input
+                        defaultValue={member.phone || ""}
+                        className="mt-1"
+                        onBlur={(e) => updateUserMutation.mutate({ phone: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-xs font-semibold text-muted-foreground uppercase">Emergency Contact Name</label>
+                      <Input
+                        defaultValue={member.emergencyContactName || ""}
+                        className="mt-1"
+                        onBlur={(e) => updateUserMutation.mutate({ emergencyContactName: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-muted-foreground uppercase">Emergency Contact Phone</label>
+                      <Input
+                        defaultValue={member.emergencyContactPhone || ""}
+                        className="mt-1"
+                        onBlur={(e) => updateUserMutation.mutate({ emergencyContactPhone: e.target.value })}
+                      />
+                    </div>
+                  </div>
                 </div>
-                {canEdit && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="border-purple-400 text-purple-600 ml-4"
-                    onClick={() => {
-                      if (editingContact) {
-                        const prefName = (document.getElementById("pref-name") as HTMLInputElement)?.value;
-                        const personalEmail = (document.getElementById("personal-email") as HTMLInputElement)?.value;
-                        const phone = (document.getElementById("mobile-number") as HTMLInputElement)?.value;
-                        const ecName = (document.getElementById("ec-name") as HTMLInputElement)?.value;
-                        const ecPhone = (document.getElementById("ec-phone") as HTMLInputElement)?.value;
-                        updateUserMutation.mutate({
-                          preferredName: prefName || null,
-                          personalEmail: personalEmail || null,
-                          phone: phone || null,
-                          emergencyContactName: ecName || null,
-                          emergencyContactPhone: ecPhone || null,
-                        });
-                      }
-                      setEditingContact(!editingContact);
-                    }}
-                  >
-                    <Pencil className="h-3 w-3 mr-1" />
-                    {editingContact ? "Save" : "Edit"}
-                  </Button>
-                )}
-              </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-4">
+                    <div>
+                      <p className="text-xs font-semibold text-muted-foreground uppercase">Preferred Name</p>
+                      <p className="mt-1">{member.preferredName || `${member.firstName || ""} ${member.lastName || ""}`}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-muted-foreground uppercase">Personal Email</p>
+                      <p className="mt-1">{member.email || "—"}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-muted-foreground uppercase">Phone Number</p>
+                      <p className="mt-1">{member.phone || "—"}</p>
+                    </div>
+                  </div>
+                  <div className="space-y-4">
+                    <div>
+                      <p className="text-xs font-semibold text-muted-foreground uppercase">Emergency Contact</p>
+                      <p className="mt-1">
+                        {member.emergencyContactName ? (
+                          <>
+                            {member.emergencyContactName}
+                            {member.emergencyContactPhone && <span className="text-muted-foreground ml-2">({member.emergencyContactPhone})</span>}
+                          </>
+                        ) : "—"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
           <div>
-            <h2 className="text-lg font-bold mb-3">Payroll Information</h2>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-lg font-bold">Payroll Information</h2>
+              {canEdit && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-purple-400 text-purple-600"
+                  onClick={() => setEditingPersonalPayroll(!editingPersonalPayroll)}
+                >
+                  <Pencil className="h-3 w-3 mr-1" />
+                  {editingPersonalPayroll ? "Cancel" : "Edit"}
+                </Button>
+              )}
+            </div>
             <div className="border rounded-lg p-4">
-              <div className="flex justify-between items-start">
-                <div className="grid grid-cols-2 gap-x-12 gap-y-4 text-sm flex-1">
-                  <p className="font-semibold">Legal name</p>
-                  {editingPersonalPayroll ? (
-                    <Input defaultValue={m.legalName || `${member.firstName || ""} ${member.lastName || ""}`} className="h-8" id="legal-name" />
-                  ) : (
-                    <p>{m.legalName || `${member.firstName || ""} ${member.lastName || ""}`}</p>
-                  )}
-
-                  <p className="font-semibold">Date of birth</p>
-                  {editingPersonalPayroll ? (
-                    <Input type="date" defaultValue={m.dateOfBirth || ""} className="h-8" id="dob" />
-                  ) : (
-                    <p>{m.dateOfBirth ? new Date(m.dateOfBirth + "T00:00:00").toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }) : "--"}</p>
-                  )}
-
-                  <p className="font-semibold">Social Security number</p>
-                  {editingPersonalPayroll ? (
-                    <Input type="password" defaultValue={m.ssn || ""} className="h-8" id="ssn" placeholder="***-**-****" />
-                  ) : (
-                    <p>{m.ssn ? "***-**-" + m.ssn.slice(-4) : "--"}</p>
-                  )}
-
-                  <p className="font-semibold">Home address</p>
-                  {editingPersonalPayroll ? (
-                    <div className="space-y-2">
-                      <Input defaultValue={m.homeAddress || ""} placeholder="Street address" className="h-8" id="addr-street" />
+              {editingPersonalPayroll ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-xs font-semibold text-muted-foreground uppercase">Legal Name</label>
+                      <Input
+                        defaultValue={member.legalName || `${member.firstName || ""} ${member.lastName || ""}`}
+                        className="mt-1"
+                        onBlur={(e) => updateUserMutation.mutate({ legalName: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-muted-foreground uppercase">Date of Birth</label>
+                      <Input
+                        type="date"
+                        defaultValue={member.dateOfBirth ? new Date(member.dateOfBirth).toISOString().split('T')[0] : ""}
+                        className="mt-1"
+                        onBlur={(e) => updateUserMutation.mutate({ dateOfBirth: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-muted-foreground uppercase">SSN</label>
+                      <Input
+                        type="password"
+                        defaultValue={member.ssn || ""}
+                        placeholder="***-**-****"
+                        className="mt-1"
+                        onBlur={(e) => updateUserMutation.mutate({ ssn: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-xs font-semibold text-muted-foreground uppercase">Home Address</label>
+                      <Input
+                        defaultValue={member.homeAddress || ""}
+                        className="mt-1 mb-2"
+                        onBlur={(e) => updateUserMutation.mutate({ homeAddress: e.target.value })}
+                      />
                       <div className="grid grid-cols-3 gap-2">
-                        <Input defaultValue={m.homeCity || ""} placeholder="City" className="h-8" id="addr-city" />
-                        <Input defaultValue={m.homeState || ""} placeholder="State" className="h-8" id="addr-state" />
-                        <Input defaultValue={m.homeZip || ""} placeholder="ZIP" className="h-8" id="addr-zip" />
+                        <Input
+                          placeholder="City"
+                          defaultValue={member.homeCity || ""}
+                          onBlur={(e) => updateUserMutation.mutate({ homeCity: e.target.value })}
+                        />
+                        <Input
+                          placeholder="State"
+                          defaultValue={member.homeState || ""}
+                          onBlur={(e) => updateUserMutation.mutate({ homeState: e.target.value })}
+                        />
+                        <Input
+                          placeholder="ZIP"
+                          defaultValue={member.homeZip || ""}
+                          onBlur={(e) => updateUserMutation.mutate({ homeZip: e.target.value })}
+                        />
                       </div>
                     </div>
-                  ) : (
-                    <p>
-                      {m.homeAddress
-                        ? `${m.homeAddress}${m.homeCity ? `, ${m.homeCity}` : ""}${m.homeState ? `, ${m.homeState}` : ""} ${m.homeZip || ""}`
-                        : "--"}
-                    </p>
-                  )}
+                  </div>
                 </div>
-                {canEdit && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="border-purple-400 text-purple-600 ml-4"
-                    onClick={() => {
-                      if (editingPersonalPayroll) {
-                        const legalName = (document.getElementById("legal-name") as HTMLInputElement)?.value;
-                        const dob = (document.getElementById("dob") as HTMLInputElement)?.value;
-                        const ssn = (document.getElementById("ssn") as HTMLInputElement)?.value;
-                        const addr = (document.getElementById("addr-street") as HTMLInputElement)?.value;
-                        const city = (document.getElementById("addr-city") as HTMLInputElement)?.value;
-                        const state = (document.getElementById("addr-state") as HTMLInputElement)?.value;
-                        const zip = (document.getElementById("addr-zip") as HTMLInputElement)?.value;
-                        updateUserMutation.mutate({
-                          legalName: legalName || null,
-                          dateOfBirth: dob || null,
-                          ssn: ssn || null,
-                          homeAddress: addr || null,
-                          homeCity: city || null,
-                          homeState: state || null,
-                          homeZip: zip || null,
-                        });
-                      }
-                      setEditingPersonalPayroll(!editingPersonalPayroll);
-                    }}
-                  >
-                    <Pencil className="h-3 w-3 mr-1" />
-                    {editingPersonalPayroll ? "Save" : "Edit"}
-                  </Button>
-                )}
-              </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-4">
+                    <div>
+                      <p className="text-xs font-semibold text-muted-foreground uppercase">Legal Name</p>
+                      <p className="mt-1">{member.legalName || `${member.firstName || ""} ${member.lastName || ""}`}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-muted-foreground uppercase">Date of Birth</p>
+                      <p className="mt-1">
+                        {member.dateOfBirth ? new Date(member.dateOfBirth).toLocaleDateString() : "—"}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-muted-foreground uppercase">Social Security Number</p>
+                      <p className="mt-1">{member.ssn ? `***-**-${member.ssn.slice(-4)}` : "—"}</p>
+                    </div>
+                  </div>
+                  <div className="space-y-4">
+                    <div>
+                      <p className="text-xs font-semibold text-muted-foreground uppercase">Home Address</p>
+                      <p className="mt-1">
+                        {member.homeAddress ? (
+                          <>
+                            {member.homeAddress}<br />
+                            {member.homeCity}, {member.homeState} {member.homeZip}
+                          </>
+                        ) : "—"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
