@@ -18,11 +18,16 @@ const aiRateLimiter = rateLimit({
 });
 
 const processedAuthCodes = new Map<string, { timestamp: number; status: string }>();
+const oauthStates = new Map<string, { userId: string; timestamp: number }>();
 setInterval(() => {
   const now = Date.now();
   const entries = Array.from(processedAuthCodes.entries());
   entries.forEach(([code, data]) => {
     if (now - data.timestamp > 600000) processedAuthCodes.delete(code);
+  });
+  const stateEntries = Array.from(oauthStates.entries());
+  stateEntries.forEach(([state, data]) => {
+    if (now - data.timestamp > 600000) oauthStates.delete(state);
   });
 }, 300000);
 
@@ -76,12 +81,7 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
       }
 
       const state = crypto.randomBytes(16).toString('hex');
-      (req.session as any).oauthState = state;
-      (req.session as any).oauthUserId = req.user.id;
-
-      await new Promise<void>((resolve, reject) => {
-        req.session.save((err: any) => err ? reject(err) : resolve());
-      });
+      oauthStates.set(state, { userId: req.user.id, timestamp: Date.now() });
 
       const baseUrl = getAppUrl(req.get('host'));
       const redirectUri = `${baseUrl}/api/shopify/auth/callback`;
@@ -124,13 +124,15 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
         processedAuthCodes.set(code, { timestamp: Date.now(), status: 'processing' });
       }
 
-      if (state !== (req.session as any)?.oauthState) {
-        console.error('[Shopify OAuth] State mismatch');
+      const stateData = state && typeof state === 'string' ? oauthStates.get(state) : null;
+      if (!stateData) {
+        console.error('[Shopify OAuth] State mismatch or expired');
         if (code && typeof code === 'string') {
           processedAuthCodes.set(code, { timestamp: Date.now(), status: 'failed' });
         }
         return res.redirect(`/admin?shopify=error&message=${encodeURIComponent('Session expired. Please try again.')}`);
       }
+      oauthStates.delete(state as string);
 
       if (!shop || !code || typeof shop !== 'string' || typeof code !== 'string') {
         return res.redirect(`/admin?shopify=error&message=${encodeURIComponent('Missing OAuth parameters')}`);
@@ -224,7 +226,7 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
         });
       }
 
-      const userId = (req.session as any)?.oauthUserId;
+      const userId = stateData.userId;
       if (userId) {
         const existingLink = await db.select()
           .from(userShops)
@@ -234,13 +236,7 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
         if (!existingLink || existingLink.length === 0) {
           await db.insert(userShops).values({ userId, shopDomain });
         }
-        delete (req.session as any).oauthUserId;
       }
-
-      delete (req.session as any).oauthState;
-      await new Promise<void>((resolve, reject) => {
-        req.session.save((err: any) => err ? reject(err) : resolve());
-      });
 
       if (code) {
         processedAuthCodes.set(code, { timestamp: Date.now(), status: 'success' });
