@@ -13,10 +13,11 @@ import { MapPin, Shield, AlertTriangle, CheckCircle2, XCircle, Wifi } from 'luci
 
 export default function TimeClockWidget() {
   const { user } = useAuth();
-  const { position, getCurrentPosition, loading: locationLoading } = useGeolocation();
+  const { position, getCurrentPosition, loading: locationLoading, error: locationError } = useGeolocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [locationPermission, setLocationPermission] = useState<string>('unknown');
   const [geofenceStatus, setGeofenceStatus] = useState<{
     isInWorkLocation: boolean;
     location: { id: string; name: string; radius?: number; geofenceType?: string } | null;
@@ -26,6 +27,7 @@ export default function TimeClockWidget() {
     boundaryWarning: boolean;
   } | null>(null);
   const previousPositionRef = useRef<{ lat: number; lng: number } | null>(null);
+  const hasRequestedLocation = useRef(false);
 
   const { data: activeTimeEntry, isLoading: activeEntryLoading } = useQuery<TimeEntry | null>({
     queryKey: ['/api/time-entries/active'],
@@ -35,6 +37,24 @@ export default function TimeClockWidget() {
   const { data: workLocations = [] } = useQuery<WorkLocation[]>({
     queryKey: ['/api/work-locations'],
   });
+
+  useEffect(() => {
+    if (workLocations.length > 0 && !hasRequestedLocation.current) {
+      hasRequestedLocation.current = true;
+      if (navigator.permissions) {
+        navigator.permissions.query({ name: 'geolocation' }).then(result => {
+          setLocationPermission(result.state);
+          result.onchange = () => setLocationPermission(result.state);
+          if (result.state === 'granted') {
+            getCurrentPosition().catch(() => {});
+          }
+        }).catch(() => {});
+      }
+      if (!position) {
+        getCurrentPosition().catch(() => {});
+      }
+    }
+  }, [workLocations]);
 
   const logClockEvent = useCallback(async (eventType: string, timeEntryId?: string, metadata?: any) => {
     try {
@@ -131,38 +151,59 @@ export default function TimeClockWidget() {
   }, []);
 
   useEffect(() => {
-    if (!activeTimeEntry || !position) return;
+    if (!position || workLocations.length === 0) return;
 
     const checkGeofence = async () => {
       try {
-        const response = await apiRequest('POST', '/api/geofence/monitor', {
-          latitude: position.latitude,
-          longitude: position.longitude,
-          previousLatitude: previousPositionRef.current?.lat,
-          previousLongitude: previousPositionRef.current?.lng,
-        });
-        const result = await response.json();
-        
-        const isNearBoundary = result.isInWorkLocation && 
-          result.boundaryProximity != null && result.boundaryProximity > 0.8;
-        
-        setGeofenceStatus(prev => {
-          if (!result.isInWorkLocation && prev?.isInWorkLocation) {
-            toast({
-              title: "Boundary Alert",
-              description: "You've left your work location. If you don't return soon, you may be auto clocked out.",
-              variant: "destructive",
-            });
-          }
-          return {
+        if (activeTimeEntry) {
+          const response = await apiRequest('POST', '/api/geofence/monitor', {
+            latitude: position.latitude,
+            longitude: position.longitude,
+            previousLatitude: previousPositionRef.current?.lat,
+            previousLongitude: previousPositionRef.current?.lng,
+          });
+          const result = await response.json();
+          
+          const isNearBoundary = result.isInWorkLocation && 
+            result.boundaryProximity != null && result.boundaryProximity > 0.8;
+          
+          setGeofenceStatus(prev => {
+            if (!result.isInWorkLocation && prev?.isInWorkLocation) {
+              toast({
+                title: "Boundary Alert",
+                description: "You've left your work location. If you don't return soon, you may be auto clocked out.",
+                variant: "destructive",
+              });
+            }
+            return {
+              isInWorkLocation: result.isInWorkLocation,
+              location: result.location,
+              distance: result.distance,
+              boundaryProximity: result.boundaryProximity,
+              nearestLocation: result.nearestLocation,
+              boundaryWarning: isNearBoundary,
+            };
+          });
+        } else {
+          const response = await apiRequest('POST', '/api/geofence/check-detailed', {
+            latitude: position.latitude,
+            longitude: position.longitude,
+          });
+          const result = await response.json();
+          
+          setGeofenceStatus({
             isInWorkLocation: result.isInWorkLocation,
-            location: result.location,
-            distance: result.distance,
-            boundaryProximity: result.boundaryProximity,
-            nearestLocation: result.nearestLocation,
-            boundaryWarning: isNearBoundary,
-          };
-        });
+            location: result.location ? { id: result.location.id, name: result.location.name } : null,
+            distance: result.distance || null,
+            boundaryProximity: null,
+            nearestLocation: result.nearestLocation ? {
+              id: result.nearestLocation.id,
+              name: result.nearestLocation.name,
+              distance: result.nearestDistance || 0,
+            } : null,
+            boundaryWarning: false,
+          });
+        }
 
         previousPositionRef.current = { lat: position.latitude, lng: position.longitude };
       } catch (error) {
@@ -171,9 +212,9 @@ export default function TimeClockWidget() {
     };
 
     checkGeofence();
-    const interval = setInterval(checkGeofence, 60000);
+    const interval = setInterval(checkGeofence, activeTimeEntry ? 60000 : 120000);
     return () => clearInterval(interval);
-  }, [activeTimeEntry, position]);
+  }, [activeTimeEntry, position, workLocations]);
 
   const handleClockAction = async () => {
     if (activeTimeEntry) {
@@ -189,7 +230,15 @@ export default function TimeClockWidget() {
       }
 
       if (!position) {
-        await getCurrentPosition();
+        try {
+          await getCurrentPosition();
+        } catch (err: any) {
+          toast({
+            title: "Location Access Needed",
+            description: "Please allow location access in your browser or device settings to clock in. On iPhone: Settings > Privacy > Location Services.",
+            variant: "destructive",
+          });
+        }
         return;
       }
 
@@ -247,47 +296,6 @@ export default function TimeClockWidget() {
     });
   };
 
-  const getLocationStatus = () => {
-    if (workLocations.length === 0) {
-      return {
-        icon: 'fas fa-map-marker-alt',
-        text: 'No locations configured',
-        color: 'text-muted-foreground',
-      };
-    }
-
-    if (!position) {
-      return {
-        icon: 'fas fa-map-marker-alt',
-        text: 'Location unavailable',
-        color: 'text-red-500',
-      };
-    }
-
-    const nearestLocation = workLocations.find((location: WorkLocation) => {
-      if (!location.latitude || !location.longitude) return false;
-      const distance = Math.sqrt(
-        Math.pow(parseFloat(location.latitude) - position.latitude, 2) +
-        Math.pow(parseFloat(location.longitude) - position.longitude, 2)
-      ) * 111000;
-      return distance <= (location.radius || 100);
-    });
-
-    if (nearestLocation) {
-      return {
-        icon: 'fas fa-map-marker-alt',
-        text: `At ${nearestLocation.name}`,
-        color: 'text-green-500',
-      };
-    }
-
-    return {
-      icon: 'fas fa-map-marker-alt',
-      text: 'Outside work location',
-      color: 'text-orange-500',
-    };
-  };
-
   const getActiveWorkDuration = () => {
     if (!activeTimeEntry) return null;
     
@@ -299,8 +307,6 @@ export default function TimeClockWidget() {
     
     return `${hours}h ${minutes}m`;
   };
-
-  const locationStatus = getLocationStatus();
 
   return (
     <Card className="mb-4" data-testid="time-clock-widget">
@@ -334,10 +340,60 @@ export default function TimeClockWidget() {
           </div>
         )}
 
+        {/* Location Permission Notice */}
+        {workLocations.length > 0 && (locationPermission === 'denied' || locationError) && !activeTimeEntry && (
+          <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg p-3">
+            <div className="flex items-center gap-2">
+              <XCircle className="h-4 w-4 text-red-600 dark:text-red-400 shrink-0" />
+              <div className="text-left flex-1">
+                <p className="text-sm font-medium text-red-800 dark:text-red-300">Location Access Required</p>
+                <p className="text-xs text-red-600 dark:text-red-400">
+                  Please enable location services in your device settings to clock in. On iPhone: Settings &gt; Privacy &gt; Location Services &gt; enable for this browser.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Pre Clock-In Geofence Status */}
+        {!activeTimeEntry && geofenceStatus && workLocations.length > 0 && (
+          <div className={`rounded-lg p-3 text-sm ${
+            geofenceStatus.isInWorkLocation
+              ? 'bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800'
+              : 'bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800'
+          }`}>
+            <div className="flex items-center gap-2">
+              {geofenceStatus.isInWorkLocation ? (
+                <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400 shrink-0" />
+              ) : (
+                <AlertTriangle className="h-4 w-4 text-orange-600 dark:text-orange-400 shrink-0" />
+              )}
+              <div className="text-left flex-1">
+                <p className={`font-medium ${
+                  geofenceStatus.isInWorkLocation ? 'text-green-800 dark:text-green-300' : 'text-orange-800 dark:text-orange-300'
+                }`}>
+                  {geofenceStatus.isInWorkLocation
+                    ? `At ${geofenceStatus.location?.name || 'Work Location'}`
+                    : 'Outside Work Location'}
+                </p>
+                <p className={`text-xs ${
+                  geofenceStatus.isInWorkLocation ? 'text-green-600 dark:text-green-400' : 'text-orange-600 dark:text-orange-400'
+                }`}>
+                  {geofenceStatus.isInWorkLocation
+                    ? 'You are inside the geofence — ready to clock in'
+                    : geofenceStatus.nearestLocation
+                      ? `Nearest: ${geofenceStatus.nearestLocation.name} (${Math.round(geofenceStatus.nearestLocation.distance)}m away)`
+                      : 'You must be at a work location to clock in'}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Clock In/Out Button */}
         <Button
           onClick={handleClockAction}
-          disabled={clockInMutation.isPending || clockOutMutation.isPending || activeEntryLoading}
+          disabled={clockInMutation.isPending || clockOutMutation.isPending || activeEntryLoading || (locationPermission === 'denied' && workLocations.length > 0 && !activeTimeEntry)}
           className={`w-full py-4 text-lg font-semibold transition-colors ${
             activeTimeEntry
               ? 'bg-destructive hover:bg-destructive/90 text-destructive-foreground'
@@ -355,6 +411,11 @@ export default function TimeClockWidget() {
               <i className="fas fa-stop mr-2"></i>
               Clock Out
             </>
+          ) : locationLoading ? (
+            <>
+              <i className="fas fa-spinner fa-spin mr-2"></i>
+              Getting Location...
+            </>
           ) : (
             <>
               <i className="fas fa-play mr-2"></i>
@@ -363,7 +424,7 @@ export default function TimeClockWidget() {
           )}
         </Button>
 
-        {/* Geofence Status */}
+        {/* Geofence Status (while clocked in) */}
         {activeTimeEntry && geofenceStatus && (
           <div className={`rounded-lg p-3 text-sm ${
             geofenceStatus.boundaryWarning
@@ -409,11 +470,19 @@ export default function TimeClockWidget() {
         )}
 
         {/* Location Status */}
-        {!activeTimeEntry && (
+        {!activeTimeEntry && !geofenceStatus && workLocations.length > 0 && (
           <div className="flex items-center justify-center space-x-2 text-sm">
-            <i className={`${locationStatus.icon} ${locationStatus.color}`}></i>
+            <MapPin className="h-4 w-4 text-muted-foreground" />
             <span className="text-muted-foreground" data-testid="location-status">
-              {locationLoading ? 'Getting location...' : locationStatus.text}
+              {locationLoading ? 'Getting location...' : !position ? 'Tap Clock In to enable location' : 'Checking geofence...'}
+            </span>
+          </div>
+        )}
+        {!activeTimeEntry && workLocations.length === 0 && (
+          <div className="flex items-center justify-center space-x-2 text-sm">
+            <MapPin className="h-4 w-4 text-muted-foreground" />
+            <span className="text-muted-foreground" data-testid="location-status">
+              No locations configured
             </span>
           </div>
         )}

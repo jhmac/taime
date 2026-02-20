@@ -200,19 +200,33 @@ function MapComponent({ location, onLocationChange, onPolygonChange, isDrawing, 
 
     if (markerRef.current) map.removeLayer(markerRef.current);
     if (circleRef.current) map.removeLayer(circleRef.current);
+    if (polygonRef.current) map.removeLayer(polygonRef.current);
+    markersRef.current.forEach((m: any) => map.removeLayer(m));
+    markersRef.current = [];
+    polygonRef.current = null;
 
     if (!loc.latitude || !loc.longitude) return;
 
-    if ((loc.geofenceType || 'radius') !== 'polygon') {
-      markerRef.current = L.marker([lat, lng], {
-        icon: L.divIcon({
-          className: 'custom-marker',
-          html: `<div style="background:#3b82f6;width:24px;height:24px;border-radius:50%;border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.3);"></div>`,
-          iconSize: [24, 24],
-          iconAnchor: [12, 12],
-        }),
-      }).addTo(map);
+    const geofenceType = loc.geofenceType || 'radius';
 
+    markerRef.current = L.marker([lat, lng], {
+      icon: L.divIcon({
+        className: 'custom-marker',
+        html: `<div style="background:#3b82f6;width:24px;height:24px;border-radius:50%;border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.3);"></div>`,
+        iconSize: [24, 24],
+        iconAnchor: [12, 12],
+      }),
+    }).addTo(map);
+
+    if (geofenceType === 'polygon' && loc.geofencePolygon && loc.geofencePolygon.length >= 3) {
+      polygonRef.current = L.polygon(
+        loc.geofencePolygon.map((p: any) => [p.lat, p.lng]),
+        { color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 0.15, weight: 2, dashArray: '5,5' }
+      ).addTo(map);
+      if (shouldFitBounds) {
+        map.fitBounds(polygonRef.current.getBounds(), { padding: [50, 50] });
+      }
+    } else if (geofenceType !== 'polygon') {
       const radius = loc.radius || 100;
       circleRef.current = L.circle([lat, lng], {
         radius,
@@ -234,7 +248,7 @@ function MapComponent({ location, onLocationChange, onPolygonChange, isDrawing, 
       skipNextDisplayUpdate.current = false;
       return;
     }
-    if (drawModeRef.current === 'polygon') return;
+    if (isDrawingRef.current && drawModeRef.current === 'polygon') return;
     if (location && location.latitude && location.longitude) {
       updateMapDisplay(location, false);
     }
