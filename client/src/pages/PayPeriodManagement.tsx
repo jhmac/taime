@@ -8,11 +8,56 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest } from "@/lib/queryClient";
-import { Download, Calendar, CalendarClock, RefreshCw, ChevronRight, Settings2 } from "lucide-react";
-import type { PayrollPeriod, PayPeriodSettings, WorkflowLog, Permission } from "@shared/schema";
+import { Download, Calendar, CalendarClock, RefreshCw, ChevronRight, Settings2, Gift, Plus, Trash2, Sparkles } from "lucide-react";
+import type { PayrollPeriod, PayPeriodSettings, WorkflowLog, Permission, HolidayPayRule } from "@shared/schema";
+
+function getNthWeekday(year: number, month: number, weekday: number, n: number): { month: number; day: number } {
+  const firstDay = new Date(year, month - 1, 1);
+  let dayOfWeek = firstDay.getDay();
+  let day = 1 + ((weekday - dayOfWeek + 7) % 7) + (n - 1) * 7;
+  return { month, day };
+}
+
+function getLastMonday(year: number, month: number): { month: number; day: number } {
+  const lastDay = new Date(year, month, 0);
+  const diff = (lastDay.getDay() - 1 + 7) % 7;
+  return { month, day: lastDay.getDate() - diff };
+}
+
+function getThanksgiving(year: number): { month: number; day: number } {
+  return getNthWeekday(year, 11, 4, 4);
+}
+
+function getSuggestedHolidays(year: number) {
+  const mlk = getNthWeekday(year, 1, 1, 3);
+  const presidents = getNthWeekday(year, 2, 1, 3);
+  const memorial = getLastMonday(year, 5);
+  const labor = getNthWeekday(year, 9, 1, 1);
+  const columbus = getNthWeekday(year, 10, 1, 2);
+  const thanksgiving = getThanksgiving(year);
+  const blackFriday = { month: 11, day: thanksgiving.day + 1 };
+
+  return [
+    { name: "New Year's Day", month: 1, day: 1, payMultiplier: 1.5 },
+    { name: "Martin Luther King Jr. Day", month: mlk.month, day: mlk.day, payMultiplier: 1.5 },
+    { name: "Presidents' Day", month: presidents.month, day: presidents.day, payMultiplier: 1.5 },
+    { name: "Memorial Day", month: memorial.month, day: memorial.day, payMultiplier: 1.5 },
+    { name: "Juneteenth", month: 6, day: 19, payMultiplier: 1.5 },
+    { name: "Independence Day", month: 7, day: 4, payMultiplier: 1.5 },
+    { name: "Labor Day", month: labor.month, day: labor.day, payMultiplier: 1.5 },
+    { name: "Columbus Day", month: columbus.month, day: columbus.day, payMultiplier: 1.5 },
+    { name: "Veterans Day", month: 11, day: 11, payMultiplier: 1.5 },
+    { name: "Thanksgiving Day", month: thanksgiving.month, day: thanksgiving.day, payMultiplier: 1.5 },
+    { name: "Black Friday", month: blackFriday.month, day: blackFriday.day, payMultiplier: 1.5 },
+    { name: "Christmas Eve", month: 12, day: 24, payMultiplier: 1.5 },
+    { name: "Christmas Day", month: 12, day: 25, payMultiplier: 1.5 },
+    { name: "New Year's Eve", month: 12, day: 31, payMultiplier: 1.5 },
+  ];
+}
 
 export default function PayPeriodManagement() {
   const { toast } = useToast();
@@ -34,6 +79,12 @@ export default function PayPeriodManagement() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [daysBeforeNotification, setDaysBeforeNotification] = useState(7);
   const [scheduleGenerationDays, setScheduleGenerationDays] = useState(5);
+  const [selectedHolidays, setSelectedHolidays] = useState<Set<string>>(new Set());
+  const [defaultMultiplier, setDefaultMultiplier] = useState("1.50");
+  const [customHolidayName, setCustomHolidayName] = useState("");
+  const [customHolidayDate, setCustomHolidayDate] = useState("");
+  const [holidayYear, setHolidayYear] = useState(new Date().getFullYear());
+  const suggestedHolidays = getSuggestedHolidays(holidayYear);
 
   const { data: payPeriods = [] } = useQuery<PayrollPeriod[]>({
     queryKey: ['/api/payroll/periods'],
@@ -50,6 +101,10 @@ export default function PayPeriodManagement() {
   const { data: workflowLogs = [] } = useQuery<WorkflowLog[]>({
     queryKey: ['/api/payroll/periods', selectedPeriodId, 'workflow-logs'],
     enabled: !!selectedPeriodId,
+  });
+
+  const { data: holidayPayRules = [] } = useQuery<HolidayPayRule[]>({
+    queryKey: ['/api/holiday-pay-rules'],
   });
 
   useEffect(() => {
@@ -123,6 +178,75 @@ export default function PayPeriodManagement() {
       toast({ title: "Error", description: "Failed to create pay period.", variant: "destructive" });
     },
   });
+
+  const saveHolidaysMutation = useMutation({
+    mutationFn: async (holidays: Array<{ name: string; month: number; day: number; payMultiplier: number }>) => {
+      const res = await apiRequest('POST', '/api/holiday-pay-rules/bulk', { holidays });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/holiday-pay-rules'] });
+      setSelectedHolidays(new Set());
+      toast({ title: "Holidays saved", description: `${data.count} holiday pay rule${data.count > 1 ? 's' : ''} saved.` });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message || "Failed to save holidays.", variant: "destructive" });
+    },
+  });
+
+  const deleteHolidayMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest('DELETE', `/api/holiday-pay-rules/${id}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/holiday-pay-rules'] });
+      toast({ title: "Removed", description: "Holiday pay rule removed." });
+    },
+    onError: (err: any) => {
+      toast({ title: "Error", description: err.message || "Failed to remove.", variant: "destructive" });
+    },
+  });
+
+  function toggleHoliday(key: string) {
+    setSelectedHolidays(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+
+  function handleSaveSelectedHolidays() {
+    const multiplier = parseFloat(defaultMultiplier) || 1.5;
+    const holidays = suggestedHolidays
+      .filter(h => selectedHolidays.has(`${h.month}-${h.day}`))
+      .map(h => ({ ...h, payMultiplier: multiplier }));
+    if (holidays.length === 0) {
+      toast({ title: "Select holidays", description: "Please check at least one holiday.", variant: "destructive" });
+      return;
+    }
+    saveHolidaysMutation.mutate(holidays);
+  }
+
+  function handleAddCustomHoliday() {
+    if (!customHolidayName.trim() || !customHolidayDate) {
+      toast({ title: "Missing info", description: "Please enter a name and date for the custom holiday.", variant: "destructive" });
+      return;
+    }
+    const d = new Date(customHolidayDate + 'T00:00:00');
+    const month = d.getMonth() + 1;
+    const day = d.getDate();
+    const multiplier = parseFloat(defaultMultiplier) || 1.5;
+    saveHolidaysMutation.mutate([{ name: customHolidayName.trim(), month, day, payMultiplier: multiplier }]);
+    setCustomHolidayName("");
+    setCustomHolidayDate("");
+  }
+
+  function isHolidayAlreadySaved(month: number, day: number) {
+    return holidayPayRules.some(r => r.month === month && r.day === day);
+  }
+
+  const monthName = (m: number) => ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m - 1];
 
   const getWorkflowStateBadge = (state: string) => {
     const colorMap: Record<string, string> = {
@@ -320,6 +444,171 @@ export default function PayPeriodManagement() {
             </Button>
           </CardContent>
         </Card>
+
+        {/* Holiday Pay Calendar */}
+        {canManagePayroll && <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Gift className="h-4 w-4" />
+              Holiday Pay Calendar
+            </CardTitle>
+            <CardDescription>
+              Select which holidays should receive time-and-a-half (or custom multiplier) pay. Check the ones you want from the suggested list below, or add your own.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2">
+                <Label className="text-sm whitespace-nowrap">Year</Label>
+                <Select value={String(holidayYear)} onValueChange={(v) => { setHolidayYear(Number(v)); setSelectedHolidays(new Set()); }}>
+                  <SelectTrigger className="w-24">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[new Date().getFullYear(), new Date().getFullYear() + 1].map(y => (
+                      <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Label className="text-sm whitespace-nowrap">Pay multiplier</Label>
+              <Select value={defaultMultiplier} onValueChange={setDefaultMultiplier}>
+                <SelectTrigger className="w-48">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="1.25">1.25x (Time + quarter)</SelectItem>
+                  <SelectItem value="1.50">1.5x (Time and a half)</SelectItem>
+                  <SelectItem value="2.00">2x (Double time)</SelectItem>
+                  <SelectItem value="2.50">2.5x (Double time + half)</SelectItem>
+                  <SelectItem value="3.00">3x (Triple time)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <Separator />
+
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <Sparkles className="h-4 w-4 text-amber-500" />
+                <Label className="text-sm font-medium">Suggested Holidays</Label>
+                <Badge variant="outline" className="text-[10px]">AI Recommended</Badge>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {suggestedHolidays.map((h) => {
+                  const key = `${h.month}-${h.day}`;
+                  const alreadySaved = isHolidayAlreadySaved(h.month, h.day);
+                  return (
+                    <div
+                      key={key}
+                      className={`flex items-center gap-3 p-2.5 rounded-lg border transition-colors ${
+                        alreadySaved
+                          ? 'bg-green-50 dark:bg-green-900/10 border-green-200 dark:border-green-800'
+                          : selectedHolidays.has(key)
+                          ? 'bg-primary/5 border-primary/30'
+                          : 'hover:bg-muted/50'
+                      }`}
+                    >
+                      <Checkbox
+                        checked={alreadySaved || selectedHolidays.has(key)}
+                        disabled={alreadySaved}
+                        onCheckedChange={() => toggleHoliday(key)}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{h.name}</p>
+                        <p className="text-xs text-muted-foreground">{monthName(h.month)} {h.day}</p>
+                      </div>
+                      {alreadySaved && (
+                        <Badge variant="secondary" className="text-[10px] shrink-0">Saved</Badge>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {selectedHolidays.size > 0 && (
+                <Button
+                  className="w-full mt-3"
+                  onClick={handleSaveSelectedHolidays}
+                  disabled={saveHolidaysMutation.isPending}
+                >
+                  {saveHolidaysMutation.isPending
+                    ? 'Saving...'
+                    : `Save ${selectedHolidays.size} selected holiday${selectedHolidays.size > 1 ? 's' : ''} at ${defaultMultiplier}x pay`
+                  }
+                </Button>
+              )}
+            </div>
+
+            <Separator />
+
+            <div>
+              <Label className="text-sm font-medium mb-2 block">Add Custom Holiday</Label>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <Input
+                  placeholder="Holiday name (e.g. Company Day)"
+                  value={customHolidayName}
+                  onChange={(e) => setCustomHolidayName(e.target.value)}
+                  className="flex-1"
+                />
+                <Input
+                  type="date"
+                  value={customHolidayDate}
+                  onChange={(e) => setCustomHolidayDate(e.target.value)}
+                  className="w-full sm:w-40"
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1 h-9"
+                  onClick={handleAddCustomHoliday}
+                  disabled={saveHolidaysMutation.isPending}
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Add
+                </Button>
+              </div>
+            </div>
+
+            {holidayPayRules.length > 0 && (
+              <>
+                <Separator />
+                <div>
+                  <Label className="text-sm font-medium mb-2 block">
+                    Active Holiday Pay Rules ({holidayPayRules.length})
+                  </Label>
+                  <div className="space-y-1.5">
+                    {holidayPayRules.map((rule) => (
+                      <div key={rule.id} className="flex items-center justify-between p-2.5 border rounded-lg">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded bg-primary/10 flex items-center justify-center text-xs font-bold text-primary">
+                            {monthName(rule.month)}
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium">{rule.name}</p>
+                            <p className="text-xs text-muted-foreground">{monthName(rule.month)} {rule.day}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="text-[10px]">{rule.payMultiplier}x</Badge>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 p-0"
+                            onClick={() => deleteHolidayMutation.mutate(rule.id)}
+                            disabled={deleteHolidayMutation.isPending}
+                          >
+                            <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>}
 
         {/* Pay Periods List */}
         <Card>
