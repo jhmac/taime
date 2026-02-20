@@ -306,6 +306,14 @@ async function crawlPage(context, url, baseUrl, timeout) {
     }
   } catch {}
 
+  // Interactive UI testing — click buttons, test dropdowns, check for JS errors
+  try {
+    await _interactiveTest(page, url, pageErrors);
+  } catch (err) {
+    // Don't let interactive testing crash the whole crawl
+    console.log(`[Crawler] Interactive test error on ${url}: ${err.message}`);
+  }
+
   try {
     const hrefs = await page.evaluate((baseOrigin) => {
       const anchors = Array.from(document.querySelectorAll('a[href]'));
@@ -329,6 +337,239 @@ async function crawlPage(context, url, baseUrl, timeout) {
 
   await page.close().catch(() => {});
   return { errors: pageErrors, links };
+}
+
+async function _interactiveTest(page, url, pageErrors) {
+  // Collect errors that happen during interactions
+  const interactionErrors = [];
+  const failedRequests = [];
+
+  page.on('pageerror', err => {
+    interactionErrors.push({
+      type: 'interaction-js-error',
+      message: err.message,
+      url: url,
+      stack: (err.stack || '').split('\n').slice(0, 3).join(' | '),
+      severity: 'high',
+    });
+  });
+
+  page.on('response', response => {
+    if (response.status() >= 500) {
+      failedRequests.push({
+        type: 'interaction-api-error',
+        message: `${response.request().method()} ${response.url()} returned ${response.status()} after button click`,
+        url: response.url(),
+        statusCode: response.status(),
+        severity: 'high',
+      });
+    }
+  });
+
+  // 1. Find all clickable buttons on the page
+  const buttons = await page.evaluate(() => {
+    const els = Array.from(document.querySelectorAll('button, [role="button"], input[type="submit"], [data-testid]'));
+    return els
+      .filter(el => {
+        const rect = el.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) return false;
+        const style = window.getComputedStyle(el);
+        if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+        // Skip dangerous buttons (delete, logout, remove, etc.)
+        const text = (el.textContent || '').toLowerCase().trim();
+        const dangerWords = ['delete', 'remove', 'logout', 'sign out', 'log out', 'destroy', 'reset', 'clear all', 'erase'];
+        if (dangerWords.some(w => text.includes(w))) return false;
+        // Skip buttons inside dialogs that aren't visible
+        const dialog = el.closest('[role="dialog"], dialog');
+        if (dialog && !dialog.hasAttribute('open') && dialog.getAttribute('data-state') !== 'open') return false;
+        return true;
+      })
+      .map((el, i) => ({
+        index: i,
+        tag: el.tagName.toLowerCase(),
+        text: (el.textContent || '').trim().substring(0, 60),
+        type: el.getAttribute('type') || '',
+        ariaLabel: el.getAttribute('aria-label') || '',
+        disabled: el.disabled || el.getAttribute('aria-disabled') === 'true',
+        className: (el.className || '').toString().substring(0, 100),
+        testId: el.getAttribute('data-testid') || '',
+      }));
+  });
+
+  // Click up to 10 non-dangerous, non-disabled buttons and watch for errors
+  const buttonsToTest = buttons.filter(b => !b.disabled).slice(0, 10);
+  
+  for (const btn of buttonsToTest) {
+    try {
+      // Get the actual element by re-querying
+      const selector = btn.testId 
+        ? `[data-testid="${btn.testId}"]` 
+        : btn.text 
+          ? `button:has-text("${btn.text.replace(/"/g, '\\"').substring(0, 30)}")`
+          : null;
+      
+      if (!selector) continue;
+
+      const element = page.locator(selector).first();
+      const isVisible = await element.isVisible().catch(() => false);
+      if (!isVisible) continue;
+
+      // Clear any previous errors
+      const errorsBefore = interactionErrors.length;
+      const reqsBefore = failedRequests.length;
+
+      // Click with a short timeout and catch navigation
+      await Promise.race([
+        element.click({ timeout: 3000 }).catch(() => {}),
+        page.waitForTimeout(2000),
+      ]);
+
+      // Wait a moment for any async effects
+      await page.waitForTimeout(500);
+
+      // Check if new errors appeared after clicking
+      if (interactionErrors.length > errorsBefore) {
+        const newErrors = interactionErrors.slice(errorsBefore);
+        for (const err of newErrors) {
+          err.message = `After clicking "${btn.text}": ${err.message}`;
+          pageErrors.push(err);
+        }
+      }
+      if (failedRequests.length > reqsBefore) {
+        const newReqs = failedRequests.slice(reqsBefore);
+        for (const req of newReqs) {
+          req.message = `After clicking "${btn.text}": ${req.message}`;
+          pageErrors.push(req);
+        }
+      }
+
+      // Check for error toasts or error messages that appeared
+      const errorMessages = await page.evaluate(() => {
+        const errorEls = Array.from(document.querySelectorAll(
+          '[role="alert"], .toast-error, .error-message, [data-state="open"][data-type="error"], ' +
+          '.Toastify__toast--error, [class*="destructive"], [class*="error"]'
+        ));
+        return errorEls
+          .filter(el => {
+            const rect = el.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0;
+          })
+          .map(el => (el.textContent || '').trim().substring(0, 200))
+          .filter(t => t.length > 0);
+      }).catch(() => []);
+
+      for (const msg of errorMessages) {
+        // Skip non-error messages
+        if (msg.toLowerCase().includes('success') || msg.toLowerCase().includes('saved')) continue;
+        pageErrors.push({
+          type: 'ui-error-message',
+          message: `Error toast/message after clicking "${btn.text}": ${msg}`,
+          url: url,
+          severity: 'medium',
+        });
+      }
+
+      // If the page URL changed, navigate back
+      if (page.url() !== url) {
+        try {
+          await page.goto(url, { waitUntil: 'networkidle', timeout: 10000 });
+        } catch {
+          break; // Can't get back, stop testing this page
+        }
+      }
+
+      // Close any dialogs/modals that might have opened
+      try {
+        const escapeNeeded = await page.evaluate(() => {
+          return !!document.querySelector('[role="dialog"][data-state="open"], [data-radix-dialog-overlay]');
+        });
+        if (escapeNeeded) {
+          await page.keyboard.press('Escape');
+          await page.waitForTimeout(300);
+        }
+      } catch {}
+
+    } catch (err) {
+      // Individual button test failure is not critical
+      continue;
+    }
+  }
+
+  // 2. Check for empty states that shouldn't be empty (UI completeness)
+  try {
+    const uiIssues = await page.evaluate(() => {
+      const issues = [];
+      
+      // Check for elements with "undefined" or "null" text
+      const allText = document.body.innerText || '';
+      if (allText.includes('undefined') || allText.match(/\bnull\b/)) {
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        let node;
+        while (node = walker.nextNode()) {
+          const text = node.textContent || '';
+          if (text.includes('undefined') || text.match(/\bnull\b/)) {
+            const parent = node.parentElement;
+            if (parent && parent.tagName !== 'SCRIPT' && parent.tagName !== 'STYLE') {
+              issues.push(`Text "${text.trim().substring(0, 60)}" in <${parent.tagName.toLowerCase()}>`);
+            }
+          }
+        }
+      }
+
+      // Check for broken layout (elements overflowing)
+      const body = document.body;
+      if (body.scrollWidth > window.innerWidth + 20) {
+        issues.push(`Page has horizontal overflow (${body.scrollWidth}px vs ${window.innerWidth}px viewport)`);
+      }
+
+      return issues;
+    });
+
+    for (const issue of uiIssues.slice(0, 5)) {
+      pageErrors.push({
+        type: 'ui-issue',
+        message: issue,
+        url: url,
+        severity: 'medium',
+      });
+    }
+  } catch {}
+
+  // 3. Check for accessibility issues (buttons without text, missing labels)
+  try {
+    const a11yIssues = await page.evaluate(() => {
+      const issues = [];
+      const buttons = Array.from(document.querySelectorAll('button'));
+      for (const btn of buttons) {
+        const text = (btn.textContent || '').trim();
+        const ariaLabel = btn.getAttribute('aria-label') || '';
+        const title = btn.getAttribute('title') || '';
+        if (!text && !ariaLabel && !title && !btn.querySelector('svg, img')) {
+          issues.push(`Button without any label or text at ${btn.className}`);
+        }
+      }
+      const inputs = Array.from(document.querySelectorAll('input:not([type="hidden"]), textarea, select'));
+      for (const input of inputs) {
+        const id = input.id;
+        const ariaLabel = input.getAttribute('aria-label') || input.getAttribute('aria-labelledby') || '';
+        const hasLabel = id ? !!document.querySelector(`label[for="${id}"]`) : false;
+        const placeholder = input.getAttribute('placeholder') || '';
+        if (!ariaLabel && !hasLabel && !placeholder) {
+          issues.push(`Input without label: ${input.tagName} type=${input.type || 'text'}`);
+        }
+      }
+      return issues.slice(0, 5);
+    });
+
+    for (const issue of a11yIssues) {
+      pageErrors.push({
+        type: 'accessibility',
+        message: issue,
+        url: url,
+        severity: 'low',
+      });
+    }
+  } catch {}
 }
 
 function normalizeUrl(url) {
@@ -433,16 +674,22 @@ async function backendHealthCheck(options = {}) {
 
   const publicEndpoints = [
     { path: '/', method: 'GET', label: 'Homepage' },
-    { path: '/api/health', method: 'GET', label: 'Health endpoint' },
+    { path: '/api/clerk-key', method: 'GET', label: 'Clerk key endpoint' },
   ];
 
   const protectedEndpoints = [
+    { path: '/api/auth/user', method: 'GET', label: 'Auth user API' },
     { path: '/api/users', method: 'GET', label: 'Users API' },
-    { path: '/api/clock-events', method: 'GET', label: 'Clock events API' },
+    { path: '/api/time-entries', method: 'GET', label: 'Time entries API' },
+    { path: '/api/time-entries/active', method: 'GET', label: 'Active time entry API' },
     { path: '/api/schedules', method: 'GET', label: 'Schedules API' },
     { path: '/api/tasks', method: 'GET', label: 'Tasks API' },
     { path: '/api/messages', method: 'GET', label: 'Messages API' },
-    { path: '/api/settings', method: 'GET', label: 'Settings API' },
+    { path: '/api/company-settings', method: 'GET', label: 'Company settings API' },
+    { path: '/api/payroll/periods', method: 'GET', label: 'Payroll periods API' },
+    { path: '/api/payroll/settings', method: 'GET', label: 'Payroll settings API' },
+    { path: '/api/holiday-pay-rules', method: 'GET', label: 'Holiday pay rules API' },
+    { path: '/api/work-locations', method: 'GET', label: 'Work locations API' },
   ];
 
   const http = require('http');
