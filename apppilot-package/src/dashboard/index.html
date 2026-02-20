@@ -948,6 +948,12 @@
         Run ELON
       </button>
       <button class="btn-stop" id="btn-stop-elon" onclick="stopElon()" style="display:none" title="Stop ELON">&#9632; Stop</button>
+      <button style="background:linear-gradient(135deg,#e040fb,#7c4dff);color:#fff;border:none;border-radius:6px;padding:6px 14px;cursor:pointer;font-size:13px;font-weight:600" id="btn-fix-all" onclick="runFixAll()" title="Autonomously fix ALL critical, high, and medium issues">
+        Fix All Issues
+      </button>
+      <button style="background:#484f58;color:#8b949e;border:1px solid #30363d;border-radius:6px;padding:6px 10px;cursor:pointer;font-size:12px" id="btn-reset-elon" onclick="resetElon()" title="Clear all ELON constraint history and start fresh">
+        Reset
+      </button>
       <button class="btn-stop-all" id="btn-stop-all" onclick="stopAll()" style="background:#f85149;color:#fff;display:none">
         ■ Stop All
       </button>
@@ -2042,6 +2048,51 @@
       }, 1000);
     }
 
+    async function runFixAll() {
+      const btn = document.getElementById('btn-fix-all');
+      const status = document.getElementById('action-status');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="btn-spinner"></span> Fix All Running...';
+      document.getElementById('btn-elon').disabled = true;
+      document.getElementById('btn-continuous').disabled = true;
+      document.getElementById('btn-stop-all').style.display = 'inline-block';
+      try {
+        const result = await apiFetch('/elon/fix-all', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+        if (result.status === 'already-running') {
+          status.style.display = 'inline-flex';
+          status.style.color = 'var(--yellow)';
+          status.textContent = 'ELON is already running';
+        } else {
+          status.style.display = 'inline-flex';
+          status.style.color = '#e040fb';
+          status.textContent = 'Fix-All mode started — autonomously resolving issues...';
+          showLiveLog();
+        }
+        if (elonPollInterval) clearInterval(elonPollInterval);
+        elonPollInterval = setInterval(loadElonReport, 15000);
+      } catch (e) {
+        status.style.display = 'inline-flex';
+        status.style.color = 'var(--red)';
+        status.textContent = 'Failed: ' + e.message;
+        btn.disabled = false;
+        btn.innerHTML = 'Fix All Issues';
+        document.getElementById('btn-elon').disabled = false;
+        document.getElementById('btn-continuous').disabled = false;
+      }
+    }
+
+    async function resetElon() {
+      if (!confirm('Reset all ELON constraint history? This clears all discovered issues and fix plans.')) return;
+      try {
+        const result = await apiFetch('/elon/reset', { method: 'POST' });
+        const status = document.getElementById('action-status');
+        status.style.display = 'inline-flex';
+        status.style.color = result.success ? 'var(--green)' : 'var(--red)';
+        status.textContent = result.message;
+        if (result.success) { loadElonReport(); loadLiveLog(); }
+      } catch (e) { alert('Reset failed: ' + e.message); }
+    }
+
     async function stopAll() {
       try {
         await apiFetch('/stop/all', { method: 'POST' });
@@ -2106,6 +2157,7 @@
         if (!data.continuous && !data.elon) {
           const btnC = document.getElementById('btn-continuous');
           const btnE = document.getElementById('btn-elon');
+          const btnFA = document.getElementById('btn-fix-all');
           if (btnC.disabled && !btnC._cooldown) {
             btnC.disabled = false;
             btnC.innerHTML = 'ELON Continuous';
@@ -2113,6 +2165,10 @@
           if (btnE.disabled && !btnE._cooldown) {
             btnE.disabled = false;
             btnE.innerHTML = 'Run ELON';
+          }
+          if (btnFA && btnFA.disabled) {
+            btnFA.disabled = false;
+            btnFA.innerHTML = 'Fix All Issues';
           }
         }
       } catch {}

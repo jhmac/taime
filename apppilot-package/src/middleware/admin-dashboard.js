@@ -1183,6 +1183,87 @@ function createAdminDashboard(options = {}) {
       }
     });
 
+    let fixAllRunning = false;
+
+    app.post(`${basePath}/api/elon/fix-all`, authMiddleware, (req, res) => {
+      if (fixAllRunning || elonRunning || continuousRunning) {
+        return res.json({ status: 'already-running', message: 'ELON is already running' });
+      }
+      const apiKey = process.env.APPPILOT_ANTHROPIC_KEY || process.env.ANTHROPIC_API_KEY;
+      if (!apiKey) {
+        return res.json({ status: 'failed', message: 'No API key configured.' });
+      }
+
+      fixAllRunning = true;
+      elonRunning = true;
+      elonProgress.running = true;
+      elonProgress.phase = 'fix-all';
+      elonProgress.startedAt = new Date().toISOString();
+      elonProgress.steps = [];
+
+      const budgetMax = parseFloat(req.body.budgetMax) || parseFloat(process.env.ELON_BUDGET) || 25.0;
+      const maxRounds = parseInt(req.body.maxRounds) || 30;
+
+      res.json({ status: 'started', message: `ELON Fix-All starting: max ${maxRounds} rounds, $${budgetMax.toFixed(2)} budget` });
+      pushActivity('info', `ELON Fix-All mode activated: max ${maxRounds} rounds, $${budgetMax.toFixed(2)} budget`);
+      owner.logOwnerAction('elon_fix_all_start', { budgetMax, maxRounds }, dataDir);
+
+      const { runElonFixAll } = require('../elon.js');
+      runElonFixAll({
+        apiKey,
+        appUrl: `http://localhost:${process.env.PORT || 5000}`,
+        projectRoot,
+        dataDir,
+        budgetMax,
+        maxRounds,
+        enableCrawl: true,
+        memory: memoryStore,
+        onProgress: (phase, message, detail, type) => {
+          pushActivity(type === 'thinking' ? 'heartbeat' : type === 'error' ? 'error' : type === 'success' ? 'success' : 'info', message);
+          elonProgress.phase = phase;
+          if (detail && detail.round) elonProgress.cycle = detail.round;
+          if (detail && detail.totalSpent !== undefined) elonProgress.budget = { spent: detail.totalSpent, max: budgetMax };
+          elonProgress.steps.push({
+            id: 'fixall-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+            phase, message, detail: detail || null, type: type || 'info',
+            timestamp: new Date().toISOString(), duration: null,
+          });
+          if (elonProgress.steps.length > 300) elonProgress.steps = elonProgress.steps.slice(-200);
+        },
+      }).then(result => {
+        fixAllRunning = false;
+        elonRunning = false;
+        elonProgress.running = false;
+        elonProgress.phase = 'complete';
+        pushActivity('success', `ELON Fix-All complete: ${result.totalSolved} solved, ${result.remaining.total} remaining, $${result.totalSpent.toFixed(2)} spent`);
+        if (memoryStore) memoryStore.logDaily(`ELON Fix-All: ${result.totalSolved} solved, $${result.totalSpent.toFixed(2)} spent`);
+      }).catch(err => {
+        fixAllRunning = false;
+        elonRunning = false;
+        elonProgress.running = false;
+        elonProgress.phase = 'error';
+        pushActivity('error', `ELON Fix-All failed: ${err.message}`);
+        if (memoryStore) memoryStore.logDaily(`ELON Fix-All failed: ${err.message}`);
+      });
+    });
+
+    app.post(`${basePath}/api/elon/reset`, authMiddleware, (req, res) => {
+      if (fixAllRunning || elonRunning || continuousRunning) {
+        return res.json({ success: false, message: 'Cannot reset while ELON is running. Stop it first.' });
+      }
+      try {
+        const { resetElonState } = require('../elon.js');
+        const result = resetElonState(dataDir);
+        if (result.success) {
+          owner.logOwnerAction('elon_state_reset', {}, dataDir);
+          pushActivity('warning', 'ELON state reset — all constraint history cleared');
+        }
+        res.json(result);
+      } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+      }
+    });
+
     app.post(`${basePath}/api/stop/discovery`, authMiddleware, stopDiscovery);
     app.post(`${basePath}/api/stop/continuous`, authMiddleware, stopContinuous);
     app.post(`${basePath}/api/stop/all`, authMiddleware, stopAll);

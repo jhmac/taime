@@ -135,6 +135,9 @@ async function executeRalphLoop(specPath, context, budget, options = {}) {
   }
 
   const result = { status: 'pending', iterations: 0, specPath, changes: [] };
+  const iterationHistory = [];
+  let consecutiveStuck = 0;
+  const MAX_CONSECUTIVE_STUCK = 3;
 
   for (let i = 0; i < maxIterations; i++) {
     result.iterations++;
@@ -150,6 +153,7 @@ async function executeRalphLoop(specPath, context, budget, options = {}) {
     const execResult = await executeSpec(spec, {
       context, budget, memory, dryRun, projectRoot,
       apiKey: options.apiKey, identityDir: options.identityDir, templatesDir: options.templatesDir,
+      iterationHistory,
     });
 
     if (execResult.status === 'SPEC_COMPLETE') {
@@ -159,11 +163,25 @@ async function executeRalphLoop(specPath, context, budget, options = {}) {
     }
 
     if (execResult.status === 'stuck') {
-      result.status = 'stuck';
-      result.reason = execResult.reason || 'unknown';
-      if (memory) memory.logDaily(`Ralph Loop: stuck after ${result.iterations} iteration(s) — ${execResult.reason}`);
-      break;
+      consecutiveStuck++;
+      iterationHistory.push({
+        iteration: result.iterations,
+        status: 'stuck',
+        reason: execResult.reason || 'unknown',
+      });
+
+      if (consecutiveStuck >= MAX_CONSECUTIVE_STUCK) {
+        result.status = 'stuck';
+        result.reason = `${execResult.reason || 'unknown'} (after ${consecutiveStuck} consecutive stuck attempts)`;
+        if (memory) memory.logDaily(`Ralph Loop: stuck after ${result.iterations} iteration(s) — ${result.reason}`);
+        break;
+      }
+
+      if (memory) memory.logDaily(`Ralph Loop: attempt ${result.iterations} stuck (${execResult.reason}) — retrying with context`);
+      continue;
     }
+
+    consecutiveStuck = 0;
 
     if (execResult.status === 'dry-run') { result.status = 'dry-run'; break; }
 
@@ -185,14 +203,24 @@ async function executeRalphLoop(specPath, context, budget, options = {}) {
       const testResult = engine.runTests(spec.testCommand);
       if (!testResult.passed && !testResult.warning) {
         _rollbackAndMark(engine, changeBackups, result, memory, 'tests failed after changes');
+        iterationHistory.push({ iteration: result.iterations, status: 'test-failed', reason: 'tests failed after applying change' });
         continue;
       }
     }
 
     if (spec.runtimeValidation) {
       const runtimeOk = await _runRuntimeValidation(engine, changeBackups, result, spec, memory);
-      if (!runtimeOk) continue;
+      if (!runtimeOk) {
+        iterationHistory.push({ iteration: result.iterations, status: 'runtime-failed', reason: 'runtime validation failed after change' });
+        continue;
+      }
     }
+
+    iterationHistory.push({
+      iteration: result.iterations,
+      status: 'change-applied',
+      changeDescription: execResult.description || (execResult.changes ? execResult.changes.map(c => c.description).join('; ') : 'applied'),
+    });
   }
 
   if (result.status === 'pending') {

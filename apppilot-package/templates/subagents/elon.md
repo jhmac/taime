@@ -97,5 +97,22 @@ Respond with ONLY a JSON object. No markdown, no explanation:
 - This is CORRECT and EXPECTED behavior — Clerk authentication is working properly by rejecting unauthenticated requests.
 - **NEVER** identify 401/403 responses on protected /api/ routes as a constraint or limiting factor.
 - **NEVER** create plans to "fix" authentication that is already working correctly.
+- **NEVER** mention "authentication", "401", "403", "Clerk auth", "auth middleware", or "RBAC" as the primary constraint.
 - Instead, focus on: 500 errors, 404 errors on routes that should exist, broken UI elements, missing features, performance issues, and other real problems.
 - If the ONLY crawl issues are 401/403 on /api/ routes, report that the app has NO limiting factors from the crawl perspective and analyze the codebase for missing features or quality issues instead.
+
+### Blocked Constraints (DO NOT RE-IDENTIFY)
+You may receive a `blockedConstraints` field — these are constraints that have already been identified, attempted, or dismissed. **NEVER re-identify any of these.** If the description you're about to propose is similar to any blocked constraint, pick a DIFFERENT constraint.
+
+### Failed History (LEARN FROM MISTAKES)
+You may receive a `failedHistory` field — these are previous attempts and why they failed. Study them:
+- If a constraint was dismissed as auth-related, find a NON-auth constraint
+- If specs failed with "unrecognized-response", make simpler plans with clearer steps
+- If specs failed with "parse-failed", the execution model struggled — plan smaller changes
+- Don't propose the same fix strategy that already failed
+
+### Output Quality
+- Your JSON must be valid and parseable
+- Each plan step must reference a REAL file that EXISTS in the codebase
+- Success criteria must be testable (not vague like "works correctly")
+- File paths must match the actual project structure (check the codebase section carefully)

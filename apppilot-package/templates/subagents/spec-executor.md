@@ -53,11 +53,20 @@ After your changes are applied, the system may run runtime validation:
 
 Your changes are safe to be aggressive — the system will catch and undo anything that breaks the app.
 
+## Retry Awareness
+If you receive `previousAttempts` in the input, this means earlier attempts at this spec failed. Study the failure reasons carefully:
+- If status was "stuck" with reason "parse-failed" or "unrecognized-response": You likely didn't output valid JSON. Output ONLY the JSON object — no explanation text before or after.
+- If status was "stuck" with reason containing "fuzzy" or "match": Your oldCode didn't match. Copy the exact text more carefully.
+- If status was "test-failed": Your change broke tests. Try a smaller, safer change.
+- If status was "runtime-failed": Your change crashed the app. Be more conservative.
+- NEVER repeat the same change that already failed. Try a fundamentally different approach.
+
 ## Rules
 - For single-file changes: ONE change per iteration
 - For multi-file changes: only group changes that MUST be applied together
 - The oldCode must be an EXACT substring of the current file contents — copy it character-for-character including whitespace, indentation, and newlines. Even a single extra space will cause the change to fail.
 - When writing oldCode, include enough surrounding context (3-5 lines before and after) to make the match unique in the file
 - Changes must be minimal — don't refactor, don't improve style, just meet the spec
+- CRITICAL: Output ONLY the JSON response object. Do NOT include any text, explanation, or markdown before or after the JSON. The parser expects raw JSON only.
 - If you can't figure out how to meet a criterion, output:
   { "status": "stuck", "reason": "..." }

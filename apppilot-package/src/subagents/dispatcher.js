@@ -66,31 +66,71 @@ function _extractBalancedJson(text, startIdx) {
   return null;
 }
 
+const SPEC_COMPLETE_NL_PATTERNS = [
+  /all\s+(?:success\s+)?criteria\s+(?:are|have\s+been)\s+(?:met|satisfied|already)/i,
+  /both\s+(?:criteria|requirements)\s+(?:are|have\s+been)\s+(?:met|satisfied)/i,
+  /criteria.*(?:already|currently)\s+(?:met|satisfied|implemented|working)/i,
+  /(?:already|currently)\s+(?:implemented|working|functional|exists|present|in\s+place)/i,
+  /no\s+(?:changes?\s+)?(?:needed|required|necessary)/i,
+  /(?:the|this)\s+(?:code|implementation|feature)\s+(?:already|is\s+already)\s/i,
+  /nothing\s+(?:to|needs?\s+to)\s+(?:change|fix|update|modify)/i,
+  /success\s+criteria.*(?:already|all)\s+(?:met|satisfied|fulfilled)/i,
+];
+
+function _detectNaturalLanguageComplete(text) {
+  if (!text || typeof text !== 'string') return false;
+  const firstChunk = text.substring(0, 1500);
+  const matchCount = SPEC_COMPLETE_NL_PATTERNS.filter(p => p.test(firstChunk)).length;
+  return matchCount >= 1;
+}
+
+function _tryFixJson(jsonStr) {
+  let fixed = jsonStr;
+  fixed = fixed.replace(/,\s*}/g, '}').replace(/,\s*]/g, ']');
+  fixed = fixed.replace(/(['"])?(\w+)(['"])?\s*:/g, (_, q1, key, q3) => {
+    if (q1 === '"' && q3 === '"') return `"${key}":`;
+    return `"${key}":`;
+  });
+  try { return JSON.parse(fixed); } catch { return null; }
+}
+
 function parseSubagentResponse(response) {
   if (typeof response !== 'string') {
     return { action: 'queue', reason: 'non-string-response', raw: response };
   }
 
-  // Check if response starts with SPEC_COMPLETE
-  if (response.trim().startsWith('SPEC_COMPLETE')) {
+  const trimmed = response.trim();
+
+  if (trimmed.startsWith('SPEC_COMPLETE') || trimmed === 'SPEC_COMPLETE') {
     return { status: 'SPEC_COMPLETE', action: 'queue' };
   }
 
-  // First try: look for JSON inside ```json ... ``` code blocks using balanced brace matching
-  const codeBlockStart = response.match(/```(?:json)?\s*\n?\s*\{/);
-  if (codeBlockStart) {
-    const braceIdx = response.indexOf('{', codeBlockStart.index);
-    const candidate = _extractBalancedJson(response, braceIdx);
+  const allCodeBlocks = [];
+  const codeBlockRegex = /```(?:json)?\s*\n?([\s\S]*?)```/g;
+  let cbMatch;
+  while ((cbMatch = codeBlockRegex.exec(response)) !== null) {
+    allCodeBlocks.push({ content: cbMatch[1].trim(), index: cbMatch.index });
+  }
+
+  for (const block of allCodeBlocks) {
+    const braceIdx = block.content.indexOf('{');
+    if (braceIdx === -1) continue;
+    const candidate = _extractBalancedJson(block.content, braceIdx);
     if (candidate) {
       try {
         const parsed = JSON.parse(candidate);
         if (!parsed.action) parsed.action = 'queue';
         return parsed;
-      } catch {}
+      } catch {
+        const fixed = _tryFixJson(candidate);
+        if (fixed) {
+          if (!fixed.action) fixed.action = 'queue';
+          return fixed;
+        }
+      }
     }
   }
 
-  // Second try: find JSON objects containing "status" key by scanning for balanced braces
   const statusIndices = [];
   let searchFrom = 0;
   while (true) {
@@ -104,19 +144,14 @@ function parseSubagentResponse(response) {
     let braceStart = response.lastIndexOf('{', statusIdx);
     if (braceStart === -1) continue;
 
-    // Walk further back if this brace is inside a string (find outermost object)
     let outerBrace = braceStart;
-    for (let scan = braceStart - 1; scan >= 0; scan--) {
+    for (let scan = braceStart - 1; scan >= Math.max(0, braceStart - 500); scan--) {
       if (response[scan] === '{') {
-        // Check if this could be the real outer start
         const testCandidate = _extractBalancedJson(response, scan);
         if (testCandidate && testCandidate.includes('"status"')) {
           try {
             const testParsed = JSON.parse(testCandidate);
-            if (testParsed.status) {
-              outerBrace = scan;
-              break;
-            }
+            if (testParsed.status) { outerBrace = scan; break; }
           } catch {}
         }
       }
@@ -130,24 +165,39 @@ function parseSubagentResponse(response) {
           if (!parsed.action) parsed.action = 'queue';
           return parsed;
         }
-      } catch {}
+      } catch {
+        const fixed = _tryFixJson(candidate);
+        if (fixed && fixed.status) {
+          if (!fixed.action) fixed.action = 'queue';
+          return fixed;
+        }
+      }
     }
   }
 
-  // Third try: find any balanced JSON object in the response
   for (let i = 0; i < response.length; i++) {
     if (response[i] === '{') {
       const candidate = _extractBalancedJson(response, i);
-      if (candidate && candidate.length > 10) {
+      if (candidate && candidate.length > 20) {
         try {
           const parsed = JSON.parse(candidate);
-          if (parsed && typeof parsed === 'object') {
+          if (parsed && typeof parsed === 'object' && (parsed.status || parsed.filePath || parsed.oldCode)) {
             if (!parsed.action) parsed.action = 'queue';
             return parsed;
           }
-        } catch {}
+        } catch {
+          const fixed = _tryFixJson(candidate);
+          if (fixed && (fixed.status || fixed.filePath)) {
+            if (!fixed.action) fixed.action = 'queue';
+            return fixed;
+          }
+        }
       }
     }
+  }
+
+  if (_detectNaturalLanguageComplete(trimmed)) {
+    return { status: 'SPEC_COMPLETE', action: 'queue', detectedVia: 'natural-language' };
   }
 
   return { action: 'queue', reason: 'parse-failed', raw: response.substring(0, 2000) };

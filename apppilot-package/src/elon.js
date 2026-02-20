@@ -9,6 +9,9 @@ const { executeRalphLoop } = require('./ralph-loop');
 
 const TEMPLATES_DIR = path.join(__dirname, '..', 'templates');
 const SEVERITY_ORDER = { high: 0, medium: 1, low: 2 };
+const AUTH_STATUS_CODES = new Set([401, 403]);
+const AUTH_KEYWORDS = /\b(unauthorized|forbidden|auth|clerk|session|token)\b/i;
+const CONSTRAINT_SIMILARITY_THRESHOLD = 0.6;
 const SENSITIVE_CATEGORIES = {
   auth: ['auth', 'login', 'logout', 'session', 'token', 'oauth', 'sso'],
   security: ['security', 'vulnerability', 'exploit', 'injection', 'xss', 'csrf'],
@@ -97,6 +100,78 @@ function _createLogger(memory) {
   };
 }
 
+function _tokenize(text) {
+  return (text || '').toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(w => w.length > 2);
+}
+
+function _constraintSimilarity(descA, descB) {
+  const tokensA = new Set(_tokenize(descA));
+  const tokensB = new Set(_tokenize(descB));
+  if (tokensA.size === 0 || tokensB.size === 0) return 0;
+  let intersection = 0;
+  for (const t of tokensA) { if (tokensB.has(t)) intersection++; }
+  return intersection / Math.min(tokensA.size, tokensB.size);
+}
+
+function _isDuplicateConstraint(newDesc, existingConstraints) {
+  for (const existing of existingConstraints) {
+    const desc = existing.description || existing;
+    if (_constraintSimilarity(newDesc, desc) >= CONSTRAINT_SIMILARITY_THRESHOLD) {
+      return { isDuplicate: true, matchedDescription: desc };
+    }
+  }
+  return { isDuplicate: false };
+}
+
+function _isAuthRelatedConstraint(constraint) {
+  const desc = (constraint.description || '').toLowerCase();
+  const evidence = constraint.evidenceFromCrawl || [];
+  const authKeywords = ['401', '403', 'unauthorized', 'authentication', 'auth system', 'auth fail', 'clerk auth', 'auth integration', 'auth middleware', 'rbac'];
+  const authHits = authKeywords.filter(kw => desc.includes(kw)).length;
+  if (authHits >= 2) return true;
+  const authEvidence = evidence.filter(e => AUTH_KEYWORDS.test(e) || /\b(401|403)\b/.test(e));
+  if (authEvidence.length > 0 && authEvidence.length >= evidence.length * 0.5) return true;
+  return false;
+}
+
+function _deepFilterAuthIssues(crawlResults) {
+  if (!crawlResults) return;
+  const filterAuth = (issues) => {
+    if (!Array.isArray(issues)) return [];
+    return issues.filter(i => {
+      if (AUTH_STATUS_CODES.has(i.statusCode)) return false;
+      const msg = (i.message || '').toLowerCase();
+      if (msg.includes('401') || msg.includes('403') || msg.includes('unauthorized') || msg.includes('forbidden')) return false;
+      if (i.type === 'api-error' && AUTH_STATUS_CODES.has(i.statusCode)) return false;
+      return true;
+    });
+  };
+  crawlResults.errors = filterAuth(crawlResults.errors);
+  crawlResults.warnings = filterAuth(crawlResults.warnings);
+  crawlResults.networkFailures = filterAuth(crawlResults.networkFailures);
+  crawlResults.consoleErrors = filterAuth(crawlResults.consoleErrors);
+  if (crawlResults.allIssues) {
+    crawlResults.allIssues = filterAuth(crawlResults.allIssues);
+  }
+}
+
+function _getBlockedConstraints(dataDir) {
+  const elonLog = _loadElonLog(dataDir);
+  const reportData = _loadElonReport(dataDir);
+  const blocked = [];
+  for (const c of (elonLog.history || [])) {
+    blocked.push(c.description);
+  }
+  if (reportData && reportData.constraintLeaderboard) {
+    for (const c of reportData.constraintLeaderboard) {
+      if (c.status === 'dismissed' || c.status === 'active') {
+        blocked.push(c.description);
+      }
+    }
+  }
+  return [...new Set(blocked)];
+}
+
 function _aggregateCrawlIssues(crawlResults) {
   const rawIssues = [
     ...(crawlResults.errors || []),
@@ -137,37 +212,75 @@ function _isStopRequested(dataDir) {
   return false;
 }
 
-function _readSourceFiles(projectRoot) {
-  const keyFiles = [
-    'server/routes.ts', 'server/index.ts', 'server/storage.ts',
-    'shared/schema.ts', 'client/src/App.tsx',
-    'client/src/pages/Dashboard.tsx', 'client/src/pages/Home.tsx',
-  ];
-
+function _readSourceFiles(projectRoot, constraint) {
   const sections = [];
+  const seen = new Set();
+  let totalChars = 0;
+  const MAX_TOTAL = 25000;
 
-  for (const rel of keyFiles) {
+  function addFile(rel, maxLen = 5000) {
+    if (seen.has(rel) || totalChars >= MAX_TOTAL) return;
+    seen.add(rel);
     const fullPath = path.join(projectRoot, rel);
     try {
-      if (!fs.existsSync(fullPath)) continue;
+      if (!fs.existsSync(fullPath)) return;
       const content = fs.readFileSync(fullPath, 'utf-8');
-      const truncated = content.length > 6000 ? content.substring(0, 6000) + '\n// ... truncated ...' : content;
+      const truncated = content.length > maxLen ? content.substring(0, maxLen) + '\n// ... truncated ...' : content;
       sections.push(`// FILE: ${rel}\n${truncated}`);
+      totalChars += truncated.length;
     } catch {}
   }
 
-  try {
-    const serverDir = path.join(projectRoot, 'server', 'routes');
-    if (fs.existsSync(serverDir)) {
-      const routeFiles = fs.readdirSync(serverDir)
+  const coreFiles = [
+    'server/index.ts', 'server/routes.ts', 'server/storage.ts',
+    'shared/schema.ts', 'client/src/App.tsx',
+  ];
+  for (const f of coreFiles) addFile(f, 4000);
+
+  const routeDirs = ['server/routes', 'server/middleware'];
+  for (const dir of routeDirs) {
+    try {
+      const fullDir = path.join(projectRoot, dir);
+      if (!fs.existsSync(fullDir)) continue;
+      const files = fs.readdirSync(fullDir)
         .filter(f => f.endsWith('.ts') || f.endsWith('.js'))
-        .slice(0, 5);
-      for (const rf of routeFiles) {
-        try {
-          const content = fs.readFileSync(path.join(serverDir, rf), 'utf-8');
-          const truncated = content.length > 4000 ? content.substring(0, 4000) + '\n// ... truncated ...' : content;
-          sections.push(`// FILE: server/routes/${rf}\n${truncated}`);
-        } catch {}
+        .sort();
+      for (const rf of files) {
+        addFile(`${dir}/${rf}`, 3000);
+      }
+    } catch {}
+  }
+
+  if (constraint && constraint.steps) {
+    for (const step of constraint.steps) {
+      if (step.filePath) addFile(step.filePath, 4000);
+    }
+  }
+
+  if (constraint && constraint.evidenceFromCrawl) {
+    const routePattern = /\/(api\/[a-z0-9\-_/]+)/gi;
+    const mentionedRoutes = new Set();
+    for (const evidence of constraint.evidenceFromCrawl) {
+      let m;
+      while ((m = routePattern.exec(evidence)) !== null) {
+        mentionedRoutes.add(m[1].split('/')[1]);
+      }
+    }
+    for (const routeName of mentionedRoutes) {
+      for (const ext of ['.ts', '.js']) {
+        addFile(`server/routes/${routeName}${ext}`, 4000);
+      }
+    }
+  }
+
+  try {
+    const pagesDir = path.join(projectRoot, 'client', 'src', 'pages');
+    if (fs.existsSync(pagesDir)) {
+      const pages = fs.readdirSync(pagesDir)
+        .filter(f => f.endsWith('.tsx') || f.endsWith('.ts'))
+        .slice(0, 8);
+      for (const p of pages) {
+        addFile(`client/src/pages/${p}`, 2000);
       }
     }
   } catch {}
@@ -219,8 +332,7 @@ async function _performBackendCheck(appUrl, dataDir, log) {
 
 function _buildCrawlSummary(crawlResults) {
   if (!crawlResults) return { note: 'Crawl not available — analyze code only' };
-  const issues = crawlResults.allIssues || [];
-  const authExpected = crawlResults.authExpected || [];
+  const issues = (crawlResults.allIssues || []).filter(i => !AUTH_STATUS_CODES.has(i.statusCode));
   const isAuthenticated = crawlResults.authenticated === true;
   const summary = {
     pagesVisited: crawlResults.pagesVisited,
@@ -229,13 +341,13 @@ function _buildCrawlSummary(crawlResults) {
     highSeverity: issues.filter(i => i.severity === 'high'),
     mediumSeverity: issues.filter(i => i.severity === 'medium'),
     topIssues: issues.slice(0, 20).map(i => ({
-      type: i.type, message: i.message, url: i.url, severity: i.severity,
+      type: i.type, message: i.message, url: i.url, severity: i.severity, statusCode: i.statusCode,
     })),
   };
   if (isAuthenticated) {
-    summary.note = 'Crawler was authenticated as admin user via Clerk sign-in token. All errors found are real issues visible to logged-in users.';
-  } else if (authExpected.length > 0) {
-    summary.note = `IMPORTANT: ${authExpected.length} API routes returned 401/403 because the crawler is NOT authenticated. This is EXPECTED behavior — these routes require Clerk authentication. Do NOT treat 401/403 on protected /api/ routes as bugs. Focus only on 404, 500, and other non-auth errors.`;
+    summary.note = 'Crawler was authenticated. All errors are real issues visible to logged-in users.';
+  } else {
+    summary.note = 'Crawler was NOT authenticated. All 401/403 responses have been PRE-FILTERED and removed. The issues listed below are REAL bugs (404s, 500s, broken UI, etc). Do NOT report auth as a constraint.';
   }
   return summary;
 }
@@ -279,16 +391,30 @@ async function runElonCycle(config) {
     progress('backend-check-done', `Backend check: ${epCount} endpoints, ${issueCount} issues`, { endpoints: epCount, issues: issueCount }, issueCount > 0 ? 'warning' : 'success');
   }
 
+  if (crawlResults) {
+    _deepFilterAuthIssues(crawlResults);
+    _aggregateCrawlIssues(crawlResults);
+  }
+
   progress('reading-code', 'Reading source code and project context...', null, 'thinking');
-  const sourceCode = _readSourceFiles(projectRoot);
+  const sourceCode = _readSourceFiles(projectRoot, elonLog.current);
+
+  const blockedConstraints = _getBlockedConstraints(dataDir);
+  const failedHistory = (elonLog.failedAttempts || []).slice(-10).map(fa => ({
+    constraint: fa.constraint,
+    reason: fa.reason,
+    timestamp: fa.timestamp,
+  }));
 
   const task = {
     goals: context.goals ? (context.goals.content || context.raw.goals) : 'No GOALS.md found',
     soul: context.soul ? (context.soul.content || context.raw.soul) : 'No SOUL.md found',
-    codebase: sourceCode.substring(0, 20000),
+    codebase: sourceCode.substring(0, 25000),
     crawlResults: _buildCrawlSummary(crawlResults),
     previousConstraints: elonLog.solved || [],
     currentConstraint: elonLog.current || null,
+    blockedConstraints: blockedConstraints.slice(0, 30),
+    failedHistory,
     previousReport: previousReport ? {
       constraintsSolved: previousReport.constraintsSolved || 0,
       activeConstraint: previousReport.activeConstraint || null,
@@ -319,6 +445,32 @@ async function runElonCycle(config) {
   if (!analysis || !analysis.limitingFactor) {
     progress('error', 'Could not identify a limiting factor', null, 'error');
     return { status: 'failed', reason: 'ELON could not identify a limiting factor', rawAnalysis: analysis };
+  }
+
+  const proposedConstraint = {
+    description: analysis.limitingFactor.description,
+    evidenceFromCrawl: analysis.limitingFactor.evidenceFromCrawl || [],
+  };
+
+  if (_isAuthRelatedConstraint(proposedConstraint)) {
+    progress('auth-dismissed', `Dismissed auth-related constraint: ${analysis.limitingFactor.description}`, null, 'warning');
+    const elonLogForDismiss = _loadElonLog(dataDir);
+    if (!elonLogForDismiss.history) elonLogForDismiss.history = [];
+    elonLogForDismiss.history.push({
+      id: 'constraint-' + Date.now(),
+      description: analysis.limitingFactor.description,
+      status: 'dismissed',
+      dismissedReason: 'Auto-dismissed: auth-related constraint from unauthenticated crawl',
+      dismissedAt: new Date().toISOString(),
+    });
+    _saveElonLog(dataDir, elonLogForDismiss);
+    return { status: 'dismissed', reason: 'Auth-related constraint auto-dismissed', constraint: analysis.limitingFactor.description };
+  }
+
+  const dupCheck = _isDuplicateConstraint(analysis.limitingFactor.description, blockedConstraints);
+  if (dupCheck.isDuplicate) {
+    progress('duplicate-dismissed', `Dismissed duplicate constraint: ${analysis.limitingFactor.description}`, null, 'warning');
+    return { status: 'dismissed', reason: `Duplicate of previously identified: ${dupCheck.matchedDescription}`, constraint: analysis.limitingFactor.description };
   }
 
   progress('analysis-done', `Found limiting factor: ${analysis.limitingFactor.description}`, { why: analysis.limitingFactor.why, category: analysis.limitingFactor.category }, 'success');
@@ -545,10 +697,12 @@ async function runElonLoop(config) {
   let totalBudget = 0;
   let constraintsSolved = 0;
   let constraintsAttempted = 0;
+  let consecutiveDismissals = 0;
+  const MAX_CONSECUTIVE_DISMISSALS = 5;
 
   progress('init', `ELON starting: ${maxConstraints} max cycles, $${budgetMax.toFixed(2)} budget`, { maxCycles: maxConstraints, budget: totalBudget }, 'thinking');
 
-  for (let cycle = 0; cycle < maxConstraints; cycle++) {
+  for (let cycle = 0; cycle < maxConstraints + MAX_CONSECUTIVE_DISMISSALS; cycle++) {
     if (_isStopRequested(dataDir)) {
       progress('stopped', 'ELON: Stop requested — halting loop', null, 'warning');
       break;
@@ -557,8 +711,12 @@ async function runElonLoop(config) {
       progress('budget-exhausted', `ELON: Budget exhausted ($${totalBudget.toFixed(2)}/$${budgetMax.toFixed(2)})`, { budget: totalBudget }, 'warning');
       break;
     }
+    if (consecutiveDismissals >= MAX_CONSECUTIVE_DISMISSALS) {
+      progress('dismissal-limit', `ELON: ${MAX_CONSECUTIVE_DISMISSALS} consecutive constraints dismissed — Claude may be stuck in a loop. Stopping.`, { budget: totalBudget }, 'warning');
+      break;
+    }
 
-    progress('cycle-start', `Cycle ${cycle + 1}/${maxConstraints}: Starting analysis...`, { cycle: cycle + 1, budget: totalBudget }, 'thinking');
+    progress('cycle-start', `Cycle ${cycle + 1}: Starting analysis...`, { cycle: cycle + 1, budget: totalBudget }, 'thinking');
 
     const remainingBudget = budgetMax - totalBudget;
 
@@ -570,6 +728,14 @@ async function runElonLoop(config) {
     });
 
     totalBudget += cycleResult.budgetUsed || 0;
+
+    if (cycleResult.status === 'dismissed') {
+      consecutiveDismissals++;
+      progress('constraint-dismissed', `Constraint dismissed (${consecutiveDismissals}/${MAX_CONSECUTIVE_DISMISSALS}): ${cycleResult.reason || 'duplicate/auth'}`, { budget: totalBudget }, 'warning');
+      continue;
+    }
+
+    consecutiveDismissals = 0;
 
     if (cycleResult.status !== 'planned') {
       progress('cycle-failed', `Cycle ${cycle + 1} failed: ${cycleResult.reason || cycleResult.status}`, { budget: totalBudget }, 'error');
@@ -953,9 +1119,128 @@ async function executeApprovedSpecs(config) {
   return { status: 'completed', executed, succeeded, failed, budgetUsed: specBudget.spent };
 }
 
+async function runElonFixAll(config) {
+  const {
+    apiKey,
+    appUrl = 'http://localhost:5000',
+    projectRoot = process.cwd(),
+    dataDir = path.join(projectRoot, '.apppilot'),
+    budgetMax = 25.0,
+    enableCrawl = true,
+    memory = null,
+    onProgress = null,
+    maxRounds = 30,
+    constraintsPerRound = 3,
+  } = config;
+
+  const log = _createLogger(memory);
+  const progress = (phase, message, detail, type) => {
+    log(message);
+    if (onProgress) onProgress(phase, message, detail, type || 'info');
+  };
+
+  let totalSpent = 0;
+  let totalSolved = 0;
+  let totalDismissed = 0;
+  let consecutiveNoProgress = 0;
+  const MAX_NO_PROGRESS = 3;
+
+  progress('fix-all-start', `ELON Fix-All starting: max ${maxRounds} rounds, $${budgetMax.toFixed(2)} budget`, { maxRounds, budget: budgetMax }, 'thinking');
+
+  for (let round = 0; round < maxRounds; round++) {
+    if (_isStopRequested(dataDir)) {
+      progress('stopped', 'ELON Fix-All: Stop requested', null, 'warning');
+      break;
+    }
+
+    if (totalSpent >= budgetMax) {
+      progress('budget-exhausted', `ELON Fix-All: Budget exhausted ($${totalSpent.toFixed(2)}/$${budgetMax.toFixed(2)})`, null, 'warning');
+      break;
+    }
+
+    if (consecutiveNoProgress >= MAX_NO_PROGRESS) {
+      progress('no-progress', `ELON Fix-All: ${MAX_NO_PROGRESS} rounds with no progress — stopping to avoid waste`, null, 'warning');
+      break;
+    }
+
+    const counts = getActiveConstraintCounts(dataDir);
+    if (round > 0 && !counts.hasActionable) {
+      progress('all-resolved', `ELON Fix-All: All critical/high/medium issues resolved! (${counts.low} low-priority remain)`, { totalSolved, totalSpent }, 'success');
+      break;
+    }
+
+    const roundBudget = Math.min(budgetMax - totalSpent, 5.0);
+    const crawlMode = config.crawlMode || (enableCrawl ? 'full' : 'backend-only');
+
+    progress('fix-all-round', `Fix-All round ${round + 1}/${maxRounds}: ${counts.total} active issues (${counts.critical} critical, ${counts.high} high, ${counts.medium} medium) — $${totalSpent.toFixed(2)} spent`, { round: round + 1, counts, budget: totalSpent }, 'thinking');
+
+    try {
+      const result = await runElonLoop({
+        apiKey, appUrl, projectRoot, dataDir,
+        maxConstraints: constraintsPerRound,
+        budgetMax: roundBudget,
+        enableCrawl,
+        crawlMode,
+        memory,
+        onProgress,
+      });
+
+      totalSpent += result.totalBudget || 0;
+
+      if (result.constraintsSolved > 0) {
+        totalSolved += result.constraintsSolved;
+        consecutiveNoProgress = 0;
+        progress('fix-all-progress', `Round ${round + 1}: Solved ${result.constraintsSolved} constraint(s)! Total solved: ${totalSolved}`, { totalSolved, totalSpent }, 'success');
+      } else {
+        consecutiveNoProgress++;
+        progress('fix-all-no-progress', `Round ${round + 1}: No constraints solved this round (${consecutiveNoProgress}/${MAX_NO_PROGRESS} no-progress rounds)`, { totalSolved, totalSpent, consecutiveNoProgress }, 'warning');
+      }
+    } catch (err) {
+      progress('fix-all-error', `Round ${round + 1} error: ${err.message}`, null, 'error');
+      if (err.message && (err.message.includes('429') || err.message.includes('rate limit'))) {
+        progress('rate-limited', 'Rate limited — pausing 60s before retry', null, 'warning');
+        await new Promise(r => setTimeout(r, 60000));
+      }
+      consecutiveNoProgress++;
+    }
+
+    if (round < maxRounds - 1 && !_isStopRequested(dataDir) && totalSpent < budgetMax) {
+      await new Promise(r => setTimeout(r, 5000));
+    }
+  }
+
+  const finalCounts = getActiveConstraintCounts(dataDir);
+  progress('fix-all-complete', `ELON Fix-All complete: ${totalSolved} solved, ${finalCounts.total} remaining, $${totalSpent.toFixed(2)} spent`, { totalSolved, remaining: finalCounts, totalSpent, totalDismissed }, 'success');
+
+  return { status: 'completed', totalSolved, totalDismissed, totalSpent, remaining: finalCounts };
+}
+
+function resetElonState(dataDir) {
+  try {
+    const reportPath = path.join(dataDir, 'elon-report-data.json');
+    const logPath = path.join(dataDir, 'elon-log.json');
+    if (fs.existsSync(reportPath)) fs.unlinkSync(reportPath);
+    if (fs.existsSync(logPath)) fs.unlinkSync(logPath);
+    const dirs = ['approved-queue', 'completed', 'failed', 'queue/pending', 'rejected-queue'];
+    for (const dir of dirs) {
+      const fullDir = path.join(dataDir, dir);
+      if (fs.existsSync(fullDir)) {
+        const files = fs.readdirSync(fullDir).filter(f => f.startsWith('elon-'));
+        for (const f of files) {
+          try { fs.unlinkSync(path.join(fullDir, f)); } catch {}
+        }
+      }
+    }
+    return { success: true, message: 'ELON state reset — all constraint history cleared' };
+  } catch (err) {
+    return { success: false, message: `Reset failed: ${err.message}` };
+  }
+}
+
 module.exports = {
   runElonCycle,
   runElonLoop,
+  runElonFixAll,
   evaluateConstraint,
   getElonStatus,
   getActiveConstraintCounts,
@@ -966,4 +1251,5 @@ module.exports = {
   rejectSpec,
   approveAllSpecs,
   executeApprovedSpecs,
+  resetElonState,
 };

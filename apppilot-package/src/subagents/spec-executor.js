@@ -155,6 +155,7 @@ function _isSpecComplete(result) {
 
 async function executeSpec(spec, options = {}) {
   const { context, budget, memory, apiKey, identityDir, templatesDir, dryRun, projectRoot } = options;
+  const iterationHistory = options.iterationHistory || [];
 
   let currentCode = '';
   let relatedContext = '';
@@ -173,9 +174,21 @@ async function executeSpec(spec, options = {}) {
     } catch {}
   }
 
+  const taskPayload = { spec, currentCode, relatedContext: relatedContext || undefined };
+
+  if (iterationHistory.length > 0) {
+    taskPayload.previousAttempts = iterationHistory.slice(-3).map(h => ({
+      iteration: h.iteration,
+      status: h.status,
+      reason: h.reason || undefined,
+      changeAttempted: h.changeDescription || undefined,
+    }));
+    taskPayload.retryGuidance = 'Previous attempts failed. Review what went wrong and try a DIFFERENT approach. Do NOT repeat the same change.';
+  }
+
   let result;
   try {
-    result = await delegateToSubagent('spec-executor', { spec, currentCode, relatedContext: relatedContext || undefined }, {
+    result = await delegateToSubagent('spec-executor', taskPayload, {
       context, budget, memory, apiKey, identityDir, templatesDir, dryRun,
     });
   } catch (err) {
