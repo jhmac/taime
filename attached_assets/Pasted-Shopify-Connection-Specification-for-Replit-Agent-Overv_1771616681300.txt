@@ -1,0 +1,1005 @@
+Shopify Connection Specification for Replit Agent
+
+Overview
+
+This specification provides step-by-step instructions for implementing a Shopify OAuth connection in a Replit application. It follows the Klaviyo/ShipStation standalone integration pattern (non-embedded app), where users connect their existing Shopify store to your app via OAuth.
+
+Architecture Pattern: Users create accounts in YOUR app independently, then optionally connect their Shopify store. This is NOT an embedded Shopify app.
+
+Prerequisites
+
+1. Shopify Partners Account
+
+Create a Shopify Partners account at https://partners.shopify.com
+
+2. Create a Custom App in Shopify Partners
+
+Go to Apps → Create app → Create app manually
+Set App name (e.g., "MyApp Shopify Integration")
+Set App URL: https://your-replit-app.replit.app
+Set Allowed redirection URLs: https://your-replit-app.replit.app/auth/shopify/callback
+Note your API Key and API Secret Key
+3. Required Secrets (add in Replit Secrets)
+
+SHOPIFY_API_KEY=your_api_key_from_shopify_partners
+SHOPIFY_API_SECRET=your_api_secret_from_shopify_partners
+HOST=your-replit-app.replit.app (no https://)
+Part 1: Database Schema
+
+Add Shopify Session Storage Table
+
+In shared/schema.ts, add this table for storing OAuth sessions:
+
+export const shopifySessions = pgTable("shopify_sessions", {
+  id: text("id").primaryKey(), // Format: offline_{shop} for offline tokens
+  organizationId: varchar("organization_id").references(() => organizations.id).notNull(),
+  shop: text("shop").notNull(),
+  state: text("state"), // Used during OAuth flow
+  isOnline: boolean("isOnline").notNull().default(false),
+  scope: text("scope"),
+  expires: timestamp("expires"),
+  accessToken: text("accessToken"),
+  userId: bigint("userId", { mode: "number" }),
+  firstName: text("firstName"),
+  lastName: text("lastName"),
+  email: text("email"),
+  accountOwner: boolean("accountOwner").default(false),
+  locale: text("locale"),
+  collaborator: boolean("collaborator").default(false),
+  emailVerified: boolean("emailVerified").default(false),
+  onlineAccessInfo: jsonb("onlineAccessInfo"),
+  createdAt: timestamp("createdAt").notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt").notNull().defaultNow(),
+});
+Add OAuth State Table (for CSRF protection)
+
+export const oauthStates = pgTable("oauth_states", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  state: text("state").notNull().unique(),
+  organizationId: varchar("organization_id").references(() => organizations.id).notNull(),
+  userId: varchar("user_id").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+Add Shopify Fields to Organizations Table
+
+// Add these columns to your organizations table:
+shopifyShop: text("shopify_shop").unique(), // e.g. "mystore.myshopify.com"
+shopifyHost: text("shopify_host"), // Base64-encoded host parameter
+shopifyInstallDate: timestamp("shopify_install_date"),
+Export Types
+
+export type ShopifySession = typeof shopifySessions.$inferSelect;
+export const insertShopifySessionSchema = createInsertSchema(shopifySessions).omit({
+  createdAt: true,
+  updatedAt: true,
+});
+Part 2: Install Dependencies
+
+npm install @shopify/shopify-api
+The @shopify/shopify-api package (v12+) provides:
+
+OAuth handling
+REST and GraphQL clients
+Webhook validation
+Session token validation
+Part 3: Shopify Configuration File
+
+Create server/shopifyConfig.ts:
+
+import '@shopify/shopify-api/adapters/node';
+import { shopifyApi, ApiVersion, Session } from '@shopify/shopify-api';
+import { db } from './db';
+import { shopifySessions } from '@shared/schema';
+import { eq } from 'drizzle-orm';
+// Define required OAuth scopes based on your app's needs
+export const REQUIRED_SCOPES = [
+  'read_products',
+  'write_products',
+  'read_inventory',
+  'write_inventory',
+  'read_locations',
+  'read_orders',
+  // Add more scopes as needed
+];
+// Custom session storage using your database
+class CustomShopifySessionStorage {
+  async storeSession(session: any): Promise<boolean> {
+    try {
+      const sessionData = {
+        id: session.id,
+        shop: session.shop,
+        state: session.state || null,
+        isOnline: session.isOnline || false,
+        scope: session.scope || null,
+        expires: session.expires || null,
+        accessToken: session.accessToken || null,
+        userId: session.userId || null,
+        firstName: session.firstName || null,
+        lastName: session.lastName || null,
+        email: session.email || null,
+        accountOwner: session.accountOwner || false,
+        locale: session.locale || null,
+        collaborator: session.collaborator || false,
+        emailVerified: session.emailVerified || false,
+        onlineAccessInfo: session.onlineAccessInfo || null,
+        organizationId: session.organizationId, // REQUIRED - set during OAuth
+      };
+      // Upsert pattern
+      const existing = await db.select({ id: shopifySessions.id })
+        .from(shopifySessions)
+        .where(eq(shopifySessions.id, session.id))
+        .limit(1);
+      if (existing.length > 0) {
+        await db.update(shopifySessions)
+          .set({ ...sessionData, updatedAt: new Date() })
+          .where(eq(shopifySessions.id, session.id));
+      } else {
+        await db.insert(shopifySessions).values({
+          ...sessionData,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+      }
+      return true;
+    } catch (error) {
+      console.error('Session storage error:', error);
+      throw error;
+    }
+  }
+  async loadSession(id: string): Promise<Session | undefined> {
+    try {
+      const [row] = await db.select()
+        .from(shopifySessions)
+        .where(eq(shopifySessions.id, id))
+        .limit(1);
+      if (!row) return undefined;
+      return {
+        id: row.id,
+        shop: row.shop,
+        state: row.state || '',
+        isOnline: row.isOnline,
+        scope: row.scope || undefined,
+        expires: row.expires || undefined,
+        accessToken: row.accessToken || undefined,
+        onlineAccessInfo: row.onlineAccessInfo as any,
+      } as Session;
+    } catch (error) {
+      console.error('Failed to load session:', error);
+      return undefined;
+    }
+  }
+  async deleteSession(id: string): Promise<boolean> {
+    try {
+      await db.delete(shopifySessions).where(eq(shopifySessions.id, id));
+      return true;
+    } catch (error) {
+      console.error('Failed to delete session:', error);
+      return false;
+    }
+  }
+  async findSessionsByShop(shop: string): Promise<Session[]> {
+    try {
+      const rows = await db.select()
+        .from(shopifySessions)
+        .where(eq(shopifySessions.shop, shop));
+      return rows.map(row => ({
+        id: row.id,
+        shop: row.shop,
+        state: row.state || '',
+        isOnline: row.isOnline,
+        scope: row.scope || undefined,
+        expires: row.expires || undefined,
+        accessToken: row.accessToken || undefined,
+        onlineAccessInfo: row.onlineAccessInfo as any,
+      } as Session));
+    } catch (error) {
+      console.error('Failed to find sessions:', error);
+      return [];
+    }
+  }
+}
+export const sessionStorage = new CustomShopifySessionStorage();
+// Validate environment variables
+const apiKey = process.env.SHOPIFY_API_KEY || '';
+const apiSecretKey = process.env.SHOPIFY_API_SECRET || '';
+if (!apiKey || !apiSecretKey) {
+  console.warn('⚠️ SHOPIFY_API_KEY and SHOPIFY_API_SECRET not configured');
+}
+// Initialize Shopify API
+export const shopify = shopifyApi({
+  apiKey,
+  apiSecretKey,
+  scopes: REQUIRED_SCOPES,
+  hostName: process.env.HOST?.replace(/https?:\/\//, '') || 'localhost',
+  hostScheme: 'https',
+  apiVersion: ApiVersion.January25, // Use latest stable
+  isEmbeddedApp: false, // STANDALONE app pattern
+  sessionStorage: sessionStorage as any,
+});
+// Helper functions
+export function getOfflineSessionId(shop: string): string {
+  return `offline_${shop}`;
+}
+export async function storeSession(session: Session): Promise<boolean> {
+  return sessionStorage.storeSession(session);
+}
+export async function loadSession(id: string): Promise<Session | undefined> {
+  return sessionStorage.loadSession(id);
+}
+export async function deleteSession(id: string): Promise<boolean> {
+  return sessionStorage.deleteSession(id);
+}
+export async function findSessionsByShop(shop: string): Promise<Session[]> {
+  return sessionStorage.findSessionsByShop(shop);
+}
+// Create GraphQL client for a shop
+export async function createGraphQLClient(shop: string) {
+  const sessionId = getOfflineSessionId(shop);
+  const session = await loadSession(sessionId);
+  
+  if (!session) {
+    throw new Error(`No session found for shop: ${shop}`);
+  }
+  
+  return new shopify.clients.Graphql({ session });
+}
+// Create REST client for a shop
+export async function createRestClient(shop: string) {
+  const sessionId = getOfflineSessionId(shop);
+  const session = await loadSession(sessionId);
+  
+  if (!session) {
+    throw new Error(`No session found for shop: ${shop}`);
+  }
+  
+  return new shopify.clients.Rest({ session });
+}
+export type { Session };
+Part 4: OAuth Routes
+
+Add these routes to your server/routes.ts:
+
+import crypto from 'crypto';
+import { nanoid } from 'nanoid';
+import { shopify, REQUIRED_SCOPES, sessionStorage, getOfflineSessionId } from './shopifyConfig';
+import { oauthStates, organizations, shopifySessions } from '@shared/schema';
+// OAuth Start Route
+app.get('/auth/shopify', async (req, res) => {
+  try {
+    const { shop } = req.query;
+    if (!shop || typeof shop !== 'string') {
+      return res.status(400).json({ error: 'Shop parameter is required' });
+    }
+    // Validate shop domain format
+    const cleanShop = shop.replace(/^https?:\/\//, '').trim();
+    const shopDomainRegex = /^[a-z0-9-]+\.myshopify\.com$/i;
+    if (!shopDomainRegex.test(cleanShop)) {
+      return res.status(400).json({ error: 'Invalid shop domain' });
+    }
+    
+    // Get organizationId from authenticated user (if logged in)
+    const organizationId = req.user?.organizationId;
+    const userId = req.user?.id;
+    
+    // Create OAuth state for CSRF protection
+    let state = '';
+    if (organizationId && userId) {
+      state = nanoid(32);
+      await db.insert(oauthStates).values({
+        state,
+        organizationId,
+        userId,
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 min expiry
+      });
+    }
+    
+    // Build OAuth authorization URL
+    const scopes = REQUIRED_SCOPES.join(',');
+    const host = process.env.HOST || 'localhost:5000';
+    const redirectUri = host.startsWith('http') 
+      ? `${host}/auth/shopify/callback` 
+      : `https://${host}/auth/shopify/callback`;
+    
+    const authUrl = `https://${cleanShop}/admin/oauth/authorize?` + 
+      `client_id=${process.env.SHOPIFY_API_KEY}&` +
+      `scope=${encodeURIComponent(scopes)}&` +
+      `redirect_uri=${encodeURIComponent(redirectUri)}` +
+      (state ? `&state=${state}` : '');
+    res.redirect(authUrl);
+  } catch (error: any) {
+    console.error('OAuth start error:', error);
+    res.status(500).json({ error: 'Failed to start OAuth' });
+  }
+});
+// OAuth Callback Route
+app.get('/auth/shopify/callback', async (req, res) => {
+  try {
+    const { shop, code, hmac, host: hostParam, state, timestamp } = req.query;
+    
+    if (!shop || !code || !hmac) {
+      throw new Error('Missing required OAuth parameters');
+    }
+    
+    // Validate HMAC signature
+    const { hmac: receivedHmac, ...params } = req.query;
+    const queryString = Object.keys(params)
+      .sort()
+      .map(key => `${key}=${params[key]}`)
+      .join('&');
+    
+    const computedHmac = crypto
+      .createHmac('sha256', process.env.SHOPIFY_API_SECRET || '')
+      .update(queryString)
+      .digest('hex');
+    
+    if (receivedHmac !== computedHmac) {
+      throw new Error('HMAC validation failed');
+    }
+    
+    // Exchange authorization code for access token
+    const tokenResponse = await fetch(`https://${shop}/admin/oauth/access_token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        client_id: process.env.SHOPIFY_API_KEY,
+        client_secret: process.env.SHOPIFY_API_SECRET,
+        code,
+      }),
+    });
+    if (!tokenResponse.ok) {
+      throw new Error('Failed to exchange code for access token');
+    }
+    const tokenData = await tokenResponse.json();
+    const accessToken = tokenData.access_token;
+    const scope = tokenData.scope;
+    
+    // Verify all required scopes were granted
+    const grantedScopes = (scope || '').split(',').map((s: string) => s.trim()).filter(Boolean);
+    const missingScopes = REQUIRED_SCOPES.filter(required => !grantedScopes.includes(required));
+    if (missingScopes.length > 0) {
+      console.warn('Missing scopes:', missingScopes.join(', '));
+    }
+    // Create session object
+    const sessionBase = {
+      id: `offline_${shop}`,
+      shop: shop as string,
+      state: state as string,
+      isOnline: false,
+      scope,
+      accessToken,
+    };
+    // Verify OAuth state and get organizationId
+    let targetOrganizationId: string | null = null;
+    
+    if (state && typeof state === 'string') {
+      const [stateRecord] = await db
+        .select()
+        .from(oauthStates)
+        .where(eq(oauthStates.state, state as string))
+        .limit(1);
+      
+      if (stateRecord && stateRecord.expiresAt > new Date()) {
+        targetOrganizationId = stateRecord.organizationId;
+        // Delete used state
+        await db.delete(oauthStates).where(eq(oauthStates.state, state as string));
+      } else if (stateRecord) {
+        await db.delete(oauthStates).where(eq(oauthStates.state, state as string));
+        throw new Error('OAuth state expired');
+      }
+    }
+    const host = hostParam ? String(hostParam) : Buffer.from(`${sessionBase.shop}/admin`).toString('base64');
+    if (targetOrganizationId) {
+      // Check if shop is already linked to a DIFFERENT organization
+      const [shopConflict] = await db
+        .select()
+        .from(organizations)
+        .where(
+          and(
+            eq(organizations.shopifyShop, sessionBase.shop),
+            sql`${organizations.id} != ${targetOrganizationId}`
+          )
+        )
+        .limit(1);
+      
+      if (shopConflict) {
+        throw new Error('This Shopify store is already connected to another account');
+      }
+      
+      // Update organization with Shopify connection
+      await db
+        .update(organizations)
+        .set({
+          shopifyShop: sessionBase.shop,
+          shopifyHost: host,
+          shopifyInstallDate: new Date(),
+        })
+        .where(eq(organizations.id, targetOrganizationId));
+      
+      // Store session with organizationId
+      await sessionStorage.storeSession({
+        ...sessionBase,
+        organizationId: targetOrganizationId,
+      });
+    } else {
+      // No state = new installation, create or find organization
+      let [existingOrg] = await db
+        .select()
+        .from(organizations)
+        .where(eq(organizations.shopifyShop, sessionBase.shop))
+        .limit(1);
+      
+      if (!existingOrg) {
+        // Create new organization for this shop
+        const shopName = sessionBase.shop.replace('.myshopify.com', '');
+        [existingOrg] = await db
+          .insert(organizations)
+          .values({
+            name: shopName,
+            slug: shopName.toLowerCase().replace(/[^a-z0-9]/g, '-'),
+            shopifyShop: sessionBase.shop,
+            shopifyHost: host,
+            shopifyInstallDate: new Date(),
+          })
+          .returning();
+      }
+      
+      await sessionStorage.storeSession({
+        ...sessionBase,
+        organizationId: existingOrg.id,
+      });
+    }
+    // Redirect to success page
+    res.redirect('/shopify?connected=true');
+  } catch (error: any) {
+    console.error('OAuth callback error:', error);
+    res.redirect(`/shopify?error=${encodeURIComponent(error.message)}`);
+  }
+});
+// Connection Status Endpoint
+app.get('/api/shopify/connection-status', requireAuth, async (req, res) => {
+  try {
+    const organizationId = req.user?.organizationId;
+    if (!organizationId) {
+      return res.json({ connected: false });
+    }
+    
+    const [org] = await db
+      .select()
+      .from(organizations)
+      .where(eq(organizations.id, organizationId))
+      .limit(1);
+    
+    if (!org?.shopifyShop) {
+      return res.json({ connected: false });
+    }
+    
+    // Verify we have a valid session
+    const sessionId = getOfflineSessionId(org.shopifyShop);
+    const session = await loadSession(sessionId);
+    
+    if (!session?.accessToken) {
+      return res.json({ connected: false, shop: org.shopifyShop });
+    }
+    
+    res.json({
+      connected: true,
+      shop: org.shopifyShop,
+      authMethod: 'oauth',
+      installedAt: org.shopifyInstallDate,
+    });
+  } catch (error) {
+    console.error('Connection status error:', error);
+    res.json({ connected: false });
+  }
+});
+// Disconnect Endpoint
+app.post('/api/shopify/disconnect', requireAuth, async (req, res) => {
+  try {
+    const organizationId = req.user?.organizationId;
+    if (!organizationId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    
+    const [org] = await db
+      .select()
+      .from(organizations)
+      .where(eq(organizations.id, organizationId))
+      .limit(1);
+    
+    if (org?.shopifyShop) {
+      // Delete session
+      const sessionId = getOfflineSessionId(org.shopifyShop);
+      await deleteSession(sessionId);
+      
+      // Clear organization's Shopify fields
+      await db
+        .update(organizations)
+        .set({
+          shopifyShop: null,
+          shopifyHost: null,
+          shopifyInstallDate: null,
+        })
+        .where(eq(organizations.id, organizationId));
+    }
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Disconnect error:', error);
+    res.status(500).json({ error: 'Failed to disconnect' });
+  }
+});
+Part 5: Shopify Service (API Operations)
+
+Create server/shopifyService.ts:
+
+import { Session } from '@shopify/shopify-api';
+import { shopify, loadSession, getOfflineSessionId } from './shopifyConfig';
+// Factory function to create ShopifyService with OAuth session
+export async function createShopifyService(shopDomain: string): Promise<ShopifyService | null> {
+  if (!shopDomain) {
+    console.log('No shop domain provided');
+    return null;
+  }
+  
+  const cleanShop = shopDomain.replace('https://', '').replace('http://', '').trim();
+  const sessionId = getOfflineSessionId(cleanShop);
+  
+  try {
+    const session = await loadSession(sessionId);
+    
+    if (session && session.accessToken) {
+      return new ShopifyService(session);
+    }
+  } catch (err) {
+    console.error('Error loading session:', err);
+  }
+  
+  return null;
+}
+export class ShopifyService {
+  private restClient: any;
+  private graphqlClient: any;
+  private session: Session;
+  constructor(session: Session) {
+    if (!session || !session.accessToken) {
+      throw new Error('OAuth session with valid access token is required');
+    }
+    
+    this.session = session;
+    this.restClient = new shopify.clients.Rest({ session: this.session });
+    this.graphqlClient = new shopify.clients.Graphql({ session: this.session });
+  }
+  // Validate connection by fetching shop info
+  async validateConnection(): Promise<boolean> {
+    try {
+      const response = await this.restClient.get({ path: 'shop' });
+      return !!response.body?.shop;
+    } catch (error) {
+      console.error('Connection validation failed:', error);
+      return false;
+    }
+  }
+  // Get shop info
+  async getShopInfo(): Promise<any> {
+    const response = await this.restClient.get({ path: 'shop' });
+    return response.body?.shop;
+  }
+  // Execute GraphQL query/mutation
+  private async executeGraphQL<T = any>(query: string, variables?: any): Promise<T> {
+    const response = await this.graphqlClient.request(query, { variables });
+    
+    if (response.errors && response.errors.length > 0) {
+      const errorMessages = response.errors.map((e: any) => e.message).join(', ');
+      throw new Error(`GraphQL Error: ${errorMessages}`);
+    }
+    
+    return response.data as T;
+  }
+  // Get products with pagination
+  async getProducts(limit: number = 50, cursor?: string): Promise<{ products: any[], pageInfo: any }> {
+    const query = `
+      query getProducts($first: Int!, $after: String) {
+        products(first: $first, after: $after) {
+          edges {
+            node {
+              id
+              title
+              handle
+              vendor
+              productType
+              tags
+              variants(first: 100) {
+                edges {
+                  node {
+                    id
+                    sku
+                    price
+                    inventoryItem { id }
+                  }
+                }
+              }
+            }
+            cursor
+          }
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+        }
+      }
+    `;
+    
+    const variables: any = { first: limit };
+    if (cursor) variables.after = cursor;
+    
+    const result = await this.executeGraphQL(query, variables);
+    const edges = result?.products?.edges || [];
+    
+    return {
+      products: edges.map((e: any) => ({
+        id: e.node.id.split('/').pop(),
+        title: e.node.title,
+        handle: e.node.handle,
+        vendor: e.node.vendor,
+        product_type: e.node.productType,
+        tags: e.node.tags,
+        variants: e.node.variants.edges.map((v: any) => ({
+          id: v.node.id.split('/').pop(),
+          sku: v.node.sku,
+          price: v.node.price,
+          inventory_item_id: v.node.inventoryItem?.id.split('/').pop()
+        }))
+      })),
+      pageInfo: result?.products?.pageInfo || {}
+    };
+  }
+  // Create a product
+  async createProduct(productData: any): Promise<any> {
+    const response = await this.restClient.post({
+      path: 'products',
+      data: { product: productData }
+    });
+    return response.body?.product;
+  }
+  // Update inventory quantity
+  async setInventoryQuantity(inventoryItemId: string, locationId: string, quantity: number): Promise<void> {
+    const mutation = `
+      mutation inventorySetQuantities($input: InventorySetQuantitiesInput!) {
+        inventorySetQuantities(input: $input) {
+          inventoryAdjustmentGroup { id }
+          userErrors { field message }
+        }
+      }
+    `;
+    const result = await this.executeGraphQL(mutation, {
+      input: {
+        name: 'available',
+        reason: 'correction',
+        ignoreCompareQuantity: true,
+        quantities: [{
+          inventoryItemId: `gid://shopify/InventoryItem/${inventoryItemId}`,
+          locationId: `gid://shopify/Location/${locationId}`,
+          quantity: quantity
+        }]
+      }
+    });
+    if (result?.inventorySetQuantities?.userErrors?.length > 0) {
+      const errors = result.inventorySetQuantities.userErrors.map((e: any) => e.message).join(', ');
+      throw new Error(`Inventory set failed: ${errors}`);
+    }
+  }
+  // Get locations
+  async getLocations(): Promise<any[]> {
+    const query = `
+      query getLocations {
+        locations(first: 50) {
+          edges {
+            node {
+              id
+              name
+              isActive
+            }
+          }
+        }
+      }
+    `;
+    
+    const result = await this.executeGraphQL(query);
+    return (result?.locations?.edges || []).map((e: any) => ({
+      id: e.node.id.split('/').pop(),
+      name: e.node.name,
+      isActive: e.node.isActive
+    }));
+  }
+  // Get primary location
+  async getPrimaryLocation(): Promise<any | null> {
+    const locations = await this.getLocations();
+    return locations.find(l => l.isActive) || locations[0] || null;
+  }
+  // Get orders with pagination (uses REST API)
+  async getOrders(params: { limit?: number; created_at_min?: string; status?: string } = {}): Promise<any[]> {
+    const response = await this.restClient.get({
+      path: 'orders',
+      query: {
+        limit: params.limit || 50,
+        created_at_min: params.created_at_min,
+        status: params.status || 'any'
+      }
+    });
+    return response.body?.orders || [];
+  }
+}
+Part 6: Frontend Connection UI
+
+Create client/src/pages/shopify-connect.tsx:
+
+import { useState, useEffect } from 'react';
+import { useQuery, useMutation } from '@tanstack/react-query';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { CheckCircle2, AlertCircle, Loader2, Store } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import { apiRequest, queryClient } from '@/lib/queryClient';
+export default function ShopifyConnect() {
+  const [shopDomain, setShopDomain] = useState('');
+  const { toast } = useToast();
+  // Check connection status
+  const { data: connectionStatus, isLoading: checkingConnection } = useQuery({
+    queryKey: ['/api/shopify/connection-status'],
+  });
+  // Check for OAuth success callback
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('connected') === 'true') {
+      toast({
+        title: 'Connected Successfully!',
+        description: 'Your Shopify store is now connected',
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/shopify/connection-status'] });
+      window.history.replaceState({}, '', '/shopify');
+    }
+    if (params.get('error')) {
+      toast({
+        variant: 'destructive',
+        title: 'Connection Failed',
+        description: params.get('error'),
+      });
+      window.history.replaceState({}, '', '/shopify');
+    }
+  }, [toast]);
+  // Connect mutation (opens OAuth in popup)
+  const connectMutation = useMutation({
+    mutationFn: async (domain: string) => {
+      const oauthUrl = `/auth/shopify?shop=${encodeURIComponent(domain)}`;
+      const authWindow = window.open(oauthUrl, 'shopify-oauth', 'width=600,height=700');
+      
+      if (!authWindow) {
+        throw new Error('Could not open authorization window. Check popup blocker.');
+      }
+      
+      // Poll for connection success
+      let pollCount = 0;
+      const maxPolls = 120; // 2 minutes
+      
+      return new Promise((resolve, reject) => {
+        const pollInterval = setInterval(async () => {
+          pollCount++;
+          
+          try {
+            const response = await fetch('/api/shopify/connection-status', { credentials: 'include' });
+            if (response.ok) {
+              const status = await response.json();
+              if (status.connected && status.shop) {
+                clearInterval(pollInterval);
+                authWindow?.close();
+                resolve({ connected: true, shop: status.shop });
+                return;
+              }
+            }
+          } catch (err) {
+            // Continue polling
+          }
+          
+          if (pollCount >= maxPolls) {
+            clearInterval(pollInterval);
+            authWindow?.close();
+            reject(new Error('Authorization timeout'));
+          }
+        }, 1000);
+      });
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/shopify/connection-status'] });
+      toast({
+        title: 'Connected!',
+        description: `Your Shopify store (${data.shop}) is now connected`,
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        variant: 'destructive',
+        title: 'Connection Failed',
+        description: error.message,
+      });
+    },
+  });
+  // Disconnect mutation
+  const disconnectMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest('POST', '/api/shopify/disconnect');
+      return await res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/shopify/connection-status'] });
+      toast({
+        title: 'Disconnected',
+        description: 'Your Shopify store has been disconnected',
+      });
+    },
+  });
+  const handleConnect = () => {
+    if (!shopDomain) {
+      toast({
+        variant: 'destructive',
+        title: 'Missing Store',
+        description: 'Please enter your Shopify store domain',
+      });
+      return;
+    }
+    let formattedDomain = shopDomain.trim();
+    if (!formattedDomain.includes('.myshopify.com')) {
+      formattedDomain = `${formattedDomain}.myshopify.com`;
+    }
+    connectMutation.mutate(formattedDomain);
+  };
+  const isConnected = connectionStatus?.connected;
+  if (checkingConnection) {
+    return (
+      <div className="flex items-center justify-center p-8">
+        <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    );
+  }
+  return (
+    <div className="container max-w-2xl mx-auto p-6 space-y-6">
+      <h1 className="text-3xl font-bold mb-2">Shopify Integration</h1>
+      <p className="text-muted-foreground">
+        Connect your Shopify store to sync products and orders
+      </p>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Store className="h-5 w-5" />
+            Connection Status
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {isConnected ? (
+            <div className="space-y-4">
+              <Alert>
+                <CheckCircle2 className="h-4 w-4 text-green-500" />
+                <AlertDescription>
+                  Connected to <strong>{connectionStatus.shop}</strong>
+                </AlertDescription>
+              </Alert>
+              <Button 
+                variant="destructive" 
+                onClick={() => disconnectMutation.mutate()}
+                disabled={disconnectMutation.isPending}
+              >
+                {disconnectMutation.isPending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : null}
+                Disconnect Store
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="shop">Store Domain</Label>
+                <Input
+                  id="shop"
+                  placeholder="your-store.myshopify.com"
+                  value={shopDomain}
+                  onChange={(e) => setShopDomain(e.target.value)}
+                />
+                <p className="text-sm text-muted-foreground">
+                  Enter your store name (e.g., "my-store" or "my-store.myshopify.com")
+                </p>
+              </div>
+              <Button 
+                onClick={handleConnect}
+                disabled={connectMutation.isPending}
+              >
+                {connectMutation.isPending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : null}
+                Connect to Shopify
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+Part 7: Testing Checklist
+
+Before going live, verify:
+
+ OAuth Flow
+ User can enter shop domain and click "Connect"
+ Popup opens to Shopify authorization page
+ User can approve permissions
+ Callback receives valid HMAC
+ Access token is stored in database
+ Organization is updated with shopifyShop
+ Connection Status
+ /api/shopify/connection-status returns correct status
+ UI shows "Connected" when connected
+ UI shows shop domain when connected
+ Disconnect
+ Disconnect button clears session
+ Organization shopifyShop is nulled
+ UI updates to show disconnected state
+ API Operations
+ Can fetch shop info
+ Can fetch products
+ Can fetch orders
+ Can update inventory (if applicable)
+Common Pitfalls & Solutions
+
+1. "Invalid shop domain" error
+
+Cause: Shop domain not in correct format Solution: Ensure domain is store-name.myshopify.com format
+
+2. "HMAC validation failed" error
+
+Cause: SHOPIFY_API_SECRET mismatch or incorrect query string ordering Solution: Verify secret matches Shopify Partners app, ensure query params are sorted alphabetically
+
+3. "Missing scopes" warning
+
+Cause: User didn't approve all requested permissions Solution: User must reinstall app with all permissions, or handle gracefully
+
+4. Session not found after OAuth
+
+Cause: Session storage not saving with organizationId Solution: Ensure organizationId is passed when storing session
+
+5. Popup blocked
+
+Cause: Browser blocking OAuth popup Solution: User must allow popups for your domain, or redirect in same window
+
+6. "App not installed" after redirect
+
+Cause: Session stored but organizationId lookup fails Solution: Verify organizations table has correct shopifyShop value
+
+Security Best Practices
+
+Always validate HMAC on callback
+Use OAuth state for CSRF protection
+Store only offline tokens (they don't expire)
+Multi-tenant isolation - ensure sessions are scoped to organizationId
+Never log access tokens in production
+Validate shop domain format before OAuth
+API Version Notes
+
+This spec uses @shopify/shopify-api v12+ with these considerations:
+
+GraphQL over REST - Prefer GraphQL for most operations
+request() method - Use instead of deprecated query() method
+ApiVersion.January25 - Use latest stable API version
+REST for some operations - Orders, webhooks, and some mutations still work better with REST
+Next Steps After Connection
+
+Once connected, you can:
+
+Import existing products - Fetch all products with pagination
+Sync orders - Fetch orders for sales analytics
+Set up webhooks - Subscribe to order creation, product updates
+Manage inventory - Update stock levels via GraphQL
+Create products - Push new products to Shopify
+See the full shopifyService.ts implementation for these operations.

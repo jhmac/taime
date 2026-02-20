@@ -1,4 +1,4 @@
-const SHOPIFY_API_VERSION = '2025-04';
+const SHOPIFY_API_VERSION = '2026-01';
 
 export interface ShopifyOrder {
   id: string;

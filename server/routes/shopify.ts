@@ -645,7 +645,7 @@ Keep your response concise, practical, and focused on actionable staffing advice
         laborByDate.set(dateKey, (laborByDate.get(dateKey) || 0) + hours * rate);
       }
 
-      const allDates = new Set([...revenueByDate.keys(), ...laborByDate.keys()]);
+      const allDates = new Set([...Array.from(revenueByDate.keys()), ...Array.from(laborByDate.keys())]);
       const dailyBreakdown = Array.from(allDates)
         .sort()
         .map(date => {
