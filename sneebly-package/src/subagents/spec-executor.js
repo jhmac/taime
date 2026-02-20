@@ -160,18 +160,23 @@ async function executeSpec(spec, options = {}) {
   let currentCode = '';
   let relatedContext = '';
   if (spec.filePath && projectRoot) {
-    const fullPath = path.join(projectRoot, spec.filePath);
-    try {
-      const full = fs.readFileSync(fullPath, 'utf-8');
-      if (full.length > 20000) {
-        const section = _findRelevantSection(full, spec);
-        const totalLines = full.split('\n').length;
-        currentCode = `// FILE: ${spec.filePath} (${totalLines} lines total, showing relevant section)\n${section}`;
-      } else {
-        currentCode = full;
-      }
-      relatedContext = _gatherRelatedContext(full, spec.filePath, projectRoot, spec, 6000);
-    } catch {}
+    if (spec.action === 'create') {
+      currentCode = 'NEW FILE — does not exist yet. Create from scratch.';
+      relatedContext = _gatherRelatedContext('', spec.filePath, projectRoot, spec, 8000);
+    } else {
+      const fullPath = path.join(projectRoot, spec.filePath);
+      try {
+        const full = fs.readFileSync(fullPath, 'utf-8');
+        if (full.length > 20000) {
+          const section = _findRelevantSection(full, spec);
+          const totalLines = full.split('\n').length;
+          currentCode = `// FILE: ${spec.filePath} (${totalLines} lines total, showing relevant section)\n${section}`;
+        } else {
+          currentCode = full;
+        }
+        relatedContext = _gatherRelatedContext(full, spec.filePath, projectRoot, spec, 6000);
+      } catch {}
+    }
   }
 
   const taskPayload = { spec, currentCode, relatedContext: relatedContext || undefined };
@@ -211,6 +216,20 @@ async function executeSpec(spec, options = {}) {
       return {
         status: 'multi-change',
         changes: validChanges.map(c => ({ filePath: c.filePath, oldCode: c.oldCode, newCode: c.newCode, description: c.description || '' })),
+      };
+    }
+  }
+
+  if (result.status === 'create' && result.filePath && typeof result.content === 'string') {
+    return { status: 'create', filePath: result.filePath, content: result.content, description: result.description || '' };
+  }
+
+  if (result.status === 'multi-create' && Array.isArray(result.files) && result.files.length > 0) {
+    const validFiles = result.files.filter(f => f.filePath && typeof f.content === 'string');
+    if (validFiles.length > 0) {
+      return {
+        status: 'multi-create',
+        files: validFiles.map(f => ({ filePath: f.filePath, content: f.content, description: f.description || '' })),
       };
     }
   }

@@ -181,7 +181,7 @@ function parseSubagentResponse(response) {
       if (candidate && candidate.length > 20) {
         try {
           const parsed = JSON.parse(candidate);
-          if (parsed && typeof parsed === 'object' && (parsed.status || parsed.filePath || parsed.oldCode)) {
+          if (parsed && typeof parsed === 'object' && (parsed.status || parsed.filePath || parsed.oldCode || parsed.content)) {
             if (!parsed.action) parsed.action = 'queue';
             return parsed;
           }
@@ -340,6 +340,24 @@ async function delegateToSubagent(agentName, task, options = {}) {
         memory.logDaily(`Output validation failed for ${agentName}: ${validation.reasons.join('; ')}`);
       }
       return { action: 'queue', reason: `validation-failed: ${validation.reasons[0]}`, originalResponse: result };
+    }
+  }
+
+  if (result.status === 'create' && result.filePath) {
+    const validation = OutputValidator.validateAction({ type: 'file_edit', filePath: result.filePath });
+    if (!validation.valid) {
+      if (memory) memory.logDaily(`Output validation failed for ${agentName} create: ${validation.reasons.join('; ')}`);
+      return { action: 'queue', reason: `validation-failed: ${validation.reasons[0]}`, originalResponse: result };
+    }
+  }
+
+  if (result.status === 'multi-create' && Array.isArray(result.files)) {
+    for (const file of result.files) {
+      const validation = OutputValidator.validateAction({ type: 'file_edit', filePath: file.filePath });
+      if (!validation.valid) {
+        if (memory) memory.logDaily(`Output validation failed for ${agentName} multi-create: ${validation.reasons.join('; ')}`);
+        return { action: 'queue', reason: `validation-failed: ${validation.reasons[0]}`, originalResponse: result };
+      }
     }
   }
 
