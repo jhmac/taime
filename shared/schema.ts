@@ -78,6 +78,17 @@ export const users = pgTable("users", {
   canWaiveMissedBreaks: boolean("can_waive_missed_breaks").default(false),
   homeLatitude: decimal("home_latitude", { precision: 10, scale: 8 }),
   homeLongitude: decimal("home_longitude", { precision: 11, scale: 8 }),
+  legalName: varchar("legal_name"),
+  dateOfBirth: varchar("date_of_birth"),
+  ssn: varchar("ssn"),
+  homeAddress: text("home_address"),
+  homeCity: varchar("home_city"),
+  homeState: varchar("home_state"),
+  homeZip: varchar("home_zip"),
+  emergencyContactName: varchar("emergency_contact_name"),
+  emergencyContactPhone: varchar("emergency_contact_phone"),
+  preferredName: varchar("preferred_name"),
+  personalEmail: varchar("personal_email"),
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -439,6 +450,29 @@ export const performanceScoreSettings = pgTable("performance_score_settings", {
   isActive: boolean("is_active").default(true),
   updatedBy: varchar("updated_by").references(() => users.id),
   updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Employee documents for file uploads
+export const employeeDocuments = pgTable("employee_documents", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  category: varchar("category").notNull(), // 'certificate', 'onboarding', 'general'
+  name: varchar("name").notNull(),
+  fileName: varchar("file_name").notNull(),
+  fileData: text("file_data").notNull(),
+  fileType: varchar("file_type"),
+  fileSize: integer("file_size"),
+  uploadedBy: varchar("uploaded_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Manager notes on employees
+export const managerNotes = pgTable("manager_notes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  authorId: varchar("author_id").references(() => users.id).notNull(),
+  content: text("content").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
 });
 
 // Push notification subscriptions
@@ -1040,6 +1074,22 @@ export const insertAiSchedulingSettingsSchema = createInsertSchema(aiSchedulingS
 
 export type AiSchedulingSettings = typeof aiSchedulingSettings.$inferSelect;
 export type InsertAiSchedulingSettings = z.infer<typeof insertAiSchedulingSettingsSchema>;
+
+// Employee documents insert schema
+export const insertEmployeeDocumentSchema = createInsertSchema(employeeDocuments).omit({
+  id: true,
+  createdAt: true,
+});
+export type EmployeeDocument = typeof employeeDocuments.$inferSelect;
+export type InsertEmployeeDocument = z.infer<typeof insertEmployeeDocumentSchema>;
+
+// Manager notes insert schema
+export const insertManagerNoteSchema = createInsertSchema(managerNotes).omit({
+  id: true,
+  createdAt: true,
+});
+export type ManagerNote = typeof managerNotes.$inferSelect;
+export type InsertManagerNote = z.infer<typeof insertManagerNoteSchema>;
 
 // Extended user type with role information
 export type UserWithRole = User & {

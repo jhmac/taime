@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useLocation, useRoute } from "wouter";
@@ -8,9 +8,9 @@ import type { User, Role, Permission } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -36,10 +36,14 @@ import {
   ChevronUp,
   CheckCircle2,
   Clock,
-  Target,
-  TrendingUp,
   Award,
   Star,
+  Upload,
+  FileText,
+  Trash2,
+  Download,
+  Send,
+  Plus,
 } from "lucide-react";
 
 function getInitials(firstName?: string | null, lastName?: string | null) {
@@ -67,7 +71,12 @@ export default function TeamMember() {
   const [locationSettingsOpen, setLocationSettingsOpen] = useState(true);
   const [editingJob, setEditingJob] = useState(false);
   const [editingPayroll, setEditingPayroll] = useState(false);
+  const [editingContact, setEditingContact] = useState(false);
+  const [editingPersonalPayroll, setEditingPersonalPayroll] = useState(false);
   const [terminateDialogOpen, setTerminateDialogOpen] = useState(false);
+  const [newNote, setNewNote] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const certFileInputRef = useRef<HTMLInputElement>(null);
 
   const { data: member, isLoading, error } = useQuery<User & { role?: Role }>({
     queryKey: ["/api/users", userId],
@@ -89,6 +98,26 @@ export default function TeamMember() {
 
   const { data: tasks = [] } = useQuery<any[]>({
     queryKey: ["/api/tasks"],
+  });
+
+  const { data: documents = [] } = useQuery<any[]>({
+    queryKey: ["/api/users", userId, "documents"],
+    queryFn: async () => {
+      const res = await fetch(`/api/users/${userId}/documents`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch documents");
+      return res.json();
+    },
+    enabled: !!userId,
+  });
+
+  const { data: notes = [] } = useQuery<any[]>({
+    queryKey: ["/api/users", userId, "notes"],
+    queryFn: async () => {
+      const res = await fetch(`/api/users/${userId}/notes`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch notes");
+      return res.json();
+    },
+    enabled: !!userId,
   });
 
   const isAdminRole = currentUser?.role?.name === 'owner' || currentUser?.role?.name === 'admin';
@@ -127,15 +156,105 @@ export default function TeamMember() {
     },
   });
 
+  const resendInviteMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/users/${userId}/resend-invite`);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Sent", description: "Invitation email has been resent." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const uploadDocMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await apiRequest("POST", `/api/users/${userId}/documents`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/users", userId, "documents"] });
+      toast({ title: "Uploaded", description: "Document uploaded successfully." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const deleteDocMutation = useMutation({
+    mutationFn: async (docId: string) => {
+      const res = await apiRequest("DELETE", `/api/documents/${docId}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/users", userId, "documents"] });
+      toast({ title: "Deleted", description: "Document removed." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const addNoteMutation = useMutation({
+    mutationFn: async (content: string) => {
+      const res = await apiRequest("POST", `/api/users/${userId}/notes`, { content });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/users", userId, "notes"] });
+      setNewNote("");
+      toast({ title: "Added", description: "Note added." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const deleteNoteMutation = useMutation({
+    mutationFn: async (noteId: string) => {
+      const res = await apiRequest("DELETE", `/api/notes/${noteId}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/users", userId, "notes"] });
+      toast({ title: "Deleted", description: "Note removed." });
+    },
+  });
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, category: string) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      toast({ title: "Too large", description: "File must be under 5MB.", variant: "destructive" });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      uploadDocMutation.mutate({
+        category,
+        name: file.name.replace(/\.[^/.]+$/, ""),
+        fileName: file.name,
+        fileData: reader.result as string,
+        fileType: file.type,
+        fileSize: file.size,
+      });
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
   const memberTimeEntries = timeEntries.filter((te: any) => te.userId === userId);
   const memberTasks = tasks.filter((t: any) => t.assignedTo === userId);
 
   const completedTasks = memberTasks.filter((t: any) => t.status === "completed");
   const totalTasks = memberTasks.length;
-  const taskCompletionRate = totalTasks > 0 ? Math.round((completedTasks.length / totalTasks) * 100) : 0;
+  const taskCompletionRate = totalTasks > 0 ? Math.round((completedTasks.length / totalTasks) * 100) : null;
+  const taskCompletionDisplay = taskCompletionRate !== null ? `${taskCompletionRate}%` : "N/A";
 
   const onTimeEntries = memberTimeEntries.filter((te: any) => {
-    if (!te.clockIn) return false;
+    if (!te.clockInTime) return false;
     return true;
   });
   const lateEntries = memberTimeEntries.filter((te: any) => te.isLate === true);
@@ -143,8 +262,21 @@ export default function TeamMember() {
     ? Math.round(((onTimeEntries.length - lateEntries.length) / onTimeEntries.length) * 100)
     : 100;
 
+  const missedClockOuts = memberTimeEntries.filter((te: any) => te.clockInTime && !te.clockOutTime).length;
+
+  const totalHours = memberTimeEntries.reduce((sum: number, te: any) => {
+    if (te.clockInTime && te.clockOutTime) {
+      const diff = new Date(te.clockOutTime).getTime() - new Date(te.clockInTime).getTime();
+      return sum + diff / (1000 * 60 * 60);
+    }
+    return sum;
+  }, 0);
+  const weeksWorked = Math.max(1, Math.ceil(memberTimeEntries.length / 5));
+  const avgHoursPerWeek = memberTimeEntries.length > 0 ? (totalHours / weeksWorked).toFixed(2) : "0";
+
+  const taskScore = taskCompletionRate !== null ? taskCompletionRate : 100;
   const performancePoints = Math.round(
-    (taskCompletionRate * 0.4) + (punctualityScore * 0.4) + (Math.min(completedTasks.length * 2, 20))
+    (taskScore * 0.4) + (punctualityScore * 0.4) + (Math.min(completedTasks.length * 2, 20))
   );
 
   if (isLoading) {
@@ -192,6 +324,20 @@ export default function TeamMember() {
       })()
     : "";
 
+  const certificates = documents.filter((d: any) => d.category === "certificate");
+  const onboardingDocs = documents.filter((d: any) => d.category === "onboarding");
+  const generalDocs = documents.filter((d: any) => d.category === "general");
+
+  const onboardingForms = [
+    { name: "W-4 Form", key: "w4" },
+    { name: "I-9 Form", key: "i9" },
+    { name: "State Withholding Form", key: "state_withholding" },
+    { name: "W-9 Form", key: "w9" },
+    { name: "Payment Method Form", key: "payment_method" },
+  ];
+
+  const m = member as any;
+
   return (
     <div className="max-w-4xl mx-auto p-4 lg:p-6 space-y-6">
       <button
@@ -216,7 +362,7 @@ export default function TeamMember() {
             <p className="text-muted-foreground">
               {getAccessLevel(member.role)} at {member.locationName || "—"}
             </p>
-            <div className="flex items-center gap-2 mt-1 text-sm">
+            <div className="flex items-center gap-2 mt-1 text-sm flex-wrap">
               {member.phone && (
                 <a href={`tel:${member.phone}`} className="flex items-center gap-1 text-purple-600 hover:underline">
                   <Phone className="h-3 w-3" />
@@ -236,9 +382,20 @@ export default function TeamMember() {
                 </span>
               )}
             </div>
-            {invitedAgo && (
-              <p className="text-xs text-muted-foreground mt-1">{invitedAgo}</p>
-            )}
+            <div className="flex items-center gap-2 mt-1">
+              {invitedAgo && (
+                <span className="text-xs text-muted-foreground">{invitedAgo}</span>
+              )}
+              {canEdit && member.email && (
+                <button
+                  onClick={() => resendInviteMutation.mutate()}
+                  disabled={resendInviteMutation.isPending}
+                  className="text-xs text-purple-600 hover:underline font-medium"
+                >
+                  {resendInviteMutation.isPending ? "Sending..." : "Resend Invite"}
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -516,32 +673,158 @@ export default function TeamMember() {
 
       {activeTab === "personal" && (
         <div className="space-y-6">
-          <h2 className="text-lg font-bold">Personal Information</h2>
-          <div className="border rounded-lg p-4 space-y-4">
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <p className="text-muted-foreground">First Name</p>
-                <p className="font-medium">{member.firstName || "--"}</p>
+          <div>
+            <h2 className="text-lg font-bold mb-3">Contact Information</h2>
+            <div className="border rounded-lg p-4">
+              <div className="flex justify-between items-start">
+                <div className="grid grid-cols-2 gap-x-12 gap-y-4 text-sm flex-1">
+                  <p className="font-semibold">Preferred name</p>
+                  {editingContact ? (
+                    <div className="flex gap-2">
+                      <Input
+                        defaultValue={m.preferredName || `${member.firstName || ""} ${member.lastName || ""}`}
+                        className="h-8"
+                        id="pref-name"
+                      />
+                    </div>
+                  ) : (
+                    <p>{m.preferredName || `${member.firstName || ""} ${member.lastName || ""}`}</p>
+                  )}
+
+                  <p className="font-semibold">Personal email</p>
+                  {editingContact ? (
+                    <Input defaultValue={m.personalEmail || ""} className="h-8" id="personal-email" />
+                  ) : (
+                    <p>{m.personalEmail || "--"}</p>
+                  )}
+
+                  <p className="font-semibold">Mobile number</p>
+                  {editingContact ? (
+                    <Input defaultValue={member.phone || ""} className="h-8" id="mobile-number" />
+                  ) : (
+                    <p>{member.phone || "--"}</p>
+                  )}
+
+                  <p className="font-semibold">Emergency contact</p>
+                  {editingContact ? (
+                    <div className="space-y-2">
+                      <Input defaultValue={m.emergencyContactName || ""} placeholder="Name" className="h-8" id="ec-name" />
+                      <Input defaultValue={m.emergencyContactPhone || ""} placeholder="Phone" className="h-8" id="ec-phone" />
+                    </div>
+                  ) : (
+                    <p>
+                      {m.emergencyContactName
+                        ? `${m.emergencyContactName}${m.emergencyContactPhone ? ` - ${m.emergencyContactPhone}` : ""}`
+                        : "--"}
+                    </p>
+                  )}
+                </div>
+                {canEdit && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="border-purple-400 text-purple-600 ml-4"
+                    onClick={() => {
+                      if (editingContact) {
+                        const prefName = (document.getElementById("pref-name") as HTMLInputElement)?.value;
+                        const personalEmail = (document.getElementById("personal-email") as HTMLInputElement)?.value;
+                        const phone = (document.getElementById("mobile-number") as HTMLInputElement)?.value;
+                        const ecName = (document.getElementById("ec-name") as HTMLInputElement)?.value;
+                        const ecPhone = (document.getElementById("ec-phone") as HTMLInputElement)?.value;
+                        updateUserMutation.mutate({
+                          preferredName: prefName || null,
+                          personalEmail: personalEmail || null,
+                          phone: phone || null,
+                          emergencyContactName: ecName || null,
+                          emergencyContactPhone: ecPhone || null,
+                        });
+                      }
+                      setEditingContact(!editingContact);
+                    }}
+                  >
+                    <Pencil className="h-3 w-3 mr-1" />
+                    {editingContact ? "Save" : "Edit"}
+                  </Button>
+                )}
               </div>
-              <div>
-                <p className="text-muted-foreground">Last Name</p>
-                <p className="font-medium">{member.lastName || "--"}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground">Email</p>
-                <p className="font-medium">{member.email || "--"}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground">Phone</p>
-                <p className="font-medium">{member.phone || "--"}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground">Employment Type</p>
-                <p className="font-medium">{member.employmentType || "--"}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground">Location</p>
-                <p className="font-medium">{member.locationName || "--"}</p>
+            </div>
+          </div>
+
+          <div>
+            <h2 className="text-lg font-bold mb-3">Payroll Information</h2>
+            <div className="border rounded-lg p-4">
+              <div className="flex justify-between items-start">
+                <div className="grid grid-cols-2 gap-x-12 gap-y-4 text-sm flex-1">
+                  <p className="font-semibold">Legal name</p>
+                  {editingPersonalPayroll ? (
+                    <Input defaultValue={m.legalName || `${member.firstName || ""} ${member.lastName || ""}`} className="h-8" id="legal-name" />
+                  ) : (
+                    <p>{m.legalName || `${member.firstName || ""} ${member.lastName || ""}`}</p>
+                  )}
+
+                  <p className="font-semibold">Date of birth</p>
+                  {editingPersonalPayroll ? (
+                    <Input type="date" defaultValue={m.dateOfBirth || ""} className="h-8" id="dob" />
+                  ) : (
+                    <p>{m.dateOfBirth ? new Date(m.dateOfBirth + "T00:00:00").toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }) : "--"}</p>
+                  )}
+
+                  <p className="font-semibold">Social Security number</p>
+                  {editingPersonalPayroll ? (
+                    <Input type="password" defaultValue={m.ssn || ""} className="h-8" id="ssn" placeholder="***-**-****" />
+                  ) : (
+                    <p>{m.ssn ? "***-**-" + m.ssn.slice(-4) : "--"}</p>
+                  )}
+
+                  <p className="font-semibold">Home address</p>
+                  {editingPersonalPayroll ? (
+                    <div className="space-y-2">
+                      <Input defaultValue={m.homeAddress || ""} placeholder="Street address" className="h-8" id="addr-street" />
+                      <div className="grid grid-cols-3 gap-2">
+                        <Input defaultValue={m.homeCity || ""} placeholder="City" className="h-8" id="addr-city" />
+                        <Input defaultValue={m.homeState || ""} placeholder="State" className="h-8" id="addr-state" />
+                        <Input defaultValue={m.homeZip || ""} placeholder="ZIP" className="h-8" id="addr-zip" />
+                      </div>
+                    </div>
+                  ) : (
+                    <p>
+                      {m.homeAddress
+                        ? `${m.homeAddress}${m.homeCity ? `, ${m.homeCity}` : ""}${m.homeState ? `, ${m.homeState}` : ""} ${m.homeZip || ""}`
+                        : "--"}
+                    </p>
+                  )}
+                </div>
+                {canEdit && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="border-purple-400 text-purple-600 ml-4"
+                    onClick={() => {
+                      if (editingPersonalPayroll) {
+                        const legalName = (document.getElementById("legal-name") as HTMLInputElement)?.value;
+                        const dob = (document.getElementById("dob") as HTMLInputElement)?.value;
+                        const ssn = (document.getElementById("ssn") as HTMLInputElement)?.value;
+                        const addr = (document.getElementById("addr-street") as HTMLInputElement)?.value;
+                        const city = (document.getElementById("addr-city") as HTMLInputElement)?.value;
+                        const state = (document.getElementById("addr-state") as HTMLInputElement)?.value;
+                        const zip = (document.getElementById("addr-zip") as HTMLInputElement)?.value;
+                        updateUserMutation.mutate({
+                          legalName: legalName || null,
+                          dateOfBirth: dob || null,
+                          ssn: ssn || null,
+                          homeAddress: addr || null,
+                          homeCity: city || null,
+                          homeState: state || null,
+                          homeZip: zip || null,
+                        });
+                      }
+                      setEditingPersonalPayroll(!editingPersonalPayroll);
+                    }}
+                  >
+                    <Pencil className="h-3 w-3 mr-1" />
+                    {editingPersonalPayroll ? "Save" : "Edit"}
+                  </Button>
+                )}
               </div>
             </div>
           </div>
@@ -550,57 +833,306 @@ export default function TeamMember() {
 
       {activeTab === "documents" && (
         <div className="space-y-6">
-          <h2 className="text-lg font-bold">Documents</h2>
-          <div className="border rounded-lg p-8 text-center">
-            <p className="text-muted-foreground">No documents uploaded for {member.firstName} yet.</p>
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-lg font-bold">Certificates ({certificates.length})</h2>
+              <button
+                onClick={() => certFileInputRef.current?.click()}
+                className="text-sm text-purple-600 hover:underline"
+              >
+                Add a certificate
+              </button>
+              <input
+                ref={certFileInputRef}
+                type="file"
+                className="hidden"
+                accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                onChange={(e) => handleFileUpload(e, "certificate")}
+              />
+            </div>
+            <div className="border rounded-lg p-4">
+              {certificates.length === 0 ? (
+                <p className="text-muted-foreground text-center py-2">
+                  No certificates added for {member.firstName} yet.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {certificates.map((doc: any) => (
+                    <div key={doc.id} className="flex items-center justify-between p-2 hover:bg-muted/50 rounded">
+                      <div className="flex items-center gap-2">
+                        <FileText className="h-4 w-4 text-purple-600" />
+                        <span className="text-sm">{doc.name}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {new Date(doc.createdAt).toLocaleDateString()}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => window.open(`/api/documents/${doc.id}/download`, "_blank")}
+                        >
+                          <Download className="h-3 w-3" />
+                        </Button>
+                        {canEdit && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => deleteDocMutation.mutate(doc.id)}
+                          >
+                            <Trash2 className="h-3 w-3 text-red-500" />
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-lg font-bold">Onboarding ({onboardingDocs.length})</h2>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="text-sm text-purple-600 hover:underline"
+              >
+                Add a document
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="hidden"
+                accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                onChange={(e) => handleFileUpload(e, "onboarding")}
+              />
+            </div>
+            <div className="border rounded-lg">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left p-3 font-medium">Name</th>
+                    <th className="text-left p-3 font-medium">Versions</th>
+                    <th className="text-left p-3 font-medium">File</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {onboardingForms.map((form) => {
+                    const uploaded = onboardingDocs.find((d: any) =>
+                      d.name.toLowerCase().includes(form.key.replace("_", " ")) ||
+                      d.name.toLowerCase().includes(form.name.toLowerCase())
+                    );
+                    return (
+                      <tr key={form.key} className="border-b last:border-0">
+                        <td className="p-3">{form.name}</td>
+                        <td className="p-3 text-muted-foreground">{uploaded ? "1" : "0"}</td>
+                        <td className="p-3">
+                          {uploaded ? (
+                            <div className="flex items-center gap-2">
+                              <span className="text-green-600 flex items-center gap-1">
+                                <CheckCircle2 className="h-3 w-3" />
+                                Uploaded
+                              </span>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => window.open(`/api/documents/${uploaded.id}/download`, "_blank")}
+                              >
+                                <Download className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          ) : (
+                            <span className="text-orange-500 flex items-center gap-1">
+                              <Clock className="h-3 w-3" />
+                              Not sent
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {generalDocs.length > 0 && (
+            <div>
+              <h2 className="text-lg font-bold mb-3">Other Documents ({generalDocs.length})</h2>
+              <div className="border rounded-lg p-4 space-y-2">
+                {generalDocs.map((doc: any) => (
+                  <div key={doc.id} className="flex items-center justify-between p-2 hover:bg-muted/50 rounded">
+                    <div className="flex items-center gap-2">
+                      <FileText className="h-4 w-4 text-purple-600" />
+                      <span className="text-sm">{doc.name}</span>
+                      <span className="text-xs text-muted-foreground">
+                        ({(doc.fileSize / 1024).toFixed(0)} KB)
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => window.open(`/api/documents/${doc.id}/download`, "_blank")}
+                      >
+                        <Download className="h-3 w-3" />
+                      </Button>
+                      {canEdit && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => deleteDocMutation.mutate(doc.id)}
+                        >
+                          <Trash2 className="h-3 w-3 text-red-500" />
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="flex justify-center">
+            <Button
+              variant="outline"
+              className="border-purple-400 text-purple-600"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Upload className="h-4 w-4 mr-2" />
+              Upload Document
+            </Button>
           </div>
         </div>
       )}
 
       {activeTab === "performance" && (
         <div className="space-y-6">
-          <h2 className="text-lg font-bold">Performance Score</h2>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="border rounded-lg p-4 text-center">
-              <div className="w-16 h-16 rounded-full bg-purple-100 flex items-center justify-center mx-auto mb-2">
-                <span className="text-2xl font-bold text-purple-600">{performancePoints}</span>
+          <div>
+            <h2 className="text-lg font-bold mb-3">Attendance - this month</h2>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="border rounded-lg p-4">
+                <p className="text-sm text-muted-foreground">On time rate</p>
+                <p className="text-2xl font-bold text-green-600">{punctualityScore}%</p>
               </div>
-              <p className="text-sm font-semibold">Overall Score</p>
-              <p className="text-xs text-muted-foreground">out of 100</p>
+              <div className="border rounded-lg p-4">
+                <p className="text-sm text-muted-foreground">Average hours/week</p>
+                <p className="text-2xl font-bold">{avgHoursPerWeek}</p>
+              </div>
+              <div className="border rounded-lg p-4">
+                <p className="text-sm text-muted-foreground">Missed clock outs</p>
+                <p className="text-2xl font-bold">{missedClockOuts}</p>
+              </div>
+              <div className="border rounded-lg p-4">
+                <p className="text-sm text-muted-foreground">No shows</p>
+                <p className="text-2xl font-bold">0</p>
+              </div>
+              <div className="border rounded-lg p-4">
+                <p className="text-sm text-muted-foreground">Average shift rating</p>
+                <p className="text-2xl font-bold flex items-center gap-1">0 <Star className="h-4 w-4 text-yellow-500" /></p>
+              </div>
+              <div className="border rounded-lg p-4">
+                <p className="text-sm text-muted-foreground">Shifts worked</p>
+                <p className="text-2xl font-bold">{memberTimeEntries.length}</p>
+              </div>
+              <div className="border rounded-lg p-4">
+                <p className="text-sm text-muted-foreground">Missed breaks</p>
+                <p className="text-2xl font-bold">0</p>
+              </div>
+              <div className="border rounded-lg p-4">
+                <p className="text-sm text-muted-foreground">Task completion</p>
+                <p className="text-2xl font-bold text-blue-600">{taskCompletionDisplay}</p>
+                <p className="text-xs text-muted-foreground">
+                  {completedTasks.length} of {totalTasks} tasks
+                </p>
+              </div>
             </div>
+          </div>
 
+          <div>
+            <h2 className="text-lg font-bold mb-3">Role breakdown</h2>
             <div className="border rounded-lg p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <Target className="h-4 w-4 text-blue-600" />
-                <span className="text-sm font-semibold">Task Completion</span>
-              </div>
-              <div className="text-2xl font-bold text-blue-600">{taskCompletionRate}%</div>
-              <p className="text-xs text-muted-foreground mt-1">
-                {completedTasks.length} of {totalTasks} tasks completed
-              </p>
-              <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
-                <div
-                  className="bg-blue-600 h-2 rounded-full transition-all"
-                  style={{ width: `${taskCompletionRate}%` }}
-                />
+              <div className="flex items-center justify-between">
+                <span className="text-sm">{member.role?.displayName || member.role?.name || "No role"}</span>
+                <span className="text-sm text-muted-foreground">{totalHours.toFixed(1)} hours (100%)</span>
               </div>
             </div>
+          </div>
 
+          <div>
+            <h2 className="text-lg font-bold mb-3">Milestones</h2>
             <div className="border rounded-lg p-4">
-              <div className="flex items-center gap-2 mb-3">
-                <Clock className="h-4 w-4 text-green-600" />
-                <span className="text-sm font-semibold">Punctuality</span>
+              <div className="flex gap-4 overflow-x-auto pb-2">
+                {[
+                  { label: "Champion: 5 shifts completed", threshold: 5, icon: "🏆" },
+                  { label: "Pro: 10 shifts completed", threshold: 10, icon: "⭐" },
+                  { label: "Hero: 25 shifts completed", threshold: 25, icon: "🦸" },
+                  { label: "Legend: 50 shifts completed", threshold: 50, icon: "👑" },
+                ].map((milestone) => {
+                  const earned = memberTimeEntries.length >= milestone.threshold;
+                  return (
+                    <div
+                      key={milestone.label}
+                      className={`flex-shrink-0 w-36 border rounded-lg p-3 text-center ${
+                        earned ? "bg-purple-50 border-purple-200" : "opacity-50"
+                      }`}
+                    >
+                      <div className="text-2xl mb-1">{milestone.icon}</div>
+                      <p className="text-xs">{milestone.label}</p>
+                      {earned && (
+                        <p className="text-xs text-green-600 mt-1">Earned</p>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-              <div className="text-2xl font-bold text-green-600">{punctualityScore}%</div>
-              <p className="text-xs text-muted-foreground mt-1">
-                {onTimeEntries.length - lateEntries.length} on-time out of {onTimeEntries.length} shifts
-              </p>
-              <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
-                <div
-                  className="bg-green-600 h-2 rounded-full transition-all"
-                  style={{ width: `${punctualityScore}%` }}
-                />
+            </div>
+          </div>
+
+          <div>
+            <h2 className="text-lg font-bold mb-3">Performance Score</h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="border rounded-lg p-4 text-center">
+                <div className="w-16 h-16 rounded-full bg-purple-100 flex items-center justify-center mx-auto mb-2">
+                  <span className="text-2xl font-bold text-purple-600">{performancePoints}</span>
+                </div>
+                <p className="text-sm font-semibold">Overall Score</p>
+                <p className="text-xs text-muted-foreground">out of 100</p>
+              </div>
+
+              <div className="border rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <CheckCircle2 className="h-4 w-4 text-blue-600" />
+                  <span className="text-sm font-semibold">Task Completion</span>
+                </div>
+                <div className="text-2xl font-bold text-blue-600">{taskCompletionDisplay}</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {completedTasks.length} of {totalTasks} tasks completed
+                </p>
+                <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
+                  <div
+                    className="bg-blue-600 h-2 rounded-full transition-all"
+                    style={{ width: `${taskCompletionRate ?? 0}%` }}
+                  />
+                </div>
+              </div>
+
+              <div className="border rounded-lg p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <Clock className="h-4 w-4 text-green-600" />
+                  <span className="text-sm font-semibold">Punctuality</span>
+                </div>
+                <div className="text-2xl font-bold text-green-600">{punctualityScore}%</div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {onTimeEntries.length - lateEntries.length} on-time out of {onTimeEntries.length} shifts
+                </p>
+                <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
+                  <div
+                    className="bg-green-600 h-2 rounded-full transition-all"
+                    style={{ width: `${punctualityScore}%` }}
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -614,7 +1146,7 @@ export default function TeamMember() {
                   <span className="text-sm">Task Completion Rate</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium">{taskCompletionRate}%</span>
+                  <span className="text-sm font-medium">{taskCompletionDisplay}</span>
                   <span className="text-xs text-muted-foreground">(40% weight)</span>
                 </div>
               </div>
@@ -641,27 +1173,62 @@ export default function TeamMember() {
             </div>
           </div>
 
-          <div>
-            <h3 className="font-semibold mb-3">Activity Summary</h3>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <div className="border rounded-lg p-3 text-center">
-                <p className="text-2xl font-bold">{memberTimeEntries.length}</p>
-                <p className="text-xs text-muted-foreground">Total Shifts</p>
-              </div>
-              <div className="border rounded-lg p-3 text-center">
-                <p className="text-2xl font-bold">{totalTasks}</p>
-                <p className="text-xs text-muted-foreground">Assigned Tasks</p>
-              </div>
-              <div className="border rounded-lg p-3 text-center">
-                <p className="text-2xl font-bold">{completedTasks.length}</p>
-                <p className="text-xs text-muted-foreground">Completed Tasks</p>
-              </div>
-              <div className="border rounded-lg p-3 text-center">
-                <p className="text-2xl font-bold">{lateEntries.length}</p>
-                <p className="text-xs text-muted-foreground">Late Arrivals</p>
+          {canEdit && (
+            <div>
+              <h2 className="text-lg font-bold mb-3">Manager notes</h2>
+              <div className="border rounded-lg p-4 space-y-4">
+                <div>
+                  <p className="text-sm font-semibold mb-2">Add new note</p>
+                  <Textarea
+                    value={newNote}
+                    onChange={(e) => setNewNote(e.target.value)}
+                    placeholder="Add a note to this time card. Only managers can see this."
+                    className="min-h-[80px]"
+                  />
+                  <div className="flex justify-end mt-2">
+                    <Button
+                      size="sm"
+                      disabled={!newNote.trim() || addNoteMutation.isPending}
+                      onClick={() => addNoteMutation.mutate(newNote)}
+                      className="bg-purple-600 hover:bg-purple-700 text-white"
+                    >
+                      {addNoteMutation.isPending ? "Adding..." : "Add note"}
+                    </Button>
+                  </div>
+                </div>
+
+                {notes.length > 0 && (
+                  <div className="space-y-3 pt-2 border-t">
+                    {notes.map((note: any) => (
+                      <div key={note.id} className="flex justify-between items-start">
+                        <div>
+                          <p className="text-sm">{note.content}</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {new Date(note.createdAt).toLocaleDateString("en-US", {
+                              month: "short",
+                              day: "numeric",
+                              year: "numeric",
+                              hour: "numeric",
+                              minute: "2-digit",
+                            })}
+                          </p>
+                        </div>
+                        {(note.authorId === currentUser?.id || isAdminRole) && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => deleteNoteMutation.mutate(note.id)}
+                          >
+                            <Trash2 className="h-3 w-3 text-red-500" />
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
-          </div>
+          )}
         </div>
       )}
 

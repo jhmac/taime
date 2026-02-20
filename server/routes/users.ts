@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
-import { users, roles, companySettings } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { users, roles, companySettings, employeeDocuments, managerNotes } from "@shared/schema";
+import { eq, desc } from "drizzle-orm";
 import { db } from "../db";
 import { sendTeamInviteEmail } from "../services/emailService";
 
@@ -251,6 +251,189 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
     } catch (error) {
       console.error("Error fetching user permissions:", error);
       res.status(500).json({ message: "Failed to fetch user permissions" });
+    }
+  });
+
+  app.get('/api/users/:userId/documents', isAuthenticated, async (req: any, res) => {
+    try {
+      const { userId } = req.params;
+      const currentUserId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(currentUserId);
+      const canView = userPermissions.some(p => p.name === 'hr.view_team' || p.name === 'hr.edit_team');
+      if (!canView && currentUserId !== userId) {
+        return res.status(403).json({ message: "Not authorized to view these documents" });
+      }
+      const docs = await db.select().from(employeeDocuments)
+        .where(eq(employeeDocuments.userId, userId))
+        .orderBy(desc(employeeDocuments.createdAt));
+      const docsWithoutData = docs.map(({ fileData, ...rest }) => rest);
+      res.json(docsWithoutData);
+    } catch (error) {
+      console.error("Error fetching documents:", error);
+      res.status(500).json({ message: "Failed to fetch documents" });
+    }
+  });
+
+  app.post('/api/users/:userId/documents', isAuthenticated, async (req: any, res) => {
+    try {
+      const { userId } = req.params;
+      const currentUserId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(currentUserId);
+      const canManage = userPermissions.some(p => p.name === 'hr.manage_employees' || p.name === 'hr.edit_team');
+      if (!canManage && currentUserId !== userId) {
+        return res.status(403).json({ message: "Not authorized to upload documents for this user" });
+      }
+      const { category, name, fileName, fileData, fileType, fileSize } = req.body;
+
+      if (!name || !fileName || !fileData) {
+        return res.status(400).json({ message: "Name, file name, and file data are required" });
+      }
+      if (fileSize && fileSize > 5 * 1024 * 1024) {
+        return res.status(400).json({ message: "File must be under 5MB" });
+      }
+      const allowedTypes = ['application/pdf', 'image/jpeg', 'image/png', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+      if (fileType && !allowedTypes.includes(fileType)) {
+        return res.status(400).json({ message: "File type not allowed. Use PDF, JPG, PNG, or DOC." });
+      }
+
+      const [doc] = await db.insert(employeeDocuments).values({
+        userId,
+        category: category || 'general',
+        name,
+        fileName,
+        fileData,
+        fileType: fileType || null,
+        fileSize: fileSize || null,
+        uploadedBy: currentUserId,
+      }).returning();
+
+      const { fileData: _, ...docWithoutData } = doc;
+      res.json(docWithoutData);
+    } catch (error) {
+      console.error("Error uploading document:", error);
+      res.status(500).json({ message: "Failed to upload document" });
+    }
+  });
+
+  app.get('/api/documents/:docId/download', isAuthenticated, async (req: any, res) => {
+    try {
+      const { docId } = req.params;
+      const currentUserId = req.user.id;
+      const [doc] = await db.select().from(employeeDocuments).where(eq(employeeDocuments.id, docId));
+      if (!doc) {
+        return res.status(404).json({ message: "Document not found" });
+      }
+      const userPermissions = await storage.getUserPermissions(currentUserId);
+      const canView = userPermissions.some(p => p.name === 'hr.view_team' || p.name === 'hr.edit_team');
+      if (!canView && currentUserId !== doc.userId) {
+        return res.status(403).json({ message: "Not authorized to download this document" });
+      }
+      const base64Data = doc.fileData.replace(/^data:[^;]+;base64,/, '');
+      const buffer = Buffer.from(base64Data, 'base64');
+      res.setHeader('Content-Type', doc.fileType || 'application/octet-stream');
+      res.setHeader('Content-Disposition', `attachment; filename="${doc.fileName}"`);
+      res.send(buffer);
+    } catch (error) {
+      console.error("Error downloading document:", error);
+      res.status(500).json({ message: "Failed to download document" });
+    }
+  });
+
+  app.delete('/api/documents/:docId', isAuthenticated, async (req: any, res) => {
+    try {
+      const { docId } = req.params;
+      const currentUserId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(currentUserId);
+      const canManage = userPermissions.some(p => p.name === 'hr.manage_employees' || p.name === 'hr.edit_team');
+
+      const [doc] = await db.select().from(employeeDocuments).where(eq(employeeDocuments.id, docId));
+      if (!doc) {
+        return res.status(404).json({ message: "Document not found" });
+      }
+
+      if (!canManage && doc.uploadedBy !== currentUserId) {
+        return res.status(403).json({ message: "Not authorized to delete this document" });
+      }
+
+      await db.delete(employeeDocuments).where(eq(employeeDocuments.id, docId));
+      res.json({ message: "Document deleted" });
+    } catch (error) {
+      console.error("Error deleting document:", error);
+      res.status(500).json({ message: "Failed to delete document" });
+    }
+  });
+
+  app.get('/api/users/:userId/notes', isAuthenticated, async (req: any, res) => {
+    try {
+      const { userId } = req.params;
+      const currentUserId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(currentUserId);
+      const canView = userPermissions.some(p => p.name === 'hr.view_team' || p.name === 'hr.edit_team');
+      if (!canView) {
+        return res.status(403).json({ message: "Manager access required to view notes" });
+      }
+      const notes = await db.select().from(managerNotes)
+        .where(eq(managerNotes.userId, userId))
+        .orderBy(desc(managerNotes.createdAt));
+      res.json(notes);
+    } catch (error) {
+      console.error("Error fetching notes:", error);
+      res.status(500).json({ message: "Failed to fetch notes" });
+    }
+  });
+
+  app.post('/api/users/:userId/notes', isAuthenticated, async (req: any, res) => {
+    try {
+      const { userId } = req.params;
+      const currentUserId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(currentUserId);
+      const canManage = userPermissions.some(p => p.name === 'hr.manage_employees' || p.name === 'hr.edit_team');
+
+      if (!canManage) {
+        return res.status(403).json({ message: "Manager access required" });
+      }
+
+      const { content } = req.body;
+      if (!content?.trim()) {
+        return res.status(400).json({ message: "Note content is required" });
+      }
+
+      const [note] = await db.insert(managerNotes).values({
+        userId,
+        authorId: currentUserId,
+        content: content.trim(),
+      }).returning();
+
+      res.json(note);
+    } catch (error) {
+      console.error("Error adding note:", error);
+      res.status(500).json({ message: "Failed to add note" });
+    }
+  });
+
+  app.delete('/api/notes/:noteId', isAuthenticated, async (req: any, res) => {
+    try {
+      const { noteId } = req.params;
+      const currentUserId = req.user.id;
+
+      const [note] = await db.select().from(managerNotes).where(eq(managerNotes.id, noteId));
+      if (!note) {
+        return res.status(404).json({ message: "Note not found" });
+      }
+
+      if (note.authorId !== currentUserId) {
+        const userPermissions = await storage.getUserPermissions(currentUserId);
+        const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
+        if (!isAdmin) {
+          return res.status(403).json({ message: "Can only delete your own notes" });
+        }
+      }
+
+      await db.delete(managerNotes).where(eq(managerNotes.id, noteId));
+      res.json({ message: "Note deleted" });
+    } catch (error) {
+      console.error("Error deleting note:", error);
+      res.status(500).json({ message: "Failed to delete note" });
     }
   });
 }
