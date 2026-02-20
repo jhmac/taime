@@ -80,6 +80,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     dashboardPath: '/sneebly/dashboard'
   });
 
+  app.use('/apppilot', (req, res) => {
+    res.redirect(301, '/sneebly' + req.url);
+  });
+
   const httpServer = createServer(app);
 
   const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
