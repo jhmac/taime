@@ -429,6 +429,7 @@
     }
   ],
   "failedAttempts": [],
-  "lastUpdated": "2026-02-20T17:40:13.268Z",
-  "consecutiveFixCycles": 2
+  "lastUpdated": "2026-02-20T18:43:16.158Z",
+  "consecutiveFixCycles": 2,
+  "modeOverride": "fix"
 }
