@@ -3,8 +3,10 @@ import type { IStorage } from "../storage";
 import { aiSchedulingSettings, shopifyDailySales, users, userAvailability, schedules, shops, roles } from "@shared/schema";
 import { eq, and, gte, lte, desc } from "drizzle-orm";
 import { db } from "../db";
-import { claudeService } from "../services/claudeService";
+import Anthropic from '@anthropic-ai/sdk';
 import rateLimit from "express-rate-limit";
+
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 const aiRateLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -278,70 +280,84 @@ export function registerAiSchedulingRoutes(app: Express, storage: IStorage, isAu
 
       const shiftBlocks = (settings.shiftBlocks as any[]) || [];
 
-      const prompt = `You are a workforce scheduling AI. Generate an optimized employee schedule based on the following data.
+      const prompt = `You are a workforce scheduling AI that ONLY outputs valid JSON. No markdown, no explanations, no text before or after the JSON object.
 
-SHIFT BLOCKS (the time slots employees work):
-${shiftBlocks.map((b: any) => `- ${b.name}: ${b.startTime} to ${b.endTime}`).join('\n')}
+DATA:
+
+SHIFT BLOCKS: ${JSON.stringify(shiftBlocks.map((b: any) => ({ name: b.name, start: b.startTime, end: b.endTime })))}
 
 SCHEDULE PERIOD:
-${days.map(d => `- ${d.date} (${d.dayName}): Predicted revenue $${d.predictedRevenue}, need ${d.requiredStaff} staff${d.matchedLastYearDate ? ` (based on ${d.matchedLastYearDate} last year sales)` : ''}`).join('\n')}
+${days.map(d => `${d.date} (${d.dayName}): revenue=$${d.predictedRevenue}, need ${d.requiredStaff} staff${d.matchedLastYearDate ? ` (matched ${d.matchedLastYearDate})` : ''}`).join('\n')}
 
-MINIMUM STAFFING: Always have at least ${settings.minimumStaffing} employees at any time.
+MIN STAFFING: ${settings.minimumStaffing}
 
-AVAILABLE EMPLOYEES:
+EMPLOYEES:
 ${employeeList.map(e => {
-  const targetInfo = e.targetWeeklyHours ? ` [TARGET: ${e.targetWeeklyHours} hrs/week]` : '';
-  return `- ${e.name} (ID: ${e.id})${targetInfo}: ${Object.entries(e.availability).map(([date, status]) => `${date}=${status}`).join(', ')}`;
+  const targetInfo = e.targetWeeklyHours ? ` [TARGET: ${e.targetWeeklyHours}hrs/wk]` : '';
+  return `${e.name} (${e.id})${targetInfo}: ${Object.entries(e.availability).map(([date, status]) => `${date}=${status}`).join(', ')}`;
 }).join('\n')}
 
-${employeeList.some(e => e.targetWeeklyHours) ? `
-EMPLOYEES WITH TARGET HOURS (must be prioritized):
-${employeeList.filter(e => e.targetWeeklyHours).map(e => `- ${e.name}: needs ${e.targetWeeklyHours} hours per week`).join('\n')}
-` : ''}
-
 RULES:
-1. Each shift block needs enough employees to meet the required staff count for that day.
-2. Distribute shifts fairly among available employees.
-3. Never schedule an employee on a day they are unavailable.
-4. Employees with no explicit availability are available by default.
-5. Try to give employees consistent shift blocks when possible.
-6. Employees MAY work multiple shift blocks per day if needed to meet their target weekly hours.
-7. PRIORITY: Employees with target weekly hours MUST be scheduled first and given enough shifts to reach their target. These are full-time employees who need guaranteed hours. Calculate how many shift blocks they need across the week to meet their target, and assign them before filling remaining slots with other employees.
-8. Example: If an employee has a target of 40 hours/week and each shift block is 5 hours, they need 8 shift blocks spread across available days. Assign them to multiple blocks per day when needed.
+1. Meet required staff count per day per shift block.
+2. Distribute shifts fairly. Never schedule unavailable employees.
+3. Employees without explicit availability are available by default.
+4. Employees with TARGET hours are full-time and MUST be prioritized — give them enough shifts to meet their weekly target before assigning others.
+5. Employees MAY work multiple shift blocks per day to meet targets.
 
-Respond in JSON format ONLY with no additional text:
-{
-  "schedule": [
-    {
-      "date": "YYYY-MM-DD",
-      "employeeId": "employee_id",
-      "employeeName": "Employee Name",
-      "shiftBlock": "shift block name",
-      "startTime": "HH:MM",
-      "endTime": "HH:MM",
-      "reasoning": "brief reason for this assignment"
-    }
-  ],
-  "summary": "Brief summary of the schedule",
-  "warnings": ["any warnings about understaffing or conflicts"]
-}`;
+OUTPUT INSTRUCTIONS: Return ONLY a single JSON object. Do NOT include any text, markdown formatting, or code fences. The response must start with { and end with }.
 
-      const aiResponse = await claudeService.chat(prompt);
+Required JSON structure:
+{"schedule":[{"date":"YYYY-MM-DD","employeeId":"id","employeeName":"Name","shiftBlock":"block name","startTime":"HH:MM","endTime":"HH:MM","reasoning":"brief reason"}],"summary":"Brief summary","warnings":["any warnings"]}`;
+
+      const aiResult = await anthropic.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 8192,
+        system: "You are a workforce scheduling AI. You MUST respond with valid JSON only. No markdown, no explanations, no code fences. Your entire response must be a single JSON object starting with { and ending with }.",
+        messages: [{ role: 'user', content: prompt }],
+      });
+      const aiContent = aiResult.content[0];
+      if (aiContent.type !== 'text') {
+        throw new Error('Expected text response from Claude');
+      }
+      const aiResponse = aiContent.text;
 
       let parsedSchedule: any;
       try {
-        const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          parsedSchedule = JSON.parse(jsonMatch[0]);
-        } else {
-          throw new Error('No JSON found in AI response');
+        let jsonStr = aiResponse.trim();
+
+        const codeBlockMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
+        if (codeBlockMatch) {
+          jsonStr = codeBlockMatch[1].trim();
         }
+
+        if (!jsonStr.startsWith('{')) {
+          const firstBrace = jsonStr.indexOf('{');
+          if (firstBrace !== -1) {
+            jsonStr = jsonStr.slice(firstBrace);
+          }
+        }
+
+        const lastBrace = jsonStr.lastIndexOf('}');
+        if (lastBrace !== -1 && lastBrace < jsonStr.length - 1) {
+          jsonStr = jsonStr.slice(0, lastBrace + 1);
+        }
+
+        parsedSchedule = JSON.parse(jsonStr);
       } catch (parseErr) {
-        console.error('Failed to parse AI schedule response:', parseErr);
-        return res.status(500).json({
-          message: "AI generated a response but it couldn't be parsed. Please try again.",
-          rawResponse: aiResponse.slice(0, 500),
-        });
+        try {
+          const deepMatch = aiResponse.match(/\{[\s\S]*"schedule"\s*:\s*\[[\s\S]*\][\s\S]*\}/);
+          if (deepMatch) {
+            parsedSchedule = JSON.parse(deepMatch[0]);
+          } else {
+            throw parseErr;
+          }
+        } catch {
+          console.error('Failed to parse AI schedule response:', parseErr);
+          console.error('Raw AI response (first 1000 chars):', aiResponse.slice(0, 1000));
+          return res.status(500).json({
+            message: "AI generated a response but it couldn't be parsed. Please try again.",
+          });
+        }
       }
 
       const employeeIds = new Set(employeeList.map(e => e.id));
