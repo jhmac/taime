@@ -29,6 +29,83 @@ const SENSITIVE_CATEGORIES = {
 const SETTINGS_FILE = 'elon-settings.json';
 
 // ============================================
+// SHARED UTILITIES
+// ============================================
+
+const ELON_LOG_DEFAULTS = { current: null, solved: [], history: [], failedAttempts: [] };
+const CODE_FILE_EXTENSIONS = new Set(['.js', '.ts', '.jsx', '.tsx']);
+const SCAN_IGNORE_DIRS = new Set(['node_modules', '.sneebly', 'sneebly', 'dist', 'build', '.next', '.git']);
+const SCAN_ROOT_DIRS = ['server', 'client/src', 'shared', 'src', 'routes', 'lib', 'pages', 'components', 'app'];
+
+function _filePriority(relativePath) {
+  if (/schema|model/i.test(relativePath)) return 0;
+  if (/route/i.test(relativePath)) return 1;
+  if (/service/i.test(relativePath)) return 2;
+  if (/page|component/i.test(relativePath)) return 3;
+  return 4;
+}
+
+function _safeReadFile(filePath) {
+  try { return fs.readFileSync(filePath, 'utf-8'); } catch { return null; }
+}
+
+function _makeProgressLogger(memory, onProgress) {
+  const log = (msg) => {
+    console.log(msg);
+    if (memory) memory.logDaily(msg);
+  };
+  const progress = (phase, message, detail, type) => {
+    log(message);
+    if (onProgress) onProgress(phase, message, detail, type || 'info');
+  };
+  return { log, progress };
+}
+
+function _walkDir(dir, rootDir) {
+  const results = [];
+  try {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (SCAN_IGNORE_DIRS.has(entry.name)) continue;
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        results.push(..._walkDir(fullPath, rootDir));
+      } else if (CODE_FILE_EXTENSIONS.has(path.extname(entry.name))) {
+        results.push({ relativePath: path.relative(rootDir, fullPath), fullPath });
+      }
+    }
+  } catch {}
+  return results;
+}
+
+// ============================================
+// ELON LOG & STATE MANAGEMENT
+// ============================================
+
+function loadElonLog(dataDir) {
+  return _readJson(path.join(dataDir, 'elon-log.json'), { ...ELON_LOG_DEFAULTS });
+}
+
+function saveElonLog(dataDir, updates) {
+  const existing = loadElonLog(dataDir);
+  const updated = { ...existing, ...updates, lastUpdated: new Date().toISOString() };
+  _writeJson(path.join(dataDir, 'elon-log.json'), updated);
+  return updated;
+}
+
+function loadBuildState(dataDir) {
+  return _readJson(path.join(dataDir, 'build-state.json'), null);
+}
+
+function saveBuildState(dataDir, state) {
+  _writeJson(path.join(dataDir, 'build-state.json'), state);
+}
+
+function loadLastCrawl(dataDir) {
+  return _readJson(path.join(dataDir, 'last-crawl.json'), null);
+}
+
+// ============================================
 // BUILD MODE HELPERS
 // ============================================
 
@@ -66,29 +143,6 @@ function getElonMode(config) {
   }
 
   return 'fix';
-}
-
-function loadElonLog(dataDir) {
-  return _readJson(path.join(dataDir, 'elon-log.json'), {});
-}
-
-function saveElonLog(dataDir, updates) {
-  const existing = loadElonLog(dataDir);
-  const updated = { ...existing, ...updates, lastUpdated: new Date().toISOString() };
-  _writeJson(path.join(dataDir, 'elon-log.json'), updated);
-  return updated;
-}
-
-function loadBuildState(dataDir) {
-  return _readJson(path.join(dataDir, 'build-state.json'), null);
-}
-
-function saveBuildState(dataDir, state) {
-  _writeJson(path.join(dataDir, 'build-state.json'), state);
-}
-
-function loadLastCrawl(dataDir) {
-  return _readJson(path.join(dataDir, 'last-crawl.json'), null);
 }
 
 function parseAppSpec(goalsContext) {
@@ -146,74 +200,79 @@ function parseRoadmapMilestones(roadmapContent, phaseNumber) {
   return milestones;
 }
 
-function scanProjectFiles(projectRoot) {
-  const glob = require('glob');
-  const patterns = [
-    'server/**/*.{js,ts,jsx,tsx}',
-    'client/src/**/*.{js,ts,jsx,tsx}',
-    'shared/**/*.{js,ts,jsx,tsx}',
-    'src/**/*.{js,ts,jsx,tsx}',
-    'routes/**/*.{js,ts,jsx,tsx}',
-    'lib/**/*.{js,ts,jsx,tsx}',
-    'pages/**/*.{js,ts,jsx,tsx}',
-    'components/**/*.{js,ts,jsx,tsx}',
-    'app/**/*.{js,ts,jsx,tsx}',
-    '*.{js,ts}'
-  ];
+// ============================================
+// CODEBASE SCANNING
+// ============================================
 
+function scanProjectFiles(projectRoot) {
   const seen = new Set();
   const files = [];
 
-  for (const pattern of patterns) {
-    try {
-      const matches = glob.sync(pattern, {
-        cwd: projectRoot,
-        ignore: ['node_modules/**', '.sneebly/**', 'sneebly/**', 'dist/**', 'build/**', '.next/**']
-      });
-      for (const match of matches) {
-        if (!seen.has(match)) {
-          seen.add(match);
-          files.push({ relativePath: match, fullPath: path.join(projectRoot, match) });
+  for (const dir of SCAN_ROOT_DIRS) {
+    const fullDir = path.join(projectRoot, dir);
+    if (!fs.existsSync(fullDir)) continue;
+    for (const file of _walkDir(fullDir, projectRoot)) {
+      if (!seen.has(file.relativePath)) {
+        seen.add(file.relativePath);
+        files.push(file);
+      }
+    }
+  }
+
+  try {
+    const rootEntries = fs.readdirSync(projectRoot, { withFileTypes: true });
+    for (const entry of rootEntries) {
+      if (entry.isFile() && CODE_FILE_EXTENSIONS.has(path.extname(entry.name))) {
+        if (!seen.has(entry.name)) {
+          seen.add(entry.name);
+          files.push({ relativePath: entry.name, fullPath: path.join(projectRoot, entry.name) });
         }
       }
-    } catch {}
-  }
+    }
+  } catch {}
 
   return files;
 }
 
-function findExistingRoutes(files) {
-  const routes = [];
+function _scanFileContents(files, filterFn, extractFn) {
+  const results = [];
   for (const file of files) {
-    try {
-      const content = fs.readFileSync(file.fullPath, 'utf-8');
-      const pattern = /(?:app|router|route)\.(get|post|put|delete|patch)\s*\(\s*['"`]([^'"`]+)['"`]/gi;
-      let match;
-      while ((match = pattern.exec(content)) !== null) {
-        routes.push({ method: match[1].toUpperCase(), path: match[2], file: file.relativePath });
-      }
-    } catch {}
+    if (filterFn && !filterFn(file)) continue;
+    const content = _safeReadFile(file.fullPath);
+    if (!content) continue;
+    const extracted = extractFn(content, file);
+    if (extracted) results.push(...extracted);
   }
-  return routes;
+  return results;
+}
+
+function findExistingRoutes(files) {
+  return _scanFileContents(files, null, (content, file) => {
+    const routes = [];
+    const pattern = /(?:app|router|route)\.(get|post|put|delete|patch)\s*\(\s*['"`]([^'"`]+)['"`]/gi;
+    let match;
+    while ((match = pattern.exec(content)) !== null) {
+      routes.push({ method: match[1].toUpperCase(), path: match[2], file: file.relativePath });
+    }
+    return routes.length > 0 ? routes : null;
+  });
 }
 
 function findExistingSchema(files) {
-  const schemas = [];
-  for (const file of files) {
-    if (!file.relativePath.match(/schema|model|migration|drizzle|prisma/i)) continue;
-    try {
-      const content = fs.readFileSync(file.fullPath, 'utf-8');
-      const drizzle = [...content.matchAll(/(?:export\s+const|const)\s+(\w+)\s*=\s*pgTable\s*\(\s*['"`](\w+)['"`]/g)];
-      for (const m of drizzle) {
+  return _scanFileContents(
+    files,
+    (file) => /schema|model|migration|drizzle|prisma/i.test(file.relativePath),
+    (content, file) => {
+      const schemas = [];
+      for (const m of content.matchAll(/(?:export\s+const|const)\s+(\w+)\s*=\s*pgTable\s*\(\s*['"`](\w+)['"`]/g)) {
         schemas.push({ variable: m[1], tableName: m[2], file: file.relativePath, orm: 'drizzle' });
       }
-      const prisma = [...content.matchAll(/model\s+(\w+)\s*\{/g)];
-      for (const m of prisma) {
+      for (const m of content.matchAll(/model\s+(\w+)\s*\{/g)) {
         schemas.push({ tableName: m[1], file: file.relativePath, orm: 'prisma' });
       }
-    } catch {}
-  }
-  return schemas;
+      return schemas.length > 0 ? schemas : null;
+    }
+  );
 }
 
 function getRelevantCodeSnippets(files) {
@@ -221,34 +280,84 @@ function getRelevantCodeSnippets(files) {
   let totalSize = 0;
   const maxSize = 15000;
 
-  const sorted = [...files].sort((a, b) => {
-    const p = (f) => {
-      if (f.relativePath.match(/schema|model/i)) return 0;
-      if (f.relativePath.match(/route/i)) return 1;
-      if (f.relativePath.match(/service/i)) return 2;
-      if (f.relativePath.match(/page|component/i)) return 3;
-      return 4;
-    };
-    return p(a) - p(b);
-  });
+  const sorted = [...files].sort((a, b) => _filePriority(a.relativePath) - _filePriority(b.relativePath));
 
   for (const file of sorted) {
     if (totalSize >= maxSize) break;
-    try {
-      let content = fs.readFileSync(file.fullPath, 'utf-8');
-      if (content.length > 3000) content = content.substring(0, 3000) + '\n// ... (truncated)';
-      if (totalSize + content.length <= maxSize) {
-        snippets[file.relativePath] = content;
-        totalSize += content.length;
-      }
-    } catch {}
+    const content = _safeReadFile(file.fullPath);
+    if (!content) continue;
+    const truncated = content.length > 3000 ? content.substring(0, 3000) + '\n// ... (truncated)' : content;
+    if (totalSize + truncated.length <= maxSize) {
+      snippets[file.relativePath] = truncated;
+      totalSize += truncated.length;
+    }
   }
   return snippets;
 }
 
+// ============================================
+// SHARED SPEC CREATION PIPELINE
+// ============================================
+
+function _createSpecsFromPlan({ plan, constraintId, constraintDesc, source, dataDir, maxSpecs, extraFields }) {
+  const specsCreated = [];
+  const approvedDir = path.join(dataDir, 'approved-queue');
+  const pendingDir = path.join(dataDir, 'queue', 'pending');
+  fs.mkdirSync(approvedDir, { recursive: true });
+  fs.mkdirSync(pendingDir, { recursive: true });
+
+  for (const step of plan) {
+    if (maxSpecs && specsCreated.length >= maxSpecs) break;
+
+    const isBuild = source === 'elon-build';
+    const specId = isBuild
+      ? `build-${Date.now()}-step${step.step}`
+      : `elon-${constraintId}-step${String(step.step).padStart(2, '0')}`;
+
+    const spec = {
+      id: isBuild ? specId : undefined,
+      filePath: step.filePath,
+      description: isBuild ? step.description : '[ELON] ' + step.description,
+      successCriteria: step.successCriteria || [],
+      testCommand: step.testCommand || 'curl -s http://localhost:' + (process.env.PORT || 5000) + '/health',
+      source,
+      ...(isBuild ? {
+        action: step.action || 'create',
+        relatedFiles: step.relatedFiles || [],
+        constraint: constraintDesc,
+      } : {
+        elonConstraintId: constraintId,
+        priority: step.priority || 'medium',
+        step: step.step,
+      }),
+      ...extraFields,
+      createdAt: new Date().toISOString(),
+    };
+
+    const approval = _needsOwnerApproval(step, dataDir);
+    const targetDir = approval.needsApproval ? pendingDir : approvedDir;
+    const filename = isBuild ? `${specId}.json` : `${specId}.json`;
+
+    if (approval.category) spec.blockedCategory = approval.category;
+    _writeJson(path.join(targetDir, filename), spec);
+
+    specsCreated.push({
+      ...spec,
+      filename,
+      dir: approval.needsApproval ? 'pending' : 'approved',
+      autoApproved: !approval.needsApproval,
+      needsApproval: approval.needsApproval,
+      blockedCategory: approval.category,
+      path: path.join(targetDir, filename),
+    });
+  }
+
+  return specsCreated;
+}
+
 async function runElonBuildCycle(config) {
   const { context, dataDir, projectRoot } = config;
-  const log = _createLogger(config.memory);
+  const { log } = _makeProgressLogger(config.memory);
 
   log('ELON BUILD: Starting build cycle...');
 
@@ -281,11 +390,8 @@ async function runElonBuildCycle(config) {
 
   const buildState = loadBuildState(dataDir) || { completed: [], failed: [] };
   const elonLog = loadElonLog(dataDir);
-  const failedHistory = elonLog.failedHistory || [];
 
   log('ELON BUILD: Analyzing spec and codebase...');
-
-  const budget = { spent: 0, max: config.budgetMax || 5.0 };
 
   let analysis;
   try {
@@ -296,78 +402,62 @@ async function runElonBuildCycle(config) {
       technicalStandards: appSpec.technicalStandards,
       currentPhase: `Phase ${appSpec.currentPhase}`,
       roadmap: appSpec.roadmap,
-      milestones: milestones,
+      milestones,
       existingFiles: existingFiles.map(f => f.relativePath),
-      existingEndpoints: existingEndpoints,
-      existingSchema: existingSchema,
+      existingEndpoints,
+      existingSchema,
       alreadyBuilt: buildState.completed || [],
-      failedHistory: failedHistory,
+      failedHistory: elonLog.failedHistory || [],
       codebaseSnippets: codeSnippets
     }, _buildSubagentOptions(config));
   } catch (err) {
     log(`ELON BUILD: Analysis failed: ${err.message}`);
     saveElonLog(dataDir, { lastMode: 'build', lastModeResult: 'analysis-failed' });
-    return { status: 'failed', mode: 'build', reason: err.message, budgetUsed: budget.spent };
+    return { status: 'failed', mode: 'build', reason: err.message, budgetUsed: 0 };
   }
 
   if (!analysis || analysis.action === 'queue' || analysis.reason === 'parse-failed') {
     log('ELON BUILD: Could not identify build constraint');
     saveElonLog(dataDir, { lastMode: 'build', lastModeResult: 'no-constraint' });
-    return { status: 'no-constraint', mode: 'build', budgetUsed: budget.spent };
+    return { status: 'no-constraint', mode: 'build', budgetUsed: 0 };
   }
 
   if (analysis.action === 'skip') {
     const reason = analysis.reason || 'skipped';
     log(`ELON BUILD: Skipped — ${reason}`);
-    return { status: 'failed', mode: 'build', reason, budgetUsed: budget.spent };
+    return { status: 'failed', mode: 'build', reason, budgetUsed: 0 };
   }
 
   if (analysis.constraint === 'PHASE_COMPLETE') {
     saveElonLog(dataDir, { lastMode: 'build', lastModeResult: 'cycle-complete' });
-    return { status: 'phase-complete', mode: 'build', phase: appSpec.currentPhase, budgetUsed: budget.spent };
+    return { status: 'phase-complete', mode: 'build', phase: appSpec.currentPhase, budgetUsed: 0 };
   }
 
   if (analysis.constraint === 'BLOCKED') {
     log(`ELON BUILD: BLOCKED — ${analysis.reason}`);
     saveElonLog(dataDir, { lastMode: 'build', lastModeResult: 'blocked' });
-    return { status: 'blocked', mode: 'build', reason: analysis.reason, budgetUsed: budget.spent };
+    return { status: 'blocked', mode: 'build', reason: analysis.reason, budgetUsed: 0 };
   }
 
   log(`ELON BUILD: Constraint — ${analysis.constraint}`);
 
-  const specs = [];
-  const approvedDir = path.join(dataDir, 'approved-queue');
-  const pendingDir = path.join(dataDir, 'queue', 'pending');
-  fs.mkdirSync(approvedDir, { recursive: true });
-  fs.mkdirSync(pendingDir, { recursive: true });
-
-  for (const step of (analysis.plan || [])) {
-    const spec = {
-      id: `build-${Date.now()}-step${step.step}`,
-      source: 'elon-build',
-      action: step.action || 'create',
-      filePath: step.filePath,
-      description: step.description,
-      successCriteria: step.successCriteria || [],
-      relatedFiles: step.relatedFiles || [],
-      testCommand: step.testCommand || null,
-      constraint: analysis.constraint,
+  const specs = _createSpecsFromPlan({
+    plan: analysis.plan || [],
+    constraintId: null,
+    constraintDesc: analysis.constraint,
+    source: 'elon-build',
+    dataDir,
+    extraFields: {
       phase: analysis.phase,
       milestone: analysis.milestone,
       buildNotes: analysis.buildNotes || '',
-      createdAt: new Date().toISOString()
-    };
+    },
+  });
 
-    const approval = _needsOwnerApproval(step, dataDir);
-    const targetDir = approval.needsApproval ? pendingDir : approvedDir;
-
-    const specPath = path.join(targetDir, `${spec.id}.json`);
-    _writeJson(specPath, spec);
-    specs.push({ ...spec, autoApproved: !approval.needsApproval, path: specPath });
-
+  for (const spec of specs) {
     log(
-      `ELON BUILD: Spec ${spec.id} — ${step.action || 'create'} ${step.filePath} ` +
-      `[${approval.needsApproval ? 'pending approval' : 'auto-approved'}]`
+      `ELON BUILD: Spec ${spec.filename} — ${spec.action || 'create'} ${spec.filePath} ` +
+      `[${spec.needsApproval ? 'pending approval' : 'auto-approved'}]`
     );
   }
 
@@ -392,12 +482,12 @@ async function runElonBuildCycle(config) {
     status: 'specs-generated',
     mode: 'build',
     constraint: analysis.constraint,
-    specs: specs,
+    specs,
     phase: analysis.phase,
     milestone: analysis.milestone,
-    budgetUsed: budget.spent,
+    budgetUsed: 0,
     specsAutoApproved: specs.filter(s => s.autoApproved).length,
-    specsPendingApproval: specs.filter(s => !s.autoApproved).length,
+    specsPendingApproval: specs.filter(s => s.needsApproval).length,
   };
 }
 
@@ -458,23 +548,8 @@ function _writeJson(filePath, data) {
   }
 }
 
-function _loadElonLog(dataDir) {
-  return _readJson(path.join(dataDir, 'elon-log.json'), { current: null, solved: [], history: [], failedAttempts: [] });
-}
-
-function _saveElonLog(dataDir, log) {
-  _writeJson(path.join(dataDir, 'elon-log.json'), log);
-}
-
 function _loadElonReport(dataDir) {
   return _readJson(path.join(dataDir, 'elon-report-data.json'), null);
-}
-
-function _createLogger(memory) {
-  return (msg) => {
-    console.log(msg);
-    if (memory) memory.logDaily(msg);
-  };
 }
 
 function _tokenize(text) {
@@ -533,7 +608,7 @@ function _deepFilterAuthIssues(crawlResults) {
 }
 
 function _getBlockedConstraints(dataDir) {
-  const elonLog = _loadElonLog(dataDir);
+  const elonLog = loadElonLog(dataDir);
   const reportData = _loadElonReport(dataDir);
   const blocked = [];
   for (const c of (elonLog.history || [])) {
@@ -598,14 +673,11 @@ function _readSourceFiles(projectRoot, constraint) {
   function addFile(rel, maxLen = 5000) {
     if (seen.has(rel) || totalChars >= MAX_TOTAL) return;
     seen.add(rel);
-    const fullPath = path.join(projectRoot, rel);
-    try {
-      if (!fs.existsSync(fullPath)) return;
-      const content = fs.readFileSync(fullPath, 'utf-8');
-      const truncated = content.length > maxLen ? content.substring(0, maxLen) + '\n// ... truncated ...' : content;
-      sections.push(`// FILE: ${rel}\n${truncated}`);
-      totalChars += truncated.length;
-    } catch {}
+    const content = _safeReadFile(path.join(projectRoot, rel));
+    if (!content) return;
+    const truncated = content.length > maxLen ? content.substring(0, maxLen) + '\n// ... truncated ...' : content;
+    sections.push(`// FILE: ${rel}\n${truncated}`);
+    totalChars += truncated.length;
   }
 
   const coreFiles = [
@@ -851,14 +923,10 @@ async function runElonCycle(config) {
     });
   }
 
-  const elonLog = _loadElonLog(dataDir);
+  const elonLog = loadElonLog(dataDir);
   const previousReport = _loadElonReport(dataDir);
   const budget = { spent: 0, max: budgetMax };
-  const log = _createLogger(memory);
-  const progress = (phase, message, detail, type) => {
-    log(message);
-    if (onProgress) onProgress(phase, message, detail, type || 'info');
-  };
+  const { log, progress } = _makeProgressLogger(memory, onProgress);
 
   let crawlResults = null;
   const crawlMode = config.crawlMode || (enableCrawl ? 'full' : false);
@@ -967,7 +1035,7 @@ async function runElonCycle(config) {
 
   if (_isAuthRelatedConstraint(proposedConstraint)) {
     progress('auth-dismissed', `Dismissed auth-related constraint: ${analysis.limitingFactor.description}`, null, 'warning');
-    const elonLogForDismiss = _loadElonLog(dataDir);
+    const elonLogForDismiss = loadElonLog(dataDir);
     if (!elonLogForDismiss.history) elonLogForDismiss.history = [];
     elonLogForDismiss.history.push({
       id: 'constraint-' + Date.now(),
@@ -976,7 +1044,7 @@ async function runElonCycle(config) {
       dismissedReason: 'Auto-dismissed: auth-related constraint from unauthenticated crawl',
       dismissedAt: new Date().toISOString(),
     });
-    _saveElonLog(dataDir, elonLogForDismiss);
+    saveElonLog(dataDir, elonLogForDismiss);
     return { status: 'dismissed', reason: 'Auth-related constraint auto-dismissed', constraint: analysis.limitingFactor.description };
   }
 
@@ -1006,12 +1074,19 @@ async function runElonCycle(config) {
 
   progress('planning', `Creating improvement specs for: ${constraint.description}`, { constraint: { description: constraint.description, score: constraint.score } }, 'thinking');
 
-  const specsCreated = _createSpecs(constraint, dataDir, maxSpecs);
+  const specsCreated = _createSpecsFromPlan({
+    plan: constraint.steps,
+    constraintId: constraint.id,
+    constraintDesc: constraint.description,
+    source: 'elon-fix',
+    dataDir,
+    maxSpecs,
+  });
 
   elonLog.current = constraint;
   if (!elonLog.history) elonLog.history = [];
   elonLog.history.push(constraint);
-  _saveElonLog(dataDir, elonLog);
+  saveElonLog(dataDir, elonLog);
 
   _writeElonReport(projectRoot, dataDir, { elonLog, crawlResults, constraint, specsCreated, budgetUsed: budget.spent });
 
@@ -1031,39 +1106,6 @@ async function runElonCycle(config) {
   };
 }
 
-function _createSpecs(constraint, dataDir, maxSpecs) {
-  const specsCreated = [];
-  const approvedDir = path.join(dataDir, 'approved-queue');
-  const pendingDir = path.join(dataDir, 'queue', 'pending');
-  fs.mkdirSync(approvedDir, { recursive: true });
-  fs.mkdirSync(pendingDir, { recursive: true });
-
-  for (const step of constraint.steps) {
-    if (specsCreated.length >= maxSpecs) break;
-
-    const spec = {
-      filePath: step.filePath,
-      description: '[ELON] ' + step.description,
-      successCriteria: step.successCriteria || [],
-      testCommand: 'curl -s http://localhost:' + (process.env.PORT || 5000) + '/health',
-      elonConstraintId: constraint.id,
-      priority: step.priority || 'medium',
-      step: step.step,
-    };
-
-    const approval = _needsOwnerApproval(step, dataDir);
-    const targetDir = approval.needsApproval ? pendingDir : approvedDir;
-    const prefix = approval.needsApproval ? 'pending' : 'approved';
-    const filename = `elon-${constraint.id}-step${String(step.step).padStart(2, '0')}.json`;
-
-    if (approval.category) spec.blockedCategory = approval.category;
-    _writeJson(path.join(targetDir, filename), spec);
-    specsCreated.push({ filename, dir: prefix, description: step.description, needsApproval: approval.needsApproval, blockedCategory: approval.category });
-  }
-
-  return specsCreated;
-}
-
 async function evaluateConstraint(config) {
   const {
     apiKey,
@@ -1076,9 +1118,9 @@ async function evaluateConstraint(config) {
   } = config;
 
   const context = loadContext(projectRoot);
-  const elonLog = _loadElonLog(dataDir);
+  const elonLog = loadElonLog(dataDir);
   const budget = { spent: 0, max: 2.0 };
-  const log = _createLogger(memory);
+  const { log } = _makeProgressLogger(memory);
   const canCrawlFrontend = enableCrawl && crawlMode !== 'backend-only';
 
   if (!elonLog.current) {
@@ -1156,7 +1198,7 @@ async function evaluateConstraint(config) {
     log(`ELON: Constraint NOT yet resolved: ${evalResult ? evalResult.reason || 'needs more work' : 'evaluation failed'}`);
   }
 
-  _saveElonLog(dataDir, elonLog);
+  saveElonLog(dataDir, elonLog);
   _writeElonReport(projectRoot, dataDir, { elonLog, crawlResults: reCrawl, constraint, specsCreated: [], budgetUsed: budget.spent, verification: { crawlVerification, evalResult, resolved } });
 
   return {
@@ -1201,11 +1243,7 @@ async function runElonLoop(config) {
     onProgress = null,
   } = config;
 
-  const log = _createLogger(memory);
-  const progress = (phase, message, detail, type) => {
-    log(message);
-    if (onProgress) onProgress(phase, message, detail, type || 'info');
-  };
+  const { log, progress } = _makeProgressLogger(memory, onProgress);
 
   let totalBudget = 0;
   let constraintsSolved = 0;
@@ -1475,7 +1513,7 @@ function _generateReportMarkdown(data) {
 }
 
 function getElonStatus(dataDir, config) {
-  const elonLog = _loadElonLog(dataDir);
+  const elonLog = loadElonLog(dataDir);
   const reportData = _loadElonReport(dataDir);
   const buildStateData = loadBuildState(dataDir);
 
@@ -1483,8 +1521,7 @@ function getElonStatus(dataDir, config) {
   if (config && config.context) {
     try { currentMode = getElonMode({ context: config.context, dataDir }); } catch {}
   } else {
-    const log = loadElonLog(dataDir);
-    currentMode = log.lastMode || 'fix';
+    currentMode = elonLog.lastMode || 'fix';
   }
 
   return {
@@ -1592,11 +1629,7 @@ async function executeApprovedSpecs(config) {
   const context = loadContext(projectRoot);
   const specBudget = { spent: 0, max: budgetMax };
   const approvedDir = path.join(dataDir, 'approved-queue');
-  const log = _createLogger(memory);
-  const progress = (phase, message, detail, type) => {
-    log(message);
-    if (onProgress) onProgress(phase, message, detail, type || 'info');
-  };
+  const { log, progress } = _makeProgressLogger(memory, onProgress);
 
   if (!fs.existsSync(approvedDir)) {
     return { status: 'no-specs', executed: 0, succeeded: 0, failed: 0, budgetUsed: 0 };
@@ -1674,11 +1707,7 @@ async function runElonFixAll(config) {
     constraintsPerRound = 3,
   } = config;
 
-  const log = _createLogger(memory);
-  const progress = (phase, message, detail, type) => {
-    log(message);
-    if (onProgress) onProgress(phase, message, detail, type || 'info');
-  };
+  const { log, progress } = _makeProgressLogger(memory, onProgress);
 
   let totalSpent = 0;
   let totalSolved = 0;
