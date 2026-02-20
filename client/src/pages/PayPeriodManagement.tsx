@@ -85,8 +85,8 @@ export default function PayPeriodManagement() {
   const [defaultMultiplier, setDefaultMultiplier] = useState("1.50");
   const [customHolidayName, setCustomHolidayName] = useState("");
   const [customHolidayDate, setCustomHolidayDate] = useState("");
-  const [holidayYear, setHolidayYear] = useState(new Date().getFullYear());
-  const suggestedHolidays = getSuggestedHolidays(holidayYear);
+  const [holidayYear, setHolidayYear] = useState(0);
+  const suggestedHolidays = getSuggestedHolidays(holidayYear === 0 ? new Date().getFullYear() : holidayYear);
   const [payDayOfWeek, setPayDayOfWeek] = useState(5);
   const [expandedEmployee, setExpandedEmployee] = useState<string>("");
   const [editingEntry, setEditingEntry] = useState<any>(null);
@@ -527,7 +527,7 @@ export default function PayPeriodManagement() {
               Holiday Pay Calendar
             </CardTitle>
             <CardDescription>
-              Select which holidays should receive time-and-a-half (or custom multiplier) pay. Check the ones you want from the suggested list below, or add your own.
+              Select which holidays should receive time-and-a-half (or custom multiplier) pay. Holidays repeat every year automatically. Use "Every Year" to see recurring dates, or pick a specific year to preview floating holidays like Thanksgiving.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -535,10 +535,11 @@ export default function PayPeriodManagement() {
               <div className="flex items-center gap-2">
                 <Label className="text-sm whitespace-nowrap">Year</Label>
                 <Select value={String(holidayYear)} onValueChange={(v) => { setHolidayYear(Number(v)); setSelectedHolidays(new Set()); }}>
-                  <SelectTrigger className="w-24">
+                  <SelectTrigger className="w-32">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="0">Every Year</SelectItem>
                     {[new Date().getFullYear(), new Date().getFullYear() + 1].map(y => (
                       <SelectItem key={y} value={String(y)}>{y}</SelectItem>
                     ))}
@@ -642,6 +643,9 @@ export default function PayPeriodManagement() {
                   Add
                 </Button>
               </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Holidays repeat every year on the same date (month/day). Pick any date — only the month and day are saved.
+              </p>
             </div>
 
             {holidayPayRules.length > 0 && (
