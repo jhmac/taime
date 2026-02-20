@@ -386,9 +386,15 @@ export default function TeamMember() {
               {invitedAgo && (
                 <span className="text-xs text-muted-foreground">{invitedAgo}</span>
               )}
-              {canEdit && member.email && (
+              {canEdit && (
                 <button
-                  onClick={() => resendInviteMutation.mutate()}
+                  onClick={() => {
+                    if (!member.email) {
+                      toast({ title: "No email address", description: "Please add an email address before resending the invite.", variant: "destructive" });
+                      return;
+                    }
+                    resendInviteMutation.mutate();
+                  }}
                   disabled={resendInviteMutation.isPending}
                   className="text-xs text-purple-600 hover:underline font-medium"
                 >
