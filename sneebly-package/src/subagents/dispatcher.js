@@ -89,6 +89,7 @@ function _tryFixJson(jsonStr) {
   fixed = fixed.replace(/,\s*}/g, '}').replace(/,\s*]/g, ']');
   fixed = fixed.replace(/(['"])?(\w+)(['"])?\s*:/g, (_, q1, key, q3) => {
     if (q1 === '"' && q3 === '"') return `"${key}":`;
+    if (q1 === "'" && q3 === "'") return `"${key}":`;
     return `"${key}":`;
   });
   try { return JSON.parse(fixed); } catch { return null; }
@@ -274,6 +275,28 @@ async function callClaudeAPI(apiKey, systemPrompt, userPrompt, model) {
   }
 }
 
+const ACTIONABLE_TYPES = new Set(['file_edit', 'run_command', 'fix']);
+
+function _collectValidationTargets(result) {
+  const targets = [];
+
+  if (result.type && ACTIONABLE_TYPES.has(result.type)) {
+    targets.push(result);
+  }
+
+  if (result.status === 'create' && result.filePath) {
+    targets.push({ type: 'file_edit', filePath: result.filePath });
+  }
+
+  if (result.status === 'multi-create' && Array.isArray(result.files)) {
+    for (const f of result.files) {
+      if (f.filePath) targets.push({ type: 'file_edit', filePath: f.filePath });
+    }
+  }
+
+  return targets;
+}
+
 async function delegateToSubagent(agentName, task, options = {}) {
   const {
     context,
@@ -330,34 +353,12 @@ async function delegateToSubagent(agentName, task, options = {}) {
 
   const result = parseSubagentResponse(response);
 
-  const actionableTypes = ['file_edit', 'run_command', 'fix'];
-  const needsValidation = result.type && actionableTypes.includes(result.type);
-
-  if (needsValidation) {
-    const validation = OutputValidator.validateAction(result);
+  const validationTargets = _collectValidationTargets(result);
+  for (const target of validationTargets) {
+    const validation = OutputValidator.validateAction(target);
     if (!validation.valid) {
-      if (memory) {
-        memory.logDaily(`Output validation failed for ${agentName}: ${validation.reasons.join('; ')}`);
-      }
+      if (memory) memory.logDaily(`Output validation failed for ${agentName}: ${validation.reasons.join('; ')}`);
       return { action: 'queue', reason: `validation-failed: ${validation.reasons[0]}`, originalResponse: result };
-    }
-  }
-
-  if (result.status === 'create' && result.filePath) {
-    const validation = OutputValidator.validateAction({ type: 'file_edit', filePath: result.filePath });
-    if (!validation.valid) {
-      if (memory) memory.logDaily(`Output validation failed for ${agentName} create: ${validation.reasons.join('; ')}`);
-      return { action: 'queue', reason: `validation-failed: ${validation.reasons[0]}`, originalResponse: result };
-    }
-  }
-
-  if (result.status === 'multi-create' && Array.isArray(result.files)) {
-    for (const file of result.files) {
-      const validation = OutputValidator.validateAction({ type: 'file_edit', filePath: file.filePath });
-      if (!validation.valid) {
-        if (memory) memory.logDaily(`Output validation failed for ${agentName} multi-create: ${validation.reasons.join('; ')}`);
-        return { action: 'queue', reason: `validation-failed: ${validation.reasons[0]}`, originalResponse: result };
-      }
     }
   }
 

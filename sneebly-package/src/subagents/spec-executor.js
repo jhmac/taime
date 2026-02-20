@@ -153,6 +153,34 @@ function _isSpecComplete(result) {
   return false;
 }
 
+function _normalizeResponse(result) {
+  const { status } = result;
+
+  if (status === 'change' && result.filePath && result.oldCode !== undefined && result.newCode !== undefined) {
+    return { status: 'change', filePath: result.filePath, oldCode: result.oldCode, newCode: result.newCode, description: result.description || '' };
+  }
+
+  if (status === 'create' && result.filePath && typeof result.content === 'string') {
+    return { status: 'create', filePath: result.filePath, content: result.content, description: result.description || '' };
+  }
+
+  if (status === 'multi-change' && Array.isArray(result.changes)) {
+    const valid = result.changes.filter(c => c.filePath && c.oldCode !== undefined && c.newCode !== undefined);
+    if (valid.length > 0) {
+      return { status: 'multi-change', changes: valid.map(c => ({ filePath: c.filePath, oldCode: c.oldCode, newCode: c.newCode, description: c.description || '' })) };
+    }
+  }
+
+  if (status === 'multi-create' && Array.isArray(result.files)) {
+    const valid = result.files.filter(f => f.filePath && typeof f.content === 'string');
+    if (valid.length > 0) {
+      return { status: 'multi-create', files: valid.map(f => ({ filePath: f.filePath, content: f.content, description: f.description || '' })) };
+    }
+  }
+
+  return null;
+}
+
 async function executeSpec(spec, options = {}) {
   const { context, budget, memory, apiKey, identityDir, templatesDir, dryRun, projectRoot } = options;
   const iterationHistory = options.iterationHistory || [];
@@ -206,33 +234,8 @@ async function executeSpec(spec, options = {}) {
 
   if (_isSpecComplete(result)) return { status: 'SPEC_COMPLETE' };
 
-  if (result.status === 'change' && result.filePath && result.oldCode !== undefined && result.newCode !== undefined) {
-    return { status: 'change', filePath: result.filePath, oldCode: result.oldCode, newCode: result.newCode, description: result.description || '' };
-  }
-
-  if (result.status === 'multi-change' && Array.isArray(result.changes) && result.changes.length > 0) {
-    const validChanges = result.changes.filter(c => c.filePath && c.oldCode !== undefined && c.newCode !== undefined);
-    if (validChanges.length > 0) {
-      return {
-        status: 'multi-change',
-        changes: validChanges.map(c => ({ filePath: c.filePath, oldCode: c.oldCode, newCode: c.newCode, description: c.description || '' })),
-      };
-    }
-  }
-
-  if (result.status === 'create' && result.filePath && typeof result.content === 'string') {
-    return { status: 'create', filePath: result.filePath, content: result.content, description: result.description || '' };
-  }
-
-  if (result.status === 'multi-create' && Array.isArray(result.files) && result.files.length > 0) {
-    const validFiles = result.files.filter(f => f.filePath && typeof f.content === 'string');
-    if (validFiles.length > 0) {
-      return {
-        status: 'multi-create',
-        files: validFiles.map(f => ({ filePath: f.filePath, content: f.content, description: f.description || '' })),
-      };
-    }
-  }
+  const normalized = _normalizeResponse(result);
+  if (normalized) return normalized;
 
   if (result.status === 'stuck') return { status: 'stuck', reason: result.reason || 'unknown' };
 
