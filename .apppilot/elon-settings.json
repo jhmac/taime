@@ -2,8 +2,8 @@
   "auth": false,
   "security": false,
   "permissions": false,
-  "database": false,
+  "database": true,
   "payments": false,
-  "deletions": false,
+  "deletions": true,
   "credentials": false
 }
