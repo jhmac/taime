@@ -25,7 +25,7 @@ import { registerSopRoutes } from "./routes/sop";
 import { registerAiAssistantRoutes } from "./routes/aiAssistant";
 import { registerAiSchedulingRoutes } from "./routes/aiScheduling";
 import { createActionLoggerMiddleware, handleClientErrorReport, getActionSummary } from "./services/actionLogger";
-import { initAppPilot } from 'apppilot';
+import { initSneebly } from 'sneebly';
 
 const wsConnections = new Map<string, WebSocket>();
 
@@ -74,10 +74,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerAiAssistantRoutes(app, storage, isAuthenticated);
   registerAiSchedulingRoutes(app, storage, isAuthenticated);
 
-  // AppPilot Dashboard
-  initAppPilot(app, {
+  // Sneebly Dashboard
+  initSneebly(app, {
     projectRoot: process.cwd(),
-    dashboardPath: '/apppilot/dashboard'
+    dashboardPath: '/sneebly/dashboard'
   });
 
   const httpServer = createServer(app);

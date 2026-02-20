@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
 
-const DATA_DIR = path.join(process.cwd(), '.apppilot');
+const DATA_DIR = path.join(process.cwd(), '.sneebly');
 const ACTION_LOG_FILE = path.join(DATA_DIR, 'action-log.jsonl');
 const ERROR_LOG_FILE = path.join(DATA_DIR, 'error-log.jsonl');
 const MAX_LOG_SIZE = 5 * 1024 * 1024;
@@ -142,7 +142,7 @@ interface ActionLogEntry {
 export function createActionLoggerMiddleware(): RequestHandler {
   return function actionLogger(req: Request, res: Response, next: NextFunction) {
     if (!req.path.startsWith('/api')) return next();
-    if (req.path.includes('/apppilot/') || req.path === '/health') return next();
+    if (req.path.includes('/sneebly/') || req.path === '/health') return next();
 
     const start = Date.now();
     const user = (req as any).user;

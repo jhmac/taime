@@ -1,0 +1,2456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sneebly Dashboard</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --card: #1a1b26;
+      --card-border: #2a2b3a;
+      --accent: #7c3aed;
+      --accent-hover: #6d28d9;
+      --text: #e1e4e8;
+      --text-secondary: #8b949e;
+      --text-muted: #636c76;
+      --green: #3fb950;
+      --yellow: #d29922;
+      --red: #f85149;
+      --blue: #58a6ff;
+      --radius: 8px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    button {
+      cursor: pointer;
+      border: none;
+      font-family: inherit;
+      font-size: 0.8rem;
+      border-radius: 4px;
+      padding: 6px 12px;
+      font-weight: 500;
+      transition: background 0.15s, opacity 0.15s;
+    }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--card-border);
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .topbar-left { display: flex; align-items: center; gap: 12px; }
+    .topbar h1 { font-size: 1.25rem; font-weight: 600; }
+    .topbar-right { display: flex; align-items: center; gap: 12px; font-size: 0.8rem; color: var(--text-secondary); }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.75rem;
+      font-weight: 500;
+      padding: 3px 10px;
+      border-radius: 20px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .badge-healthy { background: rgba(63,185,80,0.15); color: var(--green); }
+    .badge-degraded { background: rgba(210,153,34,0.15); color: var(--yellow); }
+    .badge-alert { background: rgba(248,81,73,0.15); color: var(--red); }
+    .badge::before {
+      content: '';
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .container { max-width: 1400px; margin: 0 auto; padding: 20px 24px; }
+
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    @media (max-width: 900px) {
+      .stats-row { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    .stat-card {
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      padding: 16px;
+    }
+    .stat-card .label {
+      font-size: 0.7rem;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+    }
+    .stat-card .value {
+      font-size: 1.75rem;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .main-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 16px;
+    }
+    @media (max-width: 900px) {
+      .main-grid { grid-template-columns: 1fr; }
+    }
+
+    .panel {
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--card-border);
+      font-size: 0.85rem;
+      font-weight: 600;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    .panel-body { padding: 0; }
+    .panel-body.padded { padding: 16px; }
+
+    .feed-list {
+      list-style: none;
+      max-height: 900px;
+      overflow-y: auto;
+    }
+    .feed-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 10px 16px;
+      border-bottom: 1px solid rgba(42,43,58,0.5);
+      font-size: 0.8rem;
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+    .feed-item:hover { background: rgba(124,58,237,0.05); }
+    .feed-item:last-child { border-bottom: none; }
+    .feed-icon {
+      flex-shrink: 0;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.7rem;
+      margin-top: 1px;
+    }
+    .feed-icon.info { background: rgba(88,166,255,0.15); color: var(--blue); }
+    .feed-icon.error { background: rgba(248,81,73,0.15); color: var(--red); }
+    .feed-icon.critical { background: rgba(248,81,73,0.25); color: var(--red); }
+    .feed-icon.warning { background: rgba(210,153,34,0.15); color: var(--yellow); }
+    .feed-icon.success { background: rgba(63,185,80,0.15); color: var(--green); }
+    .feed-icon.heartbeat { background: rgba(124,58,237,0.15); color: var(--accent); }
+    .feed-icon.security { background: rgba(248,81,73,0.15); color: var(--red); }
+    .feed-time { color: var(--text-muted); font-size: 0.7rem; white-space: nowrap; }
+    .feed-msg { color: var(--text-secondary); word-break: break-word; }
+    .feed-detail { display: none; padding: 8px 16px 8px 48px; font-size: 0.75rem; color: var(--text-muted); background: rgba(0,0,0,0.2); }
+    .feed-item.expanded + .feed-detail { display: block; }
+
+    .sidebar-sections { display: flex; flex-direction: column; gap: 16px; }
+
+    .section-title {
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-secondary);
+      margin-bottom: 8px;
+    }
+
+    .checksum-list { list-style: none; }
+    .checksum-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 0;
+      font-size: 0.75rem;
+      border-bottom: 1px solid rgba(42,43,58,0.3);
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    .checksum-item:last-child { border-bottom: none; }
+    .checksum-file { font-weight: 500; }
+    .checksum-hash { font-family: 'SF Mono', 'Menlo', monospace; font-size: 0.65rem; color: var(--text-muted); }
+    .checksum-ok { color: var(--green); }
+    .checksum-changed { color: var(--red); }
+
+    .queue-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(42,43,58,0.3);
+      font-size: 0.8rem;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    .queue-item:last-child { border-bottom: none; }
+    .queue-item-info { flex: 1; min-width: 0; }
+    .queue-item-name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .queue-item-meta { font-size: 0.7rem; color: var(--text-muted); }
+    .queue-actions { display: flex; gap: 6px; flex-shrink: 0; }
+    .btn-approve { background: var(--green); color: #000; }
+    .btn-approve:hover { opacity: 0.85; }
+    .btn-reject { background: var(--red); color: #fff; }
+    .btn-reject:hover { opacity: 0.85; }
+    .btn-ack { background: var(--accent); color: #fff; }
+    .btn-ack:hover { background: var(--accent-hover); }
+
+    .error-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 0;
+      font-size: 0.8rem;
+      border-bottom: 1px solid rgba(42,43,58,0.3);
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    .error-row:last-child { border-bottom: none; }
+    .error-msg { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); }
+    .error-count {
+      background: rgba(248,81,73,0.15);
+      color: var(--red);
+      font-size: 0.7rem;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+
+    .perf-bars { display: flex; flex-direction: column; gap: 6px; }
+    .perf-bar-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.75rem;
+    }
+    .perf-bar-label { width: 50px; text-align: right; color: var(--text-muted); flex-shrink: 0; }
+    .perf-bar-track {
+      flex: 1;
+      height: 16px;
+      background: rgba(42,43,58,0.5);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .perf-bar-fill {
+      height: 100%;
+      border-radius: 3px;
+      background: var(--accent);
+      transition: width 0.3s;
+    }
+    .perf-bar-value { width: 50px; font-variant-numeric: tabular-nums; color: var(--text-secondary); font-size: 0.7rem; flex-shrink: 0; }
+
+    .alert-item {
+      padding: 6px 0;
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      border-bottom: 1px solid rgba(42,43,58,0.3);
+    }
+    .alert-item:last-child { border-bottom: none; }
+
+    .action-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+    .crawler-auth {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.75rem;
+      width: 100%;
+      margin-top: 8px;
+      padding-top: 10px;
+      border-top: 1px solid var(--card-border);
+    }
+    .crawler-auth-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 0.7rem;
+      font-weight: 500;
+    }
+    .crawler-auth-status.signed-in {
+      background: rgba(63,185,80,0.15);
+      color: var(--green);
+    }
+    .crawler-auth-status.signed-out {
+      background: rgba(248,81,73,0.1);
+      color: var(--text-muted);
+    }
+    .btn-crawler-auth {
+      background: transparent;
+      border: 1px solid var(--card-border);
+      color: var(--text);
+      padding: 6px 14px;
+      font-size: 0.75rem;
+      border-radius: 6px;
+    }
+    .btn-crawler-auth:hover:not(:disabled) {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .btn-crawler-signout {
+      background: transparent;
+      border: 1px solid rgba(248,81,73,0.3);
+      color: var(--red);
+      padding: 4px 10px;
+      font-size: 0.7rem;
+      border-radius: 4px;
+    }
+    .btn-crawler-signout:hover:not(:disabled) {
+      background: rgba(248,81,73,0.1);
+    }
+    .btn-discover {
+      background: var(--accent);
+      color: #fff;
+      padding: 10px 20px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      border-radius: 6px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn-discover:hover:not(:disabled) { background: var(--accent-hover); }
+    .btn-continuous {
+      background: var(--green);
+      color: #000;
+      padding: 10px 20px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      border-radius: 6px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn-continuous:hover:not(:disabled) { opacity: 0.85; }
+    .action-status {
+      font-size: 0.8rem;
+      color: var(--green);
+      display: none;
+      align-items: center;
+      gap: 6px;
+    }
+    .action-cooldown {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      display: none;
+    }
+    .btn-crawl {
+      background: var(--blue);
+      color: #fff;
+      padding: 10px 20px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      border-radius: 6px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn-crawl:hover:not(:disabled) { opacity: 0.85; }
+    .btn-elon {
+      background: linear-gradient(135deg, #f97316, #ef4444);
+      color: #fff;
+      padding: 10px 20px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      border-radius: 6px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn-elon:hover:not(:disabled) { opacity: 0.85; }
+    .elon-panel {
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      margin-bottom: 20px;
+      display: none;
+    }
+    .elon-panel.active { display: block; }
+    .elon-constraint-card {
+      background: rgba(249,115,22,0.08);
+      border: 1px solid rgba(249,115,22,0.2);
+      border-radius: 6px;
+      padding: 12px;
+      margin-bottom: 10px;
+    }
+    .elon-constraint-title { font-weight: 600; color: var(--text); margin-bottom: 4px; }
+    .elon-constraint-why { font-size: 0.78rem; color: var(--text-secondary); margin-bottom: 6px; }
+    .elon-score { display: inline-block; background: var(--red); color: #fff; font-size: 0.7rem; font-weight: 700; padding: 2px 8px; border-radius: 10px; }
+    .elon-score.high { background: var(--red); }
+    .elon-score.medium { background: var(--yellow); color: #000; }
+    .elon-score.low { background: var(--green); color: #000; }
+    .elon-table { width: 100%; font-size: 0.75rem; border-collapse: collapse; }
+    .elon-table th { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--card-border); color: var(--text-muted); font-weight: 500; }
+    .elon-table td { padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,0.03); color: var(--text-secondary); }
+    .elon-table tr:last-child td { border-bottom: none; }
+    .btn-spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    .btn-continuous .btn-spinner {
+      border: 2px solid rgba(0,0,0,0.3);
+      border-top-color: #000;
+    }
+
+    .crawl-results {
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      margin-bottom: 20px;
+      display: none;
+    }
+    .crawl-results.active { display: block; }
+    .crawl-results-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--card-border);
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+    .crawl-results-body {
+      max-height: 400px;
+      overflow-y: auto;
+      padding: 8px 0;
+    }
+    .crawl-error-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 8px 16px;
+      border-bottom: 1px solid rgba(42,43,58,0.3);
+      font-size: 0.8rem;
+    }
+    .crawl-error-item:last-child { border-bottom: none; }
+    .crawl-severity {
+      font-size: 0.65rem;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 10px;
+      text-transform: uppercase;
+      flex-shrink: 0;
+    }
+    .crawl-severity.high { background: rgba(248,81,73,0.15); color: var(--red); }
+    .crawl-severity.medium { background: rgba(210,153,34,0.15); color: var(--yellow); }
+    .crawl-severity.low { background: rgba(88,166,255,0.15); color: var(--blue); }
+    .crawl-error-info { flex: 1; min-width: 0; }
+    .crawl-error-type { font-weight: 500; color: var(--text); margin-bottom: 2px; }
+    .crawl-error-msg { color: var(--text-secondary); word-break: break-word; }
+    .crawl-error-url { font-size: 0.7rem; color: var(--text-muted); margin-top: 2px; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+    .feed-cost {
+      margin-left: auto;
+      flex-shrink: 0;
+      font-family: 'SF Mono', 'Menlo', monospace;
+      font-size: 0.72rem;
+      padding: 1px 6px;
+      border-radius: 3px;
+    }
+    .feed-cost.deduction {
+      color: var(--yellow);
+      background: rgba(210,153,11,0.1);
+    }
+    .feed-cost.budget {
+      color: #2ee66a;
+      background: rgba(46,230,106,0.18);
+      font-weight: 600;
+    }
+    .feed-cost.budget-exhausted {
+      color: var(--red);
+      background: rgba(248,81,73,0.12);
+    }
+
+    .footer {
+      text-align: center;
+      padding: 24px;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      border-top: 1px solid var(--card-border);
+      margin-top: 24px;
+    }
+
+    .empty { color: var(--text-muted); font-size: 0.8rem; padding: 16px 0; text-align: center; }
+
+    .refresh-indicator {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .spinner {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border: 2px solid var(--text-muted);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .btn-stop-all { background: var(--red); color: #fff; }
+    .btn-stop-all:hover { background: #da3633; }
+    .btn-stop { background: transparent; color: var(--red); border: 1px solid var(--red); padding: 4px 8px; font-size: 0.7rem; margin-left: -8px; }
+    .btn-stop:hover { background: rgba(248,81,73,0.15); }
+
+    .auth-lost-alert {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 16px;
+      margin-bottom: 16px;
+      background: rgba(210,153,34,0.12);
+      border: 1px solid rgba(210,153,34,0.3);
+      border-radius: 8px;
+      font-size: 0.8rem;
+      color: var(--yellow);
+    }
+    .auth-lost-icon { font-size: 1.1rem; }
+    .auth-lost-msg { flex: 1; }
+
+    .elon-progress-section {
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      margin-bottom: 20px;
+      overflow: hidden;
+    }
+    .elon-progress-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--card-border);
+      font-size: 0.9rem;
+    }
+    .elon-status-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-right: 8px;
+      background: var(--text-muted);
+    }
+    .elon-status-dot.running {
+      background: var(--green);
+      animation: pulse-dot 1.5s infinite;
+    }
+    .elon-status-dot.complete { background: var(--green); }
+    .elon-status-dot.error { background: var(--red); }
+    .elon-phase {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-left: 8px;
+      text-transform: capitalize;
+    }
+    .elon-meta {
+      display: flex;
+      gap: 16px;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+    .elon-progress-bar-container {
+      height: 3px;
+      background: var(--bg);
+    }
+    .elon-progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, var(--blue), var(--green));
+      transition: width 0.5s ease;
+      width: 0%;
+    }
+    .elon-steps {
+      max-height: 400px;
+      overflow-y: auto;
+      padding: 8px 0;
+    }
+    .elon-step {
+      display: flex;
+      align-items: flex-start;
+      padding: 8px 18px;
+      gap: 12px;
+      font-size: 0.82rem;
+      border-left: 3px solid transparent;
+      transition: background 0.2s;
+    }
+    .elon-step:hover {
+      background: rgba(255,255,255,0.03);
+    }
+    .elon-step.thinking {
+      border-left-color: var(--blue);
+    }
+    .elon-step.success {
+      border-left-color: var(--green);
+    }
+    .elon-step.error {
+      border-left-color: var(--red);
+    }
+    .elon-step.warning {
+      border-left-color: var(--yellow);
+    }
+    .elon-step-icon {
+      flex-shrink: 0;
+      width: 20px;
+      height: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.7rem;
+      border-radius: 50%;
+      margin-top: 1px;
+    }
+    .elon-step.thinking .elon-step-icon {
+      color: var(--blue);
+      animation: spin 1.5s linear infinite;
+    }
+    .elon-step.success .elon-step-icon { color: var(--green); }
+    .elon-step.error .elon-step-icon { color: var(--red); }
+    .elon-step.warning .elon-step-icon { color: var(--yellow); }
+    .elon-step.info .elon-step-icon { color: var(--text-muted); }
+    .elon-step-content {
+      flex: 1;
+      min-width: 0;
+    }
+    .elon-step-msg {
+      line-height: 1.4;
+    }
+    .elon-step-time {
+      font-size: 0.65rem;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+    .elon-step-detail {
+      margin-top: 6px;
+      padding: 8px 10px;
+      background: rgba(0,0,0,0.2);
+      border-radius: 6px;
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      font-family: 'SF Mono', 'Menlo', monospace;
+      white-space: pre-wrap;
+      word-break: break-word;
+      display: none;
+    }
+    .elon-step-detail.open { display: block; }
+    .elon-step-toggle {
+      font-size: 0.65rem;
+      color: var(--blue);
+      cursor: pointer;
+      margin-top: 4px;
+      user-select: none;
+    }
+    .elon-step-toggle:hover { text-decoration: underline; }
+    .elon-step-empty {
+      padding: 30px 18px;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.82rem;
+    }
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+    .elon-settings-btn {
+      cursor: pointer;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-left: 10px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      transition: color 0.2s, background 0.2s;
+    }
+    .elon-settings-btn:hover {
+      color: var(--text);
+      background: rgba(255,255,255,0.08);
+    }
+    .elon-settings-drawer {
+      border-bottom: 1px solid var(--card-border);
+      background: rgba(0,0,0,0.15);
+    }
+    .elon-settings-inner {
+      padding: 14px 18px;
+    }
+    .elon-settings-title {
+      font-size: 0.8rem;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .elon-settings-desc {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+      line-height: 1.5;
+    }
+    .elon-settings-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 8px;
+    }
+    .elon-setting-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-size: 0.78rem;
+    }
+    .elon-setting-label {
+      display: flex;
+      flex-direction: column;
+    }
+    .elon-setting-name {
+      font-weight: 500;
+    }
+    .elon-setting-keywords {
+      font-size: 0.6rem;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+    .elon-toggle {
+      position: relative;
+      width: 36px;
+      height: 20px;
+      flex-shrink: 0;
+    }
+    .elon-toggle input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    .elon-toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(255,255,255,0.15);
+      border-radius: 20px;
+      transition: 0.3s;
+    }
+    .elon-toggle-slider:before {
+      position: absolute;
+      content: "";
+      height: 14px;
+      width: 14px;
+      left: 3px;
+      bottom: 3px;
+      background: white;
+      border-radius: 50%;
+      transition: 0.3s;
+    }
+    .elon-toggle input:checked + .elon-toggle-slider {
+      background: var(--green);
+    }
+    .elon-toggle input:checked + .elon-toggle-slider:before {
+      transform: translateX(16px);
+    }
+    .elon-setting-loading {
+      grid-column: 1 / -1;
+      text-align: center;
+      color: var(--text-muted);
+      padding: 12px;
+      font-size: 0.78rem;
+    }
+    .elon-pending-section {
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      margin-bottom: 20px;
+      overflow: hidden;
+    }
+    .elon-pending-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 18px;
+      border-bottom: 1px solid var(--card-border);
+      font-size: 0.85rem;
+    }
+    .elon-pending-count {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 20px;
+      height: 20px;
+      background: rgba(248,81,73,0.15);
+      color: var(--red);
+      font-size: 0.7rem;
+      font-weight: 600;
+      border-radius: 10px;
+      padding: 0 6px;
+      margin-left: 8px;
+    }
+    .elon-pending-list {
+      max-height: 400px;
+      overflow-y: auto;
+      padding: 4px 0;
+    }
+    .elon-pending-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 10px 18px;
+      border-bottom: 1px solid rgba(42,43,58,0.3);
+      font-size: 0.8rem;
+    }
+    .elon-pending-item:last-child { border-bottom: none; }
+    .elon-pending-info {
+      flex: 1;
+      min-width: 0;
+    }
+    .elon-pending-desc {
+      font-weight: 500;
+      margin-bottom: 2px;
+      word-break: break-word;
+    }
+    .elon-pending-meta {
+      font-size: 0.68rem;
+      color: var(--text-muted);
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 2px;
+    }
+    .elon-pending-cat {
+      display: inline-block;
+      background: rgba(248,81,73,0.12);
+      color: var(--red);
+      font-size: 0.6rem;
+      font-weight: 600;
+      padding: 1px 6px;
+      border-radius: 8px;
+      text-transform: uppercase;
+    }
+    .elon-pending-file {
+      font-family: 'SF Mono', 'Menlo', monospace;
+      font-size: 0.65rem;
+      color: var(--text-muted);
+    }
+    .elon-pending-actions {
+      display: flex;
+      gap: 6px;
+      flex-shrink: 0;
+      align-items: center;
+    }
+    .elon-pending-item .elon-pending-actions button {
+      padding: 4px 10px;
+      font-size: 0.7rem;
+      border-radius: 4px;
+    }
+    .btn-approve-all {
+      background: var(--green);
+      color: #000;
+      font-size: 0.72rem;
+      padding: 5px 12px;
+      border-radius: 4px;
+    }
+    .btn-approve-all:hover { opacity: 0.85; }
+    .btn-spec-approve { background: var(--green); color: #000; }
+    .btn-spec-approve:hover { opacity: 0.85; }
+    .btn-spec-reject { background: transparent; color: var(--red); border: 1px solid var(--red); }
+    .btn-spec-reject:hover { background: rgba(248,81,73,0.15); }
+    .elon-pending-detail {
+      margin-top: 6px;
+      padding: 6px 8px;
+      background: rgba(0,0,0,0.2);
+      border-radius: 4px;
+      font-size: 0.68rem;
+      color: var(--text-muted);
+      font-family: 'SF Mono', 'Menlo', monospace;
+      display: none;
+    }
+    .elon-pending-detail.open { display: block; }
+    .elon-pending-toggle {
+      font-size: 0.62rem;
+      color: var(--blue);
+      cursor: pointer;
+      margin-top: 3px;
+      user-select: none;
+    }
+    .elon-pending-toggle:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="topbar-left">
+      <h1 id="agent-name">Sneebly</h1>
+      <span id="status-badge" class="badge badge-healthy" title="System health based on recent error count"></span>
+    </div>
+    <div class="topbar-right">
+      <span id="last-heartbeat">Last heartbeat: --</span>
+      <span class="refresh-indicator"><span class="spinner" id="refresh-spinner" style="display:none"></span><span id="refresh-text">Auto-refresh: 30s</span></span>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="action-bar">
+      <button class="btn-discover" id="btn-discover" onclick="runDiscovery()">
+        Run Discovery
+      </button>
+      <button class="btn-stop" id="btn-stop-discover" onclick="stopDiscovery()" style="display:none" title="Stop discovery">&#9632; Stop</button>
+      <button class="btn-continuous" id="btn-continuous" onclick="runContinuous()" title="Runs ELON continuously until all critical, high, and medium priority issues are resolved">
+        ELON Continuous
+      </button>
+      <button class="btn-stop" id="btn-stop-continuous" onclick="stopContinuous()" style="display:none" title="Stop continuous loop">&#9632; Stop</button>
+      <button class="btn-crawl" id="btn-crawl" onclick="runCrawl()">
+        Crawl Site
+      </button>
+      <button class="btn-elon" id="btn-elon" onclick="runElon()" title="Runs a single ELON cycle (discover top constraints and generate fix specs)">
+        Run ELON
+      </button>
+      <button class="btn-stop" id="btn-stop-elon" onclick="stopElon()" style="display:none" title="Stop ELON">&#9632; Stop</button>
+      <button style="background:linear-gradient(135deg,#e040fb,#7c4dff);color:#fff;border:none;border-radius:6px;padding:6px 14px;cursor:pointer;font-size:13px;font-weight:600" id="btn-fix-all" onclick="runFixAll()" title="Autonomously fix ALL critical, high, and medium issues">
+        Fix All Issues
+      </button>
+      <button style="background:#484f58;color:#8b949e;border:1px solid #30363d;border-radius:6px;padding:6px 10px;cursor:pointer;font-size:12px" id="btn-reset-elon" onclick="resetElon()" title="Clear all ELON constraint history and start fresh">
+        Reset
+      </button>
+      <button class="btn-stop-all" id="btn-stop-all" onclick="stopAll()" style="background:#f85149;color:#fff;display:none">
+        ■ Stop All
+      </button>
+      <span class="action-status" id="action-status"></span>
+      <span class="action-cooldown" id="action-cooldown"></span>
+      <div class="crawler-auth" id="crawler-auth-section">
+        <span class="crawler-auth-status signed-out" id="crawler-auth-status">&#128274; Not signed in</span>
+        <button class="btn-crawler-auth" id="btn-crawler-login" onclick="openCrawlerLogin()" title="Sign in so ELON can crawl protected pages as an authenticated user">Sign In for ELON</button>
+        <button class="btn-crawler-signout" id="btn-crawler-signout" onclick="clearCrawlerSession()" style="display:none" title="Remove stored session">Sign Out</button>
+      </div>
+    </div>
+
+    <div class="auth-lost-alert" id="auth-lost-alert" style="display:none">
+      <span class="auth-lost-icon">&#9888;</span>
+      <span class="auth-lost-msg">Frontend session expired — ELON is continuing with backend-only analysis.</span>
+      <button class="btn-crawler-auth" onclick="openCrawlerLogin()" style="margin-left:8px;font-size:0.72rem">Sign In to Resume Full Crawling</button>
+      <button class="btn-dismiss-alert" onclick="document.getElementById('auth-lost-alert').style.display='none'" style="margin-left:auto;background:transparent;color:var(--text-muted);font-size:0.8rem;padding:4px 8px" title="Dismiss">&#10005;</button>
+    </div>
+
+    <div class="crawl-results" id="crawl-results">
+      <div class="crawl-results-header">
+        <span>Crawl Results</span>
+        <span style="font-weight:400;color:var(--text-muted);font-size:0.7rem" id="crawl-summary">--</span>
+      </div>
+      <div class="crawl-results-body" id="crawl-results-body">
+        <div class="empty">No crawl results yet</div>
+      </div>
+    </div>
+
+    <div class="crawl-results" id="integration-health-panel" style="margin-top:8px">
+      <div class="crawl-results-header" style="display:flex;justify-content:space-between;align-items:center">
+        <span>Integration Health</span>
+        <div style="display:flex;gap:6px;align-items:center">
+          <span style="font-weight:400;font-size:0.7rem" id="health-overall">--</span>
+          <button class="btn-action" onclick="refreshIntegrationHealth()" style="font-size:0.65rem;padding:2px 8px">Refresh</button>
+        </div>
+      </div>
+      <div id="health-body" style="padding:8px;font-size:0.75rem">
+        <div class="empty">No health check data yet</div>
+      </div>
+    </div>
+
+    <div class="crawl-results" id="scenario-panel" style="margin-top:8px">
+      <div class="crawl-results-header" style="display:flex;justify-content:space-between;align-items:center">
+        <span>Scenario Tests</span>
+        <div style="display:flex;gap:6px;align-items:center">
+          <span style="font-weight:400;font-size:0.7rem" id="scenario-summary">--</span>
+          <button class="btn-action" onclick="runScenarioTests()" style="font-size:0.65rem;padding:2px 8px">Run Tests</button>
+        </div>
+      </div>
+      <div id="scenario-body" style="padding:8px;font-size:0.75rem">
+        <div class="empty">No scenario test results yet</div>
+      </div>
+    </div>
+
+    <div class="crawl-results" id="regression-panel" style="margin-top:8px">
+      <div class="crawl-results-header" style="display:flex;justify-content:space-between;align-items:center">
+        <span>Regression Tracker</span>
+        <span style="font-weight:400;font-size:0.7rem" id="regression-summary">--</span>
+      </div>
+      <div id="regression-body" style="padding:8px;font-size:0.75rem">
+        <div class="empty">No regression data yet</div>
+      </div>
+    </div>
+
+    <div class="crawl-results" id="dev-mode-panel" style="margin-top:8px">
+      <div class="crawl-results-header" style="display:flex;justify-content:space-between;align-items:center">
+        <span>Dev / Test Mode</span>
+        <div style="display:flex;gap:6px;align-items:center">
+          <span style="font-weight:400;font-size:0.7rem" id="dev-mode-status">--</span>
+          <button class="btn-action" id="dev-mode-toggle" onclick="toggleDevMode()" style="font-size:0.65rem;padding:2px 8px">Enable</button>
+        </div>
+      </div>
+      <div id="dev-mode-body" style="padding:6px 8px;font-size:0.72rem;color:var(--text-muted)">
+        Enable dev mode for test fixture creation. Auto-warns if left on &gt;24 hours.
+      </div>
+    </div>
+
+    <div class="elon-panel" id="elon-panel">
+      <div class="panel-header" style="display:flex;justify-content:space-between;align-items:center">
+        <span>ELON Strategic Constraint Solver</span>
+        <span style="font-weight:400;color:var(--text-muted);font-size:0.7rem" id="elon-summary">--</span>
+      </div>
+      <div id="elon-constraint" style="padding:12px">
+        <div class="empty">No active constraint. Click "Run ELON" to start.</div>
+      </div>
+      <div id="elon-leaderboard" style="padding:0 12px 12px">
+      </div>
+      <div id="elon-cycles" style="padding:0 12px 12px">
+      </div>
+    </div>
+
+    <div class="elon-progress-section" id="elon-progress-section">
+      <div class="elon-progress-header">
+        <div>
+          <span class="elon-status-dot" id="elon-status-dot"></span>
+          <strong>ELON Progress</strong>
+          <span class="elon-phase" id="elon-phase">Idle</span>
+          <span class="elon-settings-btn" id="elon-settings-btn" onclick="toggleElonSettings()" title="Auto-approve settings">⚙</span>
+        </div>
+        <div class="elon-meta">
+          <span id="elon-cycle-info"></span>
+          <span id="elon-budget-info"></span>
+        </div>
+      </div>
+      <div class="elon-settings-drawer" id="elon-settings-drawer" style="display:none">
+        <div class="elon-settings-inner">
+          <div class="elon-settings-title">Auto-Approve Settings</div>
+          <div class="elon-settings-desc">Toggle categories ON to let ELON auto-approve and execute fixes without your review. Categories set to OFF will require manual approval.</div>
+          <div class="elon-settings-grid" id="elon-settings-grid">
+            <div class="elon-setting-loading">Loading settings...</div>
+          </div>
+        </div>
+      </div>
+      <div class="elon-progress-bar-container" id="elon-progress-bar-container" style="display:none">
+        <div class="elon-progress-bar" id="elon-progress-bar"></div>
+      </div>
+      <div class="elon-steps" id="elon-steps">
+        <div class="elon-step-empty">Run ELON to see thinking process here...</div>
+      </div>
+    </div>
+
+    <div class="elon-pending-section" id="elon-pending-section" style="display:none">
+      <div class="elon-pending-header">
+        <div>
+          <strong>Pending Specs</strong>
+          <span class="elon-pending-count" id="elon-pending-count">0</span>
+        </div>
+        <div class="elon-pending-actions">
+          <button class="btn-approve-all" id="btn-approve-all" onclick="approveAllElonSpecs()">✓ Approve All</button>
+        </div>
+      </div>
+      <div class="elon-pending-list" id="elon-pending-list">
+        <div class="elon-step-empty">No pending specs</div>
+      </div>
+    </div>
+
+    <div class="elon-pending-section" id="elon-execute-section" style="display:none">
+      <div class="elon-pending-header">
+        <div>
+          <strong>Approved Specs Queue</strong>
+          <span class="elon-pending-count" id="elon-approved-count">0</span>
+        </div>
+        <div class="elon-pending-actions">
+          <span id="btn-execute-approved" style="font-size:0.72rem;color:var(--text-muted)">auto-executes on approval</span>
+        </div>
+      </div>
+      <div id="elon-execution-status" style="padding:8px 12px;font-size:0.78rem;color:var(--text-muted);display:none"></div>
+    </div>
+
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="label">Fixes Applied</div>
+        <div class="value" id="stat-fixes">--</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Errors Today</div>
+        <div class="value" id="stat-errors" style="color: var(--text)">--</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">p95 Response</div>
+        <div class="value" id="stat-p95">--</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Heartbeats</div>
+        <div class="value" id="stat-heartbeats">--</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Security Alerts</div>
+        <div class="value" id="stat-security" style="color: var(--text)">--</div>
+      </div>
+    </div>
+
+    <div class="main-grid">
+      <div class="panel">
+        <div class="panel-header">
+          <span><span style="width:8px;height:8px;border-radius:50%;background:var(--green);animation:pulse 1.5s ease-in-out infinite;margin-right:8px;display:inline-block"></span>Activity Feed</span>
+          <span style="display:flex;align-items:center;gap:12px">
+            <span id="budget-tracker" style="font-family:'SF Mono','Menlo',monospace;font-size:0.72rem;font-weight:600;display:none"></span>
+            <span style="font-weight:400;color:var(--text-muted);font-size:0.7rem" id="feed-count">0 entries &middot; auto-refresh 5s</span>
+          </span>
+        </div>
+        <div class="panel-body">
+          <ul class="feed-list" id="feed-list">
+            <li class="empty">Loading...</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="sidebar-sections">
+        <div class="panel">
+          <div class="panel-header">
+            <span>Security Status</span>
+            <button class="btn-ack" id="btn-acknowledge" style="display:none" onclick="acknowledgeSecurity()">Acknowledge Changes</button>
+          </div>
+          <div class="panel-body padded">
+            <ul class="checksum-list" id="checksum-list">
+              <li class="empty">Loading...</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">Upcoming Tasks</div>
+          <div class="panel-body padded">
+            <div id="queue-list" style="max-height:200px;overflow-y:auto"><div class="empty">Loading...</div></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">Security Alerts</div>
+          <div class="panel-body padded">
+            <div id="alerts-list"><div class="empty">Loading...</div></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">Performance</div>
+          <div class="panel-body padded">
+            <div class="perf-bars" id="perf-bars">
+              <div class="empty">Loading...</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    Edit identity files (SOUL.md, AGENTS.md, etc.) in the Replit editor &mdash; <a href="#">View in Replit Editor</a>
+    <br>Sneebly v0.3.1
+  </div>
+
+  <script>
+    const API_BASE = window.location.pathname.replace(/\/dashboard\/?$/, '/api');
+    const AUTH_KEY = new URLSearchParams(window.location.search).get('key') || '';
+
+    function apiHeaders() {
+      const h = { 'Content-Type': 'application/json' };
+      if (AUTH_KEY) h['X-Sneebly-Key'] = AUTH_KEY;
+      return h;
+    }
+
+    async function apiFetch(endpoint, opts = {}) {
+      const url = API_BASE + endpoint + (endpoint.includes('?') ? '&' : '?') + 'key=' + encodeURIComponent(AUTH_KEY);
+      const res = await fetch(url, { headers: apiHeaders(), ...opts });
+      if (!res.ok) throw new Error(`API ${res.status}`);
+      return res.json();
+    }
+
+    function esc(s) {
+      const d = document.createElement('div');
+      d.textContent = s || '';
+      return d.innerHTML;
+    }
+
+    const ICONS = {
+      info: 'i',
+      error: '!',
+      critical: '!!',
+      warning: '?',
+      success: '+',
+      heartbeat: '~',
+      security: '#',
+    };
+
+    async function loadStatus() {
+      try {
+        const data = await apiFetch('/status');
+        document.getElementById('agent-name').textContent = data.agentName || 'Sneebly';
+
+        const badge = document.getElementById('status-badge');
+        const statusVal = data.status || 'healthy';
+        badge.className = 'badge badge-' + statusVal;
+        const statusLabels = {
+          healthy: 'Healthy',
+          degraded: 'Issues Found',
+          alert: 'Alert',
+        };
+        const statusTips = {
+          healthy: 'All systems operating normally',
+          degraded: 'ELON found unresolved issues — review the constraint list below',
+          alert: 'Critical issue detected — immediate attention needed',
+        };
+        badge.textContent = statusLabels[statusVal] || statusVal.charAt(0).toUpperCase() + statusVal.slice(1);
+        badge.title = statusTips[statusVal] || '';
+
+        if (data.lastHeartbeat) {
+          document.getElementById('last-heartbeat').textContent = 'Last heartbeat: ' + new Date(data.lastHeartbeat).toLocaleString();
+        }
+
+        const s = data.stats || {};
+        document.getElementById('stat-fixes').textContent = s.fixesApplied || 0;
+
+        const errEl = document.getElementById('stat-errors');
+        errEl.textContent = s.errorsToday || 0;
+        errEl.style.color = (s.errorsToday > 0) ? 'var(--yellow)' : 'var(--green)';
+
+        document.getElementById('stat-p95').textContent = (s.p95 || 0) + 'ms';
+        document.getElementById('stat-heartbeats').textContent = s.heartbeatsCompleted || 0;
+
+        const secEl = document.getElementById('stat-security');
+        secEl.textContent = s.securityAlerts || 0;
+        secEl.style.color = (s.securityAlerts > 0) ? 'var(--red)' : 'var(--green)';
+      } catch {}
+    }
+
+    let elonBudget = null;
+    let elonSpent = 0;
+    let progressBudgetMax = null;
+    let progressBudgetSpent = null;
+
+    function updateBudgetTracker() {
+      const tracker = document.getElementById('budget-tracker');
+      const totalBudget = progressBudgetMax || elonBudget;
+      const spent = progressBudgetSpent !== null ? progressBudgetSpent : elonSpent;
+      if (totalBudget !== null && totalBudget > 0) {
+        const remaining = Math.max(0, totalBudget - spent).toFixed(2);
+        const exhausted = spent >= totalBudget;
+        const remColor = exhausted ? 'var(--red)' : '#2ee66a';
+        tracker.style.display = 'inline-flex';
+        tracker.style.alignItems = 'center';
+        tracker.style.gap = '0';
+        tracker.style.padding = '0';
+        tracker.style.background = 'none';
+        tracker.innerHTML =
+          '<span style="color:#2ee66a;background:rgba(46,230,106,0.12);padding:2px 8px;border-radius:4px 0 0 4px">$' + totalBudget.toFixed(2) + '</span>' +
+          '<span style="color:' + remColor + ';background:' + (exhausted ? 'rgba(248,81,73,0.12)' : 'rgba(46,230,106,0.08)') + ';padding:2px 8px;border-radius:0 4px 4px 0;border-left:1px solid rgba(255,255,255,0.1)">Remaining: $' + remaining + '</span>';
+      } else {
+        tracker.style.display = 'none';
+      }
+    }
+
+    function extractCost(message) {
+      if (!message) return null;
+      const match = message.match(/\$(\d+\.?\d*)/);
+      if (!match) return null;
+      const amount = parseFloat(match[1]);
+      const isBudget = /budget/i.test(message) || /ELON starting/i.test(message);
+      if (isBudget) {
+        elonBudget = amount;
+        elonSpent = 0;
+        return { text: match[0], type: 'budget' };
+      }
+      elonSpent += amount;
+      const exhausted = elonBudget !== null && elonSpent >= elonBudget;
+      return { text: match[0], type: exhausted ? 'budget-exhausted' : 'deduction' };
+    }
+
+    async function loadFeed() {
+      try {
+        const [liveData, feedData] = await Promise.all([
+          apiFetch('/live-activity?limit=50').catch(() => ({ activity: [] })),
+          apiFetch('/feed?limit=50').catch(() => ({ feed: [] })),
+        ]);
+        const list = document.getElementById('feed-list');
+
+        const liveItems = (liveData.activity || []).map(item => ({
+          timestamp: item.timestamp,
+          message: item.message,
+          type: item.type || 'info',
+        }));
+
+        const feedItems = (feedData.feed || []).map(item => ({
+          timestamp: item.timestamp,
+          message: item.message,
+          type: item.type || 'info',
+        }));
+
+        const seen = new Set();
+        const merged = [...liveItems, ...feedItems].filter(item => {
+          const key = (item.message || '').substring(0, 80) + '|' + (item.timestamp || '').substring(0, 19);
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+
+        merged.sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
+        const display = merged.slice(0, 80);
+
+        document.getElementById('feed-count').textContent = display.length + ' entries \u00b7 auto-refresh 5s';
+
+        if (display.length === 0) {
+          list.innerHTML = '<li class="empty">No activity yet</li>';
+          return;
+        }
+
+        elonBudget = null;
+        elonSpent = 0;
+        const chronological = [...display].reverse();
+        const costMap = [];
+        let budgetIdx = -1;
+        chronological.forEach((item, ci) => {
+          const c = extractCost(item.message);
+          costMap.push(c);
+          if (c && c.type === 'budget') budgetIdx = ci;
+        });
+        if (budgetIdx >= 0 && elonBudget !== null && elonSpent >= elonBudget) {
+          costMap[budgetIdx] = { text: costMap[budgetIdx].text, type: 'budget-exhausted' };
+        }
+        costMap.reverse();
+
+        updateBudgetTracker();
+
+        list.innerHTML = display.map((item, i) => {
+          const type = item.type || 'info';
+          const icon = ICONS[type] || 'i';
+          const time = item.timestamp ? new Date(item.timestamp).toLocaleTimeString() : '';
+          const cost = costMap[i];
+          const badge = cost
+            ? '<span class="feed-cost ' + cost.type + '">' + esc(cost.text) + '</span>'
+            : '';
+          return '<li class="feed-item" data-idx="' + i + '" onclick="this.classList.toggle(\'expanded\')">' +
+            '<span class="feed-icon ' + type + '">' + icon + '</span>' +
+            '<span class="feed-msg">' + esc(item.message) + '</span>' +
+            badge +
+            '<span class="feed-time">' + esc(time) + '</span>' +
+            '</li>';
+        }).join('');
+      } catch {}
+    }
+
+    async function loadSecurity() {
+      try {
+        const data = await apiFetch('/security');
+        const list = document.getElementById('checksum-list');
+        const checksums = data.checksums || {};
+        const changes = data.changes || [];
+        const changedFiles = changes.map(c => c.file);
+
+        const ackBtn = document.getElementById('btn-acknowledge');
+        ackBtn.style.display = changes.length > 0 ? 'inline-block' : 'none';
+
+        if (Object.keys(checksums).length === 0) {
+          list.innerHTML = '<li class="empty">No identity files tracked</li>';
+          return;
+        }
+
+        list.innerHTML = Object.entries(checksums).map(([file, hash]) => {
+          const changed = changedFiles.includes(file);
+          return '<li class="checksum-item">' +
+            '<span class="checksum-file">' + esc(file) + '</span>' +
+            '<span class="checksum-hash ' + (changed ? 'checksum-changed' : 'checksum-ok') + '">' +
+            (changed ? 'MODIFIED' : esc(hash.slice(0, 12) + '...')) +
+            '</span></li>';
+        }).join('');
+
+        const alertsList = document.getElementById('alerts-list');
+        const alerts = data.alerts || [];
+        const blocked = data.blockedActions || [];
+
+        if (alerts.length === 0 && blocked.length === 0) {
+          alertsList.innerHTML = '<div class="empty">No security alerts</div>';
+        } else {
+          let html = '';
+          alerts.forEach(a => {
+            html += '<div class="alert-item">Injection pattern detected in ' + esc(a.file) + ' (' + a.patternCount + ' patterns)</div>';
+          });
+          blocked.forEach(b => {
+            html += '<div class="alert-item">Blocked: ' + esc(b.action) + (b.reasons.length ? ' - ' + esc(b.reasons.join(', ')) : '') + '</div>';
+          });
+          alertsList.innerHTML = html;
+        }
+      } catch {}
+    }
+
+    async function loadQueue() {
+      try {
+        const [queueData, elonPending] = await Promise.all([
+          apiFetch('/queue').catch(() => ({ pending: [], approved: [] })),
+          apiFetch('/elon/pending').catch(() => ({ specs: [] })),
+        ]);
+        const container = document.getElementById('queue-list');
+        const qPending = queueData.pending || [];
+        const qApproved = queueData.approved || [];
+        const ePending = elonPending.specs || [];
+
+        const tasks = [
+          ...qApproved.map(s => ({
+            name: s.title || s.action || s.filename || s.id,
+            cost: s.estimatedCost || '~$0.02',
+            score: s.constraint?.score || s.score || 0,
+            source: 'approved',
+          })),
+          ...ePending.map(s => ({
+            name: s.title || s.action || s.filename || s.id,
+            cost: '~$0.02',
+            score: s.constraint?.score || s.score || 0,
+            source: 'pending',
+          })),
+          ...qPending.map(item => ({
+            name: item.title || item.action || item.id,
+            cost: item.estimatedCost || '~$0.02',
+            score: 0,
+            source: 'pending',
+          })),
+        ].sort((a, b) => b.score - a.score);
+
+        if (tasks.length === 0) {
+          container.innerHTML = '<div class="empty">No upcoming tasks</div>';
+          return;
+        }
+
+        container.innerHTML = tasks.map(t => {
+          const badge = t.source === 'pending'
+            ? '<span style="font-size:0.65rem;color:var(--yellow);background:rgba(210,153,11,0.12);padding:1px 5px;border-radius:3px;margin-left:6px">pending</span>'
+            : '<span style="font-size:0.65rem;color:#2ee66a;background:rgba(46,230,106,0.12);padding:1px 5px;border-radius:3px;margin-left:6px">queued</span>';
+          return '<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid rgba(42,43,58,0.3);font-size:0.78rem">' +
+            '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:70%">' + esc(t.name) + badge + '</span>' +
+            '<span style="font-family:\'SF Mono\',monospace;font-size:0.7rem;color:var(--yellow);flex-shrink:0">' + esc(t.cost) + '</span>' +
+            '</div>';
+        }).join('');
+      } catch {}
+    }
+
+    async function loadMetrics() {
+      try {
+        const data = await apiFetch('/metrics');
+        const container = document.getElementById('perf-bars');
+        const current = data.current || {};
+
+        const bars = [
+          { label: 'p50', value: current.p50 || 0 },
+          { label: 'p95', value: current.p95 || 0 },
+          { label: 'p99', value: current.p99 || 0 },
+        ];
+
+        const maxVal = Math.max(...bars.map(b => b.value), 1);
+
+        container.innerHTML = bars.map(b => {
+          const pct = Math.min((b.value / maxVal) * 100, 100);
+          return '<div class="perf-bar-row">' +
+            '<span class="perf-bar-label">' + b.label + '</span>' +
+            '<div class="perf-bar-track"><div class="perf-bar-fill" style="width:' + pct + '%"></div></div>' +
+            '<span class="perf-bar-value">' + b.value + 'ms</span>' +
+            '</div>';
+        }).join('');
+
+        if (current.errorRate !== undefined) {
+          container.innerHTML += '<div class="perf-bar-row">' +
+            '<span class="perf-bar-label">Err%</span>' +
+            '<div class="perf-bar-track"><div class="perf-bar-fill" style="width:' + Math.min(parseFloat(current.errorRate), 100) + '%;background:var(--red)"></div></div>' +
+            '<span class="perf-bar-value">' + current.errorRate + '%</span></div>';
+        }
+      } catch {}
+    }
+
+    async function approveItem(id) {
+      try {
+        await apiFetch('/queue/' + id + '/approve', { method: 'POST' });
+        loadQueue();
+      } catch (e) {
+        alert('Failed to approve: ' + e.message);
+      }
+    }
+
+    async function rejectItem(id) {
+      try {
+        await apiFetch('/queue/' + id + '/reject', { method: 'POST' });
+        loadQueue();
+      } catch (e) {
+        alert('Failed to reject: ' + e.message);
+      }
+    }
+
+    async function acknowledgeSecurity() {
+      try {
+        await apiFetch('/security/acknowledge', { method: 'POST' });
+        loadSecurity();
+        loadStatus();
+      } catch (e) {
+        alert('Failed to acknowledge: ' + e.message);
+      }
+    }
+
+    async function refreshAll() {
+      const spinner = document.getElementById('refresh-spinner');
+      spinner.style.display = 'inline-block';
+      await Promise.all([
+        loadStatus(),
+        loadFeed(),
+        loadSecurity(),
+        loadQueue(),
+        loadMetrics(),
+        loadCrawlerAuthStatus(),
+      ]);
+      spinner.style.display = 'none';
+    }
+
+    let liveLogInterval = null;
+    let lastFeedCount = 0;
+
+    async function runDiscovery() {
+      const btn = document.getElementById('btn-discover');
+      const status = document.getElementById('action-status');
+      const cooldown = document.getElementById('action-cooldown');
+
+      btn.disabled = true;
+      btn.innerHTML = '<span class="btn-spinner"></span> Running...';
+      document.getElementById('btn-stop-all').style.display = 'inline-block';
+
+      try {
+        await apiFetch('/discover', { method: 'POST' });
+        status.style.display = 'inline-flex';
+        status.textContent = 'Discovery started — refresh in 30s to see results';
+        showLiveLog();
+      } catch (e) {
+        status.style.display = 'inline-flex';
+        status.style.color = 'var(--red)';
+        status.textContent = 'Failed: ' + e.message;
+      }
+
+      let remaining = 60;
+      cooldown.style.display = 'inline';
+      cooldown.textContent = 'Cooldown: ' + remaining + 's';
+      const timer = setInterval(() => {
+        remaining--;
+        cooldown.textContent = 'Cooldown: ' + remaining + 's';
+        if (remaining <= 0) {
+          clearInterval(timer);
+          btn.disabled = false;
+          btn.innerHTML = 'Run Discovery';
+          cooldown.style.display = 'none';
+          status.style.display = 'none';
+          status.style.color = 'var(--green)';
+        }
+      }, 1000);
+    }
+
+    async function runContinuous() {
+      const btn = document.getElementById('btn-continuous');
+      const btnElon = document.getElementById('btn-elon');
+      const status = document.getElementById('action-status');
+      const cooldown = document.getElementById('action-cooldown');
+
+      btn.disabled = true;
+      btnElon.disabled = true;
+      btn.innerHTML = '<span class="btn-spinner"></span> ELON Running...';
+      document.getElementById('btn-stop-all').style.display = 'inline-block';
+
+      try {
+        const result = await apiFetch('/continuous', { method: 'POST' });
+        if (result.status === 'already-running') {
+          status.style.display = 'inline-flex';
+          status.style.color = 'var(--yellow)';
+          status.textContent = result.message || 'ELON is already running';
+          btn.disabled = false;
+          btnElon.disabled = false;
+          btn.innerHTML = 'ELON Continuous';
+          return;
+        }
+        if (result.status === 'failed') {
+          status.style.display = 'inline-flex';
+          status.style.color = 'var(--red)';
+          status.textContent = result.message || 'Failed to start';
+          btn.disabled = false;
+          btnElon.disabled = false;
+          btn.innerHTML = 'ELON Continuous';
+          return;
+        }
+        status.style.display = 'inline-flex';
+        status.style.color = 'var(--green)';
+        status.textContent = 'ELON continuous started — will run until critical/high/medium issues are resolved';
+        showLiveLog();
+
+        if (elonPollInterval) clearInterval(elonPollInterval);
+        elonPollInterval = setInterval(loadElonReport, 15000);
+        setTimeout(loadElonReport, 10000);
+      } catch (e) {
+        status.style.display = 'inline-flex';
+        status.style.color = 'var(--red)';
+        status.textContent = 'Failed: ' + e.message;
+      }
+
+      const checkDone = setInterval(async () => {
+        try {
+          const rs = await apiFetch('/status');
+          if (!rs.continuous && !rs.elon) {
+            clearInterval(checkDone);
+            btn.disabled = false;
+            btnElon.disabled = false;
+            btn.innerHTML = 'ELON Continuous';
+            cooldown.style.display = 'none';
+            status.style.display = 'none';
+            status.style.color = 'var(--green)';
+            if (elonPollInterval) { clearInterval(elonPollInterval); elonPollInterval = null; }
+            loadElonReport();
+          }
+        } catch {}
+      }, 10000);
+    }
+
+    function showLiveLog() { loadFeed(); }
+    async function loadLiveLog() { loadFeed(); }
+
+    let crawlPollInterval = null;
+
+    async function runCrawl() {
+      const btn = document.getElementById('btn-crawl');
+      const status = document.getElementById('action-status');
+      const cooldown = document.getElementById('action-cooldown');
+
+      btn.disabled = true;
+      btn.innerHTML = '<span class="btn-spinner"></span> Crawling...';
+      document.getElementById('btn-stop-all').style.display = 'inline-block';
+
+      try {
+        await apiFetch('/crawl', { method: 'POST' });
+        status.style.display = 'inline-flex';
+        status.textContent = 'Crawl started — results will appear below when complete';
+        showLiveLog();
+
+        if (crawlPollInterval) clearInterval(crawlPollInterval);
+        crawlPollInterval = setInterval(loadCrawlResults, 10000);
+        setTimeout(loadCrawlResults, 15000);
+      } catch (e) {
+        status.style.display = 'inline-flex';
+        status.style.color = 'var(--red)';
+        status.textContent = 'Failed: ' + e.message;
+      }
+
+      let remaining = 90;
+      cooldown.style.display = 'inline';
+      cooldown.textContent = 'Cooldown: ' + remaining + 's';
+      const timer = setInterval(() => {
+        remaining--;
+        cooldown.textContent = 'Cooldown: ' + remaining + 's';
+        if (remaining <= 0) {
+          clearInterval(timer);
+          btn.disabled = false;
+          btn.innerHTML = 'Crawl Site';
+          cooldown.style.display = 'none';
+          status.style.display = 'none';
+          status.style.color = 'var(--green)';
+          if (crawlPollInterval) {
+            clearInterval(crawlPollInterval);
+            crawlPollInterval = null;
+          }
+        }
+      }, 1000);
+    }
+
+    async function loadCrawlResults() {
+      try {
+        const data = await apiFetch('/crawl/results');
+        const panel = document.getElementById('crawl-results');
+        const body = document.getElementById('crawl-results-body');
+        const summary = document.getElementById('crawl-summary');
+        const errors = data.errors || [];
+
+        panel.classList.add('active');
+        const authLabel = data.authenticated ? ' (authenticated)' : ' (unauthenticated)';
+        summary.textContent = (data.pagesVisited || 0) + ' pages crawled' + authLabel + ', ' + errors.length + ' errors';
+
+        if (errors.length === 0) {
+          body.innerHTML = '<div class="empty">No errors found</div>';
+          return;
+        }
+
+        body.innerHTML = errors.map(err => {
+          const sev = err.severity || 'medium';
+          return '<div class="crawl-error-item">' +
+            '<span class="crawl-severity ' + sev + '">' + sev + '</span>' +
+            '<div class="crawl-error-info">' +
+            '<div class="crawl-error-type">' + esc(err.type || 'unknown') + '</div>' +
+            '<div class="crawl-error-msg">' + esc(err.message || '') + '</div>' +
+            '<div class="crawl-error-url">' + esc(err.url || '') + '</div>' +
+            '</div></div>';
+        }).join('');
+      } catch {}
+    }
+
+    async function loadCrawlerAuthStatus() {
+      try {
+        const data = await apiFetch('/crawler-session');
+        const statusEl = document.getElementById('crawler-auth-status');
+        const loginBtn = document.getElementById('btn-crawler-login');
+        const signoutBtn = document.getElementById('btn-crawler-signout');
+        if (data.authenticated) {
+          const hrs = data.hoursRemaining ? ' (' + data.hoursRemaining + 'h left)' : '';
+          statusEl.className = 'crawler-auth-status signed-in';
+          statusEl.innerHTML = '&#128275; ' + (data.userEmail || 'Signed in') + hrs;
+          loginBtn.textContent = 'Refresh Session';
+          signoutBtn.style.display = 'inline-block';
+        } else {
+          statusEl.className = 'crawler-auth-status signed-out';
+          statusEl.innerHTML = '&#128274; Not signed in';
+          loginBtn.textContent = 'Sign In for ELON';
+          signoutBtn.style.display = 'none';
+        }
+      } catch {}
+    }
+
+    function openCrawlerLogin() {
+      const crawlerBasePath = API_BASE.replace(/\/api\/?$/, '');
+      const url = crawlerBasePath + '/crawler-login?key=' + encodeURIComponent(AUTH_KEY);
+      const w = 500, h = 650;
+      const left = (screen.width - w) / 2;
+      const top = (screen.height - h) / 2;
+      let popup = null;
+      try {
+        popup = window.open(url, 'elon-crawler-login', 'width=' + w + ',height=' + h + ',left=' + left + ',top=' + top + ',toolbar=no,menubar=no');
+      } catch (e) {}
+      if (!popup || popup.closed) {
+        window.location.href = url;
+        return;
+      }
+      window.addEventListener('message', function onMsg(evt) {
+        if (evt.data && evt.data.type === 'crawler-auth-success') {
+          window.removeEventListener('message', onMsg);
+          loadCrawlerAuthStatus();
+          if (popup && !popup.closed) popup.close();
+        }
+      });
+      const checkClosed = setInterval(() => {
+        if (popup && popup.closed) {
+          clearInterval(checkClosed);
+          loadCrawlerAuthStatus();
+        }
+      }, 1000);
+    }
+
+    async function clearCrawlerSession() {
+      try {
+        await apiFetch('/crawler-session', { method: 'DELETE' });
+        loadCrawlerAuthStatus();
+      } catch {}
+    }
+
+    function toggleElonSettings() {
+      const drawer = document.getElementById('elon-settings-drawer');
+      if (drawer.style.display === 'none') {
+        drawer.style.display = 'block';
+        loadElonSettings();
+      } else {
+        drawer.style.display = 'none';
+      }
+    }
+
+    async function loadElonSettings() {
+      try {
+        const data = await apiFetch('/elon/settings');
+        const grid = document.getElementById('elon-settings-grid');
+        if (!data.categories || data.categories.length === 0) {
+          grid.innerHTML = '<div class="elon-setting-loading">No categories configured</div>';
+          return;
+        }
+        grid.innerHTML = data.categories.map(cat => {
+          return '<div class="elon-setting-item">' +
+            '<div class="elon-setting-label">' +
+              '<span class="elon-setting-name">' + esc(cat.label) + '</span>' +
+              '<span class="elon-setting-keywords">' + cat.keywords.slice(0, 4).join(', ') + '</span>' +
+            '</div>' +
+            '<label class="elon-toggle">' +
+              '<input type="checkbox" ' + (cat.autoApprove ? 'checked' : '') + ' onchange="updateElonSetting(\'' + cat.id + '\', this.checked)">' +
+              '<span class="elon-toggle-slider"></span>' +
+            '</label>' +
+          '</div>';
+        }).join('');
+      } catch (err) {
+        document.getElementById('elon-settings-grid').innerHTML = '<div class="elon-setting-loading">Failed to load settings</div>';
+      }
+    }
+
+    async function updateElonSetting(category, enabled) {
+      try {
+        const body = {};
+        body[category] = enabled;
+        await apiFetch('/elon/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+      } catch (err) {
+        alert('Failed to update setting: ' + err.message);
+        loadElonSettings();
+      }
+    }
+
+    async function loadPendingSpecs() {
+      try {
+        const data = await apiFetch('/elon/pending');
+        const section = document.getElementById('elon-pending-section');
+        const list = document.getElementById('elon-pending-list');
+        const countEl = document.getElementById('elon-pending-count');
+        const specs = data.specs || [];
+
+        countEl.textContent = specs.length;
+
+        if (specs.length === 0) {
+          section.style.display = 'none';
+          return;
+        }
+
+        section.style.display = 'block';
+
+        list.innerHTML = specs.map((spec, i) => {
+          const detailId = 'pending-detail-' + i;
+          const desc = spec.description || 'No description';
+          const cat = spec.blockedCategory || 'unknown';
+          const filePath = spec.filePath || '';
+          const score = spec.constraint?.score || spec.score || 0;
+          const criteria = (spec.successCriteria || []).join(', ');
+          return '<div class="elon-pending-item">' +
+            '<div class="elon-pending-info">' +
+              '<div class="elon-pending-desc">' + esc(desc) + '</div>' +
+              '<div class="elon-pending-meta">' +
+                (score > 0 ? '<span style="color:' + (score >= 7 ? 'var(--red)' : score >= 4 ? 'var(--yellow)' : 'var(--green)') + ';font-size:0.65rem;font-weight:600">' + score + '/10</span>' : '') +
+                '<span class="elon-pending-cat">' + esc(cat) + '</span>' +
+                (filePath ? '<span class="elon-pending-file">' + esc(filePath) + '</span>' : '') +
+              '</div>' +
+              (criteria ? '<div class="elon-pending-toggle" onclick="document.getElementById(\'' + detailId + '\').classList.toggle(\'open\')">Show criteria ▾</div>' +
+                '<div class="elon-pending-detail" id="' + detailId + '">' + esc(criteria) + '</div>' : '') +
+            '</div>' +
+            '<div class="elon-pending-actions">' +
+              '<button class="btn-spec-approve" onclick="approveElonSpec(\'' + esc(spec.id) + '\')">✓</button>' +
+              '<button class="btn-spec-reject" onclick="rejectElonSpec(\'' + esc(spec.id) + '\')">✗</button>' +
+            '</div>' +
+          '</div>';
+        }).join('');
+      } catch {}
+    }
+
+    async function approveElonSpec(id) {
+      try {
+        await apiFetch('/elon/pending/' + encodeURIComponent(id) + '/approve', { method: 'POST' });
+        loadPendingSpecs();
+        loadApprovedQueue();
+      } catch (err) {
+        alert('Failed to approve: ' + err.message);
+      }
+    }
+
+    async function rejectElonSpec(id) {
+      try {
+        await apiFetch('/elon/pending/' + encodeURIComponent(id) + '/reject', { method: 'POST' });
+        loadPendingSpecs();
+      } catch (err) {
+        alert('Failed to reject: ' + err.message);
+      }
+    }
+
+    async function approveAllElonSpecs() {
+      try {
+        await apiFetch('/elon/pending/approve-all', { method: 'POST' });
+        loadPendingSpecs();
+        loadApprovedQueue();
+      } catch (err) {
+        alert('Failed to approve all: ' + err.message);
+      }
+    }
+
+    async function loadApprovedQueue() {
+      try {
+        const data = await apiFetch('/queue');
+        const approved = data.approved || [];
+        const section = document.getElementById('elon-execute-section');
+        const countEl = document.getElementById('elon-approved-count');
+        countEl.textContent = approved.length;
+        section.style.display = approved.length > 0 ? 'block' : 'none';
+
+        const execStatus = await apiFetch('/elon/execution-status');
+        const btn = document.getElementById('btn-execute-approved');
+        const statusEl = document.getElementById('elon-execution-status');
+        if (execStatus.running) {
+          btn.disabled = true;
+          btn.textContent = '⟳ Executing...';
+          btn.style.opacity = '0.6';
+          statusEl.style.display = 'block';
+          statusEl.textContent = 'Specs are being executed. Check Live Activity for progress.';
+        } else {
+          btn.disabled = false;
+          btn.textContent = '▶ Execute Approved Specs';
+          btn.style.opacity = '1';
+          statusEl.style.display = 'none';
+        }
+      } catch {}
+    }
+
+    async function executeApprovedSpecs() {
+      try {
+        const btn = document.getElementById('btn-execute-approved');
+        btn.disabled = true;
+        btn.textContent = '⟳ Starting...';
+        btn.style.opacity = '0.6';
+        const statusEl = document.getElementById('elon-execution-status');
+        statusEl.style.display = 'block';
+        statusEl.textContent = 'Starting execution of approved specs...';
+
+        await apiFetch('/elon/execute-approved', { method: 'POST' });
+
+        btn.textContent = '⟳ Executing...';
+        statusEl.textContent = 'Specs are being executed. Check Live Activity for progress.';
+      } catch (err) {
+        alert('Failed to start execution: ' + err.message);
+        const btn = document.getElementById('btn-execute-approved');
+        btn.disabled = false;
+        btn.textContent = '▶ Execute Approved Specs';
+        btn.style.opacity = '1';
+      }
+    }
+
+    let lastElonStepCount = 0;
+    async function loadElonProgress() {
+      try {
+        const data = await apiFetch('/elon/progress');
+        const dot = document.getElementById('elon-status-dot');
+        const phaseEl = document.getElementById('elon-phase');
+        const cycleEl = document.getElementById('elon-cycle-info');
+        const budgetEl = document.getElementById('elon-budget-info');
+        const barContainer = document.getElementById('elon-progress-bar-container');
+        const bar = document.getElementById('elon-progress-bar');
+        const stepsEl = document.getElementById('elon-steps');
+
+        if (data.budget && data.budget.max > 0) {
+          progressBudgetMax = data.budget.max;
+          progressBudgetSpent = data.budget.spent || 0;
+          updateBudgetTracker();
+        }
+
+        dot.className = 'elon-status-dot ' + (data.running ? 'running' : data.phase === 'complete' ? 'complete' : data.phase === 'error' ? 'error' : '');
+        let phaseText = data.phase.replace(/-/g, ' ');
+        if (data.phase === 'running-full') phaseText = 'Full Mode (Backend + UI)';
+        else if (data.phase === 'running-backend-only') phaseText = 'Backend-Only Mode';
+        phaseEl.textContent = phaseText;
+
+        if (data.running || data.phase === 'complete' || data.phase === 'error') {
+          cycleEl.textContent = 'Cycle ' + data.cycle + '/' + data.maxCycles;
+          budgetEl.textContent = '$' + (data.budget.spent || 0).toFixed(2) + '/$' + (data.budget.max || 0).toFixed(2);
+          barContainer.style.display = 'block';
+          const pct = data.budget.max > 0 ? Math.min((data.budget.spent / data.budget.max) * 100, 100) : 0;
+          bar.style.width = pct + '%';
+        } else {
+          cycleEl.textContent = '';
+          budgetEl.textContent = '';
+          barContainer.style.display = 'none';
+        }
+
+        const steps = data.steps || [];
+        if (steps.length === 0 && !data.running) {
+          stepsEl.innerHTML = '<div class="elon-step-empty">Run ELON to see thinking process here...</div>';
+          lastElonStepCount = 0;
+          return;
+        }
+
+        if (steps.length !== lastElonStepCount) {
+          lastElonStepCount = steps.length;
+          const iconMap = {
+            thinking: '◌',
+            success: '✓',
+            error: '✗',
+            warning: '⚠',
+            info: '•',
+          };
+
+          stepsEl.innerHTML = steps.map((step, i) => {
+            const type = step.type || 'info';
+            const icon = iconMap[type] || '•';
+            const time = step.timestamp ? new Date(step.timestamp).toLocaleTimeString() : '';
+            const hasDetail = step.detail && Object.keys(step.detail).length > 0;
+            const detailStr = hasDetail ? JSON.stringify(step.detail, null, 2) : '';
+            const detailId = 'elon-detail-' + i;
+            return '<div class="elon-step ' + type + '">' +
+              '<div class="elon-step-icon">' + icon + '</div>' +
+              '<div class="elon-step-content">' +
+                '<div class="elon-step-msg">' + esc(step.message) + '</div>' +
+                '<div class="elon-step-time">' + esc(time) + '</div>' +
+                (hasDetail ? '<div class="elon-step-toggle" onclick="document.getElementById(\'' + detailId + '\').classList.toggle(\'open\')">Show details ▾</div>' +
+                  '<div class="elon-step-detail" id="' + detailId + '">' + esc(detailStr) + '</div>' : '') +
+              '</div>' +
+            '</div>';
+          }).join('');
+
+          stepsEl.scrollTop = stepsEl.scrollHeight;
+        }
+      } catch {}
+    }
+
+    let elonPollInterval = null;
+
+    async function runElon() {
+      const btn = document.getElementById('btn-elon');
+      const btnContinuous = document.getElementById('btn-continuous');
+      const status = document.getElementById('action-status');
+      const cooldown = document.getElementById('action-cooldown');
+
+      btn.disabled = true;
+      btnContinuous.disabled = true;
+      btn.innerHTML = '<span class="btn-spinner"></span> Running ELON...';
+      document.getElementById('btn-stop-all').style.display = 'inline-block';
+
+      try {
+        const result = await apiFetch('/elon/start', { method: 'POST' });
+        if (result.status === 'already-running') {
+          status.style.display = 'inline-flex';
+          status.style.color = 'var(--yellow)';
+          status.textContent = 'ELON is already running';
+        } else if (result.status === 'failed') {
+          status.style.display = 'inline-flex';
+          status.style.color = 'var(--red)';
+          status.textContent = result.message || 'ELON failed to start';
+          btn.disabled = false;
+          btnContinuous.disabled = false;
+          btn.innerHTML = 'Run ELON';
+          return;
+        } else {
+          status.style.display = 'inline-flex';
+          status.style.color = 'var(--green)';
+          status.textContent = 'ELON started — finding limiting factors...';
+          showLiveLog();
+        }
+
+        if (elonPollInterval) clearInterval(elonPollInterval);
+        elonPollInterval = setInterval(loadElonReport, 15000);
+        setTimeout(loadElonReport, 10000);
+      } catch (e) {
+        status.style.display = 'inline-flex';
+        status.style.color = 'var(--red)';
+        status.textContent = 'Failed: ' + e.message;
+      }
+
+      let remaining = 180;
+      cooldown.style.display = 'inline';
+      cooldown.textContent = 'Cooldown: ' + remaining + 's';
+      const timer = setInterval(() => {
+        remaining--;
+        cooldown.textContent = 'Cooldown: ' + remaining + 's';
+        if (remaining <= 0) {
+          clearInterval(timer);
+          btn.disabled = false;
+          btnContinuous.disabled = false;
+          btn.innerHTML = 'Run ELON';
+          cooldown.style.display = 'none';
+          status.style.display = 'none';
+          status.style.color = 'var(--green)';
+          if (elonPollInterval) {
+            clearInterval(elonPollInterval);
+            elonPollInterval = null;
+          }
+        }
+      }, 1000);
+    }
+
+    async function runFixAll() {
+      const btn = document.getElementById('btn-fix-all');
+      const status = document.getElementById('action-status');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="btn-spinner"></span> Fix All Running...';
+      document.getElementById('btn-elon').disabled = true;
+      document.getElementById('btn-continuous').disabled = true;
+      document.getElementById('btn-stop-all').style.display = 'inline-block';
+      try {
+        const result = await apiFetch('/elon/fix-all', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+        if (result.status === 'already-running') {
+          status.style.display = 'inline-flex';
+          status.style.color = 'var(--yellow)';
+          status.textContent = 'ELON is already running';
+        } else {
+          status.style.display = 'inline-flex';
+          status.style.color = '#e040fb';
+          status.textContent = 'Fix-All mode started — autonomously resolving issues...';
+          showLiveLog();
+        }
+        if (elonPollInterval) clearInterval(elonPollInterval);
+        elonPollInterval = setInterval(loadElonReport, 15000);
+      } catch (e) {
+        status.style.display = 'inline-flex';
+        status.style.color = 'var(--red)';
+        status.textContent = 'Failed: ' + e.message;
+        btn.disabled = false;
+        btn.innerHTML = 'Fix All Issues';
+        document.getElementById('btn-elon').disabled = false;
+        document.getElementById('btn-continuous').disabled = false;
+      }
+    }
+
+    async function resetElon() {
+      if (!confirm('Reset all ELON constraint history? This clears all discovered issues and fix plans.')) return;
+      try {
+        const result = await apiFetch('/elon/reset', { method: 'POST' });
+        const status = document.getElementById('action-status');
+        status.style.display = 'inline-flex';
+        status.style.color = result.success ? 'var(--green)' : 'var(--red)';
+        status.textContent = result.message;
+        if (result.success) { loadElonReport(); loadLiveLog(); }
+      } catch (e) { alert('Reset failed: ' + e.message); }
+    }
+
+    async function stopAll() {
+      try {
+        await apiFetch('/stop/all', { method: 'POST' });
+        const status = document.getElementById('action-status');
+        status.style.display = 'inline-flex';
+        status.style.color = 'var(--yellow)';
+        status.textContent = 'Stop requested for all operations...';
+        loadLiveLog();
+      } catch (e) {
+        alert('Failed to stop: ' + e.message);
+      }
+    }
+
+    async function stopDiscovery() {
+      try { await apiFetch('/stop/discovery', { method: 'POST' }); loadLiveLog(); } catch {}
+    }
+
+    async function stopContinuous() {
+      try { await apiFetch('/stop/continuous', { method: 'POST' }); loadLiveLog(); } catch {}
+    }
+
+    async function updateRunningStatus() {
+      try {
+        const data = await apiFetch('/running');
+        const stopBtn = document.getElementById('btn-stop-all');
+        const anyRunning = data.discovery || data.continuous || data.crawl || data.elon;
+        stopBtn.style.display = anyRunning ? 'inline-block' : 'none';
+
+        document.getElementById('btn-stop-discover').style.display = data.discovery ? 'inline-block' : 'none';
+        document.getElementById('btn-stop-continuous').style.display = data.continuous ? 'inline-block' : 'none';
+        document.getElementById('btn-stop-elon').style.display = (data.elon && !data.continuous) ? 'inline-block' : 'none';
+
+        const alertEl = document.getElementById('auth-lost-alert');
+        if (data.frontendAuthLost && (data.continuous || data.elon)) {
+          alertEl.style.display = 'flex';
+        } else if (!data.continuous && !data.elon) {
+          alertEl.style.display = 'none';
+        }
+
+        if (data.discovery) {
+          document.getElementById('btn-discover').disabled = true;
+          document.getElementById('btn-discover').innerHTML = '<span class="btn-spinner"></span> Running...';
+        }
+        if (data.continuous) {
+          document.getElementById('btn-continuous').disabled = true;
+          document.getElementById('btn-elon').disabled = true;
+          document.getElementById('btn-continuous').innerHTML = '<span class="btn-spinner"></span> ELON Running...';
+        }
+        if (data.elon && !data.continuous) {
+          document.getElementById('btn-elon').disabled = true;
+          document.getElementById('btn-continuous').disabled = true;
+          document.getElementById('btn-elon').innerHTML = '<span class="btn-spinner"></span> Running ELON...';
+        }
+
+        if (!data.discovery) {
+          const btn = document.getElementById('btn-discover');
+          if (btn.disabled && !btn._cooldown) {
+            btn.disabled = false;
+            btn.innerHTML = 'Run Discovery';
+          }
+        }
+        if (!data.continuous && !data.elon) {
+          const btnC = document.getElementById('btn-continuous');
+          const btnE = document.getElementById('btn-elon');
+          const btnFA = document.getElementById('btn-fix-all');
+          if (btnC.disabled && !btnC._cooldown) {
+            btnC.disabled = false;
+            btnC.innerHTML = 'ELON Continuous';
+          }
+          if (btnE.disabled && !btnE._cooldown) {
+            btnE.disabled = false;
+            btnE.innerHTML = 'Run ELON';
+          }
+          if (btnFA && btnFA.disabled) {
+            btnFA.disabled = false;
+            btnFA.innerHTML = 'Fix All Issues';
+          }
+        }
+      } catch {}
+    }
+
+    async function stopElon() {
+      try {
+        await apiFetch('/elon/stop', { method: 'POST' });
+        const status = document.getElementById('action-status');
+        status.style.display = 'inline-flex';
+        status.style.color = 'var(--yellow)';
+        status.textContent = 'Stop requested for ELON...';
+        loadLiveLog();
+      } catch {}
+    }
+
+    async function loadElonReport() {
+      try {
+        const data = await apiFetch('/elon/report');
+        const panel = document.getElementById('elon-panel');
+        const constraintEl = document.getElementById('elon-constraint');
+        const leaderboardEl = document.getElementById('elon-leaderboard');
+        const cyclesEl = document.getElementById('elon-cycles');
+        const summaryEl = document.getElementById('elon-summary');
+
+        if (!data || data.totalCycles === 0) return;
+
+        panel.classList.add('active');
+        summaryEl.textContent = 'Cycles: ' + data.totalCycles + ' | Solved: ' + (data.constraintsSolved || 0) + ' | Budget: $' + (data.totalBudgetSpent || 0).toFixed(2);
+
+        if (data.activeConstraint) {
+          const c = data.activeConstraint;
+          const scoreClass = c.score >= 7 ? 'high' : c.score >= 4 ? 'medium' : 'low';
+          constraintEl.innerHTML =
+            '<div class="elon-constraint-card">' +
+            '<div class="elon-constraint-title">' + esc(c.description) + '</div>' +
+            '<div class="elon-constraint-why">' + esc(c.why || '') + '</div>' +
+            '<span class="elon-score ' + scoreClass + '">Score: ' + c.score + '/10</span> ' +
+            '<span style="font-size:0.7rem;color:var(--text-muted);margin-left:8px">' + esc(c.category || '') + '</span>' +
+            (c.evidenceFromCrawl && c.evidenceFromCrawl.length > 0 ?
+              '<div style="margin-top:8px;font-size:0.72rem;color:var(--text-muted)"><b>Crawl evidence:</b> ' +
+              c.evidenceFromCrawl.slice(0, 3).map(e => esc(e)).join(' | ') + '</div>' : '') +
+            '</div>';
+        } else {
+          constraintEl.innerHTML = '<div class="empty">No active constraint</div>';
+        }
+
+        if (data.constraintLeaderboard && data.constraintLeaderboard.length > 0) {
+          let tableHtml = '<table class="elon-table"><thead><tr><th>#</th><th>Constraint</th><th>Score</th><th>Status</th><th>Category</th></tr></thead><tbody>';
+          data.constraintLeaderboard.forEach((c, i) => {
+            const statusIcon = c.status === 'solved' ? '✅' : c.status === 'active' ? '🔴' : '⏳';
+            tableHtml += '<tr>' +
+              '<td>' + (i + 1) + '</td>' +
+              '<td>' + esc((c.description || '').substring(0, 50)) + '</td>' +
+              '<td>' + (c.score || 0) + '/10</td>' +
+              '<td>' + statusIcon + ' ' + esc(c.status || '') + '</td>' +
+              '<td>' + esc(c.category || '-') + '</td>' +
+              '</tr>';
+          });
+          tableHtml += '</tbody></table>';
+          leaderboardEl.innerHTML = '<div style="font-size:0.78rem;font-weight:600;margin-bottom:6px;color:var(--text)">Constraint Leaderboard</div>' + tableHtml;
+        }
+
+        if (data.cycleHistory && data.cycleHistory.length > 0) {
+          let cycleHtml = '<div style="font-size:0.78rem;font-weight:600;margin-bottom:6px;color:var(--text)">Recent Cycles</div>';
+          const recent = data.cycleHistory.slice(-5).reverse();
+          for (const cycle of recent) {
+            const resultIcon = cycle.result === 'solved' ? '✅' : cycle.result === 'planned' ? '⏳' : '🔴';
+            cycleHtml += '<div style="font-size:0.72rem;color:var(--text-secondary);padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.03)">' +
+              '<b>Cycle ' + cycle.cycle + '</b> ' + resultIcon + ' ' +
+              esc((cycle.constraint || '').substring(0, 40)) +
+              ' (score: ' + (cycle.score || 0) + ', $' + (cycle.budgetUsed || 0).toFixed(3) + ')' +
+              '</div>';
+          }
+          cyclesEl.innerHTML = cycleHtml;
+        }
+      } catch {}
+    }
+
+    async function refreshIntegrationHealth() {
+      const el = document.getElementById('health-body');
+      const overall = document.getElementById('health-overall');
+      try {
+        el.innerHTML = '<div class="empty">Checking integrations...</div>';
+        const res = await fetch(BASE + '/api/integration-health?refresh=true');
+        const data = await res.json();
+        const statusColors = { healthy: '#22c55e', degraded: '#eab308', unhealthy: '#ef4444', unknown: '#6b7280' };
+        overall.textContent = data.overall || '--';
+        overall.style.color = statusColors[data.overall] || '#6b7280';
+        if (!data.integrations || data.integrations.length === 0) {
+          el.innerHTML = '<div class="empty">No integrations found</div>';
+          return;
+        }
+        let html = '<div style="display:grid;gap:6px">';
+        for (const integ of data.integrations) {
+          const color = statusColors[integ.status] || '#6b7280';
+          const icon = integ.status === 'healthy' ? '&#10003;' : integ.status === 'degraded' ? '&#9888;' : integ.status === 'unhealthy' ? '&#10007;' : '?';
+          html += '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--border)">';
+          html += '<span style="color:' + color + ';font-size:0.9rem">' + icon + '</span>';
+          html += '<span style="font-weight:500">' + esc(integ.integration) + '</span>';
+          html += '<span style="color:' + color + ';font-size:0.7rem;margin-left:auto">' + esc(integ.status) + '</span>';
+          if (integ.errors && integ.errors.length > 0) {
+            html += '<span style="color:#ef4444;font-size:0.65rem;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(integ.errors[0]) + '">' + esc(integ.errors[0]) + '</span>';
+          }
+          html += '</div>';
+        }
+        html += '</div>';
+        el.innerHTML = html;
+      } catch (err) {
+        el.innerHTML = '<div class="empty" style="color:#ef4444">Failed: ' + esc(err.message) + '</div>';
+      }
+    }
+
+    async function loadScenarioResults() {
+      const el = document.getElementById('scenario-body');
+      const summary = document.getElementById('scenario-summary');
+      try {
+        const res = await fetch(BASE + '/api/scenario-results');
+        const data = await res.json();
+        if (!data.results || data.results.length === 0) {
+          summary.textContent = '--';
+          return;
+        }
+        summary.textContent = data.passed + '/' + data.totalScenarios + ' passed';
+        summary.style.color = data.failed > 0 ? '#ef4444' : '#22c55e';
+        let html = '<div style="display:grid;gap:4px">';
+        for (const r of data.results) {
+          const color = r.status === 'passed' ? '#22c55e' : r.status === 'failed' ? '#ef4444' : '#eab308';
+          const icon = r.status === 'passed' ? '&#10003;' : r.status === 'failed' ? '&#10007;' : '&#9679;';
+          html += '<div style="display:flex;align-items:center;gap:8px;padding:3px 0;border-bottom:1px solid var(--border)">';
+          html += '<span style="color:' + color + '">' + icon + '</span>';
+          html += '<span>' + esc(r.name || r.id) + '</span>';
+          html += '<span style="color:var(--text-muted);font-size:0.65rem;margin-left:auto">' + esc(r.category || '') + '</span>';
+          html += '</div>';
+        }
+        html += '</div>';
+        el.innerHTML = html;
+      } catch {}
+    }
+
+    async function runScenarioTests() {
+      const el = document.getElementById('scenario-body');
+      el.innerHTML = '<div class="empty">Running scenario tests... this may take a minute.</div>';
+      try {
+        await fetch(BASE + '/api/run-scenarios', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        setTimeout(loadScenarioResults, 15000);
+      } catch (err) {
+        el.innerHTML = '<div class="empty" style="color:#ef4444">Failed: ' + esc(err.message) + '</div>';
+      }
+    }
+
+    async function loadRegressions() {
+      const el = document.getElementById('regression-body');
+      const summary = document.getElementById('regression-summary');
+      try {
+        const res = await fetch(BASE + '/api/regressions');
+        const data = await res.json();
+        if (!data.escalated || data.escalated.length === 0) {
+          summary.textContent = 'No regressions';
+          summary.style.color = '#22c55e';
+          el.innerHTML = '<div class="empty" style="color:#22c55e">No recurring failures detected</div>';
+          return;
+        }
+        summary.textContent = data.escalated.length + ' escalated';
+        summary.style.color = '#ef4444';
+        let html = '<div style="display:grid;gap:4px">';
+        for (const r of data.escalated) {
+          html += '<div style="padding:4px 0;border-bottom:1px solid var(--border)">';
+          html += '<div style="display:flex;justify-content:space-between"><span style="font-weight:500">' + esc(r.id) + '</span>';
+          html += '<span style="color:#ef4444;font-size:0.65rem">score: ' + r.score + '</span></div>';
+          html += '<div style="color:var(--text-muted);font-size:0.65rem">' + r.consecutiveFailures + ' consecutive failures, ' + r.totalFailures + ' total</div>';
+          html += '</div>';
+        }
+        html += '</div>';
+        el.innerHTML = html;
+      } catch {}
+    }
+
+    async function loadDevMode() {
+      try {
+        const res = await fetch(BASE + '/api/dev-mode');
+        const data = await res.json();
+        const statusEl = document.getElementById('dev-mode-status');
+        const toggleEl = document.getElementById('dev-mode-toggle');
+        const bodyEl = document.getElementById('dev-mode-body');
+        if (data.enabled) {
+          statusEl.textContent = 'ENABLED';
+          statusEl.style.color = '#eab308';
+          toggleEl.textContent = 'Disable';
+          const hours = data.enabledForHours ? Math.round(data.enabledForHours * 10) / 10 : 0;
+          bodyEl.innerHTML = 'Dev mode active for ' + hours + ' hours.' + (data.warning ? ' <span style="color:#ef4444;font-weight:500">' + esc(data.warning) + '</span>' : '');
+        } else {
+          statusEl.textContent = 'Disabled';
+          statusEl.style.color = '#6b7280';
+          toggleEl.textContent = 'Enable';
+          bodyEl.innerHTML = 'Enable dev mode for test fixture creation. Auto-warns if left on &gt;24 hours.';
+        }
+      } catch {}
+    }
+
+    async function toggleDevMode() {
+      try {
+        const statusEl = document.getElementById('dev-mode-status');
+        const enabling = statusEl.textContent !== 'ENABLED';
+        await fetch(BASE + '/api/dev-mode', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: enabling }),
+        });
+        loadDevMode();
+      } catch {}
+    }
+
+    loadElonProgress();
+    loadElonReport();
+    refreshAll();
+    loadFeed();
+    loadScenarioResults();
+    loadRegressions();
+    loadDevMode();
+    refreshIntegrationHealth();
+    setInterval(refreshAll, 30000);
+    setInterval(loadElonProgress, 2000);
+    loadPendingSpecs();
+    loadApprovedQueue();
+    setInterval(loadPendingSpecs, 10000);
+    setInterval(loadApprovedQueue, 8000);
+    setInterval(loadElonReport, 60000);
+    setInterval(loadFeed, 5000);
+    updateRunningStatus();
+    setInterval(updateRunningStatus, 5000);
+    setInterval(loadRegressions, 60000);
+    setInterval(loadDevMode, 30000);
+  </script>
+</body>
+</html>

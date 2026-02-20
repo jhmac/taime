@@ -5,7 +5,7 @@ import { setupVite, serveStatic, log } from "./vite";
 
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
-const { initAppPilot } = require('apppilot');
+const { initSneebly } = require('sneebly');
 
 process.on('uncaughtException', (err) => {
   if (err.message?.includes('Cannot set property message') ||
@@ -32,7 +32,7 @@ app.use(helmet({
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: false, limit: '2mb' }));
 
-initAppPilot(app, {
+initSneebly(app, {
   projectRoot: process.cwd(),
   enableMetrics: true,
   enableErrorTracking: true,
