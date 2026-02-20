@@ -225,6 +225,21 @@ async function executeSpec(spec, options = {}) {
     };
   }
 
+  if (result.status === 'multi-change' && Array.isArray(result.changes) && result.changes.length > 0) {
+    const validChanges = result.changes.filter(c => c.filePath && c.oldCode !== undefined && c.newCode !== undefined);
+    if (validChanges.length > 0) {
+      return {
+        status: 'multi-change',
+        changes: validChanges.map(c => ({
+          filePath: c.filePath,
+          oldCode: c.oldCode,
+          newCode: c.newCode,
+          description: c.description || '',
+        })),
+      };
+    }
+  }
+
   if (result.status === 'stuck') {
     return { status: 'stuck', reason: result.reason || 'unknown' };
   }

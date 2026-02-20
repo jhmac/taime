@@ -2,7 +2,8 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execSync, spawn } = require('child_process');
+const http = require('http');
 const { IDENTITY_FILES, CommandValidator } = require('./security');
 const { isPathSafe } = require('./safety');
 
@@ -215,6 +216,205 @@ class CodeEngine {
         };
       }
     }
+  }
+
+  verifyRuntime(options = {}) {
+    const healthUrl = options.healthUrl || 'http://localhost:5000/health';
+    const timeoutMs = options.timeoutMs || 15000;
+    const checkIntervalMs = options.checkIntervalMs || 2000;
+    const maxChecks = Math.ceil(timeoutMs / checkIntervalMs);
+
+    return new Promise((resolve) => {
+      let checksRemaining = maxChecks;
+
+      const doCheck = () => {
+        if (checksRemaining <= 0) {
+          return resolve({
+            healthy: false,
+            reason: `Health check timed out after ${timeoutMs}ms — ${healthUrl} did not respond`,
+          });
+        }
+        checksRemaining--;
+
+        const req = http.get(healthUrl, { timeout: 3000 }, (res) => {
+          let body = '';
+          res.on('data', (chunk) => { body += chunk; });
+          res.on('end', () => {
+            if (res.statusCode >= 200 && res.statusCode < 400) {
+              resolve({ healthy: true, statusCode: res.statusCode, body: body.slice(0, 500) });
+            } else {
+              setTimeout(doCheck, checkIntervalMs);
+            }
+          });
+        });
+
+        req.on('error', () => {
+          setTimeout(doCheck, checkIntervalMs);
+        });
+
+        req.on('timeout', () => {
+          req.destroy();
+          setTimeout(doCheck, checkIntervalMs);
+        });
+      };
+
+      setTimeout(doCheck, checkIntervalMs);
+    });
+  }
+
+  verifyRuntimeWithProcess(options = {}) {
+    const startCommand = options.startCommand;
+    const healthUrl = options.healthUrl || 'http://localhost:5000/health';
+    const crashWatchMs = options.crashWatchMs || 5000;
+    const healthTimeoutMs = options.healthTimeoutMs || 15000;
+
+    const errorPatterns = [
+      /SyntaxError:/,
+      /TypeError:/,
+      /ReferenceError:/,
+      /Cannot find module/,
+      /EADDRINUSE/,
+      /Uncaught/,
+      /FATAL/i,
+      /Segmentation fault/,
+    ];
+
+    return new Promise((resolve) => {
+      let stdout = '';
+      let stderr = '';
+      let exited = false;
+      let resolved = false;
+
+      const finish = (result) => {
+        if (resolved) return;
+        resolved = true;
+        try { proc.kill('SIGTERM'); } catch {}
+        resolve(result);
+      };
+
+      const proc = spawn(startCommand, [], {
+        cwd: this.projectRoot,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        shell: true,
+      });
+
+      proc.stdout.on('data', (data) => { stdout += data.toString(); });
+      proc.stderr.on('data', (data) => { stderr += data.toString(); });
+
+      proc.on('error', (err) => {
+        exited = true;
+        finish({ healthy: false, reason: `Process spawn error: ${err.message}` });
+      });
+
+      proc.on('exit', (code) => {
+        exited = true;
+        if (code !== null && code !== 0) {
+          finish({
+            healthy: false,
+            reason: `Process exited with code ${code}`,
+            stdout: stdout.slice(0, 2000),
+            stderr: stderr.slice(0, 2000),
+          });
+        }
+      });
+
+      setTimeout(() => {
+        if (resolved) return;
+
+        const combined = stdout + '\n' + stderr;
+        const crashErrors = [];
+        for (const pattern of errorPatterns) {
+          const match = combined.match(pattern);
+          if (match) {
+            const idx = combined.indexOf(match[0]);
+            const context = combined.substring(Math.max(0, idx - 50), Math.min(combined.length, idx + 200));
+            crashErrors.push(context.trim());
+          }
+        }
+
+        if (crashErrors.length > 0 || exited) {
+          finish({
+            healthy: false,
+            reason: 'Process crashed during startup',
+            errors: crashErrors.slice(0, 3),
+            stdout: stdout.slice(0, 2000),
+            stderr: stderr.slice(0, 2000),
+          });
+          return;
+        }
+
+        const checkIntervalMs = 2000;
+        let checksRemaining = Math.ceil(healthTimeoutMs / checkIntervalMs);
+
+        const doHealthCheck = () => {
+          if (resolved) return;
+          if (checksRemaining <= 0 || exited) {
+            finish({
+              healthy: false,
+              reason: exited ? 'Process exited before health check passed' : `Health check timed out at ${healthUrl}`,
+              stdout: stdout.slice(0, 2000),
+              stderr: stderr.slice(0, 2000),
+            });
+            return;
+          }
+          checksRemaining--;
+
+          const req = http.get(healthUrl, { timeout: 3000 }, (res) => {
+            let body = '';
+            res.on('data', (chunk) => { body += chunk; });
+            res.on('end', () => {
+              if (res.statusCode >= 200 && res.statusCode < 400) {
+                finish({ healthy: true, statusCode: res.statusCode, body: body.slice(0, 500) });
+              } else {
+                setTimeout(doHealthCheck, checkIntervalMs);
+              }
+            });
+          });
+          req.on('error', () => { setTimeout(doHealthCheck, checkIntervalMs); });
+          req.on('timeout', () => { req.destroy(); setTimeout(doHealthCheck, checkIntervalMs); });
+        };
+
+        doHealthCheck();
+      }, crashWatchMs);
+    });
+  }
+
+  backupMultiple(filePaths) {
+    const backups = {};
+    const newFiles = [];
+    for (const fp of filePaths) {
+      const fullPath = path.resolve(this.projectRoot, fp);
+      if (!fs.existsSync(fullPath)) {
+        newFiles.push(fp);
+        continue;
+      }
+      const backupPath = this.backup(fp);
+      if (backupPath) {
+        backups[fp] = backupPath;
+      }
+    }
+    return { backups, newFiles };
+  }
+
+  rollbackMultiple(backupInfo) {
+    const backups = backupInfo.backups || backupInfo;
+    const newFiles = backupInfo.newFiles || [];
+    const results = {};
+    for (const [filePath, backupPath] of Object.entries(backups)) {
+      results[filePath] = this.rollback(filePath, backupPath);
+    }
+    for (const fp of newFiles) {
+      const fullPath = path.resolve(this.projectRoot, fp);
+      try {
+        if (fs.existsSync(fullPath)) {
+          fs.unlinkSync(fullPath);
+          results[fp] = { restored: true, deleted: true };
+        }
+      } catch {
+        results[fp] = { restored: false, reason: 'Failed to delete new file' };
+      }
+    }
+    return results;
   }
 
   cleanupOldBackups(keepCount = 50) {
