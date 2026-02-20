@@ -6,7 +6,7 @@ const { executeSpec } = require('./subagents/spec-executor');
 const { CodeEngine } = require('./code-engine');
 
 async function executeRalphLoop(specPath, context, budget, options = {}) {
-  const maxIterations = options.maxIterations || 5;
+  const maxIterations = options.maxIterations || 10;
   const projectRoot = options.projectRoot || process.cwd();
   const dataDir = options.dataDir || path.join(projectRoot, '.apppilot');
   const memory = options.memory || null;
@@ -87,7 +87,19 @@ async function executeRalphLoop(specPath, context, budget, options = {}) {
         continue;
       }
 
-      result.changes.push({ filePath, applied: true, backupPath: applyResult.backupPath, description });
+      const syntaxCheck = engine.verifySyntax(filePath);
+      if (!syntaxCheck.valid) {
+        if (applyResult.backupPath) {
+          engine.rollback(filePath, applyResult.backupPath);
+        }
+        result.changes.push({ filePath, applied: false, reason: `Syntax error after change: ${syntaxCheck.issues.join(', ')}`, rolledBack: true });
+        if (memory) {
+          memory.logDaily(`Ralph Loop: syntax check failed for ${filePath}: ${syntaxCheck.issues.join(', ')} — rolled back`);
+        }
+        continue;
+      }
+
+      result.changes.push({ filePath, applied: true, backupPath: applyResult.backupPath, description, fuzzyMatched: applyResult.fuzzyMatched || false });
 
       if (spec.testCommand) {
         const testResult = engine.runTests(spec.testCommand);

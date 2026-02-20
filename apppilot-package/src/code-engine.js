@@ -32,6 +32,35 @@ class CodeEngine {
     return backupPath;
   }
 
+  _fuzzyMatch(content, oldCode) {
+    const trimmedOld = oldCode.trim();
+    const contentLines = content.split('\n');
+    const oldLines = trimmedOld.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+
+    if (oldLines.length < 2) return null;
+
+    const matches = [];
+    for (let i = 0; i <= contentLines.length - oldLines.length; i++) {
+      let matched = true;
+      for (let j = 0; j < oldLines.length; j++) {
+        if (contentLines[i + j].trim() !== oldLines[j]) {
+          matched = false;
+          break;
+        }
+      }
+      if (matched) {
+        matches.push(i);
+      }
+    }
+
+    if (matches.length === 1) {
+      const matchedLines = contentLines.slice(matches[0], matches[0] + oldLines.length);
+      return matchedLines.join('\n');
+    }
+
+    return null;
+  }
+
   applyChange(filePath, oldCode, newCode) {
     const safetyCheck = this._checkSafety(filePath);
     if (!safetyCheck.safe) {
@@ -46,16 +75,90 @@ class CodeEngine {
 
     const currentContent = fs.readFileSync(fullPath, 'utf-8');
 
+    let matchedOldCode = oldCode;
     if (!currentContent.includes(oldCode)) {
-      return { applied: false, reason: 'Old code not found in file (exact match required)' };
+      const fuzzyResult = this._fuzzyMatch(currentContent, oldCode);
+      if (fuzzyResult) {
+        matchedOldCode = fuzzyResult;
+      } else {
+        const oldLines = oldCode.trim().split('\n').filter(l => l.trim().length > 0);
+        const preview = oldLines.slice(0, 3).map(l => l.trim()).join(' | ');
+        return { applied: false, reason: `Old code not found in file. Looked for: "${preview}..."` };
+      }
     }
 
     const backupPath = this.backup(filePath);
 
-    const newContent = currentContent.replace(oldCode, newCode);
+    const newContent = currentContent.replace(matchedOldCode, newCode);
     fs.writeFileSync(fullPath, newContent, 'utf-8');
 
-    return { applied: true, backupPath };
+    return { applied: true, backupPath, fuzzyMatched: matchedOldCode !== oldCode };
+  }
+
+  verifySyntax(filePath) {
+    const fullPath = path.resolve(this.projectRoot, filePath);
+    const ext = path.extname(fullPath).toLowerCase();
+
+    if (['.ts', '.tsx', '.js', '.jsx', '.mjs'].includes(ext)) {
+      try {
+        const content = fs.readFileSync(fullPath, 'utf-8');
+        let braceDepth = 0, parenDepth = 0, bracketDepth = 0;
+        let inString = false, stringChar = '', inTemplate = false, inComment = false, inBlockComment = false;
+
+        for (let i = 0; i < content.length; i++) {
+          const ch = content[i];
+          const next = content[i + 1];
+
+          if (inBlockComment) {
+            if (ch === '*' && next === '/') { inBlockComment = false; i++; }
+            continue;
+          }
+          if (inComment) {
+            if (ch === '\n') inComment = false;
+            continue;
+          }
+          if (inString) {
+            if (ch === '\\') { i++; continue; }
+            if (ch === stringChar) inString = false;
+            continue;
+          }
+          if (inTemplate) {
+            if (ch === '\\') { i++; continue; }
+            if (ch === '`') inTemplate = false;
+            continue;
+          }
+
+          if (ch === '/' && next === '/') { inComment = true; continue; }
+          if (ch === '/' && next === '*') { inBlockComment = true; i++; continue; }
+          if (ch === '"' || ch === "'") { inString = true; stringChar = ch; continue; }
+          if (ch === '`') { inTemplate = true; continue; }
+
+          if (ch === '{') braceDepth++;
+          if (ch === '}') { braceDepth--; if (braceDepth < 0) return { valid: false, issues: ['extra closing brace at position ' + i] }; }
+          if (ch === '(') parenDepth++;
+          if (ch === ')') { parenDepth--; if (parenDepth < 0) return { valid: false, issues: ['extra closing parenthesis at position ' + i] }; }
+          if (ch === '[') bracketDepth++;
+          if (ch === ']') { bracketDepth--; if (bracketDepth < 0) return { valid: false, issues: ['extra closing bracket at position ' + i] }; }
+        }
+
+        const issues = [];
+        if (braceDepth !== 0) issues.push(`unbalanced braces (depth: ${braceDepth})`);
+        if (parenDepth !== 0) issues.push(`unbalanced parentheses (depth: ${parenDepth})`);
+        if (bracketDepth !== 0) issues.push(`unbalanced brackets (depth: ${bracketDepth})`);
+        if (inString) issues.push('unclosed string literal');
+        if (inTemplate) issues.push('unclosed template literal');
+        if (inBlockComment) issues.push('unclosed block comment');
+
+        if (issues.length > 0) {
+          return { valid: false, issues };
+        }
+        return { valid: true };
+      } catch (err) {
+        return { valid: false, issues: [`read error: ${err.message}`] };
+      }
+    }
+
+    return { valid: true };
   }
 
   rollback(filePath, backupPath) {

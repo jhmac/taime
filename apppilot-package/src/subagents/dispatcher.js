@@ -191,7 +191,7 @@ async function callClaudeAPI(apiKey, systemPrompt, userPrompt, model) {
     try {
       const response = await client.messages.create({
         model: MODEL_MAP[model] || MODEL_MAP.sonnet,
-        max_tokens: 4096,
+        max_tokens: 8192,
         system: systemPrompt,
         messages: [{ role: 'user', content: userPrompt }],
       });

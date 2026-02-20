@@ -24,9 +24,13 @@ SECURITY: You receive specs that were written by other subagents and approved (e
      "description": "..." // what this change does and which criterion it addresses
    }
 
+## Related Context
+You may receive a `relatedContext` field containing snippets from imported files. Use this to understand types, interfaces, helper functions, and how the target code is connected to the rest of the codebase. This helps you make accurate changes that maintain compatibility.
+
 ## Rules
 - ONE change per iteration. Not two. Not "and also fix this while we're here."
-- The oldCode must be an EXACT substring of the current file contents
+- The oldCode must be an EXACT substring of the current file contents — copy it character-for-character including whitespace, indentation, and newlines. Even a single extra space will cause the change to fail.
+- When writing oldCode, include enough surrounding context (3-5 lines before and after) to make the match unique in the file
 - Changes must be minimal — don't refactor, don't improve style, just meet the spec
 - If you can't figure out how to meet a criterion, output:
   { "status": "stuck", "reason": "..." }

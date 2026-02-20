@@ -6,7 +6,7 @@ const { delegateToSubagent } = require('./dispatcher');
 
 function _findRelevantSection(full, spec, windowBefore = 60, windowAfter = 80) {
   const lines = full.split('\n');
-  const maxChars = 12000;
+  const maxChars = 20000;
 
   // Strategy 1: If spec has relevantCode, find it in the file directly
   if (spec.relevantCode) {
@@ -80,27 +80,107 @@ function _findRelevantSection(full, spec, windowBefore = 60, windowAfter = 80) {
   return section;
 }
 
+function _extractImports(code, filePath, projectRoot) {
+  const imports = [];
+  const importPatterns = [
+    /from\s+['"]([^'"]+)['"]/g,
+    /require\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
+  ];
+  for (const pattern of importPatterns) {
+    let match;
+    while ((match = pattern.exec(code)) !== null) {
+      const importPath = match[1];
+      if (importPath.startsWith('.') || importPath.startsWith('@/') || importPath.startsWith('@shared/')) {
+        imports.push(importPath);
+      }
+    }
+  }
+  return imports;
+}
+
+function _resolveImportPath(importPath, filePath, projectRoot) {
+  let resolved;
+  if (importPath.startsWith('@shared/')) {
+    resolved = path.join(projectRoot, 'shared', importPath.replace('@shared/', ''));
+  } else if (importPath.startsWith('@/')) {
+    resolved = path.join(projectRoot, 'client', 'src', importPath.replace('@/', ''));
+  } else {
+    const dir = path.dirname(path.join(projectRoot, filePath));
+    resolved = path.resolve(dir, importPath);
+  }
+  const extensions = ['', '.ts', '.tsx', '.js', '.jsx'];
+  for (const ext of extensions) {
+    const candidate = resolved + ext;
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  const indexExts = ['/index.ts', '/index.tsx', '/index.js'];
+  for (const ext of indexExts) {
+    const candidate = resolved + ext;
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+function _gatherRelatedContext(code, filePath, projectRoot, spec, maxTotalChars = 6000) {
+  const importPaths = _extractImports(code, filePath, projectRoot);
+  const snippets = [];
+  let totalChars = 0;
+
+  for (const imp of importPaths) {
+    if (totalChars >= maxTotalChars) break;
+    const resolved = _resolveImportPath(imp, filePath, projectRoot);
+    if (!resolved) continue;
+    try {
+      const content = fs.readFileSync(resolved, 'utf-8');
+      const relPath = path.relative(projectRoot, resolved);
+      const snippet = content.length > 2000 ? content.substring(0, 2000) + '\n// ... (truncated)' : content;
+      snippets.push('// RELATED FILE: ' + relPath + '\n' + snippet);
+      totalChars += snippet.length;
+    } catch {}
+  }
+
+  if (spec && spec.relatedFiles && Array.isArray(spec.relatedFiles)) {
+    for (const rf of spec.relatedFiles) {
+      if (totalChars >= maxTotalChars) break;
+      const rfPath = path.join(projectRoot, rf);
+      try {
+        const content = fs.readFileSync(rfPath, 'utf-8');
+        const snippet = content.length > 2000 ? content.substring(0, 2000) + '\n// ... (truncated)' : content;
+        if (!snippets.some(s => s.includes(rf))) {
+          snippets.push('// RELATED FILE: ' + rf + '\n' + snippet);
+          totalChars += snippet.length;
+        }
+      } catch {}
+    }
+  }
+
+  return snippets.join('\n\n');
+}
+
 async function executeSpec(spec, options = {}) {
   const { context, budget, memory, apiKey, identityDir, templatesDir, dryRun, projectRoot } = options;
 
   let currentCode = '';
+  let relatedContext = '';
   if (spec.filePath && projectRoot) {
     const fullPath = path.join(projectRoot, spec.filePath);
     try {
       const full = fs.readFileSync(fullPath, 'utf-8');
-      if (full.length > 8000) {
+      if (full.length > 20000) {
         const section = _findRelevantSection(full, spec);
         const totalLines = full.split('\n').length;
         currentCode = '// FILE: ' + spec.filePath + ' (' + totalLines + ' lines total, showing relevant section)\n' + section;
       } else {
         currentCode = full;
       }
+      relatedContext = _gatherRelatedContext(full, spec.filePath, projectRoot, spec, 6000);
     } catch {}
   }
 
   const task = {
     spec,
     currentCode,
+    relatedContext: relatedContext || undefined,
   };
 
   let result;
