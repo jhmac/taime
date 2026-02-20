@@ -28,6 +28,379 @@ const SENSITIVE_CATEGORIES = {
 
 const SETTINGS_FILE = 'elon-settings.json';
 
+// ============================================
+// BUILD MODE HELPERS
+// ============================================
+
+function getElonMode(config) {
+  const goalsContent = config.context?.goals?.content || '';
+  const modeMatch = goalsContent.match(/\*\*mode:\s*(build|fix|auto)\*\*/i);
+  const explicitMode = modeMatch ? modeMatch[1].toLowerCase() : 'auto';
+
+  if (explicitMode === 'build') return 'build';
+  if (explicitMode === 'fix') return 'fix';
+
+  const elonLog = loadElonLog(config.dataDir);
+  if (elonLog.modeOverride && elonLog.modeOverride !== 'auto') {
+    return elonLog.modeOverride;
+  }
+
+  if (elonLog.lastMode === 'build' && elonLog.lastModeResult === 'specs-generated') {
+    return 'fix';
+  }
+
+  if (elonLog.lastMode === 'fix' && elonLog.lastModeResult === 'no-constraints') {
+    return 'build';
+  }
+
+  if (elonLog.lastMode === 'fix' && (elonLog.consecutiveFixCycles || 0) >= 3) {
+    return 'build';
+  }
+
+  const buildState = loadBuildState(config.dataDir);
+  if (buildState && buildState.hasUnbuiltMilestones) {
+    const lastCrawl = loadLastCrawl(config.dataDir);
+    const highErrors = lastCrawl?.errors?.filter(e => e.severity === 'high') || [];
+    if (highErrors.length > 0) return 'fix';
+    return 'build';
+  }
+
+  return 'fix';
+}
+
+function loadElonLog(dataDir) {
+  return _readJson(path.join(dataDir, 'elon-log.json'), {});
+}
+
+function saveElonLog(dataDir, updates) {
+  const existing = loadElonLog(dataDir);
+  const updated = { ...existing, ...updates, lastUpdated: new Date().toISOString() };
+  _writeJson(path.join(dataDir, 'elon-log.json'), updated);
+  return updated;
+}
+
+function loadBuildState(dataDir) {
+  return _readJson(path.join(dataDir, 'build-state.json'), null);
+}
+
+function saveBuildState(dataDir, state) {
+  _writeJson(path.join(dataDir, 'build-state.json'), state);
+}
+
+function loadLastCrawl(dataDir) {
+  return _readJson(path.join(dataDir, 'last-crawl.json'), null);
+}
+
+function parseAppSpec(goalsContext) {
+  const content = goalsContext?.content || '';
+
+  const extract = (header) => {
+    const regex = new RegExp(`## ${header}[^\\n]*\\n([\\s\\S]*?)(?=\\n## (?!###)|$)`, 'i');
+    const match = content.match(regex);
+    return match ? match[1].trim() : '';
+  };
+
+  const phaseMatch = content.match(/\*\*phase:\s*(\d+)\*\*/i);
+
+  return {
+    mission: extract('Mission'),
+    architecture: extract('Architecture Context'),
+    spec: extract('App Specification'),
+    roadmap: extract('Roadmap'),
+    alreadyBuilt: extract("What's Already Built"),
+    qualityTargets: extract('Quality Targets'),
+    technicalStandards: extract('Technical Standards'),
+    currentPhase: phaseMatch ? parseInt(phaseMatch[1]) : 1
+  };
+}
+
+function parseRoadmapMilestones(roadmapContent, phaseNumber) {
+  const lines = roadmapContent.split('\n');
+  const milestones = [];
+  let currentPhase = 0;
+  let inTargetPhase = false;
+
+  for (const line of lines) {
+    const phaseHeader = line.match(/###\s*Phase\s*(\d+)/i);
+    if (phaseHeader) {
+      currentPhase = parseInt(phaseHeader[1]);
+      inTargetPhase = (currentPhase === phaseNumber);
+      continue;
+    }
+
+    if (inTargetPhase && /^###\s/.test(line) && !line.match(/Phase/i)) {
+      break;
+    }
+
+    if (!inTargetPhase) continue;
+
+    const checkbox = line.match(/^-\s*\[([ xX])\]\s*(.+)/);
+    if (checkbox) {
+      milestones.push({
+        completed: checkbox[1].toLowerCase() === 'x',
+        description: checkbox[2].trim()
+      });
+    }
+  }
+
+  return milestones;
+}
+
+function scanProjectFiles(projectRoot) {
+  const glob = require('glob');
+  const patterns = [
+    'server/**/*.{js,ts,jsx,tsx}',
+    'client/src/**/*.{js,ts,jsx,tsx}',
+    'shared/**/*.{js,ts,jsx,tsx}',
+    'src/**/*.{js,ts,jsx,tsx}',
+    'routes/**/*.{js,ts,jsx,tsx}',
+    'lib/**/*.{js,ts,jsx,tsx}',
+    'pages/**/*.{js,ts,jsx,tsx}',
+    'components/**/*.{js,ts,jsx,tsx}',
+    'app/**/*.{js,ts,jsx,tsx}',
+    '*.{js,ts}'
+  ];
+
+  const seen = new Set();
+  const files = [];
+
+  for (const pattern of patterns) {
+    try {
+      const matches = glob.sync(pattern, {
+        cwd: projectRoot,
+        ignore: ['node_modules/**', '.sneebly/**', 'sneebly/**', 'dist/**', 'build/**', '.next/**']
+      });
+      for (const match of matches) {
+        if (!seen.has(match)) {
+          seen.add(match);
+          files.push({ relativePath: match, fullPath: path.join(projectRoot, match) });
+        }
+      }
+    } catch {}
+  }
+
+  return files;
+}
+
+function findExistingRoutes(files) {
+  const routes = [];
+  for (const file of files) {
+    try {
+      const content = fs.readFileSync(file.fullPath, 'utf-8');
+      const pattern = /(?:app|router|route)\.(get|post|put|delete|patch)\s*\(\s*['"`]([^'"`]+)['"`]/gi;
+      let match;
+      while ((match = pattern.exec(content)) !== null) {
+        routes.push({ method: match[1].toUpperCase(), path: match[2], file: file.relativePath });
+      }
+    } catch {}
+  }
+  return routes;
+}
+
+function findExistingSchema(files) {
+  const schemas = [];
+  for (const file of files) {
+    if (!file.relativePath.match(/schema|model|migration|drizzle|prisma/i)) continue;
+    try {
+      const content = fs.readFileSync(file.fullPath, 'utf-8');
+      const drizzle = [...content.matchAll(/(?:export\s+const|const)\s+(\w+)\s*=\s*pgTable\s*\(\s*['"`](\w+)['"`]/g)];
+      for (const m of drizzle) {
+        schemas.push({ variable: m[1], tableName: m[2], file: file.relativePath, orm: 'drizzle' });
+      }
+      const prisma = [...content.matchAll(/model\s+(\w+)\s*\{/g)];
+      for (const m of prisma) {
+        schemas.push({ tableName: m[1], file: file.relativePath, orm: 'prisma' });
+      }
+    } catch {}
+  }
+  return schemas;
+}
+
+function getRelevantCodeSnippets(files) {
+  const snippets = {};
+  let totalSize = 0;
+  const maxSize = 15000;
+
+  const sorted = [...files].sort((a, b) => {
+    const p = (f) => {
+      if (f.relativePath.match(/schema|model/i)) return 0;
+      if (f.relativePath.match(/route/i)) return 1;
+      if (f.relativePath.match(/service/i)) return 2;
+      if (f.relativePath.match(/page|component/i)) return 3;
+      return 4;
+    };
+    return p(a) - p(b);
+  });
+
+  for (const file of sorted) {
+    if (totalSize >= maxSize) break;
+    try {
+      let content = fs.readFileSync(file.fullPath, 'utf-8');
+      if (content.length > 3000) content = content.substring(0, 3000) + '\n// ... (truncated)';
+      if (totalSize + content.length <= maxSize) {
+        snippets[file.relativePath] = content;
+        totalSize += content.length;
+      }
+    } catch {}
+  }
+  return snippets;
+}
+
+async function runElonBuildCycle(config) {
+  const { context, dataDir, projectRoot } = config;
+  const log = _createLogger(config.memory);
+
+  log('ELON BUILD: Starting build cycle...');
+
+  const appSpec = parseAppSpec(context.goals);
+  if (!appSpec.spec) {
+    log('ELON BUILD: No App Specification found in GOALS.md');
+    saveElonLog(dataDir, { lastMode: 'build', lastModeResult: 'no-spec' });
+    return { status: 'no-spec', mode: 'build', message: 'No App Specification section in GOALS.md', budgetUsed: 0 };
+  }
+
+  const milestones = parseRoadmapMilestones(appSpec.roadmap, appSpec.currentPhase);
+  const unbuilt = milestones.filter(m => !m.completed);
+
+  if (unbuilt.length === 0) {
+    log(`ELON BUILD: Phase ${appSpec.currentPhase} is complete!`);
+    saveElonLog(dataDir, { lastMode: 'build', lastModeResult: 'cycle-complete', consecutiveFixCycles: 0 });
+    saveBuildState(dataDir, {
+      currentPhase: appSpec.currentPhase,
+      phaseComplete: true,
+      hasUnbuiltMilestones: false,
+      lastUpdated: new Date().toISOString()
+    });
+    return { status: 'phase-complete', mode: 'build', phase: appSpec.currentPhase, budgetUsed: 0 };
+  }
+
+  const existingFiles = scanProjectFiles(projectRoot);
+  const existingEndpoints = findExistingRoutes(existingFiles);
+  const existingSchema = findExistingSchema(existingFiles);
+  const codeSnippets = getRelevantCodeSnippets(existingFiles);
+
+  const buildState = loadBuildState(dataDir) || { completed: [], failed: [] };
+  const elonLog = loadElonLog(dataDir);
+  const failedHistory = elonLog.failedHistory || [];
+
+  log('ELON BUILD: Analyzing spec and codebase...');
+
+  const budget = { spent: 0, max: config.budgetMax || 5.0 };
+
+  let analysis;
+  try {
+    analysis = await delegateToSubagent('elon-builder', {
+      spec: appSpec.spec,
+      mission: appSpec.mission,
+      architecture: appSpec.architecture,
+      technicalStandards: appSpec.technicalStandards,
+      currentPhase: `Phase ${appSpec.currentPhase}`,
+      roadmap: appSpec.roadmap,
+      milestones: milestones,
+      existingFiles: existingFiles.map(f => f.relativePath),
+      existingEndpoints: existingEndpoints,
+      existingSchema: existingSchema,
+      alreadyBuilt: buildState.completed || [],
+      failedHistory: failedHistory,
+      codebaseSnippets: codeSnippets
+    }, _buildSubagentOptions(config));
+  } catch (err) {
+    log(`ELON BUILD: Analysis failed: ${err.message}`);
+    saveElonLog(dataDir, { lastMode: 'build', lastModeResult: 'analysis-failed' });
+    return { status: 'failed', mode: 'build', reason: err.message, budgetUsed: budget.spent };
+  }
+
+  if (!analysis || analysis.action === 'queue' || analysis.reason === 'parse-failed') {
+    log('ELON BUILD: Could not identify build constraint');
+    saveElonLog(dataDir, { lastMode: 'build', lastModeResult: 'no-constraint' });
+    return { status: 'no-constraint', mode: 'build', budgetUsed: budget.spent };
+  }
+
+  if (analysis.action === 'skip') {
+    const reason = analysis.reason || 'skipped';
+    log(`ELON BUILD: Skipped — ${reason}`);
+    return { status: 'failed', mode: 'build', reason, budgetUsed: budget.spent };
+  }
+
+  if (analysis.constraint === 'PHASE_COMPLETE') {
+    saveElonLog(dataDir, { lastMode: 'build', lastModeResult: 'cycle-complete' });
+    return { status: 'phase-complete', mode: 'build', phase: appSpec.currentPhase, budgetUsed: budget.spent };
+  }
+
+  if (analysis.constraint === 'BLOCKED') {
+    log(`ELON BUILD: BLOCKED — ${analysis.reason}`);
+    saveElonLog(dataDir, { lastMode: 'build', lastModeResult: 'blocked' });
+    return { status: 'blocked', mode: 'build', reason: analysis.reason, budgetUsed: budget.spent };
+  }
+
+  log(`ELON BUILD: Constraint — ${analysis.constraint}`);
+
+  const specs = [];
+  const approvedDir = path.join(dataDir, 'approved-queue');
+  const pendingDir = path.join(dataDir, 'queue', 'pending');
+  fs.mkdirSync(approvedDir, { recursive: true });
+  fs.mkdirSync(pendingDir, { recursive: true });
+
+  for (const step of (analysis.plan || [])) {
+    const spec = {
+      id: `build-${Date.now()}-step${step.step}`,
+      source: 'elon-build',
+      action: step.action || 'create',
+      filePath: step.filePath,
+      description: step.description,
+      successCriteria: step.successCriteria || [],
+      relatedFiles: step.relatedFiles || [],
+      testCommand: step.testCommand || null,
+      constraint: analysis.constraint,
+      phase: analysis.phase,
+      milestone: analysis.milestone,
+      buildNotes: analysis.buildNotes || '',
+      createdAt: new Date().toISOString()
+    };
+
+    const approval = _needsOwnerApproval(step, dataDir);
+    const targetDir = approval.needsApproval ? pendingDir : approvedDir;
+
+    const specPath = path.join(targetDir, `${spec.id}.json`);
+    _writeJson(specPath, spec);
+    specs.push({ ...spec, autoApproved: !approval.needsApproval, path: specPath });
+
+    log(
+      `ELON BUILD: Spec ${spec.id} — ${step.action || 'create'} ${step.filePath} ` +
+      `[${approval.needsApproval ? 'pending approval' : 'auto-approved'}]`
+    );
+  }
+
+  saveBuildState(dataDir, {
+    currentPhase: appSpec.currentPhase,
+    currentConstraint: analysis.constraint,
+    currentMilestone: analysis.milestone,
+    hasUnbuiltMilestones: true,
+    specsGenerated: specs.length,
+    lastBuildCycle: new Date().toISOString()
+  });
+
+  saveElonLog(dataDir, {
+    lastMode: 'build',
+    lastModeResult: 'specs-generated',
+    currentConstraint: analysis.constraint,
+    consecutiveFixCycles: 0,
+    modeOverride: null
+  });
+
+  return {
+    status: 'specs-generated',
+    mode: 'build',
+    constraint: analysis.constraint,
+    specs: specs,
+    phase: analysis.phase,
+    milestone: analysis.milestone,
+    budgetUsed: budget.spent,
+    specsAutoApproved: specs.filter(s => s.autoApproved).length,
+    specsPendingApproval: specs.filter(s => !s.autoApproved).length,
+  };
+}
+
 function _loadElonSettings(dataDir) {
   const defaults = {};
   for (const cat of Object.keys(SENSITIVE_CATEGORIES)) {
@@ -467,6 +840,17 @@ async function runElonCycle(config) {
   } = config;
 
   const context = loadContext(projectRoot);
+
+  const mode = getElonMode({ context, dataDir });
+  if (memory) memory.logDaily(`ELON mode: ${mode}`);
+
+  if (mode === 'build') {
+    return await runElonBuildCycle({
+      apiKey, appUrl, projectRoot, dataDir, budgetMax, memory, onProgress, context,
+      budget: { spent: 0, max: budgetMax },
+    });
+  }
+
   const elonLog = _loadElonLog(dataDir);
   const previousReport = _loadElonReport(dataDir);
   const budget = { spent: 0, max: budgetMax };
@@ -858,6 +1242,13 @@ async function runElonLoop(config) {
 
     totalBudget += cycleResult.budgetUsed || 0;
 
+    if (cycleResult.mode === 'build') {
+      saveElonLog(dataDir, { consecutiveFixCycles: 0 });
+    } else {
+      const currentLog = loadElonLog(dataDir);
+      saveElonLog(dataDir, { consecutiveFixCycles: (currentLog.consecutiveFixCycles || 0) + 1 });
+    }
+
     if (cycleResult.status === 'dismissed') {
       consecutiveDismissals++;
       progress('constraint-dismissed', `Constraint dismissed (${consecutiveDismissals}/${MAX_CONSECUTIVE_DISMISSALS}): ${cycleResult.reason || 'duplicate/auth'}`, { budget: totalBudget }, 'warning');
@@ -865,6 +1256,16 @@ async function runElonLoop(config) {
     }
 
     consecutiveDismissals = 0;
+
+    if (cycleResult.mode === 'build') {
+      if (cycleResult.status === 'specs-generated') {
+        constraintsAttempted++;
+        progress('build-specs', `Build cycle generated ${cycleResult.specs?.length || 0} specs for: ${cycleResult.constraint}`, { budget: totalBudget }, 'success');
+      } else {
+        progress('build-done', `Build cycle: ${cycleResult.status}`, { budget: totalBudget }, cycleResult.status === 'phase-complete' ? 'success' : 'info');
+      }
+      continue;
+    }
 
     if (cycleResult.status !== 'planned') {
       progress('cycle-failed', `Cycle ${cycle + 1} failed: ${cycleResult.reason || cycleResult.status}`, { budget: totalBudget }, 'error');
@@ -1073,11 +1474,22 @@ function _generateReportMarkdown(data) {
   return lines.join('\n');
 }
 
-function getElonStatus(dataDir) {
+function getElonStatus(dataDir, config) {
   const elonLog = _loadElonLog(dataDir);
   const reportData = _loadElonReport(dataDir);
+  const buildStateData = loadBuildState(dataDir);
+
+  let currentMode = 'fix';
+  if (config && config.context) {
+    try { currentMode = getElonMode({ context: config.context, dataDir }); } catch {}
+  } else {
+    const log = loadElonLog(dataDir);
+    currentMode = log.lastMode || 'fix';
+  }
 
   return {
+    mode: currentMode,
+    buildState: buildStateData,
     hasActiveConstraint: !!elonLog.current,
     currentConstraint: elonLog.current ? {
       id: elonLog.current.id,
@@ -1381,4 +1793,12 @@ module.exports = {
   approveAllSpecs,
   executeApprovedSpecs,
   resetElonState,
+  getElonMode,
+  runElonBuildCycle,
+  parseAppSpec,
+  parseRoadmapMilestones,
+  loadBuildState,
+  saveBuildState,
+  loadElonLog,
+  saveElonLog,
 };
