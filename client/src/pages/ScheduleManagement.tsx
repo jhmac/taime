@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -12,9 +12,32 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { useLocation } from "wouter";
 import { cn } from "@/lib/utils";
+import { apiRequest } from "@/lib/queryClient";
 import type { User, Schedule, WorkLocation } from "@shared/schema";
-import AIStaffingPanel from "@/components/AIStaffingPanel";
-import AIScheduleGenerator from "@/components/AIScheduleGenerator";
+import {
+  ChevronLeft, ChevronRight, Plus, Trash2, Sparkles, Loader2,
+  Check, X, Calendar, Clock
+} from "lucide-react";
+
+interface ScheduleEntry {
+  date: string;
+  employeeId: string;
+  employeeName: string;
+  shiftBlock: string;
+  startTime: string;
+  endTime: string;
+  reasoning: string;
+}
+
+interface GenerateResult {
+  success: boolean;
+  days: any[];
+  generatedSchedule: ScheduleEntry[];
+  summary: string;
+  warnings: string[];
+  settings: any;
+  salesDataAvailable: boolean;
+}
 
 export default function ScheduleManagement() {
   const { toast } = useToast();
@@ -23,15 +46,40 @@ export default function ScheduleManagement() {
   const [, navigate] = useLocation();
   const [selectedWeek, setSelectedWeek] = useState(0);
   const [showCreateShift, setShowCreateShift] = useState(false);
-  const [selectedEmployee, setSelectedEmployee] = useState<string>('');
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [createShiftDefaults, setCreateShiftDefaults] = useState<{userId?: string, date?: string}>({});
   const [shiftFilter, setShiftFilter] = useState<'my' | 'all' | 'open'>('my');
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
+  const [showAIPanel, setShowAIPanel] = useState(false);
+  const [aiResult, setAiResult] = useState<GenerateResult | null>(null);
+  const [removedEntries, setRemovedEntries] = useState<Set<number>>(new Set());
 
   const isAdmin = currentUser?.role?.name === 'admin' || currentUser?.role?.name === 'owner';
 
+  const getWeekDates = (weekOffset: number) => {
+    const today = new Date();
+    const startOfWeek = new Date(today);
+    startOfWeek.setDate(today.getDate() - today.getDay() + (weekOffset * 7));
+    startOfWeek.setHours(0, 0, 0, 0);
+    const dates = [];
+    for (let i = 0; i < 7; i++) {
+      const date = new Date(startOfWeek);
+      date.setDate(startOfWeek.getDate() + i);
+      dates.push(date);
+    }
+    return dates;
+  };
+
+  const weekDates = getWeekDates(selectedWeek);
+  const startDateParam = weekDates[0].toISOString().split('T')[0];
+  const endDateParam = new Date(weekDates[6].getTime() + 86400000).toISOString().split('T')[0];
+
   const { data: schedules = [], isLoading: schedulesLoading } = useQuery<Schedule[]>({
-    queryKey: ["/api/schedules"],
+    queryKey: ["/api/schedules", startDateParam, endDateParam],
+    queryFn: async () => {
+      const res = await fetch(`/api/schedules?startDate=${startDateParam}&endDate=${endDateParam}`);
+      if (!res.ok) throw new Error('Failed to fetch schedules');
+      return res.json();
+    },
   });
 
   const { data: users = [], isLoading: usersLoading } = useQuery<User[]>({
@@ -50,50 +98,140 @@ export default function ScheduleManagement() {
 
   const createScheduleMutation = useMutation({
     mutationFn: async (scheduleData: any) => {
-      const response = await fetch("/api/schedules", {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(scheduleData),
-      });
-      if (!response.ok) throw new Error('Failed to create schedule');
-      return response.json();
+      return apiRequest('POST', '/api/schedules', scheduleData);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/schedules"] });
       setShowCreateShift(false);
-      toast({ title: "Success", description: "Shift created successfully!" });
+      toast({ title: "Success", description: "Shift created!" });
     },
     onError: () => {
-      toast({ title: "Error", description: "Failed to create shift. Please try again.", variant: "destructive" });
+      toast({ title: "Error", description: "Failed to create shift.", variant: "destructive" });
+    },
+  });
+
+  const deleteScheduleMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return apiRequest('DELETE', `/api/schedules/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/schedules"] });
+      toast({ title: "Deleted", description: "Shift removed." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to delete shift.", variant: "destructive" });
+    },
+  });
+
+  const generateMutation = useMutation({
+    mutationFn: async (dates: { startDate: string; endDate: string }) => {
+      return apiRequest('POST', '/api/ai-scheduling/generate', {
+        ...dates,
+        shopDomain: activeShop?.shopDomain,
+      });
+    },
+    onSuccess: async (response: any) => {
+      const data = await response.json();
+      setAiResult(data);
+      setRemovedEntries(new Set());
+      toast({ title: "Schedule Generated", description: data.summary || "AI schedule ready for review." });
+    },
+    onError: (error: any) => {
+      toast({ title: "Generation Failed", description: error.message || "Failed to generate.", variant: "destructive" });
+    },
+  });
+
+  const applyMutation = useMutation({
+    mutationFn: async () => {
+      if (!aiResult) throw new Error('No schedule');
+      const entries = aiResult.generatedSchedule.filter((_, i) => !removedEntries.has(i));
+      return apiRequest('POST', '/api/ai-scheduling/apply', { scheduleEntries: entries });
+    },
+    onSuccess: async (response: any) => {
+      const data = await response.json();
+      queryClient.invalidateQueries({ queryKey: ["/api/schedules"] });
+      toast({ title: "Applied!", description: `${data.schedulesCreated} shifts created.` });
+      setAiResult(null);
+      setShowAIPanel(false);
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to apply schedule.", variant: "destructive" });
     },
   });
 
   const formatTime = (dateStr: string | Date) => {
-    return new Date(dateStr).toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true
+    const d = new Date(dateStr);
+    const h = d.getHours();
+    const m = d.getMinutes();
+    const ampm = h >= 12 ? 'pm' : 'am';
+    const h12 = h % 12 || 12;
+    return m === 0 ? `${h12}${ampm}` : `${h12}:${m.toString().padStart(2, '0')}${ampm}`;
+  };
+
+  const activeEmployees = users.filter(user => user.isActive !== false);
+
+  const formatWeekRange = () => {
+    const start = weekDates[0];
+    const end = weekDates[6];
+    const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric', year: 'numeric' };
+    return `${start.toLocaleDateString('en-US', opts)} - ${end.toLocaleDateString('en-US', opts)}`;
+  };
+
+  const employeeStats = useMemo(() => {
+    const stats: Record<string, { hours: number; wages: number }> = {};
+    activeEmployees.forEach(emp => {
+      const empSchedules = schedules.filter(s =>
+        s.userId === emp.id &&
+        weekDates.some(d => new Date(s.startTime).toDateString() === d.toDateString())
+      );
+      const hours = empSchedules.reduce((sum, s) => {
+        return sum + (new Date(s.endTime).getTime() - new Date(s.startTime).getTime()) / (1000 * 60 * 60);
+      }, 0);
+      const rate = parseFloat(emp.hourlyRate || '0');
+      stats[emp.id] = { hours: Math.round(hours * 100) / 100, wages: Math.round(hours * rate * 100) / 100 };
     });
+    return stats;
+  }, [activeEmployees, schedules, weekDates]);
+
+  const dailyTotals = useMemo(() => {
+    return weekDates.map(date => {
+      const daySchedules = schedules.filter(s =>
+        new Date(s.startTime).toDateString() === date.toDateString()
+      );
+      let hours = 0;
+      let wages = 0;
+      daySchedules.forEach(s => {
+        const h = (new Date(s.endTime).getTime() - new Date(s.startTime).getTime()) / (1000 * 60 * 60);
+        hours += h;
+        const emp = activeEmployees.find(e => e.id === s.userId);
+        wages += h * parseFloat(emp?.hourlyRate || '0');
+      });
+      const staffCount = new Set(daySchedules.map(s => s.userId)).size;
+      return { hours: Math.round(hours * 100) / 100, wages: Math.round(wages * 100) / 100, staffCount };
+    });
+  }, [weekDates, schedules, activeEmployees]);
+
+  const getInitials = (user: User) => {
+    return ((user.firstName?.[0] || '') + (user.lastName?.[0] || '')).toUpperCase();
   };
 
-  const getWeekDates = (weekOffset: number) => {
-    const today = new Date();
-    const startOfWeek = new Date(today);
-    startOfWeek.setDate(today.getDate() - today.getDay() + (weekOffset * 7));
-    const dates = [];
-    for (let i = 0; i < 7; i++) {
-      const date = new Date(startOfWeek);
-      date.setDate(startOfWeek.getDate() + i);
-      dates.push(date);
-    }
-    return dates;
+  const getInitialColor = (name: string) => {
+    const colors = [
+      'bg-violet-500', 'bg-blue-500', 'bg-emerald-500', 'bg-amber-500',
+      'bg-rose-500', 'bg-cyan-500', 'bg-pink-500', 'bg-indigo-500',
+      'bg-teal-500', 'bg-orange-500'
+    ];
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    return colors[Math.abs(hash) % colors.length];
   };
 
-  const formatWeekRange = (weekOffset: number) => {
-    const dates = getWeekDates(weekOffset);
-    const start = dates[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-    const end = dates[6].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-    return `${start} - ${end}`;
+  const openCreateShift = (userId?: string, date?: Date) => {
+    setCreateShiftDefaults({
+      userId: userId || '',
+      date: date ? date.toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+    });
+    setShowCreateShift(true);
   };
 
   const handleCreateShift = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -101,20 +239,22 @@ export default function ScheduleManagement() {
     const formData = new FormData(e.currentTarget);
     const startDate = formData.get('startDate') as string;
     const startTime = formData.get('startTime') as string;
-    const endDate = formData.get('endDate') as string;
     const endTime = formData.get('endTime') as string;
     createScheduleMutation.mutate({
       userId: formData.get('userId') as string,
       startTime: new Date(`${startDate}T${startTime}`),
-      endTime: new Date(`${endDate}T${endTime}`),
-      title: formData.get('title') as string,
-      locationId: formData.get('locationId') as string,
-      description: formData.get('description') as string,
+      endTime: new Date(`${startDate}T${endTime}`),
+      title: formData.get('title') as string || undefined,
+      locationId: formData.get('locationId') as string || undefined,
+      description: formData.get('description') as string || undefined,
     });
   };
 
-  const weekDates = getWeekDates(selectedWeek);
-  const activeEmployees = users.filter(user => user.isActive !== false);
+  const handleAIGenerate = () => {
+    const startDate = weekDates[0].toISOString().split('T')[0];
+    const endDate = weekDates[6].toISOString().split('T')[0];
+    generateMutation.mutate({ startDate, endDate });
+  };
 
   if (schedulesLoading || usersLoading) {
     return (
@@ -124,55 +264,29 @@ export default function ScheduleManagement() {
     );
   }
 
+  // ===== EMPLOYEE VIEW (non-admin) =====
   if (!isAdmin) {
     const mySchedules = schedules.filter(s =>
       s.userId === currentUser?.id &&
       weekDates.some(d => new Date(s.startTime).toDateString() === d.toDateString())
     );
-
     const allWeekSchedules = schedules.filter(s =>
       weekDates.some(d => new Date(s.startTime).toDateString() === d.toDateString())
     );
-    
-    const allUpcomingMyShifts = schedules
-      .filter(s => s.userId === currentUser?.id && new Date(s.startTime) >= new Date(new Date().setHours(0, 0, 0, 0)))
-      .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
-
     const allUpcomingSchedules = schedules
-      .filter(s => new Date(s.startTime) >= new Date(new Date().setHours(0, 0, 0, 0)))
+      .filter(s => s.userId === currentUser?.id && new Date(s.startTime) >= new Date(new Date().setHours(0,0,0,0)))
       .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
-
     const getFilteredSchedules = () => {
-      if (shiftFilter === 'all' && !selectedDay) {
-        return allUpcomingSchedules;
-      }
-      
+      if (shiftFilter === 'all' && !selectedDay) return schedules.filter(s => new Date(s.startTime) >= new Date(new Date().setHours(0,0,0,0))).sort((a,b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
       if (selectedDay) {
-        const daySchedules = schedules.filter(s =>
-          new Date(s.startTime).toDateString() === selectedDay.toDateString()
-        );
+        const daySchedules = schedules.filter(s => new Date(s.startTime).toDateString() === selectedDay.toDateString());
         if (shiftFilter === 'my') return daySchedules.filter(s => s.userId === currentUser?.id);
-        if (shiftFilter === 'open') return daySchedules.filter(s => !s.userId);
         return daySchedules;
       }
-
       if (shiftFilter === 'my') return mySchedules;
-      if (shiftFilter === 'open') return allWeekSchedules.filter(s => !s.userId);
       return allWeekSchedules;
     };
-
     const filteredSchedules = getFilteredSchedules();
-    const hasShifts = filteredSchedules.length > 0;
-    const showingAllUpcoming = shiftFilter === 'all' && !selectedDay;
-
-    const handleDayClick = (date: Date) => {
-      if (selectedDay && selectedDay.toDateString() === date.toDateString()) {
-        setSelectedDay(null);
-      } else {
-        setSelectedDay(date);
-      }
-    };
-
     const groupedSchedules: Record<string, Schedule[]> = {};
     filteredSchedules.forEach(s => {
       const dayKey = new Date(s.startTime).toDateString();
@@ -184,417 +298,418 @@ export default function ScheduleManagement() {
       <div className="min-h-screen bg-background p-4 md:p-6">
         <div className="max-w-lg mx-auto space-y-4">
           <div className="text-center space-y-1">
-            <p className="text-sm text-muted-foreground" data-testid="employee-week-range">
-              {formatWeekRange(selectedWeek)}
-            </p>
+            <p className="text-sm text-muted-foreground">{formatWeekRange()}</p>
           </div>
-
           <div className="flex items-center justify-between">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => { setSelectedWeek(selectedWeek - 1); setSelectedDay(null); }}
-              data-testid="button-previous-week"
-            >
-              <i className="fas fa-chevron-left"></i>
+            <Button variant="ghost" size="sm" onClick={() => { setSelectedWeek(selectedWeek - 1); setSelectedDay(null); }}>
+              <ChevronLeft className="h-4 w-4" />
             </Button>
-
             <div className="flex gap-1">
-              {weekDates.map((date) => {
+              {weekDates.map(date => {
                 const isToday = date.toDateString() === new Date().toDateString();
-                const isSelected = selectedDay && selectedDay.toDateString() === date.toDateString();
-                const hasShiftOnDay = mySchedules.some(s =>
-                  new Date(s.startTime).toDateString() === date.toDateString()
-                );
-                const allShiftsOnDay = allWeekSchedules.filter(s =>
-                  new Date(s.startTime).toDateString() === date.toDateString()
-                );
+                const isSelected = selectedDay?.toDateString() === date.toDateString();
+                const hasShift = mySchedules.some(s => new Date(s.startTime).toDateString() === date.toDateString());
                 return (
-                  <button
-                    key={date.toISOString()}
-                    onClick={() => handleDayClick(date)}
-                    className="flex flex-col items-center gap-1 group"
-                  >
-                    <span className="text-[10px] text-muted-foreground uppercase">
-                      {date.toLocaleDateString('en-US', { weekday: 'short' })}
-                    </span>
-                    <div
-                      className={cn(
-                        "w-9 h-9 rounded-full flex items-center justify-center text-sm font-medium transition-all",
-                        isSelected
-                          ? 'bg-primary text-primary-foreground ring-2 ring-primary/30'
-                          : isToday
-                            ? 'bg-primary text-primary-foreground'
-                            : hasShiftOnDay
-                              ? 'bg-primary/10 text-primary border border-primary/30'
-                              : 'text-muted-foreground hover:bg-muted'
-                      )}
-                    >
-                      {date.getDate()}
-                    </div>
-                    {allShiftsOnDay.length > 0 && (
-                      <div className="flex gap-0.5">
-                        {allShiftsOnDay.slice(0, 3).map((_, i) => (
-                          <div key={i} className="w-1 h-1 rounded-full bg-primary/60"></div>
-                        ))}
-                      </div>
-                    )}
+                  <button key={date.toISOString()} onClick={() => setSelectedDay(isSelected ? null : date)} className="flex flex-col items-center gap-1">
+                    <span className="text-[10px] text-muted-foreground uppercase">{date.toLocaleDateString('en-US', { weekday: 'short' })}</span>
+                    <div className={cn("w-9 h-9 rounded-full flex items-center justify-center text-sm font-medium transition-all",
+                      isSelected ? 'bg-primary text-primary-foreground ring-2 ring-primary/30' : isToday ? 'bg-primary text-primary-foreground' : hasShift ? 'bg-primary/10 text-primary border border-primary/30' : 'text-muted-foreground hover:bg-muted'
+                    )}>{date.getDate()}</div>
                   </button>
                 );
               })}
             </div>
-
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => { setSelectedWeek(selectedWeek + 1); setSelectedDay(null); }}
-              data-testid="button-next-week"
-            >
-              <i className="fas fa-chevron-right"></i>
+            <Button variant="ghost" size="sm" onClick={() => { setSelectedWeek(selectedWeek + 1); setSelectedDay(null); }}>
+              <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
-
           <div className="flex gap-2 justify-center">
             {(['all', 'my', 'open'] as const).map(filter => (
-              <Button
-                key={filter}
-                variant={shiftFilter === filter ? 'default' : 'outline'}
-                size="sm"
-                className="text-xs px-4"
-                onClick={() => {
-                  setShiftFilter(filter);
-                  if (filter === 'all') setSelectedDay(null);
-                }}
-              >
+              <Button key={filter} variant={shiftFilter === filter ? 'default' : 'outline'} size="sm" className="text-xs px-4" onClick={() => { setShiftFilter(filter); if (filter === 'all') setSelectedDay(null); }}>
                 {filter === 'all' ? 'All shifts' : filter === 'my' ? 'My shifts' : 'Open shifts'}
               </Button>
             ))}
           </div>
-
-          {selectedDay && (
-            <div className="bg-primary/5 border border-primary/10 rounded-lg px-3 py-2 flex items-center justify-between">
-              <span className="text-sm font-medium">
-                {selectedDay.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-              </span>
-              <Button variant="ghost" size="sm" className="text-xs h-6" onClick={() => setSelectedDay(null)}>
-                <i className="fas fa-times mr-1"></i>Clear
-              </Button>
-            </div>
-          )}
-
-          {showingAllUpcoming && (
-            <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900 rounded-lg px-3 py-2">
-              <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">
-                <i className="fas fa-calendar-alt mr-1"></i>
-                Showing all upcoming shifts ({filteredSchedules.length} total)
-              </span>
-            </div>
-          )}
-
-          {hasShifts ? (
+          {Object.keys(groupedSchedules).length > 0 ? (
             <div className="space-y-2">
               {Object.entries(groupedSchedules).map(([dayKey, dayShifts]) => {
                 const dayDate = new Date(dayKey);
-                const isToday = dayDate.toDateString() === new Date().toDateString();
                 return (
-                  <Card key={dayKey}>
-                    <CardContent className="p-3">
-                      <div className="text-xs font-medium text-muted-foreground mb-2">
-                        {dayDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
-                        {isToday && <span className="ml-1 text-primary">(Today)</span>}
-                      </div>
-                      {dayShifts.map(shift => {
-                        const shiftUser = users.find(u => u.id === shift.userId);
-                        const isMine = shift.userId === currentUser?.id;
-                        const duration = ((new Date(shift.endTime).getTime() - new Date(shift.startTime).getTime()) / (1000 * 60 * 60)).toFixed(1);
-                        return (
-                          <div key={shift.id} className={cn(
-                            "p-2 rounded border mb-1",
-                            isMine
-                              ? "bg-primary/5 border-primary/10"
-                              : "bg-muted/30 border-border"
-                          )}>
-                            <div className="flex items-center justify-between">
-                              <div className="text-sm font-medium">
-                                {formatTime(shift.startTime)} - {formatTime(shift.endTime)}
-                              </div>
-                              <div className="flex items-center gap-1">
-                                <span className="text-[10px] text-muted-foreground">{duration}h</span>
-                                {shift.title && (
-                                  <Badge variant="outline" className="text-[10px]">{shift.title}</Badge>
-                                )}
-                              </div>
-                            </div>
-                            {shiftFilter !== 'my' && shiftUser && (
-                              <div className="text-xs text-muted-foreground mt-1">
-                                {shiftUser.firstName} {shiftUser.lastName}
-                                {isMine && <span className="text-primary ml-1">(You)</span>}
-                              </div>
-                            )}
-                            {shift.description && (
-                              <div className="text-xs text-muted-foreground mt-1 italic">{shift.description}</div>
-                            )}
+                  <Card key={dayKey}><CardContent className="p-3">
+                    <div className="text-xs font-medium text-muted-foreground mb-2">
+                      {dayDate.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+                      {dayDate.toDateString() === new Date().toDateString() && <span className="ml-1 text-primary">(Today)</span>}
+                    </div>
+                    {dayShifts.map(shift => {
+                      const shiftUser = users.find(u => u.id === shift.userId);
+                      const isMine = shift.userId === currentUser?.id;
+                      const duration = ((new Date(shift.endTime).getTime() - new Date(shift.startTime).getTime()) / (1000 * 60 * 60)).toFixed(1);
+                      return (
+                        <div key={shift.id} className={cn("p-2 rounded border mb-1", isMine ? "bg-primary/5 border-primary/10" : "bg-muted/30 border-border")}>
+                          <div className="flex items-center justify-between">
+                            <div className="text-sm font-medium">{formatTime(shift.startTime)} - {formatTime(shift.endTime)}</div>
+                            <span className="text-[10px] text-muted-foreground">{duration}h</span>
                           </div>
-                        );
-                      })}
-                    </CardContent>
-                  </Card>
+                          {shiftFilter !== 'my' && shiftUser && (
+                            <div className="text-xs text-muted-foreground mt-1">{shiftUser.firstName} {shiftUser.lastName}{isMine && <span className="text-primary ml-1">(You)</span>}</div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </CardContent></Card>
                 );
               })}
             </div>
           ) : (
-            <Card>
-              <CardContent className="p-8 text-center">
-                <div className="mx-auto w-24 h-24 mb-4 opacity-30">
-                  <svg viewBox="0 0 100 100" className="w-full h-full text-muted-foreground">
-                    <rect x="10" y="10" width="30" height="30" rx="3" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="5,3" />
-                    <rect x="45" y="25" width="30" height="30" rx="3" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="5,3" />
-                    <rect x="25" y="50" width="30" height="30" rx="3" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="5,3" />
-                    <rect x="60" y="60" width="15" height="15" rx="2" fill="currentColor" opacity="0.2" />
-                  </svg>
-                </div>
-                <p className="text-base font-medium mb-1">
-                  {selectedDay
-                    ? `No shifts on ${selectedDay.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}`
-                    : 'You don\'t have any shifts this week'}
-                </p>
-                <p className="text-sm text-muted-foreground">Check back later or ask your manager about upcoming shifts.</p>
-              </CardContent>
-            </Card>
+            <Card><CardContent className="p-8 text-center">
+              <p className="text-base font-medium mb-1">No shifts scheduled</p>
+              <p className="text-sm text-muted-foreground">Check back later or ask your manager.</p>
+            </CardContent></Card>
           )}
-
           <div className="space-y-3 pt-2">
-            <Button
-              variant="outline"
-              className="w-full h-12 text-sm font-medium border-primary/30 text-primary hover:bg-primary/5"
-              onClick={() => navigate('/availability')}
-            >
-              <i className="fas fa-calendar-check mr-2"></i>
-              Update availability
-            </Button>
-            <Button
-              variant="outline"
-              className="w-full h-12 text-sm font-medium border-primary/30 text-primary hover:bg-primary/5"
-              onClick={() => navigate('/availability')}
-            >
-              <i className="fas fa-umbrella-beach mr-2"></i>
-              Submit time-off request
+            <Button variant="outline" className="w-full h-12 text-sm font-medium border-primary/30 text-primary hover:bg-primary/5" onClick={() => navigate('/availability')}>
+              <Calendar className="h-4 w-4 mr-2" />Update availability
             </Button>
           </div>
-
           <div className="text-center pt-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-xs text-muted-foreground"
-              onClick={() => { setSelectedWeek(0); setSelectedDay(null); }}
-              data-testid="button-current-week"
-            >
-              Back to current week
-            </Button>
+            <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" onClick={() => { setSelectedWeek(0); setSelectedDay(null); }}>Back to current week</Button>
           </div>
         </div>
       </div>
     );
   }
 
+  // ===== ADMIN VIEW - Homebase-style Grid =====
   return (
-    <div className="min-h-screen bg-background p-4 md:p-6">
-      <div className="space-y-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="space-y-3">
-              <Dialog open={showCreateShift} onOpenChange={setShowCreateShift}>
-                <DialogTrigger asChild>
-                  <Button size="sm" className="w-full" data-testid="button-create-shift">
-                    <i className="fas fa-plus mr-2"></i>
-                    Create Shift
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="max-w-sm mx-auto max-h-[90vh] overflow-y-auto" data-testid="dialog-create-shift">
-                  <DialogHeader>
-                    <DialogTitle className="text-sm">Create New Shift</DialogTitle>
-                  </DialogHeader>
-                  <form onSubmit={handleCreateShift} className="space-y-3">
-                    <div>
-                      <Label htmlFor="userId" className="text-xs">Employee</Label>
-                      <Select name="userId" required>
-                        <SelectTrigger className="h-8" data-testid="select-employee">
-                          <SelectValue placeholder="Select employee" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {activeEmployees.length === 0 ? (
-                            <SelectItem value="none" disabled>
-                              No employees available
-                            </SelectItem>
-                          ) : (
-                            activeEmployees.map((user) => (
-                              <SelectItem key={user.id} value={user.id}>
-                                {user.firstName} {user.lastName}
-                              </SelectItem>
-                            ))
-                          )}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <Label htmlFor="startDate" className="text-xs">Start Date</Label>
-                        <Input id="startDate" name="startDate" type="date" className="h-8 text-sm" required defaultValue={selectedDate.toISOString().split('T')[0]} data-testid="input-start-date" />
-                      </div>
-                      <div>
-                        <Label htmlFor="startTime" className="text-xs">Start Time</Label>
-                        <Input id="startTime" name="startTime" type="time" className="h-8 text-sm" required data-testid="input-start-time" />
-                      </div>
-                    </div>
-                    
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <Label htmlFor="endDate" className="text-xs">End Date</Label>
-                        <Input id="endDate" name="endDate" type="date" className="h-8 text-sm" required defaultValue={selectedDate.toISOString().split('T')[0]} data-testid="input-end-date" />
-                      </div>
-                      <div>
-                        <Label htmlFor="endTime" className="text-xs">End Time</Label>
-                        <Input id="endTime" name="endTime" type="time" className="h-8 text-sm" required data-testid="input-end-time" />
-                      </div>
-                    </div>
-                    
-                    <div>
-                      <Label htmlFor="title" className="text-xs">Title</Label>
-                      <Input id="title" name="title" className="h-8 text-sm" placeholder="e.g., Morning Shift" data-testid="input-shift-title" />
-                    </div>
-                    
-                    <div>
-                      <Label htmlFor="locationId" className="text-xs">Location</Label>
-                      <Select name="locationId">
-                        <SelectTrigger className="h-8" data-testid="select-location">
-                          <SelectValue placeholder="Select location (optional)" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {locations.map((location) => (
-                            <SelectItem key={location.id} value={location.id}>
-                              {location.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    
-                    <div>
-                      <Label htmlFor="description" className="text-xs">Description</Label>
-                      <Textarea id="description" name="description" className="text-sm" placeholder="Additional details..." rows={2} data-testid="textarea-description" />
-                    </div>
-                    
-                    <div className="flex justify-end space-x-2 pt-2">
-                      <Button type="button" variant="outline" size="sm" onClick={() => setShowCreateShift(false)}>Cancel</Button>
-                      <Button type="submit" size="sm" disabled={createScheduleMutation.isPending} data-testid="button-save-shift">
-                        {createScheduleMutation.isPending ? "Creating..." : "Create"}
-                      </Button>
-                    </div>
-                  </form>
-                </DialogContent>
-              </Dialog>
+    <div className="min-h-screen bg-background">
+      {/* Top Navigation Bar */}
+      <div className="sticky top-0 z-10 bg-background border-b px-4 py-3">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" className="text-xs font-medium" onClick={() => setSelectedWeek(0)}>
+              Today
+            </Button>
+            <div className="flex items-center gap-1 bg-muted rounded-md px-3 py-1.5">
+              <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+              <span className="text-sm font-medium">{formatWeekRange()}</span>
+            </div>
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setSelectedWeek(selectedWeek - 1)}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setSelectedWeek(selectedWeek + 1)}>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+            <Badge variant="secondary" className="text-xs">Week</Badge>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 text-xs"
+              onClick={() => setShowAIPanel(!showAIPanel)}
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              AI Auto-Schedule
+            </Button>
+            <Button size="sm" className="gap-1.5 text-xs" onClick={() => openCreateShift()}>
+              <Plus className="h-3.5 w-3.5" />
+              Add Shift
+            </Button>
+          </div>
+        </div>
+      </div>
 
-              <div className="flex items-center justify-between">
-                <Button variant="outline" size="sm" onClick={() => setSelectedWeek(selectedWeek - 1)} data-testid="button-previous-week">
-                  <i className="fas fa-chevron-left"></i>
+      {/* AI Auto-Schedule Panel */}
+      {showAIPanel && (
+        <div className="border-b bg-violet-50 dark:bg-violet-950/20 px-4 py-3">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-violet-600" />
+              <span className="text-sm font-medium">AI Auto-Schedule</span>
+              <span className="text-xs text-muted-foreground">
+                Generate optimized schedules for {formatWeekRange()}
+                {!activeShop && ' (no Shopify data — using minimum staffing)'}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              {!aiResult ? (
+                <Button
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={handleAIGenerate}
+                  disabled={generateMutation.isPending}
+                >
+                  {generateMutation.isPending ? (
+                    <><Loader2 className="h-3.5 w-3.5 animate-spin" />Generating...</>
+                  ) : (
+                    <><Sparkles className="h-3.5 w-3.5" />Generate</>
+                  )}
                 </Button>
-                <span className="text-sm font-medium" data-testid="text-week-range">
-                  {formatWeekRange(selectedWeek)}
-                </span>
-                <Button variant="outline" size="sm" onClick={() => setSelectedWeek(selectedWeek + 1)} data-testid="button-next-week">
-                  <i className="fas fa-chevron-right"></i>
-                </Button>
-              </div>
-              
-              <Button variant="outline" size="sm" className="w-full" onClick={() => setSelectedWeek(0)} data-testid="button-current-week">
-                Today
+              ) : (
+                <>
+                  <span className="text-xs text-muted-foreground">
+                    {aiResult.generatedSchedule.length - removedEntries.size} shifts ready
+                  </span>
+                  <Button size="sm" variant="outline" onClick={() => { setAiResult(null); setRemovedEntries(new Set()); }}>
+                    <X className="h-3.5 w-3.5 mr-1" />Discard
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={() => applyMutation.mutate()}
+                    disabled={applyMutation.isPending}
+                  >
+                    {applyMutation.isPending ? (
+                      <><Loader2 className="h-3.5 w-3.5 animate-spin" />Applying...</>
+                    ) : (
+                      <><Check className="h-3.5 w-3.5" />Apply Schedule</>
+                    )}
+                  </Button>
+                </>
+              )}
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setShowAIPanel(false); setAiResult(null); }}>
+                <X className="h-3.5 w-3.5" />
               </Button>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+          {aiResult && aiResult.warnings && aiResult.warnings.length > 0 && (
+            <div className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+              {aiResult.warnings.map((w, i) => <span key={i} className="block">{w}</span>)}
+            </div>
+          )}
+        </div>
+      )}
 
-        {activeShop?.shopDomain && (
-          <AIStaffingPanel shopDomain={activeShop.shopDomain} />
-        )}
-
-        <Card>
-          <CardContent className="p-2">
-            <div className="space-y-3">
-              {activeEmployees.map((employee) => {
-                const employeeSchedules = schedules.filter(s => 
-                  s.userId === employee.id && 
-                  weekDates.some(d => new Date(s.startTime).toDateString() === d.toDateString())
-                );
-                
+      {/* Schedule Grid */}
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse min-w-[900px]">
+          <thead>
+            <tr className="border-b">
+              <th className="sticky left-0 bg-background z-[5] text-left px-3 py-2 w-[200px] min-w-[200px] border-r">
+                <div className="text-xs text-muted-foreground font-normal">Team members ({activeEmployees.length})</div>
+              </th>
+              {weekDates.map((date, i) => {
+                const isToday = date.toDateString() === new Date().toDateString();
+                const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
+                const dayNum = date.getDate();
                 return (
-                  <Card key={employee.id} className="p-3">
-                    <div className="flex items-center justify-between mb-2">
-                      <div>
-                        <div className="font-medium text-sm">{employee.firstName} {employee.lastName}</div>
-                        <div className="text-xs text-muted-foreground">{employee.email}</div>
-                      </div>
-                      <Badge variant="outline" className="text-xs">{employeeSchedules.length} shifts</Badge>
-                    </div>
-                    
-                    <div className="space-y-2">
-                      {weekDates.map((date) => {
-                        const daySchedules = employeeSchedules.filter(s => 
-                          new Date(s.startTime).toDateString() === date.toDateString()
-                        );
-                        const isToday = date.toDateString() === new Date().toDateString();
-                        
-                        return (
-                          <div key={date.toISOString()} className={`p-2 rounded border ${isToday ? 'bg-blue-50 border-blue-200 dark:bg-blue-950/30 dark:border-blue-800' : 'bg-muted/30'}`}>
-                            <div className="flex items-center justify-between">
-                              <div className="text-xs font-medium">
-                                {date.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' })}
-                                {isToday && <span className="ml-1 text-blue-600 dark:text-blue-400">(Today)</span>}
-                              </div>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 px-2 text-xs"
-                                onClick={() => {
-                                  setSelectedEmployee(employee.id);
-                                  setSelectedDate(date);
-                                  setShowCreateShift(true);
-                                }}
-                              >
-                                + Add
-                              </Button>
-                            </div>
-                            
-                            {daySchedules.length > 0 ? (
-                              <div className="mt-1 space-y-1">
-                                {daySchedules.map((schedule) => (
-                                  <div key={schedule.id} className="text-xs p-2 bg-blue-100 dark:bg-blue-900/30 rounded border border-blue-200 dark:border-blue-800">
-                                    <div className="font-medium">
-                                      {formatTime(schedule.startTime)} - {formatTime(schedule.endTime)}
-                                    </div>
-                                    {schedule.title && (
-                                      <div className="text-muted-foreground">{schedule.title}</div>
-                                    )}
-                                  </div>
-                                ))}
-                              </div>
-                            ) : (
-                              <div className="text-xs text-muted-foreground mt-1">No shifts</div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </Card>
+                  <th key={i} className={cn("text-center px-1 py-2 min-w-[100px] border-r last:border-r-0", isToday && "bg-primary/5")}>
+                    <div className={cn("text-xs font-medium", isToday ? "text-primary" : "text-foreground")}>{dayName}, {dayNum}</div>
+                  </th>
                 );
               })}
-            </div>
-          </CardContent>
-        </Card>
+            </tr>
+          </thead>
+          <tbody>
+            {activeEmployees.map(emp => {
+              const stats = employeeStats[emp.id] || { hours: 0, wages: 0 };
+              const name = `${emp.firstName} ${emp.lastName}`;
+              return (
+                <tr key={emp.id} className="border-b hover:bg-muted/20 group">
+                  {/* Employee Info Cell */}
+                  <td className="sticky left-0 bg-background z-[5] px-3 py-2 border-r group-hover:bg-muted/20">
+                    <div className="flex items-center gap-2">
+                      <div className={cn("w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0", getInitialColor(name))}>
+                        {getInitials(emp)}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium truncate">{name}</div>
+                        <div className="text-[10px] text-muted-foreground">
+                          {stats.hours.toFixed(2)} hrs / ${stats.wages.toFixed(2)}
+                        </div>
+                      </div>
+                    </div>
+                  </td>
 
-        <AIScheduleGenerator />
+                  {/* Day Cells */}
+                  {weekDates.map((date, dayIdx) => {
+                    const isToday = date.toDateString() === new Date().toDateString();
+                    const daySchedules = schedules.filter(s =>
+                      s.userId === emp.id && new Date(s.startTime).toDateString() === date.toDateString()
+                    );
+                    const aiEntries = aiResult?.generatedSchedule
+                      .map((e, i) => ({ ...e, idx: i }))
+                      .filter(e => e.employeeId === emp.id && e.date === date.toISOString().split('T')[0]) || [];
+
+                    return (
+                      <td key={dayIdx} className={cn("px-1 py-1 border-r last:border-r-0 align-top min-h-[60px] relative", isToday && "bg-primary/5")}>
+                        <div className="space-y-0.5 min-h-[48px]">
+                          {daySchedules.map(schedule => (
+                            <div
+                              key={schedule.id}
+                              className="group/shift bg-indigo-100 dark:bg-indigo-900/40 border border-indigo-200 dark:border-indigo-800 rounded px-1.5 py-1 text-xs relative cursor-default"
+                            >
+                              <div className="font-medium text-indigo-800 dark:text-indigo-200 leading-tight">
+                                {formatTime(schedule.startTime)}–{formatTime(schedule.endTime)}
+                              </div>
+                              {schedule.title && (
+                                <div className="text-[10px] text-indigo-600 dark:text-indigo-400 truncate">{schedule.title}</div>
+                              )}
+                              <button
+                                onClick={() => deleteScheduleMutation.mutate(schedule.id)}
+                                className="absolute top-0.5 right-0.5 opacity-0 group-hover/shift:opacity-100 transition-opacity bg-red-100 dark:bg-red-900/40 rounded p-0.5"
+                                title="Delete shift"
+                              >
+                                <Trash2 className="h-3 w-3 text-red-500" />
+                              </button>
+                            </div>
+                          ))}
+
+                          {/* AI Generated Preview Entries */}
+                          {aiEntries.map(entry => {
+                            const isRemoved = removedEntries.has(entry.idx);
+                            return (
+                              <div
+                                key={`ai-${entry.idx}`}
+                                className={cn(
+                                  "rounded px-1.5 py-1 text-xs border-2 border-dashed",
+                                  isRemoved
+                                    ? "bg-muted/30 border-muted-foreground/20 opacity-40 line-through"
+                                    : "bg-violet-50 dark:bg-violet-900/30 border-violet-300 dark:border-violet-700"
+                                )}
+                              >
+                                <div className="flex items-center justify-between gap-1">
+                                  <span className={cn("font-medium leading-tight", isRemoved ? "text-muted-foreground" : "text-violet-800 dark:text-violet-200")}>
+                                    {entry.startTime}–{entry.endTime}
+                                  </span>
+                                  <button
+                                    onClick={() => {
+                                      const next = new Set(removedEntries);
+                                      next.has(entry.idx) ? next.delete(entry.idx) : next.add(entry.idx);
+                                      setRemovedEntries(next);
+                                    }}
+                                    className="shrink-0"
+                                    title={isRemoved ? 'Restore' : 'Remove'}
+                                  >
+                                    {isRemoved ? (
+                                      <Plus className="h-3 w-3 text-muted-foreground" />
+                                    ) : (
+                                      <X className="h-3 w-3 text-violet-500" />
+                                    )}
+                                  </button>
+                                </div>
+                                {!isRemoved && entry.shiftBlock && (
+                                  <div className="text-[10px] text-violet-600 dark:text-violet-400">{entry.shiftBlock}</div>
+                                )}
+                              </div>
+                            );
+                          })}
+
+                          {/* Add Shift Button */}
+                          {daySchedules.length === 0 && aiEntries.length === 0 && (
+                            <button
+                              onClick={() => openCreateShift(emp.id, date)}
+                              className="w-full h-[44px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-primary"
+                              title="Add shift"
+                            >
+                              <Plus className="h-4 w-4" />
+                            </button>
+                          )}
+                          {(daySchedules.length > 0 || aiEntries.length > 0) && (
+                            <button
+                              onClick={() => openCreateShift(emp.id, date)}
+                              className="w-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-primary py-0.5"
+                              title="Add another shift"
+                            >
+                              <Plus className="h-3 w-3" />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+          {/* Totals Footer */}
+          <tfoot>
+            <tr className="border-t-2 bg-muted/30">
+              <td className="sticky left-0 bg-muted/30 z-[5] px-3 py-2 border-r">
+                <div className="text-xs font-medium">Totals</div>
+              </td>
+              {dailyTotals.map((totals, i) => (
+                <td key={i} className="text-center px-1 py-2 border-r last:border-r-0">
+                  <div className="text-xs font-medium">${totals.wages.toFixed(2)}</div>
+                  <div className="text-[10px] text-muted-foreground flex items-center justify-center gap-1">
+                    <span>{totals.staffCount}</span>
+                    <span>{totals.hours.toFixed(1)} hrs</span>
+                  </div>
+                </td>
+              ))}
+            </tr>
+          </tfoot>
+        </table>
       </div>
+
+      {/* Create Shift Dialog */}
+      <Dialog open={showCreateShift} onOpenChange={setShowCreateShift}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-sm flex items-center gap-2">
+              <Clock className="h-4 w-4" />Create Shift
+            </DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleCreateShift} className="space-y-3">
+            <div>
+              <Label className="text-xs">Employee</Label>
+              <Select name="userId" defaultValue={createShiftDefaults.userId} required>
+                <SelectTrigger className="h-8">
+                  <SelectValue placeholder="Select employee" />
+                </SelectTrigger>
+                <SelectContent>
+                  {activeEmployees.map(user => (
+                    <SelectItem key={user.id} value={user.id}>
+                      {user.firstName} {user.lastName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Date</Label>
+              <Input name="startDate" type="date" className="h-8 text-sm" required defaultValue={createShiftDefaults.date} />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label className="text-xs">Start Time</Label>
+                <Input name="startTime" type="time" className="h-8 text-sm" required defaultValue="09:00" />
+              </div>
+              <div>
+                <Label className="text-xs">End Time</Label>
+                <Input name="endTime" type="time" className="h-8 text-sm" required defaultValue="17:00" />
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs">Role/Title (optional)</Label>
+              <Input name="title" className="h-8 text-sm" placeholder="e.g., Opener, Closer" />
+            </div>
+            <div>
+              <Label className="text-xs">Location</Label>
+              <Select name="locationId">
+                <SelectTrigger className="h-8">
+                  <SelectValue placeholder="Select location (optional)" />
+                </SelectTrigger>
+                <SelectContent>
+                  {locations.map(loc => (
+                    <SelectItem key={loc.id} value={loc.id}>{loc.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs">Notes</Label>
+              <Textarea name="description" className="text-sm" placeholder="Optional notes..." rows={2} />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => setShowCreateShift(false)}>Cancel</Button>
+              <Button type="submit" size="sm" disabled={createScheduleMutation.isPending}>
+                {createScheduleMutation.isPending ? "Creating..." : "Create Shift"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

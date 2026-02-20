@@ -1,0 +1,13 @@
+{
+  "filePath": "client/src/components/AIAssistant.tsx",
+  "description": "The useGeolocation hook and HomeLocationSetter component don't handle all geolocation error cases properly. Missing error codes like POSITION_UNAVAILABLE and proper timeout handling.",
+  "successCriteria": [
+    "All geolocation error codes are handled with specific messages",
+    "Timeout errors provide clear retry instructions",
+    "Loading states are properly managed"
+  ],
+  "priority": "medium",
+  "category": "error-handling",
+  "source": "codebase-intel",
+  "createdAt": "2026-02-20T02:50:16.507Z"
+}

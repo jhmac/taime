@@ -1,0 +1,30 @@
+{
+  "type": "error-fix",
+  "error": {
+    "message": "WebSocket connection to 'ws://localhost:5000/?token=ACmrv-jsKNmG' failed: Error during WebSocket handshake: Unexpected response code: 400",
+    "stack": "",
+    "file": ".",
+    "signature": "crawl:console-error:WebSocket connection to 'ws://localhost:5000/?token=ACmrv-jsKNmG' failed: Error "
+  },
+  "suggestion": {
+    "action": "queue",
+    "spec": {
+      "problem": "WebSocket connection failing with 400 Bad Request during handshake when token parameter is provided",
+      "rootCause": "WebSocket server likely not handling token query parameter correctly or token validation is failing",
+      "successCriteria": "WebSocket connection establishes successfully with valid token, proper error handling for invalid tokens",
+      "filePath": "server.ts",
+      "oldCode": "// Need to examine actual WebSocket setup code",
+      "newCode": "// Need to examine actual WebSocket setup code",
+      "testCommand": "npm test",
+      "requiresInvestigation": true,
+      "investigationSteps": [
+        "Check server.ts for WebSocket server configuration",
+        "Verify token parameter parsing in WebSocket upgrade handler",
+        "Check if Clerk token validation is properly implemented for WebSocket connections",
+        "Ensure WebSocket server is running on correct port (5000)",
+        "Verify CORS settings for WebSocket connections"
+      ]
+    },
+    "reason": "path-not-in-safe-list"
+  }
+}

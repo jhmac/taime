@@ -1,0 +1,22 @@
+{
+  "type": "error-fix",
+  "error": {
+    "message": "specsFixesApplied is not defined",
+    "stack": "",
+    "file": "/apppilot/api/status",
+    "signature": "specsFixesApplied is not defined"
+  },
+  "suggestion": {
+    "action": "queue",
+    "spec": {
+      "problem": "ReferenceError: specsFixesApplied is not defined",
+      "rootCause": "Variable 'specsFixesApplied' is being used without being declared or imported in the status endpoint",
+      "successCriteria": "Status endpoint returns without ReferenceError and includes proper specsFixesApplied data",
+      "filePath": "/apppilot/api/status",
+      "oldCode": "specsFixesApplied",
+      "newCode": "let specsFixesApplied = 0; // Initialize counter for applied spec fixes",
+      "testCommand": "curl http://localhost:3000/apppilot/api/status"
+    },
+    "reason": "path-not-in-safe-list"
+  }
+}

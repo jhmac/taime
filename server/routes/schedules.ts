@@ -58,6 +58,23 @@ export function registerScheduleRoutes(app: Express, storage: IStorage, isAuthen
     }
   });
 
+  app.delete('/api/schedules/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canManage = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'schedule.manage');
+      if (!canManage) {
+        return res.status(403).json({ message: "Permission denied" });
+      }
+      await storage.deleteSchedule(req.params.id);
+      broadcastToAll({ type: 'schedule_deleted', data: { scheduleId: req.params.id } });
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting schedule:", error);
+      res.status(500).json({ message: "Failed to delete schedule" });
+    }
+  });
+
   app.post('/api/schedules/create-from-availability', isAuthenticated, async (req: any, res) => {
     try {
       const { payrollPeriodId, businessHours, constraints } = req.body;
