@@ -9,7 +9,7 @@ import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
 import { isUnauthorizedError } from '@/lib/authUtils';
 import type { TimeEntry, WorkLocation } from '@shared/schema';
-import { MapPin, Shield, AlertTriangle, CheckCircle2, XCircle, Wifi } from 'lucide-react';
+import { MapPin, Shield, AlertTriangle, CheckCircle2, XCircle, Wifi, ExternalLink } from 'lucide-react';
 
 export default function TimeClockWidget() {
   const { user } = useAuth();
@@ -367,15 +367,42 @@ export default function TimeClockWidget() {
 
         {/* Location Permission Notice */}
         {workLocations.length > 0 && (locationPermission === 'denied' || locationError) && !activeTimeEntry && (
-          <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg p-3">
+          <div
+            className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg p-3 cursor-pointer active:bg-red-100 dark:active:bg-red-950/50 transition-colors"
+            onClick={() => {
+              getCurrentPosition()
+                .then(() => {
+                  setLocationPermission('granted');
+                  toast({ title: 'Location enabled', description: 'Location access has been granted.' });
+                })
+                .catch(() => {
+                  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+                  const isAndroid = /Android/.test(navigator.userAgent);
+                  let instructions = '';
+                  if (isIOS) {
+                    instructions = 'Open your iPhone Settings app → Privacy & Security → Location Services → find your browser (Safari/Chrome) and set to "While Using". Then come back and refresh this page.';
+                  } else if (isAndroid) {
+                    instructions = 'Open your phone Settings app → Apps → find your browser → Permissions → Location → set to "Allow". Then come back and refresh this page.';
+                  } else {
+                    instructions = 'Click the lock/info icon in your browser address bar → find Location → set to "Allow", then reload the page.';
+                  }
+                  toast({
+                    title: 'How to Enable Location',
+                    description: instructions,
+                    duration: 12000,
+                  });
+                });
+            }}
+          >
             <div className="flex items-center gap-2">
               <XCircle className="h-4 w-4 text-red-600 dark:text-red-400 shrink-0" />
               <div className="text-left flex-1">
                 <p className="text-sm font-medium text-red-800 dark:text-red-300">Location Access Required</p>
                 <p className="text-xs text-red-600 dark:text-red-400">
-                  Please enable location services in your device settings to clock in. On iPhone: Settings &gt; Privacy &gt; Location Services &gt; enable for this browser.
+                  Tap here to enable location services for clocking in.
                 </p>
               </div>
+              <ExternalLink className="h-4 w-4 text-red-400 dark:text-red-500 shrink-0" />
             </div>
           </div>
         )}
