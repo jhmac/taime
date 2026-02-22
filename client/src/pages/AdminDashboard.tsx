@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
 import AIChatModal from '@/components/AIChatModal';
@@ -20,6 +21,7 @@ export default function AdminDashboard() {
   const isMobile = useIsMobile();
   const [, navigate] = useLocation();
   const [showAIChat, setShowAIChat] = useState(false);
+  const [showTasksPopup, setShowTasksPopup] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [lastAssignResult, setLastAssignResult] = useState<any>(null);
 
@@ -147,7 +149,7 @@ export default function AdminDashboard() {
               </div>
             </CardContent>
           </Card>
-          <Card>
+          <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setShowTasksPopup(true)}>
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center flex-shrink-0">
@@ -507,6 +509,87 @@ export default function AdminDashboard() {
           </TabsContent>
         </Tabs>
       </div>
+
+      <Dialog open={showTasksPopup} onOpenChange={setShowTasksPopup}>
+        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <i className="fas fa-tasks text-purple-600"></i>
+              Today's Tasks
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-1 mb-3">
+            <div className="flex items-center gap-4 text-sm text-muted-foreground">
+              <span><span className="font-semibold text-foreground">{todayTasks.length}</span> total</span>
+              <span><span className="font-semibold text-green-600">{completedToday}</span> completed</span>
+              <span><span className="font-semibold text-amber-600">{todayTasks.filter((t: any) => t.status === 'in_progress').length}</span> in progress</span>
+              <span><span className="font-semibold text-muted-foreground">{todayTasks.filter((t: any) => t.status === 'pending').length}</span> pending</span>
+            </div>
+          </div>
+          {todayTasks.length === 0 ? (
+            <div className="text-center py-8">
+              <i className="fas fa-clipboard-check text-muted-foreground text-3xl mb-3"></i>
+              <p className="text-sm text-muted-foreground">No tasks assigned for today</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {todayTasks.map((task: any) => (
+                <div key={task.id} className={`flex items-start gap-3 p-3 rounded-lg border ${
+                  task.status === 'completed' ? 'bg-green-50 dark:bg-green-900/10 border-green-200 dark:border-green-800' :
+                  task.status === 'in_progress' ? 'bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800' :
+                  'bg-muted/30 border-border'
+                }`}>
+                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-0.5 ${
+                    task.status === 'completed' ? 'border-green-500 bg-green-500' :
+                    task.status === 'in_progress' ? 'border-amber-500' :
+                    'border-gray-300 dark:border-gray-600'
+                  }`}>
+                    {task.status === 'completed' && <i className="fas fa-check text-white text-[8px]"></i>}
+                    {task.status === 'in_progress' && <div className="w-2 h-2 bg-amber-500 rounded-full"></div>}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-sm font-medium ${task.status === 'completed' ? 'line-through text-muted-foreground' : ''}`}>
+                      {task.title}
+                    </p>
+                    {task.description && (
+                      <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{task.description}</p>
+                    )}
+                    <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+                        task.status === 'completed' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
+                        task.status === 'in_progress' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' :
+                        'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'
+                      }`}>
+                        {task.status === 'completed' ? 'Done' : task.status === 'in_progress' ? 'In Progress' : 'Pending'}
+                      </span>
+                      {task.assignedTo ? (
+                        <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                          <i className="fas fa-user text-[8px]"></i>
+                          {getUserName(task.assignedTo)}
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-orange-500 flex items-center gap-1">
+                          <i className="fas fa-exclamation-circle text-[8px]"></i>
+                          Unassigned
+                        </span>
+                      )}
+                      {task.isAIAssigned && (
+                        <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">AI assigned</span>
+                      )}
+                      {task.dueDate && (
+                        <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                          <i className="fas fa-clock text-[8px]"></i>
+                          {new Date(task.dueDate).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <AIChatModal isOpen={showAIChat} onClose={() => setShowAIChat(false)} />
     </div>
