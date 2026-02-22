@@ -10,7 +10,14 @@ export function registerScheduleRoutes(app: Express, storage: IStorage, isAuthen
   app.post('/api/schedules', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const data = insertScheduleSchema.parse({ ...req.body, createdBy: userId });
+      const body = { ...req.body, createdBy: userId };
+      if (body.startTime && typeof body.startTime === 'string') {
+        body.startTime = new Date(body.startTime);
+      }
+      if (body.endTime && typeof body.endTime === 'string') {
+        body.endTime = new Date(body.endTime);
+      }
+      const data = insertScheduleSchema.parse(body);
       
       const schedule = await storage.createSchedule(data);
       
