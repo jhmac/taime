@@ -10,6 +10,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
 import AIChatModal from '@/components/AIChatModal';
+import TodaySchedulePanel from '@/components/TodaySchedulePanel';
+import DailyGoalWidget from '@/components/DailyGoalWidget';
 
 export default function AdminDashboard() {
   const { user } = useAuth();
@@ -74,13 +76,24 @@ export default function AdminDashboard() {
   const formatTime = (date: Date) =>
     date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
 
+  const getGreeting = () => {
+    const hour = currentTime.getHours();
+    if (hour < 12) return 'Good morning';
+    if (hour < 17) return 'Good afternoon';
+    return 'Good evening';
+  };
+
   return (
     <div className="min-h-full bg-background">
       <section className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground p-5 md:p-6 md:rounded-xl md:m-6 md:mt-4">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-lg md:text-xl font-bold">Admin Dashboard</h1>
-            <p className="text-sm opacity-80">{formatTime(currentTime)} &bull; Team management & AI insights</p>
+            <h1 className="text-lg md:text-xl font-bold">
+              {getGreeting()}, {(user as any)?.firstName || 'Admin'}!
+            </h1>
+            <p className="text-sm opacity-80">
+              {currentTime.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} &bull; {formatTime(currentTime)}
+            </p>
           </div>
           <Button
             onClick={() => setShowAIChat(true)}
@@ -150,7 +163,23 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      <div className={isMobile ? "px-4 pb-4" : "px-6 pb-6"}>
+      <div className={isMobile ? "px-4 pb-4 space-y-4" : "px-6 pb-6"}>
+        {isMobile ? (
+          <>
+            <TodaySchedulePanel />
+            <DailyGoalWidget />
+          </>
+        ) : (
+          <div className="grid grid-cols-12 gap-6 mb-6">
+            <div className="col-span-7">
+              <TodaySchedulePanel />
+            </div>
+            <div className="col-span-5">
+              <DailyGoalWidget />
+            </div>
+          </div>
+        )}
+
         <Tabs defaultValue="overview" className="w-full">
           <TabsList className={isMobile ? "grid w-full grid-cols-4 mb-4" : "mb-4"}>
             <TabsTrigger value="overview">Overview</TabsTrigger>
@@ -244,7 +273,7 @@ export default function AdminDashboard() {
                           <div className="flex items-center gap-2">
                             <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
                             <div>
-                              <p className="font-medium text-sm">Employee {entry.userId.slice(-4)}</p>
+                              <p className="font-medium text-sm">{getUserName(entry.userId)}</p>
                               <p className="text-xs text-muted-foreground">
                                 Since {new Date(entry.clockInTime).toLocaleTimeString('en-US', { hour12: true, hour: 'numeric', minute: '2-digit' })}
                               </p>
@@ -285,7 +314,7 @@ export default function AdminDashboard() {
                         return (
                           <div key={schedule.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
                             <div>
-                              <p className="font-medium text-sm">{schedule.title || 'Shift'}</p>
+                              <p className="font-medium text-sm">{schedule.title || getUserName(schedule.userId)}</p>
                               <p className="text-xs text-muted-foreground">
                                 {start.toLocaleTimeString('en-US', { hour12: true, hour: 'numeric', minute: '2-digit' })} - {end.toLocaleTimeString('en-US', { hour12: true, hour: 'numeric', minute: '2-digit' })}
                               </p>
@@ -401,7 +430,7 @@ export default function AdminDashboard() {
                                 <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">AI</span>
                               )}
                               <span className="text-xs text-muted-foreground truncate">
-                                {task.assignedTo ? `#${task.assignedTo.slice(-4)}` : 'Unassigned'}
+                                {task.assignedTo ? getUserName(task.assignedTo) : 'Unassigned'}
                               </span>
                             </div>
                           </div>
