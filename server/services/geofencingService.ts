@@ -2,7 +2,7 @@ import { storage } from '../storage';
 import { notificationService } from './notificationService';
 import { db } from '../db';
 import { geofenceEvents, timeEntries, workLocations } from '@shared/schema';
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq, and, isNull, desc } from 'drizzle-orm';
 
 export interface GeofenceEvent {
   userId: string;
@@ -12,6 +12,8 @@ export interface GeofenceEvent {
   eventType: 'enter' | 'exit' | 'warning' | 'auto_clock_out';
   locationId?: string;
 }
+
+const activeExitTimers = new Map<string, NodeJS.Timeout>();
 
 export class GeofencingService {
   calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -238,9 +240,11 @@ export class GeofencingService {
       const locationCheck = await this.checkUserLocation(userId, latitude, longitude);
       const activeTimeEntry = await storage.getActiveTimeEntry(userId);
 
+      const locationId = locationCheck.location?.id || event.locationId || '';
+
       await db.insert(geofenceEvents).values({
         userId,
-        locationId: locationCheck.location?.id || event.locationId || '',
+        locationId: locationId || 'unknown',
         eventType,
         latitude: String(latitude),
         longitude: String(longitude),
@@ -249,22 +253,38 @@ export class GeofencingService {
       });
 
       if (eventType === 'enter' && locationCheck.isInWorkLocation) {
+        if (activeExitTimers.has(userId)) {
+          clearTimeout(activeExitTimers.get(userId)!);
+          activeExitTimers.delete(userId);
+          console.log(`[Geofence] User ${userId} returned to work location, cancelled auto clock-out`);
+        }
         if (!activeTimeEntry) {
           await notificationService.sendClockInReminder(userId, locationCheck.location!.name);
         }
       } else if (eventType === 'exit') {
         if (activeTimeEntry) {
-          const location = locationCheck.location;
-          const autoClockOut = location ? (location as any).autoClockOut !== false : false;
-          const graceMinutes = location ? ((location as any).geofenceGraceMinutes || 5) : 5;
+          const exitLocation = await this.getLocationForTimeEntry(activeTimeEntry);
+          const autoClockOut = exitLocation ? (exitLocation as any).autoClockOut !== false : false;
+          const graceMinutes = exitLocation ? ((exitLocation as any).geofenceGraceMinutes || 5) : 5;
 
           await notificationService.sendClockOutReminder(
             userId,
-            location?.name || 'work location'
+            exitLocation?.name || 'work location'
           );
 
           if (autoClockOut) {
-            console.log(`Auto clock-out scheduled for user ${userId} in ${graceMinutes} minutes`);
+            if (activeExitTimers.has(userId)) {
+              clearTimeout(activeExitTimers.get(userId)!);
+            }
+            const graceMs = graceMinutes * 60 * 1000;
+            console.log(`[Geofence] Auto clock-out scheduled for user ${userId} in ${graceMinutes} minutes`);
+            
+            const timer = setTimeout(async () => {
+              activeExitTimers.delete(userId);
+              await this.executeAutoClockOut(userId, latitude, longitude);
+            }, graceMs);
+            
+            activeExitTimers.set(userId, timer);
           }
         }
       }
@@ -272,6 +292,128 @@ export class GeofencingService {
       console.error('Error processing geofence event:', error);
       throw error;
     }
+  }
+
+  private async getLocationForTimeEntry(timeEntry: any): Promise<any> {
+    if (timeEntry.locationId) {
+      const allLocations = await storage.getAllWorkLocations();
+      return allLocations.find(l => l.id === timeEntry.locationId) || null;
+    }
+    return null;
+  }
+
+  async executeAutoClockOut(userId: string, latitude?: number, longitude?: number): Promise<boolean> {
+    try {
+      const activeTimeEntry = await storage.getActiveTimeEntry(userId);
+      if (!activeTimeEntry) {
+        console.log(`[Geofence] No active time entry for user ${userId}, skipping auto clock-out`);
+        return false;
+      }
+
+      if (latitude != null && longitude != null) {
+        const currentCheck = await this.checkUserLocation(userId, latitude, longitude);
+        if (currentCheck.isInWorkLocation) {
+          console.log(`[Geofence] User ${userId} is back in work location, skipping auto clock-out`);
+          return false;
+        }
+      }
+
+      const exitEvent = await db.select()
+        .from(geofenceEvents)
+        .where(and(
+          eq(geofenceEvents.userId, userId),
+          eq(geofenceEvents.eventType, 'exit'),
+          eq(geofenceEvents.timeEntryId, activeTimeEntry.id)
+        ))
+        .orderBy(desc(geofenceEvents.createdAt))
+        .limit(1);
+
+      const reEnterEvent = await db.select()
+        .from(geofenceEvents)
+        .where(and(
+          eq(geofenceEvents.userId, userId),
+          eq(geofenceEvents.eventType, 'enter'),
+        ))
+        .orderBy(desc(geofenceEvents.createdAt))
+        .limit(1);
+
+      if (reEnterEvent.length > 0 && exitEvent.length > 0 &&
+          reEnterEvent[0].createdAt && exitEvent[0].createdAt &&
+          reEnterEvent[0].createdAt > exitEvent[0].createdAt) {
+        console.log(`[Geofence] User ${userId} re-entered after last exit, skipping auto clock-out`);
+        return false;
+      }
+
+      await storage.updateTimeEntry(activeTimeEntry.id, {
+        clockOutTime: new Date(),
+        clockOutSource: 'auto-geofence',
+        notes: `${activeTimeEntry.notes ? activeTimeEntry.notes + ' | ' : ''}Auto clocked out: left geofence boundary`,
+      });
+
+      await db.insert(geofenceEvents).values({
+        userId,
+        locationId: activeTimeEntry.locationId || 'unknown',
+        eventType: 'auto_clock_out',
+        latitude: latitude != null ? String(latitude) : null,
+        longitude: longitude != null ? String(longitude) : null,
+        timeEntryId: activeTimeEntry.id,
+      });
+
+      console.log(`[Geofence] Auto clocked out user ${userId} (entry ${activeTimeEntry.id})`);
+      return true;
+    } catch (error) {
+      console.error(`[Geofence] Failed to auto clock-out user ${userId}:`, error);
+      return false;
+    }
+  }
+
+  async checkAndHandleGeofenceExit(userId: string, latitude: number, longitude: number): Promise<{
+    isOutside: boolean;
+    autoClockOutTriggered: boolean;
+    graceMinutes: number;
+    graceRemaining: number | null;
+    exitedAt: Date | null;
+  }> {
+    const activeTimeEntry = await storage.getActiveTimeEntry(userId);
+    if (!activeTimeEntry) {
+      return { isOutside: false, autoClockOutTriggered: false, graceMinutes: 0, graceRemaining: null, exitedAt: null };
+    }
+
+    const locationCheck = await this.checkUserLocation(userId, latitude, longitude);
+    if (locationCheck.isInWorkLocation) {
+      return { isOutside: false, autoClockOutTriggered: false, graceMinutes: 0, graceRemaining: null, exitedAt: null };
+    }
+
+    const exitLocation = await this.getLocationForTimeEntry(activeTimeEntry);
+    const autoClockOut = exitLocation ? (exitLocation as any).autoClockOut !== false : false;
+    const graceMinutes = exitLocation ? ((exitLocation as any).geofenceGraceMinutes || 5) : 5;
+
+    const recentExitEvents = await db.select()
+      .from(geofenceEvents)
+      .where(and(
+        eq(geofenceEvents.userId, userId),
+        eq(geofenceEvents.eventType, 'exit'),
+        eq(geofenceEvents.timeEntryId, activeTimeEntry.id)
+      ))
+      .orderBy(desc(geofenceEvents.createdAt))
+      .limit(1);
+
+    let exitedAt: Date | null = null;
+    let graceRemaining: number | null = null;
+
+    if (recentExitEvents.length > 0 && recentExitEvents[0].createdAt) {
+      exitedAt = recentExitEvents[0].createdAt;
+      const elapsedMs = Date.now() - exitedAt.getTime();
+      const graceMs = graceMinutes * 60 * 1000;
+      graceRemaining = Math.max(0, Math.ceil((graceMs - elapsedMs) / 1000));
+
+      if (autoClockOut && elapsedMs >= graceMs) {
+        const clocked = await this.executeAutoClockOut(userId, latitude, longitude);
+        return { isOutside: true, autoClockOutTriggered: clocked, graceMinutes, graceRemaining: 0, exitedAt };
+      }
+    }
+
+    return { isOutside: true, autoClockOutTriggered: false, graceMinutes, graceRemaining, exitedAt };
   }
 
   async validateClockInLocation(userId: string, latitude: number, longitude: number): Promise<{

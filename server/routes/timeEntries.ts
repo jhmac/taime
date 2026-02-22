@@ -31,18 +31,25 @@ export function registerTimeEntryRoutes(app: Express, storage: IStorage, isAuthe
       const body = { ...req.body, userId };
       const data = insertTimeEntrySchema.parse(body);
       
-      if (data.clockInTime && data.locationId) {
-        const user = await withRetry(() => storage.getUser(userId));
-        if (user && req.body.latitude && req.body.longitude) {
-          const validation = await geofencingService.validateClockInLocation(
-            userId,
-            req.body.latitude,
-            req.body.longitude
-          );
-          
-          if (!validation.isValid) {
-            return res.status(400).json({ message: validation.error });
-          }
+      const allWorkLocations = await withRetry(() => storage.getAllWorkLocations());
+      const hasActiveLocations = allWorkLocations.some(loc => loc.isActive && (loc as any).geofenceEnabled !== false);
+      
+      if (data.clockInTime && hasActiveLocations) {
+        if (!req.body.latitude || !req.body.longitude) {
+          return res.status(400).json({ message: "Location is required to clock in. Please enable location services." });
+        }
+        const validation = await geofencingService.validateClockInLocation(
+          userId,
+          req.body.latitude,
+          req.body.longitude
+        );
+        
+        if (!validation.isValid) {
+          return res.status(400).json({ message: validation.error });
+        }
+        
+        if (validation.location && !data.locationId) {
+          (data as any).locationId = validation.location.id;
         }
       }
 

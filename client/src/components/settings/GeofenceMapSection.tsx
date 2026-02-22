@@ -10,7 +10,7 @@ import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { MapPin, Plus, Trash2, Circle, Pentagon, Crosshair, Save, Settings2, Shield, Clock, Search, Undo2 } from 'lucide-react';
+import { MapPin, Plus, Trash2, Circle, Pentagon, Crosshair, Save, Settings2, Shield, Clock, Search, Undo2, AlertTriangle, LogOut } from 'lucide-react';
 
 declare global {
   interface Window {
@@ -848,6 +848,92 @@ export default function GeofenceMapSection() {
           )}
         </CardContent>
       </Card>
+
+      <GeofenceActivityLog />
     </div>
+  );
+}
+
+function GeofenceActivityLog() {
+  const { data: events, isLoading } = useQuery<any[]>({
+    queryKey: ['/api/geofence/events'],
+  });
+
+  if (isLoading) return null;
+  if (!events || events.length === 0) return null;
+
+  const getEventLabel = (type: string) => {
+    switch (type) {
+      case 'exit': return 'Left Work Area';
+      case 'enter': return 'Entered Work Area';
+      case 'auto_clock_out': return 'Auto Clocked Out';
+      case 'warning': return 'Near Boundary';
+      default: return type;
+    }
+  };
+
+  const getEventIcon = (type: string) => {
+    switch (type) {
+      case 'exit': return <AlertTriangle className="h-3.5 w-3.5 text-red-500" />;
+      case 'enter': return <MapPin className="h-3.5 w-3.5 text-green-500" />;
+      case 'auto_clock_out': return <LogOut className="h-3.5 w-3.5 text-red-600" />;
+      case 'warning': return <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />;
+      default: return <Shield className="h-3.5 w-3.5 text-muted-foreground" />;
+    }
+  };
+
+  const violations = events.filter(e => e.eventType === 'exit' || e.eventType === 'auto_clock_out');
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <Shield className="h-4 w-4" />
+          Geofence Activity Log
+          {violations.length > 0 && (
+            <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
+              {violations.length} violation{violations.length !== 1 ? 's' : ''}
+            </Badge>
+          )}
+        </CardTitle>
+        <p className="text-sm text-muted-foreground">
+          Recent geofence boundary events across all employees.
+        </p>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-2 max-h-[400px] overflow-y-auto">
+          {events.slice(0, 50).map((event: any) => (
+            <div
+              key={event.id}
+              className={`flex items-center gap-3 p-2.5 rounded-lg border text-sm ${
+                event.eventType === 'auto_clock_out' ? 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800' :
+                event.eventType === 'exit' ? 'bg-orange-50 dark:bg-orange-950/20 border-orange-200 dark:border-orange-800' :
+                event.eventType === 'enter' ? 'bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800' :
+                'bg-muted/30'
+              }`}
+            >
+              {getEventIcon(event.eventType)}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-medium truncate">{event.userName}</span>
+                  <Badge variant="outline" className="text-[10px] px-1 py-0 shrink-0">
+                    {getEventLabel(event.eventType)}
+                  </Badge>
+                </div>
+                <p className="text-xs text-muted-foreground truncate">
+                  {event.locationName}
+                  {event.distanceFromCenter ? ` — ${Math.round(parseFloat(event.distanceFromCenter))}m from center` : ''}
+                </p>
+              </div>
+              <span className="text-xs text-muted-foreground whitespace-nowrap shrink-0">
+                {event.createdAt ? new Date(event.createdAt).toLocaleString('en-US', {
+                  month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true
+                }) : ''}
+              </span>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   );
 }

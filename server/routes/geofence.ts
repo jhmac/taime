@@ -85,6 +85,17 @@ export function registerGeofenceRoutes(app: Express, storage: IStorage, isAuthen
         }
       }
 
+      let geofenceExitInfo = null;
+      if (!currentStatus.isInWorkLocation) {
+        const exitCheck = await geofencingService.checkAndHandleGeofenceExit(userId, latitude, longitude);
+        geofenceExitInfo = {
+          autoClockOutTriggered: exitCheck.autoClockOutTriggered,
+          graceMinutes: exitCheck.graceMinutes,
+          graceRemaining: exitCheck.graceRemaining,
+          exitedAt: exitCheck.exitedAt,
+        };
+      }
+
       res.json({
         isInWorkLocation: currentStatus.isInWorkLocation,
         location: currentStatus.location ? {
@@ -100,6 +111,7 @@ export function registerGeofenceRoutes(app: Express, storage: IStorage, isAuthen
           name: currentStatus.nearestLocation.name,
           distance: currentStatus.nearestDistance,
         } : null,
+        geofenceExitInfo,
       });
     } catch (error) {
       console.error("Error monitoring location:", error);
@@ -111,7 +123,7 @@ export function registerGeofenceRoutes(app: Express, storage: IStorage, isAuthen
     try {
       const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
-      const isAdmin = userPermissions.some((p: any) => p.name === 'admin.manage_all');
+      const isAdmin = userPermissions.some((p: any) => p.name === 'admin.manage_all' || p.name === 'admin.manage_locations');
       if (!isAdmin) {
         return res.status(403).json({ message: "Admin access required" });
       }
@@ -119,9 +131,22 @@ export function registerGeofenceRoutes(app: Express, storage: IStorage, isAuthen
       const events = await db.select()
         .from(geofenceEvents)
         .orderBy(desc(geofenceEvents.createdAt))
-        .limit(100);
+        .limit(200);
 
-      res.json(events);
+      const allUsers = await storage.getAllUsers();
+      const userMap = new Map(allUsers.map(u => [u.id, u]));
+      const allLocations = await storage.getAllWorkLocations();
+      const locationMap = new Map(allLocations.map(l => [l.id, l]));
+
+      const enrichedEvents = events.map(event => ({
+        ...event,
+        userName: userMap.get(event.userId)?.firstName 
+          ? `${userMap.get(event.userId)?.firstName} ${userMap.get(event.userId)?.lastName || ''}`.trim()
+          : userMap.get(event.userId)?.email || 'Unknown',
+        locationName: locationMap.get(event.locationId)?.name || 'Unknown Location',
+      }));
+
+      res.json(enrichedEvents);
     } catch (error) {
       console.error("Error fetching geofence events:", error);
       res.status(500).json({ message: "Failed to fetch events" });

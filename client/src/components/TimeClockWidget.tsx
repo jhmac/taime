@@ -25,9 +25,16 @@ export default function TimeClockWidget() {
     boundaryProximity: number | null;
     nearestLocation: { id: string; name: string; distance: number } | null;
     boundaryWarning: boolean;
+    geofenceExitInfo?: {
+      autoClockOutTriggered: boolean;
+      graceMinutes: number;
+      graceRemaining: number | null;
+      exitedAt: string | null;
+    } | null;
   } | null>(null);
   const previousPositionRef = useRef<{ lat: number; lng: number } | null>(null);
   const hasRequestedLocation = useRef(false);
+  const exitAlertShown = useRef(false);
 
   const { data: activeTimeEntry, isLoading: activeEntryLoading } = useQuery<TimeEntry | null>({
     queryKey: ['/api/time-entries/active'],
@@ -164,27 +171,45 @@ export default function TimeClockWidget() {
           });
           const result = await response.json();
           
+          if (result.geofenceExitInfo?.autoClockOutTriggered) {
+            queryClient.invalidateQueries({ queryKey: ['/api/time-entries/active'] });
+            queryClient.invalidateQueries({ queryKey: ['/api/time-entries'] });
+            exitAlertShown.current = false;
+            toast({
+              title: "Auto Clocked Out",
+              description: "You were automatically clocked out because you left the work location.",
+              variant: "destructive",
+            });
+            setGeofenceStatus(null);
+            return;
+          }
+
           const isNearBoundary = result.isInWorkLocation && 
             result.boundaryProximity != null && result.boundaryProximity > 0.8;
           
-          setGeofenceStatus(prev => {
-            if (!result.isInWorkLocation && prev?.isInWorkLocation) {
-              toast({
-                title: "Boundary Alert",
-                description: "You've left your work location. If you don't return soon, you may be auto clocked out.",
-                variant: "destructive",
-              });
-            }
-            return {
-              isInWorkLocation: result.isInWorkLocation,
-              location: result.location,
-              distance: result.distance,
-              boundaryProximity: result.boundaryProximity,
-              nearestLocation: result.nearestLocation,
-              boundaryWarning: isNearBoundary,
-            };
+          if (!result.isInWorkLocation && !exitAlertShown.current) {
+            exitAlertShown.current = true;
+            const graceMin = result.geofenceExitInfo?.graceMinutes || 5;
+            toast({
+              title: "You've Left the Work Area",
+              description: `Please return or clock out. You will be auto clocked out in ${graceMin} minutes if you don't return.`,
+              variant: "destructive",
+            });
+          } else if (result.isInWorkLocation) {
+            exitAlertShown.current = false;
+          }
+
+          setGeofenceStatus({
+            isInWorkLocation: result.isInWorkLocation,
+            location: result.location,
+            distance: result.distance,
+            boundaryProximity: result.boundaryProximity,
+            nearestLocation: result.nearestLocation,
+            boundaryWarning: isNearBoundary,
+            geofenceExitInfo: result.geofenceExitInfo,
           });
         } else {
+          exitAlertShown.current = false;
           const response = await apiRequest('POST', '/api/geofence/check-detailed', {
             latitude: position.latitude,
             longitude: position.longitude,
@@ -212,7 +237,7 @@ export default function TimeClockWidget() {
     };
 
     checkGeofence();
-    const interval = setInterval(checkGeofence, activeTimeEntry ? 60000 : 120000);
+    const interval = setInterval(checkGeofence, activeTimeEntry ? 30000 : 120000);
     return () => clearInterval(interval);
   }, [activeTimeEntry, position, workLocations]);
 
@@ -427,42 +452,42 @@ export default function TimeClockWidget() {
         {/* Geofence Status (while clocked in) */}
         {activeTimeEntry && geofenceStatus && (
           <div className={`rounded-lg p-3 text-sm ${
-            geofenceStatus.boundaryWarning
-              ? 'bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800'
-              : geofenceStatus.isInWorkLocation
-                ? 'bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800'
-                : 'bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800'
+            !geofenceStatus.isInWorkLocation
+              ? 'bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800'
+              : geofenceStatus.boundaryWarning
+                ? 'bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800'
+                : 'bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800'
           }`}>
             <div className="flex items-center gap-2">
-              {geofenceStatus.boundaryWarning ? (
-                <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
-              ) : geofenceStatus.isInWorkLocation ? (
-                <Shield className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
-              ) : (
+              {!geofenceStatus.isInWorkLocation ? (
                 <XCircle className="h-4 w-4 text-red-600 dark:text-red-400 shrink-0" />
+              ) : geofenceStatus.boundaryWarning ? (
+                <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
+              ) : (
+                <Shield className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
               )}
               <div className="text-left flex-1">
                 <p className={`font-medium ${
+                  !geofenceStatus.isInWorkLocation ? 'text-red-800 dark:text-red-300' :
                   geofenceStatus.boundaryWarning ? 'text-amber-800 dark:text-amber-300' :
-                  geofenceStatus.isInWorkLocation ? 'text-blue-800 dark:text-blue-300' :
-                  'text-red-800 dark:text-red-300'
+                  'text-blue-800 dark:text-blue-300'
                 }`}>
-                  {geofenceStatus.boundaryWarning ? 'Near Boundary' :
-                   geofenceStatus.isInWorkLocation ? `Inside ${geofenceStatus.location?.name || 'Work Zone'}` :
-                   'Outside Work Zone'}
+                  {!geofenceStatus.isInWorkLocation ? 'Outside Work Zone — Clock Out Required' :
+                   geofenceStatus.boundaryWarning ? 'Near Boundary' :
+                   `Inside ${geofenceStatus.location?.name || 'Work Zone'}`}
                 </p>
                 <p className={`text-xs ${
+                  !geofenceStatus.isInWorkLocation ? 'text-red-600 dark:text-red-400' :
                   geofenceStatus.boundaryWarning ? 'text-amber-600 dark:text-amber-400' :
-                  geofenceStatus.isInWorkLocation ? 'text-blue-600 dark:text-blue-400' :
-                  'text-red-600 dark:text-red-400'
+                  'text-blue-600 dark:text-blue-400'
                 }`}>
-                  {geofenceStatus.boundaryWarning
-                    ? 'You are near the edge of your work area'
-                    : geofenceStatus.isInWorkLocation
-                      ? 'Geofence verified'
-                      : geofenceStatus.nearestLocation
-                        ? `Nearest: ${geofenceStatus.nearestLocation.name} (${Math.round(geofenceStatus.nearestLocation.distance || 0)}m away)`
-                        : 'Return to work location to stay clocked in'}
+                  {!geofenceStatus.isInWorkLocation
+                    ? geofenceStatus.geofenceExitInfo?.graceRemaining != null
+                      ? `Auto clock-out in ${Math.ceil(geofenceStatus.geofenceExitInfo.graceRemaining / 60)} min ${geofenceStatus.geofenceExitInfo.graceRemaining % 60}s. Return to work area or clock out now.`
+                      : 'You have left the work area. Please return or clock out.'
+                    : geofenceStatus.boundaryWarning
+                      ? 'You are near the edge of your work area'
+                      : 'Geofence verified'}
                 </p>
               </div>
             </div>
