@@ -12,7 +12,10 @@ import ChoresWidget from '@/components/ChoresWidget';
 import TeamActivityFeed from '@/components/TeamActivityFeed';
 import AIInsightsWidget from '@/components/AIInsightsWidget';
 import AIChatModal from '@/components/AIChatModal';
+import TodaySchedulePanel from '@/components/TodaySchedulePanel';
+import DailyGoalWidget from '@/components/DailyGoalWidget';
 import type { UserWithRole, Schedule } from '@shared/schema';
+import { Calendar, Users, DollarSign, MessageSquare, Clock, Bot } from 'lucide-react';
 
 export default function Dashboard() {
   const { user } = useAuth() as { user: UserWithRole | undefined, isLoading: boolean, isAuthenticated: boolean, error: any };
@@ -37,6 +40,8 @@ export default function Dashboard() {
     if (hour < 17) return 'Good afternoon';
     return 'Good evening';
   };
+
+  const isAdmin = user?.role?.name === 'admin' || user?.role?.name === 'owner';
 
   const myUpcomingShifts = schedules
     .filter(s => s.userId === user?.id && new Date(s.startTime) >= new Date())
@@ -77,6 +82,9 @@ export default function Dashboard() {
         </div>
 
         <div className="p-4 space-y-4">
+          {isAdmin && <TodaySchedulePanel />}
+          {isAdmin && <DailyGoalWidget />}
+
           <Card>
             <CardContent className="p-4">
               <h3 className="text-sm font-semibold mb-1">My earnings</h3>
@@ -209,58 +217,134 @@ export default function Dashboard() {
         </p>
       </section>
 
-      <div className="grid grid-cols-2 gap-6 p-6">
-        <div className="space-y-6">
-          <TimeClockWidget />
-          <ScheduleWidget />
-        </div>
-        <div className="space-y-6">
-          <ChoresWidget />
-          <AIInsightsWidget />
-        </div>
-      </div>
+      {isAdmin ? (
+        <>
+          <div className="grid grid-cols-12 gap-6 px-6 pb-6">
+            <div className="col-span-7 space-y-6">
+              <TodaySchedulePanel />
+            </div>
+            <div className="col-span-5 space-y-6">
+              <TimeClockWidget />
+              <DailyGoalWidget />
+              <ChoresWidget />
+            </div>
+          </div>
 
-      <div className="px-6 pb-6">
-        <h3 className="font-semibold text-sm mb-3 text-muted-foreground uppercase tracking-wide">Quick Actions</h3>
-        <div className="grid grid-cols-4 gap-3">
-          <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => navigate('/schedules')}>
-            <CardContent className="p-4 flex flex-col items-center text-center">
-              <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center mb-2">
-                <i className="fas fa-calendar text-blue-600 dark:text-blue-400"></i>
-              </div>
-              <span className="text-xs font-medium">View Schedule</span>
-            </CardContent>
-          </Card>
-          <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => navigate('/availability')}>
-            <CardContent className="p-4 flex flex-col items-center text-center">
-              <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center mb-2">
-                <i className="fas fa-clock text-green-600 dark:text-green-400"></i>
-              </div>
-              <span className="text-xs font-medium">Availability</span>
-            </CardContent>
-          </Card>
-          <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => navigate('/communication')}>
-            <CardContent className="p-4 flex flex-col items-center text-center">
-              <div className="w-10 h-10 rounded-full bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center mb-2">
-                <i className="fas fa-comments text-purple-600 dark:text-purple-400"></i>
-              </div>
-              <span className="text-xs font-medium">Team Chat</span>
-            </CardContent>
-          </Card>
-          <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setShowAIChat(true)}>
-            <CardContent className="p-4 flex flex-col items-center text-center">
-              <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center mb-2">
-                <i className="fas fa-robot text-amber-600 dark:text-amber-400"></i>
-              </div>
-              <span className="text-xs font-medium">AI Assistant</span>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
+          <div className="px-6 pb-6">
+            <h3 className="font-semibold text-sm mb-3 text-muted-foreground uppercase tracking-wide">Quick Actions</h3>
+            <div className="grid grid-cols-6 gap-3">
+              <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => navigate('/schedules')}>
+                <CardContent className="p-4 flex flex-col items-center text-center">
+                  <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center mb-2">
+                    <Calendar className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                  </div>
+                  <span className="text-xs font-medium">Schedules</span>
+                </CardContent>
+              </Card>
+              <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => navigate('/team')}>
+                <CardContent className="p-4 flex flex-col items-center text-center">
+                  <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center mb-2">
+                    <Users className="h-4 w-4 text-green-600 dark:text-green-400" />
+                  </div>
+                  <span className="text-xs font-medium">Team</span>
+                </CardContent>
+              </Card>
+              <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => navigate('/payroll')}>
+                <CardContent className="p-4 flex flex-col items-center text-center">
+                  <div className="w-10 h-10 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center mb-2">
+                    <DollarSign className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                  </div>
+                  <span className="text-xs font-medium">Payroll</span>
+                </CardContent>
+              </Card>
+              <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => navigate('/communication')}>
+                <CardContent className="p-4 flex flex-col items-center text-center">
+                  <div className="w-10 h-10 rounded-full bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center mb-2">
+                    <MessageSquare className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                  </div>
+                  <span className="text-xs font-medium">Messages</span>
+                </CardContent>
+              </Card>
+              <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => navigate('/availability')}>
+                <CardContent className="p-4 flex flex-col items-center text-center">
+                  <div className="w-10 h-10 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center mb-2">
+                    <Clock className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                  </div>
+                  <span className="text-xs font-medium">Availability</span>
+                </CardContent>
+              </Card>
+              <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setShowAIChat(true)}>
+                <CardContent className="p-4 flex flex-col items-center text-center">
+                  <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center mb-2">
+                    <Bot className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                  </div>
+                  <span className="text-xs font-medium">AI Assistant</span>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
 
-      <div className="px-6 pb-6">
-        <TeamActivityFeed />
-      </div>
+          <div className="grid grid-cols-2 gap-6 px-6 pb-6">
+            <AIInsightsWidget />
+            <TeamActivityFeed />
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-6 p-6">
+            <div className="space-y-6">
+              <TimeClockWidget />
+              <ScheduleWidget />
+            </div>
+            <div className="space-y-6">
+              <ChoresWidget />
+              <AIInsightsWidget />
+            </div>
+          </div>
+
+          <div className="px-6 pb-6">
+            <h3 className="font-semibold text-sm mb-3 text-muted-foreground uppercase tracking-wide">Quick Actions</h3>
+            <div className="grid grid-cols-4 gap-3">
+              <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => navigate('/schedules')}>
+                <CardContent className="p-4 flex flex-col items-center text-center">
+                  <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center mb-2">
+                    <Calendar className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                  </div>
+                  <span className="text-xs font-medium">View Schedule</span>
+                </CardContent>
+              </Card>
+              <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => navigate('/availability')}>
+                <CardContent className="p-4 flex flex-col items-center text-center">
+                  <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center mb-2">
+                    <Clock className="h-4 w-4 text-green-600 dark:text-green-400" />
+                  </div>
+                  <span className="text-xs font-medium">Availability</span>
+                </CardContent>
+              </Card>
+              <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => navigate('/communication')}>
+                <CardContent className="p-4 flex flex-col items-center text-center">
+                  <div className="w-10 h-10 rounded-full bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center mb-2">
+                    <MessageSquare className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                  </div>
+                  <span className="text-xs font-medium">Team Chat</span>
+                </CardContent>
+              </Card>
+              <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setShowAIChat(true)}>
+                <CardContent className="p-4 flex flex-col items-center text-center">
+                  <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center mb-2">
+                    <Bot className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                  </div>
+                  <span className="text-xs font-medium">AI Assistant</span>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+
+          <div className="px-6 pb-6">
+            <TeamActivityFeed />
+          </div>
+        </>
+      )}
 
       <AIChatModal isOpen={showAIChat} onClose={() => setShowAIChat(false)} />
     </div>

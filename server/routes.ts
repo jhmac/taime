@@ -24,6 +24,7 @@ import { registerClockEventRoutes } from "./routes/clockEvents";
 import { registerSopRoutes } from "./routes/sop";
 import { registerAiAssistantRoutes } from "./routes/aiAssistant";
 import { registerAiSchedulingRoutes } from "./routes/aiScheduling";
+import { registerDashboardRoutes } from "./routes/dashboard";
 import { createActionLoggerMiddleware, handleClientErrorReport, getActionSummary } from "./services/actionLogger";
 import { initSneebly } from 'sneebly';
 
@@ -73,6 +74,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerSopRoutes(app, storage, isAuthenticated);
   registerAiAssistantRoutes(app, storage, isAuthenticated);
   registerAiSchedulingRoutes(app, storage, isAuthenticated);
+  registerDashboardRoutes(app, storage, isAuthenticated);
 
   // Sneebly Dashboard
   initSneebly(app, {
