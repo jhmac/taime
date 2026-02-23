@@ -106,7 +106,7 @@ export const workLocations = pgTable("work_locations", {
   isActive: boolean("is_active").default(true),
   geofenceType: varchar("geofence_type", { length: 20 }).default("radius"),
   geofencePolygon: jsonb("geofence_polygon").$type<Array<{ lat: number; lng: number }>>(),
-  geofenceGraceMinutes: decimal("geofence_grace_minutes", { precision: 10, scale: 2 }).default("5.00"),
+  geofenceGraceMinutes: text("geofence_grace_minutes").default("5.00"),
   geofenceEnabled: boolean("geofence_enabled").default(true),
   autoClockOut: boolean("auto_clock_out").default(true),
   createdAt: timestamp("created_at").defaultNow(),

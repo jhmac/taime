@@ -81,7 +81,10 @@ export default function TimeClockOptionsSection({ settingsForm, updateForm }: Se
                     min={0.1}
                     className="w-20 h-7 text-xs" 
                     value={settingsForm.autoClockOutAfterMinutes ?? 5} 
-                    onChange={e => updateForm('autoClockOutAfterMinutes', parseFloat(e.target.value) || 0.1)} 
+                    onChange={e => {
+                      const val = e.target.value;
+                      updateForm('autoClockOutAfterMinutes', val === '' ? 0.1 : parseFloat(val));
+                    }} 
                   />
                   <span className="text-xs text-muted-foreground">
                     {(settingsForm.autoClockOutAfterMinutes ?? 5) < 1 

@@ -1214,11 +1214,11 @@ export class DatabaseStorage implements IStorage {
       const updatePayload: any = { 
         ...settingsData, 
         updatedAt: new Date(), 
-        version: existing.version + 1 
+        version: (existing.version || 0) + 1 
       };
       
-      if (settingsData.autoClockOutAfterMinutes !== undefined) {
-        updatePayload.autoClockOutAfterMinutes = settingsData.autoClockOutAfterMinutes?.toString();
+      if (settingsData.autoClockOutAfterMinutes !== undefined && settingsData.autoClockOutAfterMinutes !== null) {
+        updatePayload.autoClockOutAfterMinutes = settingsData.autoClockOutAfterMinutes.toString();
       }
 
       const [updated] = await db
@@ -1228,18 +1228,58 @@ export class DatabaseStorage implements IStorage {
         .returning();
       return updated;
     }
+    
+    // For creation
+    const insertData: any = { ...settings };
+    if (settings.autoClockOutAfterMinutes !== undefined && settings.autoClockOutAfterMinutes !== null) {
+      insertData.autoClockOutAfterMinutes = settings.autoClockOutAfterMinutes.toString();
+    }
+
     const [created] = await db
       .insert(companySettings)
-      .values(settings)
+      .values(insertData)
       .returning();
     return created;
   }
 
   async updateWorkLocation(id: string, updates: Partial<WorkLocation>): Promise<WorkLocation> {
+    const finalUpdates: any = { ...updates };
+    if (updates.geofenceGraceMinutes !== undefined && updates.geofenceGraceMinutes !== null) {
+      finalUpdates.geofenceGraceMinutes = updates.geofenceGraceMinutes.toString();
+    }
     const [updated] = await db
       .update(workLocations)
-      .set(updates)
+      .set(finalUpdates)
       .where(eq(workLocations.id, id))
+      .returning();
+    return updated;
+  }
+
+  // Shoutouts
+  async createShoutout(shoutout: InsertShoutout): Promise<Shoutout> {
+    const [created] = await db.insert(shoutouts).values(shoutout).returning();
+    return created;
+  }
+
+  async getShoutouts(limit: number = 50): Promise<Shoutout[]> {
+    return await db
+      .select()
+      .from(shoutouts)
+      .orderBy(desc(shoutouts.createdAt))
+      .limit(limit);
+  }
+
+  async addShoutoutReaction(id: string, userId: string, emoji: string): Promise<Shoutout> {
+    const [shoutout] = await db.select().from(shoutouts).where(eq(shoutouts.id, id));
+    if (!shoutout) throw new Error("Shoutout not found");
+
+    const reactions = (shoutout.reactions as any[]) || [];
+    reactions.push({ userId, emoji });
+
+    const [updated] = await db
+      .update(shoutouts)
+      .set({ reactions })
+      .where(eq(shoutouts.id, id))
       .returning();
     return updated;
   }

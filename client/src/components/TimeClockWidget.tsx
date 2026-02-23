@@ -640,15 +640,16 @@ export default function TimeClockWidget() {
                 : 'bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800'
           }`}>
             {!geofenceStatus.isInWorkLocation && countdownSeconds != null ? (
-            <div className="flex flex-col items-center gap-2 py-2">
+            <div className="flex flex-col items-center gap-4 py-6">
               <div className="flex items-center gap-2">
-                <XCircle className="h-5 w-5 text-red-600 dark:text-red-400 animate-pulse" />
-                <p className="font-bold text-red-800 dark:text-red-300 text-base">Outside Work Zone</p>
+                <XCircle className="h-6 w-6 text-red-600 dark:text-red-400 animate-pulse" />
+                <p className="font-black text-red-800 dark:text-red-300 text-xl">Outside Work Zone</p>
               </div>
               <div className="relative flex items-center justify-center">
-                <svg className="w-28 h-28" viewBox="0 0 120 120">
-                  <circle cx="60" cy="60" r="54" fill="none" stroke="currentColor" className="text-red-200 dark:text-red-900" strokeWidth="8" />
-                  <circle cx="60" cy="60" r="54" fill="none" stroke="currentColor" className="text-red-600 dark:text-red-400" strokeWidth="8" strokeLinecap="round"
+                <div className="absolute inset-0 bg-red-500/10 rounded-full animate-ping scale-75" />
+                <svg className="w-48 h-48 drop-shadow-xl" viewBox="0 0 120 120">
+                  <circle cx="60" cy="60" r="54" fill="none" stroke="currentColor" className="text-red-100 dark:text-red-950" strokeWidth="10" />
+                  <circle cx="60" cy="60" r="54" fill="none" stroke="currentColor" className="text-red-600 dark:text-red-500" strokeWidth="10" strokeLinecap="round"
                     strokeDasharray={`${2 * Math.PI * 54}`}
                     strokeDashoffset={`${2 * Math.PI * 54 * (1 - (countdownSeconds / Math.max(totalGraceSecondsRef.current || countdownSeconds, 1)))}`}
                     transform="rotate(-90 60 60)"
@@ -656,17 +657,22 @@ export default function TimeClockWidget() {
                   />
                 </svg>
                 <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <span className="text-3xl font-black tabular-nums text-red-700 dark:text-red-300">
+                  <span className="text-6xl font-black tabular-nums text-red-700 dark:text-red-400">
                     {countdownSeconds >= 60 ? `${Math.floor(countdownSeconds / 60)}:${String(countdownSeconds % 60).padStart(2, '0')}` : countdownSeconds}
                   </span>
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-red-500 dark:text-red-400">
-                    {countdownSeconds >= 60 ? 'min' : 'sec'}
+                  <span className="text-xs font-bold uppercase tracking-widest text-red-500 dark:text-red-400 mt-1">
+                    {countdownSeconds >= 60 ? 'minutes' : 'seconds'}
                   </span>
                 </div>
               </div>
-              <p className="text-xs text-red-600 dark:text-red-400 font-medium text-center">
-                Auto clock-out {countdownSeconds <= 0 ? 'now' : 'when timer expires'}. Return to work area or clock out.
-              </p>
+              <div className="bg-red-50 dark:bg-red-900/20 p-3 rounded-xl border border-red-200 dark:border-red-800 max-w-[280px] text-center">
+                <p className="text-sm text-red-700 dark:text-red-300 font-bold">
+                  Auto clock-out starting in {countdownSeconds}s
+                </p>
+                <p className="text-xs text-red-600 dark:text-red-400 mt-1">
+                  Please return to the work area immediately or clock out manually.
+                </p>
+              </div>
             </div>
           ) : (
             <div className="flex items-center gap-2">
