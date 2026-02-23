@@ -18,9 +18,10 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { isUnauthorizedError } from '@/lib/authUtils';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   MessageSquare, Users, Megaphone, Send, Plus, ChevronDown, ChevronRight,
-  Hash, ArrowLeft, Loader2, UserPlus
+  Hash, ArrowLeft, Loader2, UserPlus, PartyPopper, Heart, Star, Trophy, Sparkles, Shield, Smile
 } from 'lucide-react';
 
 function getInitials(firstName?: string | null, lastName?: string | null): string {
@@ -46,6 +47,10 @@ export default function Communication() {
   const [newGroupName, setNewGroupName] = useState('');
   const [newGroupDescription, setNewGroupDescription] = useState('');
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
+  const [shoutoutOpen, setShoutoutOpen] = useState(false);
+  const [shoutoutRecipient, setShoutoutRecipient] = useState('');
+  const [shoutoutCategory, setShoutoutCategory] = useState('');
+  const [shoutoutMessage, setShoutoutMessage] = useState('');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const dmEndRef = useRef<HTMLDivElement>(null);
@@ -56,6 +61,9 @@ export default function Communication() {
       if (selectedGroupId) {
         qc.invalidateQueries({ queryKey: ['/api/groups', selectedGroupId, 'messages'] });
       }
+    }
+    if (lastMessage?.type === 'shoutout_created') {
+      qc.invalidateQueries({ queryKey: ['/api/shoutouts'] });
     }
   }, [lastMessage, qc, selectedGroupId]);
 
@@ -79,6 +87,10 @@ export default function Communication() {
 
   const { data: allUsers = [] } = useQuery<any[]>({
     queryKey: ['/api/users'],
+  });
+
+  const { data: shoutoutsList = [], isLoading: shoutoutsLoading } = useQuery<any[]>({
+    queryKey: ['/api/shoutouts'],
   });
 
   useEffect(() => {
@@ -146,6 +158,55 @@ export default function Communication() {
     },
     onError: handleMutationError,
   });
+
+  const SHOUTOUT_CATEGORIES = [
+    { value: 'great_attitude', label: 'Great Attitude', emoji: '✌️', color: 'bg-purple-100 dark:bg-purple-900/30 border-purple-300 dark:border-purple-700' },
+    { value: 'team_player', label: 'Team Player', emoji: '🤝', color: 'bg-blue-100 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700' },
+    { value: 'above_and_beyond', label: 'Above & Beyond', emoji: '🚀', color: 'bg-amber-100 dark:bg-amber-900/30 border-amber-300 dark:border-amber-700' },
+    { value: 'problem_solver', label: 'Problem Solver', emoji: '💡', color: 'bg-green-100 dark:bg-green-900/30 border-green-300 dark:border-green-700' },
+    { value: 'customer_hero', label: 'Customer Hero', emoji: '⭐', color: 'bg-rose-100 dark:bg-rose-900/30 border-rose-300 dark:border-rose-700' },
+    { value: 'quick_learner', label: 'Quick Learner', emoji: '📚', color: 'bg-cyan-100 dark:bg-cyan-900/30 border-cyan-300 dark:border-cyan-700' },
+    { value: 'great_communicator', label: 'Great Communicator', emoji: '💬', color: 'bg-indigo-100 dark:bg-indigo-900/30 border-indigo-300 dark:border-indigo-700' },
+    { value: 'reliability', label: 'Reliability', emoji: '🛡️', color: 'bg-teal-100 dark:bg-teal-900/30 border-teal-300 dark:border-teal-700' },
+  ];
+
+  const getCategoryInfo = (value: string) => SHOUTOUT_CATEGORIES.find(c => c.value === value) || SHOUTOUT_CATEGORIES[0];
+
+  const sendShoutoutMutation = useMutation({
+    mutationFn: async (data: { recipientId: string; category: string; message: string; emoji?: string }) => {
+      return await apiRequest('POST', '/api/shoutouts', data);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['/api/shoutouts'] });
+      setShoutoutOpen(false);
+      setShoutoutRecipient('');
+      setShoutoutCategory('');
+      setShoutoutMessage('');
+      toast({ title: "Shoutout sent!", description: "Your recognition has been shared with the team." });
+    },
+    onError: handleMutationError,
+  });
+
+  const reactToShoutoutMutation = useMutation({
+    mutationFn: async ({ id, emoji }: { id: string; emoji: string }) => {
+      return await apiRequest('POST', `/api/shoutouts/${id}/react`, { emoji });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['/api/shoutouts'] });
+    },
+    onError: handleMutationError,
+  });
+
+  const handleSendShoutout = () => {
+    if (!shoutoutRecipient || !shoutoutCategory || !shoutoutMessage.trim()) return;
+    const cat = getCategoryInfo(shoutoutCategory);
+    sendShoutoutMutation.mutate({
+      recipientId: shoutoutRecipient,
+      category: shoutoutCategory,
+      message: shoutoutMessage,
+      emoji: cat.emoji,
+    });
+  };
 
   const handleSendGroupMessage = () => {
     if (!groupMessage.trim() || !selectedGroupId) return;
@@ -215,7 +276,7 @@ export default function Communication() {
     <div className="h-full flex flex-col bg-background">
       <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-col h-full">
         <div className="px-4 pt-4 pb-2">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="team" className="gap-1.5">
               <Users className="h-4 w-4" />
               <span className="hidden sm:inline">Team Chat</span>
@@ -226,10 +287,15 @@ export default function Communication() {
               <span className="hidden sm:inline">Direct Messages</span>
               <span className="sm:hidden">DMs</span>
             </TabsTrigger>
+            <TabsTrigger value="celebrations" className="gap-1.5">
+              <PartyPopper className="h-4 w-4" />
+              <span className="hidden sm:inline">Celebrations</span>
+              <span className="sm:hidden">Celebrate</span>
+            </TabsTrigger>
             <TabsTrigger value="announcements" className="gap-1.5">
               <Megaphone className="h-4 w-4" />
               <span className="hidden sm:inline">Announcements</span>
-              <span className="sm:hidden">Announce</span>
+              <span className="sm:hidden">News</span>
             </TabsTrigger>
           </TabsList>
         </div>
@@ -645,6 +711,165 @@ export default function Communication() {
               )}
             </div>
           </div>
+        </TabsContent>
+
+        <TabsContent value="celebrations" className="flex-1 overflow-hidden mt-0 px-4 pb-4">
+          <Card className="h-full flex flex-col overflow-hidden">
+            <CardHeader className="py-3 px-4 border-b space-y-0 flex-row items-center justify-between">
+              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                <PartyPopper className="h-4 w-4 text-primary" />
+                Celebrations
+              </CardTitle>
+              <Dialog open={shoutoutOpen} onOpenChange={setShoutoutOpen}>
+                <DialogTrigger asChild>
+                  <Button size="sm" className="gap-1.5">
+                    <Sparkles className="h-3.5 w-3.5" />
+                    Give Shoutout
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                      <PartyPopper className="h-5 w-5" />
+                      Give a Shoutout
+                    </DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    <div>
+                      <Label className="text-sm mb-1.5 block">Who are you recognizing?</Label>
+                      <Select value={shoutoutRecipient} onValueChange={setShoutoutRecipient}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a team member" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {allUsers
+                            .filter((u: any) => u.id !== user?.id && u.isActive !== false)
+                            .map((u: any) => (
+                              <SelectItem key={u.id} value={u.id}>
+                                {u.firstName} {u.lastName}
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-sm mb-1.5 block">Category</Label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {SHOUTOUT_CATEGORIES.map(cat => (
+                          <button
+                            key={cat.value}
+                            type="button"
+                            onClick={() => setShoutoutCategory(cat.value)}
+                            className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm transition-all ${
+                              shoutoutCategory === cat.value
+                                ? `${cat.color} ring-2 ring-primary font-medium`
+                                : 'bg-muted/30 border-border hover:bg-muted/60'
+                            }`}
+                          >
+                            <span className="text-lg">{cat.emoji}</span>
+                            <span>{cat.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="text-sm mb-1.5 block">Message</Label>
+                      <Textarea
+                        placeholder="What did they do that was awesome?"
+                        value={shoutoutMessage}
+                        onChange={e => setShoutoutMessage(e.target.value)}
+                        className="min-h-20"
+                      />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button
+                      onClick={handleSendShoutout}
+                      disabled={!shoutoutRecipient || !shoutoutCategory || !shoutoutMessage.trim() || sendShoutoutMutation.isPending}
+                      className="w-full gap-2"
+                    >
+                      {sendShoutoutMutation.isPending ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Sparkles className="h-4 w-4" />
+                      )}
+                      Send Shoutout
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </CardHeader>
+
+            <ScrollArea className="flex-1 p-4">
+              <div className="space-y-4">
+                {shoutoutsLoading ? (
+                  <div className="space-y-3">
+                    {[...Array(3)].map((_, i) => (
+                      <Skeleton key={i} className="h-32 w-full rounded-lg" />
+                    ))}
+                  </div>
+                ) : shoutoutsList.length === 0 ? (
+                  <div className="text-center py-12 text-muted-foreground">
+                    <PartyPopper className="h-10 w-10 mx-auto mb-3 opacity-40" />
+                    <p className="font-medium">No shoutouts yet</p>
+                    <p className="text-sm mt-1">Be the first to recognize a team member!</p>
+                  </div>
+                ) : (
+                  shoutoutsList.map((s: any) => {
+                    const cat = getCategoryInfo(s.category);
+                    const reactions = (s.reactions || []) as Array<{ userId: string; emoji: string }>;
+                    const heartCount = reactions.filter((r: any) => r.emoji === '❤️').length;
+                    const userHearted = reactions.some((r: any) => r.userId === user?.id && r.emoji === '❤️');
+                    return (
+                      <div key={s.id} className="rounded-lg border overflow-hidden">
+                        <div className="p-4 bg-muted/20">
+                          <p className="font-semibold text-sm mb-2 flex items-center gap-1.5">
+                            <Sparkles className="h-3.5 w-3.5 text-primary" />
+                            Shoutout to {getUserName(s.recipientId)}!
+                          </p>
+                          <div className={`rounded-lg border p-4 ${cat.color}`}>
+                            <div className="flex items-start gap-3">
+                              <div className="flex-1">
+                                <p className="font-bold text-sm">{cat.label}</p>
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                  {new Date(s.createdAt).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                                </p>
+                                <p className="text-sm mt-2">{s.message}</p>
+                              </div>
+                              <span className="text-3xl">{cat.emoji}</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="px-4 py-2 border-t flex items-center justify-between bg-background">
+                          <div className="flex items-center gap-2">
+                            <Avatar className="h-6 w-6">
+                              <AvatarFallback className="text-[10px] bg-primary/10">
+                                {getUserInitials(s.senderId)}
+                              </AvatarFallback>
+                            </Avatar>
+                            <span className="text-xs text-muted-foreground">
+                              {getUserName(s.senderId)} &middot; {new Date(s.createdAt).toLocaleDateString()}
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => reactToShoutoutMutation.mutate({ id: s.id, emoji: '❤️' })}
+                            className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs transition-colors ${
+                              userHearted 
+                                ? 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400' 
+                                : 'hover:bg-muted text-muted-foreground'
+                            }`}
+                          >
+                            <Heart className={`h-3.5 w-3.5 ${userHearted ? 'fill-red-500 text-red-500' : ''}`} />
+                            {heartCount > 0 && <span>{heartCount}</span>}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </ScrollArea>
+          </Card>
         </TabsContent>
 
         <TabsContent value="announcements" className="flex-1 overflow-hidden mt-0 px-4 pb-4">

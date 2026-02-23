@@ -834,6 +834,26 @@ export type InsertCompanySettings = z.infer<typeof insertCompanySettingsSchema>;
 export type ActivityLog = typeof activityLogs.$inferSelect;
 export type InsertActivityLog = z.infer<typeof insertActivityLogSchema>;
 
+// Shoutouts / Recognition
+export const shoutouts = pgTable("shoutouts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  senderId: varchar("sender_id").references(() => users.id).notNull(),
+  recipientId: varchar("recipient_id").references(() => users.id).notNull(),
+  category: varchar("category").notNull(),
+  message: text("message").notNull(),
+  emoji: varchar("emoji"),
+  reactions: jsonb("reactions").$type<Array<{ userId: string; emoji: string }>>().default([]),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertShoutoutSchema = createInsertSchema(shoutouts).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type Shoutout = typeof shoutouts.$inferSelect;
+export type InsertShoutout = z.infer<typeof insertShoutoutSchema>;
+
 // Holiday pay rules
 export const holidayPayRules = pgTable("holiday_pay_rules", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

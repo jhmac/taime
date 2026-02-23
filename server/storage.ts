@@ -30,6 +30,7 @@ import {
   employeeTrainingProgress,
   commuteAlerts,
   timeOffRequests,
+  shoutouts,
   type User,
   type UpsertUser,
   type TimeEntry,
@@ -92,6 +93,8 @@ import {
   type InsertEmployeeTrainingProgress,
   type CommuteAlert,
   type InsertCommuteAlert,
+  type Shoutout,
+  type InsertShoutout,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, gte, lte, isNull, sql } from "drizzle-orm";
@@ -279,6 +282,11 @@ export interface IStorage {
   // Commute alerts
   createCommuteAlert(alert: InsertCommuteAlert): Promise<CommuteAlert>;
   getUserCommuteAlerts(userId: string): Promise<CommuteAlert[]>;
+
+  // Shoutouts
+  createShoutout(shoutout: InsertShoutout): Promise<Shoutout>;
+  getShoutouts(limit?: number): Promise<Shoutout[]>;
+  addShoutoutReaction(id: string, userId: string, emoji: string): Promise<Shoutout>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -558,7 +566,7 @@ export class DatabaseStorage implements IStorage {
       ...message,
       readBy: Array.isArray(message.readBy) ? message.readBy : [],
     };
-    const [created] = await db.insert(messages).values([messageData]).returning();
+    const [created] = await db.insert(messages).values([messageData] as any).returning();
     return created;
   }
 
@@ -761,7 +769,7 @@ export class DatabaseStorage implements IStorage {
 
   // Work location operations
   async createWorkLocation(location: InsertWorkLocation): Promise<WorkLocation> {
-    const [created] = await db.insert(workLocations).values(location).returning();
+    const [created] = await db.insert(workLocations).values(location as any).returning();
     return created;
   }
 
@@ -1530,6 +1538,39 @@ export class DatabaseStorage implements IStorage {
       .from(commuteAlerts)
       .where(eq(commuteAlerts.userId, userId))
       .orderBy(desc(commuteAlerts.sentAt));
+  }
+
+  // Shoutouts
+  async createShoutout(shoutout: InsertShoutout): Promise<Shoutout> {
+    const [created] = await db.insert(shoutouts).values(shoutout as any).returning();
+    return created;
+  }
+
+  async getShoutouts(limit: number = 50): Promise<Shoutout[]> {
+    return await db
+      .select()
+      .from(shoutouts)
+      .orderBy(desc(shoutouts.createdAt))
+      .limit(limit);
+  }
+
+  async addShoutoutReaction(id: string, userId: string, emoji: string): Promise<Shoutout> {
+    const [existing] = await db.select().from(shoutouts).where(eq(shoutouts.id, id));
+    if (!existing) throw new Error("Shoutout not found");
+    const currentReactions = (existing.reactions || []) as Array<{ userId: string; emoji: string }>;
+    const alreadyReacted = currentReactions.find(r => r.userId === userId && r.emoji === emoji);
+    let newReactions;
+    if (alreadyReacted) {
+      newReactions = currentReactions.filter(r => !(r.userId === userId && r.emoji === emoji));
+    } else {
+      newReactions = [...currentReactions, { userId, emoji }];
+    }
+    const [updated] = await db
+      .update(shoutouts)
+      .set({ reactions: newReactions })
+      .where(eq(shoutouts.id, id))
+      .returning();
+    return updated;
   }
 }
 
