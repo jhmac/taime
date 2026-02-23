@@ -240,7 +240,16 @@ export class GeofencingService {
       const { userId, latitude, longitude, eventType, timestamp } = event;
       
       const locationCheck = await this.checkUserLocation(userId, latitude, longitude);
-      const activeTimeEntry = await storage.getActiveTimeEntry(userId);
+      let activeTimeEntry = await storage.getActiveTimeEntry(userId);
+
+      if (!activeTimeEntry && (eventType === 'exit' || eventType === 'auto_clock_out')) {
+        console.warn(`[Geofence] No active time entry found for user ${userId} during ${eventType} event, retrying...`);
+        await new Promise(resolve => setTimeout(resolve, 500));
+        activeTimeEntry = await storage.getActiveTimeEntry(userId);
+        if (!activeTimeEntry) {
+          console.warn(`[Geofence] Still no active time entry for user ${userId} during ${eventType} event`);
+        }
+      }
 
       const locationId = locationCheck.location?.id || event.locationId || '';
 
@@ -392,7 +401,7 @@ export class GeofencingService {
     const graceMs = rawGraceMinutes > 0 ? rawGraceMinutes * 60 * 1000 : 10000;
     const graceMinutes = rawGraceMinutes > 0 ? rawGraceMinutes : 0;
 
-    const recentExitEvents = await db.select()
+    let recentExitEvents = await db.select()
       .from(geofenceEvents)
       .where(and(
         eq(geofenceEvents.userId, userId),
@@ -401,6 +410,44 @@ export class GeofencingService {
       ))
       .orderBy(desc(geofenceEvents.createdAt))
       .limit(1);
+
+    if (recentExitEvents.length === 0) {
+      const unlinkedExitEvents = await db.select()
+        .from(geofenceEvents)
+        .where(and(
+          eq(geofenceEvents.userId, userId),
+          eq(geofenceEvents.eventType, 'exit'),
+          isNull(geofenceEvents.timeEntryId)
+        ))
+        .orderBy(desc(geofenceEvents.createdAt))
+        .limit(1);
+
+      if (unlinkedExitEvents.length > 0 && unlinkedExitEvents[0].createdAt) {
+        const exitTime = unlinkedExitEvents[0].createdAt;
+        const clockInTime = activeTimeEntry.clockInTime ? new Date(activeTimeEntry.clockInTime) : null;
+        if (clockInTime && exitTime >= clockInTime) {
+          await db.update(geofenceEvents)
+            .set({ timeEntryId: activeTimeEntry.id })
+            .where(eq(geofenceEvents.id, unlinkedExitEvents[0].id));
+          console.log(`[Geofence] Linked orphaned exit event ${unlinkedExitEvents[0].id} to time entry ${activeTimeEntry.id}`);
+          recentExitEvents = unlinkedExitEvents;
+        }
+      }
+    }
+
+    if (recentExitEvents.length === 0) {
+      console.log(`[Geofence] No exit event found for user ${userId}, creating one now`);
+      const locationId = exitLocation?.id || activeTimeEntry.locationId || 'unknown';
+      const [newEvent] = await db.insert(geofenceEvents).values({
+        userId,
+        locationId,
+        eventType: 'exit',
+        latitude: String(latitude),
+        longitude: String(longitude),
+        timeEntryId: activeTimeEntry.id,
+      }).returning();
+      recentExitEvents = [newEvent];
+    }
 
     let exitedAt: Date | null = null;
     let graceRemaining: number | null = null;
@@ -506,6 +553,29 @@ export class GeofencingService {
             eventType: 'exit',
             locationId: previousLocationCheck.location?.id,
           });
+        }
+      } else if (!currentLocationCheck.isInWorkLocation) {
+        const activeTimeEntry = await storage.getActiveTimeEntry(userId);
+        if (activeTimeEntry) {
+          const existingExit = await db.select()
+            .from(geofenceEvents)
+            .where(and(
+              eq(geofenceEvents.userId, userId),
+              eq(geofenceEvents.eventType, 'exit'),
+              eq(geofenceEvents.timeEntryId, activeTimeEntry.id)
+            ))
+            .limit(1);
+          if (existingExit.length === 0) {
+            console.log(`[Geofence] First position for user ${userId} is outside geofence, recording exit event`);
+            await this.processGeofenceEvent({
+              userId,
+              latitude: currentLat,
+              longitude: currentLon,
+              timestamp: new Date(),
+              eventType: 'exit',
+              locationId: activeTimeEntry.locationId || undefined,
+            });
+          }
         }
       }
     } catch (error) {

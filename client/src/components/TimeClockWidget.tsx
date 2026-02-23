@@ -50,6 +50,18 @@ export default function TimeClockWidget() {
     refetchInterval: 30000,
   });
 
+  const { data: todayEntries = [] } = useQuery<TimeEntry[]>({
+    queryKey: ['/api/time-entries', 'today'],
+    queryFn: async () => {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const res = await fetch(`/api/time-entries?startDate=${today.toISOString()}`);
+      if (!res.ok) return [];
+      return res.json();
+    },
+    refetchInterval: 60000,
+  });
+
   const { data: workLocations = [] } = useQuery<WorkLocation[]>({
     queryKey: ['/api/work-locations'],
   });
@@ -385,6 +397,21 @@ export default function TimeClockWidget() {
     return `${hours}h ${minutes}m`;
   };
 
+  const getOutsideDuration = () => {
+    if (!geofenceStatus?.geofenceExitInfo?.exitedAt) return null;
+    const exitTime = new Date(geofenceStatus.geofenceExitInfo.exitedAt);
+    const now = new Date();
+    const durationMs = now.getTime() - exitTime.getTime();
+    const totalMinutes = Math.floor(durationMs / (1000 * 60));
+    if (totalMinutes < 1) {
+      const seconds = Math.floor(durationMs / 1000);
+      return `${seconds}s`;
+    }
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+  };
+
   return (
     <Card className="mb-4" data-testid="time-clock-widget">
       <CardHeader>
@@ -406,16 +433,29 @@ export default function TimeClockWidget() {
 
         {/* Active Session Info */}
         {activeTimeEntry && (
-          <div className={`${geofenceStatus?.isInWorkLocation === false ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'} border rounded-lg p-3 transition-colors`}>
-            <p className={`text-sm font-medium ${geofenceStatus?.isInWorkLocation === false ? 'text-red-800' : 'text-green-800'}`}>
+          <div className={`${geofenceStatus?.isInWorkLocation === false ? 'bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800' : 'bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800'} border rounded-lg p-3 transition-colors`}>
+            <p className={`text-sm font-medium ${geofenceStatus?.isInWorkLocation === false ? 'text-red-800 dark:text-red-300' : 'text-green-800 dark:text-green-300'}`}>
               {geofenceStatus?.isInWorkLocation === false ? 'Outside Work Zone' : 'Currently Clocked In'}
             </p>
-            <p className={`text-xs ${geofenceStatus?.isInWorkLocation === false ? 'text-red-700' : 'text-green-700'}`}>
-              Started at {new Date(activeTimeEntry.clockInTime).toLocaleTimeString('en-US', { hour12: true })}
-            </p>
-            <p className={`text-sm font-bold ${geofenceStatus?.isInWorkLocation === false ? 'text-red-800' : 'text-green-800'} mt-1`}>
-              Duration: {getActiveWorkDuration()}
-            </p>
+            {geofenceStatus?.isInWorkLocation === false && geofenceStatus?.geofenceExitInfo?.exitedAt ? (
+              <>
+                <p className="text-xs text-red-700 dark:text-red-400">
+                  Left at {new Date(geofenceStatus.geofenceExitInfo.exitedAt).toLocaleTimeString('en-US', { hour12: true })}
+                </p>
+                <p className="text-sm font-bold text-red-800 dark:text-red-300 mt-1">
+                  Outside for: {getOutsideDuration()}
+                </p>
+              </>
+            ) : (
+              <>
+                <p className={`text-xs ${geofenceStatus?.isInWorkLocation === false ? 'text-red-700 dark:text-red-400' : 'text-green-700 dark:text-green-400'}`}>
+                  Started at {new Date(activeTimeEntry.clockInTime).toLocaleTimeString('en-US', { hour12: true })}
+                </p>
+                <p className={`text-sm font-bold ${geofenceStatus?.isInWorkLocation === false ? 'text-red-800 dark:text-red-300' : 'text-green-800 dark:text-green-300'} mt-1`}>
+                  Duration: {getActiveWorkDuration()}
+                </p>
+              </>
+            )}
           </div>
         )}
 
@@ -600,7 +640,22 @@ export default function TimeClockWidget() {
           <div className="bg-muted/50 rounded-lg p-3">
             <p className="text-muted-foreground text-xs">Today's Hours</p>
             <p className="text-lg font-bold text-foreground" data-testid="today-hours">
-              {getActiveWorkDuration() || '0h 0m'}
+              {(() => {
+                let totalMs = 0;
+                const now = new Date();
+                for (const entry of todayEntries) {
+                  if (activeTimeEntry && entry.id === activeTimeEntry.id) continue;
+                  const start = new Date(entry.clockInTime);
+                  const end = entry.clockOutTime ? new Date(entry.clockOutTime) : now;
+                  totalMs += end.getTime() - start.getTime();
+                }
+                if (activeTimeEntry) {
+                  totalMs += now.getTime() - new Date(activeTimeEntry.clockInTime).getTime();
+                }
+                const hours = Math.floor(totalMs / (1000 * 60 * 60));
+                const minutes = Math.floor((totalMs % (1000 * 60 * 60)) / (1000 * 60));
+                return `${hours}h ${minutes}m`;
+              })()}
             </p>
           </div>
           <div className="bg-muted/50 rounded-lg p-3">
