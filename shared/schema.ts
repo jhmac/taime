@@ -363,7 +363,7 @@ export const companySettings = pgTable("company_settings", {
   preventEarlyBreakReturn: boolean("prevent_early_break_return").default(false),
   singleClockOutReminder: boolean("single_clock_out_reminder").default(true),
   autoClockOutEnabled: boolean("auto_clock_out_enabled").default(false),
-  autoClockOutAfterMinutes: decimal("auto_clock_out_after_minutes", { precision: 10, scale: 2 }),
+  autoClockOutAfterMinutes: text("auto_clock_out_after_minutes"),
   textScheduleToEmployees: boolean("text_schedule_to_employees").default(false),
   employeesViewOwnScheduleOnly: boolean("employees_view_own_schedule_only").default(false),
   notifyManagerLateClockIn: boolean("notify_manager_late_clock_in").default(true),

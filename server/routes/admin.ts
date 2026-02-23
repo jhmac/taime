@@ -112,7 +112,10 @@ export function registerAdminRoutes(app: Express, storage: IStorage, isAuthentic
       }
       const { expectedVersion, ...bodyWithoutVersion } = req.body;
       const validated = companySettingsUpdateSchema.parse(bodyWithoutVersion);
-      const settingsUpdates: Record<string, any> = { updatedBy: userId, ...validated };
+    const settingsUpdates: Record<string, any> = { updatedBy: userId, ...validated };
+    if (settingsUpdates.autoClockOutAfterMinutes !== undefined && settingsUpdates.autoClockOutAfterMinutes !== null) {
+      settingsUpdates.autoClockOutAfterMinutes = settingsUpdates.autoClockOutAfterMinutes.toString();
+    }
       if (expectedVersion !== undefined) {
         const parsedVersion = z.number().int().safeParse(expectedVersion);
         if (parsedVersion.success) {
