@@ -315,37 +315,35 @@ export class GeofencingService {
   private async getEffectiveGraceMs(exitLocation: any): Promise<{ graceMs: number; graceMinutes: number; autoClockOut: boolean }> {
     let autoClockOut = exitLocation ? (exitLocation as any).autoClockOut !== false : false;
 
-    const locationGrace = exitLocation ? parseFloat(String((exitLocation as any).geofenceGraceMinutes ?? '')) : NaN;
-    console.log(`[Geofence] getEffectiveGraceMs: locationGrace=${locationGrace}, autoClockOut=${autoClockOut}, exitLocation=${exitLocation ? exitLocation.name : 'null'}`);
+    // Try location-specific grace first
+    const locationGraceRaw = exitLocation ? (exitLocation as any).geofenceGraceMinutes : null;
+    const locationGrace = locationGraceRaw ? parseFloat(String(locationGraceRaw)) : NaN;
 
     if (!isNaN(locationGrace) && locationGrace > 0) {
       const graceMs = Math.round(locationGrace * 60 * 1000);
-      console.log(`[Geofence] Using location grace period: ${locationGrace} min (${graceMs}ms)`);
       return { graceMs, graceMinutes: locationGrace, autoClockOut };
     }
 
+    // Fallback to company settings
     try {
       const companySettings = await storage.getCompanySettings();
       if (companySettings) {
-        const rawVal = companySettings.autoClockOutAfterMinutes;
-        const companyGrace = parseFloat(String(rawVal ?? ''));
-        const companyAutoClockOutEnabled = companySettings.autoClockOutEnabled === true;
-        console.log(`[Geofence] Company settings fallback: rawVal='${rawVal}', parsed=${companyGrace}, companyAutoClockOutEnabled=${companyAutoClockOutEnabled}`);
+        const companyGraceRaw = companySettings.autoClockOutAfterMinutes;
+        const companyGrace = companyGraceRaw ? parseFloat(String(companyGraceRaw)) : NaN;
+        
         if (!isNaN(companyGrace) && companyGrace > 0) {
           const graceMs = Math.round(companyGrace * 60 * 1000);
-          autoClockOut = autoClockOut || companyAutoClockOutEnabled;
-          console.log(`[Geofence] Using company grace period: ${companyGrace} min (${graceMs}ms), autoClockOut=${autoClockOut}`);
-          return { graceMs, graceMinutes: companyGrace, autoClockOut };
+          // Use company auto-clock-out toggle if location doesn't explicitly disable it
+          const effectiveAutoClockOut = autoClockOut || (companySettings.autoClockOutEnabled === true);
+          return { graceMs, graceMinutes: companyGrace, autoClockOut: effectiveAutoClockOut };
         }
-      } else {
-        console.log(`[Geofence] No company settings found`);
       }
     } catch (e) {
       console.error('[Geofence] Failed to read company settings for grace period:', e);
     }
 
-    console.log(`[Geofence] Using fallback grace period: 10s`);
-    return { graceMs: 10000, graceMinutes: 0, autoClockOut };
+    // Ultimate fallback: 1 minute (60,000ms) to ensure it's not 0
+    return { graceMs: 60000, graceMinutes: 1, autoClockOut };
   }
 
   recordLocationReport(userId: string) {
