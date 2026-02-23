@@ -67,6 +67,25 @@ export default function TimeClockOptionsSection({ settingsForm, updateForm }: Se
               <p className="text-xs text-muted-foreground">Require employees to be within the geofence to clock in via mobile</p>
             </div>
           </div>
+          <div className="flex items-start gap-3">
+            <Checkbox checked={settingsForm.autoClockOutEnabled || false} onCheckedChange={val => updateForm('autoClockOutEnabled', !!val)} />
+            <div className="space-y-1 flex-1">
+              <Label className="text-sm">Auto clock-out when leaving geofence</Label>
+              <p className="text-xs text-muted-foreground">Automatically clock out employees when they stay outside the geofence boundary for too long</p>
+              {settingsForm.autoClockOutEnabled && (
+                <div className="flex items-center gap-2 pt-1">
+                  <span className="text-xs text-muted-foreground">Grace period:</span>
+                  <Input 
+                    type="number" 
+                    className="w-20 h-7 text-xs" 
+                    value={settingsForm.autoClockOutAfterMinutes ?? 5} 
+                    onChange={e => updateForm('autoClockOutAfterMinutes', parseInt(e.target.value) || 5)} 
+                  />
+                  <span className="text-xs text-muted-foreground">minutes</span>
+                </div>
+              )}
+            </div>
+          </div>
         </CardContent>
       </Card>
 
