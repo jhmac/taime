@@ -267,7 +267,8 @@ export class GeofencingService {
         if (activeTimeEntry) {
           const exitLocation = await this.getLocationForTimeEntry(activeTimeEntry);
           const autoClockOut = exitLocation ? (exitLocation as any).autoClockOut !== false : false;
-          const graceMinutes = exitLocation ? ((exitLocation as any).geofenceGraceMinutes || 5) : 5;
+          const rawGraceMinutes = exitLocation ? ((exitLocation as any).geofenceGraceMinutes ?? 5) : 5;
+          const graceMs = rawGraceMinutes > 0 ? rawGraceMinutes * 60 * 1000 : 10000;
 
           await notificationService.sendClockOutReminder(
             userId,
@@ -278,8 +279,7 @@ export class GeofencingService {
             if (activeExitTimers.has(userId)) {
               clearTimeout(activeExitTimers.get(userId)!);
             }
-            const graceMs = graceMinutes * 60 * 1000;
-            console.log(`[Geofence] Auto clock-out scheduled for user ${userId} in ${graceMinutes} minutes`);
+            console.log(`[Geofence] Auto clock-out scheduled for user ${userId} in ${graceMs / 1000} seconds`);
             
             const timer = setTimeout(async () => {
               activeExitTimers.delete(userId);
@@ -388,7 +388,9 @@ export class GeofencingService {
 
     const exitLocation = await this.getLocationForTimeEntry(activeTimeEntry);
     const autoClockOut = exitLocation ? (exitLocation as any).autoClockOut !== false : false;
-    const graceMinutes = exitLocation ? ((exitLocation as any).geofenceGraceMinutes || 5) : 5;
+    const rawGraceMinutes = exitLocation ? ((exitLocation as any).geofenceGraceMinutes ?? 5) : 5;
+    const graceMs = rawGraceMinutes > 0 ? rawGraceMinutes * 60 * 1000 : 10000;
+    const graceMinutes = rawGraceMinutes > 0 ? rawGraceMinutes : 0;
 
     const recentExitEvents = await db.select()
       .from(geofenceEvents)
@@ -406,7 +408,6 @@ export class GeofencingService {
     if (recentExitEvents.length > 0 && recentExitEvents[0].createdAt) {
       exitedAt = recentExitEvents[0].createdAt;
       const elapsedMs = Date.now() - exitedAt.getTime();
-      const graceMs = graceMinutes * 60 * 1000;
       graceRemaining = Math.max(0, Math.ceil((graceMs - elapsedMs) / 1000));
 
       if (autoClockOut && elapsedMs >= graceMs) {

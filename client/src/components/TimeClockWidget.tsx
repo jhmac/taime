@@ -249,7 +249,7 @@ export default function TimeClockWidget() {
     };
 
     checkGeofence();
-    const interval = setInterval(checkGeofence, activeTimeEntry ? 30000 : 120000);
+    const interval = setInterval(checkGeofence, activeTimeEntry ? 10000 : 60000);
     return () => clearInterval(interval);
   }, [activeTimeEntry, position, workLocations]);
 
