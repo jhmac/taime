@@ -268,7 +268,7 @@ export class GeofencingService {
           const exitLocation = await this.getLocationForTimeEntry(activeTimeEntry);
           const autoClockOut = exitLocation ? (exitLocation as any).autoClockOut !== false : false;
           const rawGraceMinutes = exitLocation ? ((exitLocation as any).geofenceGraceMinutes ?? 5) : 5;
-          const graceMs = rawGraceMinutes > 0 ? rawGraceMinutes * 60 * 1000 : 10000;
+          const graceMs = rawGraceMinutes > 0 ? Math.round(rawGraceMinutes * 60 * 1000) : 10000;
 
           await notificationService.sendClockOutReminder(
             userId,

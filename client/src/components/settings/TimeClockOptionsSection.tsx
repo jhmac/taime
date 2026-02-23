@@ -77,11 +77,17 @@ export default function TimeClockOptionsSection({ settingsForm, updateForm }: Se
                   <span className="text-xs text-muted-foreground">Grace period:</span>
                   <Input 
                     type="number" 
+                    step={0.1}
+                    min={0.1}
                     className="w-20 h-7 text-xs" 
                     value={settingsForm.autoClockOutAfterMinutes ?? 5} 
-                    onChange={e => updateForm('autoClockOutAfterMinutes', parseInt(e.target.value) || 5)} 
+                    onChange={e => updateForm('autoClockOutAfterMinutes', parseFloat(e.target.value) || 0.1)} 
                   />
-                  <span className="text-xs text-muted-foreground">minutes</span>
+                  <span className="text-xs text-muted-foreground">
+                    {(settingsForm.autoClockOutAfterMinutes ?? 5) < 1 
+                      ? `${Math.round((settingsForm.autoClockOutAfterMinutes ?? 5) * 60)} seconds` 
+                      : 'minutes'}
+                  </span>
                 </div>
               )}
             </div>
