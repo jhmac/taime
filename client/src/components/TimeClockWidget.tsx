@@ -45,6 +45,9 @@ export default function TimeClockWidget() {
   const exitAlertShown = useRef(false);
   const locationLostReported = useRef(false);
   const watchIdRef = useRef<number | null>(null);
+  const [countdownSeconds, setCountdownSeconds] = useState<number | null>(null);
+  const countdownRef = useRef<number | null>(null);
+  const totalGraceSecondsRef = useRef<number>(0);
 
   const { data: activeTimeEntry, isLoading: activeEntryLoading } = useQuery<TimeEntry | null>({
     queryKey: ['/api/time-entries/active'],
@@ -190,6 +193,39 @@ export default function TimeClockWidget() {
 
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (geofenceStatus && !geofenceStatus.isInWorkLocation && geofenceStatus.geofenceExitInfo?.graceRemaining != null && geofenceStatus.geofenceExitInfo.graceRemaining > 0) {
+      if (totalGraceSecondsRef.current === 0) {
+        totalGraceSecondsRef.current = geofenceStatus.geofenceExitInfo.graceRemaining;
+      }
+      setCountdownSeconds(geofenceStatus.geofenceExitInfo.graceRemaining);
+      if (countdownRef.current) clearInterval(countdownRef.current);
+      countdownRef.current = window.setInterval(() => {
+        setCountdownSeconds(prev => {
+          if (prev == null || prev <= 1) {
+            if (countdownRef.current) clearInterval(countdownRef.current);
+            queryClient.invalidateQueries({ queryKey: ['/api/time-entries/active'] });
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } else if (geofenceStatus?.isInWorkLocation) {
+      setCountdownSeconds(null);
+      totalGraceSecondsRef.current = 0;
+      if (countdownRef.current) {
+        clearInterval(countdownRef.current);
+        countdownRef.current = null;
+      }
+    }
+    return () => {
+      if (countdownRef.current) {
+        clearInterval(countdownRef.current);
+        countdownRef.current = null;
+      }
+    };
+  }, [geofenceStatus?.isInWorkLocation, geofenceStatus?.geofenceExitInfo?.graceRemaining]);
 
   useEffect(() => {
     if (activeTimeEntry && workLocations.length > 0) {
@@ -603,6 +639,36 @@ export default function TimeClockWidget() {
                 ? 'bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800'
                 : 'bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800'
           }`}>
+            {!geofenceStatus.isInWorkLocation && countdownSeconds != null ? (
+            <div className="flex flex-col items-center gap-2 py-2">
+              <div className="flex items-center gap-2">
+                <XCircle className="h-5 w-5 text-red-600 dark:text-red-400 animate-pulse" />
+                <p className="font-bold text-red-800 dark:text-red-300 text-base">Outside Work Zone</p>
+              </div>
+              <div className="relative flex items-center justify-center">
+                <svg className="w-28 h-28" viewBox="0 0 120 120">
+                  <circle cx="60" cy="60" r="54" fill="none" stroke="currentColor" className="text-red-200 dark:text-red-900" strokeWidth="8" />
+                  <circle cx="60" cy="60" r="54" fill="none" stroke="currentColor" className="text-red-600 dark:text-red-400" strokeWidth="8" strokeLinecap="round"
+                    strokeDasharray={`${2 * Math.PI * 54}`}
+                    strokeDashoffset={`${2 * Math.PI * 54 * (1 - (countdownSeconds / Math.max(totalGraceSecondsRef.current || countdownSeconds, 1)))}`}
+                    transform="rotate(-90 60 60)"
+                    style={{ transition: 'stroke-dashoffset 1s linear' }}
+                  />
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <span className="text-3xl font-black tabular-nums text-red-700 dark:text-red-300">
+                    {countdownSeconds >= 60 ? `${Math.floor(countdownSeconds / 60)}:${String(countdownSeconds % 60).padStart(2, '0')}` : countdownSeconds}
+                  </span>
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-red-500 dark:text-red-400">
+                    {countdownSeconds >= 60 ? 'min' : 'sec'}
+                  </span>
+                </div>
+              </div>
+              <p className="text-xs text-red-600 dark:text-red-400 font-medium text-center">
+                Auto clock-out {countdownSeconds <= 0 ? 'now' : 'when timer expires'}. Return to work area or clock out.
+              </p>
+            </div>
+          ) : (
             <div className="flex items-center gap-2">
               {!geofenceStatus.isInWorkLocation ? (
                 <XCircle className="h-4 w-4 text-red-600 dark:text-red-400 shrink-0" />
@@ -627,17 +693,14 @@ export default function TimeClockWidget() {
                   'text-blue-600 dark:text-blue-400'
                 }`}>
                   {!geofenceStatus.isInWorkLocation
-                    ? geofenceStatus.geofenceExitInfo?.graceRemaining != null
-                      ? geofenceStatus.geofenceExitInfo.graceRemaining >= 60
-                        ? `Auto clock-out in ${Math.ceil(geofenceStatus.geofenceExitInfo.graceRemaining / 60)} min ${geofenceStatus.geofenceExitInfo.graceRemaining % 60}s. Return to work area or clock out now.`
-                        : `Auto clock-out in ${geofenceStatus.geofenceExitInfo.graceRemaining}s. Return to work area or clock out now.`
-                      : 'You have left the work area. Please return or clock out.'
+                    ? 'You have left the work area. Please return or clock out.'
                     : geofenceStatus.boundaryWarning
                       ? 'You are near the edge of your work area'
                       : 'Geofence verified'}
                 </p>
               </div>
             </div>
+          )}
           </div>
         )}
 

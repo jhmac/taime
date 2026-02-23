@@ -313,29 +313,38 @@ export class GeofencingService {
   }
 
   private async getEffectiveGraceMs(exitLocation: any): Promise<{ graceMs: number; graceMinutes: number; autoClockOut: boolean }> {
-    const autoClockOut = exitLocation ? (exitLocation as any).autoClockOut !== false : false;
+    let autoClockOut = exitLocation ? (exitLocation as any).autoClockOut !== false : false;
 
-    const locationGrace = exitLocation ? parseFloat((exitLocation as any).geofenceGraceMinutes) : NaN;
+    const locationGrace = exitLocation ? parseFloat(String((exitLocation as any).geofenceGraceMinutes ?? '')) : NaN;
+    console.log(`[Geofence] getEffectiveGraceMs: locationGrace=${locationGrace}, autoClockOut=${autoClockOut}, exitLocation=${exitLocation ? exitLocation.name : 'null'}`);
 
     if (!isNaN(locationGrace) && locationGrace > 0) {
       const graceMs = Math.round(locationGrace * 60 * 1000);
+      console.log(`[Geofence] Using location grace period: ${locationGrace} min (${graceMs}ms)`);
       return { graceMs, graceMinutes: locationGrace, autoClockOut };
     }
 
     try {
       const companySettings = await storage.getCompanySettings();
       if (companySettings) {
-        const companyGrace = parseFloat(String(companySettings.autoClockOutAfterMinutes || ''));
+        const rawVal = companySettings.autoClockOutAfterMinutes;
+        const companyGrace = parseFloat(String(rawVal ?? ''));
+        const companyAutoClockOutEnabled = companySettings.autoClockOutEnabled === true;
+        console.log(`[Geofence] Company settings fallback: rawVal='${rawVal}', parsed=${companyGrace}, companyAutoClockOutEnabled=${companyAutoClockOutEnabled}`);
         if (!isNaN(companyGrace) && companyGrace > 0) {
           const graceMs = Math.round(companyGrace * 60 * 1000);
-          console.log(`[Geofence] Using company setting grace period: ${companyGrace} minutes`);
-          return { graceMs, graceMinutes: companyGrace, autoClockOut: autoClockOut || (companySettings.autoClockOutEnabled === true) };
+          autoClockOut = autoClockOut || companyAutoClockOutEnabled;
+          console.log(`[Geofence] Using company grace period: ${companyGrace} min (${graceMs}ms), autoClockOut=${autoClockOut}`);
+          return { graceMs, graceMinutes: companyGrace, autoClockOut };
         }
+      } else {
+        console.log(`[Geofence] No company settings found`);
       }
     } catch (e) {
       console.error('[Geofence] Failed to read company settings for grace period:', e);
     }
 
+    console.log(`[Geofence] Using fallback grace period: 10s`);
     return { graceMs: 10000, graceMinutes: 0, autoClockOut };
   }
 
@@ -540,8 +549,10 @@ export class GeofencingService {
       exitedAt = recentExitEvents[0].createdAt;
       const elapsedMs = Date.now() - exitedAt.getTime();
       graceRemaining = Math.max(0, Math.ceil((graceMs - elapsedMs) / 1000));
+      console.log(`[Geofence] checkAndHandleGeofenceExit: elapsedMs=${elapsedMs}, graceMs=${graceMs}, autoClockOut=${autoClockOut}, graceRemaining=${graceRemaining}s`);
 
       if (autoClockOut && elapsedMs >= graceMs) {
+        console.log(`[Geofence] Grace period expired for user ${userId}, executing auto clock-out`);
         const clocked = await this.executeAutoClockOut(userId, latitude, longitude);
         return { isOutside: true, autoClockOutTriggered: clocked, graceMinutes, graceRemaining: 0, exitedAt };
       }
