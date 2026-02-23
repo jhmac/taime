@@ -406,12 +406,14 @@ export default function TimeClockWidget() {
 
         {/* Active Session Info */}
         {activeTimeEntry && (
-          <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-            <p className="text-sm font-medium text-green-800">Currently Clocked In</p>
-            <p className="text-xs text-green-700">
+          <div className={`${geofenceStatus?.isInWorkLocation === false ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'} border rounded-lg p-3 transition-colors`}>
+            <p className={`text-sm font-medium ${geofenceStatus?.isInWorkLocation === false ? 'text-red-800' : 'text-green-800'}`}>
+              {geofenceStatus?.isInWorkLocation === false ? 'Outside Work Zone' : 'Currently Clocked In'}
+            </p>
+            <p className={`text-xs ${geofenceStatus?.isInWorkLocation === false ? 'text-red-700' : 'text-green-700'}`}>
               Started at {new Date(activeTimeEntry.clockInTime).toLocaleTimeString('en-US', { hour12: true })}
             </p>
-            <p className="text-sm font-bold text-green-800 mt-1">
+            <p className={`text-sm font-bold ${geofenceStatus?.isInWorkLocation === false ? 'text-red-800' : 'text-green-800'} mt-1`}>
               Duration: {getActiveWorkDuration()}
             </p>
           </div>

@@ -841,11 +841,15 @@ export default function GeofenceMapSection() {
                 <Badge variant={selectedLocation.geofenceEnabled !== false ? 'default' : 'secondary'}>
                   {selectedLocation.geofenceEnabled !== false ? 'Geofence Active' : 'Geofence Off'}
                 </Badge>
-                {selectedLocation.autoClockOut !== false && (
-                  <Badge variant="outline">
+                {selectedLocation.autoClockOut !== false ? (
+                  <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
                     Auto Clock-Out: {(selectedLocation.geofenceGraceMinutes ?? 5) === 0
                       ? '10s grace'
                       : `${selectedLocation.geofenceGraceMinutes ?? 5}min grace`}
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="bg-red-50 text-red-700 border-red-200">
+                    Auto Clock-Out: Disabled
                   </Badge>
                 )}
               </div>
