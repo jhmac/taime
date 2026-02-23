@@ -65,6 +65,8 @@ export function registerGeofenceRoutes(app: Express, storage: IStorage, isAuthen
         return res.status(400).json({ message: "Current location is required" });
       }
 
+      geofencingService.recordLocationReport(userId);
+
       await geofencingService.monitorUserLocation(
         userId, latitude, longitude,
         previousLatitude, previousLongitude
@@ -116,6 +118,17 @@ export function registerGeofenceRoutes(app: Express, storage: IStorage, isAuthen
     } catch (error) {
       console.error("Error monitoring location:", error);
       res.status(500).json({ message: "Failed to monitor location" });
+    }
+  });
+
+  app.post('/api/geofence/location-lost', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const result = await geofencingService.handleLocationLost(userId);
+      res.json({ handled: result });
+    } catch (error) {
+      console.error("Error handling location lost:", error);
+      res.status(500).json({ message: "Failed to handle location loss" });
     }
   });
 

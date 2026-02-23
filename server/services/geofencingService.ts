@@ -9,11 +9,12 @@ export interface GeofenceEvent {
   latitude: number;
   longitude: number;
   timestamp: Date;
-  eventType: 'enter' | 'exit' | 'warning' | 'auto_clock_out';
+  eventType: 'enter' | 'exit' | 'warning' | 'auto_clock_out' | 'location_lost';
   locationId?: string;
 }
 
 const activeExitTimers = new Map<string, NodeJS.Timeout>();
+const lastLocationReport = new Map<string, number>();
 
 export class GeofencingService {
   calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -275,9 +276,7 @@ export class GeofencingService {
       } else if (eventType === 'exit') {
         if (activeTimeEntry) {
           const exitLocation = await this.getLocationForTimeEntry(activeTimeEntry);
-          const autoClockOut = exitLocation ? (exitLocation as any).autoClockOut !== false : false;
-          const rawGraceMinutes = exitLocation ? ((exitLocation as any).geofenceGraceMinutes ?? 5) : 5;
-          const graceMs = rawGraceMinutes > 0 ? Math.round(rawGraceMinutes * 60 * 1000) : 10000;
+          const { graceMs, autoClockOut } = await this.getEffectiveGraceMs(exitLocation);
 
           await notificationService.sendClockOutReminder(
             userId,
@@ -311,6 +310,92 @@ export class GeofencingService {
       return allLocations.find(l => l.id === timeEntry.locationId) || null;
     }
     return null;
+  }
+
+  private async getEffectiveGraceMs(exitLocation: any): Promise<{ graceMs: number; graceMinutes: number; autoClockOut: boolean }> {
+    const autoClockOut = exitLocation ? (exitLocation as any).autoClockOut !== false : false;
+
+    const locationGrace = exitLocation ? parseFloat((exitLocation as any).geofenceGraceMinutes) : NaN;
+
+    if (!isNaN(locationGrace) && locationGrace > 0) {
+      const graceMs = Math.round(locationGrace * 60 * 1000);
+      return { graceMs, graceMinutes: locationGrace, autoClockOut };
+    }
+
+    try {
+      const companySettings = await storage.getCompanySettings();
+      if (companySettings) {
+        const companyGrace = parseFloat(String(companySettings.autoClockOutAfterMinutes || ''));
+        if (!isNaN(companyGrace) && companyGrace > 0) {
+          const graceMs = Math.round(companyGrace * 60 * 1000);
+          console.log(`[Geofence] Using company setting grace period: ${companyGrace} minutes`);
+          return { graceMs, graceMinutes: companyGrace, autoClockOut: autoClockOut || (companySettings.autoClockOutEnabled === true) };
+        }
+      }
+    } catch (e) {
+      console.error('[Geofence] Failed to read company settings for grace period:', e);
+    }
+
+    return { graceMs: 10000, graceMinutes: 0, autoClockOut };
+  }
+
+  recordLocationReport(userId: string) {
+    lastLocationReport.set(userId, Date.now());
+  }
+
+  getLastLocationReport(userId: string): number | undefined {
+    return lastLocationReport.get(userId);
+  }
+
+  async handleLocationLost(userId: string): Promise<boolean> {
+    const activeTimeEntry = await storage.getActiveTimeEntry(userId);
+    if (!activeTimeEntry) return false;
+
+    await db.insert(geofenceEvents).values({
+      userId,
+      locationId: activeTimeEntry.locationId || 'unknown',
+      eventType: 'location_lost',
+      latitude: null,
+      longitude: null,
+      timeEntryId: activeTimeEntry.id,
+    });
+
+    console.log(`[Geofence] Location permission lost for user ${userId}, scheduling auto clock-out`);
+
+    const exitLocation = await this.getLocationForTimeEntry(activeTimeEntry);
+    const { graceMs, autoClockOut } = await this.getEffectiveGraceMs(exitLocation);
+
+    if (autoClockOut) {
+      if (activeExitTimers.has(userId)) {
+        clearTimeout(activeExitTimers.get(userId)!);
+      }
+      console.log(`[Geofence] Auto clock-out (location lost) scheduled for user ${userId} in ${graceMs / 1000} seconds`);
+
+      const timer = setTimeout(async () => {
+        activeExitTimers.delete(userId);
+        const entry = await storage.getActiveTimeEntry(userId);
+        if (entry) {
+          await storage.updateTimeEntry(entry.id, {
+            clockOutTime: new Date(),
+            clockOutSource: 'auto-geofence',
+            notes: `${entry.notes ? entry.notes + ' | ' : ''}Auto clocked out: location permission revoked`,
+          });
+          await db.insert(geofenceEvents).values({
+            userId,
+            locationId: entry.locationId || 'unknown',
+            eventType: 'auto_clock_out',
+            latitude: null,
+            longitude: null,
+            timeEntryId: entry.id,
+          });
+          console.log(`[Geofence] Auto clocked out user ${userId} due to location permission loss`);
+        }
+      }, graceMs);
+
+      activeExitTimers.set(userId, timer);
+    }
+
+    return true;
   }
 
   async executeAutoClockOut(userId: string, latitude?: number, longitude?: number): Promise<boolean> {
@@ -396,10 +481,9 @@ export class GeofencingService {
     }
 
     const exitLocation = await this.getLocationForTimeEntry(activeTimeEntry);
-    const autoClockOut = exitLocation ? (exitLocation as any).autoClockOut !== false : false;
-    const rawGraceMinutes = exitLocation ? ((exitLocation as any).geofenceGraceMinutes ?? 5) : 5;
-    const graceMs = rawGraceMinutes > 0 ? rawGraceMinutes * 60 * 1000 : 10000;
-    const graceMinutes = rawGraceMinutes > 0 ? rawGraceMinutes : 0;
+    const effective = await this.getEffectiveGraceMs(exitLocation);
+    const { graceMs, autoClockOut } = effective;
+    const graceMinutes = effective.graceMinutes;
 
     let recentExitEvents = await db.select()
       .from(geofenceEvents)
@@ -582,6 +666,35 @@ export class GeofencingService {
       console.error('Error monitoring user location:', error);
     }
   }
+
+  async startStaleLocationChecker() {
+    const CHECK_INTERVAL = 60000;
+    const STALE_THRESHOLD = 5 * 60 * 1000;
+
+    setInterval(async () => {
+      try {
+        const activeEntries = await db.select()
+          .from(timeEntries)
+          .where(isNull(timeEntries.clockOutTime));
+
+        for (const entry of activeEntries) {
+          const lastReport = this.getLastLocationReport(entry.userId);
+          if (lastReport && Date.now() - lastReport > STALE_THRESHOLD) {
+            const alreadyHandled = activeExitTimers.has(entry.userId);
+            if (!alreadyHandled) {
+              console.log(`[Geofence] User ${entry.userId} hasn't reported location in ${Math.round((Date.now() - lastReport) / 1000)}s, triggering location-lost`);
+              await this.handleLocationLost(entry.userId);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('[Geofence] Stale location check error:', error);
+      }
+    }, CHECK_INTERVAL);
+
+    console.log('[Geofence] Stale location checker started (checks every 60s)');
+  }
 }
 
 export const geofencingService = new GeofencingService();
+geofencingService.startStaleLocationChecker();

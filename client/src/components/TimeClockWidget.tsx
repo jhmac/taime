@@ -43,6 +43,7 @@ export default function TimeClockWidget() {
   const previousPositionRef = useRef<{ lat: number; lng: number } | null>(null);
   const hasRequestedLocation = useRef(false);
   const exitAlertShown = useRef(false);
+  const locationLostReported = useRef(false);
   const watchIdRef = useRef<number | null>(null);
 
   const { data: activeTimeEntry, isLoading: activeEntryLoading } = useQuery<TimeEntry | null>({
@@ -209,6 +210,29 @@ export default function TimeClockWidget() {
       }
     };
   }, [activeTimeEntry, workLocations]);
+
+  useEffect(() => {
+    if (activeTimeEntry && locationError && !locationLostReported.current) {
+      locationLostReported.current = true;
+      console.warn('[TimeClockWidget] Location permission lost while clocked in:', locationError);
+      triggerHaptic([300, 100, 300, 100, 600]);
+      toast({
+        title: "Location Access Lost",
+        description: "Your location permission was revoked. You may be auto-clocked out if you don't re-enable location services.",
+        variant: "destructive",
+        duration: 15000,
+      });
+      apiRequest('POST', '/api/geofence/location-lost', {}).catch(err => {
+        console.error('Failed to report location lost:', err);
+      });
+    }
+    if (!locationError && activeTimeEntry) {
+      locationLostReported.current = false;
+    }
+    if (!activeTimeEntry) {
+      locationLostReported.current = false;
+    }
+  }, [activeTimeEntry, locationError]);
 
   useEffect(() => {
     if (!position || workLocations.length === 0) return;

@@ -880,6 +880,7 @@ function GeofenceActivityLog() {
       case 'enter': return 'Entered Work Area';
       case 'auto_clock_out': return 'Auto Clocked Out';
       case 'warning': return 'Near Boundary';
+      case 'location_lost': return 'Location Permission Lost';
       default: return type;
     }
   };
@@ -890,11 +891,12 @@ function GeofenceActivityLog() {
       case 'enter': return <MapPin className="h-3.5 w-3.5 text-green-500" />;
       case 'auto_clock_out': return <LogOut className="h-3.5 w-3.5 text-red-600" />;
       case 'warning': return <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />;
+      case 'location_lost': return <Shield className="h-3.5 w-3.5 text-red-600" />;
       default: return <Shield className="h-3.5 w-3.5 text-muted-foreground" />;
     }
   };
 
-  const violations = events.filter(e => e.eventType === 'exit' || e.eventType === 'auto_clock_out');
+  const violations = events.filter(e => e.eventType === 'exit' || e.eventType === 'auto_clock_out' || e.eventType === 'location_lost');
 
   return (
     <Card>
@@ -918,7 +920,7 @@ function GeofenceActivityLog() {
             <div
               key={event.id}
               className={`flex items-center gap-3 p-2.5 rounded-lg border text-sm ${
-                event.eventType === 'auto_clock_out' ? 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800' :
+                event.eventType === 'auto_clock_out' || event.eventType === 'location_lost' ? 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800' :
                 event.eventType === 'exit' ? 'bg-orange-50 dark:bg-orange-950/20 border-orange-200 dark:border-orange-800' :
                 event.eventType === 'enter' ? 'bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800' :
                 'bg-muted/30'
