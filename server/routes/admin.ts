@@ -34,7 +34,7 @@ const companySettingsUpdateSchema = z.object({
   preventEarlyBreakReturn: z.boolean().optional(),
   singleClockOutReminder: z.boolean().optional(),
   autoClockOutEnabled: z.boolean().optional(),
-  autoClockOutAfterMinutes: z.number().int().min(0).max(1440).nullable().optional(),
+  autoClockOutAfterMinutes: z.union([z.number(), z.string()]).nullable().optional(),
   textScheduleToEmployees: z.boolean().optional(),
   employeesViewOwnScheduleOnly: z.boolean().optional(),
   notifyManagerLateClockIn: z.boolean().optional(),

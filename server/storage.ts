@@ -1203,7 +1203,12 @@ export class DatabaseStorage implements IStorage {
       }
       const [updated] = await db
         .update(companySettings)
-        .set({ ...settingsData, updatedAt: new Date(), version: existing.version + 1 })
+        .set({ 
+          ...settingsData, 
+          autoClockOutAfterMinutes: settingsData.autoClockOutAfterMinutes?.toString(),
+          updatedAt: new Date(), 
+          version: existing.version + 1 
+        })
         .where(eq(companySettings.id, existing.id))
         .returning();
       return updated;
