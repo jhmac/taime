@@ -780,20 +780,24 @@ export default function GeofenceMapSection() {
 
               {formAutoClockOut && (
                 <div>
-                  <Label className="text-xs">Grace Period (minutes before auto clock-out)</Label>
+                  <Label className="text-xs">Grace Period (time before auto clock-out)</Label>
                   <div className="flex items-center gap-3">
                     <input
                       type="range"
-                      min={1}
+                      min={0}
                       max={30}
                       value={formGraceMinutes}
                       onChange={e => setFormGraceMinutes(parseInt(e.target.value))}
                       className="flex-1"
                     />
-                    <span className="text-sm font-mono w-10 text-right">{formGraceMinutes}m</span>
+                    <span className="text-sm font-mono w-14 text-right">
+                      {formGraceMinutes === 0 ? '10s' : `${formGraceMinutes}m`}
+                    </span>
                   </div>
                   <p className="text-xs text-muted-foreground mt-1">
-                    After leaving the geofence, the employee has {formGraceMinutes} minute{formGraceMinutes !== 1 ? 's' : ''} to return before being automatically clocked out.
+                    {formGraceMinutes === 0
+                      ? 'After leaving the geofence, the employee has 10 seconds to return before being automatically clocked out (testing mode).'
+                      : `After leaving the geofence, the employee has ${formGraceMinutes} minute${formGraceMinutes !== 1 ? 's' : ''} to return before being automatically clocked out.`}
                   </p>
                 </div>
               )}
@@ -838,7 +842,11 @@ export default function GeofenceMapSection() {
                   {selectedLocation.geofenceEnabled !== false ? 'Geofence Active' : 'Geofence Off'}
                 </Badge>
                 {selectedLocation.autoClockOut !== false && (
-                  <Badge variant="outline">Auto Clock-Out: {selectedLocation.geofenceGraceMinutes ?? 5}min grace</Badge>
+                  <Badge variant="outline">
+                    Auto Clock-Out: {(selectedLocation.geofenceGraceMinutes ?? 5) === 0
+                      ? '10s grace'
+                      : `${selectedLocation.geofenceGraceMinutes ?? 5}min grace`}
+                  </Badge>
                 )}
               </div>
               <p className="text-xs text-muted-foreground">

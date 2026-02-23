@@ -11,9 +11,17 @@ import { isUnauthorizedError } from '@/lib/authUtils';
 import type { TimeEntry, WorkLocation } from '@shared/schema';
 import { MapPin, Shield, AlertTriangle, CheckCircle2, XCircle, Wifi, ExternalLink } from 'lucide-react';
 
+function triggerHaptic(pattern: number | number[] = 200) {
+  try {
+    if ('vibrate' in navigator) {
+      navigator.vibrate(pattern);
+    }
+  } catch (e) {}
+}
+
 export default function TimeClockWidget() {
   const { user } = useAuth();
-  const { position, getCurrentPosition, loading: locationLoading, error: locationError } = useGeolocation();
+  const { position, getCurrentPosition, watchPosition, clearWatch, loading: locationLoading, error: locationError } = useGeolocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -35,6 +43,7 @@ export default function TimeClockWidget() {
   const previousPositionRef = useRef<{ lat: number; lng: number } | null>(null);
   const hasRequestedLocation = useRef(false);
   const exitAlertShown = useRef(false);
+  const watchIdRef = useRef<number | null>(null);
 
   const { data: activeTimeEntry, isLoading: activeEntryLoading } = useQuery<TimeEntry | null>({
     queryKey: ['/api/time-entries/active'],
@@ -170,6 +179,26 @@ export default function TimeClockWidget() {
   }, []);
 
   useEffect(() => {
+    if (activeTimeEntry && workLocations.length > 0) {
+      if (watchIdRef.current == null) {
+        const id = watchPosition(() => {});
+        if (id != null) watchIdRef.current = id;
+      }
+    } else {
+      if (watchIdRef.current != null) {
+        clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+    }
+    return () => {
+      if (watchIdRef.current != null) {
+        clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+    };
+  }, [activeTimeEntry, workLocations]);
+
+  useEffect(() => {
     if (!position || workLocations.length === 0) return;
 
     const checkGeofence = async () => {
@@ -187,6 +216,7 @@ export default function TimeClockWidget() {
             queryClient.invalidateQueries({ queryKey: ['/api/time-entries/active'] });
             queryClient.invalidateQueries({ queryKey: ['/api/time-entries'] });
             exitAlertShown.current = false;
+            triggerHaptic([300, 100, 300, 100, 600]);
             toast({
               title: "Auto Clocked Out",
               description: "You were automatically clocked out because you left the work location.",
@@ -201,14 +231,24 @@ export default function TimeClockWidget() {
           
           if (!result.isInWorkLocation && !exitAlertShown.current) {
             exitAlertShown.current = true;
-            const graceMin = result.geofenceExitInfo?.graceMinutes || 5;
+            triggerHaptic([200, 100, 200, 100, 400]);
+            const graceMin = result.geofenceExitInfo?.graceMinutes;
+            const graceSeconds = result.geofenceExitInfo?.graceRemaining;
+            const timeText = graceMin && graceMin > 0
+              ? `${graceMin} minute${graceMin !== 1 ? 's' : ''}`
+              : graceSeconds != null ? `${graceSeconds} seconds` : '10 seconds';
             toast({
               title: "You've Left the Work Area",
-              description: `Please return or clock out. You will be auto clocked out in ${graceMin} minutes if you don't return.`,
+              description: `Please return or clock out. You will be auto clocked out in ${timeText} if you don't return.`,
               variant: "destructive",
             });
-          } else if (result.isInWorkLocation) {
+          } else if (result.isInWorkLocation && exitAlertShown.current) {
             exitAlertShown.current = false;
+            triggerHaptic(100);
+            toast({
+              title: "Back in Work Zone",
+              description: "You've returned to the work area. Auto clock-out cancelled.",
+            });
           }
 
           setGeofenceStatus({
@@ -522,7 +562,9 @@ export default function TimeClockWidget() {
                 }`}>
                   {!geofenceStatus.isInWorkLocation
                     ? geofenceStatus.geofenceExitInfo?.graceRemaining != null
-                      ? `Auto clock-out in ${Math.ceil(geofenceStatus.geofenceExitInfo.graceRemaining / 60)} min ${geofenceStatus.geofenceExitInfo.graceRemaining % 60}s. Return to work area or clock out now.`
+                      ? geofenceStatus.geofenceExitInfo.graceRemaining >= 60
+                        ? `Auto clock-out in ${Math.ceil(geofenceStatus.geofenceExitInfo.graceRemaining / 60)} min ${geofenceStatus.geofenceExitInfo.graceRemaining % 60}s. Return to work area or clock out now.`
+                        : `Auto clock-out in ${geofenceStatus.geofenceExitInfo.graceRemaining}s. Return to work area or clock out now.`
                       : 'You have left the work area. Please return or clock out.'
                     : geofenceStatus.boundaryWarning
                       ? 'You are near the edge of your work area'

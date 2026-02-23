@@ -30,7 +30,7 @@ export function useGeolocation() {
       const options: PositionOptions = {
         enableHighAccuracy: true,
         timeout: 10000,
-        maximumAge: 300000, // 5 minutes
+        maximumAge: 5000,
       };
 
       navigator.geolocation.getCurrentPosition(
@@ -71,7 +71,7 @@ export function useGeolocation() {
     const options: PositionOptions = {
       enableHighAccuracy: true,
       timeout: 10000,
-      maximumAge: 60000, // 1 minute
+      maximumAge: 5000,
     };
 
     const watchId = navigator.geolocation.watchPosition(
