@@ -61,24 +61,23 @@ export class GeofencingService {
 
         if (!geofenceEnabled) continue;
 
+        const distance = this.calculateDistance(
+          latitude, longitude,
+          parseFloat(location.latitude),
+          parseFloat(location.longitude)
+        );
+
         if (geofenceType === 'polygon') {
           const polygon = (location as any).geofencePolygon as Array<{ lat: number; lng: number }> | null;
           if (polygon && polygon.length >= 3) {
             if (this.isPointInPolygon(latitude, longitude, polygon)) {
-              const distance = this.calculateDistance(
-                latitude, longitude,
-                parseFloat(location.latitude),
-                parseFloat(location.longitude)
-              );
               return { isInWorkLocation: true, location, distance, verifiedVia: 'gps' };
             }
           }
+          if (distance <= (location.radius || 100)) {
+            return { isInWorkLocation: true, location, distance, verifiedVia: 'gps' };
+          }
         } else {
-          const distance = this.calculateDistance(
-            latitude, longitude,
-            parseFloat(location.latitude),
-            parseFloat(location.longitude)
-          );
           if (distance <= (location.radius || 100)) {
             return { isInWorkLocation: true, location, distance, verifiedVia: 'gps' };
           }
@@ -194,6 +193,9 @@ export class GeofencingService {
           const polygon = (location as any).geofencePolygon as Array<{ lat: number; lng: number }> | null;
           if (polygon && polygon.length >= 3) {
             isInside = this.isPointInPolygon(latitude, longitude, polygon);
+          }
+          if (!isInside) {
+            isInside = distance <= (location.radius || 100);
           }
         } else {
           isInside = distance <= (location.radius || 100);

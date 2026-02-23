@@ -51,14 +51,26 @@ export default function TimeClockWidget() {
       if (navigator.permissions) {
         navigator.permissions.query({ name: 'geolocation' }).then(result => {
           setLocationPermission(result.state);
-          result.onchange = () => setLocationPermission(result.state);
-          if (result.state === 'granted') {
-            getCurrentPosition().catch(() => {});
+          result.onchange = () => {
+            setLocationPermission(result.state);
+            if (result.state === 'granted' && !position) {
+              getCurrentPosition().catch(() => {});
+            }
+          };
+          if (result.state === 'granted' || result.state === 'prompt') {
+            getCurrentPosition().then(() => {
+              setLocationPermission('granted');
+            }).catch(() => {});
           }
+        }).catch(() => {
+          getCurrentPosition().then(() => {
+            setLocationPermission('granted');
+          }).catch(() => {});
+        });
+      } else {
+        getCurrentPosition().then(() => {
+          setLocationPermission('granted');
         }).catch(() => {});
-      }
-      if (!position) {
-        getCurrentPosition().catch(() => {});
       }
     }
   }, [workLocations]);
@@ -366,7 +378,7 @@ export default function TimeClockWidget() {
         )}
 
         {/* Location Permission Notice */}
-        {workLocations.length > 0 && (locationPermission === 'denied' || locationError) && !activeTimeEntry && (
+        {workLocations.length > 0 && (locationPermission === 'denied' || (locationError && !position)) && !activeTimeEntry && (
           <div
             className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg p-3 cursor-pointer active:bg-red-100 dark:active:bg-red-950/50 transition-colors"
             onClick={() => {
