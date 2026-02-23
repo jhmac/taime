@@ -1201,14 +1201,21 @@ export class DatabaseStorage implements IStorage {
       if (expectedVersion !== undefined && expectedVersion !== existing.version) {
         throw new Error("Settings were modified by another user. Please refresh and try again.");
       }
+
+      // Ensure decimal values are stored as strings for the text column
+      const updatePayload: any = { 
+        ...settingsData, 
+        updatedAt: new Date(), 
+        version: existing.version + 1 
+      };
+      
+      if (settingsData.autoClockOutAfterMinutes !== undefined) {
+        updatePayload.autoClockOutAfterMinutes = settingsData.autoClockOutAfterMinutes?.toString();
+      }
+
       const [updated] = await db
         .update(companySettings)
-        .set({ 
-          ...settingsData, 
-          autoClockOutAfterMinutes: settingsData.autoClockOutAfterMinutes?.toString(),
-          updatedAt: new Date(), 
-          version: existing.version + 1 
-        })
+        .set(updatePayload)
         .where(eq(companySettings.id, existing.id))
         .returning();
       return updated;
