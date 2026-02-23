@@ -1204,9 +1204,10 @@ export class DatabaseStorage implements IStorage {
 
   async updateCompanySettings(settings: InsertCompanySettings & { expectedVersion?: number }): Promise<CompanySettings> {
     const existing = await this.getCompanySettings();
+    const { expectedVersion, ...settingsData } = settings;
+
     if (existing) {
-      const { expectedVersion, ...settingsData } = settings;
-      if (expectedVersion !== undefined && expectedVersion !== existing.version) {
+      if (expectedVersion !== undefined && expectedVersion !== (existing.version || 1)) {
         throw new Error("Settings were modified by another user. Please refresh and try again.");
       }
 
@@ -1214,7 +1215,7 @@ export class DatabaseStorage implements IStorage {
       const updatePayload: any = { 
         ...settingsData, 
         updatedAt: new Date(), 
-        version: (existing.version || 0) + 1 
+        version: (existing.version || 1) + 1 
       };
       
       if (settingsData.autoClockOutAfterMinutes !== undefined && settingsData.autoClockOutAfterMinutes !== null) {
@@ -1230,9 +1231,9 @@ export class DatabaseStorage implements IStorage {
     }
     
     // For creation
-    const insertData: any = { ...settings };
-    if (settings.autoClockOutAfterMinutes !== undefined && settings.autoClockOutAfterMinutes !== null) {
-      insertData.autoClockOutAfterMinutes = settings.autoClockOutAfterMinutes.toString();
+    const insertData: any = { ...settingsData, version: 1 };
+    if (settingsData.autoClockOutAfterMinutes !== undefined && settingsData.autoClockOutAfterMinutes !== null) {
+      insertData.autoClockOutAfterMinutes = settingsData.autoClockOutAfterMinutes.toString();
     }
 
     const [created] = await db

@@ -367,7 +367,12 @@ export default function TimeClockWidget() {
 
   const handleClockAction = async () => {
     if (activeTimeEntry) {
-      clockOutMutation.mutate(activeTimeEntry.id);
+      clockOutMutation.mutate(activeTimeEntry.id, {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: ['/api/time-entries/active'] });
+          queryClient.refetchQueries({ queryKey: ['/api/time-entries/active'] });
+        }
+      });
     } else {
       if (workLocations.length === 0) {
         clockInMutation.mutate({
