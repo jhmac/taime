@@ -1,11 +1,15 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
 import { insertRoleSchema } from "@shared/schema";
+import { cache } from "../lib/cache";
 
 export function registerRoleRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
   app.get('/api/roles', isAuthenticated, async (req: any, res) => {
     try {
+      const cached = cache.get<Awaited<ReturnType<typeof storage.getAllRoles>>>('roles:all');
+      if (cached) return res.json(cached);
       const roles = await storage.getAllRoles();
+      cache.set('roles:all', roles);
       res.json(roles);
     } catch (error) {
       console.error("Error fetching roles:", error);
@@ -25,6 +29,7 @@ export function registerRoleRoutes(app: Express, storage: IStorage, isAuthentica
       
       const data = insertRoleSchema.parse(req.body);
       const role = await storage.createRole(data);
+      cache.invalidatePrefix('roles:');
       res.json(role);
     } catch (error) {
       console.error("Error creating role:", error);
@@ -52,6 +57,7 @@ export function registerRoleRoutes(app: Express, storage: IStorage, isAuthentica
       }
       
       const role = await storage.updateRole(id, safeUpdates);
+      cache.invalidatePrefix('roles:');
       res.json(role);
     } catch (error) {
       console.error("Error updating role:", error);
@@ -71,6 +77,7 @@ export function registerRoleRoutes(app: Express, storage: IStorage, isAuthentica
       
       const { id } = req.params;
       await storage.deleteRole(id);
+      cache.invalidatePrefix('roles:');
       res.json({ success: true });
     } catch (error) {
       console.error("Error deleting role:", error);
@@ -87,8 +94,11 @@ export function registerRoleRoutes(app: Express, storage: IStorage, isAuthentica
       if (!canManageRoles) {
         return res.status(403).json({ message: "Permission denied: Role management access required" });
       }
-      
+
+      const cached = cache.get('permissions:by-category');
+      if (cached) return res.json(cached);
       const permissions = await storage.getPermissionsByCategory();
+      cache.set('permissions:by-category', permissions);
       res.json(permissions);
     } catch (error) {
       console.error("Error fetching permissions:", error);
@@ -105,13 +115,19 @@ export function registerRoleRoutes(app: Express, storage: IStorage, isAuthentica
       if (!canManageRoles) {
         return res.status(403).json({ message: "Permission denied: Role management access required" });
       }
+
+      const cacheKey = 'roles:all-permissions';
+      const cached = cache.get<Record<string, string[]>>(cacheKey);
+      if (cached) return res.json(cached);
       
       const allRoles = await storage.getAllRoles();
+      const permPromises = allRoles.map(role => storage.getRolePermissions(role.id));
+      const permResults = await Promise.all(permPromises);
       const result: Record<string, string[]> = {};
-      for (const role of allRoles) {
-        const perms = await storage.getRolePermissions(role.id);
-        result[role.id] = perms.map(p => p.id);
-      }
+      allRoles.forEach((role, i) => {
+        result[role.id] = permResults[i].map(p => p.id);
+      });
+      cache.set(cacheKey, result);
       res.json(result);
     } catch (error) {
       console.error("Error fetching all role permissions:", error);
@@ -156,6 +172,7 @@ export function registerRoleRoutes(app: Express, storage: IStorage, isAuthentica
       }
       
       await storage.updateRolePermissions(id, permissionIds);
+      cache.invalidatePrefix('roles:');
       const updatedPermissions = await storage.getRolePermissions(id);
       res.json(updatedPermissions);
     } catch (error) {

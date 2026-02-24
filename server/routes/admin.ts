@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
 import { z } from "zod";
+import { cache } from "../lib/cache";
 
 const companySettingsUpdateSchema = z.object({
   companyName: z.string().max(200).optional(),
@@ -95,8 +96,12 @@ const companySettingsUpdateSchema = z.object({
 export function registerAdminRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
   app.get('/api/company-settings', isAuthenticated, async (req: any, res) => {
     try {
+      const cached = cache.get('company:settings');
+      if (cached) return res.json(cached);
       const settings = await storage.getCompanySettings();
-      res.json(settings || { companyName: 'My Company', timezone: 'America/New_York', businessStartHour: 8, businessEndHour: 17, overtimeThresholdHours: 40, overtimeMultiplier: '1.50', geofenceEnforcement: false, breakDurationMinutes: 30, autoClockOutMinutes: 480 });
+      const result = settings || { companyName: 'My Company', timezone: 'America/New_York', businessStartHour: 8, businessEndHour: 17, overtimeThresholdHours: 40, overtimeMultiplier: '1.50', geofenceEnforcement: false, breakDurationMinutes: 30, autoClockOutMinutes: 480 };
+      cache.set('company:settings', result);
+      res.json(result);
     } catch (error) {
       console.error("Error fetching company settings:", error);
       res.status(500).json({ message: "Failed to fetch company settings" });
@@ -124,6 +129,7 @@ export function registerAdminRoutes(app: Express, storage: IStorage, isAuthentic
         }
       }
       const settings = await storage.updateCompanySettings(settingsUpdates);
+      cache.invalidate('company:settings');
       await storage.createActivityLog({ userId, action: 'update', targetType: 'company_settings', details: 'Updated company settings' });
       res.json(settings);
     } catch (error) {

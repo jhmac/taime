@@ -3,6 +3,7 @@ import helmet from "helmet";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { config } from "./lib/config";
+import logger from "./lib/logger";
 
 process.on('uncaughtException', (err) => {
   if (err.message?.includes('Cannot set property message') ||
@@ -60,6 +61,10 @@ app.use((req, res, next) => {
       }
 
       log(logLine);
+
+      if (duration > 200) {
+        logger.warn({ method: req.method, path, statusCode: res.statusCode, durationMs: duration }, "slow endpoint detected (>200ms)");
+      }
     }
   });
 

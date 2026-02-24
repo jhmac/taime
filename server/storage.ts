@@ -443,11 +443,12 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(tasks)
       .where(eq(tasks.assignedTo, userId))
-      .orderBy(desc(tasks.createdAt));
+      .orderBy(desc(tasks.createdAt))
+      .limit(200);
   }
 
   async getAllTasks(): Promise<Task[]> {
-    return await db.select().from(tasks).orderBy(desc(tasks.createdAt));
+    return await db.select().from(tasks).orderBy(desc(tasks.createdAt)).limit(500);
   }
 
   async updateTask(id: string, updates: Partial<Task>): Promise<Task> {
@@ -580,7 +581,7 @@ export class DatabaseStorage implements IStorage {
         )
       : db.select().from(messages);
 
-    return await query.orderBy(desc(messages.createdAt));
+    return await query.orderBy(desc(messages.createdAt)).limit(200);
   }
 
   async markMessageAsRead(messageId: string, userId: string): Promise<void> {
@@ -631,7 +632,8 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(messages)
       .where(eq(messages.groupId, groupId))
-      .orderBy(desc(messages.createdAt));
+      .orderBy(desc(messages.createdAt))
+      .limit(100);
   }
 
   async getGroupMembers(groupId: string): Promise<GroupMember[]> {
@@ -738,12 +740,14 @@ export class DatabaseStorage implements IStorage {
         .select()
         .from(timeOffRequests)
         .where(eq(timeOffRequests.userId, userId))
-        .orderBy(desc(timeOffRequests.createdAt));
+        .orderBy(desc(timeOffRequests.createdAt))
+        .limit(100);
     }
     return await db
       .select()
       .from(timeOffRequests)
-      .orderBy(desc(timeOffRequests.createdAt));
+      .orderBy(desc(timeOffRequests.createdAt))
+      .limit(200);
   }
 
   async getTimeOffRequest(id: string): Promise<TimeOffRequest | undefined> {
@@ -939,7 +943,7 @@ export class DatabaseStorage implements IStorage {
       ? db.select().from(aiInsights).where(eq(aiInsights.userId, userId))
       : db.select().from(aiInsights);
 
-    return await query.orderBy(desc(aiInsights.createdAt));
+    return await query.orderBy(desc(aiInsights.createdAt)).limit(100);
   }
 
   async markInsightAsRead(id: string): Promise<void> {
@@ -1064,6 +1068,17 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getUserPermissions(userId: string): Promise<Permission[]> {
+    const userWithRole = await db
+      .select({ roleName: roles.name })
+      .from(users)
+      .innerJoin(roles, eq(users.roleId, roles.id))
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    if (userWithRole.length > 0 && (userWithRole[0].roleName === 'owner' || userWithRole[0].roleName === 'admin')) {
+      return await db.select().from(permissions);
+    }
+
     const result = await db
       .select({ permission: permissions })
       .from(users)
@@ -1071,16 +1086,8 @@ export class DatabaseStorage implements IStorage {
       .innerJoin(rolePermissions, eq(roles.id, rolePermissions.roleId))
       .innerJoin(permissions, eq(rolePermissions.permissionId, permissions.id))
       .where(eq(users.id, userId));
-    
-    const perms = result.map(row => row.permission);
 
-    const [user] = await db.select().from(users).innerJoin(roles, eq(users.roleId, roles.id)).where(eq(users.id, userId));
-    if (user && (user.roles.name === 'owner' || user.roles.name === 'admin')) {
-      const allPerms = await db.select().from(permissions);
-      return allPerms;
-    }
-
-    return perms;
+    return result.map(row => row.permission);
   }
 
   // Payroll settings operations
@@ -1315,18 +1322,20 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(clockEvents)
       .where(and(...conditions))
-      .orderBy(desc(clockEvents.createdAt));
+      .orderBy(desc(clockEvents.createdAt))
+      .limit(500);
   }
 
   async getAllClockEvents(startDate?: Date, endDate?: Date): Promise<ClockEvent[]> {
-    const conditions: any[] = [];
+    const conditions: ReturnType<typeof eq>[] = [];
     if (startDate) conditions.push(gte(clockEvents.createdAt, startDate));
     if (endDate) conditions.push(lte(clockEvents.createdAt, endDate));
     return await db
       .select()
       .from(clockEvents)
       .where(conditions.length > 0 ? and(...conditions) : undefined)
-      .orderBy(desc(clockEvents.createdAt));
+      .orderBy(desc(clockEvents.createdAt))
+      .limit(1000);
   }
 
   async getPerformanceScoreSettings(): Promise<PerformanceScoreSetting[]> {
@@ -1405,9 +1414,10 @@ export class DatabaseStorage implements IStorage {
         .select()
         .from(sopDocuments)
         .where(eq(sopDocuments.categoryId, categoryId))
-        .orderBy(sopDocuments.title);
+        .orderBy(sopDocuments.title)
+        .limit(200);
     }
-    return await db.select().from(sopDocuments).orderBy(sopDocuments.title);
+    return await db.select().from(sopDocuments).orderBy(sopDocuments.title).limit(200);
   }
 
   async getSopDocument(id: string): Promise<SopDocument | undefined> {
@@ -1453,7 +1463,8 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(aiChatConversations)
       .where(eq(aiChatConversations.userId, userId))
-      .orderBy(desc(aiChatConversations.lastMessageAt));
+      .orderBy(desc(aiChatConversations.lastMessageAt))
+      .limit(50);
   }
 
   async getConversation(id: string): Promise<AiChatConversation | undefined> {
@@ -1480,7 +1491,8 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(aiChatMessages)
       .where(eq(aiChatMessages.conversationId, conversationId))
-      .orderBy(aiChatMessages.createdAt);
+      .orderBy(aiChatMessages.createdAt)
+      .limit(200);
   }
 
   // Training operations
@@ -1549,7 +1561,8 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(commuteAlerts)
       .where(eq(commuteAlerts.userId, userId))
-      .orderBy(desc(commuteAlerts.createdAt));
+      .orderBy(desc(commuteAlerts.createdAt))
+      .limit(50);
   }
 
   // Shoutouts
