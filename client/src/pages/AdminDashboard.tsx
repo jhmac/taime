@@ -15,6 +15,7 @@ import TodaySchedulePanel from '@/components/TodaySchedulePanel';
 import DailyGoalWidget from '@/components/DailyGoalWidget';
 import DailyQuoteCard from '@/components/DailyQuoteCard';
 import KudosWidget from '@/components/KudosWidget';
+import SurfacedSOPBanner from '@/components/SurfacedSOPBanner';
 import { Sun } from 'lucide-react';
 
 export default function AdminDashboard() {
@@ -166,6 +167,10 @@ export default function AdminDashboard() {
             </CardContent>
           </Card>
         </div>
+      </div>
+
+      <div className={isMobile ? "px-4 pb-2" : "px-6 pb-3"}>
+        <SurfacedSOPBanner />
       </div>
 
       <div className={isMobile ? "px-4 pb-2" : "px-6 pb-3"}>

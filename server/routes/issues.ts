@@ -5,6 +5,8 @@ import { eq, and, desc, asc, sql, gte, lte, ilike, or } from "drizzle-orm";
 import { issues, issueComments, insertIssueSchema, insertIssueCommentSchema, users, sopTemplates, workLocations } from "@shared/schema";
 import { asyncHandler, AppError } from "../lib/routeWrapper";
 import type { IStorage } from "../storage";
+import { getIssueBasedSOPs } from "../services/sopSurfacing";
+import logger from "../lib/logger";
 
 export function registerIssueRoutes(
   app: Express,
@@ -39,6 +41,22 @@ export function registerIssueRoutes(
     });
 
     broadcastToAll({ type: 'issue_created', data: { issue } });
+
+    try {
+      const relatedSOPs = await getIssueBasedSOPs(issue.category, issue.title, storeId);
+      if (relatedSOPs.length > 0) {
+        logger.info(
+          { issueId: issue.id, sopCount: relatedSOPs.length, trigger: "issue_created" },
+          "SOP surfacing: issue-based SOPs found"
+        );
+        broadcastToAll({
+          type: "sop_surfaced",
+          data: { sops: relatedSOPs, trigger: "issue_created", issueId: issue.id },
+        });
+      }
+    } catch (err: any) {
+      logger.error({ error: err.message }, "SOP surfacing error on issue creation");
+    }
 
     res.status(201).json({ success: true, data: issue });
   }));

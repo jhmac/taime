@@ -6,6 +6,8 @@ import { sopTemplates, sopSteps, sopExecutions, sopStepCompletions } from "@shar
 import { asyncHandler, AppError } from "../lib/routeWrapper";
 import type { IStorage } from "../storage";
 import { generateSOPFromDescription } from "../services/sopAI";
+import { getSurfacedSOPsForEmployee } from "../services/sopSurfacing";
+import logger from "../lib/logger";
 
 const stepSchema = z.object({
   title: z.string().min(1).max(500),
@@ -538,5 +540,19 @@ export function registerSopLibraryRoutes(
     });
 
     res.json({ success: true, data: updated });
+  }));
+
+  app.get("/api/sops/surfaced", isAuthenticated, asyncHandler(async (req: any, res) => {
+    const userId = req.user.id;
+    const storeId = req.query.storeId as string | undefined;
+
+    const surfaced = await getSurfacedSOPsForEmployee(userId, storeId);
+
+    logger.info(
+      { userId, sopCount: surfaced.length, templates: surfaced.map((s) => s.templateId) },
+      "SOP surfacing: API request"
+    );
+
+    res.json(surfaced);
   }));
 }

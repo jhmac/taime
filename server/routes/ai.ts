@@ -25,20 +25,25 @@ export function registerAIRoutes(app: Express, storage: IStorage, isAuthenticate
       const schedules = await storage.getAllSchedules(today, tomorrow);
       const tasks = await storage.getTasksForDate(today);
       
-      const scheduledEmployees = await Promise.all(
-        schedules.map(async (schedule) => {
-          const user = await storage.getUser(schedule.userId);
-          return {
-            id: schedule.userId,
-            name: `${user?.firstName} ${user?.lastName}`,
-            shiftStart: schedule.startTime.toISOString(),
-            shiftEnd: schedule.endTime.toISOString(),
-            skills: [],
-            workload: 50,
-            pastPerformance: 85,
-          };
-        })
-      );
+      const uniqueUserIds = [...new Set(schedules.map(s => s.userId))];
+      const usersById = new Map<string, any>();
+      await Promise.all(uniqueUserIds.map(async (uid) => {
+        const u = await storage.getUser(uid);
+        if (u) usersById.set(uid, u);
+      }));
+
+      const scheduledEmployees = schedules.map((schedule) => {
+        const user = usersById.get(schedule.userId);
+        return {
+          id: schedule.userId,
+          name: `${user?.firstName || ''} ${user?.lastName || ''}`.trim(),
+          shiftStart: schedule.startTime.toISOString(),
+          shiftEnd: schedule.endTime.toISOString(),
+          skills: [],
+          workload: 50,
+          pastPerformance: 85,
+        };
+      });
 
       const availableChores = tasks
         .filter(task => !task.assignedTo && task.status === 'pending')
@@ -67,9 +72,7 @@ export function registerAIRoutes(app: Express, storage: IStorage, isAuthenticate
           aiReasoning: assignment.reasoning,
         });
 
-        const task = await storage.getAllTasks().then(tasks => 
-          tasks.find(t => t.id === assignment.choreId)
-        );
+        const task = await storage.getTask(assignment.choreId);
         if (task) {
           await notificationService.sendTaskAssignment(
             assignment.assignedTo,

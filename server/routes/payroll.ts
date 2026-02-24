@@ -156,6 +156,9 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
       const [settings] = await db.select().from(companySettings).limit(1);
       const holidayRules = await storage.getAllHolidayPayRules();
 
+      const userMap = new Map(allUsers.map(u => [u.id, u]));
+      const holidayMap = new Map(holidayRules.map(r => [`${r.month}-${r.day}`, r]));
+
       const overtimeThreshold = settings?.overtimeThresholdHours || 40;
       const overtimeMultiplier = parseFloat(settings?.overtimeMultiplier || "1.50");
 
@@ -178,7 +181,7 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
         const workedHours = (clockOut.getTime() - clockIn.getTime()) / (1000 * 60 * 60) - breakMins / 60;
 
         if (!employeeMap[entry.userId]) {
-          const user = allUsers.find(u => u.id === entry.userId);
+          const user = userMap.get(entry.userId);
           employeeMap[entry.userId] = {
             name: user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() : 'Unknown',
             email: user?.email || '',
@@ -196,9 +199,7 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
 
         const entryMonth = clockIn.getMonth() + 1;
         const entryDay = clockIn.getDate();
-        const matchingHoliday = holidayRules.find(
-          r => r.month === entryMonth && r.day === entryDay
-        );
+        const matchingHoliday = holidayMap.get(`${entryMonth}-${entryDay}`);
         if (matchingHoliday) {
           const multiplier = parseFloat(matchingHoliday.payMultiplier);
           const extraMultiplier = multiplier - 1;
@@ -409,6 +410,12 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
       const [settings] = await db.select().from(companySettings).limit(1);
       const holidayRules = await storage.getAllHolidayPayRules();
 
+      const userMap = new Map(allUsers.map(u => [u.id, u]));
+      const holidayMap = new Map(holidayRules.map(r => [`${r.month}-${r.day}`, r]));
+      const timeEntryDateSet = new Set(
+        timeEntriesData.map(e => `${e.userId}|${new Date(e.clockInTime).toDateString()}`)
+      );
+
       const overtimeThreshold = settings?.overtimeThresholdHours || 40;
       const overtimeMultiplier = parseFloat(settings?.overtimeMultiplier || "1.50");
 
@@ -432,8 +439,6 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
         schedules: any[];
         discrepancies: any[];
       }> = {};
-
-      const userMap = new Map(allUsers.map(u => [u.id, u]));
 
       for (const entry of timeEntriesData) {
         const user = userMap.get(entry.userId);
@@ -498,7 +503,7 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
 
         const entryMonth = clockIn.getMonth() + 1;
         const entryDay = clockIn.getDate();
-        const matchingHoliday = holidayRules.find(r => r.month === entryMonth && r.day === entryDay);
+        const matchingHoliday = holidayMap.get(`${entryMonth}-${entryDay}`);
         if (matchingHoliday) {
           const mult = parseFloat(matchingHoliday.payMultiplier);
           employeeMap[entry.userId].holidayHours += hours;
@@ -541,9 +546,8 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
           title: schedule.title,
         });
 
-        const hasEntry = timeEntriesData.some(e =>
-          e.userId === uid &&
-          new Date(e.clockInTime).toDateString() === new Date(schedule.startTime).toDateString()
+        const hasEntry = timeEntryDateSet.has(
+          `${uid}|${new Date(schedule.startTime).toDateString()}`
         );
         if (!hasEntry) {
           employeeMap[uid].discrepancies.push({

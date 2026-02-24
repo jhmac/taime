@@ -29,6 +29,7 @@ import { registerDashboardRoutes } from "./routes/dashboard";
 import { registerIssueRoutes } from "./routes/issues";
 import { registerRitualRoutes } from "./routes/rituals";
 import { createActionLoggerMiddleware, handleClientErrorReport, getActionSummary } from "./services/actionLogger";
+import { startSurfacingCron, stopSurfacingCron } from "./services/sopSurfacing";
 import logger from "./lib/logger";
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
@@ -178,10 +179,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   startHeartbeat();
+  startSurfacingCron(broadcastToAll);
 
   function gracefulShutdown() {
     logger.info("ws: graceful shutdown initiated");
     stopHeartbeat();
+    stopSurfacingCron();
 
     const shutdownPayload = JSON.stringify({ type: "server_restarting" });
     wsConnections.forEach((conns) => {

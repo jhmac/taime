@@ -2,6 +2,8 @@ import type { Express } from "express";
 import type { IStorage } from "../storage";
 import { insertTimeEntrySchema } from "@shared/schema";
 import { geofencingService } from "../services/geofencingService";
+import { getOpeningSOPsForClockIn, getShiftHandoffSOPs } from "../services/sopSurfacing";
+import logger from "../lib/logger";
 
 async function withRetry<T>(fn: () => Promise<T>, retries = 2, delay = 500): Promise<T> {
   for (let i = 0; i <= retries; i++) {
@@ -59,6 +61,29 @@ export function registerTimeEntryRoutes(app: Express, storage: IStorage, isAuthe
         type: 'time_entry_created',
         data: { timeEntry, userId },
       });
+
+      const locationId = (timeEntry as any).locationId;
+      if (locationId) {
+        try {
+          const [openingSOPs, handoffSOPs] = await Promise.all([
+            getOpeningSOPsForClockIn(userId, locationId),
+            getShiftHandoffSOPs(userId, locationId),
+          ]);
+          const surfacedSOPs = [...openingSOPs, ...handoffSOPs];
+          if (surfacedSOPs.length > 0) {
+            logger.info(
+              { userId, sopCount: surfacedSOPs.length, trigger: "clock_in" },
+              "SOP surfacing: clock-in triggered"
+            );
+            broadcastToAll({
+              type: "sop_surfaced",
+              data: { sops: surfacedSOPs, trigger: "clock_in", userId },
+            });
+          }
+        } catch (err: any) {
+          logger.error({ error: err.message }, "SOP surfacing error on clock-in");
+        }
+      }
 
       res.json(timeEntry);
     } catch (error) {

@@ -366,7 +366,8 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(timeEntries)
       .where(and(...conditions))
-      .orderBy(desc(timeEntries.clockInTime));
+      .orderBy(desc(timeEntries.clockInTime))
+      .limit(1000);
   }
 
   async getAllTimeEntries(startDate?: Date, endDate?: Date): Promise<TimeEntry[]> {
@@ -775,11 +776,14 @@ export class DatabaseStorage implements IStorage {
   // Work location operations
   async createWorkLocation(location: InsertWorkLocation): Promise<WorkLocation> {
     const [created] = await db.insert(workLocations).values(location as any).returning();
+    cache.invalidate('work_locations:all');
     return created;
   }
 
   async getAllWorkLocations(): Promise<WorkLocation[]> {
-    return await db.select().from(workLocations).where(eq(workLocations.isActive, true));
+    return cache.getOrSet('work_locations:all', async () => {
+      return await db.select().from(workLocations).where(eq(workLocations.isActive, true));
+    }, 60_000);
   }
 
   async getWorkLocation(id: string): Promise<WorkLocation | undefined> {
@@ -794,7 +798,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getPayrollPeriods(): Promise<PayrollPeriod[]> {
-    return await db.select().from(payrollPeriods).orderBy(desc(payrollPeriods.startDate));
+    return await db.select().from(payrollPeriods).orderBy(desc(payrollPeriods.startDate)).limit(100);
   }
 
   async updatePayrollPeriod(id: string, updates: Partial<PayrollPeriod>): Promise<PayrollPeriod> {
@@ -1270,6 +1274,7 @@ export class DatabaseStorage implements IStorage {
     if (updates.geofenceGraceMinutes !== undefined) {
       finalUpdates.geofenceGraceMinutes = updates.geofenceGraceMinutes !== null ? updates.geofenceGraceMinutes.toString() : "5.00";
     }
+    cache.invalidate('work_locations:all');
     const [updated] = await db
       .update(workLocations)
       .set(finalUpdates)
@@ -1280,6 +1285,7 @@ export class DatabaseStorage implements IStorage {
 
   async deleteWorkLocation(id: string): Promise<void> {
     await db.delete(workLocations).where(eq(workLocations.id, id));
+    cache.invalidate('work_locations:all');
   }
 
   async createActivityLog(log: InsertActivityLog): Promise<ActivityLog> {

@@ -17,6 +17,7 @@ import DailyGoalWidget from '@/components/DailyGoalWidget';
 import DailyQuoteCard from '@/components/DailyQuoteCard';
 import KudosWidget from '@/components/KudosWidget';
 import DailyDebriefSheet from '@/components/DailyDebriefSheet';
+import SurfacedSOPBanner from '@/components/SurfacedSOPBanner';
 import type { UserWithRole, Schedule } from '@shared/schema';
 import { Calendar, Users, DollarSign, MessageSquare, Clock, Bot, Sun, ClipboardList } from 'lucide-react';
 
@@ -86,6 +87,7 @@ export default function Dashboard() {
         </div>
 
         <div className="p-4 space-y-4">
+          <SurfacedSOPBanner />
           <DailyQuoteCard />
 
           {isAdmin && (
@@ -236,6 +238,10 @@ export default function Dashboard() {
           {user?.role?.displayName || user?.role?.name || 'Employee'}
         </p>
       </section>
+
+      <div className="px-6 pb-3">
+        <SurfacedSOPBanner />
+      </div>
 
       <div className="px-6 pb-4">
         <DailyQuoteCard />
