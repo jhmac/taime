@@ -5,7 +5,7 @@ import logger from "../lib/logger";
 
 const UPLOAD_DIR = path.resolve(process.cwd(), "uploads", "videos");
 const MAX_FILE_SIZE = 100 * 1024 * 1024;
-const ALLOWED_TYPES = new Set(["video/mp4", "video/quicktime"]);
+const ALLOWED_TYPES = new Set(["video/mp4", "video/quicktime", "video/webm"]);
 
 let useLocalStorage = true;
 

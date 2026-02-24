@@ -6,7 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { Video, Camera, Square, RotateCcw, Check, Upload, X } from "lucide-react";
+import { Video, Camera, Square, RotateCcw, Check, Upload } from "lucide-react";
 
 const MAX_DURATION = 60;
 
@@ -149,8 +149,12 @@ export default function VideoRecordDialog({ open, onOpenChange, onSuccess }: Pro
     const vid = document.createElement("video");
     vid.src = videoUrl;
     vid.crossOrigin = "anonymous";
-    vid.currentTime = 0.5;
-    vid.onloadeddata = () => {
+    vid.preload = "metadata";
+    vid.muted = true;
+    vid.onloadedmetadata = () => {
+      vid.currentTime = Math.min(0.5, vid.duration || 0.5);
+    };
+    vid.onseeked = () => {
       const canvas = document.createElement("canvas");
       canvas.width = vid.videoWidth || 640;
       canvas.height = vid.videoHeight || 360;
@@ -159,6 +163,8 @@ export default function VideoRecordDialog({ open, onOpenChange, onSuccess }: Pro
         ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
         setThumbnailDataUrl(canvas.toDataURL("image/jpeg", 0.7));
       }
+      vid.src = "";
+      vid.load();
     };
   };
 

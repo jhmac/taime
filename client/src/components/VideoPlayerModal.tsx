@@ -1,11 +1,10 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
-import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Heart, MessageCircle, X, Send, Eye, Clock } from "lucide-react";
+import { Heart, MessageCircle, X, Send, Eye } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
 interface Author {
@@ -61,10 +60,18 @@ export default function VideoPlayerModal({
   videoId: string;
   onClose: () => void;
 }) {
-  const { user } = useAuth();
   const queryClient = useQueryClient();
   const [commentText, setCommentText] = useState("");
   const commentInputRef = useRef<HTMLInputElement>(null);
+
+  const handleEscape = useCallback((e: KeyboardEvent) => {
+    if (e.key === "Escape") onClose();
+  }, [onClose]);
+
+  useEffect(() => {
+    document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
+  }, [handleEscape]);
 
   const { data: video, isLoading } = useQuery<VideoDetail>({
     queryKey: ["/api/videos", videoId],

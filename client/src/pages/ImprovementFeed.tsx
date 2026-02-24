@@ -1,13 +1,12 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useAuth } from "@/hooks/useAuth";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Heart, MessageCircle, Eye, Play, Plus, Star, Film, Clock } from "lucide-react";
+import { Heart, MessageCircle, Eye, Play, Plus, Star, Film } from "lucide-react";
 import VideoRecordDialog from "@/components/VideoRecordDialog";
 import VideoPlayerModal from "@/components/VideoPlayerModal";
 import { formatDistanceToNow } from "date-fns";
@@ -57,16 +56,6 @@ const CATEGORIES = [
   { value: "equipment", label: "Equipment" },
   { value: "other", label: "Other" },
 ];
-
-const CATEGORY_ICONS: Record<string, string> = {
-  process: "fas fa-cogs",
-  workspace: "fas fa-store",
-  customer_experience: "fas fa-smile",
-  visual_merchandising: "fas fa-palette",
-  inventory: "fas fa-boxes",
-  equipment: "fas fa-tools",
-  other: "fas fa-lightbulb",
-};
 
 const CATEGORY_COLORS: Record<string, string> = {
   process: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
@@ -345,7 +334,7 @@ function VideoCard({
             <MessageCircle className="h-3.5 w-3.5" /> {video.commentCount}
           </span>
           <span className={`ml-auto text-[9px] px-1.5 py-0.5 rounded-full ${CATEGORY_COLORS[video.category] || CATEGORY_COLORS.other}`}>
-            {video.category.replace("_", " ")}
+            {video.category.replaceAll("_", " ")}
           </span>
         </div>
       </div>

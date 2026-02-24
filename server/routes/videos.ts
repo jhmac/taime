@@ -29,10 +29,10 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 100 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
-    if (file.mimetype === "video/mp4" || file.mimetype === "video/quicktime") {
+    if (file.mimetype === "video/mp4" || file.mimetype === "video/quicktime" || file.mimetype === "video/webm") {
       cb(null, true);
     } else {
-      cb(new Error("Only MP4 and QuickTime video files are allowed"));
+      cb(new Error("Only MP4, QuickTime, and WebM video files are allowed"));
     }
   },
 });
@@ -59,7 +59,7 @@ const createVideoSchema = z.object({
   s3Key: z.string().optional(),
   youtubeVideoId: z.string().optional(),
   durationSeconds: z.number().int().positive().optional(),
-  thumbnailUrl: z.string().url().optional(),
+  thumbnailUrl: z.string().optional(),
 });
 
 const commentSchema = z.object({
@@ -247,8 +247,8 @@ export function registerVideoRoutes(
         .from(users)
         .where(sql`${users.id} IN (${sql.join(authorIds.map((id) => sql`${id}`), sql`, `)})`);
 
-      const likeMap = new Map(likeCounts.map((r) => [r.videoId, r.count]));
-      const commentMap = new Map(commentCounts.map((r) => [r.videoId, r.count]));
+      const likeMap = new Map(likeCounts.map((r) => [r.videoId, Number(r.count)]));
+      const commentMap = new Map(commentCounts.map((r) => [r.videoId, Number(r.count)]));
       const userLikeSet = new Set(userLikes.map((r) => r.videoId));
       const authorMap = new Map(authorRows.map((u) => [u.id, u]));
 
@@ -265,7 +265,7 @@ export function registerVideoRoutes(
         .from(improvementVideos)
         .where(and(...conditions));
 
-      res.json({ videos: enriched, total: totalResult?.count || 0 });
+      res.json({ videos: enriched, total: Number(totalResult?.count) || 0 });
     })
   );
 
@@ -332,7 +332,7 @@ export function registerVideoRoutes(
       res.json({
         ...video,
         author: authorMap.get(video.employeeId) || null,
-        likeCount: likeResult?.count || 0,
+        likeCount: Number(likeResult?.count) || 0,
         hasLiked: !!userLike,
         comments: enrichedComments,
       });
@@ -372,7 +372,7 @@ export function registerVideoRoutes(
 
       res.json({
         liked: !existing,
-        likeCount: likeResult?.count || 0,
+        likeCount: Number(likeResult?.count) || 0,
       });
     })
   );
@@ -397,7 +397,7 @@ export function registerVideoRoutes(
 
       res.json({
         liked: false,
-        likeCount: likeResult?.count || 0,
+        likeCount: Number(likeResult?.count) || 0,
       });
     })
   );
@@ -481,6 +481,8 @@ export function registerVideoRoutes(
         deleteVideoFile(video.s3Key);
       }
 
+      await db.delete(videoComments).where(eq(videoComments.videoId, id));
+      await db.delete(videoLikes).where(eq(videoLikes.videoId, id));
       await db.delete(improvementVideos).where(eq(improvementVideos.id, id));
 
       logger.info({ videoId: id, deletedBy: userId }, "Improvement video deleted");

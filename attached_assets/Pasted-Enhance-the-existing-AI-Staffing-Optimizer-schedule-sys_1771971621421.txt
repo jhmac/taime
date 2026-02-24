@@ -1,0 +1,61 @@
+Enhance the existing AI Staffing Optimizer / schedule system to include configurable shift overlap for briefing and 3S.
+
+BACKEND:
+
+1. Add store setting for shift overlap:
+   - Add a column to the stores table (or store_settings if that exists): `shift_overlap_minutes` integer, default 60
+   - Create a migration for this
+   - Add an API endpoint to update this setting: PUT /api/stores/settings (Owner only)
+
+2. Modify the AI Staffing Optimizer (find the existing service):
+   
+   When the AI suggests a schedule or when an owner creates shifts:
+   
+   a. AUTO-OVERLAP LOGIC — Create `server/services/shiftOverlap.ts`:
+      
+      Function: applyShiftOverlap(shifts: Shift[], overlapMinutes: number): Shift[]
+      
+      - For each pair of consecutive shifts at the same store on the same day:
+        - If shift B starts when or after shift A ends: extend shift A's end time OR start shift B earlier by `overlapMinutes`
+        - Prefer starting shift B earlier (so the incoming person overlaps with the outgoing)
+        - If shift A is the FIRST shift of the day (no preceding shift): instead of overlap, add `overlapMinutes` of pre-open time to the start
+      
+      Function: calculateOverlapLaborCost(shifts: Shift[], overlapMinutes: number, hourlyRates: Map<string, number>): number
+      - Calculate the additional labor cost from overlap hours
+      - Return the total additional cost
+      
+      Function: checkBudgetThreshold(storeId: string, additionalCost: number): { overBudget: boolean, currentTotal: number, budgetLimit: number }
+      - Check if adding overlap hours pushes weekly payroll above the store's budget (if a budget is configured)
+      - Return warning data
+
+   b. Integrate with schedule creation:
+      - When a schedule is created or modified, run applyShiftOverlap
+      - If the overlap pushes over budget, include a warning in the API response (don't block, just warn)
+      - Log overlap calculations
+
+3. HANDOFF SOP AUTO-SURFACING:
+   - Modify the SOP surfacing service (from Prompt 1.11):
+   - Add a new trigger: when two employees have overlapping clock-in times (detected at clock-in), surface the Shift Handoff SOP for BOTH employees
+   - The surfacing message: "Shift handoff time! [Outgoing] → [Incoming]. Time to brief and 3S together."
+
+4. API enhancements:
+   - GET /api/schedule/suggestions — When the AI generates schedule suggestions, include overlap in the output
+   - The response should show: original shifts, adjusted shifts with overlap, additional labor cost, budget warning if applicable
+
+FRONTEND:
+
+5. Store Settings — Shift Overlap Configuration:
+   - In the store settings page, add a section: "Shift Handoff & 3S"
+   - Overlap duration selector: 30 min / 45 min / 1 hour (radio buttons or slider)
+   - Explanation text: "MAinager schedules overlap between shifts so your team has time for briefing and 3S (Sweep, Sort, Standardize). This is where handoffs happen and your team learns to see waste."
+   - Budget warning toggle: "Alert me if overlap hours push labor costs above $[input] per week"
+
+6. Schedule View Enhancement:
+   - On the schedule calendar, visually indicate overlap periods with a distinct color/pattern
+   - Tooltip on overlap blocks: "Handoff & 3S window: [Employee A] ↔ [Employee B]"
+   - If budget warning is active, show a yellow banner on the schedule page
+
+TECHNICAL:
+- Overlap logic must respect store timezone
+- All schedule modifications logged to activity_log
+- Overlap calculations must be pure functions (easy to test)
