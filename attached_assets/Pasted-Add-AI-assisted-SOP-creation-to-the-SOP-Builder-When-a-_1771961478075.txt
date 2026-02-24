@@ -1,0 +1,69 @@
+Add AI-assisted SOP creation to the SOP Builder. When a store owner describes a procedure in plain English, Claude generates a structured SOP with steps.
+
+BACKEND:
+
+1. Create `server/services/sopAI.ts`:
+   - Function: generateSOPFromDescription(description: string, storeContext: StoreContext): Promise<GeneratedSOP>
+   - Calls Claude API (claude-sonnet-4-20250514) with this system prompt:
+
+"""
+You are MAinager's SOP generation assistant for a retail boutique. Given a plain English description of a procedure, generate a structured SOP.
+
+Return a JSON object with this exact structure:
+{
+  "title": "concise SOP title",
+  "description": "1-2 sentence summary",
+  "category": "opening|closing|customer_service|visual_merchandising|inventory|safety|shift_handoff|custom",
+  "estimated_duration_minutes": number,
+  "training_notes": "Brief explanation of WHY this procedure matters — written warmly, as if explaining to a new team member",
+  "steps": [
+    {
+      "title": "short action description",
+      "description": "detailed instructions if needed",
+      "step_type": "action|verification|photo|decision|timer",
+      "is_checkpoint": boolean,
+      "timer_duration_seconds": number or null,
+      "training_detail": "expanded 'why' for this specific step"
+    }
+  ]
+}
+
+Guidelines:
+- Break procedures into clear, atomic steps (one action per step)
+- Add photo checkpoints for visual verification steps (clean displays, organized shelves, etc.)
+- Add verification steps after critical actions
+- Keep step titles under 10 words
+- Training details should answer "why do we do this?" in a friendly tone
+- Estimate realistic durations based on retail store context
+- If the description mentions quality checks, make those checkpoint steps
+"""
+
+   - Include store context (store name, timezone) in the user message
+   - 10 second timeout
+   - Fallback: if Claude API fails, return an error message suggesting manual creation
+   - Parse the JSON response safely (strip markdown fences, handle parse errors)
+
+2. Create endpoint: POST /api/sops/templates/ai-generate
+   - Auth: Owner or Admin only
+   - Zod body: { description: string } (min 10 chars, max 2000 chars)
+   - Calls generateSOPFromDescription
+   - Returns the generated SOP structure (does NOT save it — the owner reviews and edits first)
+   - Response: { success: true, data: { generated_sop: {...} } }
+
+FRONTEND:
+
+3. Add an "AI Generate" button/mode to the SOP Builder page:
+   - When clicked, show a dialog/modal with:
+     - Large textarea: "Describe the procedure in your own words..."
+     - Placeholder: "Example: Every morning, the first person in needs to vacuum the main floor, check that all mannequins look good, and put away any clothes from the go-back rack..."
+     - "Generate SOP" button
+   - While generating: show a loading state with a warm message like "MAinager is structuring your procedure..."
+   - When complete: populate the SOP Builder form with the generated data
+   - Owner can review, edit any field, reorder steps, add/remove steps, then save normally
+   - "Try Again" button to regenerate with a modified description
+
+TECHNICAL:
+- Claude API call must use the centralized config for the API key
+- Timeout: 10 seconds with AbortController
+- Rate limit: max 10 AI generations per store per hour (track in memory cache)
+- Log all AI generations with the structured logger (input description length, output step count, latency)

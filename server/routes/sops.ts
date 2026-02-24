@@ -8,6 +8,7 @@ import {
 } from "@shared/schema";
 import { asyncHandler, AppError } from "../lib/routeWrapper";
 import type { IStorage } from "../storage";
+import { generateSOPFromDescription } from "../services/sopAI";
 
 const stepSchema = z.object({
   title: z.string().min(1).max(500),
@@ -70,6 +71,21 @@ export function registerSopLibraryRoutes(
   isAuthenticated: any,
   broadcastToAll: (data: Record<string, unknown>) => void
 ) {
+  app.post("/api/sops/templates/ai-generate", isAuthenticated, asyncHandler(async (req: any, res) => {
+    await requireAdminOrOwner(storage, req.user.id);
+    const body = z.object({
+      description: z.string().min(10, "Description must be at least 10 characters").max(2000, "Description must be under 2000 characters"),
+      storeId: z.string().min(1),
+      storeName: z.string().optional(),
+    }).parse(req.body);
+
+    const generated = await generateSOPFromDescription(body.description, body.storeId, {
+      storeName: body.storeName,
+    });
+
+    res.json({ success: true, data: { generated_sop: generated } });
+  }));
+
   app.post("/api/sops/templates", isAuthenticated, asyncHandler(async (req: any, res) => {
     await requireAdminOrOwner(storage, req.user.id);
     const body = createTemplateSchema.parse(req.body);

@@ -11,13 +11,14 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
 import { useAuth } from '@/hooks/useAuth';
 import {
   ArrowLeft, Plus, Trash2, GripVertical, Save, Loader2,
-  CheckCircle2, Eye, Camera, GitBranch, Timer, ChevronDown, BookOpen, AlertTriangle
+  CheckCircle2, Eye, Camera, GitBranch, Timer, ChevronDown, BookOpen, AlertTriangle, Sparkles, RefreshCw
 } from 'lucide-react';
 import type { WorkLocation } from '@shared/schema';
 
@@ -84,6 +85,8 @@ export default function SOPBuilder() {
   const [steps, setSteps] = useState<StepForm[]>([makeEmptyStep()]);
   const [showTraining, setShowTraining] = useState(false);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [aiDialogOpen, setAiDialogOpen] = useState(false);
+  const [aiDescription, setAiDescription] = useState('');
 
   const { data: locations = [] } = useQuery<WorkLocation[]>({
     queryKey: ['/api/work-locations'],
@@ -166,6 +169,46 @@ export default function SOPBuilder() {
     },
   });
 
+  const aiGenerateMutation = useMutation({
+    mutationFn: async (desc: string) => {
+      const currentStore = locations.find(l => l.id === storeId);
+      const res = await apiRequest('POST', '/api/sops/templates/ai-generate', {
+        description: desc,
+        storeId: storeId || locations[0]?.id || 'default',
+        storeName: currentStore?.name,
+      });
+      return res.json() as Promise<{ success: boolean; data: { generated_sop: {
+        title: string; description: string; category: string;
+        estimated_duration_minutes: number; training_notes: string;
+        steps: { title: string; description: string | null; step_type: string;
+          is_checkpoint: boolean; timer_duration_seconds: number | null; training_detail: string | null }[];
+      } } }>;
+    },
+    onSuccess: (result) => {
+      const sop = result.data.generated_sop;
+      setTitle(sop.title);
+      setDescription(sop.description || '');
+      setCategory(sop.category);
+      setEstimatedMinutes(sop.estimated_duration_minutes?.toString() || '');
+      setTrainingNotes(sop.training_notes || '');
+      setSteps(sop.steps.map(s => ({
+        key: crypto.randomUUID(),
+        title: s.title,
+        description: s.description || '',
+        stepType: s.step_type,
+        isCheckpoint: s.is_checkpoint,
+        timerDurationSeconds: s.timer_duration_seconds,
+        decisionOptions: null,
+        trainingDetail: s.training_detail || '',
+      })));
+      setAiDialogOpen(false);
+      toast({ title: 'SOP Generated', description: `Created "${sop.title}" with ${sop.steps.length} steps. Review and edit before saving.` });
+    },
+    onError: (err: Error) => {
+      toast({ title: 'Generation Failed', description: err.message || 'Please try again or build the SOP manually.', variant: 'destructive' });
+    },
+  });
+
   const updateStep = (index: number, updates: Partial<StepForm>) => {
     setSteps(prev => prev.map((s, i) => i === index ? { ...s, ...updates } : s));
   };
@@ -216,6 +259,16 @@ export default function SOPBuilder() {
             {editId ? 'Save will create a new version' : 'Build a step-by-step procedure for your team'}
           </p>
         </div>
+        {!editId && (
+          <Button
+            variant="outline"
+            onClick={() => setAiDialogOpen(true)}
+            className="gap-2 shrink-0"
+          >
+            <Sparkles className="h-4 w-4" />
+            <span className="hidden sm:inline">AI Generate</span>
+          </Button>
+        )}
         <Button
           onClick={() => saveMutation.mutate()}
           disabled={!canSave || saveMutation.isPending}
@@ -499,6 +552,63 @@ export default function SOPBuilder() {
           </Button>
         </div>
       </div>
+
+      <Dialog open={aiDialogOpen} onOpenChange={setAiDialogOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-primary" />
+              AI-Assisted SOP Builder
+            </DialogTitle>
+            <DialogDescription>
+              Describe the procedure in your own words and MAinager will structure it into a step-by-step SOP.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <Textarea
+              value={aiDescription}
+              onChange={e => setAiDescription(e.target.value)}
+              placeholder="Example: Every morning, the first person in needs to vacuum the main floor, check that all mannequins look good, and put away any clothes from the go-back rack..."
+              className="min-h-[140px] text-sm"
+              maxLength={2000}
+              disabled={aiGenerateMutation.isPending}
+            />
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>{aiDescription.length}/2000 characters</span>
+              {aiDescription.length < 10 && aiDescription.length > 0 && (
+                <span className="text-amber-600">At least 10 characters needed</span>
+              )}
+            </div>
+            {aiGenerateMutation.isPending && (
+              <div className="flex items-center gap-3 p-3 rounded-lg bg-primary/5 border">
+                <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                <span className="text-sm text-muted-foreground">MAinager is structuring your procedure...</span>
+              </div>
+            )}
+          </div>
+          <DialogFooter className="flex gap-2 sm:gap-2">
+            {aiGenerateMutation.isError && (
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={() => aiGenerateMutation.mutate(aiDescription)}
+                disabled={aiDescription.length < 10 || aiGenerateMutation.isPending}
+              >
+                <RefreshCw className="h-4 w-4" />
+                Try Again
+              </Button>
+            )}
+            <Button
+              onClick={() => aiGenerateMutation.mutate(aiDescription)}
+              disabled={aiDescription.length < 10 || aiGenerateMutation.isPending}
+              className="gap-2"
+            >
+              {aiGenerateMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              Generate SOP
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
