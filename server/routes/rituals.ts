@@ -54,7 +54,6 @@ export function registerRitualRoutes(
   }));
 
   app.put('/api/rituals/huddle/today', isAuthenticated, asyncHandler(async (req: any, res) => {
-    const userId = req.user.id;
     const storeId = await getFirstStoreId();
     const todayStr = new Date().toISOString().slice(0, 10);
 

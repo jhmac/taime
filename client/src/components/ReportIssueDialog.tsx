@@ -51,6 +51,7 @@ export default function ReportIssueDialog({ open, onOpenChange }: ReportIssueDia
     setPriority('medium');
     setDescription('');
     setPhotoUrl(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
   }, []);
 
   const createMutation = useMutation({

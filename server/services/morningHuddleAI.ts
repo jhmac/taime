@@ -1,9 +1,9 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { db } from '../db';
-import { eq, and, gte, lte, desc, sql } from 'drizzle-orm';
+import { eq, and, gte, lte, sql } from 'drizzle-orm';
 import {
-  morningHuddles, kudos, issues, sopExecutions, sopTemplates,
-  tasks, schedules, users, shopifyDailySales, shops, workLocations
+  morningHuddles, kudos, issues, sopExecutions,
+  tasks, schedules, users, shopifyDailySales
 } from '@shared/schema';
 import { config } from '../lib/config';
 import logger from '../lib/logger';

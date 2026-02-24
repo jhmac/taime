@@ -22,9 +22,15 @@ async function runScheduledTasks() {
   const hour = now.getHours();
   const todayStr = now.toISOString().slice(0, 10);
 
+  const needsQuotes = hour >= 5 && lastQuoteDate !== todayStr;
+  const needsHuddles = hour >= 6 && lastHuddleDate !== todayStr;
+
+  if (!needsQuotes && !needsHuddles) return;
+
   try {
-    if (hour >= 5 && lastQuoteDate !== todayStr) {
-      const storeIds = await getStoreIds();
+    const storeIds = await getStoreIds();
+
+    if (needsQuotes) {
       for (const storeId of storeIds) {
         try {
           await generateDailyQuote(storeId, now);
@@ -36,8 +42,7 @@ async function runScheduledTasks() {
       logger.info('Daily quotes generated for all stores');
     }
 
-    if (hour >= 6 && lastHuddleDate !== todayStr) {
-      const storeIds = await getStoreIds();
+    if (needsHuddles) {
       for (const storeId of storeIds) {
         try {
           await getOrGenerateHuddle(storeId, now);

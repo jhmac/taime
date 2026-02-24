@@ -190,25 +190,23 @@ export function registerIssueRoutes(
     const updates = updateSchema.parse(req.body);
     const statusChanging = updates.status && updates.status !== existing.status;
 
-    const statusRequiresPermission = ['in_progress', 'waiting', 'resolved', 'closed'];
-    if (statusChanging && statusRequiresPermission.includes(updates.status!)) {
+    const needsPermCheck = (statusChanging && ['in_progress', 'waiting', 'resolved', 'closed'].includes(updates.status!))
+      || updates.assignedTo !== undefined;
+
+    let isManager = false;
+    if (needsPermCheck) {
       const perms = await storage.getUserPermissions(userId);
-      const isManager = perms.some(p =>
-        p.name === 'admin.manage_all' || p.name === 'hr.view_team'
-      );
+      isManager = perms.some(p => p.name === 'admin.manage_all' || p.name === 'hr.view_team');
+    }
+
+    if (statusChanging && ['in_progress', 'waiting', 'resolved', 'closed'].includes(updates.status!)) {
       if (!isManager && existing.reportedBy !== userId) {
         throw new AppError(403, "Only managers can change issue status", "FORBIDDEN");
       }
     }
 
-    if (updates.assignedTo !== undefined) {
-      const perms = await storage.getUserPermissions(userId);
-      const isManager = perms.some(p =>
-        p.name === 'admin.manage_all' || p.name === 'hr.view_team'
-      );
-      if (!isManager) {
-        throw new AppError(403, "Only managers can assign issues", "FORBIDDEN");
-      }
+    if (updates.assignedTo !== undefined && !isManager) {
+      throw new AppError(403, "Only managers can assign issues", "FORBIDDEN");
     }
 
     const setPayload: any = { ...updates, updatedAt: new Date() };
