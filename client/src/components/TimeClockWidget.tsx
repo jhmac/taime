@@ -202,14 +202,26 @@ export default function TimeClockWidget() {
       setCountdownSeconds(geofenceStatus.geofenceExitInfo.graceRemaining);
       if (countdownRef.current) clearInterval(countdownRef.current);
       countdownRef.current = window.setInterval(() => {
-        setCountdownSeconds(prev => {
-          if (prev == null || prev <= 1) {
-            if (countdownRef.current) clearInterval(countdownRef.current);
-            queryClient.invalidateQueries({ queryKey: ['/api/time-entries/active'] });
-            return 0;
-          }
-          return prev - 1;
-        });
+            setCountdownSeconds(prev => {
+              if (prev == null || prev <= 1) {
+                if (countdownRef.current) {
+                  clearInterval(countdownRef.current);
+                  countdownRef.current = null;
+                }
+                // Force a hard refresh of the active entry to catch the server-side auto clock-out
+                queryClient.invalidateQueries({ queryKey: ['/api/time-entries/active'] });
+                queryClient.refetchQueries({ queryKey: ['/api/time-entries/active'] }).then((active) => {
+                  // If after refetch we still have an active entry, it means server-side auto-clock out might have failed
+                  // or is delayed. Force a client-side clock out as a safety measure.
+                  if (active.data && activeTimeEntry) {
+                    console.log("[Geofence] Server-side auto clock-out not detected yet, forcing client-side clock-out");
+                    clockOutMutation.mutate(activeTimeEntry.id);
+                  }
+                });
+                return 0;
+              }
+              return prev - 1;
+            });
       }, 1000);
     } else if (geofenceStatus?.isInWorkLocation) {
       setCountdownSeconds(null);
