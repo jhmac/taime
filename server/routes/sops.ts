@@ -425,6 +425,35 @@ export function registerSopLibraryRoutes(
     res.json({ success: true, data: updated });
   }));
 
+  app.get("/api/sops/executions/:id", isAuthenticated, asyncHandler(async (req: any, res) => {
+    const { id } = req.params;
+    const [execution] = await db.select().from(sopExecutions).where(eq(sopExecutions.id, id));
+    if (!execution) throw new AppError(404, "Execution not found", "NOT_FOUND");
+
+    if (execution.employeeId !== req.user.id) {
+      const isManager = await requireManagerOrAbove(storage, req.user.id);
+      if (!isManager) throw new AppError(403, "Access denied", "FORBIDDEN");
+    }
+
+    const [template] = await db.select().from(sopTemplates).where(eq(sopTemplates.id, execution.templateId));
+    const steps = await db.select().from(sopSteps)
+      .where(eq(sopSteps.templateId, execution.templateId))
+      .orderBy(asc(sopSteps.stepOrder));
+
+    const stepCompletions = await db.select().from(sopStepCompletions)
+      .where(eq(sopStepCompletions.executionId, id));
+
+    res.json({
+      success: true,
+      data: {
+        ...execution,
+        template: template ?? null,
+        steps,
+        stepCompletions,
+      },
+    });
+  }));
+
   app.get("/api/sops/executions", isAuthenticated, asyncHandler(async (req: any, res) => {
     const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 20, 1), 50);
     const offset = Math.max(parseInt(req.query.offset as string) || 0, 0);

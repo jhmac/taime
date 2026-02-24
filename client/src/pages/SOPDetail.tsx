@@ -61,11 +61,12 @@ export default function SOPDetail() {
 
   const startExecutionMutation = useMutation({
     mutationFn: async () => {
-      return apiRequest('POST', '/api/sops/executions', { templateId: id });
+      const res = await apiRequest('POST', '/api/sops/executions', { templateId: id });
+      return res.json() as Promise<{ success: boolean; data: { id: string } }>;
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: ['/api/sops/templates', id] });
-      toast({ title: 'Execution Started', description: 'Good luck — you\'ve got this!' });
+      navigate(`/sops/execute/${result.data.id}`);
     },
     onError: (err: Error) => {
       toast({ title: 'Error', description: err.message, variant: 'destructive' });
