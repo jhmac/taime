@@ -82,3 +82,18 @@ All environment variables are managed through `server/lib/config.ts`. This modul
 - **Zod**: Runtime type validation.
 - **clsx, tailwind-merge**: Conditional styling.
 - **memoizee**: Caching utility.
+
+## Performance Optimizations
+
+### Database Indexes
+Composite indexes on frequently queried columns: `time_entries(user_id, clock_in_time)`, `time_entries(clock_in_time)`, `schedules(user_id, start_time)`, `schedules(start_time)`, `clock_events(user_id, created_at)`, `user_availability(user_id, date)`, `user_availability(payroll_period_id)`, `messages(sender_id, recipient_id)`, `users(role_id)`, `users(is_active)`, `tasks(assigned_to)`, `tasks(due_date)`. SOP tables also have composite indexes.
+
+### In-Memory Caching (`server/lib/cache.ts`)
+- `MemoryCache` with TTL, automatic eviction every 60s, `getOrSet` async helper.
+- **Cached queries**: `getUserPermissions` (2min TTL, invalidated on role/permission changes and user deactivation), `getCompanySettings` (2min TTL, invalidated on update), dashboard user list (60s TTL, invalidated on user deactivation).
+- Cache key namespaces: `permissions:`, `company:`, `dashboard:`.
+
+### Response Time Monitoring
+- Slow endpoint detection (>200ms) in `server/index.ts` with Pino structured logging.
+- Request logger middleware with per-request UUID tracing.
+- Action logger with duration tracking and JSONL log rotation.

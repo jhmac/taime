@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocation } from 'wouter';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,10 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/hooks/useAuth';
-import {
-  Plus, Search, ClipboardList, Clock, Play, CheckCircle2,
-  ShieldCheck, Eye, Camera, GitBranch, Timer, ChevronRight
-} from 'lucide-react';
+import { Plus, Search, ClipboardList, Clock, CheckCircle2, ChevronRight } from 'lucide-react';
 
 interface SopTemplateListItem {
   id: string;
@@ -87,12 +84,12 @@ export default function SOPLibrary() {
 
   const templates = data?.data || [];
 
-  let searchTimeout: ReturnType<typeof setTimeout>;
-  const handleSearch = (val: string) => {
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const handleSearch = useCallback((val: string) => {
     setSearch(val);
-    clearTimeout(searchTimeout);
-    searchTimeout = setTimeout(() => setSearchDebounced(val), 300);
-  };
+    clearTimeout(searchTimeoutRef.current);
+    searchTimeoutRef.current = setTimeout(() => setSearchDebounced(val), 300);
+  }, []);
 
   return (
     <div className="h-full flex flex-col bg-background">

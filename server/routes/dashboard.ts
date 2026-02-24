@@ -1,8 +1,9 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
 import { db } from "../db";
-import { schedules, timeEntries, shopifyDailySales, userShops } from "@shared/schema";
+import { schedules, timeEntries, shopifyDailySales, userShops, users } from "@shared/schema";
 import { eq, and, gte, lte, desc } from "drizzle-orm";
+import { cache } from "../lib/cache";
 
 export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
   app.get('/api/dashboard/today', isAuthenticated, async (req: any, res) => {
@@ -11,8 +12,17 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
       const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
-      const allUsers = await storage.getAllUsers();
-      const userMap = new Map(allUsers.map(u => [u.id, u]));
+      let userList = cache.get<{ id: string; firstName: string | null; lastName: string | null; profileImageUrl: string | null }[]>('dashboard:userlist');
+      if (!userList) {
+        userList = await db.select({
+          id: users.id,
+          firstName: users.firstName,
+          lastName: users.lastName,
+          profileImageUrl: users.profileImageUrl,
+        }).from(users).where(eq(users.isActive, true));
+        cache.set('dashboard:userlist', userList, 60_000);
+      }
+      const userMap = new Map(userList.map(u => [u.id, u]));
 
       const todaySchedules = await db.select()
         .from(schedules)
@@ -29,9 +39,16 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
 
       const activeEntries = todayTimeEntries.filter(te => !te.clockOutTime);
 
+      const entriesByUser = new Map<string, typeof todayTimeEntries>();
+      for (const te of todayTimeEntries) {
+        const arr = entriesByUser.get(te.userId) ?? [];
+        arr.push(te);
+        entriesByUser.set(te.userId, arr);
+      }
+
       const scheduleData = todaySchedules.map(s => {
         const user = userMap.get(s.userId);
-        const userEntries = todayTimeEntries.filter(te => te.userId === s.userId);
+        const userEntries = entriesByUser.get(s.userId) ?? [];
         const clockedInEntry = userEntries.find(te => !te.clockOutTime);
         const firstClockIn = userEntries.length > 0
           ? userEntries.reduce((earliest, te) =>

@@ -128,7 +128,10 @@ export const timeEntries = pgTable("time_entries", {
   approvedBy: varchar("approved_by").references(() => users.id),
   approvedAt: timestamp("approved_at"),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => [
+  index("idx_time_entries_user_clockin").on(table.userId, table.clockInTime),
+  index("idx_time_entries_clockin").on(table.clockInTime),
+]);
 
 // Schedules
 export const schedules = pgTable("schedules", {
@@ -142,7 +145,10 @@ export const schedules = pgTable("schedules", {
   isRecurring: boolean("is_recurring").default(false),
   createdBy: varchar("created_by").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => [
+  index("idx_schedules_user_start").on(table.userId, table.startTime),
+  index("idx_schedules_start").on(table.startTime),
+]);
 
 // Task/Chore status enum
 export const taskStatusEnum = pgEnum("task_status", ["pending", "in_progress", "completed", "cancelled"]);
@@ -205,7 +211,9 @@ export const messages = pgTable("messages", {
   isAnnouncement: boolean("is_announcement").default(false),
   readBy: jsonb("read_by").$type<string[]>().default([]),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => [
+  index("idx_messages_sender_recipient").on(table.senderId, table.recipientId),
+]);
 
 // Pay period settings
 export const payPeriodSettings = pgTable("pay_period_settings", {
@@ -284,7 +292,10 @@ export const userAvailability = pgTable("user_availability", {
   notes: text("notes"),
   submittedAt: timestamp("submitted_at").defaultNow(),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => [
+  index("idx_user_availability_user_date").on(table.userId, table.date),
+  index("idx_user_availability_period").on(table.payrollPeriodId),
+]);
 
 // Time-off requests
 export const timeOffRequests = pgTable("time_off_requests", {
@@ -455,7 +466,9 @@ export const clockEvents = pgTable("clock_events", {
   pointValue: integer("point_value").default(0),
   metadata: jsonb("metadata"),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => [
+  index("idx_clock_events_user_created").on(table.userId, table.createdAt),
+]);
 
 // Performance score settings
 export const performanceScoreSettings = pgTable("performance_score_settings", {

@@ -98,6 +98,7 @@ import {
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, gte, lte, isNull, sql } from "drizzle-orm";
+import { cache } from "./lib/cache";
 
 export interface IStorage {
   // User operations (mandatory for Replit Auth)
@@ -1053,10 +1054,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateRolePermissions(roleId: string, permissionIds: string[]): Promise<void> {
-    // First, delete existing permissions for this role
     await db.delete(rolePermissions).where(eq(rolePermissions.roleId, roleId));
     
-    // Then insert new permissions
     if (permissionIds.length > 0) {
       const newRolePermissions = permissionIds.map(permissionId => ({
         roleId,
@@ -1065,9 +1064,14 @@ export class DatabaseStorage implements IStorage {
       
       await db.insert(rolePermissions).values(newRolePermissions);
     }
+    cache.invalidatePrefix('permissions:');
   }
 
   async getUserPermissions(userId: string): Promise<Permission[]> {
+    const cacheKey = `permissions:${userId}`;
+    const cached = cache.get<Permission[]>(cacheKey);
+    if (cached) return cached;
+
     const userWithRole = await db
       .select({ roleName: roles.name })
       .from(users)
@@ -1075,19 +1079,23 @@ export class DatabaseStorage implements IStorage {
       .where(eq(users.id, userId))
       .limit(1);
 
+    let perms: Permission[];
+
     if (userWithRole.length > 0 && (userWithRole[0].roleName === 'owner' || userWithRole[0].roleName === 'admin')) {
-      return await db.select().from(permissions);
+      perms = await db.select().from(permissions);
+    } else {
+      const result = await db
+        .select({ permission: permissions })
+        .from(users)
+        .innerJoin(roles, eq(users.roleId, roles.id))
+        .innerJoin(rolePermissions, eq(roles.id, rolePermissions.roleId))
+        .innerJoin(permissions, eq(rolePermissions.permissionId, permissions.id))
+        .where(eq(users.id, userId));
+      perms = result.map(row => row.permission);
     }
 
-    const result = await db
-      .select({ permission: permissions })
-      .from(users)
-      .innerJoin(roles, eq(users.roleId, roles.id))
-      .innerJoin(rolePermissions, eq(roles.id, rolePermissions.roleId))
-      .innerJoin(permissions, eq(rolePermissions.permissionId, permissions.id))
-      .where(eq(users.id, userId));
-
-    return result.map(row => row.permission);
+    cache.set(cacheKey, perms, 2 * 60 * 1000);
+    return perms;
   }
 
   // Payroll settings operations
@@ -1179,6 +1187,7 @@ export class DatabaseStorage implements IStorage {
       .set({ roleId })
       .where(eq(users.id, userId))
       .returning();
+    cache.invalidate(`permissions:${userId}`);
     return updatedUser;
   }
 
@@ -1192,6 +1201,8 @@ export class DatabaseStorage implements IStorage {
       .set({ isActive: false, updatedAt: new Date() })
       .where(eq(users.id, userId))
       .returning();
+    cache.invalidate(`permissions:${userId}`);
+    cache.invalidate('dashboard:userlist');
     return updatedUser;
   }
 
@@ -1205,7 +1216,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getCompanySettings(): Promise<CompanySettings | undefined> {
+    const cached = cache.get<CompanySettings>('company:settings');
+    if (cached) return cached;
     const [settings] = await db.select().from(companySettings).limit(1);
+    if (settings) cache.set('company:settings', settings, 2 * 60 * 1000);
     return settings;
   }
 
@@ -1234,10 +1248,10 @@ export class DatabaseStorage implements IStorage {
         .set(updatePayload)
         .where(eq(companySettings.id, existing.id))
         .returning();
+      cache.invalidate('company:settings');
       return updated;
     }
     
-    // For creation
     const insertData: any = { ...settingsData, version: 1 };
     if (settingsData.autoClockOutAfterMinutes !== undefined) {
       insertData.autoClockOutAfterMinutes = settingsData.autoClockOutAfterMinutes !== null ? settingsData.autoClockOutAfterMinutes.toString() : null;
@@ -1247,6 +1261,7 @@ export class DatabaseStorage implements IStorage {
       .insert(companySettings)
       .values(insertData)
       .returning();
+    cache.invalidate('company:settings');
     return created;
   }
 

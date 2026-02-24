@@ -1,11 +1,8 @@
 import type { Express } from "express";
 import { z } from "zod";
 import { db } from "../db";
-import { eq, and, desc, asc, sql, ilike, or, inArray, gte, lte, count } from "drizzle-orm";
-import {
-  sopTemplates, sopSteps, sopExecutions, sopStepCompletions,
-  type SopTemplate, type SopStep, type SopExecution, type SopStepCompletion,
-} from "@shared/schema";
+import { eq, and, desc, asc, sql, ilike, or, gte, lte, count } from "drizzle-orm";
+import { sopTemplates, sopSteps, sopExecutions, sopStepCompletions } from "@shared/schema";
 import { asyncHandler, AppError } from "../lib/routeWrapper";
 import type { IStorage } from "../storage";
 import { generateSOPFromDescription } from "../services/sopAI";

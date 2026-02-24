@@ -29,6 +29,14 @@ class MemoryCache {
     this.store.set(key, { value, expiresAt: Date.now() + ttlMs });
   }
 
+  async getOrSet<T>(key: string, factory: () => Promise<T>, ttlMs: number = DEFAULT_TTL_MS): Promise<T> {
+    const existing = this.get<T>(key);
+    if (existing !== undefined) return existing;
+    const value = await factory();
+    this.set(key, value, ttlMs);
+    return value;
+  }
+
   invalidate(key: string): void {
     this.store.delete(key);
   }

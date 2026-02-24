@@ -19,15 +19,16 @@ import {
   ChevronRight, ShieldCheck, Upload, X
 } from 'lucide-react';
 
-const STEP_TYPE_CONFIG: Record<string, { icon: typeof CheckCircle2; label: string; actionLabel: string }> = {
-  action: { icon: CheckCircle2, label: 'Action', actionLabel: 'Mark Complete' },
-  verification: { icon: Eye, label: 'Verification', actionLabel: 'Confirm Done' },
-  photo: { icon: Camera, label: 'Photo Required', actionLabel: 'Upload & Complete' },
-  decision: { icon: GitBranch, label: 'Decision', actionLabel: 'Select Option' },
-  timer: { icon: Timer, label: 'Timer', actionLabel: 'Start Timer' },
+const STEP_TYPE_CONFIG: Record<string, { icon: typeof CheckCircle2; label: string }> = {
+  action: { icon: CheckCircle2, label: 'Action' },
+  verification: { icon: Eye, label: 'Verification' },
+  photo: { icon: Camera, label: 'Photo Required' },
+  decision: { icon: GitBranch, label: 'Decision' },
+  timer: { icon: Timer, label: 'Timer' },
 };
 
-const LOCALSTORAGE_KEY_PREFIX = 'sop_exec_';
+const LS_PREFIX = 'sop_exec_';
+const LS_PENDING_SYNC = 'sop_pending_sync';
 
 interface ExecutionData extends SopExecutionType {
   template: SopTemplate;
@@ -92,16 +93,15 @@ export default function SOPExecution() {
   const [skipReason, setSkipReason] = useState('');
   const [stepNotes, setStepNotes] = useState('');
   const [showNotesInput, setShowNotesInput] = useState(false);
-  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
-  const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null);
+  const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
   const [timerRunning, setTimerRunning] = useState(false);
   const [timerRemaining, setTimerRemaining] = useState(0);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [feedbackText, setFeedbackText] = useState('');
   const [showCompletion, setShowCompletion] = useState(false);
+  const [initialStepRestored, setInitialStepRestored] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const elapsedIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const stepStartTimeRef = useRef<number>(Date.now());
 
   const { data, isLoading, error } = useQuery<{ success: boolean; data: ExecutionData }>({
@@ -125,37 +125,44 @@ export default function SOPExecution() {
   const isWaitingForSignOff = currentStep?.isCheckpoint && currentCompletion?.status === 'completed' && currentCompletion?.managerSignOff === false;
 
   useEffect(() => {
-    if (execution && execution.status === 'completed') {
+    if (execution?.status === 'completed') {
       setShowCompletion(true);
     }
   }, [execution?.status]);
 
   useEffect(() => {
-    if (steps.length > 0 && completions.length > 0) {
-      const firstPendingIndex = steps.findIndex(s => {
-        const comp = completions.find(c => c.stepId === s.id);
-        return !comp || comp.status === 'pending';
-      });
-      if (firstPendingIndex >= 0) {
-        setCurrentStepIndex(firstPendingIndex);
+    if (initialStepRestored || steps.length === 0 || completions.length === 0) return;
+    setInitialStepRestored(true);
+
+    try {
+      const saved = localStorage.getItem(`${LS_PREFIX}${executionId}`);
+      if (saved) {
+        const parsed = JSON.parse(saved) as { currentStepIndex: number; timestamp: number };
+        if (Date.now() - parsed.timestamp < 3600000 && parsed.currentStepIndex < steps.length) {
+          setCurrentStepIndex(parsed.currentStepIndex);
+          return;
+        }
       }
+    } catch { /* ignore parse errors */ }
+
+    const firstPendingIndex = steps.findIndex(s => {
+      const comp = completions.find(c => c.stepId === s.id);
+      return !comp || comp.status === 'pending';
+    });
+    if (firstPendingIndex >= 0) {
+      setCurrentStepIndex(firstPendingIndex);
     }
-  }, [steps.length > 0 && completions.length > 0]);
+  }, [initialStepRestored, steps.length, completions.length, executionId]);
 
   useEffect(() => {
-    elapsedIntervalRef.current = setInterval(() => {
-      setElapsedTime(prev => prev + 1);
-    }, 1000);
-    return () => {
-      if (elapsedIntervalRef.current) clearInterval(elapsedIntervalRef.current);
-    };
-  }, []);
+    if (!execution?.startedAt) return;
+    const started = new Date(execution.startedAt).getTime();
+    setElapsedTime(Math.floor((Date.now() - started) / 1000));
 
-  useEffect(() => {
-    if (execution?.startedAt) {
-      const started = new Date(execution.startedAt).getTime();
+    const interval = setInterval(() => {
       setElapsedTime(Math.floor((Date.now() - started) / 1000));
-    }
+    }, 1000);
+    return () => clearInterval(interval);
   }, [execution?.startedAt]);
 
   useEffect(() => {
@@ -164,14 +171,31 @@ export default function SOPExecution() {
     setSkipReason('');
     setStepNotes('');
     setShowNotesInput(false);
-    setPhotoPreview(null);
-    setPhotoDataUrl(null);
+    setCapturedPhoto(null);
     setTimerRunning(false);
-    if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+    }
     if (currentStep?.stepType === 'timer' && currentStep.timerDurationSeconds) {
       setTimerRemaining(currentStep.timerDurationSeconds);
     }
+
+    if (executionId && execution) {
+      try {
+        localStorage.setItem(`${LS_PREFIX}${executionId}`, JSON.stringify({
+          currentStepIndex,
+          timestamp: Date.now(),
+        }));
+      } catch { /* localStorage might be full */ }
+    }
   }, [currentStepIndex, currentStep?.id]);
+
+  useEffect(() => {
+    return () => {
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (!lastMessage) return;
@@ -180,30 +204,8 @@ export default function SOPExecution() {
     }
   }, [lastMessage, executionId, qc]);
 
-  useEffect(() => {
-    if (executionId && execution) {
-      try {
-        localStorage.setItem(`${LOCALSTORAGE_KEY_PREFIX}${executionId}`, JSON.stringify({
-          currentStepIndex,
-          elapsedTime,
-          timestamp: Date.now(),
-        }));
-      } catch { /* localStorage might be full */ }
-    }
-  }, [currentStepIndex, elapsedTime, executionId]);
-
-  useEffect(() => {
-    if (executionId) {
-      try {
-        const saved = localStorage.getItem(`${LOCALSTORAGE_KEY_PREFIX}${executionId}`);
-        if (saved) {
-          const parsed = JSON.parse(saved) as { currentStepIndex: number; elapsedTime: number; timestamp: number };
-          if (Date.now() - parsed.timestamp < 3600000) {
-            setCurrentStepIndex(parsed.currentStepIndex);
-          }
-        }
-      } catch { /* ignore parse errors */ }
-    }
+  const cleanupLocalStorage = useCallback(() => {
+    try { localStorage.removeItem(`${LS_PREFIX}${executionId}`); } catch { /* ignore */ }
   }, [executionId]);
 
   const completeStepMutation = useMutation({
@@ -215,19 +217,17 @@ export default function SOPExecution() {
       qc.invalidateQueries({ queryKey: ['/api/sops/executions', executionId] });
       if (result.data.executionCompleted) {
         setShowCompletion(true);
-        try { localStorage.removeItem(`${LOCALSTORAGE_KEY_PREFIX}${executionId}`); } catch { /* ignore */ }
-      } else {
-        if (currentStepIndex < totalSteps - 1) {
-          setCurrentStepIndex(prev => prev + 1);
-        }
+        cleanupLocalStorage();
+      } else if (currentStepIndex < totalSteps - 1) {
+        setCurrentStepIndex(prev => prev + 1);
       }
     },
     onError: () => {
       toast({ title: 'Error', description: 'Failed to update step. Your progress has been saved locally.', variant: 'destructive' });
       try {
-        const queue = JSON.parse(localStorage.getItem('sop_pending_sync') ?? '[]') as Record<string, unknown>[];
+        const queue = JSON.parse(localStorage.getItem(LS_PENDING_SYNC) ?? '[]') as Record<string, unknown>[];
         queue.push({ executionId, stepId: currentStep?.id, timestamp: Date.now() });
-        localStorage.setItem('sop_pending_sync', JSON.stringify(queue));
+        localStorage.setItem(LS_PENDING_SYNC, JSON.stringify(queue));
       } catch { /* ignore */ }
     },
   });
@@ -240,7 +240,7 @@ export default function SOPExecution() {
       });
     },
     onSuccess: () => {
-      try { localStorage.removeItem(`${LOCALSTORAGE_KEY_PREFIX}${executionId}`); } catch { /* ignore */ }
+      cleanupLocalStorage();
       navigate('/sops');
     },
   });
@@ -252,10 +252,10 @@ export default function SOPExecution() {
       stepId: currentStep.id,
       status: 'completed',
       notes: stepNotes || undefined,
-      photoUrl: photoDataUrl || undefined,
+      photoUrl: capturedPhoto || undefined,
       timeSpentSeconds: timeSpent,
     });
-  }, [currentStep, stepNotes, photoDataUrl, completeStepMutation]);
+  }, [currentStep, stepNotes, capturedPhoto, completeStepMutation]);
 
   const handleSkip = useCallback(() => {
     if (!currentStep || !skipReason.trim()) return;
@@ -284,8 +284,7 @@ export default function SOPExecution() {
     if (!file) return;
     try {
       const compressed = await compressImage(file);
-      setPhotoPreview(compressed);
-      setPhotoDataUrl(compressed);
+      setCapturedPhoto(compressed);
     } catch {
       toast({ title: 'Error', description: 'Failed to process photo', variant: 'destructive' });
     }
@@ -297,6 +296,7 @@ export default function SOPExecution() {
       setTimerRemaining(prev => {
         if (prev <= 1) {
           if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+          timerIntervalRef.current = null;
           setTimerRunning(false);
           handleComplete();
           return 0;
@@ -540,14 +540,14 @@ export default function SOPExecution() {
                         className="hidden"
                         onChange={handlePhotoCapture}
                       />
-                      {photoPreview ? (
+                      {capturedPhoto ? (
                         <div className="relative rounded-lg overflow-hidden border">
-                          <img src={photoPreview} alt="Captured" className="w-full max-h-48 object-cover" />
+                          <img src={capturedPhoto} alt="Captured" className="w-full max-h-48 object-cover" />
                           <Button
                             variant="destructive"
                             size="sm"
                             className="absolute top-2 right-2 min-h-[36px] min-w-[36px] p-0"
-                            onClick={() => { setPhotoPreview(null); setPhotoDataUrl(null); }}
+                            onClick={() => setCapturedPhoto(null)}
                           >
                             <X className="h-4 w-4" />
                           </Button>
@@ -563,7 +563,7 @@ export default function SOPExecution() {
                           Take Photo
                         </Button>
                       )}
-                      {photoDataUrl && (
+                      {capturedPhoto && (
                         <Button
                           size="lg"
                           className="w-full min-h-[52px] text-lg font-semibold transition-all active:scale-95"
@@ -618,7 +618,10 @@ export default function SOPExecution() {
                             className="flex-1 min-h-[52px]"
                             onClick={() => {
                               setTimerRunning(false);
-                              if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+                              if (timerIntervalRef.current) {
+                                clearInterval(timerIntervalRef.current);
+                                timerIntervalRef.current = null;
+                              }
                             }}
                           >
                             <Pause className="h-5 w-5 mr-2" />
