@@ -111,7 +111,8 @@ export default function FocusClockOut() {
 
   useEffect(() => {
     const userRole = user?.role?.name;
-    if (!settings?.enableClockOutOnFocusLoss || (userRole && EXEMPT_ROLES.includes(userRole))) {
+    if (!settings?.enableClockOutOnFocusLoss || (userRole && EXEMPT_ROLES.includes(userRole)) || !activeTimeEntry) {
+      setShowResumePrompt(false);
       return;
     }
 
