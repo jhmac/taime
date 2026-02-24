@@ -956,11 +956,11 @@ export class DatabaseStorage implements IStorage {
     return await db
       .select()
       .from(pushSubscriptions)
-      .where(and(eq(pushSubscriptions.userId, userId), eq(pushSubscriptions.isActive, true)));
+      .where(eq(pushSubscriptions.userId, userId));
   }
 
   async deletePushSubscription(id: string): Promise<void> {
-    await db.update(pushSubscriptions).set({ isActive: false }).where(eq(pushSubscriptions.id, id));
+    await db.delete(pushSubscriptions).where(eq(pushSubscriptions.id, id));
   }
 
   // Role management operations
@@ -1256,35 +1256,6 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  // Shoutouts
-  async createShoutout(shoutout: InsertShoutout): Promise<Shoutout> {
-    const [created] = await db.insert(shoutouts).values(shoutout).returning();
-    return created;
-  }
-
-  async getShoutouts(limit: number = 50): Promise<Shoutout[]> {
-    return await db
-      .select()
-      .from(shoutouts)
-      .orderBy(desc(shoutouts.createdAt))
-      .limit(limit);
-  }
-
-  async addShoutoutReaction(id: string, userId: string, emoji: string): Promise<Shoutout> {
-    const [shoutout] = await db.select().from(shoutouts).where(eq(shoutouts.id, id));
-    if (!shoutout) throw new Error("Shoutout not found");
-
-    const reactions = (shoutout.reactions as any[]) || [];
-    reactions.push({ userId, emoji });
-
-    const [updated] = await db
-      .update(shoutouts)
-      .set({ reactions })
-      .where(eq(shoutouts.id, id))
-      .returning();
-    return updated;
-  }
-
   async deleteWorkLocation(id: string): Promise<void> {
     await db.delete(workLocations).where(eq(workLocations.id, id));
   }
@@ -1413,7 +1384,7 @@ export class DatabaseStorage implements IStorage {
   async updateSopCategory(id: string, updates: Partial<SopCategory>): Promise<SopCategory> {
     const [updated] = await db
       .update(sopCategories)
-      .set({ ...updates, updatedAt: new Date() })
+      .set(updates)
       .where(eq(sopCategories.id, id))
       .returning();
     return updated;
@@ -1519,13 +1490,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getTrainingModules(): Promise<TrainingModule[]> {
-    return await db.select().from(trainingModules).orderBy(trainingModules.sortOrder);
+    return await db.select().from(trainingModules).orderBy(trainingModules.createdAt);
   }
 
   async updateTrainingModule(id: string, updates: Partial<TrainingModule>): Promise<TrainingModule> {
     const [updated] = await db
       .update(trainingModules)
-      .set({ ...updates, updatedAt: new Date() })
+      .set(updates)
       .where(eq(trainingModules.id, id))
       .returning();
     return updated;
@@ -1578,7 +1549,7 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(commuteAlerts)
       .where(eq(commuteAlerts.userId, userId))
-      .orderBy(desc(commuteAlerts.sentAt));
+      .orderBy(desc(commuteAlerts.createdAt));
   }
 
   // Shoutouts

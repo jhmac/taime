@@ -916,7 +916,7 @@ export default function Communication() {
           <Card className="h-full flex flex-col overflow-hidden">
             <CardHeader className="py-3 px-4 border-b flex-row items-center justify-between space-y-0">
               <CardTitle className="text-sm font-semibold">Announcements</CardTitle>
-              {user?.roleName === 'admin' || user?.roleName === 'owner' ? (
+              {user?.role?.name === 'admin' || user?.role?.name === 'owner' ? (
                 <Dialog>
                   <DialogTrigger asChild>
                     <Button size="sm" className="gap-2">

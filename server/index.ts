@@ -3,10 +3,6 @@ import helmet from "helmet";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
-const { initSneebly } = require('sneebly');
-
 process.on('uncaughtException', (err) => {
   if (err.message?.includes('Cannot set property message') ||
       err.message?.includes('EAI_AGAIN') ||
@@ -31,15 +27,6 @@ app.use(helmet({
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: false, limit: '10mb' }));
-
-initSneebly(app, {
-  projectRoot: process.cwd(),
-  enableMetrics: true,
-  enableErrorTracking: true,
-  enableHealth: true,
-  enableDashboard: true,
-  forceDiscovery: true,
-});
 
 app.use((req, res, next) => {
   if (!req.path.startsWith('/api') && req.method === 'GET') {

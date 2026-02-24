@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
 
-const DATA_DIR = path.join(process.cwd(), '.sneebly');
+const DATA_DIR = path.join(process.cwd(), '.logs');
 const ACTION_LOG_FILE = path.join(DATA_DIR, 'action-log.jsonl');
 const ERROR_LOG_FILE = path.join(DATA_DIR, 'error-log.jsonl');
 const MAX_LOG_SIZE = 5 * 1024 * 1024;
