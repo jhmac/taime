@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { db } from '../db';
 import { eq, and, gte, lte, desc } from 'drizzle-orm';
-import { shopifyDailySales, middayPulses, shops, userShops, timeEntries } from '@shared/schema';
+import { shopifyDailySales, middayPulses, shops } from '@shared/schema';
 import { config } from '../lib/config';
 import logger from '../lib/logger';
 import { cache } from '../lib/cache';
@@ -41,7 +41,12 @@ async function getTodaySales(shopDomain: string): Promise<{
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
 
-  const salesRows = await db.select()
+  const salesRows = await db.select({
+      totalRevenue: shopifyDailySales.totalRevenue,
+      orderCount: shopifyDailySales.orderCount,
+      averageOrderValue: shopifyDailySales.averageOrderValue,
+      createdAt: shopifyDailySales.createdAt,
+    })
     .from(shopifyDailySales)
     .where(and(
       eq(shopifyDailySales.shopDomain, shopDomain),
@@ -118,8 +123,10 @@ export async function generateMiddayPulse(storeId: string): Promise<MiddayPulseD
     return fallback;
   }
 
-  const todaySales = await getTodaySales(shopDomain);
-  const lastWeekRevenue = await getLastWeekSales(shopDomain);
+  const [todaySales, lastWeekRevenue] = await Promise.all([
+    getTodaySales(shopDomain),
+    getLastWeekSales(shopDomain),
+  ]);
 
   const now = new Date();
   const staleData = todaySales.lastSyncTime
@@ -136,13 +143,11 @@ export async function generateMiddayPulse(storeId: string): Promise<MiddayPulseD
   let aiContent: { headline: string; detail: string; suggestion?: string } | null = null;
 
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
-
-    const response = await anthropic.messages.create({
-      model: MODEL,
-      max_tokens: 300,
-      system: `You are MAinager's Midday Pulse. Generate a brief, encouraging midday sales check-in for a retail boutique team.
+    const response = await Promise.race([
+      anthropic.messages.create({
+        model: MODEL,
+        max_tokens: 300,
+        system: `You are MAinager's Midday Pulse. Generate a brief, encouraging midday sales check-in for a retail boutique team.
 
 Tone: honest but encouraging. If sales are behind, frame it as an opportunity, not a failure. If ahead, celebrate.
 
@@ -152,9 +157,9 @@ Return JSON only:
   "detail": "2-3 sentences with specific numbers and context",
   "suggestion": "One actionable suggestion based on the data (optional, only if genuinely helpful)"
 }`,
-      messages: [{
-        role: 'user',
-        content: `Today's sales so far:
+        messages: [{
+          role: 'user',
+          content: `Today's sales so far:
 - Revenue: $${todaySales.revenue.toFixed(2)}
 - Transactions: ${todaySales.orderCount}
 - Average order: $${todaySales.avgOrderValue.toFixed(2)}
@@ -162,10 +167,10 @@ Return JSON only:
 - Day is ${(fractionComplete * 100).toFixed(0)}% through
 ${paceToTarget ? `- Pace vs last week: ${(paceToTarget * 100).toFixed(0)}%` : ''}
 ${staleData ? '- Note: sales data may be delayed' : ''}`,
-      }],
-    });
-
-    clearTimeout(timeout);
+        }],
+      }),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('AI timeout')), 10000)),
+    ]);
 
     const text = response.content[0].type === 'text' ? response.content[0].text : '';
     const jsonMatch = text.match(/\{[\s\S]*\}/);

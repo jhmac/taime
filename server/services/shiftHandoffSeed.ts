@@ -80,12 +80,9 @@ export async function seedShiftHandoffSOP(): Promise<void> {
         createdBy: 'system',
       }).returning();
 
-      for (const step of HANDOFF_STEPS) {
-        await db.insert(sopSteps).values({
-          templateId: template.id,
-          ...step,
-        });
-      }
+      await db.insert(sopSteps).values(
+        HANDOFF_STEPS.map(step => ({ templateId: template.id, ...step }))
+      );
 
       logger.info({ storeId: store.id, templateId: template.id }, 'Shift Handoff Protocol SOP seeded');
     }

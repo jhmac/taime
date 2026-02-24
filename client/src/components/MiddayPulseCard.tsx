@@ -48,9 +48,7 @@ export default function MiddayPulseCard() {
     enabled: isAfterNoon,
   });
 
-  if (!isAfterNoon || !data?.data) return null;
-
-  const pulse = data.data;
+  if (!isAfterNoon) return null;
 
   if (isLoading) {
     return (
@@ -63,6 +61,9 @@ export default function MiddayPulseCard() {
       </Card>
     );
   }
+
+  if (!data?.data) return null;
+  const pulse = data.data;
 
   const paceColor = pulse.paceToTarget
     ? pulse.paceToTarget >= 100 ? 'text-green-600 dark:text-green-400' : pulse.paceToTarget >= 80 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'

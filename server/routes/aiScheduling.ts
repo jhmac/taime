@@ -132,20 +132,16 @@ export function registerAiSchedulingRoutes(app: Express, storage: IStorage, isAu
           .where(eq(aiSchedulingSettings.id, existing[0].id));
 
         if (shiftOverlapMinutes !== undefined || overlapBudgetLimit !== undefined) {
-          const setClauses: string[] = [];
-          const values: (number | null)[] = [];
-          if (shiftOverlapMinutes !== undefined) {
-            setClauses.push("shift_overlap_minutes = $1");
-            values.push(shiftOverlapMinutes);
-          }
-          if (overlapBudgetLimit !== undefined) {
-            setClauses.push(`overlap_budget_limit = $${values.length + 1}`);
-            values.push(overlapBudgetLimit);
-          }
-          if (setClauses.length > 0) {
-            await db.execute(
-              sql.raw(`UPDATE ai_scheduling_settings SET ${setClauses.join(", ")} WHERE id = '${existing[0].id}'`)
-            );
+          const id = existing[0].id;
+          const overlapVal = shiftOverlapMinutes !== undefined ? Number(shiftOverlapMinutes) : null;
+          const budgetVal = overlapBudgetLimit !== undefined ? (overlapBudgetLimit !== null ? Number(overlapBudgetLimit) : null) : undefined;
+
+          if (overlapVal !== null && budgetVal !== undefined) {
+            await db.execute(sql`UPDATE ai_scheduling_settings SET shift_overlap_minutes = ${overlapVal}, overlap_budget_limit = ${budgetVal} WHERE id = ${id}`);
+          } else if (overlapVal !== null) {
+            await db.execute(sql`UPDATE ai_scheduling_settings SET shift_overlap_minutes = ${overlapVal} WHERE id = ${id}`);
+          } else if (budgetVal !== undefined) {
+            await db.execute(sql`UPDATE ai_scheduling_settings SET overlap_budget_limit = ${budgetVal} WHERE id = ${id}`);
           }
         }
       } else {
@@ -157,14 +153,12 @@ export function registerAiSchedulingRoutes(app: Express, storage: IStorage, isAu
           updatedBy: userId,
         });
         if (shiftOverlapMinutes !== undefined || overlapBudgetLimit !== undefined) {
-          const result = await db.select().from(aiSchedulingSettings).limit(1);
+          const result = await db.select({ id: aiSchedulingSettings.id }).from(aiSchedulingSettings).limit(1);
           if (result.length > 0) {
-            const parts: string[] = [];
-            if (shiftOverlapMinutes !== undefined) parts.push(`shift_overlap_minutes = ${Number(shiftOverlapMinutes)}`);
-            if (overlapBudgetLimit !== undefined) parts.push(`overlap_budget_limit = ${overlapBudgetLimit !== null ? Number(overlapBudgetLimit) : 'NULL'}`);
-            if (parts.length > 0) {
-              await db.execute(sql.raw(`UPDATE ai_scheduling_settings SET ${parts.join(", ")} WHERE id = '${result[0].id}'`));
-            }
+            const id = result[0].id;
+            const overlapVal = shiftOverlapMinutes !== undefined ? Number(shiftOverlapMinutes) : 60;
+            const budgetVal = overlapBudgetLimit !== undefined ? (overlapBudgetLimit !== null ? Number(overlapBudgetLimit) : null) : null;
+            await db.execute(sql`UPDATE ai_scheduling_settings SET shift_overlap_minutes = ${overlapVal}, overlap_budget_limit = ${budgetVal} WHERE id = ${id}`);
           }
         }
       }
