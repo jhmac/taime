@@ -1,6 +1,6 @@
 import { db } from "../db";
-import { sopTemplates, sopExecutions, timeEntries, workLocations, issues, aiSchedulingSettings } from "@shared/schema";
-import { eq, and, gte, isNull, desc, sql, count } from "drizzle-orm";
+import { sopTemplates, sopExecutions, timeEntries, workLocations, aiSchedulingSettings } from "@shared/schema";
+import { eq, and, gte, isNull, count, inArray } from "drizzle-orm";
 import { cache } from "../lib/cache";
 import logger from "../lib/logger";
 
@@ -70,21 +70,27 @@ async function getActiveSOPTemplates(storeId?: string): Promise<any[]> {
   return templates;
 }
 
-async function getEmployeeExecutionCount(
+async function getEmployeeExecutionCounts(
   employeeId: string,
-  templateId: string
-): Promise<number> {
+  templateIds: string[]
+): Promise<Map<string, number>> {
+  if (templateIds.length === 0) return new Map();
   const result = await db
-    .select({ count: count() })
+    .select({
+      templateId: sopExecutions.templateId,
+      count: count(),
+    })
     .from(sopExecutions)
     .where(
       and(
         eq(sopExecutions.employeeId, employeeId),
-        eq(sopExecutions.templateId, templateId),
+        inArray(sopExecutions.templateId, templateIds),
         eq(sopExecutions.status, "completed")
       )
-    );
-  return result[0]?.count || 0;
+    )
+    .groupBy(sopExecutions.templateId);
+
+  return new Map(result.map(r => [r.templateId, r.count]));
 }
 
 function parseTimeToMinutes(timeStr: string): number {
@@ -189,7 +195,7 @@ export async function getShiftHandoffSOPs(
   storeId: string
 ): Promise<SurfacedSOP[]> {
   const activeEntries = await db
-    .select()
+    .select({ userId: timeEntries.userId })
     .from(timeEntries)
     .where(
       and(
@@ -202,25 +208,24 @@ export async function getShiftHandoffSOPs(
   if (otherActive.length === 0) return [];
 
   const templates = await getActiveSOPTemplates(storeId);
-  const surfaced: SurfacedSOP[] = [];
+  const handoffTemplates = templates.filter(matchesHandoff);
+  if (handoffTemplates.length === 0) return [];
 
-  for (const t of templates) {
-    if (matchesHandoff(t)) {
-      const execCount = await getEmployeeExecutionCount(clockingInUserId, t.id);
-      surfaced.push({
-        templateId: t.id,
-        title: t.title,
-        category: t.category,
-        reason: "event_based",
-        triggerType: "event_based",
-        priority: 2,
-        trainingModeRecommended: execCount < 3,
-        message: "Shift handoff detected! Complete the handoff checklist with your teammate.",
-      });
-    }
-  }
+  const execCounts = await getEmployeeExecutionCounts(
+    clockingInUserId,
+    handoffTemplates.map(t => t.id)
+  );
 
-  return surfaced;
+  return handoffTemplates.map((t) => ({
+    templateId: t.id,
+    title: t.title,
+    category: t.category,
+    reason: "event_based" as const,
+    triggerType: "event_based" as const,
+    priority: 2,
+    trainingModeRecommended: (execCounts.get(t.id) || 0) < 3,
+    message: "Shift handoff detected! Complete the handoff checklist with your teammate.",
+  }));
 }
 
 export async function getOpeningSOPsForClockIn(
@@ -231,7 +236,7 @@ export async function getOpeningSOPsForClockIn(
   todayStart.setHours(0, 0, 0, 0);
 
   const todayEntries = await db
-    .select()
+    .select({ userId: timeEntries.userId })
     .from(timeEntries)
     .where(
       and(
@@ -240,31 +245,28 @@ export async function getOpeningSOPsForClockIn(
       )
     );
 
-  const otherEmployeesToday = todayEntries.filter((e) => e.userId !== userId);
-  const isFirstShift = otherEmployeesToday.length === 0;
-
+  const isFirstShift = !todayEntries.some((e) => e.userId !== userId);
   if (!isFirstShift) return [];
 
   const templates = await getActiveSOPTemplates(storeId);
-  const surfaced: SurfacedSOP[] = [];
+  const openingTemplates = templates.filter(matchesOpening);
+  if (openingTemplates.length === 0) return [];
 
-  for (const t of templates) {
-    if (matchesOpening(t)) {
-      const execCount = await getEmployeeExecutionCount(userId, t.id);
-      surfaced.push({
-        templateId: t.id,
-        title: t.title,
-        category: t.category,
-        reason: "event_based",
-        triggerType: "event_based",
-        priority: 1,
-        trainingModeRecommended: execCount < 3,
-        message: "You're the first one in today! Time for the Opening Checklist.",
-      });
-    }
-  }
+  const execCounts = await getEmployeeExecutionCounts(
+    userId,
+    openingTemplates.map(t => t.id)
+  );
 
-  return surfaced;
+  return openingTemplates.map((t) => ({
+    templateId: t.id,
+    title: t.title,
+    category: t.category,
+    reason: "event_based" as const,
+    triggerType: "event_based" as const,
+    priority: 1,
+    trainingModeRecommended: (execCounts.get(t.id) || 0) < 3,
+    message: "You're the first one in today! Time for the Opening Checklist.",
+  }));
 }
 
 export async function getRoleBasedSOPs(
@@ -272,25 +274,31 @@ export async function getRoleBasedSOPs(
   storeId?: string
 ): Promise<SurfacedSOP[]> {
   const templates = await getActiveSOPTemplates(storeId);
-  const surfaced: SurfacedSOP[] = [];
+  if (templates.length === 0) return [];
 
-  for (const t of templates) {
-    const execCount = await getEmployeeExecutionCount(userId, t.id);
-    if (execCount < 3 && execCount > 0) {
-      surfaced.push({
+  const execCounts = await getEmployeeExecutionCounts(
+    userId,
+    templates.map(t => t.id)
+  );
+
+  return templates
+    .filter((t) => {
+      const c = execCounts.get(t.id) || 0;
+      return c > 0 && c < 3;
+    })
+    .map((t) => {
+      const c = execCounts.get(t.id) || 0;
+      return {
         templateId: t.id,
         title: t.title,
         category: t.category,
-        reason: "role_based",
-        triggerType: "role_based",
+        reason: "role_based" as const,
+        triggerType: "role_based" as const,
         priority: 3,
         trainingModeRecommended: true,
-        message: `You've completed "${t.title}" ${execCount} time${execCount === 1 ? "" : "s"}. Training mode is recommended.`,
-      });
-    }
-  }
-
-  return surfaced;
+        message: `You've completed "${t.title}" ${c} time${c === 1 ? "" : "s"}. Training mode is recommended.`,
+      };
+    });
 }
 
 export async function getIssueBasedSOPs(
@@ -343,7 +351,7 @@ export async function getSurfacedSOPsForEmployee(
   if (!resolvedStoreId) return [];
 
   const activeEntry = await db
-    .select()
+    .select({ id: timeEntries.id })
     .from(timeEntries)
     .where(
       and(eq(timeEntries.userId, userId), isNull(timeEntries.clockOutTime))
@@ -396,7 +404,8 @@ export function startSurfacingCron(
       const activeOnShift = await db
         .select({ userId: timeEntries.userId })
         .from(timeEntries)
-        .where(isNull(timeEntries.clockOutTime));
+        .where(isNull(timeEntries.clockOutTime))
+        .limit(100);
 
       if (activeOnShift.length === 0) return;
 

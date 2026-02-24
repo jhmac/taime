@@ -62,7 +62,11 @@ export default function SurfacedSOPBanner() {
   if (visibleSOPs.length === 0) return null;
 
   const handleDismiss = (templateId: string) => {
-    setDismissed((prev) => new Set([...prev, templateId]));
+    setDismissed((prev) => {
+      const next = new Set(prev);
+      next.add(templateId);
+      return next;
+    });
   };
 
   const handleStart = (sop: SurfacedSOP) => {
