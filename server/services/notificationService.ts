@@ -1,12 +1,14 @@
 import webpush from 'web-push';
 import { storage } from '../storage';
+import { config } from '../lib/config';
 
-// Configure web-push
-webpush.setVapidDetails(
-  'mailto:admin@taimeclock.com',
-  process.env.VAPID_PUBLIC_KEY || 'BMzCgT-xjAU_PCsnpPyftb40vuw0IFHBmUdrLPa8w-jDE6KYBARxbdaLYezdjqjYqKy9u_2OccTkJdNiSsoETD8',
-  process.env.VAPID_PRIVATE_KEY || 'IOKvgzzuFZK7ffJi2nOhNSrwDuDBw4thmJo7gv9oLOE'
-);
+if (config.vapid.publicKey && config.vapid.privateKey) {
+  webpush.setVapidDetails(
+    'mailto:admin@taimeclock.com',
+    config.vapid.publicKey,
+    config.vapid.privateKey
+  );
+}
 
 export interface NotificationPayload {
   title: string;

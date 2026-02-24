@@ -14,6 +14,9 @@ The frontend is a React and TypeScript PWA, built with Vite. It features a respo
 ### Backend
 The backend is a Node.js Express.js server written in TypeScript. It uses Drizzle ORM for type-safe PostgreSQL interactions and Clerk for authentication and authorization, integrated with Express sessions. Real-time communication is powered by WebSockets. The architecture emphasizes modular routes, Zod for robust input validation, and security middleware (Helmet, express-rate-limit).
 
+### Centralized Config
+All environment variables are managed through `server/lib/config.ts`. This module uses Zod to validate env vars at startup (fail-fast on missing required vars like DATABASE_URL), groups config by domain (server, database, clerk, shopify, anthropic, nylas, vapid, encryption, youtube, aws), and exports a fully typed `config` object. No server code should use `process.env` directly — always import from `server/lib/config`.
+
 ### Core Features
 - **AI Integration**: Utilizes Anthropic Claude AI for automated task assignment, schedule optimization, labor cost forecasting, anomaly detection, payroll validation, and conversational AI.
 - **Authentication & Authorization**: Implemented with Clerk for OAuth/SSO, user synchronization, and role-based access control (Admin, Owner, Employee) with granular permissions.

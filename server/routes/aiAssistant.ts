@@ -3,11 +3,12 @@ import type { IStorage } from "../storage";
 import Anthropic from '@anthropic-ai/sdk';
 import rateLimit from "express-rate-limit";
 import { z } from "zod";
+import { config } from "../lib/config";
 
 const DEFAULT_MODEL_STR = "claude-sonnet-4-20250514";
 
 const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
+  apiKey: config.anthropic.apiKey,
 });
 
 const chatRateLimiter = rateLimit({

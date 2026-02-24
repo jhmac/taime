@@ -6,7 +6,9 @@ import { db } from "../db";
 import Anthropic from '@anthropic-ai/sdk';
 import rateLimit from "express-rate-limit";
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+import { config } from "../lib/config";
+
+const anthropic = new Anthropic({ apiKey: config.anthropic.apiKey });
 
 const aiRateLimiter = rateLimit({
   windowMs: 60 * 1000,

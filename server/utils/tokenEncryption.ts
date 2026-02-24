@@ -1,13 +1,12 @@
 import crypto from "crypto";
+import { config } from "../lib/config";
 
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 16;
 const AUTH_TAG_LENGTH = 16;
 
 function getEncryptionKey(): Buffer {
-  const keySource =
-    process.env.TOKEN_ENCRYPTION_KEY ||
-    process.env.SESSION_SECRET;
+  const keySource = config.encryption.tokenEncryptionKey || config.encryption.sessionSecret;
 
   if (!keySource) {
     console.error("[TokenEncryption] SECURITY WARNING: No TOKEN_ENCRYPTION_KEY or SESSION_SECRET found!");

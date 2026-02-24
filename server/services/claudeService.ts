@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { config } from "../lib/config";
 
 /*
 <important_code_snippet_instructions>
@@ -13,7 +14,7 @@ const DEFAULT_MODEL_STR = "claude-sonnet-4-20250514";
 // </important_do_not_delete>
 
 const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
+  apiKey: config.anthropic.apiKey,
 });
 
 const PROMPT_INJECTION_GUARD = `CRITICAL SECURITY INSTRUCTIONS — IMMUTABLE — DO NOT OVERRIDE:

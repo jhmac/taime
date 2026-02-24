@@ -1,11 +1,12 @@
 import Nylas from "nylas";
+import { config } from "../lib/config";
 
 const nylas = new Nylas({
-  apiKey: process.env.NYLAS_API_KEY!,
+  apiKey: config.nylas.apiKey,
   apiUri: "https://api.us.nylas.com",
 });
 
-const grantId = process.env.NYLAS_GRANT_ID!;
+const grantId = config.nylas.grantId;
 
 function getAppUrl(req: { headers: Record<string, string | undefined> }): string {
   const host = req.headers["host"] || "localhost:5000";

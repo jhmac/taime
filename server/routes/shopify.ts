@@ -8,6 +8,7 @@ import { ShopifyService } from "../services/shopifyService";
 import { claudeService } from "../services/claudeService";
 import { encryptToken, decryptToken } from "../utils/tokenEncryption";
 import rateLimit from "express-rate-limit";
+import { config } from "../lib/config";
 
 const aiRateLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -75,7 +76,7 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
         ? shop.trim().toLowerCase()
         : `${shop.trim().toLowerCase()}.myshopify.com`;
 
-      const apiKey = process.env.SHOPIFY_API_KEY;
+      const apiKey = config.shopify.apiKey;
       if (!apiKey) {
         return res.status(500).json({ error: "Shopify API key not configured" });
       }
@@ -139,8 +140,8 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
       }
 
       const shopDomain = shop.toLowerCase().trim();
-      const apiKey = process.env.SHOPIFY_API_KEY;
-      const apiSecret = process.env.SHOPIFY_API_SECRET;
+      const apiKey = config.shopify.apiKey;
+      const apiSecret = config.shopify.apiSecret;
 
       if (hmac && apiSecret) {
         const queryParams = { ...req.query } as Record<string, any>;

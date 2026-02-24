@@ -1,7 +1,8 @@
 import pino from "pino";
+import { config } from "./config";
 
-const isProduction = process.env.NODE_ENV === "production";
-const logLevel = process.env.LOG_LEVEL || (isProduction ? "info" : "debug");
+const isProduction = config.server.nodeEnv === "production";
+const logLevel = config.server.logLevel;
 
 const logger = pino({
   level: logLevel,

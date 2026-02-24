@@ -1,6 +1,7 @@
 import type { Express, RequestHandler } from "express";
 import { clerkMiddleware, getAuth, clerkClient } from "@clerk/express";
 import { storage } from "./storage";
+import { config } from "./lib/config";
 
 const SUPER_ADMIN_EMAIL = "jh@scuild.com";
 
@@ -74,7 +75,7 @@ export async function setupAuth(app: Express) {
   app.use(clerkMiddleware());
 
   app.get('/api/clerk-key', (_req, res) => {
-    const key = process.env.CLERK_PUBLISHABLE_KEY;
+    const key = config.clerk.publishableKey;
     if (!key) {
       return res.status(500).json({ error: "Clerk publishable key not configured" });
     }
