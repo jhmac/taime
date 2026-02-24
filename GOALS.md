@@ -1,15 +1,15 @@
-# GOALS.md — Sneebly North Star for LIBBY
+# GOALS.md — Sneebly North Star for MAinager
 
 <!-- Sneebly reads this to prioritize what to analyze, fix, and improve. -->
-<!-- Update this as LIBBY evolves — it's your direct line to the agent. -->
+<!-- Update this as MAinager evolves — it's your direct line to the agent. -->
 
 ## Mission
 
-LIBBY is a Boutique Operating System that transforms how independent retail boutiques run their daily operations. It's for small business owners (1-5 locations, 3-15 employees) who are drowning in operational chaos — forgotten tasks, inconsistent procedures, no visibility into what's actually happening on the floor.
+MAinager is a Boutique Operating System that transforms how independent retail boutiques run their daily operations. It's for small business owners (1-5 locations, 3-15 employees) who are drowning in operational chaos — forgotten tasks, inconsistent procedures, no visibility into what's actually happening on the floor.
 
-The vision: a boutique owner walks in on Monday morning and LIBBY has already briefed them on yesterday's numbers, flagged that the opening checklist wasn't completed on time Saturday, suggested a staffing adjustment for the slow Tuesday ahead, and reminded them that VIP customer Sarah's birthday is Thursday. The owner spends less time managing operations and more time doing what they love — curating products and building customer relationships.
+The vision: a boutique owner walks in on Monday morning and MAinager has already briefed them on yesterday's numbers, flagged that the opening checklist wasn't completed on time Saturday, suggested a staffing adjustment for the slow Tuesday ahead, and reminded them that VIP customer Sarah's birthday is Thursday. The owner spends less time managing operations and more time doing what they love — curating products and building customer relationships.
 
-LIBBY is built on six proven methodologies: 2 Second Lean (continuous improvement), Profit First (financial discipline), Remarkable Retail (customer experience), SOP Excellence (procedure consistency), GTD (task management), and AI as Copilot (cognitive load reduction).
+MAinager is built on six proven methodologies: 2 Second Lean (continuous improvement), Profit First (financial discipline), Remarkable Retail (customer experience), SOP Excellence (procedure consistency), GTD (task management), and AI as Copilot (cognitive load reduction).
 
 ## Architecture Context
 
@@ -18,7 +18,8 @@ LIBBY is built on six proven methodologies: 2 Second Lean (continuous improvemen
 - **Auth**: Clerk (OAuth/SSO with RBAC — Owner/Admin/Employee roles, 30+ permissions)
 - **AI**: Anthropic Claude (claude-sonnet-4-20250514) for all AI features — inbox clarification, SOP surfacing, pattern recognition, Morning Whisper, staffing optimization
 - **Real-time**: WebSocket server for live updates (shift changes, task assignments, notifications)
-- **Integrations**: Shopify GraphQL Admin API (sales data sync, staffing recommendations)
+- **Integrations**: Shopify GraphQL Admin API (sales data sync, staffing recommendations), YouTube Data API v3 (private channel video management for Improvement Videos)
+- **Video Storage**: YouTube private channel (primary) with AWS S3/CloudFront as fallback for video hosting
 - **Hosting**: Replit (deployment target: cloudrun)
 - **UI Library**: shadcn/ui + Radix UI + Tailwind CSS
 
@@ -45,7 +46,8 @@ Sneebly works top-down. Higher = fix first.
 - Morning Whisper generation: under 10 seconds (audio briefing must feel instant)
 - AI Inbox Clarification: under 3 seconds per item
 - SOP surfacing: under 1 second (must feel context-aware, not sluggish)
-- Shopify sync lag: under 60 seconds from Shopify event to LIBBY data update
+- Shopify sync lag: under 60 seconds from Shopify event to MAinager data update
+- Video upload processing: under 30 seconds from capture to available in feed
 - Zero unhandled promise rejections in production logs
 - TypeScript strict mode: zero type errors
 
@@ -81,9 +83,9 @@ Sneebly works top-down. Higher = fix first.
 
 ### Auto-approve these types of changes:
 
-- Database index additions (especially on `time_entries`, `sop_executions`, `next_actions`, `issues`, `notification_log` — these tables will grow fast)
+- Database index additions (especially on `time_entries`, `sop_executions`, `next_actions`, `issues`, `notification_log`, `improvement_videos`, `video_comments`, `video_likes` — these tables will grow fast)
 - Dead code removal (unused exports, unreachable paths, commented-out code blocks)
-- Null check additions on external API responses (Shopify API, Clerk webhooks, Claude API responses)
+- Null check additions on external API responses (Shopify API, Clerk webhooks, Claude API responses, YouTube API responses)
 - Performance optimizations (query consolidation, response caching, N+1 elimination)
 - Error handling improvements (try/catch additions, transaction wrapping on multi-step DB operations)
 - Input validation additions (Zod schemas on API route inputs)
@@ -93,7 +95,7 @@ Sneebly works top-down. Higher = fix first.
 - Logging improvements (adding structured logs for debugging, removing console.log in favor of proper logger)
 - Memory leak prevention (clearing intervals, removing event listeners, connection pool management)
 - Drizzle query optimization (using `.select()` to limit columns, adding `.limit()` and `.offset()` for pagination)
-- Caching layer additions for expensive queries (daily sales totals, staffing recommendations)
+- Caching layer additions for expensive queries (daily sales totals, staffing recommendations, video feed aggregation)
 
 ### Always require my approval for:
 
@@ -101,12 +103,14 @@ Sneebly works top-down. Higher = fix first.
 - Payment/checkout flow modifications (any future Stripe integration)
 - Database schema changes (new tables, column additions/removals, type changes, migrations)
 - New API endpoints (every new endpoint is a new attack surface)
-- Changes to AI prompts or model configuration (Morning Whisper tone, Inbox Clarification logic, SOP surfacing rules, Weekly Review prompts)
+- Changes to AI prompts or model configuration (Morning Whisper tone, Inbox Clarification logic, SOP surfacing rules, Weekly Review prompts, Daily Quote selection logic, Improvement Video AI summaries)
 - Notification timing changes (quiet hours, alert schedules, escalation rules)
 - Shopify OAuth flow modifications
 - Clerk webhook handler changes
+- YouTube API integration changes (channel config, privacy settings, upload permissions)
 - Any change to how payroll calculations work (overtime rules, rounding, pay period boundaries)
 - Any change to how geofencing distance is calculated (affects legal compliance for time tracking)
+- Any change to how the AI Scheduler calculates shift overlap windows
 - SOP content modifications (even typo fixes — the owner may have specific wording for legal/training reasons)
 - Customer data handling changes (Style DNA privacy implications)
 - RBAC role or permission modifications
@@ -118,13 +122,12 @@ Sneebly works top-down. Higher = fix first.
 - Performance audit on all LIVE endpoints — identify any query that's > 200ms and optimize
 - Error handling sweep across all API routes — ensure every route has try/catch, returns proper status codes, and logs structured errors
 - WebSocket stability — ensure reconnection logic handles all edge cases (server restart, network change, mobile app backgrounding)
-- Prepare database schemas for Q1 sprint features (SOP Library, Opening/Closing Checklists, Issue Tracker MVP) — review planned schemas in SPECIFICATION.md and flag any concerns about indexing, data types, or relationships
+- Prepare database schemas for Q1 sprint features (SOP Library, Opening/Closing Checklists, Issue Tracker MVP, Improvement Video Platform) — review planned schemas in SPECIFICATION.md and flag any concerns about indexing, data types, or relationships
 
 ### Ignore for now:
 
-- GTD Workflow Engine (Q2 2026 — Modules 10)
+- GTD Workflow Engine (Q2 2026 — Module 10)
 - Style DNA / Customer Intelligence (Q2 2026 — Module 5)
-- Morning Whisper AI Briefing (Q3 2026 — Module 6)
 - Lean Board Gamification features (Q3 2026 — leaderboards, badges, awards)
 - Advanced Analytics (Q4 2026 — QBR, monthly scorecards)
 - Multi-location support (Q4 2026)
@@ -134,105 +137,36 @@ Sneebly works top-down. Higher = fix first.
 - Dependency version bumps (unless security vulnerability)
 - Payroll Export integrations (Q4 2026)
 
-## Roadmap
+---
 
-### Phase 1 — Q1 2026 (Current): Foundation + Daily Rituals + SOP Core
+## Feature Specifications
 
-Theme: "Make every day run like clockwork with bulletproof procedures"
+### Pillar 1: Employee Experience Engine
 
-- Morning Huddle Mode (guided 10-min standup with SOP prompts)
-- Opening/Closing Checklist SOPs (step-by-step with quality checkpoints)
-- Daily Debrief Capture (end-of-day reflection)
-- Issue Tracker MVP (quick logging, priority levels, status workflow, manager notifications)
-- SOP Library foundation (searchable repository, step-by-step builder, categories)
-- Midday Pulse (automated noon sales check)
-- Shift Handoff Protocol SOP
-- Shopify Deep Sync completion
-- Context-Aware SOP Surfacing
-- Role-Based Playbooks (Owner, Manager, Associate)
-- Morning Task Check-In alerts
-- Scheduled Meeting Reminders
+Every feature maps to at least one Self-Determination Theory need (Autonomy, Competence, Relatedness). This is intentional and non-negotiable.
 
-Key outcomes: Daily rituals digitized, problems captured fast, SOPs are impossible to ignore, managers alerted when tasks aren't done.
+#### 1.1 The Vibe System (Replaces Traditional Gamification)
 
-### Phase 2 — Q2 2026: GTD Workflow + Customer Intelligence + Notifications
+Rather than points and badges, MAinager uses a "Vibe" system designed around intrinsic motivation.
 
-Theme: "Know your numbers, know your people, capture everything"
+- **Personal Growth Dashboard** — Each employee sees: SOP mastery progression (competence), improvement ideas submitted (autonomy), peer kudos received (relatedness). NO comparison to others by default.
+- **BYB Tracker (Better Your Best)** — Tommy Mello-inspired. Tracks personal bests: fastest opening checklist, most consistent task completion, longest improvement streak. Competes against YOUR history, never others.
+- **Kudos Wall** — Peer-to-peer recognition. Any employee can give a "kudo" to any other with a short message. Kudos appear in the team feed and the Morning Huddle.
+- **Improvement Streak** — Track consecutive days where the employee submitted at least one improvement idea. Visible only to them. No shaming for breaks — just a gentle restart.
+- **Voluntary Challenges** — Weekly opt-in challenges (never mandatory). Example: "This week: find one way to save 2 seconds in your opening routine." Autonomy-first design.
 
-- Universal Inbox + AI Clarification Engine
-- Next Actions & Projects Lists with context-based organization
-- Waiting For Tracker + Someday/Maybe List
-- Weekly Review Ritual (Friday 3pm, AI-guided)
-- Style DNA MVP (customer profiles, notes, taste clusters)
-- Full Notification Preferences system
-- Overdue Task Escalation
-- End-of-Day Summary digests
-- In-App Messaging
-- PWA + Push Notifications + Offline Mode
+**UX Principle: Never Mandatory Fun.** Every engagement feature must be opt-in. Employees choose their challenges, choose whether to share improvements, choose whether to appear on any team view. Forced participation destroys the autonomy that makes the system work.
 
-### Phase 3 — Q3 2026: AI Copilot + Gamification + Advanced SOPs
+#### 1.2 "Fix What Bugged You?" Daily Improvement Prompt
 
-Theme: "Your AI partner runs the business with you"
+Paul Akers-inspired continuous improvement engine.
 
-- Morning Whisper (AI daily audio/text briefing)
-- AI Review Assistant + Smart Task Suggestions
-- SOP Training Mode (new hire coaching)
-- Lean Board Leaderboard + Pattern Detection
-- Recurring Issue Detection
-- Decision Tree SOPs
-- Taste Cluster Engine + Win-Back Triggers + VIP Alerts
-- Photo/Video SOP Walkthroughs
+- **End-of-Shift Prompt** — "What bugged you today?" Free text + optional photo. AI categorizes and routes to the right person.
+- **Daily Improvement Quote** — Each team member's dashboard displays an AI-curated daily quote about improvement and self-improvement. Claude selects quotes that are powerful, relevant, and rotating — never the same quote twice in a 90-day window. Quotes come from lean thinkers, business leaders, athletes, philosophers. Displayed prominently as a motivational anchor on the dashboard.
+- **AI Categorization** — Submissions are auto-tagged by category (process, equipment, customer experience, workspace, training) and routed to the appropriate owner/manager.
+- **Improvement Trend Analysis** — AI analyzes patterns: "70% of 'What Bugged You' submissions this month relate to the fitting room. Time for an SOP revision?"
+- **SOP Evolution Loop** — Employee submissions + AI insights trigger SOP revision proposals for owner review. This is how SOPs stay alive.
 
-### Phase 4 — Q4 2026: Polish + Scale Prep
+#### 1.3 Improvement Video Platform (Paul Akers 2 Second Lean Style)
 
-Theme: "Ready for thousands of boutiques"
-
-- Quarterly Business Review auto-generation
-- Advanced Dashboards
-- SOP Version Control + Templates Library
-- Payroll Export (Gusto/ADP)
-- Anomaly Detection
-- AI Task Auto-Assign
-- Emergency Procedures quick access
-- Multi-location support
-- Onboarding wizard
-- White-label prep
-
-## Technical Standards
-
-- All database queries must use Drizzle ORM with parameterized inputs
-- All API responses must follow the shape: `{ success: boolean, data?: T, error?: { message: string, code: string } }`
-- All new routes need Zod input validation middleware
-- All WebSocket events must include a `type` field and follow existing naming conventions
-- All Claude API calls must include timeout handling (10s default, 30s for Morning Whisper generation)
-- All Claude API calls must have fallback behavior if the API is unavailable (cached response, sensible default, or graceful error message)
-- All Shopify API calls must handle rate limiting (check `X-Shopify-Shop-Api-Call-Limit` headers) and retry with exponential backoff
-- All time-related logic must respect the store's configured timezone (not UTC, not server time)
-- All payroll calculations must use decimal arithmetic (never floating point) — use a library like `decimal.js` or integer cents
-- All user-facing timestamps must be formatted in the store's locale and timezone
-- Clerk middleware must be applied to all protected routes — never bypass auth checks
-- RBAC checks must happen at the route level AND the service level (defense in depth)
-- All database transactions must be used for multi-step operations (e.g., completing an SOP execution should atomically update `sop_executions` and `activity_log`)
-- Never store derived data that can be computed from source data (except for performance-critical caches with TTLs)
-- All environment variables must be accessed through a centralized config module, never `process.env` directly in route handlers
-
-## Success Metrics (For Sneebly to Track)
-
-### Operational Health
-- Zero unhandled errors in production logs for 24+ hours
-- All API endpoints responding under 500ms p95
-- WebSocket uptime matching server uptime
-- Shopify sync lag under 60 seconds
-
-### Code Quality
-- Zero `any` types in new or modified code
-- All modified routes have Zod validation
-- All modified routes have try/catch error handling
-- Zero console.log statements (use structured logger)
-
-### Business Impact (What the Owner Cares About)
-- Clock-in reliability: 99.9% success rate
-- Payroll report accuracy: zero calculation errors
-- Task completion tracking: no lost or orphaned tasks
-- SOP execution logging: complete and accurate audit trail
-- Notification delivery: all alerts sent within configured windows
+A YouTube-style internal platform for teams to create and share short improvement videos. This is the most visible, viral piece of the continuous improvement culture.
