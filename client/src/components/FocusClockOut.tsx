@@ -175,7 +175,15 @@ export default function FocusClockOut() {
     };
   }, [settings?.enableClockOutOnFocusLoss, settings?.autoResumeWindowSeconds, clockOutMutation, autoResumeMutation, toast, user?.role?.name, requestWakeLock, logClockEvent]);
 
-  if (!showResumePrompt) return null;
+  useEffect(() => {
+    if (!activeTimeEntry) {
+      setShowResumePrompt(false);
+      clockedOutAtRef.current = null;
+      clockedOutEntryRef.current = null;
+    }
+  }, [activeTimeEntry]);
+
+  if (!showResumePrompt || !activeTimeEntry) return null;
 
   return (
     <div className="fixed top-4 left-4 right-4 z-[60] animate-in slide- shore-from-top-5 duration-300">
