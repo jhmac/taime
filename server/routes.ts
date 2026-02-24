@@ -22,6 +22,7 @@ import { registerAnalyticsRoutes } from "./routes/analytics";
 import { registerInsightRoutes } from "./routes/insights";
 import { registerClockEventRoutes } from "./routes/clockEvents";
 import { registerSopRoutes } from "./routes/sop";
+import { registerSopLibraryRoutes } from "./routes/sops";
 import { registerAiAssistantRoutes } from "./routes/aiAssistant";
 import { registerAiSchedulingRoutes } from "./routes/aiScheduling";
 import { registerDashboardRoutes } from "./routes/dashboard";
@@ -109,6 +110,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerInsightRoutes(app, storage, isAuthenticated);
   registerClockEventRoutes(app, storage, isAuthenticated);
   registerSopRoutes(app, storage, isAuthenticated);
+  registerSopLibraryRoutes(app, storage, isAuthenticated, broadcastToAll);
   registerAiAssistantRoutes(app, storage, isAuthenticated);
   registerAiSchedulingRoutes(app, storage, isAuthenticated);
   registerDashboardRoutes(app, storage, isAuthenticated);
