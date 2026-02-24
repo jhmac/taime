@@ -9,6 +9,8 @@ import {
   decimal,
   jsonb,
   index,
+  uniqueIndex,
+  date,
   pgEnum,
   serial
 } from "drizzle-orm/pg-core";
@@ -923,7 +925,118 @@ export const insertIssueCommentSchema = createInsertSchema(issueComments).omit({
   createdAt: true,
 });
 
+// --- Daily Ritual System ---
+
+export const morningHuddles = pgTable("morning_huddles", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => workLocations.id).notNull(),
+  huddleDate: date("huddle_date").notNull(),
+  ledBy: varchar("led_by"),
+  attendees: jsonb("attendees").default([]),
+  winOfTheDay: text("win_of_the_day"),
+  leanPrinciple: text("lean_principle"),
+  goals: jsonb("goals").default([]),
+  headsUp: jsonb("heads_up").default([]),
+  kudosSurfaced: jsonb("kudos_surfaced").default([]),
+  aiGeneratedContent: jsonb("ai_generated_content"),
+  status: text("status").notNull().default('pending'),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  uniqueIndex("uq_morning_huddles_store_date").on(table.storeId, table.huddleDate),
+  index("idx_morning_huddles_store_date").on(table.storeId, table.huddleDate),
+]);
+
+export const dailyDebriefs = pgTable("daily_debriefs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => workLocations.id).notNull(),
+  employeeId: varchar("employee_id").notNull(),
+  debriefDate: date("debrief_date").notNull(),
+  whatWentWell: text("what_went_well"),
+  whatBuggedYou: text("what_bugged_you"),
+  whatBuggedYouCategory: text("what_bugged_you_category"),
+  whatBuggedYouPhotoUrl: text("what_bugged_you_photo_url"),
+  customerHighlights: text("customer_highlights"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  uniqueIndex("uq_daily_debriefs_employee_date").on(table.employeeId, table.debriefDate),
+  index("idx_daily_debriefs_store_date").on(table.storeId, table.debriefDate),
+  index("idx_daily_debriefs_employee_date").on(table.employeeId, table.debriefDate),
+  index("idx_daily_debriefs_store_category_created").on(table.storeId, table.whatBuggedYouCategory, table.createdAt),
+]);
+
+export const dailyQuotes = pgTable("daily_quotes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => workLocations.id).notNull(),
+  quoteDate: date("quote_date").notNull(),
+  quoteText: text("quote_text").notNull(),
+  quoteAuthor: text("quote_author").notNull(),
+  generatedByAi: boolean("generated_by_ai").default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  uniqueIndex("uq_daily_quotes_store_date").on(table.storeId, table.quoteDate),
+]);
+
+export const dailyQuoteHistory = pgTable("daily_quote_history", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => workLocations.id).notNull(),
+  quoteTextHash: text("quote_text_hash").notNull(),
+  usedDate: date("used_date").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  index("idx_daily_quote_history_store_hash").on(table.storeId, table.quoteTextHash),
+]);
+
+export const kudos = pgTable("kudos", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => workLocations.id).notNull(),
+  fromEmployeeId: varchar("from_employee_id").notNull(),
+  toEmployeeId: varchar("to_employee_id").notNull(),
+  message: text("message").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  index("idx_kudos_store_created").on(table.storeId, table.createdAt),
+  index("idx_kudos_to_employee_created").on(table.toEmployeeId, table.createdAt),
+]);
+
+export const insertMorningHuddleSchema = createInsertSchema(morningHuddles).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertDailyDebriefSchema = createInsertSchema(dailyDebriefs).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertDailyQuoteSchema = createInsertSchema(dailyQuotes).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertDailyQuoteHistorySchema = createInsertSchema(dailyQuoteHistory).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertKudoSchema = createInsertSchema(kudos).omit({
+  id: true,
+  createdAt: true,
+});
+
 // --- Type Exports ---
+
+export type MorningHuddle = typeof morningHuddles.$inferSelect;
+export type InsertMorningHuddle = z.infer<typeof insertMorningHuddleSchema>;
+export type DailyDebrief = typeof dailyDebriefs.$inferSelect;
+export type InsertDailyDebrief = z.infer<typeof insertDailyDebriefSchema>;
+export type DailyQuote = typeof dailyQuotes.$inferSelect;
+export type InsertDailyQuote = z.infer<typeof insertDailyQuoteSchema>;
+export type DailyQuoteHistory = typeof dailyQuoteHistory.$inferSelect;
+export type InsertDailyQuoteHistory = z.infer<typeof insertDailyQuoteHistorySchema>;
+export type Kudo = typeof kudos.$inferSelect;
+export type InsertKudo = z.infer<typeof insertKudoSchema>;
 
 export type Issue = typeof issues.$inferSelect;
 export type InsertIssue = z.infer<typeof insertIssueSchema>;

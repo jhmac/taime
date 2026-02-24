@@ -1,0 +1,68 @@
+Create the database schema for MAinager's Daily Ritual System — Morning Huddle, Daily Debrief, What Bugged You, and Daily Improvement Quotes.
+
+CREATE A NEW MIGRATION with these tables:
+
+TABLE: morning_huddles
+- id: uuid, primary key, default gen_random_uuid()
+- store_id: text, not null, references stores(id)
+- huddle_date: date, not null
+- led_by: text, nullable (Clerk user ID of the person leading the huddle)
+- attendees: jsonb, default '[]' (array of Clerk user IDs who participated)
+- win_of_the_day: text, nullable (AI-generated or manually entered)
+- lean_principle: text, nullable (the daily lean principle)
+- goals: jsonb, default '[]' (array of goal strings for the day)
+- heads_up: jsonb, default '[]' (array of announcement strings)
+- kudos_surfaced: jsonb, default '[]' (array of kudo IDs surfaced during huddle)
+- ai_generated_content: jsonb, nullable (full AI response stored for reference)
+- status: text, not null, default 'pending' (enum-like: 'pending', 'in_progress', 'completed', 'skipped')
+- started_at: timestamp with timezone, nullable
+- completed_at: timestamp with timezone, nullable
+- created_at: timestamp with timezone, default now()
+- UNIQUE(store_id, huddle_date)
+
+TABLE: daily_debriefs
+- id: uuid, primary key, default gen_random_uuid()
+- store_id: text, not null, references stores(id)
+- employee_id: text, not null (Clerk user ID)
+- debrief_date: date, not null
+- what_went_well: text, nullable
+- what_bugged_you: text, nullable (this is THE continuous improvement capture)
+- what_bugged_you_category: text, nullable (AI-categorized: 'process', 'equipment', 'customer_experience', 'workspace', 'training', 'other')
+- what_bugged_you_photo_url: text, nullable
+- customer_highlights: text, nullable
+- created_at: timestamp with timezone, default now()
+- UNIQUE(employee_id, debrief_date)
+
+TABLE: daily_quotes
+- id: uuid, primary key, default gen_random_uuid()
+- store_id: text, not null, references stores(id)
+- quote_date: date, not null
+- quote_text: text, not null
+- quote_author: text, not null
+- generated_by_ai: boolean, default true
+- created_at: timestamp with timezone, default now()
+- UNIQUE(store_id, quote_date)
+
+TABLE: daily_quote_history
+- id: uuid, primary key, default gen_random_uuid()
+- store_id: text, not null, references stores(id)
+- quote_text_hash: text, not null (hash of quote text to prevent repeats within 90 days)
+- used_date: date, not null
+- created_at: timestamp with timezone, default now()
+- INDEX(store_id, quote_text_hash)
+
+TABLE: kudos
+- id: uuid, primary key, default gen_random_uuid()
+- store_id: text, not null, references stores(id)
+- from_employee_id: text, not null (Clerk user ID)
+- to_employee_id: text, not null (Clerk user ID)
+- message: text, not null (max 280 chars)
+- created_at: timestamp with timezone, default now()
+
+INDEXES:
+- morning_huddles(store_id, huddle_date)
+- daily_debriefs(store_id, debrief_date)
+- daily_debriefs(employee_id, debrief_date)
+- daily_debriefs(store_id, what_bugged_you_category, created_at) — for trend analysis
+- kudos(store_id, created_at)
+- kudos(to_employee_id, created_at)
