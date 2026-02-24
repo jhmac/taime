@@ -701,6 +701,77 @@ export const shopifyOrders = pgTable("shopify_orders", {
   index("IDX_shopify_orders_order_id").on(table.orderId),
 ]);
 
+// SOP Library — Templates, Steps, Executions, Step Completions
+export const sopTemplates = pgTable("sop_templates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => workLocations.id).notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
+  category: text("category").notNull(),
+  estimatedDurationMinutes: integer("estimated_duration_minutes"),
+  roleAssignments: jsonb("role_assignments").$type<string[]>(),
+  isActive: boolean("is_active").default(true),
+  trainingNotes: text("training_notes"),
+  version: integer("version").notNull().default(1),
+  parentTemplateId: varchar("parent_template_id"),
+  createdBy: text("created_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  index("idx_sop_templates_store_active_cat").on(table.storeId, table.isActive, table.category),
+  index("idx_sop_templates_store_created").on(table.storeId, table.createdAt),
+]);
+
+export const sopSteps = pgTable("sop_steps", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  templateId: varchar("template_id").references(() => sopTemplates.id, { onDelete: "cascade" }).notNull(),
+  stepOrder: integer("step_order").notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
+  stepType: text("step_type").notNull(),
+  isCheckpoint: boolean("is_checkpoint").default(false),
+  timerDurationSeconds: integer("timer_duration_seconds"),
+  decisionOptions: jsonb("decision_options").$type<{ options: { label: string; nextStepOrder: number }[] }>(),
+  trainingDetail: text("training_detail"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  index("idx_sop_steps_template_order").on(table.templateId, table.stepOrder),
+]);
+
+export const sopExecutions = pgTable("sop_executions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  templateId: varchar("template_id").references(() => sopTemplates.id).notNull(),
+  employeeId: text("employee_id").notNull(),
+  storeId: varchar("store_id").references(() => workLocations.id).notNull(),
+  status: text("status").notNull().default("in_progress"),
+  startedAt: timestamp("started_at", { withTimezone: true }).defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  index("idx_sop_executions_store_emp_status").on(table.storeId, table.employeeId, table.status),
+  index("idx_sop_executions_template_started").on(table.templateId, table.startedAt),
+  index("idx_sop_executions_store_started").on(table.storeId, table.startedAt),
+]);
+
+export const sopStepCompletions = pgTable("sop_step_completions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  executionId: varchar("execution_id").references(() => sopExecutions.id, { onDelete: "cascade" }).notNull(),
+  stepId: varchar("step_id").references(() => sopSteps.id).notNull(),
+  status: text("status").notNull().default("pending"),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  timeSpentSeconds: integer("time_spent_seconds"),
+  skipReason: text("skip_reason"),
+  photoUrl: text("photo_url"),
+  notes: text("notes"),
+  managerSignOff: boolean("manager_sign_off").default(false),
+  managerSignOffBy: text("manager_sign_off_by"),
+  managerSignOffAt: timestamp("manager_sign_off_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  index("idx_sop_step_completions_exec_step").on(table.executionId, table.stepId),
+]);
+
 // Zod schemas
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertTimeEntrySchema = createInsertSchema(timeEntries).omit({ id: true, createdAt: true });
@@ -747,6 +818,11 @@ export const choreAssignmentSchema = z.object({
 export const choreSignOffSchema = z.object({
   isManager: z.boolean().default(false),
 });
+
+export const insertSopTemplateSchema = createInsertSchema(sopTemplates).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertSopStepSchema = createInsertSchema(sopSteps).omit({ id: true, createdAt: true });
+export const insertSopExecutionSchema = createInsertSchema(sopExecutions).omit({ id: true, createdAt: true, startedAt: true });
+export const insertSopStepCompletionSchema = createInsertSchema(sopStepCompletions).omit({ id: true, createdAt: true });
 
 export const insertShopSchema = createInsertSchema(shops).omit({ id: true, installedAt: true, updatedAt: true });
 export const insertUserShopSchema = createInsertSchema(userShops).omit({ id: true, createdAt: true });
@@ -824,6 +900,14 @@ export type InsertCommuteAlert = z.infer<typeof insertCommuteAlertSchema>;
 export type Shoutout = typeof shoutouts.$inferSelect;
 export type InsertShoutout = z.infer<typeof insertShoutoutSchema>;
 export type GeofenceEvent = typeof geofenceEvents.$inferSelect;
+export type SopTemplate = typeof sopTemplates.$inferSelect;
+export type InsertSopTemplate = z.infer<typeof insertSopTemplateSchema>;
+export type SopStep = typeof sopSteps.$inferSelect;
+export type InsertSopStep = z.infer<typeof insertSopStepSchema>;
+export type SopExecution = typeof sopExecutions.$inferSelect;
+export type InsertSopExecution = z.infer<typeof insertSopExecutionSchema>;
+export type SopStepCompletion = typeof sopStepCompletions.$inferSelect;
+export type InsertSopStepCompletion = z.infer<typeof insertSopStepCompletionSchema>;
 export type Shop = typeof shops.$inferSelect;
 export type UserShop = typeof userShops.$inferSelect;
 export type ShopifyDailySale = typeof shopifyDailySales.$inferSelect;
