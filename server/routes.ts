@@ -26,8 +26,44 @@ import { registerAiAssistantRoutes } from "./routes/aiAssistant";
 import { registerAiSchedulingRoutes } from "./routes/aiScheduling";
 import { registerDashboardRoutes } from "./routes/dashboard";
 import { createActionLoggerMiddleware, handleClientErrorReport, getActionSummary } from "./services/actionLogger";
+import logger from "./lib/logger";
 
-const wsConnections = new Map<string, WebSocket>();
+const HEARTBEAT_INTERVAL_MS = 30_000;
+
+interface TrackedConnection {
+  ws: WebSocket;
+  userId: string;
+  alive: boolean;
+}
+
+const wsConnections = new Map<string, TrackedConnection>();
+
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+
+function startHeartbeat() {
+  heartbeatTimer = setInterval(() => {
+    wsConnections.forEach((conn, userId) => {
+      if (!conn.alive) {
+        logger.warn({ userId }, "ws: no pong received, closing connection");
+        conn.ws.terminate();
+        wsConnections.delete(userId);
+        return;
+      }
+
+      conn.alive = false;
+      if (conn.ws.readyState === WebSocket.OPEN) {
+        conn.ws.ping();
+      }
+    });
+  }, HEARTBEAT_INTERVAL_MS);
+}
+
+function stopHeartbeat() {
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
+}
 
 export async function registerRoutes(app: Express): Promise<Server> {
   await setupAuth(app);
@@ -39,15 +75,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/action-logs/summary', isAuthenticated, (_req, res) => {
     try {
       res.json(getActionSummary());
-    } catch (err: any) {
-      res.status(500).json({ message: err.message });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      res.status(500).json({ message });
     }
   });
 
-  function broadcastToAll(data: any) {
-    wsConnections.forEach((ws, userId) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify(data));
+  function broadcastToAll(data: Record<string, unknown>) {
+    const payload = JSON.stringify(data);
+    wsConnections.forEach((conn) => {
+      if (conn.ws.readyState === WebSocket.OPEN) {
+        conn.ws.send(payload);
       }
     });
   }
@@ -99,17 +137,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return;
     }
 
-    wsConnections.set(userId, ws);
-    console.log(`WebSocket connected for user: ${userId}`);
+    const existing = wsConnections.get(userId);
+    if (existing && existing.ws.readyState === WebSocket.OPEN) {
+      logger.info({ userId }, "ws: replacing existing connection");
+      existing.ws.close(4000, 'Replaced by new connection');
+    }
 
-    ws.on('close', () => {
-      wsConnections.delete(userId);
-      console.log(`WebSocket disconnected for user: ${userId}`);
+    const conn: TrackedConnection = { ws, userId, alive: true };
+    wsConnections.set(userId, conn);
+    logger.info({ userId, totalConnections: wsConnections.size }, "ws: client connected");
+
+    ws.on('pong', () => {
+      conn.alive = true;
+    });
+
+    ws.on('close', (code, reason) => {
+      const current = wsConnections.get(userId);
+      if (current?.ws === ws) {
+        wsConnections.delete(userId);
+      }
+      logger.info({ userId, code, reason: reason.toString(), totalConnections: wsConnections.size }, "ws: client disconnected");
     });
 
     ws.on('error', (error) => {
-      console.error('WebSocket error:', error);
+      logger.error({ userId, error: error.message }, "ws: connection error");
     });
+  });
+
+  startHeartbeat();
+
+  function gracefulShutdown() {
+    logger.info("ws: graceful shutdown initiated");
+    stopHeartbeat();
+
+    const shutdownPayload = JSON.stringify({ type: "server_restarting" });
+    wsConnections.forEach((conn) => {
+      if (conn.ws.readyState === WebSocket.OPEN) {
+        try {
+          conn.ws.send(shutdownPayload);
+          conn.ws.close(1001, 'Server shutting down');
+        } catch {
+          conn.ws.terminate();
+        }
+      }
+    });
+    wsConnections.clear();
+    wss.close();
+  }
+
+  process.on('SIGTERM', () => {
+    gracefulShutdown();
+    setTimeout(() => process.exit(0), 2000);
+  });
+
+  process.on('SIGINT', () => {
+    gracefulShutdown();
+    setTimeout(() => process.exit(0), 2000);
   });
 
   return httpServer;

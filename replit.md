@@ -72,7 +72,7 @@ All environment variables are managed through `server/lib/config.ts`. This modul
 - **Google Fonts**: Inter font.
 
 ### Real-time & Communication
-- **WebSockets**: For real-time features and messaging.
+- **WebSockets**: Hardened implementation with server-side heartbeat/ping-pong (30s interval, 10s timeout), connection tracking with structured pino logging, graceful shutdown with `server_restarting` event, and duplicate connection replacement. Client-side uses exponential backoff reconnection (1s initial, 30s max, 2x multiplier, random jitter), mobile backgrounding detection via `visibilitychange`, and exposes `ConnectionStatus` type (`connected` | `connecting` | `disconnected`).
 - **Web Push API**: For push notifications.
 
 ### Utility Libraries
