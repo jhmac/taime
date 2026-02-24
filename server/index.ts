@@ -32,6 +32,12 @@ app.use(helmet({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: false, limit: '10mb' }));
 
+import path from "path";
+app.use('/uploads/videos', express.static(path.resolve(process.cwd(), 'uploads', 'videos'), {
+  maxAge: '7d',
+  immutable: true,
+}));
+
 app.use((req, res, next) => {
   if (!req.path.startsWith('/api') && req.method === 'GET') {
     res.setHeader('Clear-Site-Data', '"cache"');

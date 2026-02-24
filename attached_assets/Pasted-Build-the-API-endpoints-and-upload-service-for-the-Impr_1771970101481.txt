@@ -1,0 +1,78 @@
+Build the API endpoints and upload service for the Improvement Video Platform.
+
+BACKEND:
+
+1. Create `server/services/videoUpload.ts`:
+   
+   For MVP, use S3 as the primary storage (YouTube integration is complex and can be added later).
+   
+   Function: getPresignedUploadUrl(storeId: string, fileName: string, contentType: string): Promise<{ uploadUrl: string, s3Key: string }>
+   - Generates a presigned S3 PUT URL (expires in 15 minutes)
+   - S3 key format: `stores/${storeId}/videos/${uuid}/${fileName}`
+   - Validates content type is video/mp4 or video/quicktime
+   
+   Function: getVideoUrl(s3Key: string): string
+   - Returns the CloudFront URL (or direct S3 URL if CloudFront not configured)
+   - If CloudFront is not configured, generate a presigned GET URL (1 hour expiry)
+
+   If AWS credentials are NOT configured in the env (which they probably aren't yet):
+   - Fall back to local file storage in `/uploads/videos/` directory
+   - Store files locally and serve them via a static Express route
+   - This lets us build and test the full feature without AWS setup
+   - Log a warning at startup: "AWS not configured — using local video storage (not for production)"
+
+2. Create `server/routes/videos.ts`:
+
+   POST /api/videos/upload-url — Get a presigned upload URL (or local upload endpoint)
+   - Auth: Any authenticated employee
+   - Zod body: { fileName: string, contentType: string, fileSize: number }
+   - Validate: contentType is video/mp4 or video/quicktime, fileSize < 100MB
+   - Returns: { uploadUrl, s3Key } (for S3) or { uploadUrl: '/api/videos/upload' } (for local)
+
+   POST /api/videos/upload — Direct upload endpoint (local storage fallback)
+   - Auth: Any authenticated employee
+   - Accepts multipart form data with a video file
+   - Validates file type and size
+   - Saves to local storage
+   - Returns: { filePath, url }
+
+   POST /api/videos — Create video record after upload completes
+   - Auth: Any authenticated employee
+   - Zod body: { title, description?, category, storage_type, s3_key?, youtube_video_id?, duration_seconds? }
+   - Creates the improvement_videos record with status 'ready'
+   - Notify the team via WebSocket: { type: 'new_improvement_video', data: { video } }
+   - Log to activity_log
+
+   GET /api/videos — List videos (the Improvement Feed)
+   - Auth: Any authenticated employee
+   - Query params: category?, employee_id?, sort_by? ('recent', 'popular', 'featured'), limit, offset
+   - For each video, include: like_count, comment_count, has_liked (for the current user)
+   - Paginated
+
+   GET /api/videos/:id — Get video detail with comments
+   - Auth: Any authenticated employee
+   - Increment view_count (fire-and-forget, don't block response)
+   - Include all comments with author names
+
+   POST /api/videos/:id/like — Toggle like
+   - Auth: Any authenticated employee
+   - If already liked, unlike (delete the like). If not liked, like (create).
+   - Returns: { liked: boolean, like_count: number }
+
+   DELETE /api/videos/:id/like — Unlike (alternative endpoint)
+   - Auth: Any authenticated employee
+
+   POST /api/videos/:id/comments — Add comment
+   - Auth: Any authenticated employee
+   - Zod body: { comment_text: string } (max 500 chars)
+   - Notify the video author via WebSocket
+
+   DELETE /api/videos/:id — Delete video
+   - Auth: The video author, or Manager/Owner
+   - Soft delete or hard delete (hard delete for now, including S3 object)
+
+TECHNICAL:
+- For local storage fallback, use multer middleware for file uploads
+- Install multer if not already present
+- Serve uploaded videos from '/uploads/videos' via express.static
+- All endpoints: Clerk auth, RBAC, Zod, try/catch, structured logging
