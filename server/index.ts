@@ -5,6 +5,7 @@ import { setupVite, serveStatic, log } from "./vite";
 import { config } from "./lib/config";
 import logger from "./lib/logger";
 import { globalErrorHandler } from "./lib/routeWrapper";
+import { startRitualScheduler } from "./services/ritualScheduler";
 
 process.on('uncaughtException', (err) => {
   if (err.message?.includes('Cannot set property message') ||
@@ -97,5 +98,6 @@ app.use((req, res, next) => {
     reusePort: true,
   }, () => {
     log(`serving on port ${port}`);
+    startRitualScheduler();
   });
 })();

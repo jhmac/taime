@@ -27,6 +27,7 @@ import { registerAiAssistantRoutes } from "./routes/aiAssistant";
 import { registerAiSchedulingRoutes } from "./routes/aiScheduling";
 import { registerDashboardRoutes } from "./routes/dashboard";
 import { registerIssueRoutes } from "./routes/issues";
+import { registerRitualRoutes } from "./routes/rituals";
 import { createActionLoggerMiddleware, handleClientErrorReport, getActionSummary } from "./services/actionLogger";
 import logger from "./lib/logger";
 
@@ -116,6 +117,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerAiSchedulingRoutes(app, storage, isAuthenticated);
   registerDashboardRoutes(app, storage, isAuthenticated);
   registerIssueRoutes(app, storage, isAuthenticated, broadcastToAll);
+  registerRitualRoutes(app, storage, isAuthenticated, broadcastToAll);
 
   const httpServer = createServer(app);
 
