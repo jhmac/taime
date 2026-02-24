@@ -139,31 +139,36 @@ export default function SmartClockPrompt() {
   }
 
   return (
-    <div className="fixed top-0 left-0 right-0 z-50 bg-primary text-primary-foreground shadow-lg animate-in slide-in-from-top duration-300">
-      <div className="max-w-lg mx-auto px-4 py-3 flex items-center gap-3">
-        <div className="flex-shrink-0 w-10 h-10 rounded-full bg-primary-foreground/20 flex items-center justify-center">
-          <MapPin className="w-5 h-5" />
+    <div className="fixed top-4 left-0 right-0 z-[70] animate-in slide-in-from-top-5 duration-300 pointer-events-none">
+      <div className="max-w-md mx-auto px-4 pointer-events-auto">
+        <div className="bg-blue-600 text-white rounded-xl p-4 shadow-xl relative overflow-hidden">
+          <div className="flex items-start gap-4">
+            <div className="flex-shrink-0 w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
+              <MapPin className="w-5 h-5 text-white" />
+            </div>
+            <div className="flex-1 min-w-0 pr-6">
+              <p className="font-semibold text-[15px] leading-snug">You're at {nearbyLocation.name}</p>
+              <p className="text-sm text-white/90 mt-0.5">Would you like to clock in?</p>
+            </div>
+            <button 
+              onClick={handleDismiss}
+              className="absolute top-3 right-3 p-1 rounded-full hover:bg-white/10 transition-colors"
+            >
+              <X className="w-4 h-4 text-white/70" />
+            </button>
+          </div>
+          
+          <div className="mt-4 flex gap-3">
+            <Button
+              onClick={handleClockIn}
+              disabled={clockInMutation.isPending}
+              className="flex-1 bg-white text-blue-600 hover:bg-white/90 rounded-lg h-10 font-bold flex items-center justify-center gap-2"
+            >
+              <Clock className="w-4 h-4" />
+              {clockInMutation.isPending ? 'Clocking in...' : 'Clock In'}
+            </Button>
+          </div>
         </div>
-        <div className="flex-1 min-w-0">
-          <p className="font-medium text-sm">You're at {nearbyLocation.name}</p>
-          <p className="text-xs opacity-80">Would you like to clock in?</p>
-        </div>
-        <Button
-          size="sm"
-          variant="secondary"
-          onClick={handleClockIn}
-          disabled={clockInMutation.isPending}
-          className="flex-shrink-0"
-        >
-          <Clock className="w-4 h-4 mr-1" />
-          {clockInMutation.isPending ? 'Clocking in...' : 'Clock In'}
-        </Button>
-        <button
-          onClick={handleDismiss}
-          className="flex-shrink-0 p-1 rounded-full hover:bg-primary-foreground/20 transition-colors"
-        >
-          <X className="w-4 h-4" />
-        </button>
       </div>
     </div>
   );
