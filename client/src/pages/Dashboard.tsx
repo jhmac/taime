@@ -18,6 +18,7 @@ import DailyQuoteCard from '@/components/DailyQuoteCard';
 import KudosWidget from '@/components/KudosWidget';
 import DailyDebriefSheet from '@/components/DailyDebriefSheet';
 import SurfacedSOPBanner from '@/components/SurfacedSOPBanner';
+import ImprovementFeedWidget from '@/components/ImprovementFeedWidget';
 import type { UserWithRole, Schedule } from '@shared/schema';
 import { Calendar, Users, DollarSign, MessageSquare, Clock, Bot, Sun, ClipboardList } from 'lucide-react';
 
@@ -402,6 +403,10 @@ export default function Dashboard() {
                 </CardContent>
               </Card>
             </div>
+          </div>
+
+          <div className="px-6 pb-3">
+            <ImprovementFeedWidget />
           </div>
 
           <div className="px-6 pb-6">

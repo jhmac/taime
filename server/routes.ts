@@ -1,5 +1,7 @@
 import type { Express } from "express";
+import express from "express";
 import { createServer, type Server } from "http";
+import path from "path";
 import { WebSocketServer, WebSocket } from "ws";
 import { storage } from "./storage";
 import { setupAuth, requireAuth as isAuthenticated } from "./streamlinedAuth";
@@ -101,6 +103,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     });
   }
+
+  app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
   registerAuthRoutes(app, storage, isAuthenticated);
   registerTimeEntryRoutes(app, storage, isAuthenticated, broadcastToAll);

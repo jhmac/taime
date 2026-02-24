@@ -39,6 +39,7 @@ import SOPExecution from "@/pages/SOPExecution";
 import IssueList from "@/pages/IssueList";
 import IssueDetail from "@/pages/IssueDetail";
 import MorningHuddle from "@/pages/MorningHuddle";
+import ImprovementFeed from "@/pages/ImprovementFeed";
 import NotFound from "@/pages/not-found";
 import OfflineIndicator from "@/components/OfflineIndicator";
 import SmartClockPrompt from "@/components/SmartClockPrompt";
@@ -224,6 +225,7 @@ function AuthenticatedApp() {
       <Route path="/issues" component={IssueList} />
       <Route path="/issues/:id" component={IssueDetail} />
       <Route path="/huddle" component={MorningHuddle} />
+      <Route path="/improvements" component={ImprovementFeed} />
       <Route path="/support" component={SupportPage} />
       <Route path="/admin">
         <ProtectedRoute permission="admin.manage_all"><AdminSettings /></ProtectedRoute>
