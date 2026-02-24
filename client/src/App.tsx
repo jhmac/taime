@@ -36,6 +36,8 @@ import SOPLibrary from "@/pages/SOPLibrary";
 import SOPBuilder from "@/pages/SOPBuilder";
 import SOPDetail from "@/pages/SOPDetail";
 import SOPExecution from "@/pages/SOPExecution";
+import IssueList from "@/pages/IssueList";
+import IssueDetail from "@/pages/IssueDetail";
 import NotFound from "@/pages/not-found";
 import OfflineIndicator from "@/components/OfflineIndicator";
 import SmartClockPrompt from "@/components/SmartClockPrompt";
@@ -217,6 +219,8 @@ function AuthenticatedApp() {
       </Route>
       <Route path="/sops/execute/:executionId" component={SOPExecution} />
       <Route path="/sops/:id" component={SOPDetail} />
+      <Route path="/issues" component={IssueList} />
+      <Route path="/issues/:id" component={IssueDetail} />
       <Route path="/support" component={SupportPage} />
       <Route path="/admin">
         <ProtectedRoute permission="admin.manage_all"><AdminSettings /></ProtectedRoute>

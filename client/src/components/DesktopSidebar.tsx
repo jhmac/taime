@@ -11,6 +11,7 @@ const generalNavItems = [
   { path: '/availability', icon: 'fas fa-clock', label: 'Availability' },
   { path: '/communication', icon: 'fas fa-comments', label: 'Messages' },
   { path: '/learning', icon: 'fas fa-graduation-cap', label: 'Learning' },
+  { path: '/issues', icon: 'fas fa-exclamation-triangle', label: 'Issues' },
   { path: '/requests', icon: 'fas fa-file-alt', label: 'Requests', employeeOnly: true },
   { path: '/team-directory', icon: 'fas fa-users', label: 'Team', employeeOnly: true },
 ] as const;
