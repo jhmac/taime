@@ -877,6 +877,59 @@ export type PushSubscription = typeof pushSubscriptions.$inferSelect;
 export type InsertPushSubscription = z.infer<typeof insertPushSubscriptionSchema>;
 export type Role = typeof roles.$inferSelect;
 export type InsertRole = z.infer<typeof insertRoleSchema>;
+// Issue Tracker
+export const issues = pgTable("issues", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => workLocations.id).notNull(),
+  reportedBy: varchar("reported_by").notNull(),
+  assignedTo: varchar("assigned_to"),
+  title: text("title").notNull(),
+  description: text("description"),
+  category: varchar("category").notNull(),
+  priority: varchar("priority").notNull().default("medium"),
+  status: varchar("status").notNull().default("open"),
+  photoUrl: text("photo_url"),
+  resolutionNotes: text("resolution_notes"),
+  relatedSopId: varchar("related_sop_id").references(() => sopTemplates.id),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  resolvedBy: varchar("resolved_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  index("idx_issues_store_status_priority").on(table.storeId, table.status, table.priority),
+  index("idx_issues_store_category_created").on(table.storeId, table.category, table.createdAt),
+  index("idx_issues_store_assigned_status").on(table.storeId, table.assignedTo, table.status),
+  index("idx_issues_reported_created").on(table.reportedBy, table.createdAt),
+]);
+
+export const issueComments = pgTable("issue_comments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  issueId: varchar("issue_id").references(() => issues.id, { onDelete: "cascade" }).notNull(),
+  authorId: varchar("author_id").notNull(),
+  commentText: text("comment_text").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  index("idx_issue_comments_issue_created").on(table.issueId, table.createdAt),
+]);
+
+export const insertIssueSchema = createInsertSchema(issues).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertIssueCommentSchema = createInsertSchema(issueComments).omit({
+  id: true,
+  createdAt: true,
+});
+
+// --- Type Exports ---
+
+export type Issue = typeof issues.$inferSelect;
+export type InsertIssue = z.infer<typeof insertIssueSchema>;
+export type IssueComment = typeof issueComments.$inferSelect;
+export type InsertIssueComment = z.infer<typeof insertIssueCommentSchema>;
+
 export type Permission = typeof permissions.$inferSelect;
 export type InsertPermission = z.infer<typeof insertPermissionSchema>;
 export type RolePermission = typeof rolePermissions.$inferSelect;
