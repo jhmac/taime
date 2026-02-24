@@ -220,25 +220,27 @@ export function registerGeofenceRoutes(app: Express, storage: IStorage, isAuthen
         return res.status(403).json({ message: "Admin access required" });
       }
 
-      const { id } = req.params;
-      const { name, address, latitude, longitude, radius, geofenceType, geofencePolygon, geofenceGraceMinutes, geofenceEnabled, autoClockOut } = req.body;
+    const { id } = req.params;
+    const validated = req.body;
 
-      const updateData: any = {};
-      if (name !== undefined) updateData.name = name;
-      if (address !== undefined) updateData.address = address;
-      if (latitude !== undefined) updateData.latitude = latitude ? String(latitude) : null;
-      if (longitude !== undefined) updateData.longitude = longitude ? String(longitude) : null;
-      if (radius !== undefined) updateData.radius = radius;
-      if (geofenceType !== undefined) updateData.geofenceType = geofenceType;
-      if (geofencePolygon !== undefined) updateData.geofencePolygon = geofencePolygon;
-      if (geofenceGraceMinutes !== undefined) updateData.geofenceGraceMinutes = geofenceGraceMinutes;
-      if (geofenceEnabled !== undefined) updateData.geofenceEnabled = geofenceEnabled;
-      if (autoClockOut !== undefined) updateData.autoClockOut = autoClockOut;
+    const updateData: any = {};
+    if (validated.name !== undefined) updateData.name = validated.name;
+    if (validated.address !== undefined) updateData.address = validated.address;
+    if (validated.latitude !== undefined) updateData.latitude = validated.latitude ? String(validated.latitude) : null;
+    if (validated.longitude !== undefined) updateData.longitude = validated.longitude ? String(validated.longitude) : null;
+    if (validated.radius !== undefined) updateData.radius = validated.radius;
+    if (validated.geofenceType !== undefined) updateData.geofenceType = validated.geofenceType;
+    if (validated.geofencePolygon !== undefined) updateData.geofencePolygon = validated.geofencePolygon;
+    if (validated.geofenceGraceMinutes !== undefined) {
+      updateData.geofenceGraceMinutes = validated.geofenceGraceMinutes !== null ? String(validated.geofenceGraceMinutes) : "5.00";
+    }
+    if (validated.geofenceEnabled !== undefined) updateData.geofenceEnabled = validated.geofenceEnabled;
+    if (validated.autoClockOut !== undefined) updateData.autoClockOut = validated.autoClockOut;
 
-      const [updated] = await db.update(workLocations)
-        .set(updateData)
-        .where(eq(workLocations.id, id))
-        .returning();
+    const [updated] = await db.update(workLocations)
+      .set(updateData)
+      .where(eq(workLocations.id, id))
+      .returning();
 
       if (!updated) {
         return res.status(404).json({ message: "Location not found" });

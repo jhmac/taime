@@ -194,7 +194,7 @@ export const groupMembers = pgTable("group_members", {
   joinedAt: timestamp("joined_at").defaultNow(),
 });
 
-// Team messages/communication (updated for group chat support)
+// Team messages/communication
 export const messages = pgTable("messages", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   senderId: varchar("sender_id").references(() => users.id).notNull(),
@@ -206,17 +206,17 @@ export const messages = pgTable("messages", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-// Pay period automation settings
+// Pay period settings
 export const payPeriodSettings = pgTable("pay_period_settings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  intervalType: varchar("interval_type").default("bi-weekly"), // 'weekly', 'bi-weekly', 'monthly'
+  intervalType: varchar("interval_type").default("bi-weekly"),
   isAutomationEnabled: boolean("is_automation_enabled").default(false),
-  daysBeforeNotification: integer("days_before_notification").default(7), // Days before period ends to send availability notice
-  scheduleGenerationDays: integer("schedule_generation_days").default(5), // Days before period starts to generate schedule
+  daysBeforeNotification: integer("days_before_notification").default(7),
+  scheduleGenerationDays: integer("schedule_generation_days").default(5),
   automaticConflictResolution: boolean("automatic_conflict_resolution").default(true),
   firstPayPeriodStart: timestamp("first_pay_period_start"),
   firstPayPeriodEnd: timestamp("first_pay_period_end"),
-  payDayOfWeek: integer("pay_day_of_week").default(5), // 0=Sunday, 1=Monday...5=Friday, 6=Saturday
+  payDayOfWeek: integer("pay_day_of_week").default(5),
   notificationUserId: varchar("notification_user_id").references(() => users.id),
   isSetupComplete: boolean("is_setup_complete").default(false),
   createdBy: varchar("created_by").references(() => users.id),
@@ -225,20 +225,31 @@ export const payPeriodSettings = pgTable("pay_period_settings", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-// Workflow states enum for pay periods
+// Shoutouts for team recognition
+export const shoutouts = pgTable("shoutouts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  senderId: varchar("sender_id").references(() => users.id).notNull(),
+  recipientId: varchar("recipient_id").references(() => users.id).notNull(),
+  category: varchar("category").notNull(), // 'Great Attitude', 'Team Player', 'Above & Beyond', 'Problem Solver', 'Customer Hero'
+  message: text("message").notNull(),
+  emoji: varchar("emoji"),
+  reactions: jsonb("reactions").$type<Array<{ userId: string; emoji: string }>>().default([]),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 export const workflowStateEnum = pgEnum("workflow_state", [
-  "created", // Pay period created
-  "availability_requested", // Availability notification sent to team
-  "availability_collected", // Team has submitted availability
-  "schedule_generated", // AI has generated initial schedule
-  "schedule_sent_for_review", // Schedule sent to team for confirmation
-  "schedule_confirmed", // Team has confirmed schedule
-  "conflicts_resolved", // Any conflicts have been automatically resolved
-  "finalized", // Schedule is final and locked
-  "processed" // Payroll has been processed
+  "created",
+  "availability_requested",
+  "availability_collected",
+  "schedule_generated",
+  "schedule_sent_for_review",
+  "schedule_confirmed",
+  "conflicts_resolved",
+  "finalized",
+  "processed"
 ]);
 
-// Payroll periods with enhanced automation and workflow support
+// Payroll periods
 export const payrollPeriods = pgTable("payroll_periods", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   startDate: timestamp("start_date").notNull(),
@@ -255,20 +266,20 @@ export const payrollPeriods = pgTable("payroll_periods", {
   scheduleSentAt: timestamp("schedule_sent_at"),
   scheduleConfirmedAt: timestamp("schedule_confirmed_at"),
   finalizedAt: timestamp("finalized_at"),
-  automationMetadata: jsonb("automation_metadata"), // Store automation-related data
+  automationMetadata: jsonb("automation_metadata"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-// User availability for scheduling
+// User availability
 export const userAvailability = pgTable("user_availability", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").references(() => users.id).notNull(),
   payrollPeriodId: varchar("payroll_period_id").references(() => payrollPeriods.id),
   date: timestamp("date").notNull(),
-  timeSlot: varchar("time_slot").notNull(), // 'morning', 'afternoon', 'evening', 'overnight'
+  timeSlot: varchar("time_slot").notNull(),
   isAvailable: boolean("is_available").default(true),
-  startTime: varchar("start_time"), // custom start time e.g. "09:00"
-  endTime: varchar("end_time"), // custom end time e.g. "17:00"
+  startTime: varchar("start_time"),
+  endTime: varchar("end_time"),
   notes: text("notes"),
   submittedAt: timestamp("submitted_at").defaultNow(),
   createdAt: timestamp("created_at").defaultNow(),
@@ -278,12 +289,12 @@ export const userAvailability = pgTable("user_availability", {
 export const timeOffRequests = pgTable("time_off_requests", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").references(() => users.id).notNull(),
-  type: varchar("type").notNull(), // 'vacation', 'sick', 'personal', 'unpaid', 'other'
-  status: varchar("status").notNull().default("pending"), // 'pending', 'approved', 'denied', 'cancelled'
+  type: varchar("type").notNull(),
+  status: varchar("status").notNull().default("pending"),
   startDate: timestamp("start_date").notNull(),
   endDate: timestamp("end_date").notNull(),
   allDay: boolean("all_day").default(true),
-  startTime: varchar("start_time"), // for partial day requests
+  startTime: varchar("start_time"),
   endTime: varchar("end_time"),
   reason: text("reason"),
   adminNotes: text("admin_notes"),
@@ -292,43 +303,43 @@ export const timeOffRequests = pgTable("time_off_requests", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-// Schedule confirmations from team members
+// Schedule confirmations
 export const scheduleConfirmations = pgTable("schedule_confirmations", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   payrollPeriodId: varchar("payroll_period_id").references(() => payrollPeriods.id).notNull(),
   userId: varchar("user_id").references(() => users.id).notNull(),
   isConfirmed: boolean("is_confirmed").default(false),
-  feedback: text("feedback"), // Optional feedback about the schedule
-  conflicts: jsonb("conflicts"), // Any conflicts the user has with the schedule
+  feedback: text("feedback"),
+  conflicts: jsonb("conflicts"),
   confirmedAt: timestamp("confirmed_at"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-// Automated workflow logs
+// Workflow logs
 export const workflowLogs = pgTable("workflow_logs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   payrollPeriodId: varchar("payroll_period_id").references(() => payrollPeriods.id).notNull(),
-  workflowStep: varchar("workflow_step").notNull(), // e.g., 'availability_requested', 'schedule_generated'
-  status: varchar("status").notNull(), // 'success', 'failed', 'pending'
-  details: text("details"), // Additional details about the workflow step
-  metadata: jsonb("metadata"), // JSON data related to the workflow step
+  workflowStep: varchar("workflow_step").notNull(),
+  status: varchar("status").notNull(),
+  details: text("details"),
+  metadata: jsonb("metadata"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-// AI monitoring and insights
+// AI insights
 export const aiInsights = pgTable("ai_insights", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  type: varchar("type").notNull(), // 'overtime_alert', 'anomaly_detected', 'optimization'
+  type: varchar("type").notNull(),
   userId: varchar("user_id").references(() => users.id),
   title: varchar("title").notNull(),
   description: text("description"),
-  severity: varchar("severity").default("info"), // 'info', 'warning', 'critical'
+  severity: varchar("severity").default("info"),
   isRead: boolean("is_read").default(false),
   metadata: jsonb("metadata"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-// Company settings (singleton)
+// Company settings
 export const companySettings = pgTable("company_settings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyName: varchar("company_name").default("My Company"),
@@ -422,7 +433,7 @@ export const companySettings = pgTable("company_settings", {
   version: integer("version").default(1).notNull(),
 });
 
-// Activity log for admin actions
+// Activity logs
 export const activityLogs = pgTable("activity_logs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").references(() => users.id).notNull(),
@@ -434,7 +445,7 @@ export const activityLogs = pgTable("activity_logs", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-// Clock events audit trail - tracks every clock action for performance scoring
+// Clock events
 export const clockEvents = pgTable("clock_events", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").references(() => users.id).notNull(),
@@ -445,7 +456,7 @@ export const clockEvents = pgTable("clock_events", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-// Performance score settings - configurable point values per event type
+// Performance score settings
 export const performanceScoreSettings = pgTable("performance_score_settings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   eventType: varchar("event_type").notNull().unique(),
@@ -457,11 +468,11 @@ export const performanceScoreSettings = pgTable("performance_score_settings", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-// Employee documents for file uploads
+// Employee documents
 export const employeeDocuments = pgTable("employee_documents", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").references(() => users.id).notNull(),
-  category: varchar("category").notNull(), // 'certificate', 'onboarding', 'general'
+  category: varchar("category").notNull(),
   name: varchar("name").notNull(),
   fileName: varchar("file_name").notNull(),
   fileData: text("file_data").notNull(),
@@ -471,343 +482,189 @@ export const employeeDocuments = pgTable("employee_documents", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-// Manager notes on employees
+// Manager notes
 export const managerNotes = pgTable("manager_notes", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").references(() => users.id).notNull(),
-  authorId: varchar("author_id").references(() => users.id).notNull(),
+  managerId: varchar("manager_id").references(() => users.id).notNull(),
+  note: text("note").notNull(),
+  category: varchar("category").notNull(),
+  isPrivate: boolean("is_private").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Holiday pay rules
+export const holidayPayRules = pgTable("holiday_pay_rules", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name").notNull(),
+  month: integer("month").notNull(),
+  day: integer("day").notNull(),
+  payMultiplier: decimal("pay_multiplier", { precision: 3, scale: 2 }).default("1.50"),
+  isActive: boolean("is_active").default(true),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// SOP categories
+export const sopCategories = pgTable("sop_categories", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name").notNull(),
+  description: text("description"),
+  icon: varchar("icon"),
+  sortOrder: integer("sort_order").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// SOP documents
+export const sopDocuments = pgTable("sop_documents", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  categoryId: varchar("category_id").references(() => sopCategories.id).notNull(),
+  title: varchar("title").notNull(),
+  content: text("content").notNull(),
+  summary: text("summary"),
+  isPublished: boolean("is_published").default(false),
+  version: integer("version").default(1),
+  updatedBy: varchar("updated_by").references(() => users.id),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// AI Chat
+export const aiChatConversations = pgTable("ai_chat_conversations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  title: varchar("title").notNull(),
+  context: jsonb("context"),
+  lastMessageAt: timestamp("last_message_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const aiChatMessages = pgTable("ai_chat_messages", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  conversationId: varchar("conversation_id").references(() => aiChatConversations.id).notNull(),
+  role: varchar("role").notNull(),
   content: text("content").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-// Push notification subscriptions
+// Training modules
+export const trainingModules = pgTable("training_modules", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  title: varchar("title").notNull(),
+  description: text("description"),
+  content: text("content").notNull(),
+  category: varchar("category"),
+  estimatedMinutes: integer("estimated_minutes"),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Employee training progress
+export const employeeTrainingProgress = pgTable("employee_training_progress", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  moduleId: varchar("module_id").references(() => trainingModules.id).notNull(),
+  status: varchar("status").notNull().default("not_started"),
+  completedAt: timestamp("completed_at"),
+  score: integer("score"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Commute alerts
+export const commuteAlerts = pgTable("commute_alerts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  type: varchar("type").notNull(),
+  title: varchar("title").notNull(),
+  message: text("message").notNull(),
+  severity: varchar("severity").default("info"),
+  isRead: boolean("is_read").default(false),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Push subscriptions
 export const pushSubscriptions = pgTable("push_subscriptions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").references(() => users.id).notNull(),
   endpoint: text("endpoint").notNull(),
   p256dh: text("p256dh").notNull(),
   auth: text("auth").notNull(),
-  isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-// Relations
-export const usersRelations = relations(users, ({ one, many }) => ({
-  role: one(roles, {
-    fields: [users.roleId],
-    references: [roles.id],
-  }),
-  timeEntries: many(timeEntries),
-  schedules: many(schedules),
-  assignedTasks: many(tasks, { relationName: "assignedTasks" }),
-  createdTasks: many(tasks, { relationName: "createdTasks" }),
-  sentMessages: many(messages, { relationName: "sentMessages" }),
-  receivedMessages: many(messages, { relationName: "receivedMessages" }),
-  createdGroups: many(chatGroups),
-  groupMemberships: many(groupMembers),
-  availability: many(userAvailability),
-  insights: many(aiInsights),
-  pushSubscriptions: many(pushSubscriptions),
-  clockEvents: many(clockEvents),
-}));
-
-export const rolesRelations = relations(roles, ({ many }) => ({
-  users: many(users),
-  rolePermissions: many(rolePermissions),
-}));
-
-export const permissionsRelations = relations(permissions, ({ many }) => ({
-  rolePermissions: many(rolePermissions),
-}));
-
-export const rolePermissionsRelations = relations(rolePermissions, ({ one }) => ({
-  role: one(roles, {
-    fields: [rolePermissions.roleId],
-    references: [roles.id],
-  }),
-  permission: one(permissions, {
-    fields: [rolePermissions.permissionId],
-    references: [permissions.id],
-  }),
-}));
-
-export const timeEntriesRelations = relations(timeEntries, ({ one }) => ({
-  user: one(users, {
-    fields: [timeEntries.userId],
-    references: [users.id],
-  }),
-  location: one(workLocations, {
-    fields: [timeEntries.locationId],
-    references: [workLocations.id],
-  }),
-  approver: one(users, {
-    fields: [timeEntries.approvedBy],
-    references: [users.id],
-  }),
-}));
-
-export const schedulesRelations = relations(schedules, ({ one }) => ({
-  user: one(users, {
-    fields: [schedules.userId],
-    references: [users.id],
-  }),
-  location: one(workLocations, {
-    fields: [schedules.locationId],
-    references: [workLocations.id],
-  }),
-  creator: one(users, {
-    fields: [schedules.createdBy],
-    references: [users.id],
-  }),
-}));
-
-export const tasksRelations = relations(tasks, ({ one }) => ({
-  assignedUser: one(users, {
-    fields: [tasks.assignedTo],
-    references: [users.id],
-    relationName: "assignedTasks",
-  }),
-  creator: one(users, {
-    fields: [tasks.createdBy],
-    references: [users.id],
-    relationName: "createdTasks",
-  }),
-  location: one(workLocations, {
-    fields: [tasks.locationId],
-    references: [workLocations.id],
-  }),
-}));
-
-export const chatGroupsRelations = relations(chatGroups, ({ one, many }) => ({
-  creator: one(users, {
-    fields: [chatGroups.createdBy],
-    references: [users.id],
-  }),
-  members: many(groupMembers),
-  messages: many(messages),
-}));
-
-export const groupMembersRelations = relations(groupMembers, ({ one }) => ({
-  group: one(chatGroups, {
-    fields: [groupMembers.groupId],
-    references: [chatGroups.id],
-  }),
-  user: one(users, {
-    fields: [groupMembers.userId],
-    references: [users.id],
-  }),
-}));
-
-export const messagesRelations = relations(messages, ({ one }) => ({
-  sender: one(users, {
-    fields: [messages.senderId],
-    references: [users.id],
-    relationName: "sentMessages",
-  }),
-  recipient: one(users, {
-    fields: [messages.recipientId],
-    references: [users.id],
-    relationName: "receivedMessages",
-  }),
-  group: one(chatGroups, {
-    fields: [messages.groupId],
-    references: [chatGroups.id],
-  }),
-}));
-
-export const aiInsightsRelations = relations(aiInsights, ({ one }) => ({
-  user: one(users, {
-    fields: [aiInsights.userId],
-    references: [users.id],
-  }),
-}));
-
-export const pushSubscriptionsRelations = relations(pushSubscriptions, ({ one }) => ({
-  user: one(users, {
-    fields: [pushSubscriptions.userId],
-    references: [users.id],
-  }),
-}));
-
-export const clockEventsRelations = relations(clockEvents, ({ one }) => ({
-  user: one(users, {
-    fields: [clockEvents.userId],
-    references: [users.id],
-  }),
-  timeEntry: one(timeEntries, {
-    fields: [clockEvents.timeEntryId],
-    references: [timeEntries.id],
-  }),
-}));
-
-// Insert schemas
-export const insertUserSchema = createInsertSchema(users).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
+// Geofence events
+export const geofenceEvents = pgTable("geofence_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  locationId: varchar("location_id").references(() => workLocations.id).notNull(),
+  eventType: varchar("event_type").notNull(),
+  latitude: decimal("latitude", { precision: 10, scale: 8 }),
+  longitude: decimal("longitude", { precision: 11, scale: 8 }),
+  createdAt: timestamp("created_at").defaultNow(),
 });
 
-export const insertRoleSchema = createInsertSchema(roles).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
-
-export const insertPermissionSchema = createInsertSchema(permissions).omit({
-  id: true,
-  createdAt: true,
-});
-
-export const insertRolePermissionSchema = createInsertSchema(rolePermissions).omit({
-  id: true,
-  createdAt: true,
-});
-
-const rawInsertTimeEntrySchema = createInsertSchema(timeEntries).omit({
-  id: true,
-  createdAt: true,
-});
-
-export const insertTimeEntrySchema = rawInsertTimeEntrySchema.extend({
-  clockInTime: z.preprocess(
-    (val) => (typeof val === 'string' ? new Date(val) : val),
-    z.date()
-  ),
-  clockOutTime: z.preprocess(
-    (val) => (typeof val === 'string' ? new Date(val) : val),
-    z.date()
-  ).optional().nullable(),
-  approvedAt: z.preprocess(
-    (val) => (typeof val === 'string' ? new Date(val) : val),
-    z.date()
-  ).optional().nullable(),
-});
-
-export const insertScheduleSchema = createInsertSchema(schedules).omit({
-  id: true,
-  createdAt: true,
-});
-
-export const insertTaskSchema = createInsertSchema(tasks).omit({
-  id: true,
-  createdAt: true,
-});
-
-export const insertChatGroupSchema = createInsertSchema(chatGroups).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
-
-export const insertGroupMemberSchema = createInsertSchema(groupMembers).omit({
-  id: true,
-  joinedAt: true,
-});
-
-export const insertMessageSchema = createInsertSchema(messages).omit({
-  id: true,
-  createdAt: true,
-});
-
-export const insertUserAvailabilitySchema = createInsertSchema(userAvailability).omit({
-  id: true,
-  createdAt: true,
-  submittedAt: true,
-});
-
-export const insertTimeOffRequestSchema = createInsertSchema(timeOffRequests).omit({
-  id: true,
-  createdAt: true,
-  reviewedAt: true,
-});
-
-export const insertPayPeriodSettingsSchema = createInsertSchema(payPeriodSettings).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
-
-export const insertScheduleConfirmationSchema = createInsertSchema(scheduleConfirmations).omit({
-  id: true,
-  createdAt: true,
-});
-
-export const insertWorkflowLogSchema = createInsertSchema(workflowLogs).omit({
-  id: true,
-  createdAt: true,
-});
-
-export const insertPayrollPeriodSchema = createInsertSchema(payrollPeriods).omit({
-  id: true,
-  createdAt: true,
-});
-
-export const insertWorkLocationSchema = createInsertSchema(workLocations).omit({
-  id: true,
-  createdAt: true,
-});
-
-export const insertPushSubscriptionSchema = createInsertSchema(pushSubscriptions).omit({
-  id: true,
-  createdAt: true,
-});
-
-export const insertClockEventSchema = createInsertSchema(clockEvents).omit({
-  id: true,
-  createdAt: true,
-});
-
-export const insertPerformanceScoreSettingSchema = createInsertSchema(performanceScoreSettings).omit({
-  id: true,
-  updatedAt: true,
-});
-
-export const insertCompanySettingsSchema = createInsertSchema(companySettings).omit({
-  id: true,
-  updatedAt: true,
-  version: true,
-});
-
-export const insertActivityLogSchema = createInsertSchema(activityLogs).omit({
-  id: true,
-  createdAt: true,
-});
-
-// Chore assignment schema
-export const choreAssignmentSchema = z.object({
-  choreId: z.string(),
-  userId: z.string(),
-});
-
-// Chore sign-off schema
-export const choreSignOffSchema = z.object({
-  choreId: z.string(),
-  isManager: z.boolean().default(false),
-});
+// Zod schemas
+export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertTimeEntrySchema = createInsertSchema(timeEntries).omit({ id: true, createdAt: true });
+export const insertScheduleSchema = createInsertSchema(schedules).omit({ id: true, createdAt: true });
+export const insertTaskSchema = createInsertSchema(tasks).omit({ id: true, createdAt: true });
+export const insertMessageSchema = createInsertSchema(messages).omit({ id: true, createdAt: true });
+export const insertChatGroupSchema = createInsertSchema(chatGroups).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertGroupMemberSchema = createInsertSchema(groupMembers).omit({ id: true, joinedAt: true });
+export const insertWorkLocationSchema = createInsertSchema(workLocations).omit({ id: true, createdAt: true });
+export const insertPayrollPeriodSchema = createInsertSchema(payrollPeriods).omit({ id: true, createdAt: true });
+export const insertUserAvailabilitySchema = createInsertSchema(userAvailability).omit({ id: true, createdAt: true });
+export const insertTimeOffRequestSchema = createInsertSchema(timeOffRequests).omit({ id: true, createdAt: true });
+export const insertPayPeriodSettingsSchema = createInsertSchema(payPeriodSettings).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertScheduleConfirmationSchema = createInsertSchema(scheduleConfirmations).omit({ id: true, createdAt: true });
+export const insertWorkflowLogSchema = createInsertSchema(workflowLogs).omit({ id: true, createdAt: true });
+export const insertPushSubscriptionSchema = createInsertSchema(pushSubscriptions).omit({ id: true, createdAt: true });
+export const insertRoleSchema = createInsertSchema(roles).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertPermissionSchema = createInsertSchema(permissions).omit({ id: true, createdAt: true });
+export const insertRolePermissionSchema = createInsertSchema(rolePermissions).omit({ id: true, createdAt: true });
+export const insertCompanySettingsSchema = createInsertSchema(companySettings).omit({ id: true, updatedAt: true });
+export const insertActivityLogSchema = createInsertSchema(activityLogs).omit({ id: true, createdAt: true });
+export const insertClockEventSchema = createInsertSchema(clockEvents).omit({ id: true, createdAt: true });
+export const insertPerformanceScoreSettingSchema = createInsertSchema(performanceScoreSettings).omit({ id: true, updatedAt: true });
+export const insertEmployeeDocumentSchema = createInsertSchema(employeeDocuments).omit({ id: true, createdAt: true });
+export const insertManagerNoteSchema = createInsertSchema(managerNotes).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertHolidayPayRuleSchema = createInsertSchema(holidayPayRules).omit({ id: true, createdAt: true });
+export const insertSopCategorySchema = createInsertSchema(sopCategories).omit({ id: true, createdAt: true });
+export const insertSopDocumentSchema = createInsertSchema(sopDocuments).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertAiChatConversationSchema = createInsertSchema(aiChatConversations).omit({ id: true, createdAt: true });
+export const insertAiChatMessageSchema = createInsertSchema(aiChatMessages).omit({ id: true, createdAt: true });
+export const insertTrainingModuleSchema = createInsertSchema(trainingModules).omit({ id: true, createdAt: true });
+export const insertEmployeeTrainingProgressSchema = createInsertSchema(employeeTrainingProgress).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertCommuteAlertSchema = createInsertSchema(commuteAlerts).omit({ id: true, createdAt: true });
+export const insertShoutoutSchema = createInsertSchema(shoutouts).omit({ id: true, createdAt: true, reactions: true });
 
 // Types
-export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
+export type InsertUser = z.infer<typeof insertUserSchema>;
+export type UpsertUser = InsertUser & { id: string };
 export type TimeEntry = typeof timeEntries.$inferSelect;
 export type InsertTimeEntry = z.infer<typeof insertTimeEntrySchema>;
 export type Schedule = typeof schedules.$inferSelect;
 export type InsertSchedule = z.infer<typeof insertScheduleSchema>;
 export type Task = typeof tasks.$inferSelect;
 export type InsertTask = z.infer<typeof insertTaskSchema>;
+export type Message = typeof messages.$inferSelect;
+export type InsertMessage = z.infer<typeof insertMessageSchema>;
 export type ChatGroup = typeof chatGroups.$inferSelect;
 export type InsertChatGroup = z.infer<typeof insertChatGroupSchema>;
 export type GroupMember = typeof groupMembers.$inferSelect;
 export type InsertGroupMember = z.infer<typeof insertGroupMemberSchema>;
-export type Message = typeof messages.$inferSelect;
-export type InsertMessage = z.infer<typeof insertMessageSchema>;
-export type UserAvailability = typeof userAvailability.$inferSelect;
-export type InsertUserAvailability = z.infer<typeof insertUserAvailabilitySchema>;
-export type TimeOffRequest = typeof timeOffRequests.$inferSelect;
-export type InsertTimeOffRequest = z.infer<typeof insertTimeOffRequestSchema>;
 export type WorkLocation = typeof workLocations.$inferSelect;
 export type InsertWorkLocation = z.infer<typeof insertWorkLocationSchema>;
 export type PayrollPeriod = typeof payrollPeriods.$inferSelect;
 export type InsertPayrollPeriod = z.infer<typeof insertPayrollPeriodSchema>;
+export type UserAvailability = typeof userAvailability.$inferSelect;
+export type InsertUserAvailability = z.infer<typeof insertUserAvailabilitySchema>;
+export type TimeOffRequest = typeof timeOffRequests.$inferSelect;
+export type InsertTimeOffRequest = z.infer<typeof insertTimeOffRequestSchema>;
 export type PayPeriodSettings = typeof payPeriodSettings.$inferSelect;
 export type InsertPayPeriodSettings = z.infer<typeof insertPayPeriodSettingsSchema>;
 export type ScheduleConfirmation = typeof scheduleConfirmations.$inferSelect;
@@ -815,10 +672,6 @@ export type InsertScheduleConfirmation = z.infer<typeof insertScheduleConfirmati
 export type WorkflowLog = typeof workflowLogs.$inferSelect;
 export type InsertWorkflowLog = z.infer<typeof insertWorkflowLogSchema>;
 export type AIInsight = typeof aiInsights.$inferSelect;
-export type ClockEvent = typeof clockEvents.$inferSelect;
-export type InsertClockEvent = z.infer<typeof insertClockEventSchema>;
-export type PerformanceScoreSetting = typeof performanceScoreSettings.$inferSelect;
-export type InsertPerformanceScoreSetting = z.infer<typeof insertPerformanceScoreSettingSchema>;
 export type PushSubscription = typeof pushSubscriptions.$inferSelect;
 export type InsertPushSubscription = z.infer<typeof insertPushSubscriptionSchema>;
 export type Role = typeof roles.$inferSelect;
@@ -827,246 +680,21 @@ export type Permission = typeof permissions.$inferSelect;
 export type InsertPermission = z.infer<typeof insertPermissionSchema>;
 export type RolePermission = typeof rolePermissions.$inferSelect;
 export type InsertRolePermission = z.infer<typeof insertRolePermissionSchema>;
-export type ChoreAssignment = z.infer<typeof choreAssignmentSchema>;
-export type ChoreSignOff = z.infer<typeof choreSignOffSchema>;
+export type UserWithRole = User & { role?: Role };
 export type CompanySettings = typeof companySettings.$inferSelect;
 export type InsertCompanySettings = z.infer<typeof insertCompanySettingsSchema>;
 export type ActivityLog = typeof activityLogs.$inferSelect;
 export type InsertActivityLog = z.infer<typeof insertActivityLogSchema>;
-
-// Shoutouts / Recognition
-export const shoutouts = pgTable("shoutouts", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  senderId: varchar("sender_id").references(() => users.id).notNull(),
-  recipientId: varchar("recipient_id").references(() => users.id).notNull(),
-  category: varchar("category").notNull(),
-  message: text("message").notNull(),
-  emoji: varchar("emoji"),
-  reactions: jsonb("reactions").$type<Array<{ userId: string; emoji: string }>>().default([]),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
-export const insertShoutoutSchema = createInsertSchema(shoutouts).omit({
-  id: true,
-  createdAt: true,
-});
-
-export type Shoutout = typeof shoutouts.$inferSelect;
-export type InsertShoutout = z.infer<typeof insertShoutoutSchema>;
-
-// Holiday pay rules
-export const holidayPayRules = pgTable("holiday_pay_rules", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  name: varchar("name").notNull(),
-  month: integer("month").notNull(),
-  day: integer("day").notNull(),
-  payMultiplier: decimal("pay_multiplier", { precision: 3, scale: 2 }).notNull().default("1.50"),
-  isActive: boolean("is_active").default(true),
-  createdBy: varchar("created_by").references(() => users.id),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
-export const insertHolidayPayRuleSchema = createInsertSchema(holidayPayRules).omit({
-  id: true,
-  createdAt: true,
-});
-
+export type ClockEvent = typeof clockEvents.$inferSelect;
+export type InsertClockEvent = z.infer<typeof insertClockEventSchema>;
+export type PerformanceScoreSetting = typeof performanceScoreSettings.$inferSelect;
+export type InsertPerformanceScoreSetting = z.infer<typeof insertPerformanceScoreSettingSchema>;
+export type EmployeeDocument = typeof employeeDocuments.$inferSelect;
+export type InsertEmployeeDocument = z.infer<typeof insertEmployeeDocumentSchema>;
+export type ManagerNote = typeof managerNotes.$inferSelect;
+export type InsertManagerNote = z.infer<typeof insertManagerNoteSchema>;
 export type HolidayPayRule = typeof holidayPayRules.$inferSelect;
 export type InsertHolidayPayRule = z.infer<typeof insertHolidayPayRuleSchema>;
-
-// Shopify connected shops
-export const shops = pgTable("shops", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  shopDomain: varchar("shop_domain").notNull().unique(),
-  accessToken: text("access_token").notNull(),
-  shopName: varchar("shop_name"),
-  shopEmail: varchar("shop_email"),
-  currency: varchar("currency").default("USD"),
-  timezone: varchar("timezone"),
-  isActive: boolean("is_active").default(true),
-  lastSyncAt: timestamp("last_sync_at"),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-});
-
-// User-to-shop linking (which users connected which stores)
-export const userShops = pgTable("user_shops", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").references(() => users.id).notNull(),
-  shopDomain: varchar("shop_domain").notNull(),
-  connectedAt: timestamp("connected_at").defaultNow(),
-});
-
-// Aggregated daily sales data from Shopify
-export const shopifyDailySales = pgTable("shopify_daily_sales", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  shopDomain: varchar("shop_domain").notNull(),
-  date: timestamp("date").notNull(),
-  dayOfWeek: integer("day_of_week").notNull(), // 0=Sunday, 6=Saturday
-  orderCount: integer("order_count").default(0),
-  totalRevenue: decimal("total_revenue", { precision: 12, scale: 2 }).default("0"),
-  itemCount: integer("item_count").default(0),
-  averageOrderValue: decimal("average_order_value", { precision: 10, scale: 2 }).default("0"),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
-// Insert schemas for Shopify tables
-export const insertShopSchema = createInsertSchema(shops).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
-
-export const insertUserShopSchema = createInsertSchema(userShops).omit({
-  id: true,
-  connectedAt: true,
-});
-
-export const insertShopifyDailySalesSchema = createInsertSchema(shopifyDailySales).omit({
-  id: true,
-  createdAt: true,
-});
-
-// Shopify types
-export type Shop = typeof shops.$inferSelect;
-export type InsertShop = z.infer<typeof insertShopSchema>;
-export type UserShop = typeof userShops.$inferSelect;
-export type InsertUserShop = z.infer<typeof insertUserShopSchema>;
-export type ShopifyDailySale = typeof shopifyDailySales.$inferSelect;
-export type InsertShopifyDailySale = z.infer<typeof insertShopifyDailySalesSchema>;
-
-// SOP Categories for organizing documentation
-export const sopCategories = pgTable("sop_categories", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  name: varchar("name").notNull(),
-  description: text("description"),
-  icon: varchar("icon"),
-  sortOrder: integer("sort_order").default(0),
-  parentId: varchar("parent_id"),
-  isActive: boolean("is_active").default(true),
-  createdBy: varchar("created_by").references(() => users.id),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-});
-
-// SOP Documents - the actual standard operating procedures
-export const sopDocuments = pgTable("sop_documents", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  categoryId: varchar("category_id").references(() => sopCategories.id),
-  title: varchar("title").notNull(),
-  content: text("content").notNull(),
-  summary: text("summary"),
-  tags: text("tags").array(),
-  roleRestrictions: text("role_restrictions").array(),
-  isPublished: boolean("is_published").default(false),
-  version: integer("version").default(1),
-  createdBy: varchar("created_by").references(() => users.id),
-  updatedBy: varchar("updated_by").references(() => users.id),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-});
-
-// AI Chat conversations
-export const aiChatConversations = pgTable("ai_chat_conversations", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").references(() => users.id).notNull(),
-  title: varchar("title"),
-  lastMessageAt: timestamp("last_message_at").defaultNow(),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
-// AI Chat messages within conversations
-export const aiChatMessages = pgTable("ai_chat_messages", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  conversationId: varchar("conversation_id").references(() => aiChatConversations.id).notNull(),
-  role: varchar("role").notNull(), // 'user' | 'assistant'
-  content: text("content").notNull(),
-  sopReferences: text("sop_references").array(),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
-// Training modules built from SOPs for onboarding
-export const trainingModules = pgTable("training_modules", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  title: varchar("title").notNull(),
-  description: text("description"),
-  sopDocumentIds: text("sop_document_ids").array(),
-  quizQuestions: jsonb("quiz_questions"),
-  sortOrder: integer("sort_order").default(0),
-  estimatedMinutes: integer("estimated_minutes").default(15),
-  isRequired: boolean("is_required").default(true),
-  isActive: boolean("is_active").default(true),
-  createdBy: varchar("created_by").references(() => users.id),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-});
-
-// Employee training progress tracking
-export const employeeTrainingProgress = pgTable("employee_training_progress", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").references(() => users.id).notNull(),
-  moduleId: varchar("module_id").references(() => trainingModules.id).notNull(),
-  status: varchar("status").default("not_started"), // not_started, in_progress, completed
-  quizScore: integer("quiz_score"),
-  completedAt: timestamp("completed_at"),
-  startedAt: timestamp("started_at"),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
-// Commute alerts log
-export const commuteAlerts = pgTable("commute_alerts", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").references(() => users.id).notNull(),
-  scheduleId: varchar("schedule_id").references(() => schedules.id),
-  alertType: varchar("alert_type").notNull(), // 'departure_reminder' | 'traffic_warning' | 'weather_alert'
-  message: text("message").notNull(),
-  estimatedCommute: integer("estimated_commute"), // minutes
-  sentAt: timestamp("sent_at").defaultNow(),
-  acknowledged: boolean("acknowledged").default(false),
-});
-
-// Insert schemas for AI Success Assistant tables
-export const insertSopCategorySchema = createInsertSchema(sopCategories).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
-
-export const insertSopDocumentSchema = createInsertSchema(sopDocuments).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-  version: true,
-});
-
-export const insertAiChatConversationSchema = createInsertSchema(aiChatConversations).omit({
-  id: true,
-  createdAt: true,
-  lastMessageAt: true,
-});
-
-export const insertAiChatMessageSchema = createInsertSchema(aiChatMessages).omit({
-  id: true,
-  createdAt: true,
-});
-
-export const insertTrainingModuleSchema = createInsertSchema(trainingModules).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
-
-export const insertEmployeeTrainingProgressSchema = createInsertSchema(employeeTrainingProgress).omit({
-  id: true,
-  createdAt: true,
-});
-
-export const insertCommuteAlertSchema = createInsertSchema(commuteAlerts).omit({
-  id: true,
-  sentAt: true,
-});
-
-// AI Success Assistant types
 export type SopCategory = typeof sopCategories.$inferSelect;
 export type InsertSopCategory = z.infer<typeof insertSopCategorySchema>;
 export type SopDocument = typeof sopDocuments.$inferSelect;
@@ -1081,102 +709,6 @@ export type EmployeeTrainingProgress = typeof employeeTrainingProgress.$inferSel
 export type InsertEmployeeTrainingProgress = z.infer<typeof insertEmployeeTrainingProgressSchema>;
 export type CommuteAlert = typeof commuteAlerts.$inferSelect;
 export type InsertCommuteAlert = z.infer<typeof insertCommuteAlertSchema>;
-
-// AI Scheduling settings (singleton) - configures smart schedule generation
-export const aiSchedulingSettings = pgTable("ai_scheduling_settings", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  shiftBlocks: jsonb("shift_blocks").$type<Array<{ name: string; startTime: string; endTime: string }>>().default([]),
-  staffingTiers: jsonb("staffing_tiers").$type<Array<{ minRevenue: number; maxRevenue: number; employeeCount: number }>>().default([]),
-  minimumStaffing: integer("minimum_staffing").default(2),
-  storeHours: jsonb("store_hours").$type<Array<{ day: number; openTime: string; closeTime: string; isClosed: boolean }>>().default([]),
-  updatedBy: varchar("updated_by").references(() => users.id),
-  updatedAt: timestamp("updated_at").defaultNow(),
-});
-
-export const insertAiSchedulingSettingsSchema = createInsertSchema(aiSchedulingSettings).omit({
-  id: true,
-  updatedAt: true,
-});
-
-export type AiSchedulingSettings = typeof aiSchedulingSettings.$inferSelect;
-export type InsertAiSchedulingSettings = z.infer<typeof insertAiSchedulingSettingsSchema>;
-
-// Employee documents insert schema
-export const insertEmployeeDocumentSchema = createInsertSchema(employeeDocuments).omit({
-  id: true,
-  createdAt: true,
-});
-export type EmployeeDocument = typeof employeeDocuments.$inferSelect;
-export type InsertEmployeeDocument = z.infer<typeof insertEmployeeDocumentSchema>;
-
-// Manager notes insert schema
-export const insertManagerNoteSchema = createInsertSchema(managerNotes).omit({
-  id: true,
-  createdAt: true,
-});
-export type ManagerNote = typeof managerNotes.$inferSelect;
-export type InsertManagerNote = z.infer<typeof insertManagerNoteSchema>;
-
-// Work pattern templates for quick assignment
-export const workPatternTemplates = pgTable("work_pattern_templates", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  name: varchar("name").notNull(),
-  description: text("description"),
-  pattern: jsonb("pattern").$type<Array<{ day: number; status: 'required' | 'available' | 'preferred_off' | 'hard_off' }>>().notNull(),
-  isDefault: boolean("is_default").default(false),
-  createdBy: varchar("created_by").references(() => users.id),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
-export const insertWorkPatternTemplateSchema = createInsertSchema(workPatternTemplates).omit({
-  id: true,
-  createdAt: true,
-});
-export type WorkPatternTemplate = typeof workPatternTemplates.$inferSelect;
-export type InsertWorkPatternTemplate = z.infer<typeof insertWorkPatternTemplateSchema>;
-
-// Per-employee recurring work patterns (which days they work each week)
-export const userWorkPatterns = pgTable("user_work_patterns", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").references(() => users.id).notNull(),
-  dayOfWeek: integer("day_of_week").notNull(),
-  status: varchar("status", { length: 20 }).notNull().default('available'),
-  templateId: varchar("template_id").references(() => workPatternTemplates.id),
-  updatedAt: timestamp("updated_at").defaultNow(),
-});
-
-export const insertUserWorkPatternSchema = createInsertSchema(userWorkPatterns).omit({
-  id: true,
-  updatedAt: true,
-});
-export type UserWorkPattern = typeof userWorkPatterns.$inferSelect;
-export type InsertUserWorkPattern = z.infer<typeof insertUserWorkPatternSchema>;
-
-// Geofence events log for audit trail
-export const geofenceEvents = pgTable("geofence_events", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").references(() => users.id).notNull(),
-  locationId: varchar("location_id").references(() => workLocations.id).notNull(),
-  eventType: varchar("event_type", { length: 20 }).notNull(),
-  latitude: decimal("latitude", { precision: 10, scale: 8 }),
-  longitude: decimal("longitude", { precision: 11, scale: 8 }),
-  distanceFromCenter: decimal("distance_from_center", { precision: 10, scale: 2 }),
-  timeEntryId: varchar("time_entry_id").references(() => timeEntries.id),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
-export const insertGeofenceEventSchema = createInsertSchema(geofenceEvents).omit({
-  id: true,
-  createdAt: true,
-});
+export type Shoutout = typeof shoutouts.$inferSelect;
+export type InsertShoutout = z.infer<typeof insertShoutoutSchema>;
 export type GeofenceEvent = typeof geofenceEvents.$inferSelect;
-export type InsertGeofenceEvent = z.infer<typeof insertGeofenceEventSchema>;
-
-// Extended user type with role information
-export type UserWithRole = User & {
-  role?: Role & {
-    rolePermissions?: (RolePermission & {
-      permission: Permission;
-    })[];
-  };
-};
