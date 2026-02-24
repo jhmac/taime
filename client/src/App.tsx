@@ -38,11 +38,13 @@ import SOPDetail from "@/pages/SOPDetail";
 import SOPExecution from "@/pages/SOPExecution";
 import IssueList from "@/pages/IssueList";
 import IssueDetail from "@/pages/IssueDetail";
+import MorningHuddle from "@/pages/MorningHuddle";
 import NotFound from "@/pages/not-found";
 import OfflineIndicator from "@/components/OfflineIndicator";
 import SmartClockPrompt from "@/components/SmartClockPrompt";
 import FocusClockOut from "@/components/FocusClockOut";
 import AIAssistant from "@/components/AIAssistant";
+import { WebSocketProvider } from "@/contexts/WebSocketContext";
 import type { Permission } from "@shared/schema";
 
 function ProtectedRoute({ children, permission }: { children: React.ReactNode; permission?: string }) {
@@ -221,6 +223,7 @@ function AuthenticatedApp() {
       <Route path="/sops/:id" component={SOPDetail} />
       <Route path="/issues" component={IssueList} />
       <Route path="/issues/:id" component={IssueDetail} />
+      <Route path="/huddle" component={MorningHuddle} />
       <Route path="/support" component={SupportPage} />
       <Route path="/admin">
         <ProtectedRoute permission="admin.manage_all"><AdminSettings /></ProtectedRoute>
@@ -316,12 +319,14 @@ function App() {
   return (
     <ClerkProvider publishableKey={clerkKey}>
       <QueryClientProvider client={queryClient}>
-        <TooltipProvider>
-          <Layout>
-            <Toaster />
-            <Router />
-          </Layout>
-        </TooltipProvider>
+        <WebSocketProvider>
+          <TooltipProvider>
+            <Layout>
+              <Toaster />
+              <Router />
+            </Layout>
+          </TooltipProvider>
+        </WebSocketProvider>
       </QueryClientProvider>
     </ClerkProvider>
   );

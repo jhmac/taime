@@ -14,8 +14,11 @@ import AIInsightsWidget from '@/components/AIInsightsWidget';
 import AIChatModal from '@/components/AIChatModal';
 import TodaySchedulePanel from '@/components/TodaySchedulePanel';
 import DailyGoalWidget from '@/components/DailyGoalWidget';
+import DailyQuoteCard from '@/components/DailyQuoteCard';
+import KudosWidget from '@/components/KudosWidget';
+import DailyDebriefSheet from '@/components/DailyDebriefSheet';
 import type { UserWithRole, Schedule } from '@shared/schema';
-import { Calendar, Users, DollarSign, MessageSquare, Clock, Bot } from 'lucide-react';
+import { Calendar, Users, DollarSign, MessageSquare, Clock, Bot, Sun, ClipboardList } from 'lucide-react';
 
 export default function Dashboard() {
   const { user } = useAuth() as { user: UserWithRole | undefined, isLoading: boolean, isAuthenticated: boolean, error: any };
@@ -24,6 +27,7 @@ export default function Dashboard() {
   const [, navigate] = useLocation();
   const [currentTime, setCurrentTime] = useState(new Date());
   const [showAIChat, setShowAIChat] = useState(false);
+  const [showDebrief, setShowDebrief] = useState(false);
 
   const { data: schedules = [] } = useQuery<Schedule[]>({
     queryKey: ['/api/schedules'],
@@ -82,6 +86,23 @@ export default function Dashboard() {
         </div>
 
         <div className="p-4 space-y-4">
+          <DailyQuoteCard />
+
+          {isAdmin && (
+            <Card className="cursor-pointer hover:shadow-md transition-shadow bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/20 dark:to-orange-950/20 border-amber-200/50 dark:border-amber-800/30" onClick={() => navigate('/huddle')}>
+              <CardContent className="p-4 flex items-center gap-3">
+                <div className="w-11 h-11 rounded-full bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center shrink-0">
+                  <Sun className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-sm font-bold">Start Morning Huddle</h3>
+                  <p className="text-xs text-muted-foreground">Rally the team for today</p>
+                </div>
+                <i className="fas fa-chevron-right text-xs text-muted-foreground"></i>
+              </CardContent>
+            </Card>
+          )}
+
           {isAdmin && <TodaySchedulePanel />}
           {isAdmin && <DailyGoalWidget />}
 
@@ -161,25 +182,24 @@ export default function Dashboard() {
             </Card>
           )}
 
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-1">
-                <h3 className="text-sm font-semibold">Cheer on your team</h3>
+          <KudosWidget />
+
+          <Card className="cursor-pointer hover:shadow-md transition-shadow bg-gradient-to-r from-slate-50 to-blue-50 dark:from-slate-950/20 dark:to-blue-950/20 border-slate-200/50 dark:border-slate-800/30" onClick={() => setShowDebrief(true)}>
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="w-11 h-11 rounded-full bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center shrink-0">
+                <ClipboardList className="h-5 w-5 text-blue-600 dark:text-blue-400" />
               </div>
-              <p className="text-sm text-muted-foreground mb-3">
-                Give a shout out to a teammate who went above and beyond.
-              </p>
-              <button
-                onClick={() => navigate('/communication')}
-                className="text-sm text-primary font-medium flex items-center gap-2"
-              >
-                Give a shout out <i className="fas fa-chevron-right text-xs"></i>
-              </button>
+              <div className="flex-1">
+                <h3 className="text-sm font-bold">Daily Debrief</h3>
+                <p className="text-xs text-muted-foreground">Reflect on your day before you head out</p>
+              </div>
+              <i className="fas fa-chevron-right text-xs text-muted-foreground"></i>
             </CardContent>
           </Card>
         </div>
 
         <AIChatModal isOpen={showAIChat} onClose={() => setShowAIChat(false)} />
+        <DailyDebriefSheet open={showDebrief} onOpenChange={setShowDebrief} />
       </div>
     );
   }
@@ -217,8 +237,27 @@ export default function Dashboard() {
         </p>
       </section>
 
+      <div className="px-6 pb-4">
+        <DailyQuoteCard />
+      </div>
+
       {isAdmin ? (
         <>
+          <div className="px-6 pb-4">
+            <Card className="cursor-pointer hover:shadow-md transition-shadow bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/20 dark:to-orange-950/20 border-amber-200/50 dark:border-amber-800/30" onClick={() => navigate('/huddle')}>
+              <CardContent className="p-4 flex items-center gap-3">
+                <div className="w-11 h-11 rounded-full bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center shrink-0">
+                  <Sun className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-sm font-bold">Start Morning Huddle</h3>
+                  <p className="text-xs text-muted-foreground">Rally the team for today's standup</p>
+                </div>
+                <i className="fas fa-chevron-right text-xs text-muted-foreground"></i>
+              </CardContent>
+            </Card>
+          </div>
+
           <div className="grid grid-cols-12 gap-6 px-6 pb-6">
             <div className="col-span-7 space-y-6">
               <TodaySchedulePanel />
@@ -284,9 +323,16 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-6 px-6 pb-6">
-            <AIInsightsWidget />
-            <TeamActivityFeed />
+          <div className="grid grid-cols-12 gap-6 px-6 pb-6">
+            <div className="col-span-4">
+              <KudosWidget />
+            </div>
+            <div className="col-span-4">
+              <AIInsightsWidget />
+            </div>
+            <div className="col-span-4">
+              <TeamActivityFeed />
+            </div>
           </div>
         </>
       ) : (
@@ -295,10 +341,22 @@ export default function Dashboard() {
             <div className="space-y-6">
               <TimeClockWidget />
               <ScheduleWidget />
+              <KudosWidget />
             </div>
             <div className="space-y-6">
               <ChoresWidget />
               <AIInsightsWidget />
+              <Card className="cursor-pointer hover:shadow-md transition-shadow bg-gradient-to-r from-slate-50 to-blue-50 dark:from-slate-950/20 dark:to-blue-950/20 border-slate-200/50 dark:border-slate-800/30" onClick={() => setShowDebrief(true)}>
+                <CardContent className="p-4 flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-full bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center shrink-0">
+                    <ClipboardList className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-sm font-bold">Daily Debrief</h3>
+                    <p className="text-xs text-muted-foreground">Reflect on your day</p>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
           </div>
 
@@ -347,6 +405,7 @@ export default function Dashboard() {
       )}
 
       <AIChatModal isOpen={showAIChat} onClose={() => setShowAIChat(false)} />
+      <DailyDebriefSheet open={showDebrief} onOpenChange={setShowDebrief} />
     </div>
   );
 }

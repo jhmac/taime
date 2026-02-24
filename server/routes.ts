@@ -39,23 +39,28 @@ interface TrackedConnection {
   alive: boolean;
 }
 
-const wsConnections = new Map<string, TrackedConnection>();
+const wsConnections = new Map<string, Set<TrackedConnection>>();
 
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
 function startHeartbeat() {
   heartbeatTimer = setInterval(() => {
-    wsConnections.forEach((conn, userId) => {
-      if (!conn.alive) {
-        logger.warn({ userId }, "ws: no pong received, closing connection");
-        conn.ws.terminate();
-        wsConnections.delete(userId);
-        return;
-      }
+    wsConnections.forEach((conns, userId) => {
+      for (const conn of conns) {
+        if (!conn.alive) {
+          logger.warn({ userId }, "ws: no pong received, closing connection");
+          conn.ws.terminate();
+          conns.delete(conn);
+          continue;
+        }
 
-      conn.alive = false;
-      if (conn.ws.readyState === WebSocket.OPEN) {
-        conn.ws.ping();
+        conn.alive = false;
+        if (conn.ws.readyState === WebSocket.OPEN) {
+          conn.ws.ping();
+        }
+      }
+      if (conns.size === 0) {
+        wsConnections.delete(userId);
       }
     });
   }, HEARTBEAT_INTERVAL_MS);
@@ -86,9 +91,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   function broadcastToAll(data: Record<string, unknown>) {
     const payload = JSON.stringify(data);
-    wsConnections.forEach((conn) => {
-      if (conn.ws.readyState === WebSocket.OPEN) {
-        conn.ws.send(payload);
+    wsConnections.forEach((conns) => {
+      for (const conn of conns) {
+        if (conn.ws.readyState === WebSocket.OPEN) {
+          conn.ws.send(payload);
+        }
       }
     });
   }
@@ -143,14 +150,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return;
     }
 
-    const existing = wsConnections.get(userId);
-    if (existing && existing.ws.readyState === WebSocket.OPEN) {
-      logger.info({ userId }, "ws: replacing existing connection");
-      existing.ws.close(4000, 'Replaced by new connection');
-    }
-
     const conn: TrackedConnection = { ws, userId, alive: true };
-    wsConnections.set(userId, conn);
+    if (!wsConnections.has(userId)) {
+      wsConnections.set(userId, new Set());
+    }
+    wsConnections.get(userId)!.add(conn);
     logger.info({ userId, totalConnections: wsConnections.size }, "ws: client connected");
 
     ws.on('pong', () => {
@@ -158,9 +162,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
 
     ws.on('close', (code, reason) => {
-      const current = wsConnections.get(userId);
-      if (current?.ws === ws) {
-        wsConnections.delete(userId);
+      const conns = wsConnections.get(userId);
+      if (conns) {
+        conns.delete(conn);
+        if (conns.size === 0) {
+          wsConnections.delete(userId);
+        }
       }
       logger.info({ userId, code, reason: reason.toString(), totalConnections: wsConnections.size }, "ws: client disconnected");
     });
@@ -177,13 +184,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     stopHeartbeat();
 
     const shutdownPayload = JSON.stringify({ type: "server_restarting" });
-    wsConnections.forEach((conn) => {
-      if (conn.ws.readyState === WebSocket.OPEN) {
-        try {
-          conn.ws.send(shutdownPayload);
-          conn.ws.close(1001, 'Server shutting down');
-        } catch {
-          conn.ws.terminate();
+    wsConnections.forEach((conns) => {
+      for (const conn of conns) {
+        if (conn.ws.readyState === WebSocket.OPEN) {
+          try {
+            conn.ws.send(shutdownPayload);
+            conn.ws.close(1001, 'Server shutting down');
+          } catch {
+            conn.ws.terminate();
+          }
         }
       }
     });

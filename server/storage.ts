@@ -378,7 +378,7 @@ export class DatabaseStorage implements IStorage {
       ? db.select().from(timeEntries).where(and(...conditions))
       : db.select().from(timeEntries);
 
-    return await query.orderBy(desc(timeEntries.clockInTime));
+    return await query.orderBy(desc(timeEntries.clockInTime)).limit(1000);
   }
 
   // Schedule operations
@@ -408,7 +408,7 @@ export class DatabaseStorage implements IStorage {
       ? db.select().from(schedules).where(and(...conditions))
       : db.select().from(schedules);
 
-    return await query.orderBy(schedules.startTime);
+    return await query.orderBy(schedules.startTime).limit(1000);
   }
 
   async updateSchedule(id: string, updates: Partial<Schedule>): Promise<Schedule> {

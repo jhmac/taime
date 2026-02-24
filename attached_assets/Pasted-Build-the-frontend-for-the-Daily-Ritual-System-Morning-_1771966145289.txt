@@ -1,0 +1,54 @@
+Build the frontend for the Daily Ritual System: Morning Huddle view, Daily Debrief capture, Daily Quote display, and Kudos.
+
+COMPONENTS:
+
+1. MorningHuddlePage (`/huddle`)
+   - Full-screen guided experience designed to be shown on a shared tablet or phone during standup
+   - Step-through format (like a presentation, one section at a time):
+     - Slide 1: "Good Morning, [Store Name]! 🌟" + today's date + who's here today (attendee checkboxes)
+     - Slide 2: "Win of the Day" — large text, celebratory design with warm background color
+     - Slide 3: "Today's Lean Principle" — principle name bold, explanation below, feels like a daily mantra
+     - Slide 4: "Today's Goals" — numbered list, clear and actionable
+     - Slide 5: "Heads Up" — any alerts or announcements (skip if empty)
+     - Slide 6: "Quick Kudos" — show any kudos from last 24 hours with sender/receiver names
+     - Slide 7: "Let's Go! 💪" — close the huddle, mark as completed
+   - Navigation: large forward/back arrows, swipe support on mobile
+   - Auto-advances after 60 seconds per slide (with pause button)
+   - "Start Huddle" button on the dashboard triggers this
+
+2. DailyDebriefSheet (slide-up sheet, triggered at end of shift or manually)
+   - Three sections, each optional:
+     - "What went well today?" — textarea with placeholder "Any wins, good moments, or things that clicked?"
+     - "What bugged you?" — textarea with placeholder "Anything that felt frustrating, slow, or broken?" + optional photo upload button
+     - "Customer highlights" — textarea with placeholder "Any memorable customer moments?"
+   - Submit button: "Save & Head Out"
+   - Success message: "Thanks for reflecting today, [name]! See you next time. 👋"
+   - Auto-trigger: show a gentle prompt 15 minutes before shift end (via notification or in-app banner)
+
+3. DailyQuoteCard (dashboard component)
+   - Prominent card on the employee dashboard
+   - Shows the daily quote in large, elegant typography
+   - Quote text centered, author attribution below
+   - Subtle background gradient or illustration
+   - Refreshes daily
+   - Fallback if quote isn't loaded: show a generic encouraging message
+
+4. KudosWidget (dashboard component + send dialog)
+   - "Give a Kudo" button on the dashboard
+   - Send dialog: select team member (avatar grid), type a short message (max 280 chars), send
+   - Recent kudos feed: shows last 7 days of kudos as a warm, social feed
+   - Each kudo: "[From] → [To]: [message]" with timestamp
+   
+5. Dashboard Integration:
+   - Add the DailyQuoteCard prominently at the top of the employee dashboard
+   - Add KudosWidget to the dashboard
+   - Add a "Start Morning Huddle" card that appears for the first shift of the day (manager/owner)
+   - Add a "Daily Debrief" prompt that appears near end of shift
+
+DESIGN:
+- Morning Huddle: feels like a team rally, not a meeting. Bold typography, warm colors, energizing
+- Daily Debrief: feels calm, reflective, no pressure. Soft colors, gentle typography
+- Quote Card: elegant, typographic-focused. Think inspirational poster, not corporate email
+- Kudos: social and warm. Show avatars, use friendly language
+
+MOBILE-FIRST: All of these are primarily used on phones. Large text, big buttons, minimal scrolling.

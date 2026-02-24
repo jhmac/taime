@@ -1,7 +1,7 @@
 # Taime Clock - AI-Powered Workforce Management
 
 ## Overview
-Taime Clock is an AI-powered Progressive Web App (PWA) designed to revolutionize workforce management. It integrates AI to streamline time tracking, scheduling, task management, and payroll, offering features like geofencing-enabled time clocking, automated task assignment via Claude AI, and real-time communication. The platform aims to boost operational efficiency, optimize labor costs, and provide actionable business insights. Its key capabilities include comprehensive payroll management, intelligent scheduling, and robust employee performance tracking, all accessible through a mobile-first, user-friendly interface.
+Taime Clock is an AI-powered Progressive Web App (PWA) designed to enhance workforce management. It integrates AI to streamline time tracking, scheduling, task management, and payroll, offering features like geofencing-enabled time clocking and automated task assignment. The platform aims to boost operational efficiency, optimize labor costs, and provide actionable business insights through comprehensive payroll management, intelligent scheduling, and robust employee performance tracking, all delivered via a mobile-first, user-friendly interface.
 
 ## User Preferences
 Preferred communication style: Simple, everyday language.
@@ -9,93 +9,72 @@ Preferred communication style: Simple, everyday language.
 ## System Architecture
 
 ### Frontend
-The frontend is a React and TypeScript PWA, built with Vite. It features a responsive, mobile-first design leveraging Tailwind CSS and shadcn/ui components (based on Radix UI). State management is handled by TanStack React Query for server state and caching, while Wouter manages client-side routing.
+The frontend is a React and TypeScript PWA, built with Vite. It features a responsive, mobile-first design using Tailwind CSS and shadcn/ui components. State management is handled by TanStack React Query, and Wouter manages client-side routing.
 
 ### Backend
-The backend is a Node.js Express.js server written in TypeScript. It uses Drizzle ORM for type-safe PostgreSQL interactions and Clerk for authentication and authorization, integrated with Express sessions. Real-time communication is powered by WebSockets. The architecture emphasizes modular routes, Zod for robust input validation, and security middleware (Helmet, express-rate-limit).
-
-### Centralized Config
-All environment variables are managed through `server/lib/config.ts`. This module uses Zod to validate env vars at startup (fail-fast on missing required vars like DATABASE_URL), groups config by domain (server, database, clerk, shopify, anthropic, nylas, vapid, encryption, youtube, aws), and exports a fully typed `config` object. No server code should use `process.env` directly — always import from `server/lib/config`.
+The backend is a Node.js Express.js server written in TypeScript. It uses Drizzle ORM for type-safe PostgreSQL interactions and Clerk for authentication and authorization. Real-time communication is powered by WebSockets. The architecture emphasizes modular routes, Zod for input validation, and security middleware. Environment variables are centrally managed and validated using Zod.
 
 ### Core Features
-- **AI Integration**: Utilizes Anthropic Claude AI for automated task assignment, schedule optimization, labor cost forecasting, anomaly detection, payroll validation, conversational AI, and AI-assisted SOP generation (`server/services/sopAI.ts`).
+- **AI Integration**: Utilizes Anthropic Claude AI for automated task assignment, schedule optimization, labor cost forecasting, anomaly detection, payroll validation, conversational AI, and AI-assisted SOP generation.
 - **Authentication & Authorization**: Implemented with Clerk for OAuth/SSO, user synchronization, and role-based access control (Admin, Owner, Employee) with granular permissions.
-- **Geofencing & Security**: Advanced geofencing with circular and polygon boundaries, Haversine distance, and ray-casting. Includes an interactive Leaflet map for boundary drawing, configurable grace periods (per-location with company settings fallback), auto clock-out, live monitoring, and event logging. Tracks all entry/exit/location-lost events in `geofence_events` table. Detects location permission revocation on device and triggers auto clock-out. Server-side stale location checker runs every 60s to auto-clock-out users whose app stops reporting (5-minute threshold). Grace period: uses work location `geofenceGraceMinutes` if > 0, otherwise falls back to company setting `autoClockOutAfterMinutes`.
-- **Employee Work Patterns**: Supports recurring weekly schedule patterns with flexible availability statuses (REQUIRED, available, preferred_off, HARD_OFF) and pre-built templates, integrated into AI scheduling.
+- **Geofencing & Security**: Advanced geofencing with circular and polygon boundaries, configurable grace periods, auto clock-out, live monitoring, and event logging.
+- **Employee Work Patterns**: Supports recurring weekly schedule patterns with flexible availability statuses and pre-built templates, integrated into AI scheduling.
 - **Holiday Pay System**: AI-powered parsing of natural language rules for automatic holiday pay multipliers, integrated with a configurable Holiday Pay Calendar.
-- **Performance Scoring**: Tracks and scores employee clock events and other metrics to provide performance insights.
-- **AI Success Assistant**: An AI-powered employee coach with a knowledge base, Claude-powered chat (RAG-style), commute intelligence, pre-shift briefings, onboarding paths, and a floating assistant UI.
-- **Shopify Integration**: OAuth-based integration to sync sales data for AI-driven staffing recommendations and year-over-year sales comparisons.
+- **Performance Scoring**: Tracks and scores employee metrics to provide performance insights.
+- **AI Success Assistant**: An AI-powered employee coach with a knowledge base, Claude-powered chat, commute intelligence, pre-shift briefings, and onboarding paths.
+- **Shopify Integration**: OAuth-based integration to sync sales data for AI-driven staffing recommendations and sales comparisons.
 - **AI Auto-Scheduling**: Generates optimized schedules using historical Shopify sales data, considering store hours, staffing tiers, employee availability, and minimum staffing thresholds.
-- **Team Invitation Emails**: Automated Nylas-powered email invitations for new team members with resend capabilities.
-- **Employee Profile Pages**: Comprehensive Homebase-style employee profiles with tabs for Job Details, Personal Information, Documents (with uploads), and Performance metrics, including attendance, task completion, and manager notes.
-- **Visual Analytics Dashboard**: Recharts-based visualizations for labor costs, punctuality, task completion, and AI anomaly detection, optionally integrated with Shopify revenue data.
-- **Payroll Export**: Generates detailed CSV exports of payroll information per employee.
-- **In-App Messaging**: Real-time team chat, direct messages, announcements, and a shoutout/recognition system via WebSockets.
+- **Team Invitation Emails**: Automated Nylas-powered email invitations for new team members.
+- **Employee Profile Pages**: Comprehensive profiles with job details, personal information, documents, and performance metrics.
+- **Visual Analytics Dashboard**: Recharts-based visualizations for labor costs, punctuality, task completion, and AI anomaly detection.
+- **Payroll Export**: Generates detailed CSV exports of payroll information.
+- **In-App Messaging**: Real-time team chat, direct messages, announcements, and a shoutout system via WebSockets.
 - **Push Notifications**: Web Push API for critical alerts and schedule updates.
-- **SOP Library**: Structured operating procedures with templates (versioned, per-location, role-assignable), ordered steps (action/verification/photo/decision/timer types), execution tracking, and step-level completions with checkpoints, photo evidence, manager sign-off, and skip reasons. Tables: `sop_templates`, `sop_steps`, `sop_executions`, `sop_step_completions`. Note: `store_id` references `work_locations(id)` since that represents physical store locations. Activity logs are created on execution completion/abandonment. API routes in `server/routes/sops.ts` (11 endpoints): CRUD templates with versioning, start/update/list executions, GET single execution with steps+completions, complete/skip steps with auto-completion detection, manager sign-off on checkpoints. WebSocket events: `execution_started`, `step_completed`, `execution_completed`, `sign_off_requested`, `sign_off_completed`. All writes wrapped in Drizzle transactions.
-- **SOP Execution UI**: Full-screen mobile-optimized checklist runner at `/sops/execute/:executionId`. Wizard-style one-step-at-a-time view with progress bar, elapsed timer, step dots. Per-step-type actions: Mark Complete (action), Confirm Done (verification), camera capture with client-side compression to <1MB (photo), decision option buttons (decision), countdown timer with auto-complete (timer). Skip flow with required reason. Training mode toggle shows step training detail in callout. Checkpoint steps show "Waiting for manager approval" state with real-time WebSocket updates. Completion celebration screen with stats and optional feedback prompt. Manager sign-off via `SOPSignOffDialog` component. State persisted to localStorage as offline backup. Pages: `SOPExecution.tsx`, `SOPSignOffDialog.tsx`.
-- **Issue Tracker**: Full-featured system for employees to log problems and managers to track/resolve them. Tables: `issues` (store-scoped, with category/priority/status enums, optional SOP linkage, photo evidence, resolution tracking) and `issue_comments` (cascading delete). Categories: equipment, process, customer_experience, workspace, inventory, safety, training, other. Priorities: low, medium, high, urgent. Statuses: open, in_progress, waiting, resolved, closed. Activity logs created on issue creation and status changes. `store_id` references `work_locations(id)`. Five composite indexes for efficient queries. API routes in `server/routes/issues.ts` (5 endpoints): POST create, GET list (filtered/paginated/priority-sorted), GET detail with comments, PUT update (status workflow + assignment), POST comments. WebSocket events: `issue_created`, `issue_updated`, `issue_comment_added`. Frontend: IssueList page (`/issues`) with Kanban/list toggle, category/priority filters; IssueDetail page (`/issues/:id`) with status workflow buttons, assignment, comment thread, resolution flow with celebration; ReportIssueDialog with icon-based category grid, visual priority selector, photo capture with client-side compression. Global access via DesktopSidebar nav item and MoreMenu entry.
-- **Daily Ritual System**: Morning Huddle, Daily Debrief, Daily Improvement Quotes, and Kudos. Tables: `morning_huddles` (store-scoped, date-unique, with AI-generated content, attendees, goals, lean principles, status workflow), `daily_debriefs` (employee-scoped, date-unique, with "What Bugged You" continuous improvement capture and AI-categorization), `daily_quotes` (store-scoped, date-unique, AI-generated improvement quotes), `daily_quote_history` (hash-based dedup to prevent repeats within 90 days), `kudos` (peer-to-peer recognition messages, 280 char limit). All tables reference `work_locations(id)` for store scoping. Seven composite indexes for efficient queries including trend analysis on bugged-you categories. AI services: `server/services/morningHuddleAI.ts` gathers yesterday's sales/SOPs/issues/kudos + today's schedules/tasks/urgent issues, calls Claude to generate win_of_the_day, lean_principle (rotating through 20 principles), goals, heads_up, and kudos_summary with 10s timeout and static fallback. `server/services/dailyQuoteAI.ts` generates daily improvement quotes with 90-day hash-based dedup and 30-quote fallback list. `server/services/ritualScheduler.ts` runs every 15 minutes, generates quotes at 5AM and huddles at 6AM. API routes in `server/routes/rituals.ts` (7 endpoints): GET/PUT huddle today, GET quote today, POST/GET debriefs, POST/GET kudos. WebSocket events: `huddle_updated`, `debrief_submitted`, `kudo_sent`.
+- **SOP Library**: Structured operating procedures with templates, versioning, execution tracking, and step-level completions with evidence and manager sign-off.
+- **SOP Execution UI**: Full-screen mobile-optimized checklist runner with progress tracking, step-specific actions, skip flows, training mode, and manager sign-off.
+- **Issue Tracker**: Full-featured system for employees to log problems and managers to track/resolve them, with categories, priorities, statuses, and comments.
+- **Daily Ritual System**: Includes Morning Huddle, Daily Debrief, Daily Improvement Quotes, and Kudos, with AI-generated content and trend analysis.
 - **Offline Mode**: Service worker with IndexedDB for offline data storage and background synchronization.
 - **ELON Authenticated Crawling**: Manual popup login flow for authenticated page crawling by ELON's Playwright crawler, with server-side session token storage.
-- **ELON Code Engine Enhancements**: Code engine features include multi-file awareness, fuzzy matching, syntax verification with auto-rollback, runtime validation via health checks, and multi-file atomic changes with all-or-nothing rollback for robust autonomous code modifications.
+- **ELON Code Engine Enhancements**: Features include multi-file awareness, fuzzy matching, syntax verification with auto-rollback, runtime validation, and multi-file atomic changes for robust autonomous code modifications.
 
 ## External Dependencies
 
 ### Core Framework & Language
-- **React Ecosystem**: For frontend development.
-- **TypeScript**: Used universally for type safety.
-- **Vite, esbuild**: For development and bundling.
+- **React Ecosystem**
+- **TypeScript**
+- **Vite, esbuild**
 
 ### Database & ORM
-- **Neon Database**: Serverless PostgreSQL for data storage.
-- **Drizzle ORM**: Type-safe ORM for database interactions.
-- **@neondatabase/serverless**: For database connection pooling.
+- **Neon Database** (PostgreSQL)
+- **Drizzle ORM**
+- **@neondatabase/serverless**
 
 ### Authentication
-- **Clerk**: Comprehensive user authentication and management.
+- **Clerk**
 
 ### AI Services
-- **Anthropic Claude**: For all AI-driven functionalities (using `claude-sonnet-4-20250514` model).
+- **Anthropic Claude**
 
 ### ELON Deep Testing & Autonomous Improvement (Sneebly)
-- **Integration Health Monitor**: Probes external services (Shopify, Nylas, Claude AI, Database, WebSockets).
-- **Scenario Test Runner**: Executes JSON-defined Playwright test scripts for critical user journeys.
-- **Regression Tracker**: Monitors test failures over time and escalates issues.
-- **Dependency Index**: Maps code dependencies for context-aware problem solving.
-- **Dev Mode Toggle**: For test fixture creation.
-- **ELON Cycle Integration**: All Sneebly modules feed data into ELON's constraint analysis.
-- **Server-side action logger**: Captures API requests, errors, and failure details.
-- **Client-side error reporter**: Catches frontend errors and failed API calls.
+- **Integration Health Monitor**
+- **Scenario Test Runner** (Playwright)
+- **Regression Tracker**
+- **Dependency Index**
+- **ELON Cycle Integration**
 
 ### UI & Styling
-- **shadcn/ui**: Component library.
-- **Tailwind CSS**: Utility-first CSS framework.
-- **Font Awesome**: Icon library.
-- **Google Fonts**: Inter font.
+- **shadcn/ui**
+- **Tailwind CSS**
+- **Font Awesome**
+- **Google Fonts**
 
 ### Real-time & Communication
-- **WebSockets**: Hardened implementation with server-side heartbeat/ping-pong (30s interval, 10s timeout), connection tracking with structured pino logging, graceful shutdown with `server_restarting` event, and duplicate connection replacement. Client-side uses exponential backoff reconnection (1s initial, 30s max, 2x multiplier, random jitter), mobile backgrounding detection via `visibilitychange`, and exposes `ConnectionStatus` type (`connected` | `connecting` | `disconnected`).
-- **Web Push API**: For push notifications.
+- **WebSockets**
+- **Web Push API**
 
 ### Utility Libraries
-- **date-fns**: Date manipulation.
-- **Zod**: Runtime type validation.
-- **clsx, tailwind-merge**: Conditional styling.
-- **memoizee**: Caching utility.
-
-## Performance Optimizations
-
-### Database Indexes
-Composite indexes on frequently queried columns: `time_entries(user_id, clock_in_time)`, `time_entries(clock_in_time)`, `schedules(user_id, start_time)`, `schedules(start_time)`, `clock_events(user_id, created_at)`, `user_availability(user_id, date)`, `user_availability(payroll_period_id)`, `messages(sender_id, recipient_id)`, `users(role_id)`, `users(is_active)`, `tasks(assigned_to)`, `tasks(due_date)`. SOP tables also have composite indexes.
-
-### In-Memory Caching (`server/lib/cache.ts`)
-- `MemoryCache` with TTL, automatic eviction every 60s, `getOrSet` async helper.
-- **Cached queries**: `getUserPermissions` (2min TTL, invalidated on role/permission changes and user deactivation), `getCompanySettings` (2min TTL, invalidated on update), dashboard user list (60s TTL, invalidated on user deactivation).
-- Cache key namespaces: `permissions:`, `company:`, `dashboard:`.
-
-### Response Time Monitoring
-- Slow endpoint detection (>200ms) in `server/index.ts` with Pino structured logging.
-- Request logger middleware with per-request UUID tracing.
-- Action logger with duration tracking and JSONL log rotation.
+- **date-fns**
+- **Zod**
+- **clsx, tailwind-merge**
+- **memoizee**

@@ -13,6 +13,9 @@ import { apiRequest } from '@/lib/queryClient';
 import AIChatModal from '@/components/AIChatModal';
 import TodaySchedulePanel from '@/components/TodaySchedulePanel';
 import DailyGoalWidget from '@/components/DailyGoalWidget';
+import DailyQuoteCard from '@/components/DailyQuoteCard';
+import KudosWidget from '@/components/KudosWidget';
+import { Sun } from 'lucide-react';
 
 export default function AdminDashboard() {
   const { user } = useAuth();
@@ -165,6 +168,25 @@ export default function AdminDashboard() {
         </div>
       </div>
 
+      <div className={isMobile ? "px-4 pb-2" : "px-6 pb-3"}>
+        <DailyQuoteCard />
+      </div>
+
+      <div className={isMobile ? "px-4 pb-2" : "px-6 pb-3"}>
+        <Card className="cursor-pointer hover:shadow-md transition-shadow bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/20 dark:to-orange-950/20 border-amber-200/50 dark:border-amber-800/30" onClick={() => navigate('/huddle')}>
+          <CardContent className="p-4 flex items-center gap-3">
+            <div className="w-11 h-11 rounded-full bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center shrink-0">
+              <Sun className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-sm font-bold">Start Morning Huddle</h3>
+              <p className="text-xs text-muted-foreground">Rally the team for today's standup</p>
+            </div>
+            <i className="fas fa-chevron-right text-xs text-muted-foreground"></i>
+          </CardContent>
+        </Card>
+      </div>
+
       <div className={isMobile ? "px-4 pb-4 space-y-4" : "px-6 pb-6"}>
         {isMobile ? (
           <>
@@ -250,6 +272,7 @@ export default function AdminDashboard() {
                   </div>
                 </CardContent>
               </Card>
+              <KudosWidget />
             </div>
           </TabsContent>
 

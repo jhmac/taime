@@ -95,7 +95,10 @@ export const users = pgTable("users", {
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+}, (table) => [
+  index("idx_users_role_id").on(table.roleId),
+  index("idx_users_is_active").on(table.isActive),
+]);
 
 // Work locations for geofencing
 export const workLocations = pgTable("work_locations", {
@@ -182,7 +185,10 @@ export const tasks = pgTable("tasks", {
   choreZone: varchar("chore_zone"), // 'zone 1', 'zone 2', etc.
   priority: varchar("priority").default("medium"), // 'low', 'medium', 'high'
   completionImageUrl: text("completion_image_url"),
-});
+}, (table) => [
+  index("idx_tasks_assigned_to").on(table.assignedTo),
+  index("idx_tasks_due_date").on(table.dueDate),
+]);
 
 // Chat groups for group messaging
 export const chatGroups = pgTable("chat_groups", {

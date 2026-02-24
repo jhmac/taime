@@ -89,9 +89,10 @@ export function registerScheduleRoutes(app: Express, storage: IStorage, isAuthen
       const availabilityData = await storage.getAllAvailabilityForPeriod(payrollPeriodId);
       
       const allUsers = await db.select().from(users).where(eq(users.isActive, true));
+      const userMap = new Map(allUsers.map((u: any) => [u.id, u]));
       
       const transformedData = availabilityData.map((avail: any) => {
-        const user = allUsers.find((u: any) => u.id === avail.userId);
+        const user = userMap.get(avail.userId);
         return {
           userId: avail.userId,
           userName: user ? `${user.firstName} ${user.lastName}` : 'Unknown User',
