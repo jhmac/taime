@@ -2,6 +2,7 @@ import type { Express } from "express";
 import type { IStorage } from "../storage";
 import { z } from "zod";
 import { cache } from "../lib/cache";
+import { asyncHandler, AppError } from "../lib/routeWrapper";
 
 const companySettingsUpdateSchema = z.object({
   companyName: z.string().max(200).optional(),
@@ -93,180 +94,142 @@ const companySettingsUpdateSchema = z.object({
   autoResumeWindowSeconds: z.number().int().min(30).max(600).optional(),
 }).strict();
 
+async function requireAdmin(storage: IStorage, userId: string): Promise<void> {
+  const perms = await storage.getUserPermissions(userId);
+  if (!perms.some(p => p.name === 'admin.manage_all')) {
+    throw new AppError(403, "Admin access required", "FORBIDDEN");
+  }
+}
+
+async function requirePayrollOrAdmin(storage: IStorage, userId: string): Promise<void> {
+  const perms = await storage.getUserPermissions(userId);
+  if (!perms.some(p => p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all')) {
+    throw new AppError(403, "Admin or payroll management access required", "FORBIDDEN");
+  }
+}
+
+const DEFAULT_SETTINGS = {
+  companyName: 'My Company',
+  timezone: 'America/New_York',
+  businessStartHour: 8,
+  businessEndHour: 17,
+  overtimeThresholdHours: 40,
+  overtimeMultiplier: '1.50',
+  geofenceEnforcement: false,
+  breakDurationMinutes: 30,
+  autoClockOutMinutes: 480,
+};
+
 export function registerAdminRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
-  app.get('/api/company-settings', isAuthenticated, async (req: any, res) => {
-    try {
-      const cached = cache.get('company:settings');
-      if (cached) return res.json(cached);
-      const settings = await storage.getCompanySettings();
-      const result = settings || { companyName: 'My Company', timezone: 'America/New_York', businessStartHour: 8, businessEndHour: 17, overtimeThresholdHours: 40, overtimeMultiplier: '1.50', geofenceEnforcement: false, breakDurationMinutes: 30, autoClockOutMinutes: 480 };
-      cache.set('company:settings', result);
-      res.json(result);
-    } catch (error) {
-      console.error("Error fetching company settings:", error);
-      res.status(500).json({ message: "Failed to fetch company settings" });
-    }
-  });
+  app.get('/api/company-settings', isAuthenticated, asyncHandler(async (_req: any, res) => {
+    const cached = cache.get('company:settings');
+    if (cached) return res.json(cached);
+    const settings = await storage.getCompanySettings();
+    const result = settings || DEFAULT_SETTINGS;
+    cache.set('company:settings', result);
+    res.json(result);
+  }));
 
-  app.put('/api/company-settings', isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canManage = userPermissions.some(p => p.name === 'admin.manage_all');
-      if (!canManage) {
-        return res.status(403).json({ message: "Admin access required" });
-      }
-      const { expectedVersion, ...bodyWithoutVersion } = req.body;
-      const validated = companySettingsUpdateSchema.parse(bodyWithoutVersion);
+  app.put('/api/company-settings', isAuthenticated, asyncHandler(async (req: any, res) => {
+    const userId = req.user.id;
+    await requireAdmin(storage, userId);
+
+    const { expectedVersion, ...bodyWithoutVersion } = req.body;
+    const validated = companySettingsUpdateSchema.parse(bodyWithoutVersion);
     const settingsUpdates: Record<string, any> = { updatedBy: userId, ...validated };
+
     if (validated.autoClockOutAfterMinutes !== undefined) {
-      settingsUpdates.autoClockOutAfterMinutes = validated.autoClockOutAfterMinutes !== null ? validated.autoClockOutAfterMinutes.toString() : null;
+      settingsUpdates.autoClockOutAfterMinutes = validated.autoClockOutAfterMinutes !== null
+        ? validated.autoClockOutAfterMinutes.toString()
+        : null;
     }
-      if (expectedVersion !== undefined) {
-        const parsedVersion = z.number().int().safeParse(expectedVersion);
-        if (parsedVersion.success) {
-          settingsUpdates.expectedVersion = parsedVersion.data;
-        }
+
+    if (expectedVersion !== undefined) {
+      const parsedVersion = z.number().int().safeParse(expectedVersion);
+      if (parsedVersion.success) {
+        settingsUpdates.expectedVersion = parsedVersion.data;
       }
-      const settings = await storage.updateCompanySettings(settingsUpdates);
-      cache.invalidate('company:settings');
-      await storage.createActivityLog({ userId, action: 'update', targetType: 'company_settings', details: 'Updated company settings' });
-      res.json(settings);
-    } catch (error) {
-      const message = (error as Error).message;
-      if (message.includes("modified by another user")) {
-        return res.status(409).json({ message });
-      }
-      console.error("Error updating company settings:", error);
-      res.status(400).json({ message });
     }
-  });
 
-  // Work location routes are handled in geofence.ts to avoid duplication
+    const settings = await storage.updateCompanySettings(settingsUpdates);
+    cache.invalidate('company:settings');
+    await storage.createActivityLog({ userId, action: 'update', targetType: 'company_settings', details: 'Updated company settings' });
+    res.json(settings);
+  }));
 
-  app.get('/api/activity-logs', isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canView = userPermissions.some(p => p.name === 'admin.manage_all');
-      if (!canView) {
-        return res.status(403).json({ message: "Admin access required" });
-      }
-      const limit = parseInt(req.query.limit as string) || 50;
-      const logs = await storage.getActivityLogs(limit);
-      res.json(logs);
-    } catch (error) {
-      console.error("Error fetching activity logs:", error);
-      res.status(500).json({ message: "Failed to fetch activity logs" });
+  app.get('/api/activity-logs', isAuthenticated, asyncHandler(async (req: any, res) => {
+    await requireAdmin(storage, req.user.id);
+    const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 50, 1), 200);
+    const logs = await storage.getActivityLogs(limit);
+    res.json(logs);
+  }));
+
+  app.post('/api/holiday-pay-rules/bulk', isAuthenticated, asyncHandler(async (req: any, res) => {
+    await requirePayrollOrAdmin(storage, req.user.id);
+
+    const { holidays } = req.body;
+    if (!Array.isArray(holidays) || holidays.length === 0) {
+      throw new AppError(400, "Please provide an array of holidays", "VALIDATION_ERROR");
     }
-  });
 
-  app.post('/api/holiday-pay-rules/bulk', isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canManage = userPermissions.some(p => p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all');
+    const existingRules = await storage.getAllHolidayPayRules();
+    const saved = [];
+    for (const h of holidays) {
+      if (!h.name || typeof h.month !== 'number' || typeof h.day !== 'number') continue;
+      if (h.month < 1 || h.month > 12 || h.day < 1 || h.day > 31) continue;
+      const multiplier = typeof h.payMultiplier === 'number' && h.payMultiplier > 0 && h.payMultiplier <= 5 ? h.payMultiplier : 1.5;
 
-      if (!canManage) {
-        return res.status(403).json({ message: "Admin or payroll management access required" });
+      const existing = existingRules.find(r => r.month === h.month && r.day === h.day);
+      if (existing) {
+        const updated = await storage.updateHolidayPayRule(existing.id, {
+          name: h.name,
+          payMultiplier: multiplier.toFixed(2),
+          isActive: true,
+        });
+        saved.push(updated);
+      } else {
+        const rule = await storage.createHolidayPayRule({
+          name: h.name,
+          month: h.month,
+          day: h.day,
+          payMultiplier: multiplier.toFixed(2),
+          isActive: true,
+          createdBy: req.user.id,
+        });
+        saved.push(rule);
       }
-
-      const { holidays } = req.body;
-      if (!Array.isArray(holidays) || holidays.length === 0) {
-        return res.status(400).json({ message: "Please provide an array of holidays" });
-      }
-
-      const existingRules = await storage.getAllHolidayPayRules();
-      const saved = [];
-      for (const h of holidays) {
-        if (!h.name || typeof h.month !== 'number' || typeof h.day !== 'number') continue;
-        if (h.month < 1 || h.month > 12 || h.day < 1 || h.day > 31) continue;
-        const multiplier = typeof h.payMultiplier === 'number' && h.payMultiplier > 0 && h.payMultiplier <= 5 ? h.payMultiplier : 1.5;
-
-        const existing = existingRules.find(r => r.month === h.month && r.day === h.day);
-        if (existing) {
-          const updated = await storage.updateHolidayPayRule(existing.id, {
-            name: h.name,
-            payMultiplier: multiplier.toFixed(2),
-            isActive: true,
-          });
-          saved.push(updated);
-        } else {
-          const rule = await storage.createHolidayPayRule({
-            name: h.name,
-            month: h.month,
-            day: h.day,
-            payMultiplier: multiplier.toFixed(2),
-            isActive: true,
-            createdBy: userId,
-          });
-          saved.push(rule);
-        }
-      }
-
-      res.json({ rules: saved, count: saved.length });
-    } catch (error) {
-      console.error("Error bulk creating holiday pay rules:", error);
-      res.status(500).json({ message: "Failed to save holiday pay rules" });
     }
-  });
 
-  app.get('/api/holiday-pay-rules', isAuthenticated, async (req: any, res) => {
-    try {
-      const rules = await storage.getAllHolidayPayRules();
-      res.json(rules);
-    } catch (error) {
-      console.error("Error fetching holiday pay rules:", error);
-      res.status(500).json({ message: "Failed to fetch holiday pay rules" });
+    res.json({ rules: saved, count: saved.length });
+  }));
+
+  app.get('/api/holiday-pay-rules', isAuthenticated, asyncHandler(async (_req: any, res) => {
+    const rules = await storage.getAllHolidayPayRules();
+    res.json(rules);
+  }));
+
+  app.delete('/api/holiday-pay-rules/:id', isAuthenticated, asyncHandler(async (req: any, res) => {
+    await requirePayrollOrAdmin(storage, req.user.id);
+    const { id } = req.params;
+    await storage.deleteHolidayPayRule(id);
+    res.json({ success: true });
+  }));
+
+  app.patch('/api/holiday-pay-rules/:id', isAuthenticated, asyncHandler(async (req: any, res) => {
+    await requirePayrollOrAdmin(storage, req.user.id);
+    const { id } = req.params;
+    const { name, month, day, payMultiplier, isActive } = req.body;
+    const safeUpdates: Record<string, any> = {};
+    if (name !== undefined && typeof name === 'string') safeUpdates.name = name;
+    if (month !== undefined && typeof month === 'number' && month >= 1 && month <= 12) safeUpdates.month = month;
+    if (day !== undefined && typeof day === 'number' && day >= 1 && day <= 31) safeUpdates.day = day;
+    if (payMultiplier !== undefined) {
+      const mult = parseFloat(payMultiplier);
+      if (!isNaN(mult) && mult > 0 && mult <= 5) safeUpdates.payMultiplier = mult.toFixed(2);
     }
-  });
+    if (isActive !== undefined && typeof isActive === 'boolean') safeUpdates.isActive = isActive;
 
-  app.delete('/api/holiday-pay-rules/:id', isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canManage = userPermissions.some(p => p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all');
-
-      if (!canManage) {
-        return res.status(403).json({ message: "Admin or payroll management access required" });
-      }
-
-      const { id } = req.params;
-      await storage.deleteHolidayPayRule(id);
-      res.json({ success: true });
-    } catch (error) {
-      console.error("Error deleting holiday pay rule:", error);
-      res.status(500).json({ message: "Failed to delete holiday pay rule" });
-    }
-  });
-
-  app.patch('/api/holiday-pay-rules/:id', isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canManage = userPermissions.some(p => p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all');
-
-      if (!canManage) {
-        return res.status(403).json({ message: "Admin or payroll management access required" });
-      }
-
-      const { id } = req.params;
-      const { name, month, day, payMultiplier, isActive } = req.body;
-      const safeUpdates: Record<string, any> = {};
-      if (name !== undefined && typeof name === 'string') safeUpdates.name = name;
-      if (month !== undefined && typeof month === 'number' && month >= 1 && month <= 12) safeUpdates.month = month;
-      if (day !== undefined && typeof day === 'number' && day >= 1 && day <= 31) safeUpdates.day = day;
-      if (payMultiplier !== undefined) {
-        const mult = parseFloat(payMultiplier);
-        if (!isNaN(mult) && mult > 0 && mult <= 5) safeUpdates.payMultiplier = mult.toFixed(2);
-      }
-      if (isActive !== undefined && typeof isActive === 'boolean') safeUpdates.isActive = isActive;
-
-      const rule = await storage.updateHolidayPayRule(id, safeUpdates);
-      res.json(rule);
-    } catch (error) {
-      console.error("Error updating holiday pay rule:", error);
-      res.status(500).json({ message: "Failed to update holiday pay rule" });
-    }
-  });
+    const rule = await storage.updateHolidayPayRule(id, safeUpdates);
+    res.json(rule);
+  }));
 }

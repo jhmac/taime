@@ -31,6 +31,25 @@ function getInitials(firstName?: string | null, lastName?: string | null): strin
   return f + l || '?';
 }
 
+function RocketIcon(props: Record<string, unknown>) {
+  return <PartyPopper {...props} />;
+}
+
+const SHOUTOUT_CATEGORIES = [
+  { value: 'great_attitude', label: 'Great Attitude', emoji: '✌️', color: 'bg-purple-100 dark:bg-purple-900/30 border-purple-300 dark:border-purple-700', icon: Smile },
+  { value: 'team_player', label: 'Team Player', emoji: '🤝', color: 'bg-blue-100 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700', icon: Users },
+  { value: 'above_and_beyond', label: 'Above & Beyond', emoji: '🚀', color: 'bg-amber-100 dark:bg-amber-900/30 border-amber-300 dark:border-amber-700', icon: RocketIcon },
+  { value: 'problem_solver', label: 'Problem Solver', emoji: '💡', color: 'bg-green-100 dark:bg-green-900/30 border-green-300 dark:border-green-700', icon: Sparkles },
+  { value: 'customer_hero', label: 'Customer Hero', emoji: '⭐', color: 'bg-rose-100 dark:bg-rose-900/30 border-rose-300 dark:border-rose-700', icon: Trophy },
+  { value: 'quick_learner', label: 'Quick Learner', emoji: '📚', color: 'bg-cyan-100 dark:bg-cyan-900/30 border-cyan-300 dark:border-cyan-700', icon: Star },
+  { value: 'great_communicator', label: 'Great Communicator', emoji: '💬', color: 'bg-indigo-100 dark:bg-indigo-900/30 border-indigo-300 dark:border-indigo-700', icon: MessageSquare },
+  { value: 'reliability', label: 'Reliability', emoji: '🛡️', color: 'bg-teal-100 dark:bg-teal-900/30 border-teal-300 dark:border-teal-700', icon: Shield },
+] as const;
+
+function getCategoryInfo(value: string) {
+  return SHOUTOUT_CATEGORIES.find(c => c.value === value) || SHOUTOUT_CATEGORIES[0];
+}
+
 export default function Communication() {
   const { user } = useAuth();
   const { lastMessage } = useWebSocket();
@@ -167,23 +186,6 @@ export default function Communication() {
     onError: handleMutationError,
   });
 
-  const SHOUTOUT_CATEGORIES = [
-    { value: 'great_attitude', label: 'Great Attitude', emoji: '✌️', color: 'bg-purple-100 dark:bg-purple-900/30 border-purple-300 dark:border-purple-700', icon: Smile },
-    { value: 'team_player', label: 'Team Player', emoji: '🤝', color: 'bg-blue-100 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700', icon: Users },
-    { value: 'above_and_beyond', label: 'Above & Beyond', emoji: '🚀', color: 'bg-amber-100 dark:bg-amber-900/30 border-amber-300 dark:border-amber-700', icon: RocketIcon },
-    { value: 'problem_solver', label: 'Problem Solver', emoji: '💡', color: 'bg-green-100 dark:bg-green-900/30 border-green-300 dark:border-green-700', icon: Sparkles },
-    { value: 'customer_hero', label: 'Customer Hero', emoji: '⭐', color: 'bg-rose-100 dark:bg-rose-900/30 border-rose-300 dark:border-rose-700', icon: Trophy },
-    { value: 'quick_learner', label: 'Quick Learner', emoji: '📚', color: 'bg-cyan-100 dark:bg-cyan-900/30 border-cyan-300 dark:border-cyan-700', icon: Star },
-    { value: 'great_communicator', label: 'Great Communicator', emoji: '💬', color: 'bg-indigo-100 dark:bg-indigo-900/30 border-indigo-300 dark:border-indigo-700', icon: MessageSquare },
-    { value: 'reliability', label: 'Reliability', emoji: '🛡️', color: 'bg-teal-100 dark:bg-teal-900/30 border-teal-300 dark:border-teal-700', icon: Shield },
-  ];
-
-  function RocketIcon(props: any) {
-    return <PartyPopper {...props} />;
-  }
-
-  const getCategoryInfo = (value: string) => SHOUTOUT_CATEGORIES.find(c => c.value === value) || SHOUTOUT_CATEGORIES[0];
-
   const sendShoutoutMutation = useMutation({
     mutationFn: async (data: { recipientId: string; category: string; message: string; emoji?: string }) => {
       return await apiRequest('POST', '/api/shoutouts', data);
@@ -244,15 +246,17 @@ export default function Communication() {
     setSelectedMemberIds(prev => prev.includes(id) ? prev.filter(m => m !== id) : [...prev, id]);
   };
 
-  const getUserName = (userId: string) => {
-    const u = allUsers.find((u: any) => u.id === userId);
-    return u ? `${u.firstName || ''} ${u.lastName || ''}`.trim() || 'Unknown' : 'Unknown';
-  };
+  const userMap = useMemo(() => {
+    const map = new Map<string, { name: string; initials: string }>();
+    allUsers.forEach((u: any) => {
+      const name = `${u.firstName || ''} ${u.lastName || ''}`.trim() || 'Unknown';
+      map.set(u.id, { name, initials: getInitials(u.firstName, u.lastName) });
+    });
+    return map;
+  }, [allUsers]);
 
-  const getUserInitials = (userId: string) => {
-    const u = allUsers.find((u: any) => u.id === userId);
-    return getInitials(u?.firstName, u?.lastName);
-  };
+  const getUserName = (userId: string) => userMap.get(userId)?.name || 'Unknown';
+  const getUserInitials = (userId: string) => userMap.get(userId)?.initials || '?';
 
   const announcements = allMessages.filter((m: any) => m.isAnnouncement);
   const directMessages = allMessages.filter((m: any) => !m.isAnnouncement && !m.groupId);
