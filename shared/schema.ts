@@ -9,7 +9,8 @@ import {
   decimal,
   jsonb,
   index,
-  pgEnum
+  pgEnum,
+  serial
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -606,6 +607,66 @@ export const geofenceEvents = pgTable("geofence_events", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Shopify Store table
+export const shops = pgTable("shops", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  shopDomain: varchar("shop_domain").notNull().unique(),
+  shopName: varchar("shop_name"),
+  shopEmail: varchar("shop_email"),
+  accessToken: varchar("access_token"),
+  scope: varchar("scope"),
+  currency: varchar("currency").default("USD"),
+  timezone: varchar("timezone"),
+  isActive: boolean("is_active").default(true),
+  lastSyncAt: timestamp("last_sync_at"),
+  installedAt: timestamp("installed_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// User to Shop junction table
+export const userShops = pgTable("user_shops", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  shopDomain: varchar("shop_domain").references(() => shops.shopDomain).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Shopify Daily Sales
+export const shopifyDailySales = pgTable("shopify_daily_sales", {
+  id: serial("id").primaryKey(),
+  shopDomain: varchar("shop_domain").notNull(),
+  date: timestamp("date").notNull(),
+  dayOfWeek: integer("day_of_week"),
+  orderCount: integer("order_count").default(0),
+  totalRevenue: decimal("total_revenue", { precision: 12, scale: 2 }).default("0.00"),
+  itemCount: integer("item_count").default(0),
+  averageOrderValue: decimal("average_order_value", { precision: 10, scale: 2 }).default("0.00"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Shopify Orders
+export const shopifyOrders = pgTable("shopify_orders", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  shopDomain: varchar("shop_domain").notNull(),
+  orderId: varchar("order_id").notNull(),
+  orderNumber: varchar("order_number"),
+  email: varchar("email"),
+  totalPrice: decimal("total_price", { precision: 12, scale: 2 }),
+  currency: varchar("currency"),
+  financialStatus: varchar("financial_status"),
+  fulfillmentStatus: varchar("fulfillment_status"),
+  lineItems: jsonb("line_items"),
+  customerData: jsonb("customer_data"),
+  orderCreatedAt: timestamp("order_created_at"),
+  processedAt: timestamp("processed_at"),
+  syncedAt: timestamp("synced_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("IDX_shopify_orders_shop_date").on(table.shopDomain, table.orderCreatedAt),
+  index("IDX_shopify_orders_order_id").on(table.orderId),
+]);
+
 // Zod schemas
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertTimeEntrySchema = createInsertSchema(timeEntries).omit({ id: true, createdAt: true });
@@ -640,6 +701,10 @@ export const insertTrainingModuleSchema = createInsertSchema(trainingModules).om
 export const insertEmployeeTrainingProgressSchema = createInsertSchema(employeeTrainingProgress).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertCommuteAlertSchema = createInsertSchema(commuteAlerts).omit({ id: true, createdAt: true });
 export const insertShoutoutSchema = createInsertSchema(shoutouts).omit({ id: true, createdAt: true, reactions: true });
+export const insertShopSchema = createInsertSchema(shops).omit({ id: true, installedAt: true, updatedAt: true });
+export const insertUserShopSchema = createInsertSchema(userShops).omit({ id: true, createdAt: true });
+export const insertShopifyDailySalesSchema = createInsertSchema(shopifyDailySales).omit({ id: true, createdAt: true });
+export const insertShopifyOrderSchema = createInsertSchema(shopifyOrders).omit({ id: true, syncedAt: true, createdAt: true, updatedAt: true });
 
 // Types
 export type User = typeof users.$inferSelect;
@@ -712,3 +777,7 @@ export type InsertCommuteAlert = z.infer<typeof insertCommuteAlertSchema>;
 export type Shoutout = typeof shoutouts.$inferSelect;
 export type InsertShoutout = z.infer<typeof insertShoutoutSchema>;
 export type GeofenceEvent = typeof geofenceEvents.$inferSelect;
+export type Shop = typeof shops.$inferSelect;
+export type UserShop = typeof userShops.$inferSelect;
+export type ShopifyDailySale = typeof shopifyDailySales.$inferSelect;
+export type ShopifyOrder = typeof shopifyOrders.$inferSelect;

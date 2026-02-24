@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { useWebSocket } from '@/hooks/useWebSocket';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -19,9 +19,10 @@ import { useToast } from '@/hooks/use-toast';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { isUnauthorizedError } from '@/lib/authUtils';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { format } from 'date-fns';
 import {
   MessageSquare, Users, Megaphone, Send, Plus, ChevronDown, ChevronRight,
-  Hash, ArrowLeft, Loader2, UserPlus, PartyPopper, Heart, Star, Trophy, Sparkles, Shield, Smile
+  Hash, ArrowLeft, Loader2, UserPlus, PartyPopper, Heart, Star, Trophy, Sparkles, Shield, Smile, Quote
 } from 'lucide-react';
 
 function getInitials(firstName?: string | null, lastName?: string | null): string {
@@ -65,6 +66,9 @@ export default function Communication() {
     if (lastMessage?.type === 'shoutout_created') {
       qc.invalidateQueries({ queryKey: ['/api/shoutouts'] });
     }
+    if (lastMessage?.type === 'shoutout_reaction') {
+      qc.invalidateQueries({ queryKey: ['/api/shoutouts'] });
+    }
   }, [lastMessage, qc, selectedGroupId]);
 
   const { data: groups = [], isLoading: groupsLoading } = useQuery<any[]>({
@@ -91,6 +95,10 @@ export default function Communication() {
 
   const { data: shoutoutsList = [], isLoading: shoutoutsLoading } = useQuery<any[]>({
     queryKey: ['/api/shoutouts'],
+  });
+
+  const { data: settings } = useQuery<any>({
+    queryKey: ['/api/company-settings'],
   });
 
   useEffect(() => {
@@ -160,15 +168,19 @@ export default function Communication() {
   });
 
   const SHOUTOUT_CATEGORIES = [
-    { value: 'great_attitude', label: 'Great Attitude', emoji: '✌️', color: 'bg-purple-100 dark:bg-purple-900/30 border-purple-300 dark:border-purple-700' },
-    { value: 'team_player', label: 'Team Player', emoji: '🤝', color: 'bg-blue-100 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700' },
-    { value: 'above_and_beyond', label: 'Above & Beyond', emoji: '🚀', color: 'bg-amber-100 dark:bg-amber-900/30 border-amber-300 dark:border-amber-700' },
-    { value: 'problem_solver', label: 'Problem Solver', emoji: '💡', color: 'bg-green-100 dark:bg-green-900/30 border-green-300 dark:border-green-700' },
-    { value: 'customer_hero', label: 'Customer Hero', emoji: '⭐', color: 'bg-rose-100 dark:bg-rose-900/30 border-rose-300 dark:border-rose-700' },
-    { value: 'quick_learner', label: 'Quick Learner', emoji: '📚', color: 'bg-cyan-100 dark:bg-cyan-900/30 border-cyan-300 dark:border-cyan-700' },
-    { value: 'great_communicator', label: 'Great Communicator', emoji: '💬', color: 'bg-indigo-100 dark:bg-indigo-900/30 border-indigo-300 dark:border-indigo-700' },
-    { value: 'reliability', label: 'Reliability', emoji: '🛡️', color: 'bg-teal-100 dark:bg-teal-900/30 border-teal-300 dark:border-teal-700' },
+    { value: 'great_attitude', label: 'Great Attitude', emoji: '✌️', color: 'bg-purple-100 dark:bg-purple-900/30 border-purple-300 dark:border-purple-700', icon: Smile },
+    { value: 'team_player', label: 'Team Player', emoji: '🤝', color: 'bg-blue-100 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700', icon: Users },
+    { value: 'above_and_beyond', label: 'Above & Beyond', emoji: '🚀', color: 'bg-amber-100 dark:bg-amber-900/30 border-amber-300 dark:border-amber-700', icon: RocketIcon },
+    { value: 'problem_solver', label: 'Problem Solver', emoji: '💡', color: 'bg-green-100 dark:bg-green-900/30 border-green-300 dark:border-green-700', icon: Sparkles },
+    { value: 'customer_hero', label: 'Customer Hero', emoji: '⭐', color: 'bg-rose-100 dark:bg-rose-900/30 border-rose-300 dark:border-rose-700', icon: Trophy },
+    { value: 'quick_learner', label: 'Quick Learner', emoji: '📚', color: 'bg-cyan-100 dark:bg-cyan-900/30 border-cyan-300 dark:border-cyan-700', icon: Star },
+    { value: 'great_communicator', label: 'Great Communicator', emoji: '💬', color: 'bg-indigo-100 dark:bg-indigo-900/30 border-indigo-300 dark:border-indigo-700', icon: MessageSquare },
+    { value: 'reliability', label: 'Reliability', emoji: '🛡️', color: 'bg-teal-100 dark:bg-teal-900/30 border-teal-300 dark:border-teal-700', icon: Shield },
   ];
+
+  function RocketIcon(props: any) {
+    return <PartyPopper {...props} />;
+  }
 
   const getCategoryInfo = (value: string) => SHOUTOUT_CATEGORIES.find(c => c.value === value) || SHOUTOUT_CATEGORIES[0];
 
@@ -245,7 +257,7 @@ export default function Communication() {
   const announcements = allMessages.filter((m: any) => m.isAnnouncement);
   const directMessages = allMessages.filter((m: any) => !m.isAnnouncement && !m.groupId);
 
-  const dmConversations = (() => {
+  const dmConversations = useMemo(() => {
     const convMap = new Map<string, any>();
     directMessages.forEach((msg: any) => {
       const otherId = msg.senderId === user?.id ? msg.recipientId : msg.senderId;
@@ -261,14 +273,15 @@ export default function Communication() {
       name: getUserName(userId),
       initials: getUserInitials(userId),
     })).sort((a, b) => new Date(b.lastMessage.createdAt).getTime() - new Date(a.lastMessage.createdAt).getTime());
-  })();
+  }, [directMessages, allUsers, user?.id]);
 
-  const selectedDmMessages = selectedUserId
-    ? directMessages.filter((m: any) =>
-        (m.senderId === user?.id && m.recipientId === selectedUserId) ||
-        (m.senderId === selectedUserId && m.recipientId === user?.id)
-      ).sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
-    : [];
+  const selectedDmMessages = useMemo(() => {
+    if (!selectedUserId) return [];
+    return directMessages.filter((m: any) =>
+      (m.senderId === user?.id && m.recipientId === selectedUserId) ||
+      (m.senderId === selectedUserId && m.recipientId === user?.id)
+    ).sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  }, [directMessages, selectedUserId, user?.id]);
 
   const selectedGroup = groups.find((g: any) => g.id === selectedGroupId);
 
@@ -491,7 +504,7 @@ export default function Communication() {
                                   {msg.content}
                                 </div>
                                 <span className="text-[10px] text-muted-foreground mt-0.5 px-1">
-                                  {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  {format(new Date(msg.createdAt), 'h:mm a')}
                                 </span>
                               </div>
                             </div>
@@ -501,36 +514,31 @@ export default function Communication() {
                       <div ref={messagesEndRef} />
                     </div>
                   </ScrollArea>
-                  <div className="p-3 border-t">
+                  <div className="p-3 border-t bg-muted/30">
                     <div className="flex gap-2">
                       <Input
                         placeholder="Type a message..."
                         value={groupMessage}
                         onChange={(e) => setGroupMessage(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSendGroupMessage()}
+                        onKeyDown={(e) => e.key === 'Enter' && handleSendGroupMessage()}
+                        disabled={sendGroupMessageMutation.isPending}
                       />
-                      <Button
-                        size="icon"
-                        onClick={handleSendGroupMessage}
-                        disabled={!groupMessage.trim() || sendGroupMessageMutation.isPending}
-                      >
-                        {sendGroupMessageMutation.isPending ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Send className="h-4 w-4" />
-                        )}
+                      <Button size="icon" onClick={handleSendGroupMessage} disabled={!groupMessage.trim() || sendGroupMessageMutation.isPending}>
+                        <Send className="h-4 w-4" />
                       </Button>
                     </div>
                   </div>
                 </Card>
               ) : (
-                <Card className="flex-1 flex items-center justify-center">
-                  <div className="text-center text-muted-foreground">
-                    <Hash className="h-12 w-12 mx-auto mb-3 opacity-30" />
-                    <p className="font-medium">Select a group</p>
-                    <p className="text-sm mt-1">Choose a group from the sidebar to start chatting</p>
+                <div className="flex-1 flex items-center justify-center bg-muted/20 rounded-lg border-2 border-dashed">
+                  <div className="text-center space-y-2">
+                    <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
+                      <Hash className="h-6 w-6 text-primary" />
+                    </div>
+                    <h3 className="font-semibold">Select a group</h3>
+                    <p className="text-sm text-muted-foreground">Choose a group from the sidebar to start chatting</p>
                   </div>
-                </Card>
+                </div>
               )}
             </div>
           </div>
@@ -540,8 +548,44 @@ export default function Communication() {
           <div className="flex h-full gap-3">
             <div className={`${selectedUserId ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-72 shrink-0`}>
               <Card className="flex-1 flex flex-col overflow-hidden">
-                <CardHeader className="py-3 px-4">
-                  <CardTitle className="text-sm font-semibold">Conversations</CardTitle>
+                <CardHeader className="py-3 px-4 flex-row items-center justify-between space-y-0">
+                  <CardTitle className="text-sm font-semibold">Messages</CardTitle>
+                  <Dialog>
+                    <DialogTrigger asChild>
+                      <Button variant="ghost" size="icon" className="h-8 w-8">
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>New Message</DialogTitle>
+                      </DialogHeader>
+                      <ScrollArea className="h-72 pr-4">
+                        <div className="space-y-1">
+                          {allUsers
+                            .filter((u: any) => u.id !== user?.id)
+                            .map((u: any) => (
+                              <button
+                                key={u.id}
+                                onClick={() => {
+                                  setSelectedUserId(u.id);
+                                  toast({ title: "Conversation started", description: `You can now chat with ${u.firstName}` });
+                                }}
+                                className="w-full text-left p-2 rounded-md hover:bg-muted flex items-center gap-3 transition-colors"
+                              >
+                                <Avatar className="h-8 w-8">
+                                  <AvatarFallback>{getInitials(u.firstName, u.lastName)}</AvatarFallback>
+                                </Avatar>
+                                <div>
+                                  <p className="text-sm font-medium">{u.firstName} {u.lastName}</p>
+                                  <p className="text-xs text-muted-foreground">{u.roleName || 'Team Member'}</p>
+                                </div>
+                              </button>
+                            ))}
+                        </div>
+                      </ScrollArea>
+                    </DialogContent>
+                  </Dialog>
                 </CardHeader>
                 <ScrollArea className="flex-1">
                   <div className="px-2 pb-2">
@@ -554,68 +598,37 @@ export default function Communication() {
                     ) : dmConversations.length === 0 ? (
                       <div className="text-center py-8 text-muted-foreground text-sm">
                         <MessageSquare className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                        <p>No conversations yet</p>
-                        <p className="text-xs mt-1">Select a team member below to start</p>
-                        <div className="mt-4 space-y-1">
-                          {allUsers
-                            .filter((u: any) => u.id !== user?.id)
-                            .slice(0, 5)
-                            .map((u: any) => (
-                              <button
-                                key={u.id}
-                                onClick={() => setSelectedUserId(u.id)}
-                                className="w-full text-left p-2 rounded-lg hover:bg-muted flex items-center gap-2"
-                              >
-                                <Avatar className="h-7 w-7">
-                                  <AvatarFallback className="text-xs">{getInitials(u.firstName, u.lastName)}</AvatarFallback>
-                                </Avatar>
-                                <span className="text-sm">{u.firstName} {u.lastName}</span>
-                              </button>
-                            ))}
-                        </div>
+                        <p>No direct messages</p>
+                        <p className="text-xs mt-1">Start a conversation!</p>
                       </div>
                     ) : (
-                      <>
-                        {dmConversations.map((conv) => (
-                          <button
-                            key={conv.userId}
-                            onClick={() => setSelectedUserId(conv.userId)}
-                            className={`w-full text-left p-3 rounded-lg mb-1 transition-colors flex items-center gap-3 ${
-                              selectedUserId === conv.userId
-                                ? 'bg-primary/10 text-primary'
-                                : 'hover:bg-muted'
-                            }`}
-                          >
-                            <Avatar className="h-9 w-9 shrink-0">
-                              <AvatarFallback className="text-xs">{conv.initials}</AvatarFallback>
-                            </Avatar>
-                            <div className="overflow-hidden flex-1">
+                      dmConversations.map((conv) => (
+                        <button
+                          key={conv.userId}
+                          onClick={() => setSelectedUserId(conv.userId)}
+                          className={`w-full text-left p-3 rounded-lg mb-1 transition-colors flex items-center gap-3 ${
+                            selectedUserId === conv.userId
+                              ? 'bg-primary/10 text-primary'
+                              : 'hover:bg-muted'
+                          }`}
+                        >
+                          <Avatar className="h-10 w-10 shrink-0 border">
+                            <AvatarFallback>{conv.initials}</AvatarFallback>
+                          </Avatar>
+                          <div className="overflow-hidden flex-1">
+                            <div className="flex items-center justify-between gap-1">
                               <p className="font-medium text-sm truncate">{conv.name}</p>
-                              <p className="text-xs text-muted-foreground truncate">{conv.lastMessage.content}</p>
+                              <span className="text-[10px] text-muted-foreground shrink-0">
+                                {format(new Date(conv.lastMessage.createdAt), 'h:mm a')}
+                              </span>
                             </div>
-                            <span className="text-[10px] text-muted-foreground shrink-0">
-                              {new Date(conv.lastMessage.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </span>
-                          </button>
-                        ))}
-                        <div className="border-t mt-2 pt-2">
-                          <p className="text-xs text-muted-foreground px-2 mb-1">Start new conversation</p>
-                          {allUsers
-                            .filter((u: any) => u.id !== user?.id && !dmConversations.find(c => c.userId === u.id))
-                            .map((u: any) => (
-                              <button
-                                key={u.id}
-                                onClick={() => setSelectedUserId(u.id)}
-                                className="w-full text-left p-2 rounded-lg hover:bg-muted flex items-center gap-2"
-                              >
-                                <Avatar className="h-7 w-7">
-                                  <AvatarFallback className="text-xs">{getInitials(u.firstName, u.lastName)}</AvatarFallback>
-                                </Avatar>
-                                <span className="text-sm">{u.firstName} {u.lastName}</span>
-                              </button>
-                            ))}
-                        </div>
-                      </>
+                            <p className="text-xs text-muted-foreground truncate">
+                              {conv.lastMessage.senderId === user?.id ? 'You: ' : ''}
+                              {conv.lastMessage.content}
+                            </p>
+                          </div>
+                        </button>
+                      ))
                     )}
                   </div>
                 </ScrollArea>
@@ -636,9 +649,12 @@ export default function Communication() {
                         <ArrowLeft className="h-4 w-4" />
                       </Button>
                       <Avatar className="h-8 w-8 shrink-0">
-                        <AvatarFallback className="text-xs">{getUserInitials(selectedUserId)}</AvatarFallback>
+                        <AvatarFallback>{getUserInitials(selectedUserId)}</AvatarFallback>
                       </Avatar>
-                      <CardTitle className="text-sm font-semibold">{getUserName(selectedUserId)}</CardTitle>
+                      <div>
+                        <CardTitle className="text-sm font-semibold truncate">{getUserName(selectedUserId)}</CardTitle>
+                        <p className="text-[10px] text-muted-foreground">Active now</p>
+                      </div>
                     </div>
                   </CardHeader>
                   <ScrollArea className="flex-1 p-4">
@@ -647,18 +663,13 @@ export default function Communication() {
                         <div className="text-center py-12 text-muted-foreground">
                           <MessageSquare className="h-10 w-10 mx-auto mb-3 opacity-40" />
                           <p className="text-sm">No messages yet</p>
-                          <p className="text-xs mt-1">Say hello!</p>
+                          <p className="text-xs mt-1">Send a message to start the conversation!</p>
                         </div>
                       ) : (
                         selectedDmMessages.map((msg: any) => {
                           const isMine = msg.senderId === user?.id;
                           return (
                             <div key={msg.id} className={`flex gap-2 ${isMine ? 'flex-row-reverse' : ''}`}>
-                              {!isMine && (
-                                <Avatar className="h-8 w-8 shrink-0">
-                                  <AvatarFallback className="text-xs">{getUserInitials(msg.senderId)}</AvatarFallback>
-                                </Avatar>
-                              )}
                               <div className={`max-w-[75%] ${isMine ? 'items-end' : 'items-start'} flex flex-col`}>
                                 <div className={`rounded-2xl px-3 py-2 text-sm ${
                                   isMine
@@ -668,7 +679,7 @@ export default function Communication() {
                                   {msg.content}
                                 </div>
                                 <span className="text-[10px] text-muted-foreground mt-0.5 px-1">
-                                  {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  {format(new Date(msg.createdAt), 'h:mm a')}
                                 </span>
                               </div>
                             </div>
@@ -678,192 +689,221 @@ export default function Communication() {
                       <div ref={dmEndRef} />
                     </div>
                   </ScrollArea>
-                  <div className="p-3 border-t">
+                  <div className="p-3 border-t bg-muted/30">
                     <div className="flex gap-2">
                       <Input
                         placeholder="Type a message..."
                         value={directMessage}
                         onChange={(e) => setDirectMessage(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSendDirectMessage()}
+                        onKeyDown={(e) => e.key === 'Enter' && handleSendDirectMessage()}
+                        disabled={sendDirectMessageMutation.isPending}
                       />
-                      <Button
-                        size="icon"
-                        onClick={handleSendDirectMessage}
-                        disabled={!directMessage.trim() || sendDirectMessageMutation.isPending}
-                      >
-                        {sendDirectMessageMutation.isPending ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Send className="h-4 w-4" />
-                        )}
+                      <Button size="icon" onClick={handleSendDirectMessage} disabled={!directMessage.trim() || sendDirectMessageMutation.isPending}>
+                        <Send className="h-4 w-4" />
                       </Button>
                     </div>
                   </div>
                 </Card>
               ) : (
-                <Card className="flex-1 flex items-center justify-center">
-                  <div className="text-center text-muted-foreground">
-                    <MessageSquare className="h-12 w-12 mx-auto mb-3 opacity-30" />
-                    <p className="font-medium">Select a conversation</p>
-                    <p className="text-sm mt-1">Choose a contact to start messaging</p>
+                <div className="flex-1 flex items-center justify-center bg-muted/20 rounded-lg border-2 border-dashed">
+                  <div className="text-center space-y-2">
+                    <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center mx-auto">
+                      <MessageSquare className="h-6 w-6 text-primary" />
+                    </div>
+                    <h3 className="font-semibold">Direct Messages</h3>
+                    <p className="text-sm text-muted-foreground">Select a teammate to start a private conversation</p>
                   </div>
-                </Card>
+                </div>
               )}
             </div>
           </div>
         </TabsContent>
 
         <TabsContent value="celebrations" className="flex-1 overflow-hidden mt-0 px-4 pb-4">
-          <Card className="h-full flex flex-col overflow-hidden">
-            <CardHeader className="py-3 px-4 border-b space-y-0 flex-row items-center justify-between">
-              <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                <PartyPopper className="h-4 w-4 text-primary" />
-                Celebrations
-              </CardTitle>
-              <Dialog open={shoutoutOpen} onOpenChange={setShoutoutOpen}>
-                <DialogTrigger asChild>
-                  <Button size="sm" className="gap-1.5">
-                    <Sparkles className="h-3.5 w-3.5" />
-                    Give Shoutout
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle className="flex items-center gap-2">
-                      <PartyPopper className="h-5 w-5" />
-                      Give a Shoutout
-                    </DialogTitle>
-                  </DialogHeader>
-                  <div className="space-y-4">
-                    <div>
-                      <Label className="text-sm mb-1.5 block">Who are you recognizing?</Label>
-                      <Select value={shoutoutRecipient} onValueChange={setShoutoutRecipient}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a team member" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {allUsers
-                            .filter((u: any) => u.id !== user?.id && u.isActive !== false)
-                            .map((u: any) => (
-                              <SelectItem key={u.id} value={u.id}>
-                                {u.firstName} {u.lastName}
-                              </SelectItem>
-                            ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div>
-                      <Label className="text-sm mb-1.5 block">Category</Label>
-                      <div className="grid grid-cols-2 gap-2">
-                        {SHOUTOUT_CATEGORIES.map(cat => (
-                          <button
-                            key={cat.value}
-                            type="button"
-                            onClick={() => setShoutoutCategory(cat.value)}
-                            className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm transition-all ${
-                              shoutoutCategory === cat.value
-                                ? `${cat.color} ring-2 ring-primary font-medium`
-                                : 'bg-muted/30 border-border hover:bg-muted/60'
-                            }`}
-                          >
-                            <span className="text-lg">{cat.emoji}</span>
-                            <span>{cat.label}</span>
-                          </button>
-                        ))}
+          <Card className="h-full flex flex-col overflow-hidden border-none shadow-none bg-transparent">
+            <CardHeader className="px-0 pt-0 pb-4 flex-row items-center justify-between space-y-0">
+              <div>
+                <CardTitle className="text-xl font-bold flex items-center gap-2">
+                  <PartyPopper className="h-6 w-6 text-primary" />
+                  Team Celebrations
+                </CardTitle>
+                <p className="text-sm text-muted-foreground">Recognize your teammates for their hard work!</p>
+              </div>
+              {settings?.allowShoutOuts !== false && (
+                <Dialog open={shoutoutOpen} onOpenChange={setShoutoutOpen}>
+                  <DialogTrigger asChild>
+                    <Button className="gap-2">
+                      <Star className="h-4 w-4" />
+                      Give Shoutout
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                      <DialogTitle className="flex items-center gap-2">
+                        <PartyPopper className="h-5 w-5 text-primary" />
+                        Recognize a Teammate
+                      </DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                      <div className="space-y-2">
+                        <Label>Who are you recognizing?</Label>
+                        <Select value={shoutoutRecipient} onValueChange={setShoutoutRecipient}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select teammate..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {allUsers
+                              .filter((u: any) => u.id !== user?.id)
+                              .map((u: any) => (
+                                <SelectItem key={u.id} value={u.id}>
+                                  <div className="flex items-center gap-2">
+                                    <Avatar className="h-5 w-5">
+                                      <AvatarFallback className="text-[10px]">{getInitials(u.firstName, u.lastName)}</AvatarFallback>
+                                    </Avatar>
+                                    {u.firstName} {u.lastName}
+                                  </div>
+                                </SelectItem>
+                              ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Category</Label>
+                        <div className="grid grid-cols-2 gap-2">
+                          {SHOUTOUT_CATEGORIES.map((cat) => (
+                            <Button
+                              key={cat.value}
+                              variant={shoutoutCategory === cat.value ? 'default' : 'outline'}
+                              className={`h-auto py-2 flex-col gap-1 items-center justify-center text-center px-1 ${
+                                shoutoutCategory === cat.value ? '' : 'hover:bg-muted'
+                              }`}
+                              onClick={() => setShoutoutCategory(cat.value)}
+                            >
+                              <span className="text-xl">{cat.emoji}</span>
+                              <span className="text-[10px] leading-tight">{cat.label}</span>
+                            </Button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Your message</Label>
+                        <Textarea
+                          placeholder="What did they do that was awesome?"
+                          className="min-h-[100px] resize-none"
+                          value={shoutoutMessage}
+                          onChange={(e) => setShoutoutMessage(e.target.value)}
+                        />
                       </div>
                     </div>
-                    <div>
-                      <Label className="text-sm mb-1.5 block">Message</Label>
-                      <Textarea
-                        placeholder="What did they do that was awesome?"
-                        value={shoutoutMessage}
-                        onChange={e => setShoutoutMessage(e.target.value)}
-                        className="min-h-20"
-                      />
-                    </div>
-                  </div>
-                  <DialogFooter>
-                    <Button
-                      onClick={handleSendShoutout}
-                      disabled={!shoutoutRecipient || !shoutoutCategory || !shoutoutMessage.trim() || sendShoutoutMutation.isPending}
-                      className="w-full gap-2"
-                    >
-                      {sendShoutoutMutation.isPending ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Sparkles className="h-4 w-4" />
-                      )}
-                      Send Shoutout
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
+                    <DialogFooter>
+                      <Button
+                        className="w-full"
+                        onClick={handleSendShoutout}
+                        disabled={!shoutoutRecipient || !shoutoutCategory || !shoutoutMessage.trim() || sendShoutoutMutation.isPending}
+                      >
+                        {sendShoutoutMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                        Send Celebration!
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+              )}
             </CardHeader>
-
-            <ScrollArea className="flex-1 p-4">
-              <div className="space-y-4">
+            <ScrollArea className="flex-1 -mx-4 px-4">
+              <div className="space-y-6 pb-6">
                 {shoutoutsLoading ? (
-                  <div className="space-y-3">
+                  <div className="space-y-4">
                     {[...Array(3)].map((_, i) => (
-                      <Skeleton key={i} className="h-32 w-full rounded-lg" />
+                      <Skeleton key={i} className="h-48 w-full rounded-xl" />
                     ))}
                   </div>
                 ) : shoutoutsList.length === 0 ? (
-                  <div className="text-center py-12 text-muted-foreground">
-                    <PartyPopper className="h-10 w-10 mx-auto mb-3 opacity-40" />
-                    <p className="font-medium">No shoutouts yet</p>
-                    <p className="text-sm mt-1">Be the first to recognize a team member!</p>
+                  <div className="text-center py-20 bg-muted/20 rounded-2xl border-2 border-dashed">
+                    <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-4">
+                      <Star className="h-8 w-8 text-primary" />
+                    </div>
+                    <h3 className="text-lg font-semibold">No celebrations yet!</h3>
+                    <p className="text-muted-foreground max-w-xs mx-auto mt-2">
+                      Be the first to recognize a teammate for their great work and help build our team culture!
+                    </p>
+                    <Button variant="outline" className="mt-6" onClick={() => setShoutoutOpen(true)}>
+                      Start Celebrating
+                    </Button>
                   </div>
                 ) : (
-                  shoutoutsList.map((s: any) => {
-                    const cat = getCategoryInfo(s.category);
-                    const reactions = (s.reactions || []) as Array<{ userId: string; emoji: string }>;
-                    const heartCount = reactions.filter((r: any) => r.emoji === '❤️').length;
-                    const userHearted = reactions.some((r: any) => r.userId === user?.id && r.emoji === '❤️');
+                  shoutoutsList.map((shoutout) => {
+                    const category = getCategoryInfo(shoutout.category);
+                    const reactions = (shoutout.reactions || []) as any[];
+                    const hasLiked = reactions.some(r => r.userId === user?.id && r.emoji === '❤️');
+                    const reactionCount = reactions.filter(r => r.emoji === '❤️').length;
+                    const CategoryIcon = category.icon;
+
                     return (
-                      <div key={s.id} className="rounded-lg border overflow-hidden">
-                        <div className="p-4 bg-muted/20">
-                          <p className="font-semibold text-sm mb-2 flex items-center gap-1.5">
-                            <Sparkles className="h-3.5 w-3.5 text-primary" />
-                            Shoutout to {getUserName(s.recipientId)}!
-                          </p>
-                          <div className={`rounded-lg border p-4 ${cat.color}`}>
-                            <div className="flex items-start gap-3">
-                              <div className="flex-1">
-                                <p className="font-bold text-sm">{cat.label}</p>
-                                <p className="text-xs text-muted-foreground mt-0.5">
-                                  {new Date(s.createdAt).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-                                </p>
-                                <p className="text-sm mt-2">{s.message}</p>
+                      <Card key={shoutout.id} className={`overflow-hidden border-2 shadow-sm rounded-xl transition-all hover:shadow-md ${category.color}`}>
+                        <div className="p-5 flex gap-4">
+                          <div className="flex flex-col items-center gap-2">
+                            <div className="relative">
+                              <Avatar className="h-14 w-14 border-2 border-white dark:border-gray-800 shadow-sm">
+                                <AvatarFallback className="text-lg bg-white dark:bg-gray-800">
+                                  {getUserInitials(shoutout.recipientId)}
+                                </AvatarFallback>
+                              </Avatar>
+                              <div className="absolute -bottom-1 -right-1 bg-white dark:bg-gray-800 rounded-full p-1 shadow-sm border">
+                                <span className="text-sm leading-none">{category.emoji}</span>
                               </div>
-                              <span className="text-3xl">{cat.emoji}</span>
+                            </div>
+                          </div>
+                          <div className="flex-1 space-y-2">
+                            <div className="flex items-start justify-between">
+                              <div>
+                                <h3 className="font-bold text-lg leading-tight">
+                                  Shoutout to {getUserName(shoutout.recipientId)}!
+                                </h3>
+                                <div className="flex items-center gap-1.5 text-primary/80 font-medium text-sm mt-0.5">
+                                  <CategoryIcon className="h-3.5 w-3.5" />
+                                  {category.label}
+                                </div>
+                              </div>
+                              <span className="text-[10px] font-medium opacity-60 uppercase tracking-wider">
+                                {format(new Date(shoutout.createdAt), 'MMM d')}
+                              </span>
+                            </div>
+                            <div className="relative py-1">
+                              <Quote className="absolute -top-1 -left-1 h-3 w-3 opacity-20 rotate-180" />
+                              <p className="text-sm leading-relaxed text-foreground/90 pl-3">
+                                {shoutout.message}
+                              </p>
+                            </div>
+                            <div className="pt-2 flex items-center justify-between border-t border-black/5 dark:border-white/5 mt-2">
+                              <div className="flex items-center gap-2">
+                                <Avatar className="h-6 w-6 shrink-0 border border-white/50">
+                                  <AvatarFallback className="text-[8px] bg-white/50 dark:bg-black/20">
+                                    {getUserInitials(shoutout.senderId)}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <span className="text-xs font-medium opacity-80">
+                                  Recognized by {getUserName(shoutout.senderId)}
+                                </span>
+                              </div>
+                              <div className="flex gap-2">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className={`h-8 rounded-full gap-1.5 px-3 transition-colors ${
+                                    hasLiked
+                                      ? 'bg-rose-500/20 text-rose-600 hover:bg-rose-500/30 border border-rose-200 dark:border-rose-900'
+                                      : 'hover:bg-black/5 dark:hover:bg-white/5 border border-transparent'
+                                  }`}
+                                  onClick={() => reactToShoutoutMutation.mutate({ id: shoutout.id, emoji: '❤️' })}
+                                >
+                                  <Heart className={`h-4 w-4 ${hasLiked ? 'fill-current' : ''}`} />
+                                  <span className="text-xs font-bold">{reactionCount > 0 ? reactionCount : 'Heart'}</span>
+                                </Button>
+                              </div>
                             </div>
                           </div>
                         </div>
-                        <div className="px-4 py-2 border-t flex items-center justify-between bg-background">
-                          <div className="flex items-center gap-2">
-                            <Avatar className="h-6 w-6">
-                              <AvatarFallback className="text-[10px] bg-primary/10">
-                                {getUserInitials(s.senderId)}
-                              </AvatarFallback>
-                            </Avatar>
-                            <span className="text-xs text-muted-foreground">
-                              {getUserName(s.senderId)} &middot; {new Date(s.createdAt).toLocaleDateString()}
-                            </span>
-                          </div>
-                          <button
-                            onClick={() => reactToShoutoutMutation.mutate({ id: s.id, emoji: '❤️' })}
-                            className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs transition-colors ${
-                              userHearted 
-                                ? 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400' 
-                                : 'hover:bg-muted text-muted-foreground'
-                            }`}
-                          >
-                            <Heart className={`h-3.5 w-3.5 ${userHearted ? 'fill-red-500 text-red-500' : ''}`} />
-                            {heartCount > 0 && <span>{heartCount}</span>}
-                          </button>
-                        </div>
-                      </div>
+                      </Card>
                     );
                   })
                 )}
@@ -874,45 +914,50 @@ export default function Communication() {
 
         <TabsContent value="announcements" className="flex-1 overflow-hidden mt-0 px-4 pb-4">
           <Card className="h-full flex flex-col overflow-hidden">
-            <CardHeader className="py-3 px-4 border-b space-y-0 flex-row items-center justify-between">
-              <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                <Megaphone className="h-4 w-4 text-primary" />
-                Announcements
-              </CardTitle>
-              {(user as any)?.role?.name === 'admin' || (user as any)?.roleId ? (
-                <Badge variant="outline" className="text-xs">Admin</Badge>
+            <CardHeader className="py-3 px-4 border-b flex-row items-center justify-between space-y-0">
+              <CardTitle className="text-sm font-semibold">Announcements</CardTitle>
+              {user?.roleName === 'admin' || user?.roleName === 'owner' ? (
+                <Dialog>
+                  <DialogTrigger asChild>
+                    <Button size="sm" className="gap-2">
+                      <Plus className="h-3.5 w-3.5" />
+                      Post
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>New Announcement</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label>Content</Label>
+                        <Textarea
+                          placeholder="What would you like to announce to the whole team?"
+                          className="min-h-[120px]"
+                          value={announcementContent}
+                          onChange={(e) => setAnnouncementContent(e.target.value)}
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Announcements are visible to all team members and will be highlighted in their feed.
+                      </p>
+                    </div>
+                    <DialogFooter>
+                      <Button onClick={handleSendAnnouncement} disabled={!announcementContent.trim() || sendAnnouncementMutation.isPending}>
+                        {sendAnnouncementMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                        Post Announcement
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
               ) : null}
             </CardHeader>
-
-            {(user as any)?.role?.name === 'admin' && (
-              <div className="p-4 border-b">
-                <Textarea
-                  placeholder="Write an announcement..."
-                  value={announcementContent}
-                  onChange={(e) => setAnnouncementContent(e.target.value)}
-                  className="min-h-20 mb-2"
-                />
-                <Button
-                  onClick={handleSendAnnouncement}
-                  disabled={!announcementContent.trim() || sendAnnouncementMutation.isPending}
-                  className="w-full"
-                >
-                  {sendAnnouncementMutation.isPending ? (
-                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  ) : (
-                    <Megaphone className="h-4 w-4 mr-2" />
-                  )}
-                  Post Announcement
-                </Button>
-              </div>
-            )}
-
             <ScrollArea className="flex-1 p-4">
-              <div className="space-y-4">
+              <div className="max-w-2xl mx-auto space-y-4">
                 {messagesLoading ? (
-                  <div className="space-y-3">
-                    {[...Array(3)].map((_, i) => (
-                      <Skeleton key={i} className="h-20 w-full rounded-lg" />
+                  <div className="space-y-4">
+                    {[...Array(2)].map((_, i) => (
+                      <Skeleton key={i} className="h-32 w-full rounded-xl" />
                     ))}
                   </div>
                 ) : announcements.length === 0 ? (
@@ -921,28 +966,27 @@ export default function Communication() {
                     <p className="text-sm">No announcements yet</p>
                   </div>
                 ) : (
-                  announcements
-                    .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-                    .map((msg: any) => (
-                      <div key={msg.id} className="p-4 bg-muted/40 rounded-lg border">
-                        <div className="flex items-start gap-3">
-                          <Avatar className="h-9 w-9 shrink-0">
-                            <AvatarFallback className="text-xs bg-primary text-primary-foreground">
-                              {getUserInitials(msg.senderId)}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between mb-1">
-                              <p className="font-medium text-sm">{getUserName(msg.senderId)}</p>
-                              <span className="text-xs text-muted-foreground">
-                                {new Date(msg.createdAt).toLocaleDateString()} {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                              </span>
-                            </div>
-                            <p className="text-sm text-foreground whitespace-pre-wrap">{msg.content}</p>
-                          </div>
+                  announcements.map((ann: any) => (
+                    <Card key={ann.id} className="overflow-hidden border-primary/20 bg-primary/5">
+                      <CardHeader className="py-3 px-4 flex-row items-center gap-3 space-y-0 border-b bg-primary/5">
+                        <Avatar className="h-8 w-8 shrink-0">
+                          <AvatarFallback className="text-xs bg-primary/10 text-primary">
+                            {getUserInitials(ann.senderId)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <p className="text-xs font-semibold">{getUserName(ann.senderId)}</p>
+                          <p className="text-[10px] text-muted-foreground">
+                            {format(new Date(ann.createdAt), 'MMM d, yyyy h:mm a')}
+                          </p>
                         </div>
-                      </div>
-                    ))
+                        <Badge variant="default" className="ml-auto text-[10px] h-5">Announcement</Badge>
+                      </CardHeader>
+                      <CardContent className="p-4 text-sm leading-relaxed">
+                        {ann.content}
+                      </CardContent>
+                    </Card>
+                  ))
                 )}
               </div>
             </ScrollArea>

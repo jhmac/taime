@@ -1202,9 +1202,9 @@ export class DatabaseStorage implements IStorage {
     return settings;
   }
 
-  async updateCompanySettings(settings: InsertCompanySettings & { expectedVersion?: number }): Promise<CompanySettings> {
+  async updateCompanySettings(updates: Partial<CompanySettings> & { expectedVersion?: number }): Promise<CompanySettings> {
     const existing = await this.getCompanySettings();
-    const { expectedVersion, ...settingsData } = settings;
+    const { expectedVersion, ...settingsData } = updates;
 
     if (existing) {
       if (expectedVersion !== undefined && expectedVersion !== (existing.version || 1)) {
@@ -1218,8 +1218,8 @@ export class DatabaseStorage implements IStorage {
         version: (existing.version || 1) + 1 
       };
       
-      if (settingsData.autoClockOutAfterMinutes !== undefined && settingsData.autoClockOutAfterMinutes !== null) {
-        updatePayload.autoClockOutAfterMinutes = settingsData.autoClockOutAfterMinutes.toString();
+      if (settingsData.autoClockOutAfterMinutes !== undefined) {
+        updatePayload.autoClockOutAfterMinutes = settingsData.autoClockOutAfterMinutes !== null ? settingsData.autoClockOutAfterMinutes.toString() : null;
       }
 
       const [updated] = await db
@@ -1232,8 +1232,8 @@ export class DatabaseStorage implements IStorage {
     
     // For creation
     const insertData: any = { ...settingsData, version: 1 };
-    if (settingsData.autoClockOutAfterMinutes !== undefined && settingsData.autoClockOutAfterMinutes !== null) {
-      insertData.autoClockOutAfterMinutes = settingsData.autoClockOutAfterMinutes.toString();
+    if (settingsData.autoClockOutAfterMinutes !== undefined) {
+      insertData.autoClockOutAfterMinutes = settingsData.autoClockOutAfterMinutes !== null ? settingsData.autoClockOutAfterMinutes.toString() : null;
     }
 
     const [created] = await db
@@ -1245,8 +1245,8 @@ export class DatabaseStorage implements IStorage {
 
   async updateWorkLocation(id: string, updates: Partial<WorkLocation>): Promise<WorkLocation> {
     const finalUpdates: any = { ...updates };
-    if (updates.geofenceGraceMinutes !== undefined && updates.geofenceGraceMinutes !== null) {
-      finalUpdates.geofenceGraceMinutes = updates.geofenceGraceMinutes.toString();
+    if (updates.geofenceGraceMinutes !== undefined) {
+      finalUpdates.geofenceGraceMinutes = updates.geofenceGraceMinutes !== null ? updates.geofenceGraceMinutes.toString() : "5.00";
     }
     const [updated] = await db
       .update(workLocations)
