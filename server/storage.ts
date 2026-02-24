@@ -115,6 +115,7 @@ export interface IStorage {
   
   // Schedule operations
   createSchedule(schedule: InsertSchedule): Promise<Schedule>;
+  createSchedulesBatch(scheduleList: InsertSchedule[]): Promise<Schedule[]>;
   getUserSchedules(userId: string, startDate?: Date, endDate?: Date): Promise<Schedule[]>;
   getAllSchedules(startDate?: Date, endDate?: Date): Promise<Schedule[]>;
   updateSchedule(id: string, updates: Partial<Schedule>): Promise<Schedule>;
@@ -386,6 +387,11 @@ export class DatabaseStorage implements IStorage {
   async createSchedule(schedule: InsertSchedule): Promise<Schedule> {
     const [created] = await db.insert(schedules).values(schedule).returning();
     return created;
+  }
+
+  async createSchedulesBatch(scheduleList: InsertSchedule[]): Promise<Schedule[]> {
+    if (scheduleList.length === 0) return [];
+    return await db.insert(schedules).values(scheduleList).returning();
   }
 
   async getUserSchedules(userId: string, startDate?: Date, endDate?: Date): Promise<Schedule[]> {

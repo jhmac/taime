@@ -40,6 +40,9 @@ export function requestLogger(req: Request, res: Response, next: NextFunction): 
     meta.body = redactBody(req.body as Record<string, unknown>);
   }
 
+  const SLOW_THRESHOLD_MS = 200;
+  const AI_SLOW_THRESHOLD_MS = 5000;
+
   res.on("finish", () => {
     const responseTime = Date.now() - start;
     const statusCode = res.statusCode;
@@ -52,10 +55,15 @@ export function requestLogger(req: Request, res: Response, next: NextFunction): 
       responseTime,
     };
 
+    const isAIEndpoint = path.startsWith("/api/ai-scheduling/generate") || path.startsWith("/api/ai/");
+    const threshold = isAIEndpoint ? AI_SLOW_THRESHOLD_MS : SLOW_THRESHOLD_MS;
+
     if (statusCode >= 500) {
       logger.error(logData, `${method} ${path} ${statusCode} in ${responseTime}ms`);
     } else if (statusCode >= 400) {
       logger.warn(logData, `${method} ${path} ${statusCode} in ${responseTime}ms`);
+    } else if (responseTime > threshold) {
+      logger.warn({ ...logData, slow: true, threshold }, `SLOW ENDPOINT: ${method} ${path} ${statusCode} in ${responseTime}ms (threshold: ${threshold}ms)`);
     } else {
       logger.info(logData, `${method} ${path} ${statusCode} in ${responseTime}ms`);
     }

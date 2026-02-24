@@ -39,6 +39,14 @@ The backend is a Node.js Express.js server written in TypeScript. It uses Drizzl
 - **Offline Mode**: Service worker with IndexedDB for offline data storage and background synchronization.
 - **ELON Authenticated Crawling**: Manual popup login flow for authenticated page crawling by ELON's Playwright crawler, with server-side session token storage.
 - **ELON Code Engine Enhancements**: Features include multi-file awareness, fuzzy matching, syntax verification with auto-rollback, runtime validation, and multi-file atomic changes for robust autonomous code modifications.
+- **Shift Overlap & Handoff**: AI scheduling generates overlapping shifts (configurable 30/45/60 min) for briefing and 3S time. Budget warnings alert when overlap labor cost exceeds weekly limit. SOP surfacing shows personalized handoff messages with employee names.
+
+## Performance Optimizations
+- **Request Timing**: `requestLogger` middleware tracks response times, warns on slow endpoints (>200ms standard, >5000ms AI). Logged as `SLOW ENDPOINT` with threshold context.
+- **Batch Operations**: `createSchedulesBatch()` in storage replaces N+1 schedule creation loops in schedules.ts and aiScheduling.ts.
+- **Query Optimization**: Dashboard queries use column selection instead of `SELECT *`. AI task assignment uses batch `inArray` user lookup instead of per-user queries. Analytics uses `Promise.all` for parallel data fetching.
+- **Database Indexes**: Added indexes on `time_entries(user_id, clock_in_time)`, `time_entries(clock_in_time)`, `time_entries(user_id) WHERE clock_out_time IS NULL`, `time_entries(location_id)`, `users(is_active)`, `shoutouts(recipient_id, created_at)`.
+- **In-Memory Cache**: `MemoryCache` utility (`server/lib/cache.ts`) with TTL-based expiry. Applied to: company settings, dashboard user list (60s), analytics user data (120s), roles, permissions, role-permission maps.
 
 ## External Dependencies
 

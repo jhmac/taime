@@ -2,6 +2,7 @@ import type { Express } from "express";
 import type { IStorage } from "../storage";
 import { users } from "@shared/schema";
 import { db } from "../db";
+import { inArray } from "drizzle-orm";
 import { claudeService } from "../services/claudeService";
 import { notificationService } from "../services/notificationService";
 import rateLimit from "express-rate-limit";
@@ -26,11 +27,12 @@ export function registerAIRoutes(app: Express, storage: IStorage, isAuthenticate
       const tasks = await storage.getTasksForDate(today);
       
       const uniqueUserIds = [...new Set(schedules.map(s => s.userId))];
-      const usersById = new Map<string, any>();
-      await Promise.all(uniqueUserIds.map(async (uid) => {
-        const u = await storage.getUser(uid);
-        if (u) usersById.set(uid, u);
-      }));
+      const userRows = uniqueUserIds.length > 0
+        ? await db.select({ id: users.id, firstName: users.firstName, lastName: users.lastName })
+            .from(users)
+            .where(inArray(users.id, uniqueUserIds))
+        : [];
+      const usersById = new Map(userRows.map(u => [u.id, u]));
 
       const scheduledEmployees = schedules.map((schedule) => {
         const user = usersById.get(schedule.userId);

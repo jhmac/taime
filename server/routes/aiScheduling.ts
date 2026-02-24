@@ -1,12 +1,18 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
 import { aiSchedulingSettings, shopifyDailySales, users, userAvailability, schedules, shops, roles, workPatternTemplates, userWorkPatterns } from "@shared/schema";
-import { eq, and, gte, lte, desc, inArray } from "drizzle-orm";
+import { eq, and, gte, lte, desc, inArray, sql } from "drizzle-orm";
 import { db } from "../db";
 import Anthropic from '@anthropic-ai/sdk';
 import rateLimit from "express-rate-limit";
 
 import { config } from "../lib/config";
+import {
+  applyShiftOverlap,
+  calculateOverlapLaborCost,
+  checkBudgetThreshold,
+} from "../services/shiftOverlap";
+import logger from "../lib/logger";
 
 const anthropic = new Anthropic({ apiKey: config.anthropic.apiKey });
 
@@ -109,7 +115,7 @@ export function registerAiSchedulingRoutes(app: Express, storage: IStorage, isAu
         return res.status(403).json({ message: "Admin access required" });
       }
 
-      const { shiftBlocks, staffingTiers, minimumStaffing, storeHours } = req.body;
+      const { shiftBlocks, staffingTiers, minimumStaffing, storeHours, shiftOverlapMinutes, overlapBudgetLimit } = req.body;
 
       const existing = await db.select().from(aiSchedulingSettings).limit(1);
 
@@ -124,6 +130,24 @@ export function registerAiSchedulingRoutes(app: Express, storage: IStorage, isAu
             updatedAt: new Date(),
           })
           .where(eq(aiSchedulingSettings.id, existing[0].id));
+
+        if (shiftOverlapMinutes !== undefined || overlapBudgetLimit !== undefined) {
+          const setClauses: string[] = [];
+          const values: (number | null)[] = [];
+          if (shiftOverlapMinutes !== undefined) {
+            setClauses.push("shift_overlap_minutes = $1");
+            values.push(shiftOverlapMinutes);
+          }
+          if (overlapBudgetLimit !== undefined) {
+            setClauses.push(`overlap_budget_limit = $${values.length + 1}`);
+            values.push(overlapBudgetLimit);
+          }
+          if (setClauses.length > 0) {
+            await db.execute(
+              sql.raw(`UPDATE ai_scheduling_settings SET ${setClauses.join(", ")} WHERE id = '${existing[0].id}'`)
+            );
+          }
+        }
       } else {
         await db.insert(aiSchedulingSettings).values({
           shiftBlocks: shiftBlocks || [],
@@ -132,6 +156,17 @@ export function registerAiSchedulingRoutes(app: Express, storage: IStorage, isAu
           storeHours: storeHours || [],
           updatedBy: userId,
         });
+        if (shiftOverlapMinutes !== undefined || overlapBudgetLimit !== undefined) {
+          const result = await db.select().from(aiSchedulingSettings).limit(1);
+          if (result.length > 0) {
+            const parts: string[] = [];
+            if (shiftOverlapMinutes !== undefined) parts.push(`shift_overlap_minutes = ${Number(shiftOverlapMinutes)}`);
+            if (overlapBudgetLimit !== undefined) parts.push(`overlap_budget_limit = ${overlapBudgetLimit !== null ? Number(overlapBudgetLimit) : 'NULL'}`);
+            if (parts.length > 0) {
+              await db.execute(sql.raw(`UPDATE ai_scheduling_settings SET ${parts.join(", ")} WHERE id = '${result[0].id}'`));
+            }
+          }
+        }
       }
 
       const updated = await db.select().from(aiSchedulingSettings).limit(1);
@@ -434,16 +469,48 @@ Required JSON structure:
         reasoning: String(entry.reasoning || '').slice(0, 500),
       }));
 
+      const overlapMinutes = (settings as any).shiftOverlapMinutes ?? 60;
+      const budgetLimit = (settings as any).overlapBudgetLimit ? parseFloat((settings as any).overlapBudgetLimit) : null;
+
+      const { adjustedShifts, overlapBlocks } = applyShiftOverlap(validSchedule, overlapMinutes);
+
+      const hourlyRates = new Map<string, number>();
+      for (const emp of employeeList) {
+        hourlyRates.set(emp.id, (emp as any).hourlyRate || 15);
+      }
+      const additionalLaborCost = calculateOverlapLaborCost(overlapBlocks, hourlyRates);
+      const budgetWarning = checkBudgetThreshold(additionalLaborCost, budgetLimit);
+
+      const warnings = Array.isArray(parsedSchedule.warnings)
+        ? parsedSchedule.warnings.map((w: any) => String(w).slice(0, 300))
+        : [];
+
+      if (budgetWarning?.overBudget) {
+        warnings.push(
+          `Shift overlap adds $${additionalLaborCost.toFixed(2)} in labor costs, which exceeds your weekly budget limit of $${budgetWarning.weeklyBudgetLimit.toFixed(2)}.`
+        );
+      }
+
+      logger.info(
+        { overlapMinutes, overlapBlocks: overlapBlocks.length, additionalLaborCost },
+        "Shift overlap applied to generated schedule"
+      );
+
       res.json({
         success: true,
         days,
         generatedSchedule: validSchedule,
+        adjustedSchedule: adjustedShifts,
+        overlapBlocks,
+        additionalLaborCost,
+        budgetWarning,
         summary: typeof parsedSchedule.summary === 'string' ? parsedSchedule.summary.slice(0, 1000) : '',
-        warnings: Array.isArray(parsedSchedule.warnings) ? parsedSchedule.warnings.map((w: any) => String(w).slice(0, 300)) : [],
+        warnings,
         settings: {
           shiftBlocks,
           staffingTiers: settings.staffingTiers,
           minimumStaffing: settings.minimumStaffing,
+          shiftOverlapMinutes: overlapMinutes,
         },
         salesDataAvailable: salesData.length > 0,
       });
@@ -467,30 +534,29 @@ Required JSON structure:
         return res.status(400).json({ message: "Schedule entries are required" });
       }
 
-      const allUsers = await db.select().from(users).where(eq(users.isActive, true));
-      const validUserIds = new Set(allUsers.map(u => u.id));
+      const allUserIds = await db.select({ id: users.id }).from(users).where(eq(users.isActive, true));
+      const validUserIds = new Set(allUserIds.map(u => u.id));
 
-      const created = [];
-      for (const entry of scheduleEntries) {
-        if (!entry.employeeId || !entry.date || !entry.startTime || !entry.endTime) continue;
-        if (!validUserIds.has(entry.employeeId)) continue;
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(entry.date)) continue;
-        if (!/^\d{2}:\d{2}$/.test(entry.startTime) || !/^\d{2}:\d{2}$/.test(entry.endTime)) continue;
-
-        const startTime = new Date(`${entry.date}T${entry.startTime}:00`);
-        const endTime = new Date(`${entry.date}T${entry.endTime}:00`);
-        if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) continue;
-
-        const schedule = await storage.createSchedule({
+      const validEntries = scheduleEntries
+        .filter((entry: any) => {
+          if (!entry.employeeId || !entry.date || !entry.startTime || !entry.endTime) return false;
+          if (!validUserIds.has(entry.employeeId)) return false;
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(entry.date)) return false;
+          if (!/^\d{2}:\d{2}$/.test(entry.startTime) || !/^\d{2}:\d{2}$/.test(entry.endTime)) return false;
+          const st = new Date(`${entry.date}T${entry.startTime}:00`);
+          const et = new Date(`${entry.date}T${entry.endTime}:00`);
+          return !isNaN(st.getTime()) && !isNaN(et.getTime());
+        })
+        .map((entry: any) => ({
           userId: entry.employeeId,
-          startTime,
-          endTime,
+          startTime: new Date(`${entry.date}T${entry.startTime}:00`),
+          endTime: new Date(`${entry.date}T${entry.endTime}:00`),
           title: String(entry.shiftBlock || 'AI Generated Shift').slice(0, 100),
           description: String(entry.reasoning || 'Generated by AI scheduling').slice(0, 500),
           createdBy: userId,
-        });
-        created.push(schedule);
-      }
+        }));
+
+      const created = await storage.createSchedulesBatch(validEntries);
 
       res.json({
         success: true,

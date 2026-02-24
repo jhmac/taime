@@ -54,6 +54,8 @@ export default function AISchedulingSection() {
   const [staffingTiers, setStaffingTiers] = useState<StaffingTier[]>([]);
   const [minimumStaffing, setMinimumStaffing] = useState(2);
   const [storeHours, setStoreHours] = useState<StoreHourEntry[]>(DEFAULT_STORE_HOURS);
+  const [shiftOverlapMinutes, setShiftOverlapMinutes] = useState(60);
+  const [overlapBudgetLimit, setOverlapBudgetLimit] = useState<number | null>(null);
   const [copyFromDay, setCopyFromDay] = useState<number | null>(null);
   const [copyTargets, setCopyTargets] = useState<number[]>([]);
 
@@ -70,12 +72,14 @@ export default function AISchedulingSection() {
       ]);
       setMinimumStaffing(settings.minimumStaffing ?? 2);
       setStoreHours(settings.storeHours?.length === 7 ? settings.storeHours : DEFAULT_STORE_HOURS);
+      setShiftOverlapMinutes(settings.shift_overlap_minutes ?? settings.shiftOverlapMinutes ?? 60);
+      setOverlapBudgetLimit(settings.overlap_budget_limit ? parseFloat(settings.overlap_budget_limit) : null);
     }
   }, [settings]);
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      return apiRequest('PUT', '/api/ai-scheduling/settings', { shiftBlocks, staffingTiers, minimumStaffing, storeHours });
+      return apiRequest('PUT', '/api/ai-scheduling/settings', { shiftBlocks, staffingTiers, minimumStaffing, storeHours, shiftOverlapMinutes, overlapBudgetLimit });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/ai-scheduling/settings'] });
@@ -501,6 +505,63 @@ export default function AISchedulingSection() {
               className="w-20"
             />
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Clock className="h-4 w-4" />
+            Shift Handoff & 3S
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            MAinager schedules overlap between shifts so your team has time for briefing and 3S (Sweep, Sort, Standardize). This is where handoffs happen and your team learns to see waste.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <Label className="text-sm font-medium mb-2 block">Overlap duration</Label>
+            <div className="flex gap-2">
+              {[30, 45, 60].map((mins) => (
+                <button
+                  key={mins}
+                  onClick={() => setShiftOverlapMinutes(mins)}
+                  className={`px-4 py-2 rounded-lg border-2 text-sm font-medium transition-all ${
+                    shiftOverlapMinutes === mins
+                      ? "border-primary bg-primary/5 text-primary"
+                      : "border-muted hover:border-muted-foreground/30"
+                  }`}
+                >
+                  {mins} min
+                </button>
+              ))}
+            </div>
+          </div>
+          <Separator />
+          <div className="flex items-center gap-3">
+            <Switch
+              checked={overlapBudgetLimit !== null}
+              onCheckedChange={(checked) => setOverlapBudgetLimit(checked ? 500 : null)}
+            />
+            <div className="flex-1">
+              <Label className="text-sm font-medium">Budget warning</Label>
+              <p className="text-xs text-muted-foreground">Alert me if overlap hours push labor costs above a weekly limit</p>
+            </div>
+          </div>
+          {overlapBudgetLimit !== null && (
+            <div className="flex items-center gap-2 pl-12">
+              <span className="text-sm font-medium">$</span>
+              <Input
+                type="number"
+                min={0}
+                step={50}
+                value={overlapBudgetLimit}
+                onChange={(e) => setOverlapBudgetLimit(parseFloat(e.target.value) || 0)}
+                className="w-28"
+              />
+              <span className="text-sm text-muted-foreground">per week</span>
+            </div>
+          )}
         </CardContent>
       </Card>
 

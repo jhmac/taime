@@ -1,5 +1,5 @@
 import { db } from "../db";
-import { sopTemplates, sopExecutions, timeEntries, workLocations, aiSchedulingSettings } from "@shared/schema";
+import { sopTemplates, sopExecutions, timeEntries, workLocations, aiSchedulingSettings, users } from "@shared/schema";
 import { eq, and, gte, isNull, count, inArray } from "drizzle-orm";
 import { cache } from "../lib/cache";
 import logger from "../lib/logger";
@@ -216,6 +216,19 @@ export async function getShiftHandoffSOPs(
     handoffTemplates.map(t => t.id)
   );
 
+  const allIds = [clockingInUserId, ...otherActive.map(e => e.userId)];
+  const uniqueIds = [...new Set(allIds)];
+  const userRows = uniqueIds.length > 0
+    ? await db
+        .select({ id: users.id, firstName: users.firstName, lastName: users.lastName })
+        .from(users)
+        .where(inArray(users.id, uniqueIds))
+    : [];
+  const nameMap = new Map(userRows.map(u => [u.id, `${u.firstName || ""} ${u.lastName || ""}`.trim() || "Team member"]));
+
+  const incomingName = nameMap.get(clockingInUserId) || "Incoming";
+  const outgoingName = nameMap.get(otherActive[0].userId) || "Outgoing";
+
   return handoffTemplates.map((t) => ({
     templateId: t.id,
     title: t.title,
@@ -224,7 +237,7 @@ export async function getShiftHandoffSOPs(
     triggerType: "event_based" as const,
     priority: 2,
     trainingModeRecommended: (execCounts.get(t.id) || 0) < 3,
-    message: "Shift handoff detected! Complete the handoff checklist with your teammate.",
+    message: `Shift handoff time! ${outgoingName} → ${incomingName}. Time to brief and 3S together.`,
   }));
 }
 

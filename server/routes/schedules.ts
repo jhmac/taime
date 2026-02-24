@@ -127,9 +127,7 @@ export function registerScheduleRoutes(app: Express, storage: IStorage, isAuthen
         notes: scheduleItem.reasoning,
       }));
 
-      for (const schedule of schedulesToCreate) {
-        await storage.createSchedule(schedule);
-      }
+      const created = await storage.createSchedulesBatch(schedulesToCreate);
 
       res.json({
         success: true,

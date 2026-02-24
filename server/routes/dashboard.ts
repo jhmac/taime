@@ -24,14 +24,26 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
       }
       const userMap = new Map(userList.map(u => [u.id, u]));
 
-      const todaySchedules = await db.select()
+      const todaySchedules = await db.select({
+          id: schedules.id,
+          userId: schedules.userId,
+          startTime: schedules.startTime,
+          endTime: schedules.endTime,
+          title: schedules.title,
+        })
         .from(schedules)
         .where(and(
           gte(schedules.startTime, startOfDay),
           lte(schedules.startTime, endOfDay)
         ));
 
-      const todayTimeEntries = await db.select()
+      const todayTimeEntries = await db.select({
+          id: timeEntries.id,
+          userId: timeEntries.userId,
+          clockInTime: timeEntries.clockInTime,
+          clockOutTime: timeEntries.clockOutTime,
+          locationId: timeEntries.locationId,
+        })
         .from(timeEntries)
         .where(
           gte(timeEntries.clockInTime, startOfDay)
