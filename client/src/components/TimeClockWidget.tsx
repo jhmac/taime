@@ -210,10 +210,10 @@ export default function TimeClockWidget() {
                 }
                 // Force a hard refresh of the active entry to catch the server-side auto clock-out
                 queryClient.invalidateQueries({ queryKey: ['/api/time-entries/active'] });
-                queryClient.refetchQueries({ queryKey: ['/api/time-entries/active'] }).then((active) => {
+                queryClient.refetchQueries({ queryKey: ['/api/time-entries/active'] }).then((active: any) => {
                   // If after refetch we still have an active entry, it means server-side auto-clock out might have failed
                   // or is delayed. Force a client-side clock out as a safety measure.
-                  if (active.data && activeTimeEntry) {
+                  if (active && active.data && activeTimeEntry) {
                     console.log("[Geofence] Server-side auto clock-out not detected yet, forcing client-side clock-out");
                     clockOutMutation.mutate(activeTimeEntry.id);
                   }

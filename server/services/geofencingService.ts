@@ -448,7 +448,7 @@ export class GeofencingService {
       }
 
       await storage.updateTimeEntry(activeTimeEntry.id, {
-        clockOutTime: new Date(),
+        clockOutTime: exitEvent.length > 0 && exitEvent[0].createdAt ? exitEvent[0].createdAt : new Date(),
         clockOutSource: 'auto-geofence',
         notes: `${activeTimeEntry.notes ? activeTimeEntry.notes + ' | ' : ''}Auto clocked out: left geofence boundary`,
       });
