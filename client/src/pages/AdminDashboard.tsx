@@ -14,6 +14,7 @@ import AIChatModal from '@/components/AIChatModal';
 import TodaySchedulePanel from '@/components/TodaySchedulePanel';
 import DailyGoalWidget from '@/components/DailyGoalWidget';
 import DailyQuoteCard from '@/components/DailyQuoteCard';
+import MiddayPulseCard from '@/components/MiddayPulseCard';
 import KudosWidget from '@/components/KudosWidget';
 import SurfacedSOPBanner from '@/components/SurfacedSOPBanner';
 import { Sun } from 'lucide-react';
@@ -173,8 +174,9 @@ export default function AdminDashboard() {
         <SurfacedSOPBanner />
       </div>
 
-      <div className={isMobile ? "px-4 pb-2" : "px-6 pb-3"}>
+      <div className={isMobile ? "px-4 pb-2 space-y-3" : "px-6 pb-3 space-y-3"}>
         <DailyQuoteCard />
+        <MiddayPulseCard />
       </div>
 
       <div className={isMobile ? "px-4 pb-2" : "px-6 pb-3"}>

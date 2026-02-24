@@ -15,6 +15,7 @@ import AIChatModal from '@/components/AIChatModal';
 import TodaySchedulePanel from '@/components/TodaySchedulePanel';
 import DailyGoalWidget from '@/components/DailyGoalWidget';
 import DailyQuoteCard from '@/components/DailyQuoteCard';
+import MiddayPulseCard from '@/components/MiddayPulseCard';
 import KudosWidget from '@/components/KudosWidget';
 import DailyDebriefSheet from '@/components/DailyDebriefSheet';
 import SurfacedSOPBanner from '@/components/SurfacedSOPBanner';
@@ -90,6 +91,7 @@ export default function Dashboard() {
         <div className="p-4 space-y-4">
           <SurfacedSOPBanner />
           <DailyQuoteCard />
+          <MiddayPulseCard />
 
           {isAdmin && (
             <Card className="cursor-pointer hover:shadow-md transition-shadow bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/20 dark:to-orange-950/20 border-amber-200/50 dark:border-amber-800/30" onClick={() => navigate('/huddle')}>
@@ -244,8 +246,9 @@ export default function Dashboard() {
         <SurfacedSOPBanner />
       </div>
 
-      <div className="px-6 pb-4">
+      <div className="px-6 pb-4 space-y-4">
         <DailyQuoteCard />
+        <MiddayPulseCard />
       </div>
 
       {isAdmin ? (

@@ -9,6 +9,7 @@ import {
 import { asyncHandler, AppError } from "../lib/routeWrapper";
 import { getOrGenerateHuddle } from "../services/morningHuddleAI";
 import { generateDailyQuote } from "../services/dailyQuoteAI";
+import { generateMiddayPulse } from "../services/middayPulse";
 import type { IStorage } from "../storage";
 
 async function getFirstStoreId(): Promise<string> {
@@ -81,6 +82,19 @@ export function registerRitualRoutes(
 
     broadcastToAll({ type: 'huddle_updated', data: { huddle: updated } });
     res.json({ success: true, data: updated });
+  }));
+
+  app.get('/api/rituals/pulse/today', isAuthenticated, asyncHandler(async (req: any, res) => {
+    const storeId = await getFirstStoreId();
+    const now = new Date();
+    const hour = now.getHours();
+
+    if (hour < 12) {
+      return res.json({ success: true, data: null, message: "Pulse available after noon" });
+    }
+
+    const pulse = await generateMiddayPulse(storeId);
+    res.json({ success: true, data: pulse });
   }));
 
   app.get('/api/rituals/quote/today', isAuthenticated, asyncHandler(async (req: any, res) => {

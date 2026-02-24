@@ -1007,6 +1007,23 @@ export const kudos = pgTable("kudos", {
   index("idx_kudos_to_employee_created").on(table.toEmployeeId, table.createdAt),
 ]);
 
+export const middayPulses = pgTable("midday_pulses", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => workLocations.id).notNull(),
+  pulseDate: date("pulse_date").notNull(),
+  data: jsonb("data").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  uniqueIndex("uq_midday_pulses_store_date").on(table.storeId, table.pulseDate),
+]);
+
+export const insertMiddayPulseSchema = createInsertSchema(middayPulses).omit({
+  id: true,
+  createdAt: true,
+});
+export type MiddayPulse = typeof middayPulses.$inferSelect;
+export type InsertMiddayPulse = z.infer<typeof insertMiddayPulseSchema>;
+
 export const insertMorningHuddleSchema = createInsertSchema(morningHuddles).omit({
   id: true,
   createdAt: true,

@@ -33,6 +33,8 @@ import { registerRitualRoutes } from "./routes/rituals";
 import { registerVideoRoutes } from "./routes/videos";
 import { createActionLoggerMiddleware, handleClientErrorReport, getActionSummary } from "./services/actionLogger";
 import { startSurfacingCron, stopSurfacingCron } from "./services/sopSurfacing";
+import { startMiddayPulseCron, stopMiddayPulseCron } from "./services/middayPulse";
+import { seedShiftHandoffSOP } from "./services/shiftHandoffSeed";
 import logger from "./lib/logger";
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
@@ -186,11 +188,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   startHeartbeat();
   startSurfacingCron(broadcastToAll);
+  startMiddayPulseCron(broadcastToAll);
+  seedShiftHandoffSOP().catch(err => logger.error({ error: err.message }, 'Handoff SOP seed failed'));
 
   function gracefulShutdown() {
     logger.info("ws: graceful shutdown initiated");
     stopHeartbeat();
     stopSurfacingCron();
+    stopMiddayPulseCron();
 
     const shutdownPayload = JSON.stringify({ type: "server_restarting" });
     wsConnections.forEach((conns) => {
