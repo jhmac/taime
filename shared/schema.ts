@@ -12,7 +12,8 @@ import {
   uniqueIndex,
   date,
   pgEnum,
-  serial
+  serial,
+  unique
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -1097,3 +1098,71 @@ export type Shop = typeof shops.$inferSelect;
 export type UserShop = typeof userShops.$inferSelect;
 export type ShopifyDailySale = typeof shopifyDailySales.$inferSelect;
 export type ShopifyOrder = typeof shopifyOrders.$inferSelect;
+
+export const improvementVideos = pgTable("improvement_videos", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: text("store_id").notNull(),
+  employeeId: text("employee_id").notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
+  category: text("category").notNull(),
+  storageType: text("storage_type").notNull(),
+  youtubeVideoId: text("youtube_video_id"),
+  s3Key: text("s3_key"),
+  s3Url: text("s3_url"),
+  thumbnailUrl: text("thumbnail_url"),
+  durationSeconds: integer("duration_seconds"),
+  status: text("status").notNull().default("processing"),
+  isFeatured: boolean("is_featured").default(false),
+  viewCount: integer("view_count").default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  index("idx_improvement_videos_store_created").on(table.storeId, table.createdAt),
+  index("idx_improvement_videos_store_status_cat").on(table.storeId, table.status, table.category),
+  index("idx_improvement_videos_employee_created").on(table.employeeId, table.createdAt),
+  index("idx_improvement_videos_store_featured").on(table.storeId, table.isFeatured),
+]);
+
+export const videoLikes = pgTable("video_likes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  videoId: varchar("video_id").notNull(),
+  employeeId: text("employee_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  unique("uq_video_likes_video_employee").on(table.videoId, table.employeeId),
+  index("idx_video_likes_video").on(table.videoId),
+  index("idx_video_likes_employee").on(table.employeeId),
+]);
+
+export const videoComments = pgTable("video_comments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  videoId: varchar("video_id").notNull(),
+  employeeId: text("employee_id").notNull(),
+  commentText: text("comment_text").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  index("idx_video_comments_video_created").on(table.videoId, table.createdAt),
+]);
+
+export const insertImprovementVideoSchema = createInsertSchema(improvementVideos).omit({
+  id: true,
+  createdAt: true,
+  viewCount: true,
+  isFeatured: true,
+  status: true,
+});
+export const insertVideoLikeSchema = createInsertSchema(videoLikes).omit({
+  id: true,
+  createdAt: true,
+});
+export const insertVideoCommentSchema = createInsertSchema(videoComments).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type ImprovementVideo = typeof improvementVideos.$inferSelect;
+export type InsertImprovementVideo = z.infer<typeof insertImprovementVideoSchema>;
+export type VideoLike = typeof videoLikes.$inferSelect;
+export type InsertVideoLike = z.infer<typeof insertVideoLikeSchema>;
+export type VideoComment = typeof videoComments.$inferSelect;
+export type InsertVideoComment = z.infer<typeof insertVideoCommentSchema>;
