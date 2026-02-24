@@ -32,6 +32,9 @@ import Requests from "@/pages/Requests";
 import TeamDirectory from "@/pages/TeamDirectory";
 import EmployeeSettings from "@/pages/EmployeeSettings";
 import SupportPage from "@/pages/Support";
+import SOPLibrary from "@/pages/SOPLibrary";
+import SOPBuilder from "@/pages/SOPBuilder";
+import SOPDetail from "@/pages/SOPDetail";
 import NotFound from "@/pages/not-found";
 import OfflineIndicator from "@/components/OfflineIndicator";
 import SmartClockPrompt from "@/components/SmartClockPrompt";
@@ -204,6 +207,14 @@ function AuthenticatedApp() {
       <Route path="/requests" component={Requests} />
       <Route path="/team-directory" component={TeamDirectory} />
       <Route path="/employee-settings" component={EmployeeSettings} />
+      <Route path="/sops" component={SOPLibrary} />
+      <Route path="/sops/new">
+        <ProtectedRoute permission="admin.manage_all"><SOPBuilder /></ProtectedRoute>
+      </Route>
+      <Route path="/sops/:id/edit">
+        <ProtectedRoute permission="admin.manage_all"><SOPBuilder /></ProtectedRoute>
+      </Route>
+      <Route path="/sops/:id" component={SOPDetail} />
       <Route path="/support" component={SupportPage} />
       <Route path="/admin">
         <ProtectedRoute permission="admin.manage_all"><AdminSettings /></ProtectedRoute>
