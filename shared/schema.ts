@@ -607,6 +607,40 @@ export const geofenceEvents = pgTable("geofence_events", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// AI Scheduling Settings
+export const aiSchedulingSettings = pgTable("ai_scheduling_settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  locationId: varchar("location_id").references(() => workLocations.id).notNull(),
+  minStaffPerShift: integer("min_staff_per_shift").default(1),
+  maxStaffPerShift: integer("max_staff_per_shift").default(5),
+  targetLaborCostPercentage: decimal("target_labor_cost_percentage", { precision: 5, scale: 2 }).default("15.00"),
+  optimizationPriority: varchar("optimization_priority").default("balanced"), // 'cost', 'coverage', 'balanced'
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Work pattern templates
+export const workPatternTemplates = pgTable("work_pattern_templates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name").notNull(),
+  description: text("description"),
+  pattern: jsonb("pattern").notNull(), // Array of { dayOfWeek, startTime, endTime, roleId }
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// User work patterns
+export const userWorkPatterns = pgTable("user_work_patterns", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  templateId: varchar("template_id").references(() => workPatternTemplates.id),
+  customPattern: jsonb("custom_pattern"), // Override template if needed
+  effectiveFrom: timestamp("effective_from").notNull(),
+  effectiveTo: timestamp("effective_to"),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Shopify Store table
 export const shops = pgTable("shops", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -701,6 +735,19 @@ export const insertTrainingModuleSchema = createInsertSchema(trainingModules).om
 export const insertEmployeeTrainingProgressSchema = createInsertSchema(employeeTrainingProgress).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertCommuteAlertSchema = createInsertSchema(commuteAlerts).omit({ id: true, createdAt: true });
 export const insertShoutoutSchema = createInsertSchema(shoutouts).omit({ id: true, createdAt: true, reactions: true });
+export const insertAiSchedulingSettingsSchema = createInsertSchema(aiSchedulingSettings).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertWorkPatternTemplateSchema = createInsertSchema(workPatternTemplates).omit({ id: true, createdAt: true });
+export const insertUserWorkPatternSchema = createInsertSchema(userWorkPatterns).omit({ id: true, createdAt: true });
+
+// Chore assignment and sign-off schemas
+export const choreAssignmentSchema = z.object({
+  userId: z.string().uuid(),
+});
+
+export const choreSignOffSchema = z.object({
+  isManager: z.boolean().default(false),
+});
+
 export const insertShopSchema = createInsertSchema(shops).omit({ id: true, installedAt: true, updatedAt: true });
 export const insertUserShopSchema = createInsertSchema(userShops).omit({ id: true, createdAt: true });
 export const insertShopifyDailySalesSchema = createInsertSchema(shopifyDailySales).omit({ id: true, createdAt: true });
