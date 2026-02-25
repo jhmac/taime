@@ -1430,3 +1430,19 @@ export const sopEmbeddings = pgTable("sop_embeddings", {
 ]);
 
 export type SopEmbedding = typeof sopEmbeddings.$inferSelect;
+
+export const leanBoardSnapshots = pgTable("lean_board_snapshots", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: text("store_id").notNull(),
+  snapshotDate: date("snapshot_date").notNull(),
+  metrics: jsonb("metrics").notNull(),
+  aiSummary: text("ai_summary"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  uniqueIndex("uq_lean_board_store_date").on(table.storeId, table.snapshotDate),
+  index("idx_lean_board_store_date").on(table.storeId, table.snapshotDate),
+]);
+
+export const insertLeanBoardSnapshotSchema = createInsertSchema(leanBoardSnapshots).omit({ id: true, createdAt: true });
+export type LeanBoardSnapshot = typeof leanBoardSnapshots.$inferSelect;
+export type InsertLeanBoardSnapshot = z.infer<typeof insertLeanBoardSnapshotSchema>;

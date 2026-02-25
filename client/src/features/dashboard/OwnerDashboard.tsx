@@ -13,6 +13,7 @@ import ImprovementFeedWidget from '@/components/ImprovementFeedWidget';
 import { DashboardErrorBoundary } from '@/features/dashboard/DashboardErrorBoundary';
 import GTDDashboardWidget from '@/features/gtd/GTDDashboardWidget';
 import WeeklyReviewCard from '@/features/gtd/WeeklyReviewCard';
+import LeanBoardCard from '@/features/dashboard/LeanBoardCard';
 import {
   Briefcase, Users, ShieldCheck, AlertTriangle, TrendingUp,
   Calendar, DollarSign, ClipboardList, BarChart3, Settings,
@@ -391,6 +392,10 @@ export default function OwnerDashboard() {
 
         <DashboardErrorBoundary fallback="Weekly review card failed to load">
           <WeeklyReviewCard />
+        </DashboardErrorBoundary>
+
+        <DashboardErrorBoundary fallback="Lean board card failed to load">
+          <LeanBoardCard />
         </DashboardErrorBoundary>
 
         <DashboardErrorBoundary fallback="Midday pulse failed to load">

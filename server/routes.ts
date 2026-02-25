@@ -36,6 +36,8 @@ import { registerVideoRoutes } from "./routes/videos";
 import { registerMessageRoutes } from "./routes/messaging";
 import { registerRAGRoutes } from "./routes/ragSearch";
 import { registerMorningWhisperRoutes } from "./routes/morningWhisper";
+import { registerLeanBoardRoutes } from "./routes/leanBoard";
+import { startLeanBoardCron, stopLeanBoardCron } from "./services/leanBoard";
 import { createActionLoggerMiddleware, handleClientErrorReport, getActionSummary } from "./services/actionLogger";
 import { startSurfacingCron, stopSurfacingCron } from "./services/sopSurfacing";
 import { startMiddayPulseCron, stopMiddayPulseCron } from "./services/middayPulse";
@@ -157,6 +159,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerMessageRoutes(app, storage, isAuthenticated, sendToUsers);
   registerRAGRoutes(app, storage, isAuthenticated);
   registerMorningWhisperRoutes(app, storage, isAuthenticated);
+  registerLeanBoardRoutes(app, storage, isAuthenticated);
 
   const httpServer = createServer(app);
 
@@ -213,6 +216,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   startSurfacingCron(broadcastToAll);
   startMiddayPulseCron(broadcastToAll);
   startWeeklyReviewCron();
+  startLeanBoardCron();
   seedShiftHandoffSOP().catch(err => logger.error({ error: err.message }, 'Handoff SOP seed failed'));
 
   function gracefulShutdown() {
@@ -221,6 +225,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     stopSurfacingCron();
     stopMiddayPulseCron();
     stopWeeklyReviewCron();
+    stopLeanBoardCron();
 
     const shutdownPayload = JSON.stringify({ type: "server_restarting" });
     wsConnections.forEach((conns) => {

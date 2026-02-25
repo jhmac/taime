@@ -14,6 +14,7 @@ import ImprovementFeedWidget from '@/components/ImprovementFeedWidget';
 import KudosWidget from '@/components/KudosWidget';
 import GTDDashboardWidget from '@/features/gtd/GTDDashboardWidget';
 import WeeklyReviewCard from '@/features/gtd/WeeklyReviewCard';
+import LeanBoardCard from '@/features/dashboard/LeanBoardCard';
 import SurfacedSOPBanner from '@/components/SurfacedSOPBanner';
 import {
   Users,
@@ -408,6 +409,10 @@ export default function ManagerDashboard() {
 
           <DashboardErrorBoundary fallback="Weekly review card failed to load">
             <WeeklyReviewCard />
+          </DashboardErrorBoundary>
+
+          <DashboardErrorBoundary fallback="Lean board card failed to load">
+            <LeanBoardCard />
           </DashboardErrorBoundary>
 
           <DashboardErrorBoundary fallback="Could not load team kudos">

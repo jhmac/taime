@@ -1,0 +1,121 @@
+Build the Lean Board — a team-level improvement tracking board with pattern detection. This is NOT a competitive leaderboard that shames individuals. It's a visual board showing the TEAM's improvement culture health.
+
+IMPORTANT DESIGN PRINCIPLE: The Lean Board shows TEAM aggregates, not individual rankings. Individual stats live only on the Personal Growth Dashboard. The Lean Board celebrates collective momentum.
+
+BACKEND:
+
+1. DATABASE — Migration:
+
+TABLE: lean_board_snapshots
+- id: uuid, primary key, default gen_random_uuid()
+- store_id: text, not null, references stores(id)
+- snapshot_date: date, not null
+- metrics: jsonb, not null (see below)
+- ai_summary: text, nullable
+- created_at: timestamp with timezone, default now()
+- UNIQUE(store_id, snapshot_date)
+
+Metrics jsonb shape:
+{
+  "improvements_submitted": number,  // What Bugged You count
+  "videos_uploaded": number,         // Improvement videos
+  "kudos_given": number,
+  "sop_completion_rate": number,     // 0-100
+  "issues_resolved": number,
+  "issues_opened": number,
+  "avg_sop_completion_time_trend": "improving" | "stable" | "declining",
+  "active_improvement_streaks": number,  // how many employees have active streaks
+  "team_participation_rate": number      // % of employees who submitted at least one improvement this week
+}
+
+2. Create `server/services/leanBoard.ts`:
+
+Function: generateDailySnapshot(storeId: string, date: Date): Promise<void>
+- Calculates all metrics for the given date
+- Stores in lean_board_snapshots
+
+Function: generateWeeklyLeanSummary(storeId: string): Promise<string>
+- Aggregates the week's snapshots
+- Calls Claude to generate a brief summary:
+"""
+You are MAinager's Lean Board summarizer. Given a week of improvement metrics for a boutique team, write a brief, celebratory summary.
+
+Focus on:
+- Team momentum (are improvements trending up?)
+- Participation (is the whole team engaged or just a few people?)
+- Highlight the best metric of the week
+- If something declined, frame it as an opportunity, not a failure
+
+Tone: team sports announcer reviewing a great week. Energetic, specific, encouraging.
+
+Return: 2-3 sentences. No JSON, just the narrative.
+"""
+
+Function: detectPatterns(storeId: string): Promise<LeanPattern[]>
+- Analyze lean_board_snapshots over the last 30 days
+- Detect patterns:
+  - Improvement velocity (submissions/week trending up or down?)
+  - Participation concentration (are improvements coming from a few people or spread across the team?)
+  - Issue-to-improvement ratio (are people identifying problems AND fixing them?)
+  - SOP compliance trend
+- Return patterns as typed objects with descriptions
+
+Cron: daily at 11 PM — generate snapshot. Weekly on Sundays — generate summary.
+
+3. API ENDPOINTS:
+
+GET /api/lean-board — Get lean board data
+- Auth: Any authenticated employee
+- Query params: period? ('today', 'week', 'month', defaults to 'week')
+- Returns: current metrics, trend data (last 4 weeks), patterns, weekly summary
+
+GET /api/lean-board/history — Historical snapshots
+- Auth: Manager/Owner
+- Query params: date_from, date_to
+
+FRONTEND:
+
+4. LeanBoardPage (`/lean-board`)
+   
+   Design: A vibrant, visual scoreboard for the TEAM's improvement culture.
+   
+   Header:
+   - "Team Lean Board" with the store name
+   - Week selector (current week, last week, etc.)
+   - Weekly AI summary displayed prominently
+   
+   Metrics Grid (big, bold numbers):
+   - "Improvements This Week: [X]" with trend arrow (↑↓→)
+   - "Videos Shared: [X]" with trend
+   - "Kudos Given: [X]" with trend
+   - "SOP Completion Rate: [X]%" with trend
+   - "Issues Opened / Resolved: [X] / [Y]"
+   - "Team Participation: [X]%" — % of employees who contributed this week
+   
+   Trend Chart:
+   - Line chart showing weekly metrics over the last 8 weeks
+   - Toggleable lines: improvements, videos, kudos, SOP rate
+   - Uses warm, non-judgmental colors
+   
+   Patterns Section (if any detected):
+   - Each pattern as a card with an insight:
+     - "Improvement velocity is up 40% — the team is seeing more waste and fixing it!"
+     - "Participation is concentrated — 2 of 6 team members submitted 80% of improvements. Encourage the whole team to try."
+   
+   Active Streaks:
+   - "[X] team members have active improvement streaks"
+   - Anonymous: don't name who has streaks. The Personal Growth Dashboard handles individual visibility.
+   
+   "Record an Improvement" CTA:
+   - Prominent button: "Got a quick improvement? Share it!" → opens video recorder
+
+5. Dashboard Integration:
+   - All dashboards: compact Lean Board card showing this week's top 3 metrics with trend arrows
+   - Link to full Lean Board page
+
+DESIGN:
+- The board should make the team PROUD of their collective improvement effort
+- NEVER show individual names or rankings on this page
+- Trends are more important than absolute numbers — celebrate momentum
+- If metrics are low, the AI summary reframes positively: "Room to grow! A single improvement from each team member would hit a new record."
+- Think: sports team stats board, not employee performance review

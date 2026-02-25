@@ -11,6 +11,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import DailyQuoteCard from '@/components/DailyQuoteCard';
 import SurfacedSOPBanner from '@/components/SurfacedSOPBanner';
 import ImprovementFeedWidget from '@/components/ImprovementFeedWidget';
+import LeanBoardCard from '@/features/dashboard/LeanBoardCard';
 import { DashboardErrorBoundary } from '@/features/dashboard/DashboardErrorBoundary';
 import GTDDashboardWidget from '@/features/gtd/GTDDashboardWidget';
 import type { UserWithRole, Task, SopExecution } from '@shared/schema';
@@ -246,6 +247,10 @@ export default function AssociateDashboard() {
               </CardContent>
             </Card>
           </div>
+        </DashboardErrorBoundary>
+
+        <DashboardErrorBoundary fallback="Lean board card failed to load">
+          <LeanBoardCard />
         </DashboardErrorBoundary>
 
         <DashboardErrorBoundary fallback="Improvement feed failed to load">

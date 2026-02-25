@@ -13,6 +13,7 @@ const generalNavItems = [
   { path: '/kudos', icon: 'fas fa-heart', label: 'Kudos' },
   { path: '/communication', icon: 'fas fa-bullhorn', label: 'Shoutouts' },
   { path: '/learning', icon: 'fas fa-graduation-cap', label: 'Learning' },
+  { path: '/lean-board', icon: 'fas fa-chart-line', label: 'Lean Board' },
   { path: '/issues', icon: 'fas fa-exclamation-triangle', label: 'Issues' },
   { path: '/requests', icon: 'fas fa-file-alt', label: 'Requests', employeeOnly: true },
   { path: '/team-directory', icon: 'fas fa-users', label: 'Team', employeeOnly: true },
