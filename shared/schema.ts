@@ -1331,3 +1331,55 @@ export const weeklyReviews = pgTable("weekly_reviews", {
 export const insertWeeklyReviewSchema = createInsertSchema(weeklyReviews).omit({ id: true, createdAt: true });
 export type WeeklyReview = typeof weeklyReviews.$inferSelect;
 export type InsertWeeklyReview = z.infer<typeof insertWeeklyReviewSchema>;
+
+export const messageThreads = pgTable("message_threads", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: text("store_id").notNull(),
+  threadType: text("thread_type").notNull(),
+  title: text("title"),
+  createdBy: text("created_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  index("idx_message_threads_store_updated").on(table.storeId, table.updatedAt),
+]);
+
+export const threadParticipants = pgTable("thread_participants", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  threadId: varchar("thread_id").notNull(),
+  userId: text("user_id").notNull(),
+  lastReadAt: timestamp("last_read_at", { withTimezone: true }),
+  joinedAt: timestamp("joined_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  unique("uq_thread_participant").on(table.threadId, table.userId),
+  index("idx_thread_participants_user").on(table.userId, table.threadId),
+  index("idx_thread_participants_thread").on(table.threadId),
+]);
+
+export const threadMessages = pgTable("thread_messages", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  threadId: varchar("thread_id").notNull(),
+  senderId: text("sender_id").notNull(),
+  content: text("content").notNull(),
+  messageType: text("message_type").notNull().default("text"),
+  imageUrl: text("image_url"),
+  replyToId: varchar("reply_to_id"),
+  editedAt: timestamp("edited_at", { withTimezone: true }),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  index("idx_thread_messages_thread_created").on(table.threadId, table.createdAt),
+  index("idx_thread_messages_sender").on(table.senderId, table.createdAt),
+]);
+
+export const insertMessageThreadSchema = createInsertSchema(messageThreads).omit({ id: true, createdAt: true, updatedAt: true });
+export type MessageThread = typeof messageThreads.$inferSelect;
+export type InsertMessageThread = z.infer<typeof insertMessageThreadSchema>;
+
+export const insertThreadParticipantSchema = createInsertSchema(threadParticipants).omit({ id: true, joinedAt: true });
+export type ThreadParticipant = typeof threadParticipants.$inferSelect;
+export type InsertThreadParticipant = z.infer<typeof insertThreadParticipantSchema>;
+
+export const insertThreadMessageSchema = createInsertSchema(threadMessages).omit({ id: true, createdAt: true, editedAt: true, deletedAt: true });
+export type ThreadMessage = typeof threadMessages.$inferSelect;
+export type InsertThreadMessage = z.infer<typeof insertThreadMessageSchema>;

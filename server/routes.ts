@@ -33,6 +33,7 @@ import { registerWeeklyReviewRoutes, startWeeklyReviewCron, stopWeeklyReviewCron
 import { registerIssueRoutes } from "./routes/issues";
 import { registerRitualRoutes } from "./routes/rituals";
 import { registerVideoRoutes } from "./routes/videos";
+import { registerMessageRoutes } from "./routes/messaging";
 import { createActionLoggerMiddleware, handleClientErrorReport, getActionSummary } from "./services/actionLogger";
 import { startSurfacingCron, stopSurfacingCron } from "./services/sopSurfacing";
 import { startMiddayPulseCron, stopMiddayPulseCron } from "./services/middayPulse";
@@ -108,6 +109,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   }
 
+  function sendToUsers(userIds: string[], data: Record<string, unknown>) {
+    const payload = JSON.stringify(data);
+    for (const uid of userIds) {
+      const conns = wsConnections.get(uid);
+      if (!conns) continue;
+      for (const conn of conns) {
+        if (conn.ws.readyState === WebSocket.OPEN) {
+          conn.ws.send(payload);
+        }
+      }
+    }
+  }
+
   app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
   registerAuthRoutes(app, storage, isAuthenticated);
@@ -138,6 +152,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerVideoRoutes(app, storage, isAuthenticated, broadcastToAll);
   registerGtdRoutes(app, storage, isAuthenticated, broadcastToAll);
   registerWeeklyReviewRoutes(app, storage, isAuthenticated);
+  registerMessageRoutes(app, storage, isAuthenticated, sendToUsers);
 
   const httpServer = createServer(app);
 

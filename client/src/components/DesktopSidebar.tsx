@@ -9,7 +9,8 @@ const generalNavItems = [
   { path: '/', icon: 'fas fa-home', label: 'Dashboard' },
   { path: '/schedules', icon: 'fas fa-calendar-alt', label: 'Schedules' },
   { path: '/availability', icon: 'fas fa-clock', label: 'Availability' },
-  { path: '/communication', icon: 'fas fa-comments', label: 'Messages' },
+  { path: '/messages', icon: 'fas fa-comments', label: 'Messages' },
+  { path: '/communication', icon: 'fas fa-bullhorn', label: 'Shoutouts' },
   { path: '/learning', icon: 'fas fa-graduation-cap', label: 'Learning' },
   { path: '/issues', icon: 'fas fa-exclamation-triangle', label: 'Issues' },
   { path: '/requests', icon: 'fas fa-file-alt', label: 'Requests', employeeOnly: true },
@@ -56,7 +57,13 @@ export default function DesktopSidebar() {
 
   const showManagement = visibleManagementItems.length > 0;
 
-  function NavButton({ path, icon, label }: { path: string; icon: string; label: string }) {
+  const { data: unreadData } = useQuery<{ success: boolean; data: { count: number } }>({
+    queryKey: ["/api/messages/unread-count"],
+    refetchInterval: 30000,
+  });
+  const unreadCount = unreadData?.data?.count || 0;
+
+  function NavButton({ path, icon, label, badge }: { path: string; icon: string; label: string; badge?: number }) {
     const isActive = location === path || (path !== '/' && location.startsWith(path));
     return (
       <button
@@ -70,8 +77,22 @@ export default function DesktopSidebar() {
         )}
         title={collapsed ? label : undefined}
       >
-        <i className={cn(icon, "w-5 text-center")}></i>
-        {!collapsed && <span>{label}</span>}
+        <div className="relative">
+          <i className={cn(icon, "w-5 text-center")}></i>
+          {badge != null && badge > 0 && (
+            <span className="absolute -top-1.5 -right-2 bg-red-500 text-white text-[9px] font-bold rounded-full h-4 min-w-[16px] flex items-center justify-center px-0.5">
+              {badge > 99 ? "99+" : badge}
+            </span>
+          )}
+        </div>
+        {!collapsed && (
+          <span className="flex-1 text-left">{label}</span>
+        )}
+        {!collapsed && badge != null && badge > 0 && (
+          <span className="bg-red-500 text-white text-[10px] font-bold rounded-full h-5 min-w-[20px] flex items-center justify-center px-1">
+            {badge > 99 ? "99+" : badge}
+          </span>
+        )}
       </button>
     );
   }
@@ -96,7 +117,13 @@ export default function DesktopSidebar() {
         {generalNavItems
           .filter(item => !('employeeOnly' in item && item.employeeOnly) || !isAdmin)
           .map(item => (
-            <NavButton key={item.path} path={item.path} icon={item.icon} label={item.label} />
+            <NavButton
+              key={item.path}
+              path={item.path}
+              icon={item.icon}
+              label={item.label}
+              badge={item.path === '/messages' ? unreadCount : undefined}
+            />
           ))}
 
         <div className={cn("pt-4 pb-1", collapsed && "pt-2 pb-0")}>

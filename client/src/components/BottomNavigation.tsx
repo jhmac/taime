@@ -1,4 +1,5 @@
 import { useLocation } from 'wouter';
+import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { cn } from '@/lib/utils';
 
@@ -6,7 +7,7 @@ const employeeNavItems = [
   { path: '/', icon: 'fas fa-home', label: 'Homebase' },
   { path: '/schedules', icon: 'fas fa-calendar-alt', label: 'Schedule' },
   { path: '/payroll', icon: 'fas fa-dollar-sign', label: 'Money' },
-  { path: '/communication', icon: 'fas fa-comment', label: 'Messages' },
+  { path: '/messages', icon: 'fas fa-comment', label: 'Messages', badge: true },
   { path: '/more', icon: 'fas fa-bars', label: 'More' },
 ];
 
@@ -14,7 +15,7 @@ const adminNavItems = [
   { path: '/', icon: 'fas fa-tachometer-alt', label: 'Dashboard' },
   { path: '/tasks', icon: 'fas fa-clipboard-list', label: 'Tasks' },
   { path: '/schedules', icon: 'fas fa-calendar-alt', label: 'Schedule' },
-  { path: '/team', icon: 'fas fa-users', label: 'Team' },
+  { path: '/messages', icon: 'fas fa-comment', label: 'Messages', badge: true },
   { path: '/payroll', icon: 'fas fa-dollar-sign', label: 'Payroll' },
 ];
 
@@ -24,6 +25,12 @@ export default function BottomNavigation() {
 
   const isAdmin = user?.role?.name === 'admin' || user?.role?.name === 'owner';
   const navItems = isAdmin ? adminNavItems : employeeNavItems;
+
+  const { data: unreadData } = useQuery<{ success: boolean; data: { count: number } }>({
+    queryKey: ["/api/messages/unread-count"],
+    refetchInterval: 30000,
+  });
+  const unreadCount = unreadData?.data?.count || 0;
 
   const isActive = (path: string) => {
     if (path === '/') return location === '/';
@@ -43,14 +50,21 @@ export default function BottomNavigation() {
               key={item.path}
               onClick={() => navigate(item.path)}
               className={cn(
-                "flex flex-col items-center py-2 px-3 transition-colors min-w-0 flex-1",
+                "flex flex-col items-center py-2 px-3 transition-colors min-w-0 flex-1 relative",
                 active
                   ? "text-primary"
                   : "text-muted-foreground"
               )}
               data-testid={`nav-${item.label.toLowerCase()}`}
             >
-              <i className={cn(item.icon, "text-lg")}></i>
+              <div className="relative">
+                <i className={cn(item.icon, "text-lg")}></i>
+                {'badge' in item && item.badge && unreadCount > 0 && (
+                  <span className="absolute -top-1.5 -right-2.5 bg-red-500 text-white text-[9px] font-bold rounded-full h-4 min-w-[16px] flex items-center justify-center px-0.5">
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </span>
+                )}
+              </div>
               <span className="text-[10px] mt-0.5 truncate">{item.label}</span>
             </button>
           );

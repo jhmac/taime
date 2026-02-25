@@ -1,0 +1,134 @@
+Build the In-App Messaging system — real-time threaded conversations between team members.
+
+BACKEND:
+
+1. Database — CREATE A NEW MIGRATION:
+
+TABLE: message_threads
+- id: uuid, primary key, default gen_random_uuid()
+- store_id: text, not null, references stores(id)
+- thread_type: text, not null (enum-like: 'direct' (1-on-1), 'group', 'channel')
+- title: text, nullable (for group threads and channels)
+- created_by: text, not null (Clerk user ID)
+- created_at: timestamp with timezone, default now()
+- updated_at: timestamp with timezone, default now() (updated when new message sent)
+
+TABLE: thread_participants
+- id: uuid, primary key, default gen_random_uuid()
+- thread_id: uuid, not null, references message_threads(id) ON DELETE CASCADE
+- user_id: text, not null (Clerk user ID)
+- last_read_at: timestamp with timezone, nullable (for unread tracking)
+- joined_at: timestamp with timezone, default now()
+- UNIQUE(thread_id, user_id)
+
+TABLE: messages
+- id: uuid, primary key, default gen_random_uuid()
+- thread_id: uuid, not null, references message_threads(id) ON DELETE CASCADE
+- sender_id: text, not null (Clerk user ID)
+- content: text, not null (max 5000 chars)
+- message_type: text, not null, default 'text' (enum-like: 'text', 'image', 'system')
+- image_url: text, nullable
+- reply_to_id: uuid, nullable, self-references messages(id) (for threaded replies)
+- edited_at: timestamp with timezone, nullable
+- deleted_at: timestamp with timezone, nullable (soft delete)
+- created_at: timestamp with timezone, default now()
+
+INDEXES:
+- message_threads(store_id, updated_at DESC)
+- thread_participants(user_id, thread_id)
+- thread_participants(thread_id)
+- messages(thread_id, created_at DESC)
+- messages(sender_id, created_at DESC)
+
+2. API — Create `server/routes/messages.ts`:
+
+   GET /api/messages/threads — List threads for current user
+   - Returns threads where user is a participant, sorted by updated_at desc
+   - Include: last message preview, unread count per thread, participant names/avatars
+
+   POST /api/messages/threads — Create a new thread
+   - Zod body: { thread_type, title?, participant_ids: string[] }
+   - For 'direct': check if a direct thread already exists between these two users (reuse it)
+   - Add all participants including creator
+
+   GET /api/messages/threads/:id — Get thread with messages
+   - Auth: only participants
+   - Paginated messages (latest first, load more = older messages)
+   - Mark as read: update last_read_at for this user
+
+   POST /api/messages/threads/:id/messages — Send a message
+   - Auth: only participants
+   - Zod body: { content, message_type?, image_url?, reply_to_id? }
+   - Update thread's updated_at
+   - Send WebSocket event to all OTHER participants: { type: 'new_message', data: { thread_id, message } }
+   - Send notification via notificationService for 'message_received' category
+   
+   PUT /api/messages/:messageId — Edit a message
+   - Auth: only the sender
+   - Within 15 minutes of sending
+   - Sets edited_at
+
+   DELETE /api/messages/:messageId — Soft delete a message
+   - Auth: sender or Manager/Owner
+   - Sets deleted_at, content displayed as "[Message deleted]"
+
+   GET /api/messages/unread-count — Total unread count across all threads
+   - For the notification badge
+
+3. WebSocket events for real-time messaging:
+   - When a user joins a thread view, subscribe them to that thread's WebSocket channel
+   - New messages push instantly to all participants
+   - Typing indicator: { type: 'typing', data: { thread_id, user_id } } (ephemeral, don't store)
+   - Read receipts: when a user reads a thread, broadcast to others
+
+FRONTEND — Create `client/src/features/messaging/`:
+
+4. MessagingPage (`/messages`)
+   - Split layout (desktop): thread list on left, conversation on right
+   - Mobile: thread list page → tap → conversation page
+   
+   Thread List:
+   - Each thread: participant avatars, thread title or participant names, last message preview (truncated), timestamp, unread badge
+   - "New Message" button → opens participant picker
+   - Sorted by most recent activity
+   
+   Conversation View:
+   - Header: thread title/participant names, participant count
+   - Message bubbles:
+     - Own messages: right-aligned, colored bubble
+     - Others' messages: left-aligned, light bubble, with name and avatar
+     - System messages: centered, muted
+     - Replies: show the quoted message above the reply
+     - Deleted messages: "[Message deleted]" in muted text
+     - Edited indicator: small "edited" text
+   - Input bar at bottom:
+     - Text input with auto-resize
+     - Send button (or Enter to send, Shift+Enter for newline)
+     - Image upload button
+     - Typing indicator above input: "[Name] is typing..."
+   - Infinite scroll upward for older messages
+   - Auto-scroll to bottom on new message (unless user has scrolled up)
+
+5. New Thread Dialog:
+   - "New Message" → select participants (team member search/select)
+   - If selecting one person: creates/opens direct thread
+   - If selecting multiple: creates a group thread, asks for optional title
+   - "Start Chatting" button
+
+6. Navigation integration:
+   - Add "Messages" icon to main navigation with unread count badge
+   - Unread count updates in real-time via WebSocket
+
+DESIGN:
+- Feels like a fast, simple team chat (think Slack's simplicity, not its complexity)
+- Messages should feel instantaneous (optimistic sending — show message immediately, sync in background)
+- Mobile-first: full-screen conversation view on mobile
+- No emojis/reactions in MVP (keep it simple)
+- System messages for: "[Name] was added to the thread", "[Name] left the thread"
+
+TECHNICAL:
+- WebSocket rooms: each thread is a room, users join/leave when viewing
+- Optimistic message sending: add message to local state immediately, mark as "sending", update when confirmed
+- Message pagination: load 50 messages initially, "Load older messages" button or scroll trigger
+- Image upload: reuse the existing upload infrastructure (presigned URL or local storage)
+- TypeScript strict: full types for all message entities
