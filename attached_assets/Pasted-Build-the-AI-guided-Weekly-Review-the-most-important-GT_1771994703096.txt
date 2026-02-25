@@ -1,0 +1,138 @@
+Build the AI-guided Weekly Review — the most important GTD ritual. Runs Friday at 3pm for owners/managers.
+
+BACKEND:
+
+1. Create `server/services/weeklyReviewAI.ts`:
+
+Function: generateWeeklyReview(storeId: string, userId: string): Promise<WeeklyReviewData>
+
+Data gathering:
+- Count of inbox items processed this week vs unprocessed
+- All active projects with their progress
+- All overdue next actions
+- All overdue waiting-for items
+- Someday/maybe items (for review)
+- This week's SOP completion stats
+- This week's "What Bugged You?" submissions (themes)
+- This week's improvement videos count
+- Sales data comparison (this week vs last week) from Shopify
+- Issue resolution stats (opened vs closed this week)
+
+Claude call — system prompt:
+"""
+You are MAinager's Weekly Review assistant. Generate a structured weekly review guide for a boutique owner/manager.
+
+The weekly review has 5 steps (from David Allen's GTD methodology):
+1. GET CLEAR — Process the inbox to zero, collect any loose ends
+2. GET CURRENT — Review all active projects, next actions, waiting-for items
+3. GET CREATIVE — Review someday/maybe list, brainstorm new ideas
+
+Your review should feel like a calm, structured conversation — not an audit. The goal is to leave feeling organized and confident about next week.
+
+Return JSON:
+{
+  "greeting": "Personalized Friday greeting (warm, not corporate)",
+  "week_summary": "2-3 sentence summary of how the week went based on the data. Honest but constructive.",
+  "inbox_status": {
+    "unprocessed_count": number,
+    "message": "Encouraging note about inbox status"
+  },
+  "projects_review": [
+    {
+      "project_title": "...",
+      "status_note": "AI observation about this project's progress",
+      "suggested_next_step": "what should happen next?"
+    }
+  ],
+  "overdue_actions": {
+    "count": number,
+    "message": "Context about overdue items — are they stale? Should some be deleted? Reassigned?"
+  },
+  "waiting_for_check": {
+    "overdue_count": number,
+    "message": "Who needs a follow-up nudge?"
+  },
+  "someday_maybe_prompt": "A thought-provoking question to review the someday/maybe list. Example: 'Any of these seeds ready to plant? Anything you can let go of?'",
+  "improvement_insights": "Summary of this week's What Bugged You themes and improvement video activity",
+  "sales_snapshot": "Brief sales comparison with last week",
+  "closing_thought": "An encouraging note about the week ahead. End on a positive, forward-looking note."
+}
+"""
+
+- 15 second timeout (this is a more complex generation)
+- Fallback: generate a basic review template with raw counts and no AI commentary
+- Cache in a weekly_reviews table
+
+2. Database — add to the migration:
+
+TABLE: weekly_reviews
+- id: uuid, primary key, default gen_random_uuid()
+- store_id: text, not null, references stores(id)
+- user_id: text, not null (Clerk user ID)
+- review_week_start: date, not null (Monday of the review week)
+- ai_content: jsonb, not null
+- status: text, not null, default 'pending' (enum-like: 'pending', 'in_progress', 'completed')
+- started_at: timestamp with timezone, nullable
+- completed_at: timestamp with timezone, nullable
+- notes: text, nullable (user's personal notes during review)
+- created_at: timestamp with timezone, default now()
+- UNIQUE(store_id, user_id, review_week_start)
+
+INDEX: weekly_reviews(store_id, user_id, review_week_start)
+
+3. Scheduled job: Friday 2:45pm store timezone — pre-generate the weekly review content so it's ready at 3pm.
+
+4. API endpoints:
+   - GET /api/gtd/review/current — Get this week's review (generates on-demand if not cached)
+   - PUT /api/gtd/review/current — Update review status (started, completed, add notes)
+   - GET /api/gtd/review/history — Past weekly reviews (paginated)
+
+FRONTEND:
+
+5. WeeklyReviewPage (`/gtd/review`)
+   
+   Guided step-through experience (similar to Morning Huddle flow):
+   
+   Step 1: "Get Clear" 🧹
+   - Show inbox count
+   - "Process your inbox" link → opens inbox page
+   - Checklist: ☐ Inbox processed to zero, ☐ Collected any loose papers/notes, ☐ Checked email for action items
+   
+   Step 2: "Get Current" 📋
+   - Projects review: list each active project with AI's status note
+   - For each: "On track" / "Needs attention" / "Stale — consider closing?"
+   - Overdue actions list with AI's suggestions
+   - Waiting-for items with follow-up prompts
+   - Checklist: ☐ All projects reviewed, ☐ Overdue actions addressed, ☐ Follow-ups sent
+   
+   Step 3: "Get Creative" 💡
+   - Someday/maybe review
+   - AI's thought-provoking prompt
+   - "Activate" or "Let go" buttons for each item
+   - Checklist: ☐ Someday/maybe reviewed
+   
+   Step 4: "Week in Review" 📊
+   - AI's week summary
+   - Sales snapshot
+   - Improvement insights
+   - SOP completion stats
+   
+   Step 5: "You're Set!" ✨
+   - AI's closing thought
+   - Personal notes textarea (saved to the review record)
+   - "Complete Review" button
+   - Celebration: "Weekly review complete! You're going into next week organized and ready. 💪"
+
+   - Navigation: step indicators, forward/back
+   - Auto-save progress so they can come back if interrupted
+
+6. Dashboard integration:
+   - On Fridays, show a "Weekly Review" card on Owner/Manager dashboards
+   - After 3pm: "Time for your weekly review!" with start button
+   - Badge/indicator if review hasn't been completed by end of Friday
+
+DESIGN:
+- Feels like a guided meditation for your business — calm, structured, clarifying
+- Each step should take 5-10 minutes (total 20-40 minutes for the full review)
+- Not a chore — a ritual that leaves you feeling organized
+- Progress indicators show how far through the review you are

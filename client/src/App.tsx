@@ -44,6 +44,8 @@ import OfflineIndicator from "@/components/OfflineIndicator";
 import SmartClockPrompt from "@/components/SmartClockPrompt";
 import FocusClockOut from "@/components/FocusClockOut";
 import AIAssistant from "@/components/AIAssistant";
+import QuickCaptureButton from "@/features/gtd/QuickCaptureButton";
+import GTDInbox from "@/features/gtd/GTDInbox";
 import { WebSocketProvider } from "@/contexts/WebSocketContext";
 import type { Permission } from "@shared/schema";
 
@@ -177,6 +179,7 @@ function AuthenticatedApp() {
     <SmartClockPrompt />
     <FocusClockOut />
     <AIAssistant />
+    <QuickCaptureButton />
     <Switch>
       <Route path="/" component={DashboardRouter} />
       <Route path="/operations">
@@ -223,6 +226,7 @@ function AuthenticatedApp() {
       <Route path="/issues/:id" component={IssueDetail} />
       <Route path="/huddle" component={MorningHuddle} />
       <Route path="/improvements" component={ImprovementFeed} />
+      <Route path="/gtd/inbox" component={GTDInbox} />
       <Route path="/support" component={SupportPage} />
       <Route path="/admin">
         <ProtectedRoute permission="admin.manage_all"><AdminSettings /></ProtectedRoute>
