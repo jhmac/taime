@@ -1,0 +1,120 @@
+import type { Express } from "express";
+import { db } from "../db";
+import { eq, and, desc, sql } from "drizzle-orm";
+import { sopInsights } from "@shared/schema";
+import { analyzeSOP, generateSOPInsights } from "../services/sopIntelligence";
+import type { IStorage } from "../storage";
+import logger from "../lib/logger";
+
+async function requireManagerOrAbove(storage: IStorage, userId: string): Promise<boolean> {
+  const user = await storage.getUser(userId);
+  if (!user) throw new Error("User not found");
+  return user.role === "admin" || user.role === "owner" || user.role === "manager";
+}
+
+export function registerSOPIntelligenceRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
+  app.get("/api/sops/insights", isAuthenticated, async (req: any, res) => {
+    try {
+      const isManager = await requireManagerOrAbove(storage, req.user.id);
+      if (!isManager) return res.status(403).json({ message: "Manager or owner access required" });
+
+      const user = await storage.getUser(req.user.id);
+      if (!user?.storeId) return res.status(400).json({ message: "No store assigned" });
+
+      const { severity, sop_template_id, status } = req.query;
+      const filterStatus = (status as string) || "active";
+
+      const conditions = [
+        eq(sopInsights.storeId, user.storeId),
+        eq(sopInsights.status, filterStatus),
+      ];
+
+      if (severity) {
+        conditions.push(eq(sopInsights.severity, severity as string));
+      }
+      if (sop_template_id) {
+        conditions.push(eq(sopInsights.sopTemplateId, sop_template_id as string));
+      }
+
+      const insights = await db.select().from(sopInsights)
+        .where(and(...conditions))
+        .orderBy(
+          sql`CASE severity WHEN 'action_needed' THEN 1 WHEN 'warning' THEN 2 WHEN 'info' THEN 3 END`,
+          desc(sopInsights.createdAt),
+        );
+
+      res.json(insights);
+    } catch (error: any) {
+      logger.error({ error: error.message }, "[SOPIntelligence] Error fetching insights");
+      res.status(500).json({ message: "Failed to load insights" });
+    }
+  });
+
+  app.put("/api/sops/insights/:id/acknowledge", isAuthenticated, async (req: any, res) => {
+    try {
+      const isManager = await requireManagerOrAbove(storage, req.user.id);
+      if (!isManager) return res.status(403).json({ message: "Manager or owner access required" });
+
+      const user = await storage.getUser(req.user.id);
+      if (!user?.storeId) return res.status(400).json({ message: "No store assigned" });
+
+      const { id } = req.params;
+
+      const updated = await db.update(sopInsights)
+        .set({
+          status: "acknowledged",
+          acknowledgedBy: req.user.id,
+          acknowledgedAt: new Date(),
+        })
+        .where(and(
+          eq(sopInsights.id, id),
+          eq(sopInsights.storeId, user.storeId),
+          eq(sopInsights.status, "active"),
+        ))
+        .returning();
+
+      if (updated.length === 0) return res.status(404).json({ message: "Insight not found" });
+
+      res.json(updated[0]);
+    } catch (error: any) {
+      logger.error({ error: error.message }, "[SOPIntelligence] Error acknowledging insight");
+      res.status(500).json({ message: "Failed to acknowledge insight" });
+    }
+  });
+
+  app.get("/api/sops/analytics/:templateId", isAuthenticated, async (req: any, res) => {
+    try {
+      const isManager = await requireManagerOrAbove(storage, req.user.id);
+      if (!isManager) return res.status(403).json({ message: "Manager or owner access required" });
+
+      const user = await storage.getUser(req.user.id);
+      if (!user?.storeId) return res.status(400).json({ message: "No store assigned" });
+
+      const { templateId } = req.params;
+      const analysis = await analyzeSOP(templateId, user.storeId);
+
+      if (!analysis) return res.status(404).json({ message: "Template not found" });
+
+      res.json(analysis);
+    } catch (error: any) {
+      logger.error({ error: error.message }, "[SOPIntelligence] Error fetching analytics");
+      res.status(500).json({ message: "Failed to load analytics" });
+    }
+  });
+
+  app.post("/api/sops/insights/generate", isAuthenticated, async (req: any, res) => {
+    try {
+      const isManager = await requireManagerOrAbove(storage, req.user.id);
+      if (!isManager) return res.status(403).json({ message: "Manager or owner access required" });
+
+      const user = await storage.getUser(req.user.id);
+      if (!user?.storeId) return res.status(400).json({ message: "No store assigned" });
+
+      await generateSOPInsights(user.storeId);
+      res.json({ message: "Insights generated successfully" });
+    } catch (error: any) {
+      logger.error({ error: error.message }, "[SOPIntelligence] Error generating insights");
+      res.status(500).json({ message: "Failed to generate insights" });
+    }
+  });
+}

@@ -8,9 +8,11 @@ import { Separator } from '@/components/ui/separator';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
 import { useAuth } from '@/hooks/useAuth';
+import { useState } from 'react';
 import {
   ArrowLeft, Edit, Play, Clock, CheckCircle2, Eye, Camera, GitBranch,
-  Timer, AlertTriangle, BarChart3, Calendar, Hash, BookOpen, Loader2, History
+  Timer, AlertTriangle, BarChart3, Calendar, Hash, BookOpen, Loader2, History,
+  TrendingUp, TrendingDown, Minus, ChevronDown, ChevronUp, Activity, Users,
 } from 'lucide-react';
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -244,6 +246,8 @@ export default function SOPDetail() {
           })}
         </div>
 
+        {isAdmin && <SOPAnalyticsSection templateId={id!} />}
+
         {template.parentTemplateId && (
           <>
             <Separator />
@@ -255,5 +259,214 @@ export default function SOPDetail() {
         )}
       </div>
     </div>
+  );
+}
+
+interface StepMetric {
+  stepId: string;
+  title: string;
+  stepOrder: number;
+  avgTimeSeconds: number;
+  medianTimeSeconds: number;
+  skipRate: number;
+  photoComplianceRate: number | null;
+  timeStdDev: number;
+  frictionFlags: string[];
+}
+
+interface SOPAnalysisData {
+  templateTitle: string;
+  overallMetrics: {
+    totalExecutions: number;
+    avgCompletionSeconds: number;
+    estimatedDurationSeconds: number | null;
+    completionRate: number;
+    avgStepsSkipped: number;
+  };
+  stepMetrics: StepMetric[];
+  employeePatterns: Array<{
+    employeeId: string;
+    avgCompletionSeconds: number;
+    totalExecutions: number;
+    avgStepsSkipped: number;
+  }>;
+  trends: {
+    weeklyCompletionTimes: number[];
+    weeklySkipRates: number[];
+    completionTimeTrend: string;
+    skipRateTrend: string;
+  };
+}
+
+function SOPAnalyticsSection({ templateId }: { templateId: string }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const { data: analytics, isLoading } = useQuery<SOPAnalysisData>({
+    queryKey: ['/api/sops/analytics', templateId],
+    enabled: expanded,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const TrendIcon = analytics?.trends.completionTimeTrend === "improving"
+    ? TrendingDown : analytics?.trends.completionTimeTrend === "worsening"
+    ? TrendingUp : Minus;
+
+  const trendColor = analytics?.trends.completionTimeTrend === "improving"
+    ? "text-green-600 dark:text-green-400" : analytics?.trends.completionTimeTrend === "worsening"
+    ? "text-red-600 dark:text-red-400" : "text-muted-foreground";
+
+  return (
+    <>
+      <Separator />
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center justify-between w-full text-sm font-semibold py-1 hover:text-primary transition-colors"
+      >
+        <span className="flex items-center gap-2">
+          <Activity className="h-4 w-4" /> Analytics
+        </span>
+        {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+      </button>
+
+      {expanded && (
+        <div className="space-y-4">
+          {isLoading ? (
+            <div className="space-y-3">
+              <Skeleton className="h-20 w-full" />
+              <Skeleton className="h-32 w-full" />
+            </div>
+          ) : analytics ? (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                <Card className="py-2 px-3">
+                  <div className="text-lg font-bold text-primary">{analytics.overallMetrics.completionRate}%</div>
+                  <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Completion Rate</div>
+                </Card>
+                <Card className="py-2 px-3">
+                  <div className="flex items-center gap-1">
+                    <span className="text-lg font-bold text-primary">{formatDuration(analytics.overallMetrics.avgCompletionSeconds)}</span>
+                    <TrendIcon className={`h-3.5 w-3.5 ${trendColor}`} />
+                  </div>
+                  <div className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                    Avg Time
+                    {analytics.overallMetrics.estimatedDurationSeconds && (
+                      <span> / Est. {formatDuration(analytics.overallMetrics.estimatedDurationSeconds)}</span>
+                    )}
+                  </div>
+                </Card>
+                <Card className="py-2 px-3">
+                  <div className="text-lg font-bold text-primary">{analytics.overallMetrics.totalExecutions}</div>
+                  <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Executions (30d)</div>
+                </Card>
+                <Card className="py-2 px-3">
+                  <div className="text-lg font-bold text-primary">{analytics.overallMetrics.avgStepsSkipped}</div>
+                  <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Avg Steps Skipped</div>
+                </Card>
+              </div>
+
+              {analytics.stepMetrics.length > 0 && (
+                <Card>
+                  <CardContent className="py-3 px-3">
+                    <h3 className="text-xs font-semibold mb-2 flex items-center gap-1.5">
+                      <BarChart3 className="h-3.5 w-3.5" /> Step Performance
+                    </h3>
+                    <div className="space-y-2">
+                      {analytics.stepMetrics.map((step) => (
+                        <div key={step.stepId} className="flex items-center gap-2 text-xs">
+                          <span className="w-5 h-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[10px] font-bold shrink-0">
+                            {step.stepOrder}
+                          </span>
+                          <span className="flex-1 min-w-0 truncate">{step.title}</span>
+                          <span className="text-muted-foreground shrink-0">{formatDuration(step.avgTimeSeconds)}</span>
+                          {step.skipRate > 0 && (
+                            <Badge variant="secondary" className="text-[9px] px-1 py-0 shrink-0">
+                              {step.skipRate}% skip
+                            </Badge>
+                          )}
+                          {step.frictionFlags.map(flag => (
+                            <Badge
+                              key={flag}
+                              variant="outline"
+                              className={`text-[9px] px-1 py-0 shrink-0 ${
+                                flag === "friction_point"
+                                  ? "text-red-600 border-red-300 dark:text-red-400 dark:border-red-800"
+                                  : flag === "frequently_skipped"
+                                  ? "text-amber-600 border-amber-300 dark:text-amber-400 dark:border-amber-800"
+                                  : "text-orange-600 border-orange-300 dark:text-orange-400 dark:border-orange-800"
+                              }`}
+                            >
+                              {flag === "friction_point" ? "Slow" :
+                               flag === "frequently_skipped" ? "Skipped" : "Inconsistent"}
+                            </Badge>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {analytics.employeePatterns.length > 0 && (
+                <Card>
+                  <CardContent className="py-3 px-3">
+                    <h3 className="text-xs font-semibold mb-2 flex items-center gap-1.5">
+                      <Users className="h-3.5 w-3.5" /> Team Performance
+                    </h3>
+                    <div className="space-y-1.5">
+                      {analytics.employeePatterns
+                        .sort((a, b) => a.avgCompletionSeconds - b.avgCompletionSeconds)
+                        .map((emp) => (
+                          <div key={emp.employeeId} className="flex items-center justify-between text-xs">
+                            <span className="text-muted-foreground truncate max-w-[120px]">
+                              {emp.employeeId.substring(0, 8)}...
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <span>{formatDuration(emp.avgCompletionSeconds)}</span>
+                              <span className="text-muted-foreground">{emp.totalExecutions} runs</span>
+                              {emp.avgStepsSkipped > 1 && (
+                                <Badge variant="secondary" className="text-[9px] px-1 py-0">
+                                  {emp.avgStepsSkipped} skips
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {analytics.trends.weeklyCompletionTimes.length > 0 && (
+                <Card>
+                  <CardContent className="py-3 px-3">
+                    <h3 className="text-xs font-semibold mb-2">Weekly Trends</h3>
+                    <div className="flex items-end gap-1 h-12">
+                      {analytics.trends.weeklyCompletionTimes.map((t, i) => {
+                        const max = Math.max(...analytics.trends.weeklyCompletionTimes.filter(v => v > 0), 1);
+                        const height = t > 0 ? Math.max((t / max) * 100, 10) : 5;
+                        return (
+                          <div
+                            key={i}
+                            className="flex-1 bg-primary/20 dark:bg-primary/30 rounded-t transition-all"
+                            style={{ height: `${height}%` }}
+                            title={`Week ${i + 1}: ${formatDuration(t)}`}
+                          />
+                        );
+                      })}
+                    </div>
+                    <div className="flex justify-between text-[9px] text-muted-foreground mt-1">
+                      <span>4 weeks ago</span>
+                      <span>This week</span>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </>
+          ) : (
+            <p className="text-xs text-muted-foreground">No analytics data available.</p>
+          )}
+        </div>
+      )}
+    </>
   );
 }

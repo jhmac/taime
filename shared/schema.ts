@@ -1446,3 +1446,27 @@ export const leanBoardSnapshots = pgTable("lean_board_snapshots", {
 export const insertLeanBoardSnapshotSchema = createInsertSchema(leanBoardSnapshots).omit({ id: true, createdAt: true });
 export type LeanBoardSnapshot = typeof leanBoardSnapshots.$inferSelect;
 export type InsertLeanBoardSnapshot = z.infer<typeof insertLeanBoardSnapshotSchema>;
+
+export const sopInsights = pgTable("sop_insights", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: text("store_id").notNull(),
+  insightType: text("insight_type").notNull(),
+  severity: text("severity").notNull(),
+  sopTemplateId: varchar("sop_template_id").references(() => sopTemplates.id),
+  stepId: varchar("step_id"),
+  headline: text("headline").notNull(),
+  detail: text("detail").notNull(),
+  recommendation: text("recommendation").notNull(),
+  dataPoint: text("data_point"),
+  status: text("status").notNull().default("active"),
+  acknowledgedBy: text("acknowledged_by"),
+  acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  index("idx_sop_insights_store_status").on(table.storeId, table.status, table.severity),
+  index("idx_sop_insights_template").on(table.sopTemplateId),
+]);
+
+export const insertSopInsightSchema = createInsertSchema(sopInsights).omit({ id: true, createdAt: true });
+export type SopInsight = typeof sopInsights.$inferSelect;
+export type InsertSopInsight = z.infer<typeof insertSopInsightSchema>;
