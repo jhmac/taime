@@ -8,6 +8,7 @@ import type { IStorage } from "../storage";
 import { generateSOPFromDescription } from "../services/sopAI";
 import { getSurfacedSOPsForEmployee } from "../services/sopSurfacing";
 import { triggerClarification } from "../services/gtdClarificationAI";
+import { indexSOPTemplate } from "../services/sopIndexer";
 import logger from "../lib/logger";
 
 const stepSchema = z.object({
@@ -125,6 +126,12 @@ export function registerSopLibraryRoutes(
       targetType: "sop_template",
       targetId: result.id,
       details: `Created SOP template: ${result.title}`,
+    });
+
+    setImmediate(() => {
+      indexSOPTemplate(result.id).catch(err =>
+        logger.warn({ error: err.message, templateId: result.id }, "[SOPIndexer] Background index failed")
+      );
     });
 
     res.status(201).json({ success: true, data: result });
@@ -256,6 +263,12 @@ export function registerSopLibraryRoutes(
       targetType: "sop_template",
       targetId: result.id,
       details: `Updated SOP template to v${result.version}: ${result.title}`,
+    });
+
+    setImmediate(() => {
+      indexSOPTemplate(result.id).catch(err =>
+        logger.warn({ error: err.message, templateId: result.id }, "[SOPIndexer] Background index failed")
+      );
     });
 
     res.json({ success: true, data: result });

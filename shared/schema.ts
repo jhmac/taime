@@ -1383,3 +1383,20 @@ export type InsertThreadParticipant = z.infer<typeof insertThreadParticipantSche
 export const insertThreadMessageSchema = createInsertSchema(threadMessages).omit({ id: true, createdAt: true, editedAt: true, deletedAt: true });
 export type ThreadMessage = typeof threadMessages.$inferSelect;
 export type InsertThreadMessage = z.infer<typeof insertThreadMessageSchema>;
+
+export const sopEmbeddings = pgTable("sop_embeddings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: text("store_id").notNull(),
+  sourceType: text("source_type").notNull(),
+  sourceId: varchar("source_id").notNull(),
+  contentText: text("content_text").notNull(),
+  contentHash: text("content_hash").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  index("idx_sop_embeddings_store_type").on(table.storeId, table.sourceType),
+  index("idx_sop_embeddings_source").on(table.sourceId),
+  uniqueIndex("uq_sop_embeddings_source_type").on(table.sourceId, table.sourceType),
+]);
+
+export type SopEmbedding = typeof sopEmbeddings.$inferSelect;

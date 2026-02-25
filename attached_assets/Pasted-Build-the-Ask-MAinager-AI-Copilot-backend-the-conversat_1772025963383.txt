@@ -1,0 +1,171 @@
+Build the "Ask MAinager" AI Copilot backend — the conversational AI that answers employee questions using store context and SOP knowledge.
+
+BACKEND — Create `server/services/askMAinager.ts`:
+
+This is the core intelligence service. It takes an employee's natural language question and returns an answer grounded in the store's actual data.
+
+FUNCTION: askMAinager(params: {
+  question: string,
+  employeeId: string,
+  storeId: string,
+  conversationHistory?: { role: 'user' | 'assistant', content: string }[]
+}): Promise<MAinagerResponse>
+
+STEP 1: GATHER CONTEXT (before calling Claude)
+
+Build a multi-layer context object:
+
+a. STORE CONTEXT:
+   - Store name, timezone, business hours (from stores table)
+   - Current time in store timezone
+   - Day of week, is the store currently open?
+
+b. ROLE CONTEXT:
+   - Employee name, role (from Clerk)
+   - Current shift status (clocked in? on break?)
+   - SOP mastery level (how many SOPs have they completed 3+ times?)
+
+c. TEMPORAL CONTEXT:
+   - Current time relative to business hours (opening, mid-day, closing)
+   - Any active promotions or events (from a store_events table if it exists, otherwise skip)
+
+d. SOP KNOWLEDGE (RAG):
+   - Call searchSOPs() from the embedding service with the employee's question
+   - Retrieve top 5 most relevant SOP chunks
+   - Format as context: "Relevant Procedures:\n1. [SOP Title] - [Step/Section]: [content_text]\n..."
+
+e. OPERATIONAL DATA:
+   - Today's schedule (who's working, shift times)
+   - Active/overdue tasks assigned to this employee
+   - Open issues (count and top 3 by priority)
+   - Today's sales summary from Shopify (if available)
+   - Recent "What Bugged You?" themes (last 7 days)
+
+STEP 2: CLAUDE API CALL
+
+System prompt:
+"""
+You are MAinager, the AI assistant for {store_name}, a retail boutique. You help team members with their daily work by answering questions using the store's actual procedures, schedules, and data.
+
+PERSONALITY:
+- Warm, supportive, and encouraging — like the best team lead
+- Specific and actionable — never vague
+- Use the employee's name ({employee_name})
+- Reference their recent wins when relevant
+- If you're not sure about something, say so honestly rather than guessing
+
+CAPABILITIES:
+- Answer questions about store procedures (SOPs) — you have the store's procedure library
+- Tell employees about schedules, tasks, and who's working
+- Share sales data summaries
+- Help troubleshoot issues and surface relevant SOPs
+- Suggest what an employee should be doing right now based on their role, time, and open tasks
+- Explain WHY procedures exist (pull from training notes)
+
+IMPORTANT RULES:
+- Only answer based on the context provided. Never make up procedures that aren't in the SOP library.
+- If asked about a procedure that doesn't exist in the SOPs, say: "I don't see a procedure for that yet. Want me to flag it so the owner can create one?"
+- If the question is about something outside your knowledge (personal advice, non-work topics), gently redirect: "That's outside my expertise! I'm best at helping with store operations."
+- When referencing an SOP, include the SOP title so the employee can find it.
+- If an employee reports a problem, suggest logging it as an issue.
+
+CURRENT CONTEXT:
+Store: {store_name}
+Current time: {current_time} ({timezone})
+Store hours: {business_hours}
+Employee: {employee_name} (Role: {role})
+Shift status: {shift_status}
+
+Today's Schedule:
+{schedule_summary}
+
+Active Tasks for {employee_name}:
+{tasks_summary}
+
+Open Issues:
+{issues_summary}
+
+Today's Sales:
+{sales_summary}
+
+Relevant Procedures (from SOP library):
+{sop_chunks}
+"""
+
+User message: the employee's question (plus conversation history if follow-up)
+
+PARAMETERS:
+- Model: claude-sonnet-4-20250514
+- Max tokens: 1000
+- Timeout: 10 seconds
+- Temperature: 0.3 (we want accurate, not creative)
+
+STEP 3: PROCESS RESPONSE
+
+Return:
+{
+  answer: string, // Claude's response
+  confidence: 'high' | 'medium' | 'low', // Based on whether relevant SOPs were found
+  referenced_sops: [{ template_id, title }], // SOPs mentioned in the answer
+  suggested_actions: [{ type: 'start_sop' | 'create_issue' | 'view_task', id?, label }], // Actionable buttons
+  conversation_id: string // For follow-up questions
+}
+
+FALLBACK:
+- If Claude API times out: return a friendly message: "I'm thinking a bit slow right now. Try again in a moment, or check the SOP Library directly."
+- If no relevant SOPs found: lower confidence, note that the question may not match any existing procedures
+
+STEP 4: CONVERSATION STORAGE
+
+TABLE: ai_conversations (add to migration)
+- id: uuid, primary key, default gen_random_uuid()
+- store_id: text, not null
+- employee_id: text, not null
+- messages: jsonb, not null, default '[]' (array of { role, content, timestamp })
+- created_at: timestamp with timezone, default now()
+- updated_at: timestamp with timezone, default now()
+
+INDEX: ai_conversations(store_id, employee_id, updated_at DESC)
+
+- Store the last 10 messages per conversation
+- Conversations expire after 24 hours (new day = new conversation context)
+- Cron: clean up conversations older than 7 days
+
+STEP 5: FEEDBACK LOOP
+
+TABLE: ai_feedback (add to migration)
+- id: uuid, primary key, default gen_random_uuid()
+- conversation_id: uuid, not null, references ai_conversations(id)
+- message_index: integer, not null (which message in the conversation)
+- helpful: boolean, not null (thumbs up / thumbs down)
+- feedback_text: text, nullable
+- created_at: timestamp with timezone, default now()
+
+This data helps improve prompts over time.
+
+STEP 6: API ENDPOINTS
+
+Create `server/routes/ai.ts`:
+
+POST /api/ai/ask — Ask MAinager a question
+- Auth: Any authenticated employee
+- Zod body: { question: string (min 1, max 1000), conversation_id?: string }
+- Returns the MAinagerResponse
+- Rate limit: 30 questions per employee per hour
+
+POST /api/ai/feedback — Submit feedback on an AI answer
+- Auth: Any authenticated employee
+- Zod body: { conversation_id, message_index, helpful: boolean, feedback_text? }
+
+GET /api/ai/conversations — List recent conversations (for the employee)
+- Auth: Any authenticated employee (sees own only)
+- Returns last 10 conversations with previews
+
+INTENT DETECTION — TOOL-USE PATTERN:
+When the AI detects certain intents, it should trigger actions:
+- "The [equipment] isn't working" → suggest creating an issue (include a button)
+- "How do I [procedure]?" → link to the relevant SOP with a "Start SOP" button
+- "What should I do?" → generate a prioritized task list based on context
+- "Who's working [day]?" → pull and format schedule data
+
+Implement intent detection in the system prompt — Claude classifies the intent and includes suggested_actions in its response.
