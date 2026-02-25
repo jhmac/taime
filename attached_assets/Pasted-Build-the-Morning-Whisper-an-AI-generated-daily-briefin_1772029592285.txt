@@ -1,0 +1,153 @@
+Build the Morning Whisper — an AI-generated daily briefing delivered to the owner/manager before they arrive at the store.
+
+BACKEND:
+
+1. Create `server/services/morningWhisper.ts`:
+
+Function: generateMorningWhisper(storeId: string, userId: string): Promise<MorningWhisperData>
+
+DATA GATHERING (comprehensive — this is the owner's daily intelligence):
+
+a. YESTERDAY'S PERFORMANCE:
+   - Total revenue, transaction count, average order value (from Shopify sync)
+   - Comparison: vs same day last week, vs daily target
+   - Top 3 selling items/categories
+
+b. YESTERDAY'S OPERATIONS:
+   - SOP completion rate (how many checklists were fully completed?)
+   - Tasks: completed vs assigned
+   - Issues: opened, resolved, still open
+   - "What Bugged You?" submissions (count + themes)
+   - Improvement videos uploaded
+   - Clock-in punctuality (anyone late?)
+
+c. TODAY'S OUTLOOK:
+   - Who's scheduled and when
+   - Any shift overlap windows
+   - Open/overdue tasks and issues
+   - Any VIP customer dates (birthdays, anniversaries) coming up today
+   - Predicted sales pace (based on same day last week + recent trends from Shopify)
+
+d. FLAGGED ITEMS:
+   - Any urgent issues not yet resolved
+   - Any SOP execution anomalies (checklists not completed, unusually slow steps)
+   - Overdue GTD waiting-for items
+   - Budget warnings (labor cost, overlap hours)
+   - Equipment issues still open
+
+CLAUDE CALL:
+System prompt:
+"""
+You are MAinager's Morning Whisper — a brief, insightful daily briefing for a boutique owner. Think of yourself as their COO delivering a 2-minute morning summary over coffee.
+
+Your tone:
+- Concise and direct — respect their time
+- Honest — if something needs attention, say so clearly
+- Warm but professional — not overly casual, not corporate
+- Action-oriented — every insight should lead to a clear action or acknowledgment
+
+Return JSON:
+{
+  "greeting": "Good morning greeting, personalized. Reference the day of week. Max 1 sentence.",
+  "headline": "The single most important thing they need to know today. Max 1 sentence. Could be good news or a flag.",
+  "yesterday_summary": "3-4 sentences covering yesterday's sales, operations, and team performance. Include specific numbers.",
+  "today_outlook": "2-3 sentences about what today looks like. Schedule, priorities, any concerns.",
+  "flagged_items": [
+    {
+      "flag_type": "urgent_issue" | "sop_gap" | "staffing" | "sales" | "overdue_task" | "vip_date",
+      "message": "One clear sentence describing the flag and what to do about it.",
+      "priority": "high" | "medium"
+    }
+  ],
+  "team_highlight": "One positive thing about the team from yesterday. Celebrate someone or something specific. This ends the briefing on a high note.",
+  "closing": "One sentence. Forward-looking, encouraging."
+}
+"""
+
+User message: all gathered data formatted clearly.
+
+PARAMETERS:
+- Model: claude-sonnet-4-20250514
+- Max tokens: 1500
+- Timeout: 30 seconds (per GOALS.md quality target: must complete in under 10 seconds ideally, 30s absolute max)
+- Temperature: 0.4
+
+Fallback: if Claude fails, generate a basic briefing from raw data (no AI narrative, just formatted numbers and flags).
+
+2. TEXT-TO-SPEECH (optional audio version):
+   
+   If we want an audio briefing (the "whisper" part):
+   - Use the Web Speech API (SpeechSynthesis) on the frontend — zero cost, works in all browsers
+   - OR use a TTS API if higher quality is desired (ElevenLabs, OpenAI TTS, etc.)
+   - For MVP: use browser SpeechSynthesis. It's free and good enough.
+   
+   Backend doesn't need to generate audio — the frontend reads the text aloud.
+
+3. DATABASE:
+
+TABLE: morning_whispers
+- id: uuid, primary key, default gen_random_uuid()
+- store_id: text, not null, references stores(id)
+- user_id: text, not null (Clerk user ID)
+- whisper_date: date, not null
+- content: jsonb, not null (the full MorningWhisperData)
+- listened: boolean, default false
+- listened_at: timestamp with timezone, nullable
+- created_at: timestamp with timezone, default now()
+- UNIQUE(store_id, user_id, whisper_date)
+
+4. SCHEDULED GENERATION:
+   - Cron job: 5:30 AM store timezone — generate Morning Whisper for all owners/managers
+   - Send push notification at 6:30 AM: "Your Morning Whisper is ready ☕"
+   - Use the notification service from Phase 2
+
+5. API ENDPOINTS:
+   - GET /api/whisper/today — Get today's Morning Whisper (generates on-demand if not cached)
+     - Auth: Owner or Manager only
+   - PUT /api/whisper/today/listened — Mark as listened
+   - GET /api/whisper/history — Past whispers (paginated, last 30 days)
+
+FRONTEND:
+
+6. MorningWhisperPage (`/whisper`)
+   
+   Full-screen immersive briefing experience:
+   
+   Header:
+   - "Good Morning ☕" with date
+   - Audio toggle: 🔊 "Listen" button — uses SpeechSynthesis to read the briefing aloud
+   - When playing: shows a subtle audio wave animation, pause/stop buttons
+   
+   Content (scroll or card-by-card like Morning Huddle):
+   - Greeting (large text, warm)
+   - Headline (bold, prominent — this is the hook)
+   - Yesterday Summary (clean typography, key numbers highlighted)
+   - Today's Outlook (schedule preview, priorities)
+   - Flagged Items (each flag as a card with priority color):
+     - High: red left border
+     - Medium: yellow left border
+     - Each flag has an action link: "View Issue", "Check Schedule", "Review SOP"
+   - Team Highlight (warm, celebratory callout box)
+   - Closing (forward-looking one-liner)
+   
+   Bottom: "Start Your Day" button → navigates to dashboard
+
+7. Dashboard Integration:
+   - Owner dashboard: "Morning Whisper" card at the very top
+   - If not yet listened: prominent card with ☕ icon: "Your Morning Whisper is ready"
+   - If already listened: compact summary with headline preview
+   - Tap → full Whisper page
+
+DESIGN:
+- Feels like reading a thoughtful morning email from your best employee
+- Clean, editorial typography — lots of whitespace
+- Audio mode: the phone becomes a personal briefing device while the owner drives to work
+- Mobile-first but beautiful on desktop too
+- Flagged items feel urgent but not panic-inducing — constructive, action-oriented
+
+TECHNICAL:
+- SpeechSynthesis: use a natural-sounding voice, moderate pace
+- Split the text into sections for SpeechSynthesis (paragraph breaks become pauses)
+- If browser doesn't support SpeechSynthesis, hide the Listen button
+- Morning Whisper generation must complete in < 10 seconds (the 30s timeout is a safety net)
+- Cache aggressively — one whisper per person per day

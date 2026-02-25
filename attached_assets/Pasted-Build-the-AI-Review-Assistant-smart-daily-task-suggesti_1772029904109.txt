@@ -1,0 +1,90 @@
+Build the AI Review Assistant (smart daily task suggestions) that proactively tells employees what to focus on.
+
+BACKEND — Create `server/services/smartTaskSuggestions.ts`:
+
+Function: generateTaskSuggestions(employeeId: string, storeId: string): Promise<TaskSuggestion[]>
+
+This answers the employee's question: "What should I be doing right now?"
+
+DATA INPUTS:
+- Current time and day of week
+- Employee's role and shift status
+- Assigned tasks (from tasks table) — due today, overdue, upcoming
+- Active SOP executions (any in-progress?)
+- GTD next actions assigned to them (from Phase 2)
+- Open issues assigned to them
+- Schedule: who else is on shift? Is this the opening/closing shift?
+- Surfaced SOPs that haven't been started yet
+- Recent sales pace (is it busy or slow?)
+
+CLAUDE CALL:
+System prompt:
+"""
+You are MAinager's Smart Task Advisor. Given an employee's current context, generate a prioritized list of what they should focus on RIGHT NOW.
+
+Rules:
+- Max 5 suggestions, ordered by importance
+- Be specific: "Complete the Opening Checklist" not "Do your morning tasks"
+- Factor in urgency (overdue > due today > upcoming)
+- Factor in store context (if it's busy, prioritize customer-facing tasks; if slow, prioritize back-of-house)
+- Include a brief reason for each suggestion
+- If there's nothing urgent, suggest a proactive improvement: "Slow moment — great time to record a quick improvement video!"
+
+Return JSON:
+{
+  "suggestions": [
+    {
+      "priority": 1,
+      "type": "task" | "sop" | "issue" | "gtd_action" | "improvement" | "custom",
+      "entity_id": "uuid or null",
+      "title": "What to do",
+      "reason": "Brief explanation of why this is important right now",
+      "time_estimate_minutes": number | null,
+      "urgency": "overdue" | "due_now" | "upcoming" | "proactive"
+    }
+  ],
+  "context_note": "One sentence about the current vibe: 'Looks like a busy afternoon!' or 'Quiet moment — perfect for catching up.'"
+}
+"""
+
+- 5 second timeout
+- Fallback: return tasks sorted by due date without AI narrative
+
+API ENDPOINT:
+
+GET /api/ai/suggestions — Get smart task suggestions for the current employee
+- Auth: Any authenticated employee
+- Returns TaskSuggestion[]
+- Cache for 15 minutes per employee (suggestions don't need to update every second)
+
+FRONTEND:
+
+1. SmartSuggestionsCard (dashboard component):
+   
+   Appears on the Associate and Manager dashboards:
+   
+   - Header: "What to Focus On" or the AI's context_note
+   - Numbered list of suggestions (max 5):
+     - Each suggestion: priority number, type icon, title, reason (muted text), time estimate badge
+     - Tap a suggestion → navigates to the relevant entity:
+       - task → task detail
+       - sop → start SOP execution
+       - issue → issue detail
+       - gtd_action → GTD actions page
+       - improvement → video recorder
+   - Urgency indicators:
+     - 🔴 Overdue items pulse gently
+     - 🟡 Due now items are highlighted
+     - 🟢 Proactive items are calm/green
+   - "Refresh" button to regenerate suggestions
+   - Auto-refreshes every 30 minutes while the dashboard is visible
+
+2. Integration with Ask MAinager:
+   - When an employee asks "What should I be doing?" in the AI chat, the copilot calls the same generateTaskSuggestions function and formats the response conversationally
+   - This ensures consistency between the dashboard widget and the chat answer
+
+DESIGN:
+- Suggestions should reduce decision fatigue — "I don't know what to do" becomes impossible
+- Prioritization is genuinely smart: urgency + store context + role
+- The proactive suggestions (during slow moments) reinforce the improvement culture
+- Never more than 5 items — clarity over completeness

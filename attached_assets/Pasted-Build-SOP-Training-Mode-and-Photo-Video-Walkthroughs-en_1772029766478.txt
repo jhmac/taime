@@ -1,0 +1,88 @@
+Build SOP Training Mode and Photo/Video Walkthroughs — enhanced SOP content for new hires and visual learners.
+
+BACKEND:
+
+1. Database additions (migration):
+
+Add columns to sop_steps table:
+- training_video_url: text, nullable (URL to a walkthrough video for this step)
+- training_photo_urls: jsonb, default '[]' (array of photo URLs showing how this step should look)
+- training_video_thumbnail: text, nullable
+
+Add to sop_templates table:
+- walkthrough_video_url: text, nullable (overall SOP walkthrough video)
+- is_training_priority: boolean, default false (flag SOPs that are critical for new hires)
+
+2. API additions:
+
+PUT /api/sops/templates/:id/steps/:stepId/media — Upload training media for a step
+- Auth: Owner/Admin
+- Accepts: { training_video_url?, training_photo_urls?, training_video_thumbnail? }
+- For video uploads: reuse the video upload infrastructure from Phase 1 (presigned URL / local storage)
+- For photo uploads: reuse existing photo upload infrastructure
+
+POST /api/sops/templates/:id/steps/:stepId/media/upload — Direct media upload endpoint
+- Auth: Owner/Admin
+- Multipart upload for photos/videos
+- Returns URLs after upload
+
+GET /api/sops/templates/training-priority — List SOPs flagged as training priority
+- Auth: Any authenticated employee
+- Returns SOPs ordered by importance for new hire onboarding
+
+FRONTEND:
+
+3. SOP Builder Enhancements (add to existing SOPBuilderPage):
+   
+   For each step in the builder, add a "Training Media" section (collapsible):
+   - "Add Photo" button — upload reference photos showing what this step looks like when done correctly
+     - Multiple photos supported (before/after, correct/incorrect examples)
+     - Photo preview thumbnails in the builder
+   - "Add Video Walkthrough" button — record or upload a short video demonstrating this step
+     - Reuse the video recording UI from the Improvement Video feature
+     - Max 2 minutes per step video (longer than improvement videos — these are instructional)
+   - "Training Priority" checkbox on the template level — "Flag this as a must-learn procedure for new hires"
+   
+   For the overall template:
+   - "Add SOP Walkthrough Video" — a single video that walks through the entire procedure
+   - Upload or record, max 5 minutes
+
+4. SOP Execution UI — Training Mode Enhancements (modify existing SOPExecutionPage):
+   
+   When Training Mode is toggled ON:
+   
+   a. Each step now shows:
+      - The regular step title and description
+      - Training detail text (already built in Phase 1) in an expanded callout
+      - Photo gallery (if photos exist): swipeable/tappable photo carousel showing reference images
+        - "This is what it should look like" — photos with captions
+      - Video player (if video exists): inline video player that auto-pauses when you advance
+        - "Watch how it's done" — tap to play
+      - "Why we do this" section pulled from training_detail (already exists)
+   
+   b. Step navigation is slower/more deliberate in training mode:
+      - After completing a step, show a brief "Got it? ✓" confirmation before advancing
+      - If a step has media, the "Mark Complete" button is initially disabled for 5 seconds (so they actually look at the training content)
+      - "I have a question" button — opens the Ask MAinager sheet pre-filled with context about this step
+   
+   c. Auto-training mode:
+      - If the SOP surfacing engine detected that this employee is new to this SOP (< 3 completions), automatically enable training mode
+      - Show a gentle banner: "Training mode is on since this is new for you. You can turn it off anytime."
+
+5. New Hire Onboarding SOP List:
+   
+   Create an OnboardingPage (`/onboarding` or `/training`):
+   - Shows all SOPs flagged as training_priority
+   - For each: title, category, estimated time, employee's mastery status (beginner/proficient/expert)
+   - Progress bar: "You've mastered X of Y training procedures"
+   - SOPs the employee hasn't completed yet are highlighted: "Start Learning"
+   - SOPs completed 1-2 times: "Practice Again"
+   - SOPs completed 3+: "Mastered ✓"
+   - Auto-appears on new employee dashboards during their first 2 weeks
+
+DESIGN:
+- Training mode should feel supportive, not patronizing
+- Photos and videos make procedures tangible — "show, don't just tell"
+- The onboarding page is a new hire's best friend — everything they need to learn, in one place
+- Media-rich steps feel professional and cared-for
+- Mobile-first: videos play well on phones, photos are swipeable

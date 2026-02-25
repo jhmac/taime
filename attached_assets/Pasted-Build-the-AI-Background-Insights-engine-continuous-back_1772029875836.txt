@@ -1,0 +1,117 @@
+Build the AI Background Insights engine — continuous background analysis that surfaces operational intelligence for owners and managers.
+
+BACKEND — Create `server/services/backgroundInsights.ts`:
+
+This service runs scheduled analyses across multiple data domains and surfaces insights.
+
+INSIGHT GENERATORS:
+
+1. STAFFING PATTERN RECOGNITION:
+   Function: analyzeStaffingPatterns(storeId: string): Promise<StaffingInsight[]>
+   
+   - Query Shopify sales data by hour-of-day and day-of-week (last 4 weeks)
+   - Query schedule data for the same period
+   - Identify mismatches: peak sales hours vs peak staffing
+   - Call Claude:
+   """
+   Given hourly sales data and staffing levels, identify scheduling optimization opportunities.
+   Be specific: "Sales peak at 11am-1pm on Saturdays ($X/hour) but you have 2 staff. Consider 3 staff during this window."
+   Only flag mismatches where the gap is significant (>30% difference between sales pace and staff levels).
+   """
+
+2. TASK COMPLETION ANOMALIES:
+   Function: analyzeTaskCompletionPatterns(storeId: string): Promise<TaskInsight[]>
+   
+   - Query task completion rates by day, employee, and task type (last 2 weeks)
+   - Detect: completion rate drops, specific tasks that are consistently incomplete, time-of-day patterns
+   - Call Claude for narrative insights
+
+3. PREDICTIVE SCHEDULING:
+   Function: generateSchedulingSuggestions(storeId: string, targetDate: Date): Promise<SchedulingSuggestion>
+   
+   - Use Shopify sales data + day-of-week patterns to predict sales for the target date
+   - Compare to current schedule for that date
+   - Suggest: staff count adjustments, shift time adjustments
+   - Claude generates a clear recommendation: "Next Tuesday looks slow based on trends. Consider reducing from 3 to 2 staff."
+
+4. RECURRING ISSUE DETECTION:
+   Function: detectRecurringIssues(storeId: string): Promise<RecurringIssueInsight[]>
+   
+   - Query issues table for patterns: same category appearing 3+ times in 30 days
+   - Query "What Bugged You?" submissions for repeated themes
+   - Use Claude to identify patterns and suggest root-cause actions:
+   """
+   These issues keep appearing:
+   [list of recurring issues with dates and categories]
+   
+   Identify the likely root cause for each pattern and suggest a systemic fix (not just treating the symptom).
+   Example: "Fitting room cleanliness issues appearing 4x/month → Consider adding a midday fitting room reset to the daily checklist."
+   """
+
+5. SALES-BASED INSIGHTS:
+   Function: analyzeSalesTrends(storeId: string): Promise<SalesInsight[]>
+   
+   - Week-over-week sales trends
+   - Day-of-week performance patterns
+   - Top/bottom performing days
+   - Correlation between staffing and sales (more staff = more sales? or diminishing returns?)
+
+DATABASE:
+
+TABLE: ai_insights
+- id: uuid, primary key, default gen_random_uuid()
+- store_id: text, not null, references stores(id)
+- insight_type: text, not null ('staffing', 'task_anomaly', 'predictive_schedule', 'recurring_issue', 'sales_trend', 'sop_friction')
+- severity: text, not null ('info', 'suggestion', 'warning', 'action_needed')
+- headline: text, not null
+- detail: text, not null
+- recommendation: text, not null
+- data_payload: jsonb, nullable (supporting data for the insight)
+- status: text, not null, default 'active' ('active', 'acknowledged', 'dismissed', 'acted_on')
+- acknowledged_by: text, nullable
+- acted_on_at: timestamp with timezone, nullable
+- expires_at: timestamp with timezone, nullable (some insights are time-sensitive)
+- created_at: timestamp with timezone, default now()
+
+INDEX: ai_insights(store_id, status, severity, created_at DESC)
+INDEX: ai_insights(store_id, insight_type, created_at DESC)
+
+SCHEDULED JOBS:
+- Staffing analysis: Monday 6 AM (analyzes last week, suggests next week adjustments)
+- Task anomaly detection: Daily 6 AM
+- Predictive scheduling: Daily 6 AM (for the next 7 days)
+- Recurring issue detection: Weekly, Sunday 6 AM
+- Sales trend analysis: Weekly, Monday 6 AM
+
+API ENDPOINTS:
+
+GET /api/insights — List active insights
+- Auth: Manager/Owner
+- Query params: insight_type?, severity?, status?, limit, offset
+- Sorted: action_needed first, then by created_at desc
+
+PUT /api/insights/:id — Update insight status
+- Auth: Manager/Owner
+- Zod body: { status: 'acknowledged' | 'dismissed' | 'acted_on' }
+
+GET /api/insights/summary — Dashboard summary
+- Auth: Manager/Owner
+- Returns: { total_active, action_needed_count, by_type: { staffing: N, ... } }
+
+FRONTEND:
+
+InsightsPage (`/insights`)
+- Clean list of active insights
+- Filter by type and severity
+- Each insight card:
+  - Type icon + severity badge
+  - Headline (bold)
+  - Detail text (expandable)
+  - Recommendation (highlighted action step)
+  - Action buttons: "Acknowledge" / "Take Action" / "Dismiss"
+  - "Take Action" links to the relevant page (schedule, SOP editor, issue tracker)
+
+Dashboard Integration:
+- Owner dashboard: "AI Insights" card with count + top insight preview
+- Manager dashboard: same, but filtered to relevant insight types
+- Insights with severity 'action_needed' pulse gently to draw attention

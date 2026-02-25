@@ -1,0 +1,121 @@
+Build the SOP Intelligence Layer — AI that analyzes SOP execution data to detect bottlenecks, anomalies, and improvement opportunities.
+
+BACKEND — Create `server/services/sopIntelligence.ts`:
+
+This service runs background analysis on SOP execution data and surfaces insights for owners/managers.
+
+FUNCTION 1: analyzeSOP(templateId: string, storeId: string): Promise<SOPAnalysis>
+
+Queries sop_executions and sop_step_completions for this template (last 30 days), then calculates:
+
+a. OVERALL METRICS:
+   - Total executions in period
+   - Average completion time (vs estimated duration)
+   - Completion rate (completed / (completed + abandoned))
+   - Average steps skipped per execution
+
+b. STEP-LEVEL METRICS (for each step):
+   - Average time spent
+   - Median time spent
+   - Skip rate (how often this step is skipped)
+   - Photo checkpoint compliance rate
+   - Standard deviation of time (high variance = inconsistency)
+
+c. FRICTION DETECTION:
+   - Any step where avg time > 3x the median of all steps → flag as "friction point"
+   - Any step with skip rate > 20% → flag as "frequently skipped"
+   - Any step with high time variance → flag as "inconsistent"
+
+d. EMPLOYEE PATTERNS:
+   - Which employees complete fastest? Slowest?
+   - Which employees skip the most steps?
+   - New employee vs veteran completion time comparison
+   - (All of this is for MANAGER/OWNER eyes only — never shown to associates)
+
+e. TREND ANALYSIS:
+   - Is completion time trending up or down over the 30-day period?
+   - Is skip rate increasing?
+   - Week-over-week comparison
+
+FUNCTION 2: generateSOPInsights(storeId: string): Promise<SOPInsight[]>
+
+Runs analyzeSOP for all active templates in the store, then calls Claude to generate human-readable insights:
+
+Claude system prompt:
+"""
+You are MAinager's SOP Intelligence engine. Given execution analytics for a boutique store's procedures, generate actionable insights.
+
+For each insight, provide:
+- A clear, specific observation (what the data shows)
+- Why it matters (business impact)
+- A recommended action
+
+Tone: direct, constructive, like a thoughtful operations consultant. Not alarmist.
+
+Return JSON:
+{
+  "insights": [
+    {
+      "type": "friction" | "skip_pattern" | "time_trend" | "training_gap" | "optimization",
+      "severity": "info" | "warning" | "action_needed",
+      "sop_template_id": "uuid",
+      "sop_title": "...",
+      "step_id": "uuid or null",
+      "step_title": "... or null",
+      "headline": "One-line insight (max 15 words)",
+      "detail": "2-3 sentences explaining the observation and its impact",
+      "recommendation": "One specific action to take",
+      "data_point": "The key number supporting this insight (e.g., '3.2x slower', '45% skip rate')"
+    }
+  ]
+}
+
+Examples:
+- "Step 4 of Opening Checklist takes 3x longer than other steps. Consider splitting into sub-steps or adding clearer instructions."
+- "The closing checklist skip rate jumped from 5% to 18% this month. This often indicates the procedure has gotten stale or unclear."
+- "New hires take 2.5x longer on the Visual Merchandising SOP than veterans. Training mode content may need updating."
+"""
+
+FUNCTION 3: Scheduled analysis
+- Cron: run generateSOPInsights every Sunday at 6 AM for each active store
+- Store results in a new table:
+
+TABLE: sop_insights
+- id: uuid, primary key, default gen_random_uuid()
+- store_id: text, not null, references stores(id)
+- insight_type: text, not null
+- severity: text, not null
+- sop_template_id: uuid, nullable, references sop_templates(id)
+- step_id: uuid, nullable
+- headline: text, not null
+- detail: text, not null
+- recommendation: text, not null
+- data_point: text, nullable
+- status: text, not null, default 'active' (enum-like: 'active', 'acknowledged', 'resolved')
+- acknowledged_by: text, nullable
+- acknowledged_at: timestamp with timezone, nullable
+- created_at: timestamp with timezone, default now()
+
+INDEX: sop_insights(store_id, status, severity)
+INDEX: sop_insights(sop_template_id)
+
+API ENDPOINTS:
+
+GET /api/sops/insights — List active insights for the store
+- Auth: Manager/Owner
+- Query params: severity?, sop_template_id?, status?
+- Returns insights sorted by severity (action_needed first)
+
+PUT /api/sops/insights/:id/acknowledge — Acknowledge an insight
+- Auth: Manager/Owner
+- Sets acknowledged_by and acknowledged_at
+
+GET /api/sops/analytics/:templateId — Get detailed analytics for one SOP
+- Auth: Manager/Owner
+- Returns the full SOPAnalysis data (step-level metrics, trends, etc.)
+
+FRONTEND INTEGRATION (add to existing pages):
+
+- SOP Detail Page: add an "Analytics" tab showing step-level metrics, friction flags
+- Manager Dashboard: add an "SOP Insights" card showing active insights with severity badges
+- Owner Dashboard: SOP health score (aggregate completion rate, trend indicator)

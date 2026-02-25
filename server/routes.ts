@@ -35,6 +35,7 @@ import { registerRitualRoutes } from "./routes/rituals";
 import { registerVideoRoutes } from "./routes/videos";
 import { registerMessageRoutes } from "./routes/messaging";
 import { registerRAGRoutes } from "./routes/ragSearch";
+import { registerMorningWhisperRoutes } from "./routes/morningWhisper";
 import { createActionLoggerMiddleware, handleClientErrorReport, getActionSummary } from "./services/actionLogger";
 import { startSurfacingCron, stopSurfacingCron } from "./services/sopSurfacing";
 import { startMiddayPulseCron, stopMiddayPulseCron } from "./services/middayPulse";
@@ -155,6 +156,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerWeeklyReviewRoutes(app, storage, isAuthenticated);
   registerMessageRoutes(app, storage, isAuthenticated, sendToUsers);
   registerRAGRoutes(app, storage, isAuthenticated);
+  registerMorningWhisperRoutes(app, storage, isAuthenticated);
 
   const httpServer = createServer(app);
 

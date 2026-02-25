@@ -966,6 +966,20 @@ export const morningHuddles = pgTable("morning_huddles", {
   index("idx_morning_huddles_store_date").on(table.storeId, table.huddleDate),
 ]);
 
+export const morningWhispers = pgTable("morning_whispers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: text("store_id").notNull(),
+  userId: text("user_id").notNull(),
+  whisperDate: date("whisper_date").notNull(),
+  content: jsonb("content").notNull(),
+  listened: boolean("listened").default(false),
+  listenedAt: timestamp("listened_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  uniqueIndex("uq_morning_whispers_store_user_date").on(table.storeId, table.userId, table.whisperDate),
+  index("idx_morning_whispers_user_date").on(table.userId, table.whisperDate),
+]);
+
 export const dailyDebriefs = pgTable("daily_debriefs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   storeId: varchar("store_id").references(() => workLocations.id).notNull(),
@@ -1040,6 +1054,7 @@ export const insertMorningHuddleSchema = createInsertSchema(morningHuddles).omit
   createdAt: true,
 });
 
+export const insertMorningWhisperSchema = createInsertSchema(morningWhispers).omit({ id: true, createdAt: true });
 export const insertDailyDebriefSchema = createInsertSchema(dailyDebriefs).omit({
   id: true,
   createdAt: true,
@@ -1064,6 +1079,8 @@ export const insertKudoSchema = createInsertSchema(kudos).omit({
 
 export type MorningHuddle = typeof morningHuddles.$inferSelect;
 export type InsertMorningHuddle = z.infer<typeof insertMorningHuddleSchema>;
+export type MorningWhisper = typeof morningWhispers.$inferSelect;
+export type InsertMorningWhisper = z.infer<typeof insertMorningWhisperSchema>;
 export type DailyDebrief = typeof dailyDebriefs.$inferSelect;
 export type InsertDailyDebrief = z.infer<typeof insertDailyDebriefSchema>;
 export type DailyQuote = typeof dailyQuotes.$inferSelect;
