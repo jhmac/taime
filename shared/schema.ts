@@ -1314,3 +1314,20 @@ export type GtdSomedayMaybe = typeof gtdSomedayMaybe.$inferSelect;
 export type InsertGtdSomedayMaybe = z.infer<typeof insertGtdSomedayMaybeSchema>;
 export type GtdReference = typeof gtdReference.$inferSelect;
 export type InsertGtdReference = z.infer<typeof insertGtdReferenceSchema>;
+
+export const weeklyReviews = pgTable("weekly_reviews", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: text("store_id").notNull(),
+  userId: text("user_id").notNull(),
+  reviewWeekStart: date("review_week_start").notNull(),
+  aiContent: jsonb("ai_content").notNull().default({}),
+  status: text("status").notNull().default("pending"),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+export const insertWeeklyReviewSchema = createInsertSchema(weeklyReviews).omit({ id: true, createdAt: true });
+export type WeeklyReview = typeof weeklyReviews.$inferSelect;
+export type InsertWeeklyReview = z.infer<typeof insertWeeklyReviewSchema>;

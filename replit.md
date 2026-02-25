@@ -33,6 +33,7 @@ The backend is a Node.js Express.js server written in TypeScript. It uses Drizzl
 - **GTD Workflow Engine**: A comprehensive Getting Things Done system with tables for inbox items, projects, next actions, waiting for, someday/maybe, and reference material.
 - **GTD AI Clarification Engine**: A Claude-powered inbox processor that classifies raw captures into GTD destinations with suggested attributes.
 - **GTD Inbox & List Views**: Frontend components for quick capture, processing inbox items with AI suggestions, and dedicated list views for actions, projects, waiting-for, and someday/maybe items.
+- **GTD Weekly Review**: AI-guided weekly review ritual with 5-step flow (Get Clear, Get Current, Get Creative, Week in Review, You're Set). Backend gathers inbox/project/action/waiting/someday/SOP/debrief/video/issue data and generates structured review via Claude (15s timeout, fallback). `weekly_reviews` table with status lifecycle. Three API endpoints at `/api/gtd/review/`. Cron pre-generates Fridays at 2:45pm. WeeklyReviewCard on manager/owner dashboards on Fridays. Desktop sidebar link at `/gtd/review`.
 - **Performance Optimizations**: Includes request timing middleware, batch operations for schedules, optimized dashboard queries, strategic database indexing, and an in-memory cache for frequently accessed data.
 
 ## External Dependencies

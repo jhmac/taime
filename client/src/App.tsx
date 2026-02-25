@@ -51,6 +51,7 @@ import GTDProjects from "@/features/gtd/GTDProjects";
 import GTDProjectDetail from "@/features/gtd/GTDProjectDetail";
 import GTDWaiting from "@/features/gtd/GTDWaiting";
 import GTDSomeday from "@/features/gtd/GTDSomeday";
+import WeeklyReview from "@/features/gtd/WeeklyReview";
 import { WebSocketProvider } from "@/contexts/WebSocketContext";
 import type { Permission } from "@shared/schema";
 
@@ -237,6 +238,7 @@ function AuthenticatedApp() {
       <Route path="/gtd/projects" component={GTDProjects} />
       <Route path="/gtd/waiting" component={GTDWaiting} />
       <Route path="/gtd/someday" component={GTDSomeday} />
+      <Route path="/gtd/review" component={WeeklyReview} />
       <Route path="/support" component={SupportPage} />
       <Route path="/admin">
         <ProtectedRoute permission="admin.manage_all"><AdminSettings /></ProtectedRoute>

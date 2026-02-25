@@ -22,6 +22,7 @@ const gtdNavItems = [
   { path: '/gtd/projects', icon: 'fas fa-project-diagram', label: 'Projects' },
   { path: '/gtd/waiting', icon: 'fas fa-hourglass-half', label: 'Waiting' },
   { path: '/gtd/someday', icon: 'fas fa-seedling', label: 'Someday' },
+  { path: '/gtd/review', icon: 'fas fa-clipboard-check', label: 'Review' },
 ];
 
 const managementNavItems = [

@@ -29,6 +29,7 @@ import { registerAiAssistantRoutes } from "./routes/aiAssistant";
 import { registerAiSchedulingRoutes } from "./routes/aiScheduling";
 import { registerDashboardRoutes } from "./routes/dashboard";
 import { registerGtdRoutes } from "./routes/gtd";
+import { registerWeeklyReviewRoutes, startWeeklyReviewCron, stopWeeklyReviewCron } from "./routes/weeklyReview";
 import { registerIssueRoutes } from "./routes/issues";
 import { registerRitualRoutes } from "./routes/rituals";
 import { registerVideoRoutes } from "./routes/videos";
@@ -136,6 +137,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerRitualRoutes(app, storage, isAuthenticated, broadcastToAll);
   registerVideoRoutes(app, storage, isAuthenticated, broadcastToAll);
   registerGtdRoutes(app, storage, isAuthenticated, broadcastToAll);
+  registerWeeklyReviewRoutes(app, storage, isAuthenticated);
 
   const httpServer = createServer(app);
 
@@ -191,6 +193,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   startHeartbeat();
   startSurfacingCron(broadcastToAll);
   startMiddayPulseCron(broadcastToAll);
+  startWeeklyReviewCron();
   seedShiftHandoffSOP().catch(err => logger.error({ error: err.message }, 'Handoff SOP seed failed'));
 
   function gracefulShutdown() {
@@ -198,6 +201,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     stopHeartbeat();
     stopSurfacingCron();
     stopMiddayPulseCron();
+    stopWeeklyReviewCron();
 
     const shutdownPayload = JSON.stringify({ type: "server_restarting" });
     wsConnections.forEach((conns) => {
