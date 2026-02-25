@@ -53,6 +53,7 @@ import GTDWaiting from "@/features/gtd/GTDWaiting";
 import GTDSomeday from "@/features/gtd/GTDSomeday";
 import WeeklyReview from "@/features/gtd/WeeklyReview";
 import MessagingPage from "@/features/messaging/MessagingPage";
+import KudosWallPage from "@/features/kudos/KudosWallPage";
 import { WebSocketProvider } from "@/contexts/WebSocketContext";
 import type { Permission } from "@shared/schema";
 
@@ -194,6 +195,7 @@ function AuthenticatedApp() {
       </Route>
       <Route path="/communication" component={Communication} />
       <Route path="/messages" component={MessagingPage} />
+      <Route path="/kudos" component={KudosWallPage} />
       <Route path="/hr">
         <ProtectedRoute permission="hr.view_team"><HR /></ProtectedRoute>
       </Route>

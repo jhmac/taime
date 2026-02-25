@@ -170,12 +170,12 @@ export function registerMessageRoutes(
         createdBy: user.id,
       }).returning();
 
-      for (const pid of allParticipantIds) {
-        await db.insert(threadParticipants).values({
+      await db.insert(threadParticipants).values(
+        allParticipantIds.map(pid => ({
           threadId: thread.id,
           userId: pid,
-        });
-      }
+        }))
+      );
 
       const otherIds = allParticipantIds.filter(id => id !== user.id);
       sendToUsers(otherIds, {

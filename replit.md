@@ -70,3 +70,10 @@ The backend is a Node.js Express.js server written in TypeScript. It uses Drizzl
 - **date-fns**
 - **Zod**
 - **clsx, tailwind-merge**
+
+## Performance Optimizations
+- **Request Timing Middleware**: `server/middleware/requestLogger.ts` tracks response times, warns on slow endpoints (>200ms standard, >5s AI). Includes request IDs for tracing.
+- **In-Memory Cache**: `server/lib/cache.ts` provides `MemoryCache` with TTL, `getOrSet`, prefix invalidation, and automatic eviction. Used in storage (work locations, permissions, company settings), dashboard (user lists), analytics, roles, SOP surfacing, and midday pulse.
+- **Database Indexes**: 80+ custom indexes across all tables covering frequent query patterns (GTD store/owner/status, messaging threads, kudos, issues, time entries, etc.).
+- **Query Optimizations**: Batch participant inserts in messaging (eliminated N+1), column-specific SELECTs on dashboard/sales queries, optimized kudos stats to fetch only needed columns.
+- **Kudos Wall**: `client/src/features/kudos/` - expanded wall with filters (by employee, date range, pagination), stats endpoint, 3-step Give Kudo dialog with quick messages and preview.

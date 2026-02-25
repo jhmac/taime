@@ -233,15 +233,37 @@ export function registerRitualRoutes(
   }));
 
   app.get('/api/kudos', isAuthenticated, asyncHandler(async (req: any, res) => {
-    const days = Math.min(Math.max(parseInt(req.query.days as string) || 7, 1), 90);
+    const days = Math.min(Math.max(parseInt(req.query.days as string) || 30, 1), 90);
     const since = new Date();
     since.setDate(since.getDate() - days);
 
     const storeId = await getFirstStoreId();
 
+    const conditions = [eq(kudos.storeId, storeId), gte(kudos.createdAt, since)];
+
+    if (req.query.to_employee_id) {
+      conditions.push(eq(kudos.toEmployeeId, req.query.to_employee_id));
+    }
+    if (req.query.from_employee_id) {
+      conditions.push(eq(kudos.fromEmployeeId, req.query.from_employee_id));
+    }
+    if (req.query.date_from) {
+      conditions.push(gte(kudos.createdAt, new Date(req.query.date_from)));
+    }
+    if (req.query.date_to) {
+      const dateTo = new Date(req.query.date_to);
+      dateTo.setDate(dateTo.getDate() + 1);
+      conditions.push(sql`${kudos.createdAt} < ${dateTo}`);
+    }
+
+    const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+    const offset = parseInt(req.query.offset as string) || 0;
+
     const kudosList = await db.select().from(kudos)
-      .where(and(eq(kudos.storeId, storeId), gte(kudos.createdAt, since)))
-      .orderBy(desc(kudos.createdAt));
+      .where(and(...conditions))
+      .orderBy(desc(kudos.createdAt))
+      .limit(limit)
+      .offset(offset);
 
     const userIds = [...new Set([
       ...kudosList.map(k => k.fromEmployeeId),
@@ -265,6 +287,81 @@ export function registerRitualRoutes(
       toImage: userMap[k.toEmployeeId]?.image || null,
     }));
 
-    res.json({ success: true, data: enriched });
+    res.json({ success: true, data: enriched, hasMore: kudosList.length === limit });
+  }));
+
+  app.get('/api/kudos/stats', isAuthenticated, asyncHandler(async (req: any, res) => {
+    const userId = req.user.id;
+    const storeId = await getFirstStoreId();
+    const isAdmin = req.user.role?.name === 'admin' || req.user.role?.name === 'owner';
+
+    const now = new Date();
+    const weekStart = new Date(now);
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+    weekStart.setHours(0, 0, 0, 0);
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    const allKudos = await db.select({
+      id: kudos.id,
+      fromEmployeeId: kudos.fromEmployeeId,
+      toEmployeeId: kudos.toEmployeeId,
+      createdAt: kudos.createdAt,
+    }).from(kudos)
+      .where(and(eq(kudos.storeId, storeId), gte(kudos.createdAt, monthStart)));
+
+    const weekKudos = allKudos.filter(k => k.createdAt && k.createdAt >= weekStart);
+
+    const receivedCounts: Record<string, number> = {};
+    for (const k of allKudos) {
+      receivedCounts[k.toEmployeeId] = (receivedCounts[k.toEmployeeId] || 0) + 1;
+    }
+
+    let mostRecognizedId: string | null = null;
+    let mostRecognizedCount = 0;
+    for (const [empId, count] of Object.entries(receivedCounts)) {
+      if (count > mostRecognizedCount) {
+        mostRecognizedCount = count;
+        mostRecognizedId = empId;
+      }
+    }
+
+    let mostRecognizedName = "No one yet";
+    if (mostRecognizedId) {
+      const u = await storage.getUser(mostRecognizedId);
+      if (u) mostRecognizedName = getUserName(u);
+    }
+
+    const myReceivedTotal = allKudos.filter(k => k.toEmployeeId === userId).length;
+    const myReceivedWeek = weekKudos.filter(k => k.toEmployeeId === userId).length;
+    const myGivenTotal = allKudos.filter(k => k.fromEmployeeId === userId).length;
+    const myGivenWeek = weekKudos.filter(k => k.fromEmployeeId === userId).length;
+
+    const stats: any = {
+      me: {
+        receivedThisMonth: myReceivedTotal,
+        receivedThisWeek: myReceivedWeek,
+        givenThisMonth: myGivenTotal,
+        givenThisWeek: myGivenWeek,
+      },
+      store: {
+        thisWeek: weekKudos.length,
+        thisMonth: allKudos.length,
+        mostRecognized: mostRecognizedName,
+        mostRecognizedCount,
+      },
+    };
+
+    if (isAdmin) {
+      const perEmployee: Record<string, { received: number; given: number }> = {};
+      for (const k of allKudos) {
+        if (!perEmployee[k.toEmployeeId]) perEmployee[k.toEmployeeId] = { received: 0, given: 0 };
+        perEmployee[k.toEmployeeId].received++;
+        if (!perEmployee[k.fromEmployeeId]) perEmployee[k.fromEmployeeId] = { received: 0, given: 0 };
+        perEmployee[k.fromEmployeeId].given++;
+      }
+      stats.perEmployee = perEmployee;
+    }
+
+    res.json({ success: true, data: stats });
   }));
 }

@@ -149,7 +149,7 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
       const now = new Date();
       const todayDow = now.getDay();
 
-      const userShopRows = await db.select().from(userShops).limit(1);
+      const userShopRows = await db.select({ shopDomain: userShops.shopDomain }).from(userShops).limit(1);
       if (userShopRows.length === 0) {
         return res.json({ hasGoal: false, message: "No Shopify store connected" });
       }
@@ -161,7 +161,10 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
       const twoYearsAgo = new Date(now);
       twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
 
-      const lastYearSales = await db.select()
+      const lastYearSales = await db.select({
+          totalRevenue: shopifyDailySales.totalRevenue,
+          orderCount: shopifyDailySales.orderCount,
+        })
         .from(shopifyDailySales)
         .where(and(
           eq(shopifyDailySales.shopDomain, shopDomain),
@@ -181,7 +184,10 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
 
       const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-      const todaySales = await db.select()
+      const todaySales = await db.select({
+          totalRevenue: shopifyDailySales.totalRevenue,
+          orderCount: shopifyDailySales.orderCount,
+        })
         .from(shopifyDailySales)
         .where(and(
           eq(shopifyDailySales.shopDomain, shopDomain),
