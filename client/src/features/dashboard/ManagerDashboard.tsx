@@ -16,6 +16,7 @@ import GTDDashboardWidget from '@/features/gtd/GTDDashboardWidget';
 import WeeklyReviewCard from '@/features/gtd/WeeklyReviewCard';
 import LeanBoardCard from '@/features/dashboard/LeanBoardCard';
 import SOPInsightsCard from '@/features/dashboard/SOPInsightsCard';
+import SOPRevisionCard from '@/features/dashboard/SOPRevisionCard';
 import SurfacedSOPBanner from '@/components/SurfacedSOPBanner';
 import {
   Users,
@@ -414,6 +415,10 @@ export default function ManagerDashboard() {
 
           <DashboardErrorBoundary fallback="SOP insights card failed to load">
             <SOPInsightsCard />
+          </DashboardErrorBoundary>
+
+          <DashboardErrorBoundary fallback="SOP revision card failed to load">
+            <SOPRevisionCard />
           </DashboardErrorBoundary>
 
           <DashboardErrorBoundary fallback="Lean board card failed to load">

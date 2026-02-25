@@ -12,7 +12,7 @@ import { useState } from 'react';
 import {
   ArrowLeft, Edit, Play, Clock, CheckCircle2, Eye, Camera, GitBranch,
   Timer, AlertTriangle, BarChart3, Calendar, Hash, BookOpen, Loader2, History,
-  TrendingUp, TrendingDown, Minus, ChevronDown, ChevronUp, Activity, Users,
+  TrendingUp, TrendingDown, Minus, ChevronDown, ChevronUp, Activity, Users, Lightbulb,
 } from 'lucide-react';
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -121,6 +121,7 @@ export default function SOPDetail() {
                   <Clock className="h-3 w-3" /> {template.estimatedDurationMinutes} min
                 </span>
               )}
+              {isAdmin && <PendingRevisionsBadge templateId={id!} />}
             </div>
           </div>
           <div className="flex gap-2 shrink-0">
@@ -468,5 +469,31 @@ function SOPAnalyticsSection({ templateId }: { templateId: string }) {
         </div>
       )}
     </>
+  );
+}
+
+function PendingRevisionsBadge({ templateId }: { templateId: string }) {
+  const [, navigate] = useLocation();
+
+  const { data: proposals } = useQuery<any[]>({
+    queryKey: ['/api/sops/revisions', 'pending', templateId],
+    queryFn: async () => {
+      const res = await fetch(`/api/sops/revisions?status=pending&sop_template_id=${templateId}`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  if (!proposals || proposals.length === 0) return null;
+
+  return (
+    <button
+      onClick={() => navigate('/sops/revisions')}
+      className="flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 hover:bg-amber-200 dark:hover:bg-amber-900/50 transition-colors"
+    >
+      <Lightbulb className="h-3 w-3" />
+      {proposals.length} suggestion{proposals.length !== 1 ? 's' : ''}
+    </button>
   );
 }

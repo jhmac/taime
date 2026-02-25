@@ -1470,3 +1470,28 @@ export const sopInsights = pgTable("sop_insights", {
 export const insertSopInsightSchema = createInsertSchema(sopInsights).omit({ id: true, createdAt: true });
 export type SopInsight = typeof sopInsights.$inferSelect;
 export type InsertSopInsight = z.infer<typeof insertSopInsightSchema>;
+
+export const sopRevisionProposals = pgTable("sop_revision_proposals", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: text("store_id").notNull(),
+  sopTemplateId: varchar("sop_template_id").references(() => sopTemplates.id).notNull(),
+  sourceType: text("source_type").notNull(),
+  sourceIds: jsonb("source_ids").$type<string[]>().default([]),
+  proposalType: text("proposal_type").notNull(),
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  aiRationale: text("ai_rationale"),
+  proposedChanges: jsonb("proposed_changes"),
+  status: text("status").notNull().default("pending"),
+  reviewedBy: text("reviewed_by"),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  reviewNotes: text("review_notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  index("idx_sop_revisions_store_status").on(table.storeId, table.status, table.createdAt),
+  index("idx_sop_revisions_template_status").on(table.sopTemplateId, table.status),
+]);
+
+export const insertSopRevisionProposalSchema = createInsertSchema(sopRevisionProposals).omit({ id: true, createdAt: true });
+export type SopRevisionProposal = typeof sopRevisionProposals.$inferSelect;
+export type InsertSopRevisionProposal = z.infer<typeof insertSopRevisionProposalSchema>;
