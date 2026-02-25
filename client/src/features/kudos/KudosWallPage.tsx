@@ -1,13 +1,12 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { useWebSocket } from "@/hooks/useWebSocket";
-import { queryClient, invalidatePrefix } from "@/lib/queryClient";
+import { invalidatePrefix } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Heart, ArrowRight, Loader2, Star, Trophy } from "lucide-react";
-import { useEffect } from "react";
+import { Heart, Star, Trophy } from "lucide-react";
 import GiveKudoDialog from "./GiveKudoDialog";
 
 function getInitials(name?: string | null) {

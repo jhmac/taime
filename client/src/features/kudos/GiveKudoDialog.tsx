@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Heart, Send, Loader2, ArrowLeft, ArrowRight, Search, Sparkles } from "lucide-react";
+import { Heart, Loader2, ArrowLeft, ArrowRight, Search } from "lucide-react";
 
 function getInitials(firstName?: string | null, lastName?: string | null) {
   return ((firstName?.charAt(0) || "") + (lastName?.charAt(0) || "")).toUpperCase() || "?";

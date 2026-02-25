@@ -162,6 +162,7 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
       twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
 
       const lastYearSales = await db.select({
+          date: shopifyDailySales.date,
           totalRevenue: shopifyDailySales.totalRevenue,
           orderCount: shopifyDailySales.orderCount,
         })
