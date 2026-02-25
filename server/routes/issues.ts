@@ -2,10 +2,11 @@ import type { Express } from "express";
 import { z } from "zod";
 import { db } from "../db";
 import { eq, and, desc, asc, sql, gte, lte, ilike, or } from "drizzle-orm";
-import { issues, issueComments, insertIssueSchema, insertIssueCommentSchema, users, sopTemplates, workLocations } from "@shared/schema";
+import { issues, issueComments, insertIssueSchema, insertIssueCommentSchema, users, sopTemplates, workLocations, gtdInboxItems } from "@shared/schema";
 import { asyncHandler, AppError } from "../lib/routeWrapper";
 import type { IStorage } from "../storage";
 import { getIssueBasedSOPs } from "../services/sopSurfacing";
+import { triggerClarification } from "../services/gtdClarificationAI";
 import logger from "../lib/logger";
 
 export function registerIssueRoutes(
@@ -56,6 +57,26 @@ export function registerIssueRoutes(
       }
     } catch (err: any) {
       logger.error({ error: err.message }, "SOP surfacing error on issue creation");
+    }
+
+    try {
+      const rawInput = `[Issue] ${issue.title}${issue.description ? ': ' + issue.description : ''}`;
+      const [inboxItem] = await db.insert(gtdInboxItems).values({
+        storeId,
+        capturedBy: userId,
+        rawInput,
+        source: 'issue_auto',
+        status: 'unprocessed',
+      }).returning();
+
+      const user = await storage.getUserWithRole(userId);
+      const empName = user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() : 'Unknown';
+      const empRole = user?.role?.name || 'employee';
+
+      triggerClarification(inboxItem.id, inboxItem.rawInput, storeId, empName, empRole, broadcastToAll)
+        .catch(err => logger.error({ error: err.message, itemId: inboxItem.id }, 'GTD issue auto-capture clarification failed'));
+    } catch (err: any) {
+      logger.error({ error: err.message }, 'Failed to create GTD inbox item from issue');
     }
 
     res.status(201).json({ success: true, data: issue });

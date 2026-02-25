@@ -1,0 +1,72 @@
+Build the AI Clarification Engine — the brain that processes raw inbox captures into actionable GTD items.
+
+BACKEND — Create `server/services/gtdClarificationAI.ts`:
+
+When a user captures something into the inbox (a thought, idea, task, problem — any raw text), the AI processes it and suggests what to do with it.
+
+Function: clarifyInboxItem(rawInput: string, storeContext: StoreContext, employeeContext: EmployeeContext): Promise<ClarificationResult>
+
+CLAUDE CALL:
+System prompt:
+"""
+You are MAinager's GTD Clarification Engine for a retail boutique. Your job is to process a raw inbox capture and determine what it means and what should happen with it.
+
+For each inbox item, determine:
+1. Is it actionable? (yes/no)
+2. If actionable: Does it require more than one step? (project vs single action)
+3. If it's a single action: Can it be done in under 2 minutes? (two-minute rule)
+4. What's the right destination?
+
+Return JSON:
+{
+  "is_actionable": boolean,
+  "suggested_destination": "next_action" | "project" | "waiting_for" | "someday_maybe" | "reference" | "trash" | "calendar" | "issue",
+  "confidence": number (0-1, how confident you are in this classification),
+  "reasoning": "brief explanation of why you chose this destination",
+  "suggested_title": "clean, actionable title for the item (rewritten from raw input)",
+  "suggested_description": "expanded detail if the raw input needs clarification",
+  "suggested_context": "@store" | "@computer" | "@phone" | "@errands" | "@home" | "@anywhere" | null,
+  "suggested_energy_level": "low" | "medium" | "high" | null,
+  "suggested_time_estimate_minutes": number | null,
+  "suggested_priority": "low" | "normal" | "high" | "urgent",
+  "is_two_minute": boolean,
+  "suggested_project_title": "if this should become a project, suggest a project name" | null,
+  "suggested_due_date": "YYYY-MM-DD" | null,
+  "suggested_waiting_on": "if this is a waiting-for, who/what are we waiting on?" | null,
+  "suggested_category": "for someday/maybe items, suggest a category" | null,
+  "related_sop_hint": "if this relates to an existing SOP, mention which one" | null
+}
+
+Context about the store and employee will be provided. Use this to make smart suggestions. For example:
+- "need more bows" → next_action, context: @store, priority: normal, time: 15min
+- "should we start doing personal styling appointments?" → someday_maybe, category: marketing idea
+- "waiting on vendor to ship the new display" → waiting_for
+- "the fitting room light is flickering again" → issue (route to the issue tracker)
+- "rewrite the closing checklist to include the new register" → project (multi-step)
+- "text Sarah about her special order" → next_action, is_two_minute: true, context: @phone
+"""
+
+User message includes:
+- Raw input text
+- Store name, current time, day of week
+- Employee name and role
+- List of active project titles (so AI can suggest linking to existing projects)
+- List of SOP template titles (so AI can identify related SOPs)
+
+REQUIREMENTS:
+- 3 second timeout (inbox clarification must be FAST — per GOALS.md quality target)
+- Fallback: if Claude fails, set status to 'unprocessed' with no AI clarification — user processes manually
+- Parse JSON safely, handle malformed responses
+- Log: input length, output destination, confidence, latency
+
+2. AUTO-CLARIFICATION TRIGGER:
+   When a new inbox item is created, immediately queue it for AI clarification.
+   - Use a simple async processing pattern: save the item first (status: 'unprocessed'), then fire-and-forget the clarification call
+   - When clarification returns, update the item's ai_clarification field and set status to 'clarified'
+   - Send a WebSocket event to the user: { type: 'inbox_item_clarified', data: { item_id, clarification } }
+
+3. INTEGRATION WITH EXISTING SYSTEMS:
+   - When Daily Debrief "What bugged you?" is submitted (from Phase 1), ALSO create a gtd_inbox_item with source: 'debrief'
+   - When an issue is created via the Issue Tracker, ALSO create a gtd_inbox_item with source: 'issue_auto'
+   - When SOP execution feedback is submitted ("What bugged you about this process?"), create a gtd_inbox_item with source: 'sop_feedback'
+   - These auto-captured items get clarified by AI just like manual captures

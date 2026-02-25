@@ -4,13 +4,15 @@ import { db } from "../db";
 import { eq, and, gte, desc, sql } from "drizzle-orm";
 import {
   morningHuddles, dailyDebriefs, kudos, users, workLocations,
-  insertDailyDebriefSchema, insertKudoSchema
+  insertDailyDebriefSchema, insertKudoSchema, gtdInboxItems
 } from "@shared/schema";
 import { asyncHandler, AppError } from "../lib/routeWrapper";
 import { getOrGenerateHuddle } from "../services/morningHuddleAI";
 import { generateDailyQuote } from "../services/dailyQuoteAI";
 import { generateMiddayPulse } from "../services/middayPulse";
+import { triggerClarification } from "../services/gtdClarificationAI";
 import type { IStorage } from "../storage";
+import logger from "../lib/logger";
 
 async function getFirstStoreId(): Promise<string> {
   const [store] = await db.select({ id: workLocations.id }).from(workLocations).limit(1);
@@ -136,6 +138,28 @@ export function registerRitualRoutes(
     }
 
     broadcastToAll({ type: 'debrief_submitted', data: { debrief } });
+
+    if (debrief.whatBuggedYou) {
+      try {
+        const [inboxItem] = await db.insert(gtdInboxItems).values({
+          storeId,
+          capturedBy: userId,
+          rawInput: debrief.whatBuggedYou,
+          source: 'debrief',
+          status: 'unprocessed',
+        }).returning();
+
+        const user = await storage.getUserWithRole(userId);
+        const empName = user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() : 'Unknown';
+        const empRole = user?.role?.name || 'employee';
+
+        triggerClarification(inboxItem.id, inboxItem.rawInput, storeId, empName, empRole, broadcastToAll)
+          .catch(err => logger.error({ error: err.message, itemId: inboxItem.id }, 'GTD debrief clarification failed'));
+      } catch (err: any) {
+        logger.error({ error: err.message }, 'Failed to create GTD inbox item from debrief');
+      }
+    }
+
     res.json({ success: true, data: debrief });
   }));
 

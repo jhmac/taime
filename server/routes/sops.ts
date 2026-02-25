@@ -2,11 +2,12 @@ import type { Express } from "express";
 import { z } from "zod";
 import { db } from "../db";
 import { eq, and, desc, asc, sql, ilike, or, gte, lte, count } from "drizzle-orm";
-import { sopTemplates, sopSteps, sopExecutions, sopStepCompletions } from "@shared/schema";
+import { sopTemplates, sopSteps, sopExecutions, sopStepCompletions, gtdInboxItems, workLocations } from "@shared/schema";
 import { asyncHandler, AppError } from "../lib/routeWrapper";
 import type { IStorage } from "../storage";
 import { generateSOPFromDescription } from "../services/sopAI";
 import { getSurfacedSOPsForEmployee } from "../services/sopSurfacing";
+import { triggerClarification } from "../services/gtdClarificationAI";
 import logger from "../lib/logger";
 
 const stepSchema = z.object({
@@ -435,6 +436,31 @@ export function registerSopLibraryRoutes(
 
     if (body.status === "completed") {
       broadcastToAll({ type: "execution_completed", data: { executionId: id, employeeId: execution.employeeId } });
+    }
+
+    if (body.notes && body.notes.trim().length > 0) {
+      try {
+        const [template] = await db.select({ title: sopTemplates.title }).from(sopTemplates).where(eq(sopTemplates.id, execution.templateId));
+        const sopTitle = template?.title || 'SOP';
+        const rawInput = `[SOP Feedback on "${sopTitle}"] ${body.notes}`;
+
+        const [inboxItem] = await db.insert(gtdInboxItems).values({
+          storeId: execution.storeId,
+          capturedBy: req.user.id,
+          rawInput,
+          source: 'sop_feedback',
+          status: 'unprocessed',
+        }).returning();
+
+        const user = await storage.getUserWithRole(req.user.id);
+        const empName = user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() : 'Unknown';
+        const empRole = user?.role?.name || 'employee';
+
+        triggerClarification(inboxItem.id, inboxItem.rawInput, execution.storeId, empName, empRole, broadcastToAll)
+          .catch(err => logger.error({ error: err.message, itemId: inboxItem.id }, 'GTD SOP feedback clarification failed'));
+      } catch (err: any) {
+        logger.error({ error: err.message }, 'Failed to create GTD inbox item from SOP feedback');
+      }
     }
 
     res.json({ success: true, data: updated });

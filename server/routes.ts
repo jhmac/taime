@@ -28,6 +28,7 @@ import { registerSopLibraryRoutes } from "./routes/sops";
 import { registerAiAssistantRoutes } from "./routes/aiAssistant";
 import { registerAiSchedulingRoutes } from "./routes/aiScheduling";
 import { registerDashboardRoutes } from "./routes/dashboard";
+import { registerGtdRoutes } from "./routes/gtd";
 import { registerIssueRoutes } from "./routes/issues";
 import { registerRitualRoutes } from "./routes/rituals";
 import { registerVideoRoutes } from "./routes/videos";
@@ -134,6 +135,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerIssueRoutes(app, storage, isAuthenticated, broadcastToAll);
   registerRitualRoutes(app, storage, isAuthenticated, broadcastToAll);
   registerVideoRoutes(app, storage, isAuthenticated, broadcastToAll);
+  registerGtdRoutes(app, storage, isAuthenticated, broadcastToAll);
 
   const httpServer = createServer(app);
 
