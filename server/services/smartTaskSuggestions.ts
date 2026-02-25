@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { config } from "../lib/config";
 import { db } from "../db";
 import { eq, and, gte, lte, desc, sql, ne, isNull } from "drizzle-orm";
 import {
@@ -9,7 +10,7 @@ import { getSurfacedSOPsForEmployee } from "./sopSurfacing";
 import { cache } from "../lib/cache";
 import logger from "../lib/logger";
 
-const anthropic = new Anthropic();
+const anthropic = new Anthropic({ apiKey: config.anthropic.apiKey });
 const MODEL = "claude-sonnet-4-20250514";
 
 export interface TaskSuggestion {
@@ -150,7 +151,7 @@ async function gatherEmployeeContext(employeeId: string, storeId: string) {
     }
   }
 
-  const overdueTasks = assignedTasks.filter(t => t.dueDate && new Date(t.dueDate) < now);
+  const overdueTasks = assignedTasks.filter(t => t.dueDate && new Date(t.dueDate) < todayStart);
   const todayTasks = assignedTasks.filter(t => t.dueDate && new Date(t.dueDate) >= todayStart && new Date(t.dueDate) <= todayEnd);
   const upcomingTasks = assignedTasks.filter(t => t.dueDate && new Date(t.dueDate) > todayEnd && new Date(t.dueDate) <= threeDaysOut);
 

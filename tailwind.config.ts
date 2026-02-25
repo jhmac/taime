@@ -98,11 +98,16 @@ export default {
             boxShadow: "0 0 0 0 rgba(37, 99, 235, 0)",
           },
         },
+        "pulse-subtle": {
+          "0%, 100%": { opacity: "1" },
+          "50%": { opacity: "0.85" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
         "pulse-ring": "pulse-ring 2s infinite",
+        "pulse-subtle": "pulse-subtle 3s ease-in-out infinite",
       },
       spacing: {
         "safe-top": "env(safe-area-inset-top)",

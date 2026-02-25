@@ -4,6 +4,7 @@ import { preloadModel } from "../services/embeddingService";
 import { asyncHandler, AppError } from "../lib/routeWrapper";
 import logger from "../lib/logger";
 import type { IStorage } from "../storage";
+import { resolveStoreId } from "../lib/storeResolver";
 
 export function registerRAGRoutes(
   app: Express,
@@ -16,8 +17,8 @@ export function registerRAGRoutes(
       throw new AppError(403, "Only owners and admins can trigger re-indexing", "FORBIDDEN");
     }
 
-    const storeId = req.user?.storeId;
-    if (!storeId) throw new AppError(400, "No store ID", "VALIDATION_ERROR");
+    const storeId = await resolveStoreId();
+    if (!storeId) throw new AppError(400, "No store configured", "VALIDATION_ERROR");
 
     res.json({ success: true, message: "Re-indexing started in background" });
 
@@ -43,8 +44,8 @@ export function registerRAGRoutes(
   }));
 
   app.get("/api/rag/search", isAuthenticated, asyncHandler(async (req: any, res) => {
-    const storeId = req.user?.storeId;
-    if (!storeId) throw new AppError(400, "No store ID", "VALIDATION_ERROR");
+    const storeId = await resolveStoreId();
+    if (!storeId) throw new AppError(400, "No store configured", "VALIDATION_ERROR");
 
     const query = req.query.q as string;
     if (!query || query.trim().length < 2) {
@@ -58,8 +59,8 @@ export function registerRAGRoutes(
   }));
 
   app.get("/api/rag/status", isAuthenticated, asyncHandler(async (req: any, res) => {
-    const storeId = req.user?.storeId;
-    if (!storeId) throw new AppError(400, "No store ID", "VALIDATION_ERROR");
+    const storeId = await resolveStoreId();
+    if (!storeId) throw new AppError(400, "No store configured", "VALIDATION_ERROR");
 
     const { db } = await import("../db");
     const { sopEmbeddings } = await import("@shared/schema");

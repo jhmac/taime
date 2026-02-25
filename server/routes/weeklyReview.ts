@@ -5,6 +5,7 @@ import { weeklyReviews } from "@shared/schema";
 import { generateWeeklyReview } from "../services/weeklyReviewAI";
 import logger from "../lib/logger";
 import type { IStorage } from "../storage";
+import { resolveStoreId } from "../lib/storeResolver";
 
 function getWeekStart(date: Date = new Date()): string {
   const d = new Date(date);
@@ -22,8 +23,10 @@ export function registerWeeklyReviewRoutes(
   app.get("/api/gtd/review/current", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user?.id;
-      const storeId = req.user?.storeId;
-      if (!userId || !storeId) return res.status(401).json({ success: false, message: "Not authenticated" });
+      if (!userId) return res.status(401).json({ success: false, message: "Not authenticated" });
+
+      const storeId = await resolveStoreId();
+      if (!storeId) return res.status(400).json({ success: false, message: "No store configured" });
 
       const weekStart = getWeekStart();
 
@@ -58,8 +61,10 @@ export function registerWeeklyReviewRoutes(
   app.put("/api/gtd/review/current", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user?.id;
-      const storeId = req.user?.storeId;
-      if (!userId || !storeId) return res.status(401).json({ success: false, message: "Not authenticated" });
+      if (!userId) return res.status(401).json({ success: false, message: "Not authenticated" });
+
+      const storeId = await resolveStoreId();
+      if (!storeId) return res.status(400).json({ success: false, message: "No store configured" });
 
       const weekStart = getWeekStart();
       const { status, notes } = req.body;
@@ -103,8 +108,10 @@ export function registerWeeklyReviewRoutes(
   app.get("/api/gtd/review/history", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user?.id;
-      const storeId = req.user?.storeId;
-      if (!userId || !storeId) return res.status(401).json({ success: false, message: "Not authenticated" });
+      if (!userId) return res.status(401).json({ success: false, message: "Not authenticated" });
+
+      const storeId = await resolveStoreId();
+      if (!storeId) return res.status(400).json({ success: false, message: "No store configured" });
 
       const limit = Math.min(parseInt(req.query.limit as string) || 10, 50);
       const offset = parseInt(req.query.offset as string) || 0;
@@ -145,25 +152,27 @@ export function startWeeklyReviewCron() {
       logger.info("[WeeklyReview] Pre-generating reviews for this Friday");
       lastPregenWeek = thisWeek;
 
+      const storeId = await resolveStoreId();
+      if (!storeId) return;
+
       const { users } = await import("@shared/schema");
-      const adminUsers = await db.select({ id: users.id, storeId: users.storeId })
+      const activeUsers = await db.select({ id: users.id })
         .from(users)
         .where(eq(users.isActive, true));
 
-      for (const u of adminUsers) {
-        if (!u.storeId) continue;
+      for (const u of activeUsers) {
         try {
           const [existing] = await db.select({ id: weeklyReviews.id }).from(weeklyReviews)
             .where(and(
-              eq(weeklyReviews.storeId, u.storeId),
+              eq(weeklyReviews.storeId, storeId),
               eq(weeklyReviews.userId, u.id),
               eq(weeklyReviews.reviewWeekStart, thisWeek),
             ));
           if (existing) continue;
 
-          const aiContent = await generateWeeklyReview(u.storeId, u.id);
+          const aiContent = await generateWeeklyReview(storeId, u.id);
           await db.insert(weeklyReviews).values({
-            storeId: u.storeId,
+            storeId,
             userId: u.id,
             reviewWeekStart: thisWeek,
             aiContent,

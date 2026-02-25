@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db } from "../db";
 import { messageThreads, threadParticipants, threadMessages, users } from "@shared/schema";
 import type { IStorage } from "../storage";
+import { resolveStoreId } from "../lib/storeResolver";
 
 const createThreadSchema = z.object({
   thread_type: z.enum(["direct", "group", "channel"]),
@@ -137,21 +138,21 @@ export function registerMessageRoutes(
       const parsed = createThreadSchema.parse(req.body);
       const allParticipantIds = [...new Set([user.id, ...parsed.participant_ids])];
 
-      if (user.storeId) {
-        const validUsers = await db
-          .select({ id: users.id })
-          .from(users)
-          .where(inArray(users.id, parsed.participant_ids));
-        if (validUsers.length !== parsed.participant_ids.length) {
-          return res.status(400).json({ error: "One or more participants not found" });
-        }
+      const validUsers = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(inArray(users.id, parsed.participant_ids));
+      if (validUsers.length !== parsed.participant_ids.length) {
+        return res.status(400).json({ error: "One or more participants not found" });
       }
+
+      const storeId = await resolveStoreId() || "default";
 
       if (parsed.thread_type === "direct" && allParticipantIds.length === 2) {
         const existingThreads = await db.execute(sql`
           SELECT t.id FROM message_threads t
           WHERE t.thread_type = 'direct'
-            AND t.store_id = ${user.storeId || "default"}
+            AND t.store_id = ${storeId}
             AND (SELECT COUNT(*) FROM thread_participants p WHERE p.thread_id = t.id) = 2
             AND EXISTS (SELECT 1 FROM thread_participants p WHERE p.thread_id = t.id AND p.user_id = ${allParticipantIds[0]})
             AND EXISTS (SELECT 1 FROM thread_participants p WHERE p.thread_id = t.id AND p.user_id = ${allParticipantIds[1]})
@@ -164,7 +165,7 @@ export function registerMessageRoutes(
       }
 
       const [thread] = await db.insert(messageThreads).values({
-        storeId: user.storeId || "default",
+        storeId,
         threadType: parsed.thread_type,
         title: parsed.title || null,
         createdBy: user.id,

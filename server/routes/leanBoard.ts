@@ -5,11 +5,12 @@ import { leanBoardSnapshots } from "@shared/schema";
 import { getLeanBoardData, generateDailySnapshot, generateWeeklyLeanSummary } from "../services/leanBoard";
 import type { IStorage } from "../storage";
 import logger from "../lib/logger";
+import { resolveStoreId } from "../lib/storeResolver";
 
 export function registerLeanBoardRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
   app.get("/api/lean-board", isAuthenticated, async (req: any, res) => {
     try {
-      const storeId = req.user?.storeId || "default";
+      const storeId = await resolveStoreId() || "default";
       const period = (req.query.period as string) || "week";
 
       if (!["today", "week", "month"].includes(period)) {
@@ -31,7 +32,7 @@ export function registerLeanBoardRoutes(app: Express, storage: IStorage, isAuthe
         return res.status(403).json({ message: "History is available for managers and owners." });
       }
 
-      const storeId = req.user?.storeId || "default";
+      const storeId = await resolveStoreId() || "default";
       const dateFrom = req.query.date_from as string;
       const dateTo = req.query.date_to as string;
 
@@ -61,7 +62,7 @@ export function registerLeanBoardRoutes(app: Express, storage: IStorage, isAuthe
         return res.status(403).json({ message: "Only managers and owners can trigger snapshots." });
       }
 
-      const storeId = req.user?.storeId || "default";
+      const storeId = await resolveStoreId() || "default";
       await generateDailySnapshot(storeId, new Date());
 
       res.json({ success: true, message: "Snapshot generated." });
@@ -77,7 +78,7 @@ export function registerLeanBoardRoutes(app: Express, storage: IStorage, isAuthe
         return res.status(403).json({ message: "Only managers and owners can trigger summaries." });
       }
 
-      const storeId = req.user?.storeId || "default";
+      const storeId = await resolveStoreId() || "default";
       const summary = await generateWeeklyLeanSummary(storeId);
 
       res.json({ success: true, summary });

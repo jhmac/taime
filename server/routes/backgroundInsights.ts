@@ -8,6 +8,7 @@ import type { IStorage } from "../storage";
 import { runAllInsightGenerators } from "../services/backgroundInsights";
 import { cache } from "../lib/cache";
 import logger from "../lib/logger";
+import { resolveStoreId } from "../lib/storeResolver";
 
 async function requireManagerOrAbove(storage: IStorage, userId: string): Promise<boolean> {
   const perms = await storage.getUserPermissions(userId);
@@ -24,8 +25,7 @@ export function registerBackgroundInsightRoutes(app: Express, storage: IStorage,
     const isManager = await requireManagerOrAbove(storage, req.user.id);
     if (!isManager) throw new AppError(403, "Manager or above access required", "FORBIDDEN");
 
-    const user = await storage.getUser(req.user.id);
-    const storeId = user?.locationId;
+    const storeId = await resolveStoreId();
     if (!storeId) {
       return res.json({ success: true, data: { totalActive: 0, actionNeededCount: 0, byType: {} } });
     }
@@ -58,8 +58,7 @@ export function registerBackgroundInsightRoutes(app: Express, storage: IStorage,
     const isManager = await requireManagerOrAbove(storage, req.user.id);
     if (!isManager) throw new AppError(403, "Manager or above access required", "FORBIDDEN");
 
-    const user = await storage.getUser(req.user.id);
-    const storeId = user?.locationId;
+    const storeId = await resolveStoreId();
     if (!storeId) {
       return res.json({ success: true, data: [] });
     }
@@ -126,9 +125,8 @@ export function registerBackgroundInsightRoutes(app: Express, storage: IStorage,
       throw new AppError(403, "Admin access required", "FORBIDDEN");
     }
 
-    const user = await storage.getUser(req.user.id);
-    const storeId = user?.locationId;
-    if (!storeId) throw new AppError(400, "No store assigned", "MISSING_STORE");
+    const storeId = await resolveStoreId();
+    if (!storeId) throw new AppError(400, "No store configured", "MISSING_STORE");
 
     runAllInsightGenerators(storeId).catch(err =>
       logger.error({ error: err.message }, "[BackgroundInsights] Manual generation failed")

@@ -6,6 +6,7 @@ import { generateRevisionProposals } from "../services/sopEvolution";
 import type { IStorage } from "../storage";
 import logger from "../lib/logger";
 import { z } from "zod";
+import { resolveStoreId } from "../lib/storeResolver";
 
 async function requireManagerOrAbove(storage: IStorage, userId: string): Promise<boolean> {
   const user = await storage.getUser(userId);
@@ -30,14 +31,14 @@ export function registerSOPEvolutionRoutes(app: Express, storage: IStorage, isAu
       const isManager = await requireManagerOrAbove(storage, req.user.id);
       if (!isManager) return res.status(403).json({ message: "Manager or owner access required" });
 
-      const user = await storage.getUser(req.user.id);
-      if (!user?.storeId) return res.status(400).json({ message: "No store assigned" });
+      const storeId = await resolveStoreId();
+      if (!storeId) return res.status(400).json({ message: "No store configured" });
 
       const { status, sop_template_id } = req.query;
       const filterStatus = (status as string) || "pending";
 
       const conditions = [
-        eq(sopRevisionProposals.storeId, user.storeId),
+        eq(sopRevisionProposals.storeId, storeId),
         eq(sopRevisionProposals.status, filterStatus),
       ];
 
@@ -73,8 +74,8 @@ export function registerSOPEvolutionRoutes(app: Express, storage: IStorage, isAu
       const isOwner = await requireOwnerOrAdmin(storage, req.user.id);
       if (!isOwner) return res.status(403).json({ message: "Owner or admin access required" });
 
-      const user = await storage.getUser(req.user.id);
-      if (!user?.storeId) return res.status(400).json({ message: "No store assigned" });
+      const storeId = await resolveStoreId();
+      if (!storeId) return res.status(400).json({ message: "No store configured" });
 
       const parsed = reviewSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
@@ -91,7 +92,7 @@ export function registerSOPEvolutionRoutes(app: Express, storage: IStorage, isAu
         })
         .where(and(
           eq(sopRevisionProposals.id, id),
-          eq(sopRevisionProposals.storeId, user.storeId),
+          eq(sopRevisionProposals.storeId, storeId),
           eq(sopRevisionProposals.status, "pending"),
         ))
         .returning();
@@ -110,21 +111,21 @@ export function registerSOPEvolutionRoutes(app: Express, storage: IStorage, isAu
       const isManager = await requireManagerOrAbove(storage, req.user.id);
       if (!isManager) return res.status(403).json({ message: "Manager or owner access required" });
 
-      const user = await storage.getUser(req.user.id);
-      if (!user?.storeId) return res.status(400).json({ message: "No store assigned" });
+      const storeId = await resolveStoreId();
+      if (!storeId) return res.status(400).json({ message: "No store configured" });
 
       const result = await db.select({
         count: sql<number>`count(*)::int`,
       }).from(sopRevisionProposals)
         .where(and(
-          eq(sopRevisionProposals.storeId, user.storeId),
+          eq(sopRevisionProposals.storeId, storeId),
           eq(sopRevisionProposals.status, "pending"),
         ));
 
       const sopCount = await db.selectDistinct({ id: sopRevisionProposals.sopTemplateId })
         .from(sopRevisionProposals)
         .where(and(
-          eq(sopRevisionProposals.storeId, user.storeId),
+          eq(sopRevisionProposals.storeId, storeId),
           eq(sopRevisionProposals.status, "pending"),
         ));
 
@@ -143,10 +144,10 @@ export function registerSOPEvolutionRoutes(app: Express, storage: IStorage, isAu
       const isOwner = await requireOwnerOrAdmin(storage, req.user.id);
       if (!isOwner) return res.status(403).json({ message: "Owner or admin access required" });
 
-      const user = await storage.getUser(req.user.id);
-      if (!user?.storeId) return res.status(400).json({ message: "No store assigned" });
+      const storeId = await resolveStoreId();
+      if (!storeId) return res.status(400).json({ message: "No store configured" });
 
-      const count = await generateRevisionProposals(user.storeId);
+      const count = await generateRevisionProposals(storeId);
       res.json({ message: `Generated ${count} revision proposals`, count });
     } catch (error: any) {
       logger.error({ error: error.message }, "[SOPEvolution] Error generating proposals");

@@ -6,6 +6,7 @@ import { analyzeSOP, generateSOPInsights } from "../services/sopIntelligence";
 import type { IStorage } from "../storage";
 import { cache } from "../lib/cache";
 import logger from "../lib/logger";
+import { resolveStoreId } from "../lib/storeResolver";
 
 async function requireManagerOrAbove(storage: IStorage, userId: string): Promise<boolean> {
   const user = await storage.getUser(userId);
@@ -19,14 +20,14 @@ export function registerSOPIntelligenceRoutes(app: Express, storage: IStorage, i
       const isManager = await requireManagerOrAbove(storage, req.user.id);
       if (!isManager) return res.status(403).json({ message: "Manager or owner access required" });
 
-      const user = await storage.getUser(req.user.id);
-      if (!user?.storeId) return res.status(400).json({ message: "No store assigned" });
+      const storeId = await resolveStoreId();
+      if (!storeId) return res.status(400).json({ message: "No store configured" });
 
       const { severity, sop_template_id, status } = req.query;
       const filterStatus = (status as string) || "active";
 
       const conditions = [
-        eq(sopInsights.storeId, user.storeId),
+        eq(sopInsights.storeId, storeId),
         eq(sopInsights.status, filterStatus),
       ];
 
@@ -56,8 +57,8 @@ export function registerSOPIntelligenceRoutes(app: Express, storage: IStorage, i
       const isManager = await requireManagerOrAbove(storage, req.user.id);
       if (!isManager) return res.status(403).json({ message: "Manager or owner access required" });
 
-      const user = await storage.getUser(req.user.id);
-      if (!user?.storeId) return res.status(400).json({ message: "No store assigned" });
+      const storeId = await resolveStoreId();
+      if (!storeId) return res.status(400).json({ message: "No store configured" });
 
       const { id } = req.params;
 
@@ -69,7 +70,7 @@ export function registerSOPIntelligenceRoutes(app: Express, storage: IStorage, i
         })
         .where(and(
           eq(sopInsights.id, id),
-          eq(sopInsights.storeId, user.storeId),
+          eq(sopInsights.storeId, storeId),
           eq(sopInsights.status, "active"),
         ))
         .returning();
@@ -88,15 +89,15 @@ export function registerSOPIntelligenceRoutes(app: Express, storage: IStorage, i
       const isManager = await requireManagerOrAbove(storage, req.user.id);
       if (!isManager) return res.status(403).json({ message: "Manager or owner access required" });
 
-      const user = await storage.getUser(req.user.id);
-      if (!user?.storeId) return res.status(400).json({ message: "No store assigned" });
+      const storeId = await resolveStoreId();
+      if (!storeId) return res.status(400).json({ message: "No store configured" });
 
       const { templateId } = req.params;
-      const cacheKey = `sop-analytics:${templateId}:${user.storeId}`;
+      const cacheKey = `sop-analytics:${templateId}:${storeId}`;
       const cached = cache.get<any>(cacheKey);
       if (cached) return res.json(cached);
 
-      const analysis = await analyzeSOP(templateId, user.storeId);
+      const analysis = await analyzeSOP(templateId, storeId);
 
       if (!analysis) return res.status(404).json({ message: "Template not found" });
 
@@ -113,10 +114,10 @@ export function registerSOPIntelligenceRoutes(app: Express, storage: IStorage, i
       const isManager = await requireManagerOrAbove(storage, req.user.id);
       if (!isManager) return res.status(403).json({ message: "Manager or owner access required" });
 
-      const user = await storage.getUser(req.user.id);
-      if (!user?.storeId) return res.status(400).json({ message: "No store assigned" });
+      const storeId = await resolveStoreId();
+      if (!storeId) return res.status(400).json({ message: "No store configured" });
 
-      await generateSOPInsights(user.storeId);
+      await generateSOPInsights(storeId);
       res.json({ message: "Insights generated successfully" });
     } catch (error: any) {
       logger.error({ error: error.message }, "[SOPIntelligence] Error generating insights");

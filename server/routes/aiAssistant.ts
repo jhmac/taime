@@ -9,6 +9,7 @@ import { generateTaskSuggestions } from "../services/smartTaskSuggestions";
 import { db } from "../db";
 import { aiFeedback, aiChatConversations, aiChatMessages } from "@shared/schema";
 import { eq, and, desc } from "drizzle-orm";
+import { resolveStoreId } from "../lib/storeResolver";
 
 const DEFAULT_MODEL_STR = "claude-sonnet-4-20250514";
 
@@ -381,7 +382,7 @@ Available SOPs: ${publishedSops.length > 0 ? publishedSops.map(s => s.title).joi
         }
       }
 
-      const storeId = req.user.storeId || "default";
+      const storeId = await resolveStoreId() || "default";
 
       const taskPatterns = /what should i (be doing|do|focus|work on)|what.s next|what now|priorit|where (do i|should i) start/i;
       let enrichedQuestion = question;

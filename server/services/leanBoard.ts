@@ -7,6 +7,7 @@ import {
   issues, users, leanBoardSnapshots,
 } from "@shared/schema";
 import logger from "../lib/logger";
+import { resolveStoreId } from "../lib/storeResolver";
 
 const anthropic = new Anthropic({ apiKey: config.anthropic.apiKey });
 const MODEL = "claude-sonnet-4-20250514";
@@ -156,7 +157,7 @@ export async function generateDailySnapshot(storeId: string, date: Date): Promis
   }
 
   const activeEmployees = await db.select({ id: users.id }).from(users)
-    .where(and(eq(users.isActive, true), eq(users.storeId, storeId)));
+    .where(eq(users.isActive, true));
 
   const totalEmployees = activeEmployees.length || 1;
 
@@ -538,16 +539,12 @@ export function startLeanBoardCron() {
         lastSnapshotDate = todayStr;
         logger.info("[LeanBoard] Generating daily snapshots");
 
-        const stores = await db.selectDistinct({ storeId: users.storeId })
-          .from(users)
-          .where(and(eq(users.isActive, true), sql`${users.storeId} IS NOT NULL`));
-
-        for (const s of stores) {
-          if (!s.storeId) continue;
+        const storeId = await resolveStoreId();
+        if (storeId) {
           try {
-            await generateDailySnapshot(s.storeId, now);
+            await generateDailySnapshot(storeId, now);
           } catch (err: any) {
-            logger.warn({ storeId: s.storeId, error: err.message }, "[LeanBoard] Snapshot failed");
+            logger.warn({ storeId, error: err.message }, "[LeanBoard] Snapshot failed");
           }
         }
       }
@@ -560,16 +557,12 @@ export function startLeanBoardCron() {
         lastSummaryWeek = weekStr;
         logger.info("[LeanBoard] Generating weekly summaries");
 
-        const stores = await db.selectDistinct({ storeId: users.storeId })
-          .from(users)
-          .where(and(eq(users.isActive, true), sql`${users.storeId} IS NOT NULL`));
-
-        for (const s of stores) {
-          if (!s.storeId) continue;
+        const storeId = await resolveStoreId();
+        if (storeId) {
           try {
-            await generateWeeklyLeanSummary(s.storeId);
+            await generateWeeklyLeanSummary(storeId);
           } catch (err: any) {
-            logger.warn({ storeId: s.storeId, error: err.message }, "[LeanBoard] Weekly summary failed");
+            logger.warn({ storeId, error: err.message }, "[LeanBoard] Weekly summary failed");
           }
         }
       }
