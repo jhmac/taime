@@ -13,6 +13,7 @@ import AIChatModal from '@/components/AIChatModal';
 import MiddayPulseCard from '@/components/MiddayPulseCard';
 import ImprovementFeedWidget from '@/components/ImprovementFeedWidget';
 import KudosWidget from '@/components/KudosWidget';
+import SurfacedSOPBanner from '@/components/SurfacedSOPBanner';
 import {
   Users,
   UserCheck,
@@ -23,7 +24,6 @@ import {
   AlertTriangle,
   Clock,
   ChevronRight,
-  MessageSquare,
   CircleAlert,
   ListTodo,
   Bot,
@@ -88,21 +88,18 @@ export default function ManagerDashboard() {
   const totalSops = todaySopExecutions.length;
   const sopProgress = totalSops > 0 ? Math.round((completedSops / totalSops) * 100) : 0;
 
-  const overdueTasks = (tasks || []).filter((t: any) => {
-    if (t.status === 'completed') return false;
-    const due = t.dueDate ? new Date(t.dueDate) : null;
-    return due && due < today;
-  });
-  const dueTodayTasks = (tasks || []).filter((t: any) => {
-    if (t.status === 'completed') return false;
-    const due = t.dueDate ? new Date(t.dueDate) : null;
-    return due && due.toDateString() === todayStr;
-  });
-  const upcomingTasks = (tasks || []).filter((t: any) => {
-    if (t.status === 'completed') return false;
-    const due = t.dueDate ? new Date(t.dueDate) : null;
-    return due && due > today && due.toDateString() !== todayStr;
-  });
+  const { overdueTasks, dueTodayTasks, upcomingTasks } = (tasks || []).reduce(
+    (acc: { overdueTasks: any[]; dueTodayTasks: any[]; upcomingTasks: any[] }, t: any) => {
+      if (t.status === 'completed' || !t.dueDate) return acc;
+      const due = new Date(t.dueDate);
+      const dueStr = due.toDateString();
+      if (dueStr === todayStr) acc.dueTodayTasks.push(t);
+      else if (due < today) acc.overdueTasks.push(t);
+      else acc.upcomingTasks.push(t);
+      return acc;
+    },
+    { overdueTasks: [], dueTodayTasks: [], upcomingTasks: [] }
+  );
 
   const huddleDone = huddleData?.data?.completedAt || huddleData?.completedAt;
 
@@ -186,6 +183,12 @@ export default function ManagerDashboard() {
               </CardContent>
             </Card>
           </div>
+        </DashboardErrorBoundary>
+      </div>
+
+      <div className={isMobile ? "px-4 pb-1" : "px-6 pb-2"}>
+        <DashboardErrorBoundary fallback="Could not load SOP banner">
+          <SurfacedSOPBanner />
         </DashboardErrorBoundary>
       </div>
 

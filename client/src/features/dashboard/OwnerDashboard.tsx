@@ -7,15 +7,15 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Progress } from '@/components/ui/progress';
 import AIChatModal from '@/components/AIChatModal';
+import SurfacedSOPBanner from '@/components/SurfacedSOPBanner';
 import MiddayPulseCard from '@/components/MiddayPulseCard';
 import ImprovementFeedWidget from '@/components/ImprovementFeedWidget';
 import { DashboardErrorBoundary } from '@/features/dashboard/DashboardErrorBoundary';
 import {
   Briefcase, Users, ShieldCheck, AlertTriangle, TrendingUp,
   Calendar, DollarSign, ClipboardList, BarChart3, Settings,
-  Bot, ChevronRight, Clock, Video, ShoppingBag, ExternalLink,
+  Bot, Clock, Video, ShoppingBag, ExternalLink,
   AlertCircle, CheckCircle2
 } from 'lucide-react';
 
@@ -145,7 +145,13 @@ export default function OwnerDashboard() {
         </section>
       </DashboardErrorBoundary>
 
-      <div className={isMobile ? 'px-4 py-3 space-y-4' : 'px-6 py-4 space-y-6'}>
+      <div className={isMobile ? 'px-4 pt-3 pb-1' : 'px-6 pt-4 pb-2'}>
+        <DashboardErrorBoundary fallback="Could not load SOP banner">
+          <SurfacedSOPBanner />
+        </DashboardErrorBoundary>
+      </div>
+
+      <div className={isMobile ? 'px-4 pb-3 space-y-4' : 'px-6 pb-4 space-y-6'}>
         <DashboardErrorBoundary fallback="Morning Whisper failed to load">
           <Card className="border-gray-200 dark:border-gray-700">
             <CardHeader className="pb-2">

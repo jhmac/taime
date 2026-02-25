@@ -12,7 +12,6 @@ import DailyQuoteCard from '@/components/DailyQuoteCard';
 import SurfacedSOPBanner from '@/components/SurfacedSOPBanner';
 import ImprovementFeedWidget from '@/components/ImprovementFeedWidget';
 import AIChatModal from '@/components/AIChatModal';
-import DailyDebriefSheet from '@/components/DailyDebriefSheet';
 import { DashboardErrorBoundary } from '@/features/dashboard/DashboardErrorBoundary';
 import type { UserWithRole, Task, SopExecution } from '@shared/schema';
 import {
@@ -32,7 +31,6 @@ export default function AssociateDashboard() {
   const [, navigate] = useLocation();
   const [currentTime, setCurrentTime] = useState(new Date());
   const [showAIChat, setShowAIChat] = useState(false);
-  const [showDebrief, setShowDebrief] = useState(false);
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -274,7 +272,6 @@ export default function AssociateDashboard() {
       </div>
 
       <AIChatModal isOpen={showAIChat} onClose={() => setShowAIChat(false)} />
-      <DailyDebriefSheet open={showDebrief} onOpenChange={setShowDebrief} />
     </div>
   );
 }
