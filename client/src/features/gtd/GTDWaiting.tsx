@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, invalidatePrefix } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -59,7 +59,7 @@ export default function GTDWaiting() {
       return await apiRequest("PUT", `/api/gtd/waiting/${id}`, { status: "received" });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/gtd/waiting"] });
+      invalidatePrefix("/api/gtd/waiting");
       queryClient.invalidateQueries({ queryKey: ["/api/gtd/dashboard"] });
       toast({ title: "Received! ✓", duration: 1500 });
     },
@@ -73,7 +73,7 @@ export default function GTDWaiting() {
       return await apiRequest("POST", "/api/gtd/waiting", data);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/gtd/waiting"] });
+      invalidatePrefix("/api/gtd/waiting");
       queryClient.invalidateQueries({ queryKey: ["/api/gtd/dashboard"] });
       setDialogOpen(false);
       setFormWaitingOn("");

@@ -77,6 +77,15 @@ export const getQueryFn: <T>(options: {
     return await res.json();
   };
 
+export function invalidatePrefix(prefix: string) {
+  queryClient.invalidateQueries({
+    predicate: (query) => {
+      const key = query.queryKey[0];
+      return typeof key === 'string' && key.startsWith(prefix);
+    },
+  });
+}
+
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {

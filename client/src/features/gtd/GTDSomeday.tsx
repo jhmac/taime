@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, invalidatePrefix } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -49,7 +49,7 @@ export default function GTDSomeday() {
       return await apiRequest("POST", "/api/gtd/someday", payload);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/gtd/someday"] });
+      invalidatePrefix("/api/gtd/someday");
       queryClient.invalidateQueries({ queryKey: ["/api/gtd/dashboard"] });
       setDialogOpen(false);
       setFormTitle("");
@@ -67,10 +67,10 @@ export default function GTDSomeday() {
       return await apiRequest("PUT", `/api/gtd/someday/${id}`, { activate_as });
     },
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/gtd/someday"] });
+      invalidatePrefix("/api/gtd/someday");
       queryClient.invalidateQueries({ queryKey: ["/api/gtd/dashboard"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/gtd/projects"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/gtd/actions"] });
+      invalidatePrefix("/api/gtd/projects");
+      invalidatePrefix("/api/gtd/actions");
       const type = variables.activate_as === "project" ? "Project" : "Next Action";
       toast({ title: `Activated as ${type}! 🌱`, duration: 1500 });
     },

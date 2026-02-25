@@ -11,13 +11,13 @@ export default function WeeklyReviewCard() {
   const isFriday = now.getDay() === 5;
   const isAfter3pm = now.getHours() >= 15;
 
-  const { data } = useQuery<{ success: boolean; data: any }>({
+  const { data, isLoading, isError } = useQuery<{ success: boolean; data: any }>({
     queryKey: ["/api/gtd/review/current"],
     enabled: isFriday,
     staleTime: 5 * 60 * 1000,
   });
 
-  if (!isFriday) return null;
+  if (!isFriday || isLoading || isError) return null;
 
   const review = data?.data;
   const isCompleted = review?.status === "completed";

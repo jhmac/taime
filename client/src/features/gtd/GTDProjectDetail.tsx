@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, invalidatePrefix } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation, useRoute } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -93,9 +93,8 @@ export default function GTDProjectDetail() {
       return await apiRequest("PUT", `/api/gtd/actions/${actionId}`, { status: "completed" });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/gtd/projects", id] });
-      queryClient.invalidateQueries({ queryKey: ["/api/gtd/projects"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/gtd/actions"] });
+      invalidatePrefix("/api/gtd/projects");
+      invalidatePrefix("/api/gtd/actions");
       queryClient.invalidateQueries({ queryKey: ["/api/gtd/dashboard"] });
       toast({ title: "Done! ✓", duration: 1500 });
     },
@@ -113,9 +112,8 @@ export default function GTDProjectDetail() {
     },
     onSuccess: () => {
       setNewActionTitle("");
-      queryClient.invalidateQueries({ queryKey: ["/api/gtd/projects", id] });
-      queryClient.invalidateQueries({ queryKey: ["/api/gtd/projects"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/gtd/actions"] });
+      invalidatePrefix("/api/gtd/projects");
+      invalidatePrefix("/api/gtd/actions");
       queryClient.invalidateQueries({ queryKey: ["/api/gtd/dashboard"] });
       toast({ title: "Action added! ✓", duration: 1500 });
     },
@@ -129,8 +127,7 @@ export default function GTDProjectDetail() {
       return await apiRequest("PUT", `/api/gtd/projects/${id}`, { status: "completed" });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/gtd/projects", id] });
-      queryClient.invalidateQueries({ queryKey: ["/api/gtd/projects"] });
+      invalidatePrefix("/api/gtd/projects");
       queryClient.invalidateQueries({ queryKey: ["/api/gtd/dashboard"] });
       toast({ title: "Project complete! 🎉", duration: 2000 });
       navigate("/gtd/projects");

@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, invalidatePrefix } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -153,7 +153,7 @@ export default function GTDActions() {
       return await apiRequest("PUT", `/api/gtd/actions/${id}`, { status: "completed" });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/gtd/actions"] });
+      invalidatePrefix("/api/gtd/actions");
       queryClient.invalidateQueries({ queryKey: ["/api/gtd/dashboard"] });
       toast({ title: "Done! ✓", duration: 1500 });
     },
@@ -167,7 +167,7 @@ export default function GTDActions() {
       return await apiRequest("POST", "/api/gtd/actions", data);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/gtd/actions"] });
+      invalidatePrefix("/api/gtd/actions");
       queryClient.invalidateQueries({ queryKey: ["/api/gtd/dashboard"] });
       setAddDialogOpen(false);
       setNewAction({ title: "", context: "", priority: "normal", time_estimate_minutes: "", due_date: "", is_two_minute: false, project_id: "" });

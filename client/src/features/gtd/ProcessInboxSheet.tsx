@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, invalidatePrefix } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import {
@@ -143,8 +143,8 @@ export default function ProcessInboxSheet({ item, open, onOpenChange }: ProcessI
       });
       queryClient.invalidateQueries({ queryKey: ["/api/gtd/inbox"] });
       queryClient.invalidateQueries({ queryKey: ["/api/gtd/dashboard"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/gtd/actions"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/gtd/projects"] });
+      invalidatePrefix("/api/gtd/actions");
+      invalidatePrefix("/api/gtd/projects");
       onOpenChange(false);
     },
     onError: () => {

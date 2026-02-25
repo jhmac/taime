@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, invalidatePrefix } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -56,7 +56,7 @@ export default function GTDProjects() {
       return await apiRequest("POST", "/api/gtd/projects", payload);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/gtd/projects"] });
+      invalidatePrefix("/api/gtd/projects");
       queryClient.invalidateQueries({ queryKey: ["/api/gtd/dashboard"] });
       setDialogOpen(false);
       setFormData({ title: "", description: "", desired_outcome: "", due_date: "" });
