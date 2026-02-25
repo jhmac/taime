@@ -46,6 +46,11 @@ import FocusClockOut from "@/components/FocusClockOut";
 import AIAssistant from "@/components/AIAssistant";
 import QuickCaptureButton from "@/features/gtd/QuickCaptureButton";
 import GTDInbox from "@/features/gtd/GTDInbox";
+import GTDActions from "@/features/gtd/GTDActions";
+import GTDProjects from "@/features/gtd/GTDProjects";
+import GTDProjectDetail from "@/features/gtd/GTDProjectDetail";
+import GTDWaiting from "@/features/gtd/GTDWaiting";
+import GTDSomeday from "@/features/gtd/GTDSomeday";
 import { WebSocketProvider } from "@/contexts/WebSocketContext";
 import type { Permission } from "@shared/schema";
 
@@ -227,6 +232,11 @@ function AuthenticatedApp() {
       <Route path="/huddle" component={MorningHuddle} />
       <Route path="/improvements" component={ImprovementFeed} />
       <Route path="/gtd/inbox" component={GTDInbox} />
+      <Route path="/gtd/actions" component={GTDActions} />
+      <Route path="/gtd/projects/:id" component={GTDProjectDetail} />
+      <Route path="/gtd/projects" component={GTDProjects} />
+      <Route path="/gtd/waiting" component={GTDWaiting} />
+      <Route path="/gtd/someday" component={GTDSomeday} />
       <Route path="/support" component={SupportPage} />
       <Route path="/admin">
         <ProtectedRoute permission="admin.manage_all"><AdminSettings /></ProtectedRoute>

@@ -1,7 +1,7 @@
 # Taime Clock - AI-Powered Workforce Management
 
 ## Overview
-Taime Clock is an AI-powered Progressive Web App (PWA) designed to enhance workforce management. It integrates AI to streamline time tracking, scheduling, task management, and payroll, offering features like geofencing-enabled time clocking and automated task assignment. The platform aims to boost operational efficiency, optimize labor costs, and provide actionable business insights through comprehensive payroll management, intelligent scheduling, and robust employee performance tracking, all delivered via a mobile-first, user-friendly interface.
+Taime Clock is an AI-powered Progressive Web App (PWA) designed to enhance workforce management. Its core purpose is to streamline time tracking, scheduling, task management, and payroll processes using AI. Key capabilities include geofencing-enabled time clocking, automated task assignment, and comprehensive payroll management, all delivered through a mobile-first, user-friendly interface. The project aims to boost operational efficiency, optimize labor costs, and provide actionable business insights.
 
 ## User Preferences
 Preferred communication style: Simple, everyday language.
@@ -12,55 +12,30 @@ Preferred communication style: Simple, everyday language.
 The frontend is a React and TypeScript PWA, built with Vite. It features a responsive, mobile-first design using Tailwind CSS and shadcn/ui components. State management is handled by TanStack React Query, and Wouter manages client-side routing.
 
 ### Backend
-The backend is a Node.js Express.js server written in TypeScript. It uses Drizzle ORM for type-safe PostgreSQL interactions and Clerk for authentication and authorization. Real-time communication is powered by WebSockets. The architecture emphasizes modular routes, Zod for input validation, and security middleware. Environment variables are centrally managed and validated using Zod.
+The backend is a Node.js Express.js server written in TypeScript. It uses Drizzle ORM for type-safe PostgreSQL interactions and Clerk for authentication and authorization. Real-time communication is powered by WebSockets. The architecture emphasizes modular routes, Zod for input validation, and security middleware.
 
 ### Core Features
-- **AI Integration**: Utilizes Anthropic Claude AI for automated task assignment, schedule optimization, labor cost forecasting, anomaly detection, payroll validation, conversational AI, and AI-assisted SOP generation.
-- **Authentication & Authorization**: Implemented with Clerk for OAuth/SSO, user synchronization, and role-based access control (Admin, Owner, Employee) with granular permissions.
-- **Geofencing & Security**: Advanced geofencing with circular and polygon boundaries, configurable grace periods, auto clock-out, live monitoring, and event logging.
-- **Employee Work Patterns**: Supports recurring weekly schedule patterns with flexible availability statuses and pre-built templates, integrated into AI scheduling.
+- **AI Integration**: Leverages Anthropic Claude for automated task assignment, schedule optimization, labor cost forecasting, anomaly detection, payroll validation, conversational AI, and AI-assisted SOP generation.
+- **Authentication & Authorization**: Implemented with Clerk, supporting OAuth/SSO, user synchronization, and role-based access control (Admin, Owner, Employee) with granular permissions.
+- **Geofencing & Security**: Advanced geofencing capabilities including circular and polygon boundaries, configurable grace periods, auto clock-out, live monitoring, and event logging.
+- **Employee Work Patterns**: Supports recurring weekly schedule patterns with flexible availability and pre-built templates, integrated with AI scheduling.
 - **Holiday Pay System**: AI-powered parsing of natural language rules for automatic holiday pay multipliers, integrated with a configurable Holiday Pay Calendar.
-- **Performance Scoring**: Tracks and scores employee metrics to provide performance insights.
-- **AI Success Assistant**: An AI-powered employee coach with a knowledge base, Claude-powered chat, commute intelligence, pre-shift briefings, and onboarding paths.
-- **Shopify Integration**: OAuth-based integration to sync sales data for AI-driven staffing recommendations and sales comparisons.
-- **AI Auto-Scheduling**: Generates optimized schedules using historical Shopify sales data, considering store hours, staffing tiers, employee availability, and minimum staffing thresholds.
-- **Team Invitation Emails**: Automated Nylas-powered email invitations for new team members.
-- **Employee Profile Pages**: Comprehensive profiles with job details, personal information, documents, and performance metrics.
-- **Visual Analytics Dashboard**: Recharts-based visualizations for labor costs, punctuality, task completion, and AI anomaly detection.
-- **Payroll Export**: Generates detailed CSV exports of payroll information.
-- **In-App Messaging**: Real-time team chat, direct messages, announcements, and a shoutout system via WebSockets.
-- **Push Notifications**: Web Push API for critical alerts and schedule updates.
-- **SOP Library**: Structured operating procedures with templates, versioning, execution tracking, and step-level completions with evidence and manager sign-off.
-- **SOP Execution UI**: Full-screen mobile-optimized checklist runner with progress tracking, step-specific actions, skip flows, training mode, and manager sign-off.
-- **Context-Aware SOP Surfacing** (`server/services/sopSurfacing.ts`): Automatically surfaces the right SOP for the right person at the right time. Five trigger types: (1) Time-based — opening/closing checklists surfaced near store open/close hours via 5-minute cron. (2) Event-based — opening SOPs for first clock-in of the day, shift handoff SOPs when overlapping shifts detected. (3) Role-based — recommends training mode for employees who completed an SOP fewer than 3 times. (4) Issue-based — matches issue categories/keywords to SOP categories when issues are created. (5) API-driven — `GET /api/sops/surfaced` returns currently relevant SOPs for the authenticated user. Store hours sourced from `ai_scheduling_settings.store_hours` JSONB. Frontend: `SurfacedSOPBanner` component on Dashboard/AdminDashboard with trigger-specific colors, dismissible cards, WebSocket-reactive (`sop_surfaced` events), 5-min polling fallback.
-- **Issue Tracker**: Full-featured system for employees to log problems and managers to track/resolve them, with categories, priorities, statuses, and comments.
+- **AI Auto-Scheduling**: Generates optimized schedules using historical sales data (from Shopify), considering store hours, staffing tiers, employee availability, and minimum staffing thresholds.
+- **SOP Library & Execution**: Structured operating procedures with templates, versioning, execution tracking, and step-level completions. Features a mobile-optimized checklist runner and context-aware SOP surfacing based on time, events, roles, issues, or API triggers.
+- **Issue Tracker**: A system for employees to log problems and managers to track and resolve them, with categories, priorities, statuses, and comments.
 - **Daily Ritual System**: Includes Morning Huddle, Daily Debrief, Daily Improvement Quotes, Kudos, and Midday Pulse, with AI-generated content and trend analysis.
-- **Midday Pulse** (`server/services/middayPulse.ts`): Automated noon sales check-in using Shopify data. Compares today's sales to same day last week, calculates pace-to-target. Claude AI generates encouraging headline, detail, and optional suggestion. Cached per store per day in `midday_pulses` table. Cron fires at noon, broadcasts via WebSocket (`midday_pulse` event). Frontend: `MiddayPulseCard` on Dashboard/AdminDashboard with revenue/transactions/avg order metrics, pace indicator, stale-data warning, and suggestion callout. Toast notification on WebSocket push.
-- **Shift Handoff Protocol SOP**: Auto-seeded SOP template (`server/services/shiftHandoffSeed.ts`) with 7 steps: Review open issues, Handoff notes, Check task board, 3S: Sweep, 3S: Sort, 3S: Standardize, Ready to go. Created for each active store on startup if no `shift_handoff` SOP exists. Uses existing SOP infrastructure for execution tracking and training mode.
-- **Improvement Video Platform**: Paul Akers-inspired 60-second improvement video sharing system. Schema: `improvement_videos` (YouTube/S3 storage, categories, featured picks, view counts), `video_likes` (unique per user per video), `video_comments`. All tables indexed for store-scoped queries. Frontend: `ImprovementFeed` page at `/improvements` with YouTube-style grid, featured banner, category/sort filters, VideoRecordDialog (camera recording via MediaRecorder API with 60s limit + file upload fallback), VideoPlayerModal (HTML5 video + like/comment), ImprovementFeedWidget on Dashboard (3 recent thumbnails + nudge). Static file serving for local uploads at `/uploads`.
-- **Offline Mode**: Service worker with IndexedDB for offline data storage and background synchronization.
-- **ELON Authenticated Crawling**: Manual popup login flow for authenticated page crawling by ELON's Playwright crawler, with server-side session token storage.
-- **ELON Code Engine Enhancements**: Features include multi-file awareness, fuzzy matching, syntax verification with auto-rollback, runtime validation, and multi-file atomic changes for robust autonomous code modifications.
-- **Shift Overlap & Handoff**: AI scheduling generates overlapping shifts (configurable 30/45/60 min) for briefing and 3S time. Budget warnings alert when overlap labor cost exceeds weekly limit. SOP surfacing shows personalized handoff messages with employee names.
-- **Role-Specific Dashboards** (`client/src/features/dashboard/`): `DashboardRouter` checks `user.role.name` and renders the appropriate dashboard. Three distinct views: (1) **AssociateDashboard** (employee role) — warm greeting, daily quote, surfaced SOPs, my tasks today with checkboxes, active SOP with continue button, quick actions (Report Issue, Record Improvement, Give a Kudo), improvement feed, personal stats. (2) **ManagerDashboard** (admin role) — metrics cards (clocked in, team size, shifts, tasks done), morning huddle status, team on shift, open issues by priority, SOP completion progress bar, tasks overview (overdue/due today/upcoming), kudos, midday pulse, improvements. (3) **OwnerDashboard** (owner role) — executive header, morning whisper preview (analytics), sales snapshot (Shopify), team health, operational scorecard (SOP completion %, avg issue resolution, task completion %, weekly videos), flagged items (urgent issues + overdue tasks), quick links. Each section wrapped in `DashboardErrorBoundary` for fault isolation.
-
-- **GTD Workflow Engine**: David Allen-inspired Getting Things Done system with 6 tables: `gtd_inbox_items` (universal capture from manual/voice/debrief/issue/SOP/huddle/quick sources, AI clarification JSONB, processing status tracking), `gtd_projects` (multi-action outcomes with desired outcome and status lifecycle), `gtd_next_actions` (context-tagged actions with energy level, time estimates, 2-minute flags, priority, and project linking), `gtd_waiting_for` (delegation tracking with follow-up dates and employee linking), `gtd_someday_maybe` (parked ideas with categories, activatable into projects/actions), `gtd_reference` (searchable reference material with JSONB tags). All tables store-scoped via `work_locations(id)`, user-scoped via Clerk IDs. 12 composite indexes including partial indexes on active/waiting status for query performance.
-- **GTD AI Clarification Engine** (`server/services/gtdClarificationAI.ts`): Claude-powered inbox processor that classifies raw captures into GTD destinations (next_action, project, waiting_for, someday_maybe, reference, trash, calendar, issue). 3-second timeout, fire-and-forget async processing. Returns suggested title, context, energy level, time estimate, priority, two-minute flag, and related SOP hints. Auto-triggers on inbox creation. WebSocket event `inbox_item_clarified` sent on completion. Three auto-capture integrations: (1) Daily Debrief `whatBuggedYou` → source `debrief`, (2) Issue creation → source `issue_auto`, (3) SOP execution feedback notes → source `sop_feedback`. GTD routes at `/api/gtd/inbox` with CRUD + reclarify endpoint.
-- **GTD Inbox Frontend** (`client/src/features/gtd/`): Three components: (1) `QuickCaptureButton` — persistent FAB (bottom-36 right-4, above AI assistant) with Drawer for zero-friction capture, auto-focus, Enter-to-submit, stays open for rapid captures. (2) `GTDInbox` page at `/gtd/inbox` — lists unprocessed/clarified items with source badges, status indicators (spinning for unprocessed, green sparkle for clarified), relative timestamps, inline capture bar, WebSocket-reactive for real-time AI clarification updates, Inbox Zero celebration, error state with retry. (3) `ProcessInboxSheet` — bottom sheet for processing items, shows AI suggestion with confidence score and one-tap accept, destination picker with context-specific fields (next action: context/energy/priority/time/due date/two-minute; project: desired outcome/due date; waiting for: who/follow-up; someday: category; reference: tags; issue: category/priority; trash: archive).
-
-## Performance Optimizations
-- **Request Timing**: `requestLogger` middleware tracks response times, warns on slow endpoints (>200ms standard, >5000ms AI). Logged as `SLOW ENDPOINT` with threshold context.
-- **Batch Operations**: `createSchedulesBatch()` in storage replaces N+1 schedule creation loops in schedules.ts and aiScheduling.ts.
-- **Query Optimization**: Dashboard queries use column selection instead of `SELECT *`. AI task assignment uses batch `inArray` user lookup instead of per-user queries. Analytics uses `Promise.all` for parallel data fetching.
-- **Database Indexes**: Added indexes on `time_entries(user_id, clock_in_time)`, `time_entries(clock_in_time)`, `time_entries(user_id) WHERE clock_out_time IS NULL`, `time_entries(location_id)`, `users(is_active)`, `shoutouts(recipient_id, created_at)`.
-- **In-Memory Cache**: `MemoryCache` utility (`server/lib/cache.ts`) with TTL-based expiry. Applied to: company settings, dashboard user list (60s), analytics user data (120s), roles, permissions, role-permission maps.
+- **Improvement Video Platform**: A system for sharing 60-second improvement videos with YouTube/S3 storage, categories, likes, and comments.
+- **Offline Mode**: Utilizes a service worker with IndexedDB for offline data storage and background synchronization.
+- **ELON Authenticated Crawling**: Supports manual popup login for authenticated page crawling by ELON's Playwright crawler.
+- **ELON Code Engine Enhancements**: Features for robust autonomous code modifications including multi-file awareness, fuzzy matching, syntax verification with auto-rollback, and runtime validation.
+- **Shift Overlap & Handoff**: AI scheduling generates overlapping shifts for briefing and cleaning, with budget warnings. Personalized handoff messages are surfaced via SOPs.
+- **Role-Specific Dashboards**: Provides distinct dashboards for Associates (employees), Managers (admins), and Owners, tailored to their specific needs and metrics.
+- **GTD Workflow Engine**: A comprehensive Getting Things Done system with tables for inbox items, projects, next actions, waiting for, someday/maybe, and reference material.
+- **GTD AI Clarification Engine**: A Claude-powered inbox processor that classifies raw captures into GTD destinations with suggested attributes.
+- **GTD Inbox & List Views**: Frontend components for quick capture, processing inbox items with AI suggestions, and dedicated list views for actions, projects, waiting-for, and someday/maybe items.
+- **Performance Optimizations**: Includes request timing middleware, batch operations for schedules, optimized dashboard queries, strategic database indexing, and an in-memory cache for frequently accessed data.
 
 ## External Dependencies
-
-### Core Framework & Language
-- **React Ecosystem**
-- **TypeScript**
-- **Vite, esbuild**
 
 ### Database & ORM
 - **Neon Database** (PostgreSQL)
@@ -73,12 +48,10 @@ The backend is a Node.js Express.js server written in TypeScript. It uses Drizzl
 ### AI Services
 - **Anthropic Claude**
 
-### ELON Deep Testing & Autonomous Improvement (Sneebly)
+### ELON Deep Testing & Autonomous Improvement
 - **Integration Health Monitor**
 - **Scenario Test Runner** (Playwright)
 - **Regression Tracker**
-- **Dependency Index**
-- **ELON Cycle Integration**
 
 ### UI & Styling
 - **shadcn/ui**
@@ -89,9 +62,9 @@ The backend is a Node.js Express.js server written in TypeScript. It uses Drizzl
 ### Real-time & Communication
 - **WebSockets**
 - **Web Push API**
+- **Nylas** (for email invitations)
 
 ### Utility Libraries
 - **date-fns**
 - **Zod**
 - **clsx, tailwind-merge**
-- **memoizee**

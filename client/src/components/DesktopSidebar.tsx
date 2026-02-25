@@ -16,6 +16,14 @@ const generalNavItems = [
   { path: '/team-directory', icon: 'fas fa-users', label: 'Team', employeeOnly: true },
 ] as const;
 
+const gtdNavItems = [
+  { path: '/gtd/inbox', icon: 'fas fa-inbox', label: 'Inbox' },
+  { path: '/gtd/actions', icon: 'fas fa-bolt', label: 'Actions' },
+  { path: '/gtd/projects', icon: 'fas fa-project-diagram', label: 'Projects' },
+  { path: '/gtd/waiting', icon: 'fas fa-hourglass-half', label: 'Waiting' },
+  { path: '/gtd/someday', icon: 'fas fa-seedling', label: 'Someday' },
+];
+
 const managementNavItems = [
   { path: '/tasks', icon: 'fas fa-clipboard-list', label: 'Tasks', permission: 'tasks.view_all' },
   { path: '/team', icon: 'fas fa-users', label: 'Team', permission: 'hr.view_team' },
@@ -89,6 +97,18 @@ export default function DesktopSidebar() {
           .map(item => (
             <NavButton key={item.path} path={item.path} icon={item.icon} label={item.label} />
           ))}
+
+        <div className={cn("pt-4 pb-1", collapsed && "pt-2 pb-0")}>
+          {!collapsed && (
+            <span className="px-3 text-xs font-medium text-sidebar-foreground/50 uppercase tracking-wider">
+              GTD
+            </span>
+          )}
+          {collapsed && <div className="border-t border-sidebar-border mx-2"></div>}
+        </div>
+        {gtdNavItems.map(item => (
+          <NavButton key={item.path} {...item} />
+        ))}
 
         {showManagement && (
           <>

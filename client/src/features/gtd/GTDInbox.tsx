@@ -60,7 +60,14 @@ export default function GTDInbox() {
     queryKey: ["/api/gtd/inbox", showProcessed ? "all" : "active"],
     queryFn: async () => {
       const url = showProcessed ? "/api/gtd/inbox?status=processed" : "/api/gtd/inbox";
-      const res = await fetch(url, { credentials: "include" });
+      const authHeaders: Record<string, string> = {};
+      try {
+        if (typeof window !== 'undefined' && (window as any).Clerk) {
+          const token = await (window as any).Clerk.session?.getToken();
+          if (token) authHeaders.Authorization = `Bearer ${token}`;
+        }
+      } catch {}
+      const res = await fetch(url, { credentials: "include", headers: authHeaders });
       if (!res.ok) throw new Error("Failed to load inbox");
       return res.json();
     },

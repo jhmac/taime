@@ -13,6 +13,7 @@ import SurfacedSOPBanner from '@/components/SurfacedSOPBanner';
 import ImprovementFeedWidget from '@/components/ImprovementFeedWidget';
 import AIChatModal from '@/components/AIChatModal';
 import { DashboardErrorBoundary } from '@/features/dashboard/DashboardErrorBoundary';
+import GTDDashboardWidget from '@/features/gtd/GTDDashboardWidget';
 import type { UserWithRole, Task, SopExecution } from '@shared/schema';
 import {
   Bot,
@@ -179,6 +180,10 @@ export default function AssociateDashboard() {
               )}
             </CardContent>
           </Card>
+        </DashboardErrorBoundary>
+
+        <DashboardErrorBoundary fallback="GTD widget failed to load">
+          <GTDDashboardWidget />
         </DashboardErrorBoundary>
 
         {!sopsLoading && inProgressExecutions.length > 0 && (

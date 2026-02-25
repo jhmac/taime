@@ -13,6 +13,7 @@ import AIChatModal from '@/components/AIChatModal';
 import MiddayPulseCard from '@/components/MiddayPulseCard';
 import ImprovementFeedWidget from '@/components/ImprovementFeedWidget';
 import KudosWidget from '@/components/KudosWidget';
+import GTDDashboardWidget from '@/features/gtd/GTDDashboardWidget';
 import SurfacedSOPBanner from '@/components/SurfacedSOPBanner';
 import {
   Users,
@@ -400,6 +401,10 @@ export default function ManagerDashboard() {
                 )}
               </CardContent>
             </Card>
+          </DashboardErrorBoundary>
+
+          <DashboardErrorBoundary fallback="GTD widget failed to load">
+            <GTDDashboardWidget />
           </DashboardErrorBoundary>
 
           <DashboardErrorBoundary fallback="Could not load team kudos">
