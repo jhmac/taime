@@ -1,16 +1,14 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
-import { useToast } from "@/hooks/use-toast";
 import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Badge } from "@/components/ui/badge";
 import {
   Sparkles, X, Minus, Send, Loader2, ThumbsUp, ThumbsDown,
-  RefreshCw, BookOpen, AlertTriangle, ClipboardList, Calendar,
+  BookOpen, AlertTriangle, ClipboardList, Calendar,
   CheckCircle2, MessageSquarePlus,
 } from "lucide-react";
 import { useLocation } from "wouter";
@@ -72,7 +70,6 @@ function getQuickSuggestions(): { text: string; full: string }[] {
 
 export default function AskMAinagerSheet() {
   const { user } = useAuth();
-  const { toast } = useToast();
   const [, navigate] = useLocation();
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -250,18 +247,17 @@ export default function AskMAinagerSheet() {
   };
 
   const handleQuickSuggestion = (text: string) => {
-    setInput(text);
-    setTimeout(() => {
-      const userMsg: ChatMessage = {
-        id: `user-${Date.now()}`,
-        role: "user",
-        content: text,
-        timestamp: new Date(),
-      };
-      setMessages(prev => [...prev, userMsg]);
-      setInput("");
-      askMutation.mutate(text);
-    }, 100);
+    if (askMutation.isPending) return;
+    const userMsg: ChatMessage = {
+      id: `user-${Date.now()}`,
+      role: "user",
+      content: text,
+      timestamp: new Date(),
+    };
+    setMessages(prev => [...prev, userMsg]);
+    setInput("");
+    setRetryCount(0);
+    askMutation.mutate(text);
   };
 
   const formatTime = (date: Date) =>
@@ -473,7 +469,7 @@ export default function AskMAinagerSheet() {
             </div>
           </ScrollArea>
 
-          {messages.length > 0 && !isEmptyState && (
+          {!isEmptyState && (
             <div className="px-4 py-1.5 border-t border-border">
               <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-hide">
                 {suggestions.slice(0, 3).map((s, i) => (

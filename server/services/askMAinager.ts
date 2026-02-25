@@ -111,7 +111,10 @@ async function gatherContext(storeId: string, employeeId: string, question: stri
       ))
       .then(rows => rows.map(r => r.whatBuggedYou).filter(Boolean).slice(0, 5)),
 
-    searchSOPs(storeId, question, 5),
+    searchSOPs(storeId, question, 5).catch((err) => {
+      logger.warn({ error: err.message }, "[AskMAinager] SOP search failed, continuing without RAG");
+      return [] as Awaited<ReturnType<typeof searchSOPs>>;
+    }),
   ]);
 
   const userIds = [...new Set(todaySchedules.map(s => s.userId))];
@@ -127,7 +130,7 @@ async function gatherContext(storeId: string, employeeId: string, question: stri
   const employeeName = employee
     ? `${employee.firstName || ""} ${employee.lastName || ""}`.trim() || "Team member"
     : "Team member";
-  const roleName = (employee as any)?.role || "employee";
+  const roleName = employee?.role || "employee";
   const storeName = store?.name || "the store";
 
   const shiftStatus = activeTimeEntry
@@ -272,9 +275,10 @@ ${ctx.sopChunks}`;
   ];
 
   try {
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("AI timeout")), 10000)
-    );
+    let timeoutId: ReturnType<typeof setTimeout>;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error("AI timeout")), 10000);
+    });
 
     const response = await Promise.race([
       anthropic.messages.create({
@@ -285,7 +289,7 @@ ${ctx.sopChunks}`;
         messages,
       }),
       timeoutPromise,
-    ]);
+    ]).finally(() => clearTimeout(timeoutId));
 
     let answer = response.content[0]?.type === "text" ? response.content[0].text : "";
 

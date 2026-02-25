@@ -370,6 +370,16 @@ Available SOPs: ${publishedSops.length > 0 ? publishedSops.map(s => s.title).joi
       });
       const { question, conversationId } = schema.parse(req.body);
 
+      if (conversationId) {
+        const conv = await db.select({ userId: aiChatConversations.userId })
+          .from(aiChatConversations)
+          .where(eq(aiChatConversations.id, conversationId))
+          .then(r => r[0]);
+        if (!conv || conv.userId !== req.user.id) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      }
+
       const storeId = req.user.storeId || "default";
 
       const result = await askMAinager({
