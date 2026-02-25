@@ -43,6 +43,7 @@ import { startSOPInsightsCron, stopSOPInsightsCron } from "./services/sopIntelli
 import { registerSOPEvolutionRoutes } from "./routes/sopEvolution";
 import { startSOPEvolutionCron, stopSOPEvolutionCron } from "./services/sopEvolution";
 import { registerBackgroundInsightRoutes } from "./routes/backgroundInsights";
+import { registerSmartSuggestionRoutes } from "./routes/smartSuggestions";
 import { startBackgroundInsightsCron, stopBackgroundInsightsCron } from "./services/backgroundInsights";
 import { createActionLoggerMiddleware, handleClientErrorReport, getActionSummary } from "./services/actionLogger";
 import { startSurfacingCron, stopSurfacingCron } from "./services/sopSurfacing";
@@ -169,6 +170,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerSOPIntelligenceRoutes(app, storage, isAuthenticated);
   registerSOPEvolutionRoutes(app, storage, isAuthenticated);
   registerBackgroundInsightRoutes(app, storage, isAuthenticated);
+  registerSmartSuggestionRoutes(app, storage, isAuthenticated);
 
   const httpServer = createServer(app);
 

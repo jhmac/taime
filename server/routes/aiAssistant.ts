@@ -5,6 +5,7 @@ import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import { config } from "../lib/config";
 import { askMAinager } from "../services/askMAinager";
+import { generateTaskSuggestions } from "../services/smartTaskSuggestions";
 import { db } from "../db";
 import { aiFeedback, aiChatConversations, aiChatMessages } from "@shared/schema";
 import { eq, and, desc } from "drizzle-orm";
@@ -382,8 +383,22 @@ Available SOPs: ${publishedSops.length > 0 ? publishedSops.map(s => s.title).joi
 
       const storeId = req.user.storeId || "default";
 
+      const taskPatterns = /what should i (be doing|do|focus|work on)|what.s next|what now|priorit|where (do i|should i) start/i;
+      let enrichedQuestion = question;
+      if (taskPatterns.test(question) && storeId !== "default") {
+        try {
+          const suggestions = await generateTaskSuggestions(req.user.id, storeId);
+          if (suggestions.suggestions.length > 0) {
+            const sugList = suggestions.suggestions.map(s =>
+              `${s.priority}. [${s.urgency}] ${s.title} — ${s.reason}${s.time_estimate_minutes ? ` (~${s.time_estimate_minutes}min)` : ""}`
+            ).join("\n");
+            enrichedQuestion = `${question}\n\n[SMART TASK ADVISOR DATA — use this to inform your answer]\nContext: ${suggestions.context_note}\nPrioritized suggestions:\n${sugList}`;
+          }
+        } catch {}
+      }
+
       const result = await askMAinager({
-        question,
+        question: enrichedQuestion,
         employeeId: req.user.id,
         storeId,
         conversationId,

@@ -34,6 +34,7 @@ The backend is a Node.js Express.js server written in TypeScript. It uses Drizzl
 - **Lean Board**: Team-level improvement tracking board displaying daily snapshots of metrics, trend mini-charts, and weekly AI summaries, focusing on aggregate team performance.
 - **SOP Evolution System**: AI-powered revision proposals for SOPs based on employee feedback and analytics, with a review and approval workflow.
 - **SOP Intelligence Layer**: AI-powered analysis of SOP execution data (completion rates, timings, skip rates) to generate actionable insights regarding friction points, training gaps, and optimization opportunities.
+- **Smart Task Suggestions (AI Review Assistant)**: Proactive AI-powered daily task prioritization answering "What should I be doing right now?" using employee context (tasks, SOPs, GTD actions, issues, schedule, surfaced SOPs). 5s Claude timeout with deterministic fallback, 15-min per-employee cache, integrated with Ask MAinager copilot for consistency.
 
 ## External Dependencies
 

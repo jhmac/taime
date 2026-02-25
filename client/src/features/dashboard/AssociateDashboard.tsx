@@ -12,6 +12,7 @@ import DailyQuoteCard from '@/components/DailyQuoteCard';
 import SurfacedSOPBanner from '@/components/SurfacedSOPBanner';
 import ImprovementFeedWidget from '@/components/ImprovementFeedWidget';
 import LeanBoardCard from '@/features/dashboard/LeanBoardCard';
+import SmartSuggestionsCard from '@/features/dashboard/SmartSuggestionsCard';
 import { DashboardErrorBoundary } from '@/features/dashboard/DashboardErrorBoundary';
 import GTDDashboardWidget from '@/features/gtd/GTDDashboardWidget';
 import type { UserWithRole, Task, SopExecution } from '@shared/schema';
@@ -131,6 +132,10 @@ export default function AssociateDashboard() {
 
         <DashboardErrorBoundary fallback="SOP banner failed to load">
           <SurfacedSOPBanner />
+        </DashboardErrorBoundary>
+
+        <DashboardErrorBoundary fallback="Suggestions failed to load">
+          <SmartSuggestionsCard />
         </DashboardErrorBoundary>
 
         <DashboardErrorBoundary fallback="Tasks failed to load">

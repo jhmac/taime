@@ -17,6 +17,7 @@ import WeeklyReviewCard from '@/features/gtd/WeeklyReviewCard';
 import LeanBoardCard from '@/features/dashboard/LeanBoardCard';
 import SOPInsightsCard from '@/features/dashboard/SOPInsightsCard';
 import BackgroundInsightsCard from '@/features/dashboard/BackgroundInsightsCard';
+import SmartSuggestionsCard from '@/features/dashboard/SmartSuggestionsCard';
 import SOPRevisionCard from '@/features/dashboard/SOPRevisionCard';
 import SurfacedSOPBanner from '@/components/SurfacedSOPBanner';
 import {
@@ -193,6 +194,12 @@ export default function ManagerDashboard() {
       <div className={isMobile ? "px-4 pb-1" : "px-6 pb-2"}>
         <DashboardErrorBoundary fallback="Could not load SOP banner">
           <SurfacedSOPBanner />
+        </DashboardErrorBoundary>
+      </div>
+
+      <div className={isMobile ? "px-4 pb-2" : "px-6 pb-2"}>
+        <DashboardErrorBoundary fallback="Suggestions failed to load">
+          <SmartSuggestionsCard />
         </DashboardErrorBoundary>
       </div>
 
