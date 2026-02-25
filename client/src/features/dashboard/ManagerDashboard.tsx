@@ -9,7 +9,6 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { DashboardErrorBoundary } from '@/features/dashboard/DashboardErrorBoundary';
-import AIChatModal from '@/components/AIChatModal';
 import MiddayPulseCard from '@/components/MiddayPulseCard';
 import ImprovementFeedWidget from '@/components/ImprovementFeedWidget';
 import KudosWidget from '@/components/KudosWidget';
@@ -35,7 +34,6 @@ export default function ManagerDashboard() {
   const { user } = useAuth();
   const isMobile = useIsMobile();
   const [, navigate] = useLocation();
-  const [showAIChat, setShowAIChat] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
 
   useEffect(() => {
@@ -119,7 +117,7 @@ export default function ManagerDashboard() {
               </p>
             </div>
             <Button
-              onClick={() => setShowAIChat(true)}
+              onClick={() => window.dispatchEvent(new Event("open-ask-mainager"))}
               size="icon"
               className="bg-white/20 hover:bg-white/30 text-white rounded-full h-10 w-10"
             >
@@ -426,7 +424,6 @@ export default function ManagerDashboard() {
         </div>
       </div>
 
-      <AIChatModal isOpen={showAIChat} onClose={() => setShowAIChat(false)} />
     </div>
   );
 }

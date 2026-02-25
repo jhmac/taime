@@ -43,7 +43,7 @@ import NotFound from "@/pages/not-found";
 import OfflineIndicator from "@/components/OfflineIndicator";
 import SmartClockPrompt from "@/components/SmartClockPrompt";
 import FocusClockOut from "@/components/FocusClockOut";
-import AIAssistant from "@/components/AIAssistant";
+import AskMAinagerSheet from "@/features/ai-copilot/AskMAinagerSheet";
 import QuickCaptureButton from "@/features/gtd/QuickCaptureButton";
 import GTDInbox from "@/features/gtd/GTDInbox";
 import GTDActions from "@/features/gtd/GTDActions";
@@ -186,7 +186,7 @@ function AuthenticatedApp() {
     <OfflineIndicator />
     <SmartClockPrompt />
     <FocusClockOut />
-    <AIAssistant />
+    <AskMAinagerSheet />
     <QuickCaptureButton />
     <Switch>
       <Route path="/" component={DashboardRouter} />

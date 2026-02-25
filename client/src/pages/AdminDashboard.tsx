@@ -10,7 +10,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
-import AIChatModal from '@/components/AIChatModal';
 import TodaySchedulePanel from '@/components/TodaySchedulePanel';
 import DailyGoalWidget from '@/components/DailyGoalWidget';
 import DailyQuoteCard from '@/components/DailyQuoteCard';
@@ -25,7 +24,6 @@ export default function AdminDashboard() {
   const queryClient = useQueryClient();
   const isMobile = useIsMobile();
   const [, navigate] = useLocation();
-  const [showAIChat, setShowAIChat] = useState(false);
   const [showTasksPopup, setShowTasksPopup] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [lastAssignResult, setLastAssignResult] = useState<any>(null);
@@ -103,7 +101,7 @@ export default function AdminDashboard() {
             </p>
           </div>
           <Button
-            onClick={() => setShowAIChat(true)}
+            onClick={() => window.dispatchEvent(new Event("open-ask-mainager"))}
             size="icon"
             className="bg-white/20 hover:bg-white/30 text-white rounded-full h-10 w-10"
             data-testid="admin-ai-assistant"
@@ -621,7 +619,6 @@ export default function AdminDashboard() {
         </DialogContent>
       </Dialog>
 
-      <AIChatModal isOpen={showAIChat} onClose={() => setShowAIChat(false)} />
     </div>
   );
 }

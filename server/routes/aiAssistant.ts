@@ -4,6 +4,10 @@ import Anthropic from '@anthropic-ai/sdk';
 import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import { config } from "../lib/config";
+import { askMAinager } from "../services/askMAinager";
+import { db } from "../db";
+import { aiFeedback, aiChatConversations, aiChatMessages } from "@shared/schema";
+import { eq, and, desc } from "drizzle-orm";
 
 const DEFAULT_MODEL_STR = "claude-sonnet-4-20250514";
 
@@ -17,6 +21,15 @@ const chatRateLimiter = rateLimit({
   message: { message: "Too many requests, please try again shortly" },
   standardHeaders: true,
   legacyHeaders: false,
+});
+
+const askRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 30,
+  message: { message: "You've reached the question limit. Try again in a bit!" },
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { xForwardedForHeader: false, default: true },
 });
 
 export function registerAiAssistantRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
@@ -344,6 +357,90 @@ Available SOPs: ${publishedSops.length > 0 ? publishedSops.map(s => s.title).joi
     try {
       const alerts = await storage.getUserCommuteAlerts(req.user.id);
       res.json(alerts);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post('/api/ai/ask', isAuthenticated, askRateLimiter, async (req: any, res) => {
+    try {
+      const schema = z.object({
+        question: z.string().min(1).max(1000),
+        conversationId: z.string().optional(),
+      });
+      const { question, conversationId } = schema.parse(req.body);
+
+      const storeId = req.user.storeId || "default";
+
+      const result = await askMAinager({
+        question,
+        employeeId: req.user.id,
+        storeId,
+        conversationId,
+      });
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("[Ask MAinager] Error:", error.message);
+      if (error.name === "ZodError") {
+        return res.status(400).json({ message: "Invalid request" });
+      }
+      res.status(500).json({
+        answer: "I'm having a little trouble right now. Please try again in a moment.",
+        confidence: "low",
+        referencedSops: [],
+        suggestedActions: [],
+        conversationId: "",
+      });
+    }
+  });
+
+  app.post('/api/ai/feedback', isAuthenticated, async (req: any, res) => {
+    try {
+      const schema = z.object({
+        conversationId: z.string(),
+        messageIndex: z.number().int().min(0),
+        helpful: z.boolean(),
+        feedbackText: z.string().max(500).optional(),
+      });
+      const data = schema.parse(req.body);
+
+      const conv = await db.select().from(aiChatConversations)
+        .where(and(
+          eq(aiChatConversations.id, data.conversationId),
+          eq(aiChatConversations.userId, req.user.id),
+        )).then(r => r[0]);
+
+      if (!conv) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      await db.insert(aiFeedback).values({
+        conversationId: data.conversationId,
+        messageIndex: data.messageIndex,
+        helpful: data.helpful,
+        feedbackText: data.feedbackText || null,
+      });
+
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get('/api/ai/conversations', isAuthenticated, async (req: any, res) => {
+    try {
+      const conversations = await db.select({
+        id: aiChatConversations.id,
+        title: aiChatConversations.title,
+        lastMessageAt: aiChatConversations.lastMessageAt,
+        createdAt: aiChatConversations.createdAt,
+      }).from(aiChatConversations)
+        .where(eq(aiChatConversations.userId, req.user.id))
+        .orderBy(desc(aiChatConversations.lastMessageAt))
+        .limit(10);
+
+      res.json(conversations);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }

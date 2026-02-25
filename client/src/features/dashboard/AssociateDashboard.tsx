@@ -11,7 +11,6 @@ import { Checkbox } from '@/components/ui/checkbox';
 import DailyQuoteCard from '@/components/DailyQuoteCard';
 import SurfacedSOPBanner from '@/components/SurfacedSOPBanner';
 import ImprovementFeedWidget from '@/components/ImprovementFeedWidget';
-import AIChatModal from '@/components/AIChatModal';
 import { DashboardErrorBoundary } from '@/features/dashboard/DashboardErrorBoundary';
 import GTDDashboardWidget from '@/features/gtd/GTDDashboardWidget';
 import type { UserWithRole, Task, SopExecution } from '@shared/schema';
@@ -31,7 +30,6 @@ export default function AssociateDashboard() {
   const isMobile = useIsMobile();
   const [, navigate] = useLocation();
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [showAIChat, setShowAIChat] = useState(false);
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -110,7 +108,7 @@ export default function AssociateDashboard() {
               </div>
             </div>
             <Button
-              onClick={() => setShowAIChat(true)}
+              onClick={() => window.dispatchEvent(new Event("open-ask-mainager"))}
               size="icon"
               className="bg-white/20 hover:bg-white/30 text-white rounded-full h-9 w-9"
             >
@@ -276,7 +274,6 @@ export default function AssociateDashboard() {
         </DashboardErrorBoundary>
       </div>
 
-      <AIChatModal isOpen={showAIChat} onClose={() => setShowAIChat(false)} />
     </div>
   );
 }

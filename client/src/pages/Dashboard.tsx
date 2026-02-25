@@ -11,7 +11,6 @@ import ScheduleWidget from '@/components/ScheduleWidget';
 import ChoresWidget from '@/components/ChoresWidget';
 import TeamActivityFeed from '@/components/TeamActivityFeed';
 import AIInsightsWidget from '@/components/AIInsightsWidget';
-import AIChatModal from '@/components/AIChatModal';
 import TodaySchedulePanel from '@/components/TodaySchedulePanel';
 import DailyGoalWidget from '@/components/DailyGoalWidget';
 import DailyQuoteCard from '@/components/DailyQuoteCard';
@@ -29,7 +28,6 @@ export default function Dashboard() {
   const isMobile = useIsMobile();
   const [, navigate] = useLocation();
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [showAIChat, setShowAIChat] = useState(false);
   const [showDebrief, setShowDebrief] = useState(false);
 
   const { data: schedules = [] } = useQuery<Schedule[]>({
@@ -75,7 +73,7 @@ export default function Dashboard() {
               </div>
             </div>
             <Button
-              onClick={() => setShowAIChat(true)}
+              onClick={() => window.dispatchEvent(new Event("open-ask-mainager"))}
               size="icon"
               className="bg-white/20 hover:bg-white/30 text-white rounded-full h-9 w-9"
             >
@@ -203,7 +201,6 @@ export default function Dashboard() {
           </Card>
         </div>
 
-        <AIChatModal isOpen={showAIChat} onClose={() => setShowAIChat(false)} />
         <DailyDebriefSheet open={showDebrief} onOpenChange={setShowDebrief} />
       </div>
     );
@@ -228,7 +225,7 @@ export default function Dashboard() {
               </span>
             )}
             <Button
-              onClick={() => setShowAIChat(true)}
+              onClick={() => window.dispatchEvent(new Event("open-ask-mainager"))}
               size="icon"
               className="bg-white/20 hover:bg-white/30 text-white rounded-full h-10 w-10"
               data-testid="ai-assistant-button"
@@ -322,7 +319,7 @@ export default function Dashboard() {
                   <span className="text-xs font-medium">Availability</span>
                 </CardContent>
               </Card>
-              <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setShowAIChat(true)}>
+              <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => window.dispatchEvent(new Event("open-ask-mainager"))}>
                 <CardContent className="p-4 flex flex-col items-center text-center">
                   <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center mb-2">
                     <Bot className="h-4 w-4 text-amber-600 dark:text-amber-400" />
@@ -397,7 +394,7 @@ export default function Dashboard() {
                   <span className="text-xs font-medium">Team Chat</span>
                 </CardContent>
               </Card>
-              <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setShowAIChat(true)}>
+              <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => window.dispatchEvent(new Event("open-ask-mainager"))}>
                 <CardContent className="p-4 flex flex-col items-center text-center">
                   <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center mb-2">
                     <Bot className="h-4 w-4 text-amber-600 dark:text-amber-400" />
@@ -418,7 +415,6 @@ export default function Dashboard() {
         </>
       )}
 
-      <AIChatModal isOpen={showAIChat} onClose={() => setShowAIChat(false)} />
       <DailyDebriefSheet open={showDebrief} onOpenChange={setShowDebrief} />
     </div>
   );

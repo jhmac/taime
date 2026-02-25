@@ -568,6 +568,16 @@ export const aiChatMessages = pgTable("ai_chat_messages", {
   conversationId: varchar("conversation_id").references(() => aiChatConversations.id).notNull(),
   role: varchar("role").notNull(),
   content: text("content").notNull(),
+  sopReferences: text("sop_references").array(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const aiFeedback = pgTable("ai_feedback", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  conversationId: varchar("conversation_id").references(() => aiChatConversations.id).notNull(),
+  messageIndex: integer("message_index").notNull(),
+  helpful: boolean("helpful").notNull(),
+  feedbackText: text("feedback_text"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -824,6 +834,7 @@ export const insertSopCategorySchema = createInsertSchema(sopCategories).omit({ 
 export const insertSopDocumentSchema = createInsertSchema(sopDocuments).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertAiChatConversationSchema = createInsertSchema(aiChatConversations).omit({ id: true, createdAt: true });
 export const insertAiChatMessageSchema = createInsertSchema(aiChatMessages).omit({ id: true, createdAt: true });
+export const insertAiFeedbackSchema = createInsertSchema(aiFeedback).omit({ id: true, createdAt: true });
 export const insertTrainingModuleSchema = createInsertSchema(trainingModules).omit({ id: true, createdAt: true });
 export const insertEmployeeTrainingProgressSchema = createInsertSchema(employeeTrainingProgress).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertCommuteAlertSchema = createInsertSchema(commuteAlerts).omit({ id: true, createdAt: true });
@@ -1094,6 +1105,8 @@ export type AiChatConversation = typeof aiChatConversations.$inferSelect;
 export type InsertAiChatConversation = z.infer<typeof insertAiChatConversationSchema>;
 export type AiChatMessage = typeof aiChatMessages.$inferSelect;
 export type InsertAiChatMessage = z.infer<typeof insertAiChatMessageSchema>;
+export type AiFeedback = typeof aiFeedback.$inferSelect;
+export type InsertAiFeedback = z.infer<typeof insertAiFeedbackSchema>;
 export type TrainingModule = typeof trainingModules.$inferSelect;
 export type InsertTrainingModule = z.infer<typeof insertTrainingModuleSchema>;
 export type EmployeeTrainingProgress = typeof employeeTrainingProgress.$inferSelect;

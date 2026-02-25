@@ -7,7 +7,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import AIChatModal from '@/components/AIChatModal';
 import SurfacedSOPBanner from '@/components/SurfacedSOPBanner';
 import MiddayPulseCard from '@/components/MiddayPulseCard';
 import ImprovementFeedWidget from '@/components/ImprovementFeedWidget';
@@ -25,7 +24,6 @@ export default function OwnerDashboard() {
   const { user } = useAuth();
   const isMobile = useIsMobile();
   const [, navigate] = useLocation();
-  const [showAIChat, setShowAIChat] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
 
   useEffect(() => {
@@ -137,7 +135,7 @@ export default function OwnerDashboard() {
               </p>
             </div>
             <Button
-              onClick={() => setShowAIChat(true)}
+              onClick={() => window.dispatchEvent(new Event("open-ask-mainager"))}
               size="icon"
               className="bg-white/10 hover:bg-white/20 text-white rounded-full h-10 w-10"
             >
@@ -430,7 +428,6 @@ export default function OwnerDashboard() {
         </DashboardErrorBoundary>
       </div>
 
-      <AIChatModal isOpen={showAIChat} onClose={() => setShowAIChat(false)} />
     </div>
   );
 }
