@@ -15,6 +15,7 @@ import GTDDashboardWidget from '@/features/gtd/GTDDashboardWidget';
 import WeeklyReviewCard from '@/features/gtd/WeeklyReviewCard';
 import LeanBoardCard from '@/features/dashboard/LeanBoardCard';
 import SOPInsightsCard from '@/features/dashboard/SOPInsightsCard';
+import BackgroundInsightsCard from '@/features/dashboard/BackgroundInsightsCard';
 import SOPRevisionCard from '@/features/dashboard/SOPRevisionCard';
 import {
   Briefcase, Users, ShieldCheck, AlertTriangle, TrendingUp,
@@ -394,6 +395,10 @@ export default function OwnerDashboard() {
 
         <DashboardErrorBoundary fallback="Weekly review card failed to load">
           <WeeklyReviewCard />
+        </DashboardErrorBoundary>
+
+        <DashboardErrorBoundary fallback="AI insights card failed to load">
+          <BackgroundInsightsCard />
         </DashboardErrorBoundary>
 
         <DashboardErrorBoundary fallback="SOP insights card failed to load">

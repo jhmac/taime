@@ -42,6 +42,8 @@ import { registerSOPIntelligenceRoutes } from "./routes/sopIntelligence";
 import { startSOPInsightsCron, stopSOPInsightsCron } from "./services/sopIntelligence";
 import { registerSOPEvolutionRoutes } from "./routes/sopEvolution";
 import { startSOPEvolutionCron, stopSOPEvolutionCron } from "./services/sopEvolution";
+import { registerBackgroundInsightRoutes } from "./routes/backgroundInsights";
+import { startBackgroundInsightsCron, stopBackgroundInsightsCron } from "./services/backgroundInsights";
 import { createActionLoggerMiddleware, handleClientErrorReport, getActionSummary } from "./services/actionLogger";
 import { startSurfacingCron, stopSurfacingCron } from "./services/sopSurfacing";
 import { startMiddayPulseCron, stopMiddayPulseCron } from "./services/middayPulse";
@@ -166,6 +168,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerLeanBoardRoutes(app, storage, isAuthenticated);
   registerSOPIntelligenceRoutes(app, storage, isAuthenticated);
   registerSOPEvolutionRoutes(app, storage, isAuthenticated);
+  registerBackgroundInsightRoutes(app, storage, isAuthenticated);
 
   const httpServer = createServer(app);
 
@@ -225,6 +228,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   startLeanBoardCron();
   startSOPInsightsCron();
   startSOPEvolutionCron();
+  startBackgroundInsightsCron();
   seedShiftHandoffSOP().catch(err => logger.error({ error: err.message }, 'Handoff SOP seed failed'));
 
   function gracefulShutdown() {
@@ -236,6 +240,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     stopLeanBoardCron();
     stopSOPInsightsCron();
     stopSOPEvolutionCron();
+    stopBackgroundInsightsCron();
 
     const shutdownPayload = JSON.stringify({ type: "server_restarting" });
     wsConnections.forEach((conns) => {

@@ -1362,7 +1362,9 @@ export const weeklyReviews = pgTable("weekly_reviews", {
   completedAt: timestamp("completed_at", { withTimezone: true }),
   notes: text("notes"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-});
+}, (table) => [
+  index("idx_weekly_reviews_user_store").on(table.userId, table.storeId),
+]);
 
 export const insertWeeklyReviewSchema = createInsertSchema(weeklyReviews).omit({ id: true, createdAt: true });
 export type WeeklyReview = typeof weeklyReviews.$inferSelect;
@@ -1501,3 +1503,26 @@ export const sopRevisionProposals = pgTable("sop_revision_proposals", {
 export const insertSopRevisionProposalSchema = createInsertSchema(sopRevisionProposals).omit({ id: true, createdAt: true });
 export type SopRevisionProposal = typeof sopRevisionProposals.$inferSelect;
 export type InsertSopRevisionProposal = z.infer<typeof insertSopRevisionProposalSchema>;
+
+export const backgroundInsights = pgTable("background_insights", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: text("store_id").notNull(),
+  insightType: text("insight_type").notNull(),
+  severity: text("severity").notNull().default("info"),
+  headline: text("headline").notNull(),
+  detail: text("detail").notNull(),
+  recommendation: text("recommendation").notNull(),
+  dataPayload: jsonb("data_payload"),
+  status: text("status").notNull().default("active"),
+  acknowledgedBy: text("acknowledged_by"),
+  actedOnAt: timestamp("acted_on_at", { withTimezone: true }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  index("idx_bg_insights_store_status_sev").on(table.storeId, table.status, table.severity, table.createdAt),
+  index("idx_bg_insights_store_type").on(table.storeId, table.insightType, table.createdAt),
+]);
+
+export const insertBackgroundInsightSchema = createInsertSchema(backgroundInsights).omit({ id: true, createdAt: true });
+export type BackgroundInsight = typeof backgroundInsights.$inferSelect;
+export type InsertBackgroundInsight = z.infer<typeof insertBackgroundInsightSchema>;

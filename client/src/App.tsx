@@ -57,6 +57,7 @@ import WeeklyReview from "@/features/gtd/WeeklyReview";
 import MessagingPage from "@/features/messaging/MessagingPage";
 import KudosWallPage from "@/features/kudos/KudosWallPage";
 import LeanBoard from "@/pages/LeanBoard";
+import InsightsPage from "@/pages/InsightsPage";
 import { WebSocketProvider } from "@/contexts/WebSocketContext";
 import type { Permission } from "@shared/schema";
 
@@ -249,6 +250,7 @@ function AuthenticatedApp() {
       <Route path="/gtd/someday" component={GTDSomeday} />
       <Route path="/gtd/review" component={WeeklyReview} />
       <Route path="/lean-board" component={LeanBoard} />
+      <Route path="/insights" component={InsightsPage} />
       <Route path="/support" component={SupportPage} />
       <Route path="/admin">
         <ProtectedRoute permission="admin.manage_all"><AdminSettings /></ProtectedRoute>

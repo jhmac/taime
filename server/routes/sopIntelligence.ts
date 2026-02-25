@@ -4,6 +4,7 @@ import { eq, and, desc, sql } from "drizzle-orm";
 import { sopInsights } from "@shared/schema";
 import { analyzeSOP, generateSOPInsights } from "../services/sopIntelligence";
 import type { IStorage } from "../storage";
+import { cache } from "../lib/cache";
 import logger from "../lib/logger";
 
 async function requireManagerOrAbove(storage: IStorage, userId: string): Promise<boolean> {
@@ -91,10 +92,15 @@ export function registerSOPIntelligenceRoutes(app: Express, storage: IStorage, i
       if (!user?.storeId) return res.status(400).json({ message: "No store assigned" });
 
       const { templateId } = req.params;
+      const cacheKey = `sop-analytics:${templateId}:${user.storeId}`;
+      const cached = cache.get<any>(cacheKey);
+      if (cached) return res.json(cached);
+
       const analysis = await analyzeSOP(templateId, user.storeId);
 
       if (!analysis) return res.status(404).json({ message: "Template not found" });
 
+      cache.set(cacheKey, analysis, 5 * 60 * 1000);
       res.json(analysis);
     } catch (error: any) {
       logger.error({ error: error.message }, "[SOPIntelligence] Error fetching analytics");

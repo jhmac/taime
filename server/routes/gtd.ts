@@ -534,18 +534,27 @@ export function registerGtdRoutes(
       .limit(limit)
       .offset(offset);
 
-    const projectsWithCounts = await Promise.all(projectRows.map(async (p) => {
-      const [totalResult] = await db.select({ count: count() }).from(gtdNextActions)
-        .where(eq(gtdNextActions.projectId, p.id));
-      const [completedResult] = await db.select({ count: count() }).from(gtdNextActions)
-        .where(and(eq(gtdNextActions.projectId, p.id), eq(gtdNextActions.status, 'completed')));
-
-      const total = totalResult?.count || 0;
-      const completed = completedResult?.count || 0;
-      const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
-
-      return { ...p, actionCount: total, completedActionCount: completed, progress };
-    }));
+    const projectIds = projectRows.map(p => p.id);
+    let actionCounts: Record<string, { total: number; completed: number }> = {};
+    if (projectIds.length > 0) {
+      const counts = await db.select({
+        projectId: gtdNextActions.projectId,
+        total: count(),
+        completed: sql<number>`count(*) filter (where ${gtdNextActions.status} = 'completed')`,
+      }).from(gtdNextActions)
+        .where(inArray(gtdNextActions.projectId, projectIds))
+        .groupBy(gtdNextActions.projectId);
+      for (const row of counts) {
+        if (row.projectId) {
+          actionCounts[row.projectId] = { total: Number(row.total), completed: Number(row.completed) };
+        }
+      }
+    }
+    const projectsWithCounts = projectRows.map(p => {
+      const c = actionCounts[p.id] || { total: 0, completed: 0 };
+      const progress = c.total > 0 ? Math.round((c.completed / c.total) * 100) : 0;
+      return { ...p, actionCount: c.total, completedActionCount: c.completed, progress };
+    });
 
     res.json({ success: true, data: projectsWithCounts });
   }));
