@@ -4,6 +4,7 @@ import { eq, and, gte, lte, desc } from "drizzle-orm";
 import { leanBoardSnapshots } from "@shared/schema";
 import { getLeanBoardData, generateDailySnapshot, generateWeeklyLeanSummary } from "../services/leanBoard";
 import type { IStorage } from "../storage";
+import logger from "../lib/logger";
 
 export function registerLeanBoardRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
   app.get("/api/lean-board", isAuthenticated, async (req: any, res) => {
@@ -18,7 +19,7 @@ export function registerLeanBoardRoutes(app: Express, storage: IStorage, isAuthe
       const data = await getLeanBoardData(storeId, period as any);
       res.json(data);
     } catch (error: any) {
-      console.error("[LeanBoard] Error:", error.message);
+      logger.error({ error: error.message }, "[LeanBoard] Error loading data");
       res.status(500).json({ message: "Failed to load lean board data." });
     }
   });
@@ -48,7 +49,7 @@ export function registerLeanBoardRoutes(app: Express, storage: IStorage, isAuthe
 
       res.json(snapshots);
     } catch (error: any) {
-      console.error("[LeanBoard] History error:", error.message);
+      logger.error({ error: error.message }, "[LeanBoard] History error");
       res.status(500).json({ message: "Failed to load history." });
     }
   });

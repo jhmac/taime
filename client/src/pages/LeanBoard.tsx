@@ -1,14 +1,13 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useAuth } from "@/hooks/useAuth";
+import { useLocation } from "wouter";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Badge } from "@/components/ui/badge";
 import {
   TrendingUp, TrendingDown, Minus, Lightbulb, Video,
   Heart, ShieldCheck, AlertTriangle, CheckCircle2,
-  Users, Flame, BarChart3, Sparkles, ChevronLeft, ChevronRight,
+  Users, Flame, BarChart3, Sparkles,
 } from "lucide-react";
 
 interface LeanMetrics {
@@ -110,7 +109,7 @@ function MetricCard({
 
 export default function LeanBoard() {
   const [period, setPeriod] = useState<"today" | "week" | "month">("week");
-  const { user } = useAuth();
+  const [, navigate] = useLocation();
 
   const { data, isLoading } = useQuery<LeanBoardData>({
     queryKey: ["/api/lean-board", period],
@@ -256,7 +255,7 @@ export default function LeanBoard() {
               label="Team Participation"
               value={metrics.team_participation_rate}
               suffix="%"
-              trend={{ current: metrics.team_participation_rate, previous: 50 }}
+              trend={{ current: metrics.team_participation_rate, previous: 0 }}
               color="text-violet-600 dark:text-violet-400"
               bgColor="bg-violet-100 dark:bg-violet-900/30"
             />
@@ -324,7 +323,7 @@ export default function LeanBoard() {
                 size="sm"
                 variant="outline"
                 className="gap-1.5"
-                onClick={() => window.location.href = "/improvements"}
+                onClick={() => navigate("/improvements")}
               >
                 <Video className="h-3.5 w-3.5" /> Share a Video
               </Button>

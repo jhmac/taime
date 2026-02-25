@@ -1,10 +1,10 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { config } from "../lib/config";
 import { db } from "../db";
-import { eq, and, gte, lte, sql, count, isNull } from "drizzle-orm";
+import { eq, and, gte, lte, sql, count } from "drizzle-orm";
 import {
   dailyDebriefs, improvementVideos, kudos, sopExecutions,
-  issues, users, leanBoardSnapshots, timeEntries,
+  issues, users, leanBoardSnapshots,
 } from "@shared/schema";
 import logger from "../lib/logger";
 
@@ -118,7 +118,7 @@ export async function generateDailySnapshot(storeId: string, date: Date): Promis
       )).then(r => r[0]?.count || 0),
   ]);
 
-  const sopCompletionRate = sopTotal > 0 ? Math.round((sopCompleted / sopTotal) * 100) : 100;
+  const sopCompletionRate = sopTotal > 0 ? Math.round((sopCompleted / sopTotal) * 100) : 0;
 
   const prevWeekStart = new Date(weekStart);
   prevWeekStart.setDate(prevWeekStart.getDate() - 7);
@@ -471,20 +471,32 @@ export async function getLeanBoardData(storeId: string, period: "today" | "week"
       })
     : null;
 
+  const eightWeeksAgo = new Date(now);
+  eightWeeksAgo.setDate(eightWeeksAgo.getDate() - 8 * 7);
+  const { start: trendStart } = weekRange(eightWeeksAgo);
+  const trendStartStr = trendStart.toISOString().split("T")[0];
+  const trendEndStr = endStr;
+
+  const allTrendSnaps = await db.select().from(leanBoardSnapshots)
+    .where(and(
+      eq(leanBoardSnapshots.storeId, storeId),
+      gte(leanBoardSnapshots.snapshotDate, trendStartStr),
+      lte(leanBoardSnapshots.snapshotDate, trendEndStr),
+    ))
+    .orderBy(leanBoardSnapshots.snapshotDate);
+
   const trendWeeks = [];
-  for (let w = 0; w < 8; w++) {
+  for (let w = 7; w >= 0; w--) {
     const wDate = new Date(now);
     wDate.setDate(wDate.getDate() - w * 7);
     const { start: ws, end: we } = weekRange(wDate);
     const wsStr = ws.toISOString().split("T")[0];
     const weStr = we.toISOString().split("T")[0];
 
-    const weekSnaps = await db.select().from(leanBoardSnapshots)
-      .where(and(
-        eq(leanBoardSnapshots.storeId, storeId),
-        gte(leanBoardSnapshots.snapshotDate, wsStr),
-        lte(leanBoardSnapshots.snapshotDate, weStr),
-      ));
+    const weekSnaps = allTrendSnaps.filter(s => {
+      const d = s.snapshotDate;
+      return d >= wsStr && d <= weStr;
+    });
 
     const weekMetrics = weekSnaps.reduce((acc, s) => {
       const m = s.metrics as LeanMetrics;
@@ -495,10 +507,7 @@ export async function getLeanBoardData(storeId: string, period: "today" | "week"
       return acc;
     }, { improvements: 0, videos: 0, kudos: 0, sopRate: 0 });
 
-    trendWeeks.unshift({
-      weekStart: wsStr,
-      ...weekMetrics,
-    });
+    trendWeeks.push({ weekStart: wsStr, ...weekMetrics });
   }
 
   const patterns = await detectPatterns(storeId);
