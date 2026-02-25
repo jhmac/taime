@@ -297,6 +297,7 @@ export default function SOPExecution() {
       }
     },
     onError: () => {
+      pendingJumpRef.current = null;
       toast({ title: 'Error', description: 'Failed to update step. Your progress has been saved locally.', variant: 'destructive' });
       try {
         const queue = JSON.parse(localStorage.getItem(LS_PENDING_SYNC) ?? '[]') as Record<string, unknown>[];

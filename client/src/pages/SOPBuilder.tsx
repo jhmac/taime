@@ -145,7 +145,8 @@ function FlowVisualization({ steps }: { steps: StepForm[] }) {
     currentY += h + gapY;
   }
 
-  const svgWidth = Math.max(maxX + padding + 100, 300);
+  const branchCount = steps.filter(s => s.stepType === 'decision').reduce((sum, s) => sum + (s.decisionOptions?.options?.length || 0), 0);
+  const svgWidth = Math.max(maxX + padding + 100 + (branchCount * 25), 300);
   const svgHeight = currentY + padding;
 
   const nodeByOrder = new Map(nodes.map(n => [n.order, n]));
@@ -191,16 +192,15 @@ function FlowVisualization({ steps }: { steps: StepForm[] }) {
           const edgeColor = edge.color ? colorMap[edge.color] || '#9ca3af' : 'currentColor';
 
           if (edge.to.order > edge.from.order + 1 || edge.to.order < edge.from.order) {
-            const offsetX = isBranch ? (i % 2 === 0 ? 60 : -40) + (i * 15) : 0;
-            const midX = edge.from.x + nodeWidth / 2 + 20 + Math.abs(offsetX);
+            const branchIdx = edges.filter((e, j) => j < i && (e.to.order > e.from.order + 1 || e.to.order < e.from.order)).length;
+            const midX = edge.from.x + nodeWidth / 2 + 20 + (branchIdx * 25);
             return (
               <g key={`edge-${i}`}>
                 <path
-                  d={`M ${edge.from.x + (offsetX > 0 ? nodeWidth/2 : -nodeWidth/2)} ${edge.from.y} 
+                  d={`M ${edge.from.x + nodeWidth/2} ${edge.from.y} 
                       L ${midX} ${edge.from.y} 
-                      L ${midX} ${toTop - 10} 
-                      L ${edge.to.x} ${toTop - 10}
-                      L ${edge.to.x} ${toTop}`}
+                      L ${midX} ${edge.to.y} 
+                      L ${edge.to.x + nodeWidth/2} ${edge.to.y}`}
                   fill="none"
                   stroke={edgeColor}
                   strokeWidth={1.5}

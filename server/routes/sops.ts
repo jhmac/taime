@@ -568,10 +568,13 @@ export function registerSopLibraryRoutes(
     const branchChoices = (updatedExec?.branchPath as any[]) || [];
 
     const reachableStepIds = new Set<string>();
+    const maxOrder = Math.max(...allSteps.map(s => s.stepOrder), 0);
     let currentOrder = 1;
     const stepByOrder = new Map(allSteps.map(s => [s.stepOrder, s]));
+    const visitedOrders = new Set<number>();
 
-    while (currentOrder <= allSteps.length) {
+    while (currentOrder <= maxOrder && !visitedOrders.has(currentOrder)) {
+      visitedOrders.add(currentOrder);
       const s = stepByOrder.get(currentOrder);
       if (!s) break;
       reachableStepIds.add(s.id);
