@@ -51,7 +51,7 @@ interface StepForm {
   stepType: string;
   isCheckpoint: boolean;
   timerDurationSeconds: number | null;
-  decisionOptions: { options: { label: string; nextStepOrder: number }[] } | null;
+  decisionOptions: { question?: string; options: { label: string; nextStepOrder: number; color?: string }[] } | null;
   trainingDetail: string;
   trainingVideoUrl: string | null;
   trainingPhotoUrls: string[];
@@ -109,6 +109,181 @@ function compressImageForTraining(file: File, maxSizeKB: number = 512): Promise<
   });
 }
 
+function FlowVisualization({ steps }: { steps: StepForm[] }) {
+  const nodeWidth = 180;
+  const nodeHeight = 50;
+  const decisionHeight = 60;
+  const gapY = 30;
+  const padding = 20;
+
+  interface LayoutNode {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    step: StepForm;
+    order: number;
+  }
+
+  const nodes: LayoutNode[] = [];
+  let maxX = 0;
+  let currentY = padding;
+
+  for (let i = 0; i < steps.length; i++) {
+    const s = steps[i];
+    const h = s.stepType === 'decision' ? decisionHeight : nodeHeight;
+    const node: LayoutNode = {
+      x: padding + (nodeWidth / 2),
+      y: currentY + (h / 2),
+      width: nodeWidth,
+      height: h,
+      step: s,
+      order: i + 1,
+    };
+    nodes.push(node);
+    maxX = Math.max(maxX, node.x + nodeWidth / 2);
+    currentY += h + gapY;
+  }
+
+  const svgWidth = Math.max(maxX + padding + 100, 300);
+  const svgHeight = currentY + padding;
+
+  const nodeByOrder = new Map(nodes.map(n => [n.order, n]));
+
+  const edges: { from: LayoutNode; to: LayoutNode; label?: string; color?: string }[] = [];
+  for (const node of nodes) {
+    if (node.step.stepType === 'decision' && node.step.decisionOptions?.options) {
+      for (const opt of node.step.decisionOptions.options) {
+        const target = nodeByOrder.get(opt.nextStepOrder);
+        if (target) {
+          edges.push({ from: node, to: target, label: opt.label, color: opt.color });
+        }
+      }
+    } else {
+      const next = nodeByOrder.get(node.order + 1);
+      if (next) {
+        edges.push({ from: node, to: next });
+      }
+    }
+  }
+
+  const colorMap: Record<string, string> = {
+    green: '#22c55e',
+    yellow: '#f59e0b',
+    red: '#ef4444',
+    blue: '#3b82f6',
+    gray: '#9ca3af',
+  };
+
+  return (
+    <div className="overflow-auto max-h-[500px]">
+      <svg width={svgWidth} height={svgHeight} className="min-w-full">
+        <defs>
+          <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="currentColor" className="text-muted-foreground" />
+          </marker>
+        </defs>
+
+        {edges.map((edge, i) => {
+          const fromBottom = edge.from.y + edge.from.height / 2;
+          const toTop = edge.to.y - edge.to.height / 2;
+          const isBranch = edge.label;
+          const edgeColor = edge.color ? colorMap[edge.color] || '#9ca3af' : 'currentColor';
+
+          if (edge.to.order > edge.from.order + 1 || edge.to.order < edge.from.order) {
+            const offsetX = isBranch ? (i % 2 === 0 ? 60 : -40) + (i * 15) : 0;
+            const midX = edge.from.x + nodeWidth / 2 + 20 + Math.abs(offsetX);
+            return (
+              <g key={`edge-${i}`}>
+                <path
+                  d={`M ${edge.from.x + (offsetX > 0 ? nodeWidth/2 : -nodeWidth/2)} ${edge.from.y} 
+                      L ${midX} ${edge.from.y} 
+                      L ${midX} ${toTop - 10} 
+                      L ${edge.to.x} ${toTop - 10}
+                      L ${edge.to.x} ${toTop}`}
+                  fill="none"
+                  stroke={edgeColor}
+                  strokeWidth={1.5}
+                  markerEnd="url(#arrowhead)"
+                  className={!edge.color ? 'text-muted-foreground' : ''}
+                />
+                {edge.label && (
+                  <text x={midX + 4} y={(edge.from.y + toTop) / 2} fontSize={10} className="fill-muted-foreground">
+                    {edge.label.length > 18 ? edge.label.slice(0, 16) + '…' : edge.label}
+                  </text>
+                )}
+              </g>
+            );
+          }
+
+          return (
+            <g key={`edge-${i}`}>
+              <line
+                x1={edge.from.x}
+                y1={fromBottom}
+                x2={edge.to.x}
+                y2={toTop}
+                stroke={edgeColor}
+                strokeWidth={1.5}
+                markerEnd="url(#arrowhead)"
+                className={!edge.color ? 'text-muted-foreground' : ''}
+              />
+              {edge.label && (
+                <text x={edge.from.x + 8} y={(fromBottom + toTop) / 2} fontSize={10} className="fill-muted-foreground">
+                  {edge.label}
+                </text>
+              )}
+            </g>
+          );
+        })}
+
+        {nodes.map((node) => {
+          const isDecision = node.step.stepType === 'decision';
+          const stepConfig = STEP_TYPES.find(t => t.value === node.step.stepType);
+          const label = `${node.order}. ${node.step.title || stepConfig?.label || 'Step'}`;
+          const truncated = label.length > 22 ? label.slice(0, 20) + '…' : label;
+
+          if (isDecision) {
+            const cx = node.x;
+            const cy = node.y;
+            const hw = node.width / 2;
+            const hh = node.height / 2;
+            return (
+              <g key={`node-${node.order}`}>
+                <polygon
+                  points={`${cx},${cy - hh} ${cx + hw},${cy} ${cx},${cy + hh} ${cx - hw},${cy}`}
+                  className="fill-amber-50 dark:fill-amber-950/40 stroke-amber-500"
+                  strokeWidth={2}
+                />
+                <text x={cx} y={cy + 4} textAnchor="middle" fontSize={11} className="fill-foreground font-medium">
+                  {truncated}
+                </text>
+              </g>
+            );
+          }
+
+          return (
+            <g key={`node-${node.order}`}>
+              <rect
+                x={node.x - node.width / 2}
+                y={node.y - node.height / 2}
+                width={node.width}
+                height={node.height}
+                rx={8}
+                className="fill-background stroke-border"
+                strokeWidth={1.5}
+              />
+              <text x={node.x} y={node.y + 4} textAnchor="middle" fontSize={11} className="fill-foreground font-medium">
+                {truncated}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
 export default function SOPBuilder() {
   const [, navigate] = useLocation();
   const [isEditRoute, editParams] = useRoute('/sops/:id/edit');
@@ -128,6 +303,7 @@ export default function SOPBuilder() {
   const [storeId, setStoreId] = useState('');
   const [steps, setSteps] = useState<StepForm[]>([makeEmptyStep()]);
   const [showTraining, setShowTraining] = useState(false);
+  const [showFlowView, setShowFlowView] = useState(false);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [aiDialogOpen, setAiDialogOpen] = useState(false);
   const [aiDescription, setAiDescription] = useState('');
@@ -472,7 +648,26 @@ export default function SOPBuilder() {
               Steps
               <Badge variant="secondary" className="text-xs">{steps.length}</Badge>
             </h2>
+            {steps.some(s => s.stepType === 'decision') && (
+              <Button
+                variant={showFlowView ? "default" : "outline"}
+                size="sm"
+                className="text-xs gap-1"
+                onClick={() => setShowFlowView(!showFlowView)}
+              >
+                <GitBranch className="h-3 w-3" />
+                {showFlowView ? 'List View' : 'Flow View'}
+              </Button>
+            )}
           </div>
+
+          {showFlowView && (
+            <Card className="overflow-hidden">
+              <CardContent className="p-4">
+                <FlowVisualization steps={steps} />
+              </CardContent>
+            </Card>
+          )}
 
           {steps.map((step, index) => {
             const stepTypeInfo = STEP_TYPES.find(t => t.value === step.stepType);
@@ -566,47 +761,105 @@ export default function SOPBuilder() {
                   )}
 
                   {step.stepType === 'decision' && (
-                    <div className="space-y-2">
-                      <Label className="text-xs">Decision Options</Label>
-                      {(step.decisionOptions?.options || []).map((opt, oi) => (
-                        <div key={oi} className="flex gap-2 items-center">
-                          <Input
-                            placeholder="Option label"
-                            value={opt.label}
-                            className="flex-1 h-8 text-sm"
-                            onChange={e => {
-                              const opts = [...(step.decisionOptions?.options || [])];
-                              opts[oi] = { ...opts[oi], label: e.target.value };
-                              updateStep(index, { decisionOptions: { options: opts } });
-                            }}
-                          />
-                          <Input
-                            type="number"
-                            placeholder="Go to step #"
-                            value={opt.nextStepOrder?.toString() || ''}
-                            className="w-28 h-8 text-sm"
-                            onChange={e => {
-                              const opts = [...(step.decisionOptions?.options || [])];
-                              opts[oi] = { ...opts[oi], nextStepOrder: parseInt(e.target.value) || 0 };
-                              updateStep(index, { decisionOptions: { options: opts } });
-                            }}
-                          />
-                          <Button variant="ghost" size="icon" className="h-8 w-8"
+                    <div className="space-y-3">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-medium">Decision Question</Label>
+                        <Input
+                          placeholder="e.g., Does the customer have a receipt?"
+                          value={step.decisionOptions?.question || ''}
+                          className="h-9 text-sm"
+                          onChange={e => {
+                            const current = step.decisionOptions || { options: [] };
+                            updateStep(index, { decisionOptions: { ...current, question: e.target.value } });
+                          }}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-xs font-medium">Options (2-5)</Label>
+                        {(step.decisionOptions?.options || []).map((opt, oi) => (
+                          <div key={oi} className="flex gap-2 items-center bg-muted/30 dark:bg-muted/10 rounded-md p-2">
+                            <Input
+                              placeholder="Option label"
+                              value={opt.label}
+                              className="flex-1 h-8 text-sm"
+                              onChange={e => {
+                                const current = step.decisionOptions || { options: [] };
+                                const opts = [...current.options];
+                                opts[oi] = { ...opts[oi], label: e.target.value };
+                                updateStep(index, { decisionOptions: { ...current, options: opts } });
+                              }}
+                            />
+                            <Select
+                              value={opt.nextStepOrder?.toString() || '0'}
+                              onValueChange={v => {
+                                const current = step.decisionOptions || { options: [] };
+                                const opts = [...current.options];
+                                opts[oi] = { ...opts[oi], nextStepOrder: parseInt(v) || 0 };
+                                updateStep(index, { decisionOptions: { ...current, options: opts } });
+                              }}
+                            >
+                              <SelectTrigger className="w-36 h-8 text-xs">
+                                <SelectValue placeholder="Go to step..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {steps.map((s, si) => (
+                                  <SelectItem key={si} value={(si + 1).toString()}>
+                                    Step {si + 1}{s.title ? `: ${s.title.slice(0, 20)}` : ''}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <Select
+                              value={opt.color || 'gray'}
+                              onValueChange={v => {
+                                const current = step.decisionOptions || { options: [] };
+                                const opts = [...current.options];
+                                opts[oi] = { ...opts[oi], color: v };
+                                updateStep(index, { decisionOptions: { ...current, options: opts } });
+                              }}
+                            >
+                              <SelectTrigger className="w-24 h-8 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="green">🟢 Good</SelectItem>
+                                <SelectItem value="yellow">🟡 Caution</SelectItem>
+                                <SelectItem value="red">🔴 Exception</SelectItem>
+                                <SelectItem value="blue">🔵 Info</SelectItem>
+                                <SelectItem value="gray">⚪ Neutral</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0"
+                              disabled={(step.decisionOptions?.options?.length || 0) <= 2}
+                              onClick={() => {
+                                const current = step.decisionOptions || { options: [] };
+                                const opts = current.options.filter((_, i) => i !== oi);
+                                updateStep(index, { decisionOptions: { ...current, options: opts } });
+                              }}>
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        ))}
+                        {(step.decisionOptions?.options?.length || 0) < 5 && (
+                          <Button variant="outline" size="sm" className="text-xs gap-1"
                             onClick={() => {
-                              const opts = (step.decisionOptions?.options || []).filter((_, i) => i !== oi);
-                              updateStep(index, { decisionOptions: { options: opts } });
+                              const current = step.decisionOptions || { options: [] };
+                              const opts = [...current.options, { label: '', nextStepOrder: 0, color: 'gray' }];
+                              updateStep(index, { decisionOptions: { ...current, options: opts } });
                             }}>
-                            <Trash2 className="h-3 w-3" />
+                            <Plus className="h-3 w-3" /> Add Option
                           </Button>
-                        </div>
-                      ))}
-                      <Button variant="outline" size="sm" className="text-xs gap-1"
-                        onClick={() => {
-                          const opts = [...(step.decisionOptions?.options || []), { label: '', nextStepOrder: 0 }];
-                          updateStep(index, { decisionOptions: { options: opts } });
-                        }}>
-                        <Plus className="h-3 w-3" /> Add Option
-                      </Button>
+                        )}
+                        {(step.decisionOptions?.options || []).some(o => {
+                          const target = o.nextStepOrder;
+                          return target < 1 || target > steps.length;
+                        }) && (
+                          <div className="flex items-center gap-1 text-amber-500 text-xs">
+                            <AlertTriangle className="h-3 w-3" />
+                            Some options point to steps that don't exist
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
 

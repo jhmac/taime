@@ -167,12 +167,39 @@ export default function SOPExecution() {
       }
     } catch { /* ignore parse errors */ }
 
-    const firstPendingIndex = steps.findIndex(s => {
-      const comp = completions.find(c => c.stepId === s.id);
-      return !comp || comp.status === 'pending';
-    });
-    if (firstPendingIndex >= 0) {
-      setCurrentStepIndex(firstPendingIndex);
+    const branchPath = (execution as any)?.branchPath as { stepId: string; choice: string; targetStepOrder: number }[] | undefined;
+    if (branchPath && branchPath.length > 0) {
+      let currentOrder = 1;
+      let foundPending = false;
+      const stepByOrder = new Map(steps.map(s => [s.stepOrder, s]));
+      while (currentOrder <= steps.length + 10) {
+        const s = stepByOrder.get(currentOrder);
+        if (!s) break;
+        const comp = completions.find(c => c.stepId === s.id);
+        if (!comp || comp.status === 'pending') {
+          const idx = steps.indexOf(s);
+          if (idx >= 0) { setCurrentStepIndex(idx); foundPending = true; }
+          break;
+        }
+        if (s.stepType === 'decision') {
+          const choice = branchPath.find(b => b.stepId === s.id);
+          if (choice) { currentOrder = choice.targetStepOrder; } else break;
+        } else {
+          currentOrder++;
+        }
+      }
+      if (!foundPending) {
+        const lastStep = steps[steps.length - 1];
+        if (lastStep) setCurrentStepIndex(steps.length - 1);
+      }
+    } else {
+      const firstPendingIndex = steps.findIndex(s => {
+        const comp = completions.find(c => c.stepId === s.id);
+        return !comp || comp.status === 'pending';
+      });
+      if (firstPendingIndex >= 0) {
+        setCurrentStepIndex(firstPendingIndex);
+      }
     }
   }, [initialStepRestored, steps.length, completions.length, executionId]);
 
@@ -244,8 +271,10 @@ export default function SOPExecution() {
     try { localStorage.removeItem(`${LS_PREFIX}${executionId}`); } catch { /* ignore */ }
   }, [executionId]);
 
+  const pendingJumpRef = useRef<number | null>(null);
+
   const completeStepMutation = useMutation({
-    mutationFn: async (payload: { stepId: string; status: string; skipReason?: string; photoUrl?: string; notes?: string; timeSpentSeconds?: number }) => {
+    mutationFn: async (payload: { stepId: string; status: string; skipReason?: string; photoUrl?: string; notes?: string; timeSpentSeconds?: number; decisionChoice?: { label: string; targetStepOrder: number } }) => {
       return await apiRequest('PUT', `/api/sops/executions/${executionId}/steps/${payload.stepId}`, payload);
     },
     onSuccess: async (res) => {
@@ -254,6 +283,15 @@ export default function SOPExecution() {
       if (result.data.executionCompleted) {
         setShowCompletion(true);
         cleanupLocalStorage();
+      } else if (pendingJumpRef.current !== null) {
+        const targetOrder = pendingJumpRef.current;
+        pendingJumpRef.current = null;
+        const targetIndex = steps.findIndex(s => s.stepOrder === targetOrder);
+        if (targetIndex >= 0) {
+          setCurrentStepIndex(targetIndex);
+        } else {
+          setCurrentStepIndex(prev => prev + 1);
+        }
       } else if (currentStepIndex < totalSteps - 1) {
         setCurrentStepIndex(prev => prev + 1);
       }
@@ -304,14 +342,16 @@ export default function SOPExecution() {
     });
   }, [currentStep, skipReason, completeStepMutation]);
 
-  const handleDecisionSelect = useCallback((option: { label: string; nextStepOrder: number }) => {
+  const handleDecisionSelect = useCallback((option: { label: string; nextStepOrder: number; color?: string }) => {
     if (!currentStep) return;
     const timeSpent = Math.floor((Date.now() - stepStartTimeRef.current) / 1000);
+    pendingJumpRef.current = option.nextStepOrder;
     completeStepMutation.mutate({
       stepId: currentStep.id,
       status: 'completed',
       notes: `Decision: ${option.label}`,
       timeSpentSeconds: timeSpent,
+      decisionChoice: { label: option.label, targetStepOrder: option.nextStepOrder },
     });
   }, [currentStep, completeStepMutation]);
 
@@ -478,6 +518,22 @@ export default function SOPExecution() {
             );
           })}
         </div>
+
+        {(() => {
+          const bp = (execution as any)?.branchPath as { stepId: string; choice: string }[] | undefined;
+          if (!bp || bp.length === 0) return null;
+          return (
+            <div className="flex items-center gap-1 overflow-x-auto py-1 text-xs text-muted-foreground">
+              <GitBranch className="h-3 w-3 flex-shrink-0" />
+              {bp.map((b, i) => (
+                <span key={i} className="flex items-center gap-1">
+                  {i > 0 && <span className="text-muted-foreground/50">→</span>}
+                  <Badge variant="outline" className="text-[10px] h-5 px-1.5">{b.choice}</Badge>
+                </span>
+              ))}
+            </div>
+          );
+        })()}
       </div>
 
       <div className="flex-1 overflow-y-auto p-4">
@@ -727,20 +783,36 @@ export default function SOPExecution() {
                   )}
 
                   {currentStep.stepType === 'decision' && currentStep.decisionOptions?.options && (
-                    <div className="space-y-2">
-                      {currentStep.decisionOptions.options.map((opt, i) => (
-                        <Button
-                          key={i}
-                          variant="outline"
-                          size="lg"
-                          className="w-full min-h-[52px] text-base justify-start transition-all active:scale-95"
-                          onClick={() => handleDecisionSelect(opt)}
-                          disabled={completeStepMutation.isPending}
-                        >
-                          <GitBranch className="h-4 w-4 mr-2 flex-shrink-0" />
-                          {opt.label}
-                        </Button>
-                      ))}
+                    <div className="space-y-3">
+                      {currentStep.decisionOptions.question && (
+                        <div className="bg-primary/5 dark:bg-primary/10 border border-primary/20 rounded-lg p-3">
+                          <p className="font-medium text-sm text-primary">{currentStep.decisionOptions.question}</p>
+                        </div>
+                      )}
+                      <div className="space-y-2">
+                        {currentStep.decisionOptions.options.map((opt: { label: string; nextStepOrder: number; color?: string }, i: number) => {
+                          const colorClasses: Record<string, string> = {
+                            green: 'border-green-500/50 bg-green-50 dark:bg-green-950/30 hover:bg-green-100 dark:hover:bg-green-950/50 text-green-800 dark:text-green-300',
+                            yellow: 'border-amber-500/50 bg-amber-50 dark:bg-amber-950/30 hover:bg-amber-100 dark:hover:bg-amber-950/50 text-amber-800 dark:text-amber-300',
+                            red: 'border-red-500/50 bg-red-50 dark:bg-red-950/30 hover:bg-red-100 dark:hover:bg-red-950/50 text-red-800 dark:text-red-300',
+                            blue: 'border-blue-500/50 bg-blue-50 dark:bg-blue-950/30 hover:bg-blue-100 dark:hover:bg-blue-950/50 text-blue-800 dark:text-blue-300',
+                          };
+                          const cls = opt.color && colorClasses[opt.color] ? colorClasses[opt.color] : '';
+                          return (
+                            <Button
+                              key={i}
+                              variant="outline"
+                              size="lg"
+                              className={`w-full min-h-[52px] text-base justify-start transition-all active:scale-95 ${cls}`}
+                              onClick={() => handleDecisionSelect(opt)}
+                              disabled={completeStepMutation.isPending}
+                            >
+                              <GitBranch className="h-4 w-4 mr-2 flex-shrink-0" />
+                              {opt.label}
+                            </Button>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
 

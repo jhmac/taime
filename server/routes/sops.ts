@@ -18,10 +18,12 @@ const stepSchema = z.object({
   isCheckpoint: z.boolean().optional().default(false),
   timerDurationSeconds: z.number().int().min(1).nullable().optional(),
   decisionOptions: z.object({
+    question: z.string().optional(),
     options: z.array(z.object({
       label: z.string(),
       nextStepOrder: z.number().int(),
-    })),
+      color: z.enum(["green", "yellow", "red", "blue", "gray"]).optional(),
+    })).min(2).max(5),
   }).nullable().optional(),
   trainingDetail: z.string().nullable().optional(),
   trainingVideoUrl: z.string().nullable().optional(),
@@ -53,6 +55,10 @@ const completeStepSchema = z.object({
   photoUrl: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
   timeSpentSeconds: z.number().int().min(0).nullable().optional(),
+  decisionChoice: z.object({
+    label: z.string(),
+    targetStepOrder: z.number().int(),
+  }).nullable().optional(),
 });
 
 async function requireAdminOrOwner(storage: IStorage, userId: string): Promise<void> {
@@ -391,6 +397,47 @@ export function registerSopLibraryRoutes(
     res.json({ success: true, data: updated });
   }));
 
+  app.get("/api/sops/templates/:id/flow", isAuthenticated, asyncHandler(async (req: any, res) => {
+    const { id } = req.params;
+    const [template] = await db.select().from(sopTemplates).where(eq(sopTemplates.id, id));
+    if (!template) throw new AppError(404, "Template not found", "NOT_FOUND");
+
+    const templateSteps = await db.select().from(sopSteps)
+      .where(eq(sopSteps.templateId, id))
+      .orderBy(asc(sopSteps.stepOrder));
+
+    const nodes = templateSteps.map(s => ({
+      id: s.id,
+      stepOrder: s.stepOrder,
+      title: s.title,
+      stepType: s.stepType,
+      isDecision: s.stepType === 'decision',
+      decisionQuestion: (s.decisionOptions as any)?.question || null,
+    }));
+
+    const edges: { from: number; to: number; label?: string; color?: string }[] = [];
+    for (const s of templateSteps) {
+      if (s.stepType === 'decision' && s.decisionOptions) {
+        const opts = (s.decisionOptions as any).options || [];
+        for (const opt of opts) {
+          edges.push({
+            from: s.stepOrder,
+            to: opt.nextStepOrder,
+            label: opt.label,
+            color: opt.color || undefined,
+          });
+        }
+      } else {
+        const nextOrder = s.stepOrder + 1;
+        if (templateSteps.some(ns => ns.stepOrder === nextOrder)) {
+          edges.push({ from: s.stepOrder, to: nextOrder });
+        }
+      }
+    }
+
+    res.json({ success: true, data: { templateId: id, templateTitle: template.title, nodes, edges } });
+  }));
+
   app.get("/api/sops/executions/completion-count", isAuthenticated, asyncHandler(async (req: any, res) => {
     const templateId = req.query.templateId as string;
     if (!templateId) throw new AppError(400, "templateId required", "MISSING_PARAM");
@@ -494,18 +541,60 @@ export function registerSopLibraryRoutes(
       });
     }
 
+    if (body.decisionChoice && step.stepType === "decision") {
+      const currentBranch = (execution.branchPath as any[]) || [];
+      const newBranch = [...currentBranch, {
+        stepId,
+        choice: body.decisionChoice.label,
+        targetStepOrder: body.decisionChoice.targetStepOrder,
+      }];
+      await db.update(sopExecutions)
+        .set({ branchPath: newBranch })
+        .where(eq(sopExecutions.id, id));
+    }
+
     await db.update(sopStepCompletions)
       .set(updateData)
       .where(eq(sopStepCompletions.id, completion.id));
 
+    const allSteps = await db.select().from(sopSteps)
+      .where(eq(sopSteps.templateId, execution.templateId))
+      .orderBy(asc(sopSteps.stepOrder));
+
     const allCompletions = await db.select().from(sopStepCompletions)
       .where(eq(sopStepCompletions.executionId, id));
 
-    const allDone = allCompletions.every(c =>
-      c.id === completion.id
-        ? (body.status === "completed" || body.status === "skipped")
-        : (c.status === "completed" || c.status === "skipped")
-    );
+    const updatedExec = await db.select().from(sopExecutions).where(eq(sopExecutions.id, id)).then(r => r[0]);
+    const branchChoices = (updatedExec?.branchPath as any[]) || [];
+
+    const reachableStepIds = new Set<string>();
+    let currentOrder = 1;
+    const stepByOrder = new Map(allSteps.map(s => [s.stepOrder, s]));
+
+    while (currentOrder <= allSteps.length) {
+      const s = stepByOrder.get(currentOrder);
+      if (!s) break;
+      reachableStepIds.add(s.id);
+
+      if (s.stepType === "decision") {
+        const choice = branchChoices.find((b: any) => b.stepId === s.id);
+        if (choice) {
+          currentOrder = choice.targetStepOrder;
+        } else {
+          break;
+        }
+      } else {
+        currentOrder++;
+      }
+    }
+
+    const allDone = allCompletions
+      .filter(c => reachableStepIds.has(c.stepId))
+      .every(c =>
+        c.id === completion.id
+          ? (body.status === "completed" || body.status === "skipped")
+          : (c.status === "completed" || c.status === "skipped")
+      ) && reachableStepIds.size > 0;
 
     if (allDone) {
       await db.update(sopExecutions)
