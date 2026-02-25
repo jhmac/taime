@@ -18,7 +18,8 @@ import { apiRequest } from '@/lib/queryClient';
 import { useAuth } from '@/hooks/useAuth';
 import {
   ArrowLeft, Plus, Trash2, GripVertical, Save, Loader2,
-  CheckCircle2, Eye, Camera, GitBranch, Timer, ChevronDown, BookOpen, AlertTriangle, Sparkles, RefreshCw
+  CheckCircle2, Eye, Camera, GitBranch, Timer, ChevronDown, BookOpen, AlertTriangle, Sparkles, RefreshCw,
+  Video, Image, X, Star, Film
 } from 'lucide-react';
 import type { WorkLocation } from '@shared/schema';
 
@@ -52,6 +53,9 @@ interface StepForm {
   timerDurationSeconds: number | null;
   decisionOptions: { options: { label: string; nextStepOrder: number }[] } | null;
   trainingDetail: string;
+  trainingVideoUrl: string | null;
+  trainingPhotoUrls: string[];
+  trainingVideoThumbnail: string | null;
 }
 
 function makeEmptyStep(): StepForm {
@@ -64,7 +68,45 @@ function makeEmptyStep(): StepForm {
     timerDurationSeconds: null,
     decisionOptions: null,
     trainingDetail: '',
+    trainingVideoUrl: null,
+    trainingPhotoUrls: [],
+    trainingVideoThumbnail: null,
   };
+}
+
+function compressImageForTraining(file: File, maxSizeKB: number = 512): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let { width, height } = img;
+        const maxDim = 1200;
+        if (width > maxDim || height > maxDim) {
+          const ratio = Math.min(maxDim / width, maxDim / height);
+          width = Math.round(width * ratio);
+          height = Math.round(height * ratio);
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) { reject(new Error('Canvas unavailable')); return; }
+        ctx.drawImage(img, 0, 0, width, height);
+        let quality = 0.7;
+        let dataUrl = canvas.toDataURL('image/jpeg', quality);
+        while (dataUrl.length > maxSizeKB * 1024 * 1.37 && quality > 0.1) {
+          quality -= 0.1;
+          dataUrl = canvas.toDataURL('image/jpeg', quality);
+        }
+        resolve(dataUrl);
+      };
+      img.onerror = () => reject(new Error('Failed to load image'));
+      img.src = e.target?.result as string;
+    };
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsDataURL(file);
+  });
 }
 
 export default function SOPBuilder() {
@@ -81,6 +123,8 @@ export default function SOPBuilder() {
   const [estimatedMinutes, setEstimatedMinutes] = useState<string>('');
   const [roleAssignments, setRoleAssignments] = useState<string[]>([]);
   const [trainingNotes, setTrainingNotes] = useState('');
+  const [walkthroughVideoUrl, setWalkthroughVideoUrl] = useState('');
+  const [isTrainingPriority, setIsTrainingPriority] = useState(false);
   const [storeId, setStoreId] = useState('');
   const [steps, setSteps] = useState<StepForm[]>([makeEmptyStep()]);
   const [showTraining, setShowTraining] = useState(false);
@@ -111,6 +155,8 @@ export default function SOPBuilder() {
       setEstimatedMinutes(t.estimatedDurationMinutes?.toString() || '');
       setRoleAssignments(t.roleAssignments || []);
       setTrainingNotes(t.trainingNotes || '');
+      setWalkthroughVideoUrl(t.walkthroughVideoUrl || '');
+      setIsTrainingPriority(t.isTrainingPriority || false);
       setStoreId(t.storeId);
       if (t.steps?.length) {
         setSteps(t.steps.map((s: any) => ({
@@ -122,6 +168,9 @@ export default function SOPBuilder() {
           timerDurationSeconds: s.timerDurationSeconds,
           decisionOptions: s.decisionOptions,
           trainingDetail: s.trainingDetail || '',
+          trainingVideoUrl: s.trainingVideoUrl || null,
+          trainingPhotoUrls: s.trainingPhotoUrls || [],
+          trainingVideoThumbnail: s.trainingVideoThumbnail || null,
         })));
       }
     }
@@ -143,6 +192,8 @@ export default function SOPBuilder() {
         estimatedDurationMinutes: estimatedMinutes ? parseInt(estimatedMinutes) : null,
         roleAssignments: roleAssignments.length > 0 ? roleAssignments : null,
         trainingNotes: trainingNotes || null,
+        walkthroughVideoUrl: walkthroughVideoUrl || null,
+        isTrainingPriority,
         steps: steps.map(s => ({
           title: s.title,
           description: s.description || null,
@@ -151,6 +202,9 @@ export default function SOPBuilder() {
           timerDurationSeconds: s.stepType === 'timer' ? s.timerDurationSeconds : null,
           decisionOptions: s.stepType === 'decision' ? s.decisionOptions : null,
           trainingDetail: s.trainingDetail || null,
+          trainingVideoUrl: s.trainingVideoUrl || null,
+          trainingPhotoUrls: s.trainingPhotoUrls.length > 0 ? s.trainingPhotoUrls : null,
+          trainingVideoThumbnail: s.trainingVideoThumbnail || null,
         })),
       };
 
@@ -360,21 +414,53 @@ export default function SOPBuilder() {
               </div>
             </div>
 
+            <div className="flex items-center gap-3 pt-2">
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <Switch
+                  checked={isTrainingPriority}
+                  onCheckedChange={setIsTrainingPriority}
+                />
+                <span className="flex items-center gap-1.5">
+                  <Star className="h-3.5 w-3.5 text-amber-500" />
+                  Training Priority — Must-learn for new hires
+                </span>
+              </label>
+            </div>
+
             <Collapsible open={showTraining} onOpenChange={setShowTraining}>
               <CollapsibleTrigger asChild>
                 <Button variant="ghost" size="sm" className="gap-2 text-muted-foreground">
                   <BookOpen className="h-4 w-4" />
-                  Training Mode Context — Why We Do This
+                  Training Content
                   <ChevronDown className={`h-3 w-3 transition-transform ${showTraining ? 'rotate-180' : ''}`} />
                 </Button>
               </CollapsibleTrigger>
-              <CollapsibleContent className="pt-2">
-                <Textarea
-                  placeholder="Explain the purpose of this procedure for training mode..."
-                  value={trainingNotes}
-                  onChange={e => setTrainingNotes(e.target.value)}
-                  rows={3}
-                />
+              <CollapsibleContent className="pt-2 space-y-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Training Notes — Why We Do This</Label>
+                  <Textarea
+                    placeholder="Explain the purpose of this procedure for training mode..."
+                    value={trainingNotes}
+                    onChange={e => setTrainingNotes(e.target.value)}
+                    rows={3}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs flex items-center gap-1.5">
+                    <Film className="h-3.5 w-3.5" />
+                    SOP Walkthrough Video URL
+                  </Label>
+                  <Input
+                    placeholder="Paste video URL (YouTube, etc.) for the full procedure walkthrough..."
+                    value={walkthroughVideoUrl}
+                    onChange={e => setWalkthroughVideoUrl(e.target.value)}
+                  />
+                  {walkthroughVideoUrl && (
+                    <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+                      <CheckCircle2 className="h-3 w-3" /> Walkthrough video linked
+                    </p>
+                  )}
+                </div>
               </CollapsibleContent>
             </Collapsible>
           </CardContent>
@@ -528,10 +614,15 @@ export default function SOPBuilder() {
                     <CollapsibleTrigger asChild>
                       <Button variant="ghost" size="sm" className="text-xs text-muted-foreground gap-1 h-7 px-2">
                         <BookOpen className="h-3 w-3" />
-                        Training detail
+                        Training content
+                        {(step.trainingDetail || step.trainingVideoUrl || step.trainingPhotoUrls.length > 0) && (
+                          <Badge variant="secondary" className="text-[10px] h-4 px-1 ml-1">
+                            {[step.trainingDetail && 'text', step.trainingVideoUrl && 'video', step.trainingPhotoUrls.length > 0 && `${step.trainingPhotoUrls.length} photo${step.trainingPhotoUrls.length > 1 ? 's' : ''}`].filter(Boolean).join(', ')}
+                          </Badge>
+                        )}
                       </Button>
                     </CollapsibleTrigger>
-                    <CollapsibleContent className="pt-1">
+                    <CollapsibleContent className="pt-2 space-y-3">
                       <Textarea
                         placeholder="Why this step matters (shown in training mode)..."
                         className="text-sm min-h-[50px]"
@@ -539,6 +630,71 @@ export default function SOPBuilder() {
                         onChange={e => updateStep(index, { trainingDetail: e.target.value })}
                         rows={2}
                       />
+                      <div className="space-y-1.5">
+                        <Label className="text-xs flex items-center gap-1">
+                          <Video className="h-3 w-3" /> Step Video URL
+                        </Label>
+                        <Input
+                          placeholder="URL to video walkthrough for this step..."
+                          className="text-sm h-8"
+                          value={step.trainingVideoUrl || ''}
+                          onChange={e => updateStep(index, { trainingVideoUrl: e.target.value || null })}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs flex items-center gap-1">
+                          <Image className="h-3 w-3" /> Reference Photos
+                        </Label>
+                        {step.trainingPhotoUrls.length > 0 && (
+                          <div className="flex gap-2 flex-wrap">
+                            {step.trainingPhotoUrls.map((url, pi) => (
+                              <div key={pi} className="relative group">
+                                <img src={url} alt={`Reference ${pi + 1}`} className="h-16 w-16 object-cover rounded border" />
+                                <button
+                                  type="button"
+                                  className="absolute -top-1.5 -right-1.5 bg-destructive text-destructive-foreground rounded-full h-4 w-4 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                  onClick={() => {
+                                    const updated = step.trainingPhotoUrls.filter((_, i) => i !== pi);
+                                    updateStep(index, { trainingPhotoUrls: updated });
+                                  }}
+                                >
+                                  <X className="h-2.5 w-2.5" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <div>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            className="hidden"
+                            id={`photo-upload-${step.key}`}
+                            onChange={async (e) => {
+                              const files = Array.from(e.target.files || []);
+                              if (files.length === 0) return;
+                              try {
+                                const compressed = await Promise.all(files.map(f => compressImageForTraining(f)));
+                                updateStep(index, {
+                                  trainingPhotoUrls: [...step.trainingPhotoUrls, ...compressed],
+                                });
+                              } catch {
+                                toast({ title: 'Error', description: 'Failed to process photos', variant: 'destructive' });
+                              }
+                              e.target.value = '';
+                            }}
+                          />
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-xs gap-1 h-7"
+                            onClick={() => document.getElementById(`photo-upload-${step.key}`)?.click()}
+                          >
+                            <Camera className="h-3 w-3" /> Add Photos
+                          </Button>
+                        </div>
+                      </div>
                     </CollapsibleContent>
                   </Collapsible>
                 </CardContent>

@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/hooks/useAuth';
-import { Plus, Search, ClipboardList, Clock, CheckCircle2, ChevronRight } from 'lucide-react';
+import { Plus, Search, ClipboardList, Clock, CheckCircle2, ChevronRight, GraduationCap } from 'lucide-react';
 
 interface SopTemplateListItem {
   id: string;
@@ -102,12 +102,18 @@ export default function SOPLibrary() {
             </h1>
             <p className="text-sm text-muted-foreground mt-0.5">Standard Operating Procedures for your team</p>
           </div>
-          {isAdmin && (
-            <Button onClick={() => navigate('/sops/new')} className="gap-2">
-              <Plus className="h-4 w-4" />
-              Create SOP
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => navigate('/sops/training')} className="gap-2">
+              <GraduationCap className="h-4 w-4" />
+              <span className="hidden sm:inline">Training</span>
             </Button>
-          )}
+            {isAdmin && (
+              <Button onClick={() => navigate('/sops/new')} className="gap-2">
+                <Plus className="h-4 w-4" />
+                Create SOP
+              </Button>
+            )}
+          </div>
         </div>
 
         <div className="relative">

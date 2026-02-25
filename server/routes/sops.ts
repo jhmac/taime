@@ -24,6 +24,9 @@ const stepSchema = z.object({
     })),
   }).nullable().optional(),
   trainingDetail: z.string().nullable().optional(),
+  trainingVideoUrl: z.string().nullable().optional(),
+  trainingPhotoUrls: z.array(z.string()).nullable().optional(),
+  trainingVideoThumbnail: z.string().nullable().optional(),
 });
 
 const createTemplateSchema = z.object({
@@ -34,6 +37,8 @@ const createTemplateSchema = z.object({
   estimatedDurationMinutes: z.number().int().min(1).nullable().optional(),
   roleAssignments: z.array(z.string()).nullable().optional(),
   trainingNotes: z.string().nullable().optional(),
+  walkthroughVideoUrl: z.string().nullable().optional(),
+  isTrainingPriority: z.boolean().optional().default(false),
   steps: z.array(stepSchema).min(1, "At least one step is required"),
 });
 
@@ -100,6 +105,8 @@ export function registerSopLibraryRoutes(
         estimatedDurationMinutes: body.estimatedDurationMinutes ?? null,
         roleAssignments: body.roleAssignments ?? null,
         trainingNotes: body.trainingNotes ?? null,
+        walkthroughVideoUrl: body.walkthroughVideoUrl ?? null,
+        isTrainingPriority: body.isTrainingPriority ?? false,
         createdBy: req.user.id,
       }).returning();
 
@@ -113,6 +120,9 @@ export function registerSopLibraryRoutes(
         timerDurationSeconds: s.timerDurationSeconds ?? null,
         decisionOptions: s.decisionOptions ?? null,
         trainingDetail: s.trainingDetail ?? null,
+        trainingVideoUrl: s.trainingVideoUrl ?? null,
+        trainingPhotoUrls: s.trainingPhotoUrls ?? [],
+        trainingVideoThumbnail: s.trainingVideoThumbnail ?? null,
       }));
 
       const steps = await tx.insert(sopSteps).values(stepsToInsert).returning();
@@ -168,6 +178,8 @@ export function registerSopLibraryRoutes(
         roleAssignments: sopTemplates.roleAssignments,
         isActive: sopTemplates.isActive,
         trainingNotes: sopTemplates.trainingNotes,
+        walkthroughVideoUrl: sopTemplates.walkthroughVideoUrl,
+        isTrainingPriority: sopTemplates.isTrainingPriority,
         version: sopTemplates.version,
         parentTemplateId: sopTemplates.parentTemplateId,
         createdBy: sopTemplates.createdBy,
@@ -184,6 +196,55 @@ export function registerSopLibraryRoutes(
     ]);
 
     res.json({ success: true, data: templates, pagination: { total, limit, offset } });
+  }));
+
+  app.get("/api/sops/templates/training-priority", isAuthenticated, asyncHandler(async (req: any, res) => {
+    const templates = await db.select({
+      id: sopTemplates.id,
+      storeId: sopTemplates.storeId,
+      title: sopTemplates.title,
+      description: sopTemplates.description,
+      category: sopTemplates.category,
+      estimatedDurationMinutes: sopTemplates.estimatedDurationMinutes,
+      roleAssignments: sopTemplates.roleAssignments,
+      isActive: sopTemplates.isActive,
+      walkthroughVideoUrl: sopTemplates.walkthroughVideoUrl,
+      isTrainingPriority: sopTemplates.isTrainingPriority,
+      createdAt: sopTemplates.createdAt,
+      stepCount: sql<number>`(SELECT count(*) FROM sop_steps WHERE template_id = ${sopTemplates.id})::int`,
+    })
+      .from(sopTemplates)
+      .where(and(
+        eq(sopTemplates.isActive, true),
+        eq(sopTemplates.isTrainingPriority, true),
+      ))
+      .orderBy(desc(sopTemplates.createdAt));
+
+    const employeeId = req.user.id;
+    const executions = await db.select({
+      templateId: sopExecutions.templateId,
+      completionCount: count(),
+    })
+      .from(sopExecutions)
+      .where(and(
+        eq(sopExecutions.employeeId, employeeId),
+        eq(sopExecutions.status, "completed"),
+      ))
+      .groupBy(sopExecutions.templateId);
+
+    const execMap = new Map(executions.map(e => [e.templateId, e.completionCount]));
+    const enriched = templates.map(t => ({
+      ...t,
+      completionCount: execMap.get(t.id) ?? 0,
+      mastery: (() => {
+        const c = execMap.get(t.id) ?? 0;
+        if (c >= 3) return "mastered" as const;
+        if (c >= 1) return "practicing" as const;
+        return "beginner" as const;
+      })(),
+    }));
+
+    res.json({ success: true, data: enriched });
   }));
 
   app.get("/api/sops/templates/:id", isAuthenticated, asyncHandler(async (req: any, res) => {
@@ -236,6 +297,8 @@ export function registerSopLibraryRoutes(
         estimatedDurationMinutes: body.estimatedDurationMinutes ?? null,
         roleAssignments: body.roleAssignments ?? null,
         trainingNotes: body.trainingNotes ?? null,
+        walkthroughVideoUrl: body.walkthroughVideoUrl ?? null,
+        isTrainingPriority: body.isTrainingPriority ?? false,
         version: existing.version + 1,
         parentTemplateId: id,
         createdBy: req.user.id,
@@ -251,6 +314,9 @@ export function registerSopLibraryRoutes(
         timerDurationSeconds: s.timerDurationSeconds ?? null,
         decisionOptions: s.decisionOptions ?? null,
         trainingDetail: s.trainingDetail ?? null,
+        trainingVideoUrl: s.trainingVideoUrl ?? null,
+        trainingPhotoUrls: s.trainingPhotoUrls ?? [],
+        trainingVideoThumbnail: s.trainingVideoThumbnail ?? null,
       }));
 
       const steps = await tx.insert(sopSteps).values(stepsToInsert).returning();
@@ -293,6 +359,53 @@ export function registerSopLibraryRoutes(
     });
 
     res.json({ success: true, data: { id } });
+  }));
+
+  app.put("/api/sops/templates/:id/steps/:stepId/media", isAuthenticated, asyncHandler(async (req: any, res) => {
+    await requireAdminOrOwner(storage, req.user.id);
+    const { id, stepId } = req.params;
+    const body = z.object({
+      trainingVideoUrl: z.string().nullable().optional(),
+      trainingPhotoUrls: z.array(z.string()).nullable().optional(),
+      trainingVideoThumbnail: z.string().nullable().optional(),
+    }).parse(req.body);
+
+    const [step] = await db.select().from(sopSteps)
+      .where(and(eq(sopSteps.id, stepId), eq(sopSteps.templateId, id)));
+    if (!step) throw new AppError(404, "Step not found", "NOT_FOUND");
+
+    const updates: Record<string, any> = {};
+    if (body.trainingVideoUrl !== undefined) updates.trainingVideoUrl = body.trainingVideoUrl;
+    if (body.trainingPhotoUrls !== undefined) updates.trainingPhotoUrls = body.trainingPhotoUrls ?? [];
+    if (body.trainingVideoThumbnail !== undefined) updates.trainingVideoThumbnail = body.trainingVideoThumbnail;
+
+    if (Object.keys(updates).length === 0) {
+      throw new AppError(400, "No media fields to update", "NO_UPDATES");
+    }
+
+    const [updated] = await db.update(sopSteps)
+      .set(updates)
+      .where(eq(sopSteps.id, stepId))
+      .returning();
+
+    res.json({ success: true, data: updated });
+  }));
+
+  app.get("/api/sops/executions/completion-count", isAuthenticated, asyncHandler(async (req: any, res) => {
+    const templateId = req.query.templateId as string;
+    if (!templateId) throw new AppError(400, "templateId required", "MISSING_PARAM");
+
+    const [result] = await db.select({
+      count: count(),
+    }).from(sopExecutions).where(
+      and(
+        eq(sopExecutions.templateId, templateId),
+        eq(sopExecutions.employeeId, req.user.id),
+        eq(sopExecutions.status, "completed"),
+      )
+    );
+
+    res.json({ success: true, data: { count: result?.count ?? 0 } });
   }));
 
   app.post("/api/sops/executions", isAuthenticated, asyncHandler(async (req: any, res) => {

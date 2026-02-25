@@ -36,6 +36,7 @@ import SOPBuilder from "@/pages/SOPBuilder";
 import SOPDetail from "@/pages/SOPDetail";
 import SOPExecution from "@/pages/SOPExecution";
 import SOPRevisions from "@/pages/SOPRevisions";
+import TrainingHub from "@/pages/TrainingHub";
 import IssueList from "@/pages/IssueList";
 import IssueDetail from "@/pages/IssueDetail";
 import MorningHuddle from "@/pages/MorningHuddle";
@@ -233,6 +234,7 @@ function AuthenticatedApp() {
         <ProtectedRoute permission="admin.manage_all"><SOPBuilder /></ProtectedRoute>
       </Route>
       <Route path="/sops/revisions" component={SOPRevisions} />
+      <Route path="/sops/training" component={TrainingHub} />
       <Route path="/sops/execute/:executionId" component={SOPExecution} />
       <Route path="/sops/:id" component={SOPDetail} />
       <Route path="/issues" component={IssueList} />

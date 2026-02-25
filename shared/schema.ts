@@ -744,6 +744,8 @@ export const sopTemplates = pgTable("sop_templates", {
   roleAssignments: jsonb("role_assignments").$type<string[]>(),
   isActive: boolean("is_active").default(true),
   trainingNotes: text("training_notes"),
+  walkthroughVideoUrl: text("walkthrough_video_url"),
+  isTrainingPriority: boolean("is_training_priority").default(false),
   version: integer("version").notNull().default(1),
   parentTemplateId: varchar("parent_template_id"),
   createdBy: text("created_by").notNull(),
@@ -765,6 +767,9 @@ export const sopSteps = pgTable("sop_steps", {
   timerDurationSeconds: integer("timer_duration_seconds"),
   decisionOptions: jsonb("decision_options").$type<{ options: { label: string; nextStepOrder: number }[] }>(),
   trainingDetail: text("training_detail"),
+  trainingVideoUrl: text("training_video_url"),
+  trainingPhotoUrls: jsonb("training_photo_urls").$type<string[]>().default([]),
+  trainingVideoThumbnail: text("training_video_thumbnail"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 }, (table) => [
   index("idx_sop_steps_template_order").on(table.templateId, table.stepOrder),

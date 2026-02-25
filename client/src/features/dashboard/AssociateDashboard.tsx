@@ -24,6 +24,7 @@ import {
   CheckCircle2,
   ClipboardList,
   BarChart3,
+  GraduationCap,
 } from 'lucide-react';
 
 export default function AssociateDashboard() {
@@ -249,6 +250,10 @@ export default function AssociateDashboard() {
           </div>
         </DashboardErrorBoundary>
 
+        <DashboardErrorBoundary fallback="Training card failed to load">
+          <TrainingProgressCard />
+        </DashboardErrorBoundary>
+
         <DashboardErrorBoundary fallback="Lean board card failed to load">
           <LeanBoardCard />
         </DashboardErrorBoundary>
@@ -280,5 +285,45 @@ export default function AssociateDashboard() {
       </div>
 
     </div>
+  );
+}
+
+function TrainingProgressCard() {
+  const [, navigate] = useLocation();
+  const { data } = useQuery<{ success: boolean; data: any[] }>({
+    queryKey: ['/api/sops/templates/training-priority'],
+  });
+
+  const templates = data?.data ?? [];
+  if (templates.length === 0) return null;
+
+  const masteredCount = templates.filter((t: any) => t.mastery === 'mastered').length;
+  const total = templates.length;
+  const remaining = total - masteredCount;
+
+  return (
+    <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => navigate('/sops/training')}>
+      <CardContent className="p-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+              <GraduationCap className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold">Training Hub</h3>
+              <p className="text-xs text-muted-foreground">
+                {remaining > 0 
+                  ? `${remaining} procedure${remaining > 1 ? 's' : ''} to learn` 
+                  : 'All training mastered!'}
+              </p>
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-lg font-bold text-primary">{masteredCount}/{total}</div>
+            <div className="text-[10px] text-muted-foreground">mastered</div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

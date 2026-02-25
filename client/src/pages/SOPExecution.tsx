@@ -16,7 +16,7 @@ import type { SopStep, SopStepCompletion, SopTemplate, SopExecution as SopExecut
 import {
   ArrowLeft, CheckCircle2, Eye, Camera, GitBranch, Timer, Play, Pause,
   SkipForward, Clock, Loader2, PartyPopper, MessageSquare, ChevronLeft,
-  ChevronRight, ShieldCheck, Upload, X
+  ChevronRight, ShieldCheck, Upload, X, Video, BookOpen, HelpCircle, GraduationCap
 } from 'lucide-react';
 
 const STEP_TYPE_CONFIG: Record<string, { icon: typeof CheckCircle2; label: string }> = {
@@ -89,6 +89,10 @@ export default function SOPExecution() {
 
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [trainingMode, setTrainingMode] = useState(false);
+  const [autoTrainingBanner, setAutoTrainingBanner] = useState(false);
+  const [trainingConfirmed, setTrainingConfirmed] = useState(false);
+  const [mediaDelayDone, setMediaDelayDone] = useState(false);
+  const [selectedPhotoIndex, setSelectedPhotoIndex] = useState<number | null>(null);
   const [showSkipInput, setShowSkipInput] = useState(false);
   const [skipReason, setSkipReason] = useState('');
   const [stepNotes, setStepNotes] = useState('');
@@ -110,6 +114,24 @@ export default function SOPExecution() {
   });
 
   const execution = data?.data;
+  const templateId = execution?.templateId;
+
+  const { data: completionCountData } = useQuery<{ success: boolean; data: { count: number } }>({
+    queryKey: ['/api/sops/executions/completion-count', templateId],
+    queryFn: async () => {
+      const res = await fetch(`/api/sops/executions/completion-count?templateId=${templateId}`, { credentials: 'include' });
+      if (!res.ok) return { success: true, data: { count: 99 } };
+      return res.json();
+    },
+    enabled: !!templateId,
+  });
+
+  useEffect(() => {
+    if (completionCountData?.data && completionCountData.data.count < 3 && !trainingMode) {
+      setTrainingMode(true);
+      setAutoTrainingBanner(true);
+    }
+  }, [completionCountData]);
   const steps = execution?.steps ?? [];
   const completions = execution?.stepCompletions ?? [];
 
@@ -173,6 +195,9 @@ export default function SOPExecution() {
     setShowNotesInput(false);
     setCapturedPhoto(null);
     setTimerRunning(false);
+    setTrainingConfirmed(false);
+    setMediaDelayDone(false);
+    setSelectedPhotoIndex(null);
     if (timerIntervalRef.current) {
       clearInterval(timerIntervalRef.current);
       timerIntervalRef.current = null;
@@ -188,6 +213,17 @@ export default function SOPExecution() {
           timestamp: Date.now(),
         }));
       } catch { /* localStorage might be full */ }
+    }
+
+    const stepHasMedia = currentStep && trainingMode && (
+      (currentStep.trainingVideoUrl) ||
+      ((currentStep.trainingPhotoUrls as string[] | null)?.length ?? 0) > 0
+    );
+    if (stepHasMedia) {
+      const timer = setTimeout(() => setMediaDelayDone(true), 5000);
+      return () => clearTimeout(timer);
+    } else {
+      setMediaDelayDone(true);
     }
   }, [currentStepIndex, currentStep?.id]);
 
@@ -473,7 +509,10 @@ export default function SOPExecution() {
 
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setTrainingMode(prev => !prev)}
+                  onClick={() => {
+                    setTrainingMode(prev => !prev);
+                    if (trainingMode) setAutoTrainingBanner(false);
+                  }}
                   className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
                     trainingMode ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'
                   }`}
@@ -484,14 +523,87 @@ export default function SOPExecution() {
                     trainingMode ? 'translate-x-6' : 'translate-x-1'
                   }`} />
                 </button>
-                <span className="text-sm text-muted-foreground">Training Mode</span>
+                <span className="text-sm text-muted-foreground flex items-center gap-1">
+                  <GraduationCap className="h-3.5 w-3.5" />
+                  Training Mode
+                </span>
               </div>
 
+              {autoTrainingBanner && trainingMode && (
+                <div className="rounded-lg border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30 px-3 py-2 animate-in fade-in slide-in-from-top-2 duration-300">
+                  <p className="text-xs text-blue-700 dark:text-blue-300">
+                    Training mode is on since this is new for you. You can turn it off anytime.
+                  </p>
+                </div>
+              )}
+
               {trainingMode && currentStep.trainingDetail && (
-                <div className="rounded-lg border-2 border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30 p-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                <div className="rounded-lg border-2 border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30 p-4 animate-in fade-in slide-in-from-top-2 duration-300 space-y-1">
+                  <p className="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide flex items-center gap-1">
+                    <BookOpen className="h-3 w-3" /> Why We Do This
+                  </p>
                   <p className="text-sm text-blue-800 dark:text-blue-200 leading-relaxed">
                     {currentStep.trainingDetail}
                   </p>
+                </div>
+              )}
+
+              {trainingMode && ((currentStep.trainingPhotoUrls as string[] | null)?.length ?? 0) > 0 && (
+                <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                    This is what it should look like
+                  </p>
+                  <div className="flex gap-2 overflow-x-auto pb-1">
+                    {(currentStep.trainingPhotoUrls as string[]).map((url, i) => (
+                      <button
+                        key={i}
+                        className="flex-shrink-0 rounded-lg overflow-hidden border-2 border-transparent hover:border-primary transition-colors"
+                        onClick={() => setSelectedPhotoIndex(selectedPhotoIndex === i ? null : i)}
+                      >
+                        <img src={url} alt={`Reference ${i + 1}`} className="h-20 w-20 object-cover" />
+                      </button>
+                    ))}
+                  </div>
+                  {selectedPhotoIndex !== null && (currentStep.trainingPhotoUrls as string[])[selectedPhotoIndex] && (
+                    <div className="relative rounded-lg overflow-hidden border animate-in fade-in zoom-in-95 duration-200">
+                      <img
+                        src={(currentStep.trainingPhotoUrls as string[])[selectedPhotoIndex]}
+                        alt="Reference photo enlarged"
+                        className="w-full max-h-64 object-contain bg-muted"
+                      />
+                      <button
+                        className="absolute top-2 right-2 bg-black/50 text-white rounded-full h-7 w-7 flex items-center justify-center"
+                        onClick={() => setSelectedPhotoIndex(null)}
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {trainingMode && currentStep.trainingVideoUrl && (
+                <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+                    <Video className="h-3 w-3" /> Watch How It's Done
+                  </p>
+                  <div className="rounded-lg overflow-hidden border bg-black">
+                    {currentStep.trainingVideoUrl.includes('youtube.com') || currentStep.trainingVideoUrl.includes('youtu.be') ? (
+                      <iframe
+                        src={currentStep.trainingVideoUrl.replace('watch?v=', 'embed/').replace('youtu.be/', 'youtube.com/embed/')}
+                        className="w-full aspect-video"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        allowFullScreen
+                      />
+                    ) : (
+                      <video
+                        src={currentStep.trainingVideoUrl}
+                        controls
+                        className="w-full aspect-video"
+                        preload="metadata"
+                      />
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -504,17 +616,48 @@ export default function SOPExecution() {
                 </div>
               )}
 
+              {trainingMode && !isCurrentStepDone && !isWaitingForSignOff && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full min-h-[44px] text-sm gap-2 border-blue-200 text-blue-700 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-300 dark:hover:bg-blue-950/30"
+                  onClick={() => {
+                    window.dispatchEvent(new CustomEvent('open-ask-mainager', {
+                      detail: { prefill: `I have a question about step "${currentStep.title}" in the ${execution?.template?.title} procedure. ` }
+                    }));
+                  }}
+                >
+                  <HelpCircle className="h-4 w-4" />
+                  I have a question about this step
+                </Button>
+              )}
+
               {!isCurrentStepDone && !isWaitingForSignOff && (
                 <div className="space-y-3 pt-2">
+                  {trainingMode && !mediaDelayDone && (
+                    <div className="text-center py-2">
+                      <p className="text-xs text-muted-foreground animate-pulse">Review the training content above...</p>
+                    </div>
+                  )}
+
                   {currentStep.stepType === 'action' && (
                     <Button
                       size="lg"
                       className="w-full min-h-[52px] text-lg font-semibold transition-all active:scale-95"
-                      onClick={handleComplete}
-                      disabled={completeStepMutation.isPending}
+                      onClick={() => {
+                        if (trainingMode && !trainingConfirmed) {
+                          setTrainingConfirmed(true);
+                          return;
+                        }
+                        handleComplete();
+                      }}
+                      disabled={completeStepMutation.isPending || (trainingMode && !mediaDelayDone)}
                     >
-                      {completeStepMutation.isPending ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : <CheckCircle2 className="h-5 w-5 mr-2" />}
-                      Mark Complete
+                      {completeStepMutation.isPending ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> :
+                       trainingMode && !trainingConfirmed ? <CheckCircle2 className="h-5 w-5 mr-2" /> :
+                       trainingMode && trainingConfirmed ? <CheckCircle2 className="h-5 w-5 mr-2" /> :
+                       <CheckCircle2 className="h-5 w-5 mr-2" />}
+                      {trainingMode && !trainingConfirmed ? 'Got it? ✓' : 'Mark Complete'}
                     </Button>
                   )}
 
@@ -522,11 +665,17 @@ export default function SOPExecution() {
                     <Button
                       size="lg"
                       className="w-full min-h-[52px] text-lg font-semibold transition-all active:scale-95"
-                      onClick={handleComplete}
-                      disabled={completeStepMutation.isPending}
+                      onClick={() => {
+                        if (trainingMode && !trainingConfirmed) {
+                          setTrainingConfirmed(true);
+                          return;
+                        }
+                        handleComplete();
+                      }}
+                      disabled={completeStepMutation.isPending || (trainingMode && !mediaDelayDone)}
                     >
                       {completeStepMutation.isPending ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : <Eye className="h-5 w-5 mr-2" />}
-                      Confirm Done
+                      {trainingMode && !trainingConfirmed ? 'Got it? ✓' : 'Confirm Done'}
                     </Button>
                   )}
 
