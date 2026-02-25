@@ -9,11 +9,10 @@ import { useAuth } from "@/hooks/useAuth";
 import { initGlobalErrorHandlers } from "./lib/errorReporter";
 import Layout from "@/components/Layout";
 import Landing from "@/pages/Landing";
-import Dashboard from "@/pages/Dashboard";
+import DashboardRouter from "@/features/dashboard/DashboardRouter";
 import Operations from "@/pages/Operations";
 import Communication from "@/pages/Communication";
 import HR from "@/pages/HR";
-import AdminDashboard from "@/pages/AdminDashboard";
 import RoleManagement from "@/pages/RoleManagement";
 import ScheduleManagement from "@/pages/ScheduleManagement";
 import Team from "@/pages/Team";
@@ -172,8 +171,6 @@ function AuthenticatedApp() {
     );
   }
 
-  const isAdmin = user?.role?.name === 'admin' || user?.role?.name === 'owner';
-
   return (
     <>
     <OfflineIndicator />
@@ -181,7 +178,7 @@ function AuthenticatedApp() {
     <FocusClockOut />
     <AIAssistant />
     <Switch>
-      <Route path="/" component={isAdmin ? AdminDashboard : Dashboard} />
+      <Route path="/" component={DashboardRouter} />
       <Route path="/operations">
         <ProtectedRoute permission="admin.manage_all"><Operations /></ProtectedRoute>
       </Route>
