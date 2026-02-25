@@ -1,0 +1,106 @@
+Create the database schema for MAinager's GTD (Getting Things Done) Workflow Engine. This is the universal capture and task management system inspired by David Allen's methodology.
+
+CREATE A NEW MIGRATION with these tables:
+
+TABLE: gtd_inbox_items
+- id: uuid, primary key, default gen_random_uuid()
+- store_id: text, not null, references stores(id)
+- captured_by: text, not null (Clerk user ID)
+- raw_input: text, not null (the original text the user typed or spoke)
+- source: text, not null, default 'manual' (enum-like: 'manual', 'voice', 'debrief', 'issue_auto', 'sop_feedback', 'huddle', 'quick_capture')
+- status: text, not null, default 'unprocessed' (enum-like: 'unprocessed', 'clarified', 'processed', 'deleted')
+- ai_clarification: jsonb, nullable (AI's suggested processing — see below)
+- processed_at: timestamp with timezone, nullable
+- processed_into_type: text, nullable (enum-like: 'next_action', 'project', 'waiting_for', 'someday_maybe', 'reference', 'trash', 'calendar', 'issue')
+- processed_into_id: uuid, nullable (ID of the created next_action, project, etc.)
+- created_at: timestamp with timezone, default now()
+- updated_at: timestamp with timezone, default now()
+
+TABLE: gtd_projects
+- id: uuid, primary key, default gen_random_uuid()
+- store_id: text, not null, references stores(id)
+- owner_id: text, not null (Clerk user ID — the person responsible for this project)
+- title: text, not null
+- description: text, nullable
+- status: text, not null, default 'active' (enum-like: 'active', 'completed', 'on_hold', 'cancelled')
+- desired_outcome: text, nullable (what does "done" look like?)
+- due_date: date, nullable
+- completed_at: timestamp with timezone, nullable
+- created_at: timestamp with timezone, default now()
+- updated_at: timestamp with timezone, default now()
+
+TABLE: gtd_next_actions
+- id: uuid, primary key, default gen_random_uuid()
+- store_id: text, not null, references stores(id)
+- project_id: uuid, nullable, references gtd_projects(id) ON DELETE SET NULL
+- assigned_to: text, not null (Clerk user ID)
+- created_by: text, not null (Clerk user ID)
+- title: text, not null
+- description: text, nullable
+- context: text, nullable (GTD context tag: '@store', '@computer', '@phone', '@errands', '@home', '@anywhere')
+- energy_level: text, nullable (enum-like: 'low', 'medium', 'high' — how much focus does this need?)
+- time_estimate_minutes: integer, nullable
+- priority: text, not null, default 'normal' (enum-like: 'low', 'normal', 'high', 'urgent')
+- status: text, not null, default 'active' (enum-like: 'active', 'completed', 'deferred')
+- due_date: date, nullable
+- completed_at: timestamp with timezone, nullable
+- is_two_minute: boolean, default false (flagged as a quick-win that takes < 2 min)
+- source_inbox_item_id: uuid, nullable, references gtd_inbox_items(id)
+- created_at: timestamp with timezone, default now()
+- updated_at: timestamp with timezone, default now()
+
+TABLE: gtd_waiting_for
+- id: uuid, primary key, default gen_random_uuid()
+- store_id: text, not null, references stores(id)
+- project_id: uuid, nullable, references gtd_projects(id) ON DELETE SET NULL
+- owner_id: text, not null (Clerk user ID — who is waiting)
+- waiting_on: text, not null (description of who/what you're waiting on)
+- waiting_on_employee_id: text, nullable (Clerk user ID if waiting on a team member)
+- description: text, not null
+- follow_up_date: date, nullable (when to nudge)
+- status: text, not null, default 'waiting' (enum-like: 'waiting', 'received', 'cancelled')
+- received_at: timestamp with timezone, nullable
+- source_inbox_item_id: uuid, nullable, references gtd_inbox_items(id)
+- created_at: timestamp with timezone, default now()
+- updated_at: timestamp with timezone, default now()
+
+TABLE: gtd_someday_maybe
+- id: uuid, primary key, default gen_random_uuid()
+- store_id: text, not null, references stores(id)
+- owner_id: text, not null (Clerk user ID)
+- title: text, not null
+- description: text, nullable
+- category: text, nullable (free-form tag: 'store improvement', 'marketing idea', 'training idea', 'product idea', 'process idea')
+- status: text, not null, default 'parked' (enum-like: 'parked', 'activated', 'deleted')
+- activated_into_type: text, nullable ('project' or 'next_action')
+- activated_into_id: uuid, nullable
+- source_inbox_item_id: uuid, nullable, references gtd_inbox_items(id)
+- created_at: timestamp with timezone, default now()
+- updated_at: timestamp with timezone, default now()
+
+TABLE: gtd_reference
+- id: uuid, primary key, default gen_random_uuid()
+- store_id: text, not null, references stores(id)
+- owner_id: text, not null (Clerk user ID)
+- title: text, not null
+- content: text, not null
+- tags: jsonb, default '[]' (array of string tags for search)
+- source_inbox_item_id: uuid, nullable, references gtd_inbox_items(id)
+- created_at: timestamp with timezone, default now()
+- updated_at: timestamp with timezone, default now()
+
+INDEXES:
+- gtd_inbox_items(store_id, status, created_at)
+- gtd_inbox_items(captured_by, status)
+- gtd_projects(store_id, owner_id, status)
+- gtd_next_actions(store_id, assigned_to, status)
+- gtd_next_actions(store_id, context, status)
+- gtd_next_actions(store_id, priority, status)
+- gtd_next_actions(project_id, status)
+- gtd_next_actions(due_date) WHERE status = 'active'
+- gtd_waiting_for(store_id, owner_id, status)
+- gtd_waiting_for(follow_up_date) WHERE status = 'waiting'
+- gtd_someday_maybe(store_id, owner_id, status)
+- gtd_reference(store_id, owner_id)
+
+Generate and run the Drizzle migration.
