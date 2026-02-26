@@ -70,6 +70,8 @@ export default function CashCountingWizard({ sessionId, sessionType, registerNam
           setPhase(parsed.phase || "setup");
           setCurrentStep(parsed.currentStep || 0);
           setQuickMode(parsed.quickMode || false);
+          if (parsed.registerData) setRegisterData(parsed.registerData);
+          if (parsed.explanation) setExplanation(parsed.explanation);
         }
       } catch {}
     }
@@ -77,9 +79,9 @@ export default function CashCountingWizard({ sessionId, sessionType, registerNam
 
   useEffect(() => {
     if (phase !== "complete") {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ sessionId, counts, phase, currentStep, quickMode }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ sessionId, counts, phase, currentStep, quickMode, registerData, explanation }));
     }
-  }, [counts, phase, currentStep, quickMode]);
+  }, [counts, phase, currentStep, quickMode, registerData, explanation]);
 
   const calcDenomValue = useCallback((key: string, count: number) => {
     const step = STEPS.find(s => s.key === key);

@@ -110,6 +110,7 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
 
   app.put("/api/cash/settings", isAuthenticated, async (req: any, res) => {
     try {
+      if (!(await requireCashAccess(req, res))) return;
       const storeId = await resolveStoreId(req.auth?.userId);
       const { defaultStartingCash, registers, overShortThreshold, requireDepositPhoto, requireOverShortExplanation, autoFlagThreshold } = req.body;
 

@@ -82,24 +82,32 @@ export default function DepositFlow({ sessions, onComplete, onCancel }: DepositF
 
   const createAndAnalyze = async (photo: string) => {
     try {
-      const createRes = await apiRequest("POST", "/api/cash/deposits", {
-        expectedAmount: expectedAmount.toFixed(2),
-        depositSlipPhoto: photo,
-      });
-      const deposit = await createRes.json();
-      setDepositId(deposit.id);
+      let id = depositId;
+      if (!id) {
+        const createRes = await apiRequest("POST", "/api/cash/deposits", {
+          expectedAmount: expectedAmount.toFixed(2),
+          depositSlipPhoto: photo,
+        });
+        const deposit = await createRes.json();
+        id = deposit.id;
+        setDepositId(id);
+      }
 
-      const analyzeRes = await apiRequest("POST", `/api/cash/deposits/${deposit.id}/analyze`);
-      const data = await analyzeRes.json();
+      try {
+        const analyzeRes = await apiRequest("POST", `/api/cash/deposits/${id}/analyze`);
+        const data = await analyzeRes.json();
 
-      setAiResult({
-        amount: data.analysis?.extractedAmount || null,
-        confidence: data.analysis?.confidence || "failed",
-        analysis: data.analysis?.analysis || "Could not analyze",
-      });
+        setAiResult({
+          amount: data.analysis?.extractedAmount || null,
+          confidence: data.analysis?.confidence || "failed",
+          analysis: data.analysis?.analysis || "Could not analyze",
+        });
 
-      if (data.analysis?.extractedAmount) {
-        setActualAmount(String(data.analysis.extractedAmount));
+        if (data.analysis?.extractedAmount) {
+          setActualAmount(String(data.analysis.extractedAmount));
+        }
+      } catch {
+        setAiResult({ amount: null, confidence: "failed", analysis: "AI analysis unavailable. Please enter the amount manually." });
       }
 
       queryClient.invalidateQueries({ queryKey: ["/api/cash/deposits"] });

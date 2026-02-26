@@ -11,25 +11,28 @@ export default function CashStatusCard() {
   const [, navigate] = useLocation();
   const today = new Date().toISOString().split("T")[0];
 
-  const { data: sessions = [], isLoading: sessionsLoading } = useQuery({
+  const { data: sessions = [], isLoading: sessionsLoading, isError: sessionsError } = useQuery({
     queryKey: ["/api/cash/sessions", today],
     queryFn: async () => {
       const res = await apiRequest("GET", `/api/cash/sessions?date=${today}`);
       return res.json();
     },
+    retry: 1,
   });
 
-  const { data: deposits = [], isLoading: depositsLoading } = useQuery({
+  const { data: deposits = [] } = useQuery({
     queryKey: ["/api/cash/deposits", today],
     queryFn: async () => {
       const res = await apiRequest("GET", `/api/cash/deposits?date=${today}`);
       return res.json();
     },
+    retry: 1,
   });
 
-  const { data: settings } = useQuery({ queryKey: ["/api/cash/settings"] });
+  const { data: settings } = useQuery({ queryKey: ["/api/cash/settings"], retry: 1 });
 
   if (sessionsLoading) return <Skeleton className="h-32" />;
+  if (sessionsError) return null;
 
   const registers = (settings?.registers as any[]) || [{ name: "Register 1" }];
   const openingSessions = sessions.filter((s: any) => s.sessionType === "opening" && s.status !== "pending");
