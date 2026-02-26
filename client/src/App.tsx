@@ -251,7 +251,9 @@ function AuthenticatedApp() {
       <Route path="/gtd/someday" component={GTDSomeday} />
       <Route path="/gtd/review" component={WeeklyReview} />
       <Route path="/lean-board" component={LeanBoard} />
-      <Route path="/cash" component={CashManagement} />
+      <Route path="/cash">
+        <ProtectedRoute><CashManagement /></ProtectedRoute>
+      </Route>
       <Route path="/insights" component={InsightsPage} />
       <Route path="/support" component={SupportPage} />
       <Route path="/admin">
