@@ -13,24 +13,30 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import CashCountingWizard from "@/components/cash/CashCountingWizard";
 import DepositFlow from "@/components/cash/DepositFlow";
+import { useLocation } from "wouter";
 
 type ViewMode = "main" | "wizard" | "deposit" | "investigation";
 
 export default function CashManagement() {
   const { user, isAdmin } = useAuth();
   const { toast } = useToast();
+  const [, navigate] = useLocation();
   const today = new Date().toISOString().split("T")[0];
   const [selectedDate, setSelectedDate] = useState(today);
   const [viewMode, setViewMode] = useState<ViewMode>("main");
   const [activeSession, setActiveSession] = useState<{ id: string; type: "opening" | "closing"; registerName: string; startingCash: number } | null>(null);
   const [ownerTab, setOwnerTab] = useState("daily");
 
-  const { data: settings, isLoading: settingsLoading } = useQuery({ queryKey: ["/api/cash/settings"] });
-  const { data: sessions = [], isLoading: sessionsLoading } = useQuery({ queryKey: ["/api/cash/sessions", selectedDate], queryFn: async () => {
+  const { data: accessCheck, isLoading: accessLoading } = useQuery({
+    queryKey: ["/api/cash/access-check"],
+    refetchInterval: 30000,
+  });
+  const { data: settings, isLoading: settingsLoading } = useQuery({ queryKey: ["/api/cash/settings"], enabled: accessCheck?.allowed });
+  const { data: sessions = [], isLoading: sessionsLoading } = useQuery({ queryKey: ["/api/cash/sessions", selectedDate], enabled: accessCheck?.allowed, queryFn: async () => {
     const res = await apiRequest("GET", `/api/cash/sessions?date=${selectedDate}`);
     return res.json();
   }});
-  const { data: deposits = [], isLoading: depositsLoading } = useQuery({ queryKey: ["/api/cash/deposits", selectedDate], queryFn: async () => {
+  const { data: deposits = [], isLoading: depositsLoading } = useQuery({ queryKey: ["/api/cash/deposits", selectedDate], enabled: accessCheck?.allowed, queryFn: async () => {
     const res = await apiRequest("GET", `/api/cash/deposits?date=${selectedDate}`);
     return res.json();
   }});
@@ -64,6 +70,50 @@ export default function CashManagement() {
   });
 
   const registers = (settings?.registers as any[]) || [{ name: "Register 1", id: "register-1" }];
+
+  if (accessLoading) {
+    return (
+      <div className="p-4 max-w-4xl mx-auto mt-12">
+        <div className="flex flex-col items-center gap-4">
+          <Skeleton className="h-8 w-48" />
+          <Skeleton className="h-4 w-64" />
+          <Skeleton className="h-32 w-full max-w-md" />
+        </div>
+      </div>
+    );
+  }
+
+  if (accessCheck && !accessCheck.allowed) {
+    const notClockedIn = !accessCheck.clockedIn;
+    const notAtStore = accessCheck.clockedIn && !accessCheck.atStore;
+    return (
+      <div className="p-4 max-w-md mx-auto mt-12">
+        <Card className="border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30">
+          <CardContent className="pt-6 text-center space-y-4">
+            <div className="w-16 h-16 mx-auto rounded-full bg-amber-100 dark:bg-amber-900/50 flex items-center justify-center">
+              <i className={`fas ${notAtStore ? "fa-map-marker-alt" : "fa-clock"} text-2xl text-amber-600 dark:text-amber-400`} />
+            </div>
+            <h2 className="text-xl font-bold text-amber-900 dark:text-amber-100">
+              {notAtStore ? "Not at Store Location" : "Clock In Required"}
+            </h2>
+            <p className="text-amber-700 dark:text-amber-300 text-sm">
+              {notAtStore
+                ? "You're clocked in but not at the store location. Cash Management is only available when you're physically at the store."
+                : "You need to be clocked in and at the store to access Cash Management. Please clock in first, then come back here."}
+            </p>
+            <div className="pt-2 space-y-2">
+              <Button onClick={() => navigate("/")} className="w-full">
+                <i className="fas fa-home mr-2" /> Go to Dashboard
+              </Button>
+              <Button variant="outline" onClick={() => queryClient.invalidateQueries({ queryKey: ["/api/cash/access-check"] })} className="w-full">
+                <i className="fas fa-sync mr-2" /> Check Again
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   if (viewMode === "wizard" && activeSession) {
     return (
