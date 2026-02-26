@@ -24,6 +24,7 @@ export default function MoreMenu() {
     { icon: 'fas fa-file-alt', label: 'Requests', subtitle: 'Time Off, Trade, Cover, Availability...', path: '/requests', iconColor: 'text-muted-foreground' },
     { icon: 'fas fa-users', label: 'Team', path: '/team-directory', iconColor: 'text-muted-foreground' },
     { icon: 'fas fa-bolt', label: 'Cash Out', path: '/payroll', iconColor: 'text-muted-foreground' },
+    { icon: 'fas fa-cash-register', label: 'Cash Management', subtitle: 'Drawer counts, deposits, investigation', path: '/cash', iconColor: 'text-green-600' },
     { icon: 'fas fa-sliders-h', label: 'Settings', subtitle: 'Calendar Sync, Notifications & Alerts, Sign Out...', path: '/employee-settings', iconColor: 'text-muted-foreground' },
     { icon: 'fas fa-video', label: 'Improvements', subtitle: 'Share 60-second improvement videos', path: '/improvements', iconColor: 'text-orange-500' },
     { icon: 'fas fa-exclamation-triangle', label: 'Report Issue', subtitle: 'Log a problem for your manager', path: '/issues', iconColor: 'text-amber-500' },

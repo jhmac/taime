@@ -17,6 +17,7 @@ import LeanBoardCard from '@/features/dashboard/LeanBoardCard';
 import SOPInsightsCard from '@/features/dashboard/SOPInsightsCard';
 import BackgroundInsightsCard from '@/features/dashboard/BackgroundInsightsCard';
 import SOPRevisionCard from '@/features/dashboard/SOPRevisionCard';
+import CashStatusCard from '@/features/dashboard/CashStatusCard';
 import {
   Briefcase, Users, ShieldCheck, AlertTriangle, TrendingUp,
   Calendar, DollarSign, ClipboardList, BarChart3, Settings,
@@ -395,6 +396,10 @@ export default function OwnerDashboard() {
 
         <DashboardErrorBoundary fallback="Weekly review card failed to load">
           <WeeklyReviewCard />
+        </DashboardErrorBoundary>
+
+        <DashboardErrorBoundary fallback="Cash status card failed to load">
+          <CashStatusCard />
         </DashboardErrorBoundary>
 
         <DashboardErrorBoundary fallback="AI insights card failed to load">

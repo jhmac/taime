@@ -19,6 +19,7 @@ import SOPInsightsCard from '@/features/dashboard/SOPInsightsCard';
 import BackgroundInsightsCard from '@/features/dashboard/BackgroundInsightsCard';
 import SmartSuggestionsCard from '@/features/dashboard/SmartSuggestionsCard';
 import SOPRevisionCard from '@/features/dashboard/SOPRevisionCard';
+import CashStatusCard from '@/features/dashboard/CashStatusCard';
 import SurfacedSOPBanner from '@/components/SurfacedSOPBanner';
 import {
   Users,
@@ -419,6 +420,10 @@ export default function ManagerDashboard() {
 
           <DashboardErrorBoundary fallback="Weekly review card failed to load">
             <WeeklyReviewCard />
+          </DashboardErrorBoundary>
+
+          <DashboardErrorBoundary fallback="Cash status card failed to load">
+            <CashStatusCard />
           </DashboardErrorBoundary>
 
           <DashboardErrorBoundary fallback="AI insights card failed to load">

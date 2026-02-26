@@ -1526,3 +1526,128 @@ export const backgroundInsights = pgTable("background_insights", {
 export const insertBackgroundInsightSchema = createInsertSchema(backgroundInsights).omit({ id: true, createdAt: true });
 export type BackgroundInsight = typeof backgroundInsights.$inferSelect;
 export type InsertBackgroundInsight = z.infer<typeof insertBackgroundInsightSchema>;
+
+// Cash Management - Drawer Sessions
+export const drawerSessions = pgTable("drawer_sessions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: text("store_id").notNull(),
+  sessionDate: text("session_date").notNull(),
+  sessionType: text("session_type").notNull(),
+  registerName: text("register_name").notNull(),
+  registerId: text("register_id"),
+  status: text("status").notNull().default("pending"),
+  countedBy: varchar("counted_by"),
+  countedAt: timestamp("counted_at", { withTimezone: true }),
+  verifiedBy: varchar("verified_by"),
+  verifiedAt: timestamp("verified_at", { withTimezone: true }),
+  startingCash: decimal("starting_cash", { precision: 10, scale: 2 }).default("200.00"),
+  hundredCount: integer("hundred_count"),
+  fiftyCount: integer("fifty_count"),
+  twentyCount: integer("twenty_count"),
+  tenCount: integer("ten_count"),
+  fiveCount: integer("five_count"),
+  oneCount: integer("one_count"),
+  rolledQuarterCount: integer("rolled_quarter_count"),
+  rolledDimeCount: integer("rolled_dime_count"),
+  rolledNickelCount: integer("rolled_nickel_count"),
+  rolledPennyCount: integer("rolled_penny_count"),
+  pennyCount: integer("penny_count"),
+  nickelCount: integer("nickel_count"),
+  dimeCount: integer("dime_count"),
+  quarterCount: integer("quarter_count"),
+  totalCashCounted: decimal("total_cash_counted", { precision: 10, scale: 2 }),
+  expectedCash: decimal("expected_cash", { precision: 10, scale: 2 }),
+  overShortAmount: decimal("over_short_amount", { precision: 10, scale: 2 }),
+  overShortExplanation: text("over_short_explanation"),
+  registerCashSales: decimal("register_cash_sales", { precision: 10, scale: 2 }),
+  registerTotalSales: decimal("register_total_sales", { precision: 10, scale: 2 }),
+  registerShopifyPayments: decimal("register_shopify_payments", { precision: 10, scale: 2 }),
+  recountAttempts: integer("recount_attempts").default(0),
+  recountHistory: jsonb("recount_history"),
+  employeesOnDuty: jsonb("employees_on_duty"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  index("idx_drawer_sessions_store_date").on(table.storeId, table.sessionDate),
+  index("idx_drawer_sessions_store_status").on(table.storeId, table.status),
+  index("idx_drawer_sessions_counted_by").on(table.countedBy),
+]);
+
+export const insertDrawerSessionSchema = createInsertSchema(drawerSessions).omit({ id: true, createdAt: true });
+export type DrawerSession = typeof drawerSessions.$inferSelect;
+export type InsertDrawerSession = z.infer<typeof insertDrawerSessionSchema>;
+
+// Cash Management - Deposits
+export const cashDeposits = pgTable("cash_deposits", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: text("store_id").notNull(),
+  depositDate: text("deposit_date").notNull(),
+  depositedBy: varchar("deposited_by"),
+  depositedAt: timestamp("deposited_at", { withTimezone: true }),
+  expectedAmount: decimal("expected_amount", { precision: 10, scale: 2 }),
+  actualAmount: decimal("actual_amount", { precision: 10, scale: 2 }),
+  depositSlipPhoto: text("deposit_slip_photo"),
+  registerSummaryPhoto: text("register_summary_photo"),
+  drawerSummaryPhoto: text("drawer_summary_photo"),
+  aiExtractedAmount: decimal("ai_extracted_amount", { precision: 10, scale: 2 }),
+  aiConfidence: text("ai_confidence"),
+  aiAnalysis: text("ai_analysis"),
+  discrepancyAmount: decimal("discrepancy_amount", { precision: 10, scale: 2 }),
+  discrepancyExplanation: text("discrepancy_explanation"),
+  status: text("status").notNull().default("pending"),
+  reviewedBy: varchar("reviewed_by"),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  reviewNotes: text("review_notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  index("idx_cash_deposits_store_date").on(table.storeId, table.depositDate),
+  index("idx_cash_deposits_store_status").on(table.storeId, table.status),
+]);
+
+export const insertCashDepositSchema = createInsertSchema(cashDeposits).omit({ id: true, createdAt: true });
+export type CashDeposit = typeof cashDeposits.$inferSelect;
+export type InsertCashDeposit = z.infer<typeof insertCashDepositSchema>;
+
+// Cash Management - Settings
+export const cashManagementSettings = pgTable("cash_management_settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: text("store_id").notNull().unique(),
+  defaultStartingCash: decimal("default_starting_cash", { precision: 10, scale: 2 }).default("200.00"),
+  registers: jsonb("registers"),
+  overShortThreshold: decimal("over_short_threshold", { precision: 10, scale: 2 }).default("5.00"),
+  requireDepositPhoto: boolean("require_deposit_photo").default(true),
+  requireOverShortExplanation: boolean("require_over_short_explanation").default(true),
+  autoFlagThreshold: decimal("auto_flag_threshold", { precision: 10, scale: 2 }).default("20.00"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+export const insertCashManagementSettingsSchema = createInsertSchema(cashManagementSettings).omit({ id: true, createdAt: true, updatedAt: true });
+export type CashManagementSettings = typeof cashManagementSettings.$inferSelect;
+export type InsertCashManagementSettings = z.infer<typeof insertCashManagementSettingsSchema>;
+
+// Cash Management - Discrepancy Log (for AI investigation)
+export const cashDiscrepancyLog = pgTable("cash_discrepancy_log", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: text("store_id").notNull(),
+  drawerSessionId: varchar("drawer_session_id"),
+  sessionDate: text("session_date").notNull(),
+  registerName: text("register_name").notNull(),
+  sessionType: text("session_type").notNull(),
+  countedBy: varchar("counted_by"),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  explanation: text("explanation"),
+  employeesOnDuty: jsonb("employees_on_duty"),
+  openedBy: varchar("opened_by"),
+  previousClosedBy: varchar("previous_closed_by"),
+  aiFlags: jsonb("ai_flags"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  index("idx_cash_discrepancy_store_date").on(table.storeId, table.sessionDate),
+  index("idx_cash_discrepancy_counted_by").on(table.countedBy),
+  index("idx_cash_discrepancy_store_created").on(table.storeId, table.createdAt),
+]);
+
+export const insertCashDiscrepancyLogSchema = createInsertSchema(cashDiscrepancyLog).omit({ id: true, createdAt: true });
+export type CashDiscrepancyLog = typeof cashDiscrepancyLog.$inferSelect;
+export type InsertCashDiscrepancyLog = z.infer<typeof insertCashDiscrepancyLogSchema>;
