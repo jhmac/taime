@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
-import { aiSchedulingSettings, shopifyDailySales, users, userAvailability, schedules, shops, roles, workPatternTemplates, userWorkPatterns } from "@shared/schema";
+import { aiSchedulingSettings, shopifyDailySales, users, userAvailability, schedules, shops, roles, workPatternTemplates, userWorkPatterns, clockEvents } from "@shared/schema";
 import { eq, and, gte, lte, desc, inArray, sql } from "drizzle-orm";
 import { db } from "../db";
 import Anthropic from '@anthropic-ai/sdk';
@@ -309,6 +309,21 @@ export function registerAiSchedulingRoutes(app: Express, storage: IStorage, isAu
         });
       }
 
+      const scoreWindow = new Date();
+      scoreWindow.setDate(scoreWindow.getDate() - 90);
+      const performanceScores = await db
+        .select({
+          userId: clockEvents.userId,
+          totalPoints: sql<number>`COALESCE(SUM(${clockEvents.pointValue}), 0)::int`,
+        })
+        .from(clockEvents)
+        .where(gte(clockEvents.createdAt, scoreWindow))
+        .groupBy(clockEvents.userId);
+      const scoreMap: Record<string, number> = {};
+      for (const s of performanceScores) {
+        scoreMap[s.userId] = s.totalPoints;
+      }
+
       const employeeList = allUsers
         .filter(u => u.showInSchedule !== false)
         .map(u => {
@@ -337,6 +352,7 @@ export function registerAiSchedulingRoutes(app: Express, storage: IStorage, isAu
             name: `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.email || 'Unknown',
             availability: userAvail,
             targetWeeklyHours: u.targetWeeklyHours ? parseFloat(u.targetWeeklyHours) : null,
+            performanceScore: scoreMap[u.id] ?? 0,
           };
         });
 
@@ -370,7 +386,8 @@ MIN STAFFING: ${settings.minimumStaffing}
 EMPLOYEES:
 ${employeeList.map(e => {
   const targetInfo = e.targetWeeklyHours ? ` [TARGET: ${e.targetWeeklyHours}hrs/wk]` : '';
-  return `${e.name} (${e.id})${targetInfo}: ${Object.entries(e.availability).map(([date, status]) => `${date}=${status}`).join(', ')}`;
+  const scoreInfo = ` [SCORE: ${e.performanceScore}]`;
+  return `${e.name} (${e.id})${targetInfo}${scoreInfo}: ${Object.entries(e.availability).map(([date, status]) => `${date}=${status}`).join(', ')}`;
 }).join('\n')}
 
 AVAILABILITY STATUS KEY:
@@ -379,6 +396,8 @@ AVAILABILITY STATUS KEY:
 - preferred_off = employee prefers not to work but CAN be scheduled if needed
 - available = employee can work
 - unavailable = employee cannot work this specific date
+
+PERFORMANCE SCORE: Points earned over the last 90 days from attendance, task completion, and workplace reliability. Higher scores indicate more dependable employees.
 
 RULES:
 1. Meet required staff count per day per shift block.
@@ -389,6 +408,7 @@ RULES:
 6. NEVER schedule shifts outside store operating hours. All shift times must fall within store hours for that day.
 7. NEVER schedule anyone on days the store is closed.
 8. preferred_off employees should only be scheduled as a last resort to fill minimum staffing.
+9. When multiple employees are equally available for the same shift, prefer employees with higher SCORE values. Higher scores mean better attendance, task completion, and reliability. Use scores as a tiebreaker after availability, REQUIRED status, and target hours priorities are satisfied.
 
 OUTPUT INSTRUCTIONS: Return ONLY a single JSON object. Do NOT include any text, markdown formatting, or code fences. The response must start with { and end with }.
 

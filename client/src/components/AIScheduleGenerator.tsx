@@ -177,6 +177,10 @@ export default function AIScheduleGenerator() {
               )}
             </Button>
           </div>
+          <p className="text-xs text-muted-foreground mt-3 flex items-center gap-1.5">
+            <BrainCircuit className="h-3.5 w-3.5" />
+            AI considers employee availability, target hours, and performance scores when assigning shifts.
+          </p>
         </CardContent>
       </Card>
 
