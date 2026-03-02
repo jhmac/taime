@@ -234,14 +234,16 @@ export default function ImprovementFeed() {
         )}
       </div>
 
-      <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-40 md:bottom-8">
-        <button
-          onClick={() => setShowRecordDialog(true)}
-          className="w-16 h-16 rounded-full bg-gradient-to-br from-orange-500 to-pink-500 text-white shadow-xl flex items-center justify-center hover:scale-105 transition-transform active:scale-95 ring-4 ring-white dark:ring-gray-900"
-        >
-          <Video className="h-6 w-6" />
-        </button>
-      </div>
+      {videos.length > 0 && (
+        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-40 md:bottom-8">
+          <button
+            onClick={() => setShowRecordDialog(true)}
+            className="w-16 h-16 rounded-full bg-gradient-to-br from-orange-500 to-pink-500 text-white shadow-xl flex items-center justify-center hover:scale-105 transition-transform active:scale-95 ring-4 ring-white dark:ring-gray-900"
+          >
+            <Video className="h-6 w-6" />
+          </button>
+        </div>
+      )}
 
       {showRecordDialog && (
         <VideoRecordDialog
