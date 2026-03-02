@@ -31,6 +31,8 @@ export function registerTimeEntryRoutes(app: Express, storage: IStorage, isAuthe
     try {
       const userId = req.user.id;
       const body = { ...req.body, userId };
+      if (typeof body.clockInTime === 'string') body.clockInTime = new Date(body.clockInTime);
+      if (typeof body.clockOutTime === 'string') body.clockOutTime = new Date(body.clockOutTime);
       const data = insertTimeEntrySchema.parse(body);
       
       const allWorkLocations = await withRetry(() => storage.getAllWorkLocations());
