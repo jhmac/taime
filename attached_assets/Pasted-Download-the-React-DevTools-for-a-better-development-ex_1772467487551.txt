@@ -1,0 +1,48 @@
+Download the React DevTools for a better development experience: https://reactjs.org/link/react-devtools react-dom.development.js:29895:17
+Clear-Site-Data header forced the clean up of “cache” data. icon-192x192.png
+Clear-Site-Data header forced the clean up of “cache” data. favicon.svg
+Cookie “__clerk_test_etld” has been rejected for invalid domain. 4 58ecf8e1-3239-4459-9c03-59556b4a63ee-00-2vlb7uwsx29ku.picard.replit.dev
+[ws] connected WebSocketContext.tsx:92:17
+Uncaught TypeError: (intermediate value).filter is not a function
+    OwnerDashboard OwnerDashboard.tsx:79
+    React 13
+OwnerDashboard.tsx:79:50
+Uncaught TypeError: (intermediate value).filter is not a function
+    OwnerDashboard OwnerDashboard.tsx:79
+    React 14
+OwnerDashboard.tsx:79:50
+The above error occurred in the <OwnerDashboard> component:
+
+OwnerDashboard@https://58ecf8e1-3239-4459-9c03-59556b4a63ee-00-2vlb7uwsx29ku.picard.replit.dev/src/features/dashboard/OwnerDashboard.tsx:59:20
+DashboardRouter@https://58ecf8e1-3239-4459-9c03-59556b4a63ee-00-2vlb7uwsx29ku.picard.replit.dev/src/features/dashboard/DashboardRouter.tsx:25:31
+Route@https://58ecf8e1-3239-4459-9c03-59556b4a63ee-00-2vlb7uwsx29ku.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/wouter.js?v=19a4012f:191:13
+Switch@https://58ecf8e1-3239-4459-9c03-59556b4a63ee-00-2vlb7uwsx29ku.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/wouter.js?v=19a4012f:247:14
+AuthenticatedApp@https://58ecf8e1-3239-4459-9c03-59556b4a63ee-00-2vlb7uwsx29ku.picard.replit.dev/src/App.tsx?v=Rm_EsA5hWZLj4k7brtpzP:222:48
+SignedIn@https://58ecf8e1-3239-4459-9c03-59556b4a63ee-00-2vlb7uwsx29ku.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/@clerk_clerk-react.js?v=19a4012f:3562:16
+Router
+main
+div
+div
+Layout@https://58ecf8e1-3239-4459-9c03-59556b4a63ee-00-2vlb7uwsx29ku.picard.replit.dev/src/components/Layout.tsx:24:31
+Provider@https://58ecf8e1-3239-4459-9c03-59556b4a63ee-00-2vlb7uwsx29ku.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/chunk-OXZDJRWN.js?v=19a4012f:38:47
+TooltipProvider@https://58ecf8e1-3239-4459-9c03-59556b4a63ee-00-2vlb7uwsx29ku.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=19a4012f:73:7
+WebSocketProvider@https://58ecf8e1-3239-4459-9c03-59556b4a63ee-00-2vlb7uwsx29ku.picard.replit.dev/src/contexts/WebSocketContext.tsx:34:34
+QueryClientProvider@https://58ecf8e1-3239-4459-9c03-59556b4a63ee-00-2vlb7uwsx29ku.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/@tanstack_react-query.js?v=19a4012f:2804:27
+__experimental_CheckoutProvider@https://58ecf8e1-3239-4459-9c03-59556b4a63ee-00-2vlb7uwsx29ku.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/@clerk_clerk-react.js?v=19a4012f:2038:39
+SWRConfig@https://58ecf8e1-3239-4459-9c03-59556b4a63ee-00-2vlb7uwsx29ku.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/@clerk_clerk-react.js?v=19a4012f:988:21
+SWRConfigCompat@https://58ecf8e1-3239-4459-9c03-59556b4a63ee-00-2vlb7uwsx29ku.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/@clerk_clerk-react.js?v=19a4012f:2029:25
+OrganizationProvider@https://58ecf8e1-3239-4459-9c03-59556b4a63ee-00-2vlb7uwsx29ku.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/@clerk_clerk-react.js?v=19a4012f:2042:28
+ClerkContextProvider@https://58ecf8e1-3239-4459-9c03-59556b4a63ee-00-2vlb7uwsx29ku.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/@clerk_clerk-react.js?v=19a4012f:6793:62
+ClerkProviderBase@https://58ecf8e1-3239-4459-9c03-59556b4a63ee-00-2vlb7uwsx29ku.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/@clerk_clerk-react.js?v=19a4012f:6883:109
+Hoc@https://58ecf8e1-3239-4459-9c03-59556b4a63ee-00-2vlb7uwsx29ku.picard.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/@clerk_clerk-react.js?v=19a4012f:3765:32
+App@https://58ecf8e1-3239-4459-9c03-59556b4a63ee-00-2vlb7uwsx29ku.picard.replit.dev/src/App.tsx?v=Rm_EsA5hWZLj4k7brtpzP:650:43
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://reactjs.org/link/error-boundaries to learn more about error boundaries. react-dom.development.js:18704:15
+Uncaught TypeError: (intermediate value).filter is not a function
+    OwnerDashboard OwnerDashboard.tsx:79
+    React 11
+OwnerDashboard.tsx:79:50
+
+​
+

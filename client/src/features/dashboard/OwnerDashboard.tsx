@@ -48,13 +48,15 @@ export default function OwnerDashboard() {
     queryKey: ['/api/dashboard/today'],
   });
 
-  const { data: sopExecutions, isLoading: sopsLoading } = useQuery<any[]>({
+  const { data: sopExecutionsRaw, isLoading: sopsLoading } = useQuery<any>({
     queryKey: ['/api/sops/executions'],
   });
+  const sopExecutions = Array.isArray(sopExecutionsRaw) ? sopExecutionsRaw : (sopExecutionsRaw?.data || []);
 
-  const { data: issues, isLoading: issuesLoading } = useQuery<any[]>({
+  const { data: issuesRaw, isLoading: issuesLoading } = useQuery<any>({
     queryKey: ['/api/issues'],
   });
+  const issues = Array.isArray(issuesRaw) ? issuesRaw : (issuesRaw?.data || []);
 
   const { data: tasks, isLoading: tasksLoading } = useQuery<any[]>({
     queryKey: ['/api/tasks'],
