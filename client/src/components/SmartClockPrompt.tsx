@@ -72,11 +72,12 @@ export default function SmartClockPrompt() {
       if (result.isInWorkLocation && result.location) {
         setNearbyLocation({ id: result.location.id, name: result.location.name });
       }
-    } catch (err) {
-    } finally {
-      setChecking(false);
       setChecked(true);
       sessionStorage.setItem('smartClockLastCheck', String(Date.now()));
+    } catch (err) {
+      console.warn('[SmartClockPrompt] Location check failed:', err);
+    } finally {
+      setChecking(false);
     }
   }, [checked, checking, settings?.enableSmartClockPrompt, activeTimeEntry, workLocations.length, getCurrentPosition]);
 

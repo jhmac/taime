@@ -27,34 +27,39 @@ export function useGeolocation() {
       setLoading(true);
       setError(null);
 
-      const options: PositionOptions = {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 5000,
+      const makePos = (p: globalThis.GeolocationPosition): GeolocationPosition => ({
+        latitude: p.coords.latitude,
+        longitude: p.coords.longitude,
+        accuracy: p.coords.accuracy,
+        timestamp: p.timestamp,
+      });
+
+      const onSuccess = (p: globalThis.GeolocationPosition) => {
+        const pos = makePos(p);
+        setPosition(pos);
+        setLoading(false);
+        setError(null);
+        resolve(pos);
       };
 
       navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const pos: GeolocationPosition = {
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-            accuracy: position.coords.accuracy,
-            timestamp: position.timestamp,
-          };
-          setPosition(pos);
-          setLoading(false);
-          resolve(pos);
+        onSuccess,
+        (highAccErr) => {
+          navigator.geolocation.getCurrentPosition(
+            onSuccess,
+            (fallbackErr) => {
+              const error: GeolocationError = {
+                code: fallbackErr.code,
+                message: getErrorMessage(fallbackErr.code),
+              };
+              setError(error);
+              setLoading(false);
+              reject(error);
+            },
+            { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 }
+          );
         },
-        (err) => {
-          const error: GeolocationError = {
-            code: err.code,
-            message: getErrorMessage(err.code),
-          };
-          setError(error);
-          setLoading(false);
-          reject(error);
-        },
-        options
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
       );
     });
   }, []);

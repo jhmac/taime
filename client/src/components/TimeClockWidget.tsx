@@ -73,29 +73,28 @@ export default function TimeClockWidget() {
   useEffect(() => {
     if (workLocations.length > 0 && !hasRequestedLocation.current) {
       hasRequestedLocation.current = true;
+      const requestLocation = () => {
+        getCurrentPosition()
+          .then(() => setLocationPermission('granted'))
+          .catch(() => {});
+      };
       if (navigator.permissions) {
         navigator.permissions.query({ name: 'geolocation' }).then(result => {
           setLocationPermission(result.state);
           result.onchange = () => {
             setLocationPermission(result.state);
             if (result.state === 'granted' && !position) {
-              getCurrentPosition().catch(() => {});
+              requestLocation();
             }
           };
           if (result.state === 'granted' || result.state === 'prompt') {
-            getCurrentPosition().then(() => {
-              setLocationPermission('granted');
-            }).catch(() => {});
+            requestLocation();
           }
         }).catch(() => {
-          getCurrentPosition().then(() => {
-            setLocationPermission('granted');
-          }).catch(() => {});
+          requestLocation();
         });
       } else {
-        getCurrentPosition().then(() => {
-          setLocationPermission('granted');
-        }).catch(() => {});
+        requestLocation();
       }
     }
   }, [workLocations]);

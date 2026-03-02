@@ -1,4 +1,4 @@
-const CACHE_NAME = 'taime-clock-v2.1.0';
+const CACHE_NAME = 'taime-clock-v2.2.0';
 const STATIC_CACHE_URLS = [
   '/manifest.json',
   '/icon-192x192.png',
