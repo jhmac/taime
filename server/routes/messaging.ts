@@ -31,6 +31,27 @@ export function registerMessageRoutes(
   sendToUsers: (userIds: string[], data: Record<string, unknown>) => void,
 ) {
 
+  app.get("/api/messages/contacts", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.id;
+      const allUsers = await db
+        .select({
+          id: users.id,
+          firstName: users.firstName,
+          lastName: users.lastName,
+          email: users.email,
+          roleId: users.roleId,
+        })
+        .from(users)
+        .where(eq(users.isActive, true));
+      const contacts = allUsers.filter(u => u.id !== userId);
+      res.json(contacts);
+    } catch (error) {
+      console.error("Error fetching messaging contacts:", error);
+      res.status(500).json({ message: "Failed to fetch contacts" });
+    }
+  });
+
   app.get("/api/messages/threads", isAuthenticated, async (req, res) => {
     try {
       const user = (req as any).user;

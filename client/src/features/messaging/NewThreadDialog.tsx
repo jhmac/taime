@@ -38,15 +38,15 @@ export default function NewThreadDialog({ open, onOpenChange, onCreated }: Props
   const [selected, setSelected] = useState<TeamMember[]>([]);
   const [groupTitle, setGroupTitle] = useState("");
 
-  const { data: teamData } = useQuery<{ id: string; firstName: string | null; lastName: string | null; email: string | null; role: { name: string } | null }[]>({
-    queryKey: ["/api/users"],
+  const { data: teamData } = useQuery<{ id: string; firstName: string | null; lastName: string | null; email: string | null; roleId: number | null }[]>({
+    queryKey: ["/api/messages/contacts"],
     enabled: open,
   });
 
   const teamMembers = useMemo(() => {
-    if (!teamData || !user) return [];
-    return teamData.filter(m => m.id !== user.id);
-  }, [teamData, user]);
+    if (!teamData) return [];
+    return teamData;
+  }, [teamData]);
 
   const filtered = useMemo(() => {
     if (!search.trim()) return teamMembers;
@@ -160,7 +160,7 @@ export default function NewThreadDialog({ open, onOpenChange, onCreated }: Props
                         {member.firstName} {member.lastName}
                       </p>
                       <p className="text-xs text-muted-foreground truncate capitalize">
-                        {member.role?.name || "Team member"}
+                        Team member
                       </p>
                     </div>
                     {isSelected && (
