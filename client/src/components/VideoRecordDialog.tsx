@@ -249,7 +249,7 @@ export default function VideoRecordDialog({ open, onOpenChange, onSuccess }: Pro
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-lg p-0 overflow-hidden max-h-[90vh] flex flex-col">
+      <DialogContent className="max-w-lg p-0 overflow-hidden max-h-[85vh] sm:max-h-[90vh] flex flex-col" onOpenAutoFocus={(e) => e.preventDefault()}>
         <DialogHeader className="p-4 pb-2">
           <DialogTitle className="flex items-center gap-2 text-base">
             <Video className="h-5 w-5 text-orange-500" />

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Heart, MessageCircle, Eye, Play, Plus, Star, Film } from "lucide-react";
+import { Heart, MessageCircle, Eye, Play, Plus, Star, Film, Video } from "lucide-react";
 import VideoRecordDialog from "@/components/VideoRecordDialog";
 import VideoPlayerModal from "@/components/VideoPlayerModal";
 import { formatDistanceToNow } from "date-fns";
@@ -234,12 +234,14 @@ export default function ImprovementFeed() {
         )}
       </div>
 
-      <button
-        onClick={() => setShowRecordDialog(true)}
-        className="fixed bottom-24 right-5 z-40 w-14 h-14 rounded-full bg-gradient-to-br from-orange-500 to-pink-500 text-white shadow-lg flex items-center justify-center hover:scale-105 transition-transform active:scale-95"
-      >
-        <Plus className="h-6 w-6" />
-      </button>
+      <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-40 md:bottom-8">
+        <button
+          onClick={() => setShowRecordDialog(true)}
+          className="w-16 h-16 rounded-full bg-gradient-to-br from-orange-500 to-pink-500 text-white shadow-xl flex items-center justify-center hover:scale-105 transition-transform active:scale-95 ring-4 ring-white dark:ring-gray-900"
+        >
+          <Video className="h-6 w-6" />
+        </button>
+      </div>
 
       {showRecordDialog && (
         <VideoRecordDialog
