@@ -52,7 +52,7 @@ async function gatherEmployeeContext(employeeId: string, storeId: string) {
       id: users.id,
       firstName: users.firstName,
       lastName: users.lastName,
-      role: users.role,
+      roleId: users.roleId,
     }).from(users).where(eq(users.id, employeeId)).then(r => r[0]),
 
     db.select({
@@ -281,7 +281,7 @@ export async function generateTaskSuggestions(employeeId: string, storeId: strin
 
   const contextSummary = `
 CURRENT CONTEXT:
-- Employee: ${ctx.employee?.firstName} ${ctx.employee?.lastName} (${ctx.employee?.role})
+- Employee: ${ctx.employee?.firstName} ${ctx.employee?.lastName}
 - Store: ${ctx.storeName}
 - Time: ${ctx.currentTime}, ${ctx.dayOfWeek}
 - Clocked in: ${ctx.isClockedIn ? `Yes (since ${ctx.clockedInSince})` : "No"}

@@ -642,13 +642,14 @@ export const geofenceEvents = pgTable("geofence_events", {
 // AI Scheduling Settings
 export const aiSchedulingSettings = pgTable("ai_scheduling_settings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  locationId: varchar("location_id").references(() => workLocations.id).notNull(),
-  minStaffPerShift: integer("min_staff_per_shift").default(1),
-  maxStaffPerShift: integer("max_staff_per_shift").default(5),
-  targetLaborCostPercentage: decimal("target_labor_cost_percentage", { precision: 5, scale: 2 }).default("15.00"),
-  optimizationPriority: varchar("optimization_priority").default("balanced"), // 'cost', 'coverage', 'balanced'
-  createdAt: timestamp("created_at").defaultNow(),
+  shiftBlocks: jsonb("shift_blocks").default(sql`'[]'::jsonb`),
+  staffingTiers: jsonb("staffing_tiers").default(sql`'[]'::jsonb`),
+  minimumStaffing: integer("minimum_staffing").default(2),
+  updatedBy: varchar("updated_by").references(() => users.id),
   updatedAt: timestamp("updated_at").defaultNow(),
+  storeHours: jsonb("store_hours").default(sql`'[]'::jsonb`),
+  shiftOverlapMinutes: integer("shift_overlap_minutes").default(60),
+  overlapBudgetLimit: decimal("overlap_budget_limit", { precision: 10, scale: 2 }),
 });
 
 // Work pattern templates
