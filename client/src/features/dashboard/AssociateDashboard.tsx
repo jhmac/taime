@@ -51,9 +51,10 @@ export default function AssociateDashboard() {
     queryKey: ['/api/tasks'],
   });
 
-  const { data: sopExecutions = [], isLoading: sopsLoading } = useQuery<SopExecution[]>({
+  const { data: sopExecutionsRaw = [], isLoading: sopsLoading } = useQuery<any>({
     queryKey: ['/api/sops/executions'],
   });
+  const sopExecutions = Array.isArray(sopExecutionsRaw) ? sopExecutionsRaw : (sopExecutionsRaw?.data || []);
 
   const inProgressExecutions = (sopExecutions as any[]).filter(
     (e: any) => e.status === 'in_progress' && e.employeeId === user?.id

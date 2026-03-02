@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, Component, type ReactNode, type ErrorInfo } from "react";
 import { Switch, Route } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
@@ -8,6 +8,50 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
 import { initGlobalErrorHandlers } from "./lib/errorReporter";
 import Layout from "@/components/Layout";
+
+class AppErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: Error | null }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error('App Error Boundary caught:', error, errorInfo);
+    try {
+      fetch('/api/client-errors', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ error: error.message, stack: error.stack, action: 'ErrorBoundary' }),
+      }).catch(() => {});
+    } catch {}
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-background p-4">
+          <div className="text-center space-y-4 max-w-sm">
+            <h2 className="text-lg font-semibold">Something went wrong</h2>
+            <p className="text-sm text-muted-foreground">{this.state.error?.message || 'An unexpected error occurred.'}</p>
+            <button
+              onClick={() => {
+                if ('caches' in window) {
+                  caches.keys().then(names => names.forEach(name => caches.delete(name)));
+                }
+                window.location.reload();
+              }}
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm"
+            >
+              Clear Cache & Reload
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 import Landing from "@/pages/Landing";
 import DashboardRouter from "@/features/dashboard/DashboardRouter";
 import Operations from "@/pages/Operations";
@@ -348,18 +392,20 @@ function App() {
   }
 
   return (
-    <ClerkProvider publishableKey={clerkKey}>
-      <QueryClientProvider client={queryClient}>
-        <WebSocketProvider>
-          <TooltipProvider>
-            <Layout>
-              <Toaster />
-              <Router />
-            </Layout>
-          </TooltipProvider>
-        </WebSocketProvider>
-      </QueryClientProvider>
-    </ClerkProvider>
+    <AppErrorBoundary>
+      <ClerkProvider publishableKey={clerkKey}>
+        <QueryClientProvider client={queryClient}>
+          <WebSocketProvider>
+            <TooltipProvider>
+              <Layout>
+                <Toaster />
+                <Router />
+              </Layout>
+            </TooltipProvider>
+          </WebSocketProvider>
+        </QueryClientProvider>
+      </ClerkProvider>
+    </AppErrorBoundary>
   );
 }
 

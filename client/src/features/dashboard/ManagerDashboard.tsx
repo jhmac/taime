@@ -51,8 +51,10 @@ export default function ManagerDashboard() {
   const { data: users } = useQuery<any[]>({ queryKey: ['/api/users'] });
   const { data: schedules } = useQuery<any[]>({ queryKey: ['/api/schedules'] });
   const { data: tasks, isLoading: tasksLoading } = useQuery<any[]>({ queryKey: ['/api/tasks'] });
-  const { data: issues, isLoading: issuesLoading } = useQuery<any[]>({ queryKey: ['/api/issues'] });
-  const { data: sopExecutions, isLoading: sopsLoading } = useQuery<any[]>({ queryKey: ['/api/sops/executions'] });
+  const { data: issuesRaw, isLoading: issuesLoading } = useQuery<any>({ queryKey: ['/api/issues'] });
+  const issues = Array.isArray(issuesRaw) ? issuesRaw : (issuesRaw?.data || []);
+  const { data: sopExecutionsRaw, isLoading: sopsLoading } = useQuery<any>({ queryKey: ['/api/sops/executions'] });
+  const sopExecutions = Array.isArray(sopExecutionsRaw) ? sopExecutionsRaw : (sopExecutionsRaw?.data || []);
   const { data: huddleData } = useQuery<any>({ queryKey: ['/api/rituals/huddle/today'] });
 
   const today = new Date();
