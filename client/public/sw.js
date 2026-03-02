@@ -1,4 +1,4 @@
-const CACHE_NAME = 'taime-clock-v2.2.0';
+const CACHE_NAME = 'taime-clock-v2.3.0';
 const STATIC_CACHE_URLS = [
   '/manifest.json',
   '/icon-192x192.png',
@@ -227,6 +227,8 @@ self.addEventListener('notificationclick', (event) => {
   else if (data.type === 'task_assignment') url = '/?action=tasks';
   else if (data.type === 'schedule_update') url = '/?action=schedule';
   else if (data.type === 'payroll_ready') url = '/?action=payroll';
+  else if (data.type === 'anomaly_alert') url = data.url || '/dashboard';
+  else if (action === 'view_details' && data.type === 'anomaly_alert') url = '/dashboard';
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true })

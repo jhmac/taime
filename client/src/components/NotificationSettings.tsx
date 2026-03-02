@@ -10,7 +10,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 
-const VAPID_PUBLIC_KEY = 'BMzCgT-xjAU_PCsnpPyftb40vuw0IFHBmUdrLPa8w-jDE6KYBARxbdaLYezdjqjYqKy9u_2OccTkJdNiSsoETD8';
+const VAPID_PUBLIC_KEY = 'BA2ICiFIA-sDcZLTlM4B4p8p3L1iDqPc2tOeOo29t2mvfzYadI462CtDWZn7IZ71hsn5HMBcAivBklpX_Q39Ucg';
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -29,6 +29,7 @@ type NotificationPreferences = {
   scheduleUpdates: boolean;
   overtimeWarnings: boolean;
   announcements: boolean;
+  anomalyAlerts: boolean;
 };
 
 export default function NotificationSettings() {
@@ -43,6 +44,7 @@ export default function NotificationSettings() {
     scheduleUpdates: true,
     overtimeWarnings: true,
     announcements: true,
+    anomalyAlerts: true,
   });
 
   const checkSubscriptionStatus = useCallback(async () => {
@@ -275,6 +277,7 @@ export default function NotificationSettings() {
                 { key: 'scheduleUpdates' as const, label: 'Schedule Updates', description: 'Shift changes and schedule modifications', icon: 'fa-calendar-alt' },
                 { key: 'overtimeWarnings' as const, label: 'Overtime Warnings', description: 'Alerts when approaching overtime limits', icon: 'fa-exclamation-triangle' },
                 { key: 'announcements' as const, label: 'Announcements', description: 'Team-wide announcements and updates', icon: 'fa-bullhorn' },
+                { key: 'anomalyAlerts' as const, label: 'Anomaly Alerts', description: 'Unusual clock-in patterns and payroll issues', icon: 'fa-triangle-exclamation' },
               ].map((item) => (
                 <div key={item.key} className="flex items-center justify-between py-1">
                   <div className="flex items-center gap-3">

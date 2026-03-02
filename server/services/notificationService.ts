@@ -275,6 +275,32 @@ export class NotificationService {
   /**
    * Send AI insight notification
    */
+  async sendAnomalyAlert(userId: string, headline: string, detail: string, severity: string, insightType: string): Promise<void> {
+    const emoji = severity === 'action_needed' ? '🚨' : '⚠️';
+    const typeLabel = insightType === 'clock_in_anomaly' ? 'Clock-In Anomaly' : 'Payroll Alert';
+
+    await this.sendToUser(userId, {
+      title: `${emoji} ${typeLabel}`,
+      body: headline,
+      data: {
+        type: 'anomaly_alert',
+        insightType,
+        severity,
+        url: '/dashboard',
+      },
+      actions: [
+        {
+          action: 'view_details',
+          title: 'View Details',
+        },
+        {
+          action: 'dismiss',
+          title: 'Dismiss',
+        },
+      ],
+    });
+  }
+
   async sendAIInsight(userId: string, insightTitle: string, insightDescription: string, severity: string): Promise<void> {
     const emoji = severity === 'high' ? '🚨' : severity === 'medium' ? '⚠️' : 'ℹ️';
     
