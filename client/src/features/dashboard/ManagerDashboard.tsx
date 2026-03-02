@@ -21,6 +21,7 @@ import SmartSuggestionsCard from '@/features/dashboard/SmartSuggestionsCard';
 import SOPRevisionCard from '@/features/dashboard/SOPRevisionCard';
 import CashStatusCard from '@/features/dashboard/CashStatusCard';
 import SurfacedSOPBanner from '@/components/SurfacedSOPBanner';
+import TimeClockWidget from '@/components/TimeClockWidget';
 import {
   Users,
   UserCheck,
@@ -136,6 +137,10 @@ export default function ManagerDashboard() {
       </DashboardErrorBoundary>
 
       <div className={isMobile ? "px-4 py-3" : "px-6 py-4"}>
+        <DashboardErrorBoundary fallback="Time clock failed to load">
+          <TimeClockWidget />
+        </DashboardErrorBoundary>
+
         <DashboardErrorBoundary fallback="Could not load metrics">
           <div className={isMobile ? "grid grid-cols-2 gap-3" : "grid grid-cols-4 gap-4"}>
             <Card>

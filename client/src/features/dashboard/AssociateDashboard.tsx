@@ -15,6 +15,7 @@ import LeanBoardCard from '@/features/dashboard/LeanBoardCard';
 import SmartSuggestionsCard from '@/features/dashboard/SmartSuggestionsCard';
 import { DashboardErrorBoundary } from '@/features/dashboard/DashboardErrorBoundary';
 import GTDDashboardWidget from '@/features/gtd/GTDDashboardWidget';
+import TimeClockWidget from '@/components/TimeClockWidget';
 import type { UserWithRole, Task, SopExecution } from '@shared/schema';
 import {
   Bot,
@@ -127,6 +128,10 @@ export default function AssociateDashboard() {
       </DashboardErrorBoundary>
 
       <div className={`p-4 space-y-4 ${!isMobile ? 'max-w-3xl mx-auto' : ''}`}>
+        <DashboardErrorBoundary fallback="Time clock failed to load">
+          <TimeClockWidget />
+        </DashboardErrorBoundary>
+
         <DashboardErrorBoundary fallback="Quote failed to load">
           <DailyQuoteCard />
         </DashboardErrorBoundary>

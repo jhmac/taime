@@ -18,6 +18,7 @@ import SOPInsightsCard from '@/features/dashboard/SOPInsightsCard';
 import BackgroundInsightsCard from '@/features/dashboard/BackgroundInsightsCard';
 import SOPRevisionCard from '@/features/dashboard/SOPRevisionCard';
 import CashStatusCard from '@/features/dashboard/CashStatusCard';
+import TimeClockWidget from '@/components/TimeClockWidget';
 import {
   Briefcase, Users, ShieldCheck, AlertTriangle, TrendingUp,
   Calendar, DollarSign, ClipboardList, BarChart3, Settings,
@@ -152,7 +153,11 @@ export default function OwnerDashboard() {
         </section>
       </DashboardErrorBoundary>
 
-      <div className={isMobile ? 'px-4 pt-3 pb-1' : 'px-6 pt-4 pb-2'}>
+      <div className={isMobile ? 'px-4 pt-3 pb-1 space-y-4' : 'px-6 pt-4 pb-2 space-y-4'}>
+        <DashboardErrorBoundary fallback="Time clock failed to load">
+          <TimeClockWidget />
+        </DashboardErrorBoundary>
+
         <DashboardErrorBoundary fallback="Could not load SOP banner">
           <SurfacedSOPBanner />
         </DashboardErrorBoundary>
