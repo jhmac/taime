@@ -633,9 +633,11 @@ export const geofenceEvents = pgTable("geofence_events", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").references(() => users.id).notNull(),
   locationId: varchar("location_id").references(() => workLocations.id).notNull(),
-  eventType: varchar("event_type").notNull(),
+  eventType: varchar("event_type", { length: 20 }).notNull(),
   latitude: decimal("latitude", { precision: 10, scale: 8 }),
   longitude: decimal("longitude", { precision: 11, scale: 8 }),
+  distanceFromCenter: decimal("distance_from_center", { precision: 10, scale: 2 }),
+  timeEntryId: varchar("time_entry_id").references(() => timeEntries.id),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
