@@ -209,16 +209,49 @@ export default function TimeClockWidget() {
                   clearInterval(countdownRef.current);
                   countdownRef.current = null;
                 }
-                // Force a hard refresh of the active entry to catch the server-side auto clock-out
-                queryClient.invalidateQueries({ queryKey: ['/api/time-entries/active'] });
-                queryClient.refetchQueries({ queryKey: ['/api/time-entries/active'] }).then((active: any) => {
-                  // If after refetch we still have an active entry, it means server-side auto-clock out might have failed
-                  // or is delayed. Force a client-side clock out as a safety measure.
-                  if (active && active.data && activeTimeEntry) {
-                    console.log("[Geofence] Server-side auto clock-out not detected yet, forcing client-side clock-out");
-                    clockOutMutation.mutate(activeTimeEntry.id);
+                console.log("[Geofence] Grace period expired — cleaning up and checking clock-out");
+                const cleanupUI = () => {
+                  setCountdownSeconds(null);
+                  setGeofenceStatus(null);
+                  totalGraceSecondsRef.current = 0;
+                  exitAlertShown.current = false;
+                  queryClient.invalidateQueries({ queryKey: ['/api/time-entries/active'] });
+                  queryClient.invalidateQueries({ queryKey: ['/api/time-entries'] });
+                };
+                (async () => {
+                  try {
+                    const authHeaders: Record<string, string> = {};
+                    if ((window as any).Clerk?.session) {
+                      const token = await (window as any).Clerk.session.getToken();
+                      if (token) authHeaders.Authorization = `Bearer ${token}`;
+                    }
+                    const res = await fetch('/api/time-entries/active', {
+                      credentials: 'include',
+                      headers: authHeaders,
+                    });
+                    const entry = res.ok ? await res.json() : null;
+                    if (entry && entry.id && !entry.clockOutTime) {
+                      console.log("[Geofence] Entry still active — forcing client clock-out");
+                      clockOutMutation.mutate(entry.id, { onSettled: cleanupUI });
+                    } else {
+                      console.log("[Geofence] Server already clocked out — cleaning up UI");
+                      cleanupUI();
+                      triggerHaptic([300, 100, 300, 100, 600]);
+                      toast({
+                        title: "Auto Clocked Out",
+                        description: "You were automatically clocked out because you left the work location.",
+                        variant: "destructive",
+                      });
+                    }
+                  } catch (err) {
+                    console.error("[Geofence] Error checking active entry, forcing cleanup:", err);
+                    if (activeTimeEntry) {
+                      clockOutMutation.mutate(activeTimeEntry.id, { onSettled: cleanupUI });
+                    } else {
+                      cleanupUI();
+                    }
                   }
-                });
+                })();
                 return 0;
               }
               return prev - 1;

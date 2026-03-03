@@ -123,7 +123,7 @@ export function registerTimeEntryRoutes(app: Express, storage: IStorage, isAuthe
     try {
       const userId = req.user.id;
       const activeEntry = await storage.getActiveTimeEntry(userId);
-      res.json(activeEntry);
+      res.json(activeEntry || null);
     } catch (error) {
       console.error("Error fetching active time entry:", error);
       res.status(500).json({ message: "Failed to fetch active time entry" });
