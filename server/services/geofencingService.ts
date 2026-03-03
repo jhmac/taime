@@ -491,7 +491,9 @@ export class GeofencingService {
 
       if (recentAutoClockOut.length > 0 && recentAutoClockOut[0].clockOutTime) {
         const clockOutAge = Date.now() - new Date(recentAutoClockOut[0].clockOutTime).getTime();
-        if (clockOutAge < 30000) {
+        // Use 120s window because clockOutTime is backdated to the exit moment,
+        // which can be grace-period-length (e.g. 60s) before the actual clock-out write
+        if (clockOutAge < 120000) {
           return { isOutside: true, autoClockOutTriggered: true, graceMinutes: 0, graceRemaining: 0, exitedAt: null };
         }
       }
