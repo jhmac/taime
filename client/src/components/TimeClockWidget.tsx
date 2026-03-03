@@ -349,6 +349,21 @@ export default function TimeClockWidget() {
             return;
           }
 
+          if (!result.isInWorkLocation && result.geofenceExitInfo?.graceMinutes === 0 && result.geofenceExitInfo?.graceRemaining == null) {
+            console.log("[Geofence] Server reports outside with no grace period — entry likely already clocked out");
+            queryClient.invalidateQueries({ queryKey: ['/api/time-entries/active'] });
+            queryClient.invalidateQueries({ queryKey: ['/api/time-entries'] });
+            setCountdownSeconds(null);
+            setGeofenceStatus(null);
+            exitAlertShown.current = false;
+            totalGraceSecondsRef.current = 0;
+            if (countdownRef.current) {
+              clearInterval(countdownRef.current);
+              countdownRef.current = null;
+            }
+            return;
+          }
+
           const isNearBoundary = result.isInWorkLocation && 
             result.boundaryProximity != null && result.boundaryProximity > 0.8;
           
