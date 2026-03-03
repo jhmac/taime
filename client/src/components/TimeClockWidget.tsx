@@ -48,6 +48,8 @@ export default function TimeClockWidget() {
   const [countdownSeconds, setCountdownSeconds] = useState<number | null>(null);
   const countdownRef = useRef<number | null>(null);
   const totalGraceSecondsRef = useRef<number>(0);
+  const lastMonitorTimeRef = useRef<number>(0);
+  const prevActiveEntryRef = useRef<any>(null);
 
   const { data: activeTimeEntry, isLoading: activeEntryLoading } = useQuery<TimeEntry | null>({
     queryKey: ['/api/time-entries/active'],
@@ -259,6 +261,32 @@ export default function TimeClockWidget() {
   }, [activeTimeEntry, workLocations]);
 
   useEffect(() => {
+    const wasClocked = prevActiveEntryRef.current != null;
+    const isClocked = activeTimeEntry != null;
+    prevActiveEntryRef.current = activeTimeEntry;
+
+    if (wasClocked && !isClocked) {
+      if (countdownSeconds != null || countdownRef.current) {
+        console.log("[Geofence] Active entry disappeared during countdown — cleaning up UI");
+        setCountdownSeconds(null);
+        setGeofenceStatus(null);
+        totalGraceSecondsRef.current = 0;
+        exitAlertShown.current = false;
+        if (countdownRef.current) {
+          clearInterval(countdownRef.current);
+          countdownRef.current = null;
+        }
+        triggerHaptic([300, 100, 300, 100, 600]);
+        toast({
+          title: "Auto Clocked Out",
+          description: "You were automatically clocked out because you left the work location.",
+          variant: "destructive",
+        });
+      }
+    }
+  }, [activeTimeEntry]);
+
+  useEffect(() => {
     if (activeTimeEntry && locationError && !locationLostReported.current) {
       locationLostReported.current = true;
       console.warn('[TimeClockWidget] Location permission lost while clocked in:', locationError);
@@ -287,6 +315,12 @@ export default function TimeClockWidget() {
     const checkGeofence = async () => {
       try {
         if (activeTimeEntry) {
+          const now = Date.now();
+          if (now - lastMonitorTimeRef.current < 3000) {
+            return;
+          }
+          lastMonitorTimeRef.current = now;
+
           const response = await apiRequest('POST', '/api/geofence/monitor', {
             latitude: position.latitude,
             longitude: position.longitude,
@@ -299,6 +333,12 @@ export default function TimeClockWidget() {
             queryClient.invalidateQueries({ queryKey: ['/api/time-entries/active'] });
             queryClient.invalidateQueries({ queryKey: ['/api/time-entries'] });
             exitAlertShown.current = false;
+            setCountdownSeconds(null);
+            totalGraceSecondsRef.current = 0;
+            if (countdownRef.current) {
+              clearInterval(countdownRef.current);
+              countdownRef.current = null;
+            }
             triggerHaptic([300, 100, 300, 100, 600]);
             toast({
               title: "Auto Clocked Out",

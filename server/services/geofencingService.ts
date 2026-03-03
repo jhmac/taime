@@ -2,7 +2,7 @@ import { storage } from '../storage';
 import { notificationService } from './notificationService';
 import { db } from '../db';
 import { geofenceEvents, timeEntries, workLocations } from '@shared/schema';
-import { eq, and, isNull, desc } from 'drizzle-orm';
+import { eq, and, isNull, isNotNull, desc } from 'drizzle-orm';
 
 export interface GeofenceEvent {
   userId: string;
@@ -479,6 +479,23 @@ export class GeofencingService {
   }> {
     const activeTimeEntry = await storage.getActiveTimeEntry(userId);
     if (!activeTimeEntry) {
+      const recentAutoClockOut = await db.select()
+        .from(timeEntries)
+        .where(and(
+          eq(timeEntries.userId, userId),
+          eq(timeEntries.clockOutSource, 'auto-geofence'),
+          isNotNull(timeEntries.clockOutTime),
+        ))
+        .orderBy(desc(timeEntries.clockOutTime))
+        .limit(1);
+
+      if (recentAutoClockOut.length > 0 && recentAutoClockOut[0].clockOutTime) {
+        const clockOutAge = Date.now() - new Date(recentAutoClockOut[0].clockOutTime).getTime();
+        if (clockOutAge < 30000) {
+          return { isOutside: true, autoClockOutTriggered: true, graceMinutes: 0, graceRemaining: 0, exitedAt: null };
+        }
+      }
+
       return { isOutside: false, autoClockOutTriggered: false, graceMinutes: 0, graceRemaining: null, exitedAt: null };
     }
 
