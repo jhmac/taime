@@ -2,8 +2,17 @@ import type { Express } from "express";
 import type { IStorage } from "../storage";
 import { insertPushSubscriptionSchema } from "@shared/schema";
 import { notificationService } from "../services/notificationService";
+import { config } from "../lib/config";
 
 export function registerPushRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
+  app.get('/api/push/vapid-key', (_req, res) => {
+    const publicKey = config.vapid.publicKey;
+    if (!publicKey) {
+      return res.status(500).json({ message: "VAPID public key not configured" });
+    }
+    res.json({ publicKey });
+  });
+
   app.post('/api/push/subscribe', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,8 +9,6 @@ import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
-
-const VAPID_PUBLIC_KEY = 'BA2ICiFIA-sDcZLTlM4B4p8p3L1iDqPc2tOeOo29t2mvfzYadI462CtDWZn7IZ71hsn5HMBcAivBklpX_Q39Ucg';
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -38,6 +36,10 @@ export default function NotificationSettings() {
   const [permissionStatus, setPermissionStatus] = useState<NotificationPermission>('default');
   const [isSupported, setIsSupported] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
+
+  const { data: vapidData } = useQuery<{ publicKey: string }>({
+    queryKey: ['/api/push/vapid-key'],
+  });
   const [preferences, setPreferences] = useState<NotificationPreferences>({
     clockReminders: true,
     taskAssignments: true,
@@ -85,10 +87,14 @@ export default function NotificationSettings() {
         throw new Error('Notification permission denied');
       }
 
+      if (!vapidData?.publicKey) {
+        throw new Error('VAPID public key not available');
+      }
+
       const registration = await navigator.serviceWorker.ready;
       const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+        applicationServerKey: urlBase64ToUint8Array(vapidData.publicKey),
       });
 
       const p256dhKey = subscription.getKey('p256dh');
