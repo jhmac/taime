@@ -1,9 +1,0 @@
-{
-  "timestamp": "2026-02-20T17:41:24.929Z",
-  "action": "elon_spec_approve_all",
-  "details": {
-    "success": true,
-    "approved": 1,
-    "total": 1
-  }
-}

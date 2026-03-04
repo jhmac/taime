@@ -142,7 +142,7 @@ interface ActionLogEntry {
 export function createActionLoggerMiddleware(): RequestHandler {
   return function actionLogger(req: Request, res: Response, next: NextFunction) {
     if (!req.path.startsWith('/api')) return next();
-    if (req.path.includes('/sneebly/') || req.path === '/health') return next();
+    if (req.path === '/health') return next();
 
     const start = Date.now();
     const user = (req as any).user;

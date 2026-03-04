@@ -5,8 +5,5 @@ server/public
 uploads/
 vite.config.ts.*
 *.tar.gz
-# AppPilot
-.apppilot/backups/
-.apppilot/memory/
-.apppilot/completed/
-.apppilot/failed/
+.apppilot/
+.sneebly/

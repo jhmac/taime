@@ -74,7 +74,7 @@ export function registerTaskRoutes(app: Express, storage: IStorage, isAuthentica
 
       const safeUpdates: Record<string, any> = {};
       for (const key of allowedFields) {
-        if (req.body[key] !== undefined) {
+        if (Object.hasOwn(req.body, key) && req.body[key] !== undefined) {
           safeUpdates[key] = req.body[key];
         }
       }
