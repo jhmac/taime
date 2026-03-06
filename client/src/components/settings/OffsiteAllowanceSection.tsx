@@ -63,6 +63,7 @@ export default function OffsiteAllowanceSection() {
   const [editingRule, setEditingRule] = useState<OffsiteAllowanceRule | null>(null);
   const [deleteRuleId, setDeleteRuleId] = useState<string | null>(null);
   const [formData, setFormData] = useState<RuleFormData>(defaultFormData);
+  const [viewLocationId, setViewLocationId] = useState<string>('');
 
   const { data: locations = [] } = useQuery<WorkLocation[]>({
     queryKey: ['/api/work-locations'],
@@ -72,11 +73,12 @@ export default function OffsiteAllowanceSection() {
     queryKey: ['/api/users'],
   });
 
-  const selectedLocationId = locations.length > 0 ? (formData.locationId || locations[0]?.id || '') : '';
+  const activeLocationId = viewLocationId || locations[0]?.id || '';
+  const selectedLocationId = locations.length > 0 ? (formData.locationId || activeLocationId) : '';
 
   const { data: rules = [], isLoading } = useQuery<OffsiteAllowanceRule[]>({
-    queryKey: [`/api/offsite-rules?locationId=${locations[0]?.id}`],
-    enabled: locations.length > 0,
+    queryKey: [`/api/offsite-rules?locationId=${activeLocationId}`],
+    enabled: !!activeLocationId,
   });
 
   const createMutation = useMutation({
@@ -138,7 +140,7 @@ export default function OffsiteAllowanceSection() {
   });
 
   const resetForm = () => {
-    setFormData(defaultFormData);
+    setFormData({ ...defaultFormData, locationId: activeLocationId });
     setEditingRule(null);
     setShowForm(false);
   };
@@ -236,6 +238,24 @@ export default function OffsiteAllowanceSection() {
           Common scenarios include bank deposit runs, lunch errands, or supply pickups.
         </p>
       </div>
+
+      {locations.length > 1 && (
+        <div className="flex items-center gap-2">
+          <Label className="text-sm font-medium whitespace-nowrap">Location:</Label>
+          <Select value={activeLocationId} onValueChange={setViewLocationId}>
+            <SelectTrigger className="w-[200px]">
+              <SelectValue placeholder="Select location" />
+            </SelectTrigger>
+            <SelectContent>
+              {locations.map((loc) => (
+                <SelectItem key={loc.id} value={loc.id}>
+                  {loc.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">

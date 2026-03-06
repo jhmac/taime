@@ -1,5 +1,6 @@
 import type { IStorage } from "../storage";
 import { claudeService } from "./claudeService";
+import { notificationService } from "./notificationService";
 import logger from "../lib/logger";
 
 function calculateHours(clockIn: Date, clockOut: Date | null, breakMinutes: number = 0): number {
@@ -426,9 +427,22 @@ Rank these suggestions from best to worst. For each, provide a concise reasoning
         "Overtime prevention swap applied"
       );
 
+      try {
+        await notificationService.sendScheduleUpdate(
+          alert.employeeId,
+          `Your shift has been reassigned to ${replacementName} to prevent overtime.`
+        );
+        await notificationService.sendScheduleUpdate(
+          alert.suggestedReplacementId,
+          `A shift has been assigned to you (previously ${employeeName}'s). Please check your updated schedule.`
+        );
+      } catch (notifError: any) {
+        logger.warn({ error: notifError.message, alertId }, "Failed to send swap notifications");
+      }
+
       return {
         success: true,
-        message: `Shift reassigned from ${employeeName} to ${replacementName}. Both employees should be notified.`,
+        message: `Shift reassigned from ${employeeName} to ${replacementName}. Both employees have been notified.`,
       };
     } catch (error: any) {
       logger.error({ error: error.message, alertId }, "Failed to apply overtime swap");

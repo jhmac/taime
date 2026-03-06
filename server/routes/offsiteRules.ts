@@ -57,16 +57,33 @@ export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAu
         return res.status(404).json({ message: "Rule not found" });
       }
 
-      const updates: any = {};
       const allowedFields = [
         'name', 'allowedMinutes', 'allowedTimeStart', 'allowedTimeEnd',
         'appliesTo', 'specificEmployeeIds', 'alertAfterMinutes',
         'alertRecipients', 'customAlertUserIds', 'isActive'
-      ];
+      ] as const;
+      const updates: Record<string, any> = {};
       for (const field of allowedFields) {
         if (req.body[field] !== undefined) {
           updates[field] = req.body[field];
         }
+      }
+
+      if (updates.allowedMinutes !== undefined && (typeof updates.allowedMinutes !== 'number' || updates.allowedMinutes < 1)) {
+        return res.status(400).json({ message: "allowedMinutes must be a positive number" });
+      }
+      if (updates.alertAfterMinutes !== undefined && (typeof updates.alertAfterMinutes !== 'number' || updates.alertAfterMinutes < 1)) {
+        return res.status(400).json({ message: "alertAfterMinutes must be a positive number" });
+      }
+      if (updates.specificEmployeeIds !== undefined && !Array.isArray(updates.specificEmployeeIds)) {
+        return res.status(400).json({ message: "specificEmployeeIds must be an array" });
+      }
+      if (updates.customAlertUserIds !== undefined && !Array.isArray(updates.customAlertUserIds)) {
+        return res.status(400).json({ message: "customAlertUserIds must be an array" });
+      }
+
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ message: "No valid fields to update" });
       }
 
       const updated = await storage.updateOffsiteRule(id, updates);
@@ -138,7 +155,19 @@ export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAu
 
   app.get('/api/offsite-sessions/employee/:id', isAuthenticated, async (req: any, res) => {
     try {
+      const requestingUserId = req.user.id;
       const { id } = req.params;
+
+      if (requestingUserId !== id) {
+        const userPermissions = await storage.getUserPermissions(requestingUserId);
+        const isAdmin = userPermissions.some((p: any) =>
+          p.name === 'admin.manage_all' || p.name === 'admin.manage_locations' || p.name === 'time.view_all'
+        );
+        if (!isAdmin) {
+          return res.status(403).json({ message: "You can only view your own off-site sessions" });
+        }
+      }
+
       const sessions = await storage.getOffsiteSessions({ userId: id });
       res.json(sessions);
     } catch (error) {

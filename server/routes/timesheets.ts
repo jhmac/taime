@@ -19,6 +19,27 @@ function splitRegularOT(totalHours: number, otThreshold: number, accumulatedHour
   return { regular: remainingBeforeOT, ot: totalHours - remainingBeforeOT };
 }
 
+function getWeekKey(dateStr: string | Date, workWeekStart: string = "sunday"): string {
+  const dayMap: Record<string, number> = {
+    sunday: 0, monday: 1, tuesday: 2, wednesday: 3,
+    thursday: 4, friday: 5, saturday: 6,
+  };
+  const targetDay = dayMap[workWeekStart.toLowerCase()] ?? 0;
+  const d = new Date(dateStr);
+  d.setHours(0, 0, 0, 0);
+  const currentDay = d.getDay();
+  const diff = (currentDay - targetDay + 7) % 7;
+  d.setDate(d.getDate() - diff);
+  return d.toISOString().split("T")[0];
+}
+
+function sanitizeCsvField(value: string): string {
+  if (/^[=+\-@\t\r]/.test(value)) {
+    return "'" + value;
+  }
+  return value;
+}
+
 interface NeedsReviewFlag {
   type: string;
   message: string;
@@ -68,14 +89,21 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
       const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
       const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
 
+      if (startDate && isNaN(startDate.getTime())) {
+        return res.status(400).json({ message: "Invalid startDate" });
+      }
+      if (endDate && isNaN(endDate.getTime())) {
+        return res.status(400).json({ message: "Invalid endDate" });
+      }
+
       const settings = await storage.getCompanySettings();
       const otThreshold = settings?.overtimeThresholdHours ?? 40;
+      const workWeekStart = (settings as any)?.workWeekStart || "sunday";
 
-      const [allEntries, allUsers, allOffsiteSessions, allOffsiteRules] = await Promise.all([
+      const [allEntries, allUsers, allOffsiteSessions] = await Promise.all([
         storage.getAllTimeEntries(startDate, endDate),
         storage.getAllUsers(),
         storage.getOffsiteSessions({}),
-        Promise.resolve([]).catch(() => []),
       ]);
 
       const offsiteByTimeEntry = new Map<string, any[]>();
@@ -112,7 +140,6 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
           let totalActual = 0;
           let totalRegular = 0;
           let totalOT = 0;
-          let accumulated = 0;
           let totalOffsiteMinutes = 0;
           const needsReviewFlags: NeedsReviewFlag[] = [];
 
@@ -122,17 +149,21 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
             (a, b) => new Date(a.clockInTime).getTime() - new Date(b.clockInTime).getTime()
           );
 
+          const weeklyAccumulated = new Map<string, number>();
+
           for (const entry of sortedEntries) {
             const flags = detectNeedsReview(entry);
             needsReviewFlags.push(...flags);
 
             const hours = calculateHours(entry.clockInTime, entry.clockOutTime, entry.breakMinutes || 0);
+            const wk = getWeekKey(entry.clockInTime, workWeekStart);
+            const accumulated = weeklyAccumulated.get(wk) || 0;
             const { regular, ot } = splitRegularOT(hours, otThreshold, accumulated);
+            weeklyAccumulated.set(wk, accumulated + hours);
 
             totalActual += hours;
             totalRegular += regular;
             totalOT += ot;
-            accumulated += hours;
 
             const entrySessions = offsiteByTimeEntry.get(entry.id) || [];
             const entryOffsiteMinutes = entrySessions.reduce((sum: number, s: any) => sum + (s.durationMinutes || 0), 0);
@@ -527,7 +558,9 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
         userMap.set(user.id, user);
       }
 
-      const accumulatedByUser = new Map<string, number>();
+      const exportSettings = await storage.getCompanySettings();
+      const exportWorkWeekStart = (exportSettings as any)?.workWeekStart || "sunday";
+      const weeklyAccByUser = new Map<string, Map<string, number>>();
       const sortedEntries = [...allEntries].sort(
         (a, b) => new Date(a.clockInTime).getTime() - new Date(b.clockInTime).getTime()
       );
@@ -562,9 +595,12 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
         if (!user) continue;
 
         const hours = calculateHours(entry.clockInTime, entry.clockOutTime, entry.breakMinutes || 0);
-        const accumulated = accumulatedByUser.get(entry.userId) || 0;
+        const wk = getWeekKey(entry.clockInTime, exportWorkWeekStart);
+        if (!weeklyAccByUser.has(entry.userId)) weeklyAccByUser.set(entry.userId, new Map());
+        const userWeeks = weeklyAccByUser.get(entry.userId)!;
+        const accumulated = userWeeks.get(wk) || 0;
         const { regular, ot } = splitRegularOT(hours, otThreshold, accumulated);
-        accumulatedByUser.set(entry.userId, accumulated + hours);
+        userWeeks.set(wk, accumulated + hours);
 
         const rate = parseFloat(user.hourlyRate || "0");
         const otMultiplier = parseFloat(settings?.overtimeMultiplier || "1.50");
@@ -572,9 +608,12 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
         const holidayHours = 0;
         const holidayPay = holidayHours * rate * holidayMultiplier;
 
+        const employeeName = ((user.firstName || "") + " " + (user.lastName || "")).trim();
+        const notesText = (entry.notes || "").replace(/"/g, '""');
+
         const fieldValues: Record<string, string> = {
-          employeeName: `"${(user.firstName || "") + " " + (user.lastName || "")}".trim()`,
-          employeeEmail: user.email || "",
+          employeeName: `"${sanitizeCsvField(employeeName)}"`,
+          employeeEmail: sanitizeCsvField(user.email || ""),
           date: new Date(entry.clockInTime).toISOString().split("T")[0],
           clockIn: new Date(entry.clockInTime).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
           clockOut: entry.clockOutTime ? new Date(entry.clockOutTime).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) : "",
@@ -588,12 +627,9 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
           otPay: (ot * rate * otMultiplier).toFixed(2),
           holidayPay: holidayPay.toFixed(2),
           totalPay: (regular * rate + ot * rate * otMultiplier + holidayPay).toFixed(2),
-          location: user.locationName || "",
-          notes: `"${(entry.notes || "").replace(/"/g, '""')}"`,
+          location: sanitizeCsvField(user.locationName || ""),
+          notes: `"${sanitizeCsvField(notesText)}"`,
         };
-
-        const employeeName = `"${((user.firstName || "") + " " + (user.lastName || "")).trim()}"`;
-        fieldValues.employeeName = employeeName;
 
         const row = selectedFields.map((f: string) => fieldValues[f] || "");
         rows.push(row.join(","));
