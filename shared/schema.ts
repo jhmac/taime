@@ -814,6 +814,83 @@ export const sopStepCompletions = pgTable("sop_step_completions", {
 ]);
 
 // Zod schemas
+// Time entry edit audit trail
+export const timeEntryEdits = pgTable("time_entry_edits", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  timeEntryId: varchar("time_entry_id").references(() => timeEntries.id).notNull(),
+  editedBy: varchar("edited_by").references(() => users.id).notNull(),
+  editedAt: timestamp("edited_at").defaultNow(),
+  fieldChanged: varchar("field_changed").notNull(),
+  oldValue: text("old_value"),
+  newValue: text("new_value"),
+  reason: text("reason"),
+}, (table) => [
+  index("idx_time_entry_edits_entry").on(table.timeEntryId),
+  index("idx_time_entry_edits_edited_at").on(table.editedAt),
+]);
+
+// Off-site allowance rules
+export const offsiteAllowanceRules = pgTable("offsite_allowance_rules", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  locationId: varchar("location_id").references(() => workLocations.id).notNull(),
+  name: varchar("name").notNull(),
+  allowedMinutes: integer("allowed_minutes").notNull().default(30),
+  allowedTimeStart: varchar("allowed_time_start"),
+  allowedTimeEnd: varchar("allowed_time_end"),
+  appliesTo: varchar("applies_to").notNull().default("all"),
+  specificEmployeeIds: jsonb("specific_employee_ids").$type<string[]>(),
+  alertAfterMinutes: integer("alert_after_minutes").default(20),
+  alertRecipients: varchar("alert_recipients").notNull().default("both"),
+  customAlertUserIds: jsonb("custom_alert_user_ids").$type<string[]>(),
+  isActive: boolean("is_active").default(true),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_offsite_rules_location").on(table.locationId),
+]);
+
+// Off-site sessions (tracks time outside work area)
+export const offsiteSessions = pgTable("offsite_sessions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  timeEntryId: varchar("time_entry_id").references(() => timeEntries.id),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  locationId: varchar("location_id").references(() => workLocations.id).notNull(),
+  ruleId: varchar("rule_id").references(() => offsiteAllowanceRules.id),
+  exitTime: timestamp("exit_time").notNull(),
+  returnTime: timestamp("return_time"),
+  durationMinutes: integer("duration_minutes"),
+  wasAlertSent: boolean("was_alert_sent").default(false),
+  alertSentAt: timestamp("alert_sent_at"),
+  status: varchar("status").notNull().default("active"),
+}, (table) => [
+  index("idx_offsite_sessions_user").on(table.userId),
+  index("idx_offsite_sessions_status").on(table.status),
+  index("idx_offsite_sessions_time_entry").on(table.timeEntryId),
+]);
+
+// Overtime alerts (AI-generated swap suggestions)
+export const overtimeAlerts = pgTable("overtime_alerts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  employeeId: varchar("employee_id").references(() => users.id).notNull(),
+  currentHours: decimal("current_hours", { precision: 6, scale: 2 }).notNull(),
+  projectedHours: decimal("projected_hours", { precision: 6, scale: 2 }).notNull(),
+  threshold: decimal("threshold", { precision: 6, scale: 2 }).notNull().default("40.00"),
+  atRiskShiftId: varchar("at_risk_shift_id").references(() => schedules.id),
+  suggestedReplacementId: varchar("suggested_replacement_id").references(() => users.id),
+  aiReasoning: text("ai_reasoning"),
+  status: varchar("status").notNull().default("pending"),
+  appliedAt: timestamp("applied_at"),
+  appliedBy: varchar("applied_by").references(() => users.id),
+  dismissedAt: timestamp("dismissed_at"),
+  dismissedBy: varchar("dismissed_by").references(() => users.id),
+  weekStartDate: timestamp("week_start_date").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_overtime_alerts_employee").on(table.employeeId),
+  index("idx_overtime_alerts_status").on(table.status),
+  index("idx_overtime_alerts_week").on(table.weekStartDate),
+]);
+
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertTimeEntrySchema = createInsertSchema(timeEntries).omit({ id: true, createdAt: true });
 export const insertScheduleSchema = createInsertSchema(schedules).omit({ id: true, createdAt: true });
@@ -851,6 +928,10 @@ export const insertShoutoutSchema = createInsertSchema(shoutouts).omit({ id: tru
 export const insertAiSchedulingSettingsSchema = createInsertSchema(aiSchedulingSettings).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertWorkPatternTemplateSchema = createInsertSchema(workPatternTemplates).omit({ id: true, createdAt: true });
 export const insertUserWorkPatternSchema = createInsertSchema(userWorkPatterns).omit({ id: true, createdAt: true });
+export const insertTimeEntryEditSchema = createInsertSchema(timeEntryEdits).omit({ id: true, editedAt: true });
+export const insertOffsiteAllowanceRuleSchema = createInsertSchema(offsiteAllowanceRules).omit({ id: true, createdAt: true });
+export const insertOffsiteSessionSchema = createInsertSchema(offsiteSessions).omit({ id: true });
+export const insertOvertimeAlertSchema = createInsertSchema(overtimeAlerts).omit({ id: true, createdAt: true });
 
 // Chore assignment and sign-off schemas
 export const choreAssignmentSchema = z.object({
@@ -1142,6 +1223,14 @@ export type InsertCommuteAlert = z.infer<typeof insertCommuteAlertSchema>;
 export type Shoutout = typeof shoutouts.$inferSelect;
 export type InsertShoutout = z.infer<typeof insertShoutoutSchema>;
 export type GeofenceEvent = typeof geofenceEvents.$inferSelect;
+export type TimeEntryEdit = typeof timeEntryEdits.$inferSelect;
+export type InsertTimeEntryEdit = z.infer<typeof insertTimeEntryEditSchema>;
+export type OffsiteAllowanceRule = typeof offsiteAllowanceRules.$inferSelect;
+export type InsertOffsiteAllowanceRule = z.infer<typeof insertOffsiteAllowanceRuleSchema>;
+export type OffsiteSession = typeof offsiteSessions.$inferSelect;
+export type InsertOffsiteSession = z.infer<typeof insertOffsiteSessionSchema>;
+export type OvertimeAlert = typeof overtimeAlerts.$inferSelect;
+export type InsertOvertimeAlert = z.infer<typeof insertOvertimeAlertSchema>;
 export type SopTemplate = typeof sopTemplates.$inferSelect;
 export type InsertSopTemplate = z.infer<typeof insertSopTemplateSchema>;
 export type SopStep = typeof sopSteps.$inferSelect;

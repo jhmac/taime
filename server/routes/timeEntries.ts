@@ -130,6 +130,31 @@ export function registerTimeEntryRoutes(app: Express, storage: IStorage, isAuthe
     }
   });
 
+  app.get('/api/time-entries/:id/history', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const existing = await storage.getTimeEntry(id);
+      if (!existing) {
+        return res.status(404).json({ message: "Time entry not found" });
+      }
+
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const isManager = userPermissions.some(p => p.name === 'time.approve' || p.name === 'admin.manage_all');
+      const isOwner = existing.userId === userId;
+
+      if (!isOwner && !isManager) {
+        return res.status(403).json({ message: "You can only view history for your own time entries" });
+      }
+
+      const edits = await storage.getTimeEntryEdits(id);
+      res.json(edits);
+    } catch (error) {
+      console.error("Error fetching time entry history:", error);
+      res.status(500).json({ message: "Failed to fetch time entry history" });
+    }
+  });
+
   app.patch('/api/time-entries/:id', isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
@@ -164,6 +189,28 @@ export function registerTimeEntryRoutes(app: Express, storage: IStorage, isAuthe
       if (safeUpdates.isApproved === true) {
         safeUpdates.approvedBy = userId;
       }
+
+      const editReason = req.body.editReason || null;
+      const auditPromises: Promise<any>[] = [];
+      for (const key of Object.keys(safeUpdates)) {
+        const oldVal = (existing as any)[key];
+        const newVal = safeUpdates[key];
+        const oldStr = oldVal instanceof Date ? oldVal.toISOString() : oldVal != null ? String(oldVal) : null;
+        const newStr = newVal instanceof Date ? newVal.toISOString() : newVal != null ? String(newVal) : null;
+        if (oldStr !== newStr) {
+          auditPromises.push(
+            storage.createTimeEntryEdit({
+              timeEntryId: id,
+              editedBy: userId,
+              fieldChanged: key,
+              oldValue: oldStr,
+              newValue: newStr,
+              reason: editReason,
+            })
+          );
+        }
+      }
+      await Promise.all(auditPromises);
 
       const timeEntry = await storage.updateTimeEntry(id, safeUpdates);
       

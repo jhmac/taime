@@ -45,6 +45,8 @@ import { startSOPEvolutionCron, stopSOPEvolutionCron } from "./services/sopEvolu
 import { registerBackgroundInsightRoutes } from "./routes/backgroundInsights";
 import { registerSmartSuggestionRoutes } from "./routes/smartSuggestions";
 import { registerCashManagementRoutes } from "./routes/cashManagement";
+import { registerTimesheetRoutes } from "./routes/timesheets";
+import { registerOffsiteRulesRoutes } from "./routes/offsiteRules";
 import { startBackgroundInsightsCron, stopBackgroundInsightsCron } from "./services/backgroundInsights";
 import { createActionLoggerMiddleware, handleClientErrorReport, getActionSummary } from "./services/actionLogger";
 import { startSurfacingCron, stopSurfacingCron } from "./services/sopSurfacing";
@@ -173,6 +175,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerBackgroundInsightRoutes(app, storage, isAuthenticated);
   registerSmartSuggestionRoutes(app, storage, isAuthenticated);
   registerCashManagementRoutes(app, storage, isAuthenticated);
+  registerOffsiteRulesRoutes(app, storage, isAuthenticated);
+  registerTimesheetRoutes(app, storage, isAuthenticated);
 
   const httpServer = createServer(app);
 

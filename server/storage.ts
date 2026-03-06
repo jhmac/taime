@@ -95,6 +95,18 @@ import {
   type InsertCommuteAlert,
   type Shoutout,
   type InsertShoutout,
+  timeEntryEdits,
+  offsiteAllowanceRules,
+  offsiteSessions,
+  overtimeAlerts,
+  type TimeEntryEdit,
+  type InsertTimeEntryEdit,
+  type OffsiteAllowanceRule,
+  type InsertOffsiteAllowanceRule,
+  type OffsiteSession,
+  type InsertOffsiteSession,
+  type OvertimeAlert,
+  type InsertOvertimeAlert,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, gte, lte, isNull, sql } from "drizzle-orm";
@@ -289,6 +301,27 @@ export interface IStorage {
   createShoutout(shoutout: InsertShoutout): Promise<Shoutout>;
   getShoutouts(limit?: number): Promise<Shoutout[]>;
   addShoutoutReaction(id: string, userId: string, emoji: string): Promise<Shoutout>;
+
+  // Time entry edit audit trail
+  createTimeEntryEdit(edit: InsertTimeEntryEdit): Promise<TimeEntryEdit>;
+  getTimeEntryEdits(timeEntryId: string): Promise<TimeEntryEdit[]>;
+
+  // Off-site allowance rules
+  createOffsiteRule(rule: InsertOffsiteAllowanceRule): Promise<OffsiteAllowanceRule>;
+  getOffsiteRules(locationId: string): Promise<OffsiteAllowanceRule[]>;
+  getOffsiteRule(id: string): Promise<OffsiteAllowanceRule | undefined>;
+  updateOffsiteRule(id: string, updates: Partial<OffsiteAllowanceRule>): Promise<OffsiteAllowanceRule>;
+  deleteOffsiteRule(id: string): Promise<void>;
+
+  // Off-site sessions
+  createOffsiteSession(session: InsertOffsiteSession): Promise<OffsiteSession>;
+  getOffsiteSessions(filters?: { userId?: string; status?: string; timeEntryId?: string }): Promise<OffsiteSession[]>;
+  updateOffsiteSession(id: string, updates: Partial<OffsiteSession>): Promise<OffsiteSession>;
+
+  // Overtime alerts
+  createOvertimeAlert(alert: InsertOvertimeAlert): Promise<OvertimeAlert>;
+  getOvertimeAlerts(filters?: { status?: string; weekStartDate?: Date }): Promise<OvertimeAlert[]>;
+  updateOvertimeAlert(id: string, updates: Partial<OvertimeAlert>): Promise<OvertimeAlert>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1621,6 +1654,103 @@ export class DatabaseStorage implements IStorage {
       .update(shoutouts)
       .set({ reactions: newReactions })
       .where(eq(shoutouts.id, id))
+      .returning();
+    return updated;
+  }
+
+  async createTimeEntryEdit(edit: InsertTimeEntryEdit): Promise<TimeEntryEdit> {
+    const [created] = await db.insert(timeEntryEdits).values(edit).returning();
+    return created;
+  }
+
+  async getTimeEntryEdits(timeEntryId: string): Promise<TimeEntryEdit[]> {
+    return await db
+      .select()
+      .from(timeEntryEdits)
+      .where(eq(timeEntryEdits.timeEntryId, timeEntryId))
+      .orderBy(desc(timeEntryEdits.editedAt));
+  }
+
+  async createOffsiteRule(rule: InsertOffsiteAllowanceRule): Promise<OffsiteAllowanceRule> {
+    const [created] = await db.insert(offsiteAllowanceRules).values(rule).returning();
+    return created;
+  }
+
+  async getOffsiteRules(locationId: string): Promise<OffsiteAllowanceRule[]> {
+    return await db
+      .select()
+      .from(offsiteAllowanceRules)
+      .where(eq(offsiteAllowanceRules.locationId, locationId))
+      .orderBy(offsiteAllowanceRules.name);
+  }
+
+  async getOffsiteRule(id: string): Promise<OffsiteAllowanceRule | undefined> {
+    const [rule] = await db.select().from(offsiteAllowanceRules).where(eq(offsiteAllowanceRules.id, id));
+    return rule;
+  }
+
+  async updateOffsiteRule(id: string, updates: Partial<OffsiteAllowanceRule>): Promise<OffsiteAllowanceRule> {
+    const [updated] = await db
+      .update(offsiteAllowanceRules)
+      .set(updates)
+      .where(eq(offsiteAllowanceRules.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteOffsiteRule(id: string): Promise<void> {
+    await db.delete(offsiteAllowanceRules).where(eq(offsiteAllowanceRules.id, id));
+  }
+
+  async createOffsiteSession(session: InsertOffsiteSession): Promise<OffsiteSession> {
+    const [created] = await db.insert(offsiteSessions).values(session).returning();
+    return created;
+  }
+
+  async getOffsiteSessions(filters?: { userId?: string; status?: string; timeEntryId?: string }): Promise<OffsiteSession[]> {
+    const conditions: ReturnType<typeof eq>[] = [];
+    if (filters?.userId) conditions.push(eq(offsiteSessions.userId, filters.userId));
+    if (filters?.status) conditions.push(eq(offsiteSessions.status, filters.status));
+    if (filters?.timeEntryId) conditions.push(eq(offsiteSessions.timeEntryId, filters.timeEntryId));
+    return await db
+      .select()
+      .from(offsiteSessions)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(offsiteSessions.exitTime))
+      .limit(200);
+  }
+
+  async updateOffsiteSession(id: string, updates: Partial<OffsiteSession>): Promise<OffsiteSession> {
+    const [updated] = await db
+      .update(offsiteSessions)
+      .set(updates)
+      .where(eq(offsiteSessions.id, id))
+      .returning();
+    return updated;
+  }
+
+  async createOvertimeAlert(alert: InsertOvertimeAlert): Promise<OvertimeAlert> {
+    const [created] = await db.insert(overtimeAlerts).values(alert).returning();
+    return created;
+  }
+
+  async getOvertimeAlerts(filters?: { status?: string; weekStartDate?: Date }): Promise<OvertimeAlert[]> {
+    const conditions: ReturnType<typeof eq>[] = [];
+    if (filters?.status) conditions.push(eq(overtimeAlerts.status, filters.status));
+    if (filters?.weekStartDate) conditions.push(eq(overtimeAlerts.weekStartDate, filters.weekStartDate));
+    return await db
+      .select()
+      .from(overtimeAlerts)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(overtimeAlerts.createdAt))
+      .limit(100);
+  }
+
+  async updateOvertimeAlert(id: string, updates: Partial<OvertimeAlert>): Promise<OvertimeAlert> {
+    const [updated] = await db
+      .update(overtimeAlerts)
+      .set(updates)
+      .where(eq(overtimeAlerts.id, id))
       .returning();
     return updated;
   }

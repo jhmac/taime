@@ -1,7 +1,7 @@
 import { storage } from '../storage';
 import { notificationService } from './notificationService';
 import { db } from '../db';
-import { geofenceEvents, timeEntries, workLocations } from '@shared/schema';
+import { geofenceEvents, timeEntries, workLocations, offsiteAllowanceRules, offsiteSessions } from '@shared/schema';
 import { eq, and, isNull, isNotNull, desc } from 'drizzle-orm';
 
 export interface GeofenceEvent {
@@ -14,6 +14,7 @@ export interface GeofenceEvent {
 }
 
 const activeExitTimers = new Map<string, NodeJS.Timeout>();
+const activeOffsiteTimers = new Map<string, NodeJS.Timeout>();
 const lastLocationReport = new Map<string, number>();
 
 export class GeofencingService {
@@ -236,6 +237,100 @@ export class GeofencingService {
     }
   }
 
+  private async findMatchingOffsiteRule(userId: string, locationId: string): Promise<any | null> {
+    try {
+      const rules = await storage.getOffsiteRules(locationId);
+      const activeRules = rules.filter(r => r.isActive);
+      if (activeRules.length === 0) return null;
+
+      const now = new Date();
+      const currentTimeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+      for (const rule of activeRules) {
+        if (rule.allowedTimeStart && rule.allowedTimeEnd) {
+          if (currentTimeStr < rule.allowedTimeStart || currentTimeStr > rule.allowedTimeEnd) {
+            continue;
+          }
+        }
+
+        if (rule.appliesTo === 'all') {
+          return rule;
+        }
+
+        if (rule.appliesTo === 'managers_only') {
+          const userPerms = await storage.getUserPermissions(userId);
+          const isManager = userPerms.some((p: any) =>
+            p.name === 'admin.manage_all' || p.name === 'scheduling.manage'
+          );
+          if (isManager) return rule;
+          continue;
+        }
+
+        if (rule.appliesTo === 'specific_employees') {
+          const ids = rule.specificEmployeeIds as string[] | null;
+          if (ids && ids.includes(userId)) {
+            return rule;
+          }
+          continue;
+        }
+      }
+
+      return null;
+    } catch (error) {
+      console.error('[Geofence] Error finding matching offsite rule:', error);
+      return null;
+    }
+  }
+
+  private async sendOffsiteAlert(session: any, rule: any, userId: string, locationName: string): Promise<void> {
+    try {
+      const user = await storage.getUser(userId);
+      const userName = user
+        ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email || 'Unknown'
+        : 'Unknown';
+
+      const exitTime = new Date(session.exitTime);
+      const exitTimeStr = exitTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+      const elapsed = Math.round((Date.now() - exitTime.getTime()) / 60000);
+
+      const payload = {
+        title: 'Off-Site Alert',
+        body: `${userName} has been off-site for ${elapsed} minutes (allowed: ${rule.alertAfterMinutes} min) — left at ${exitTimeStr}`,
+        data: { type: 'offsite_alert', sessionId: session.id, userId },
+      };
+
+      const alertRecipients = rule.alertRecipients as string;
+      const targetUserIds: string[] = [];
+
+      if (alertRecipients === 'custom' && rule.customAlertUserIds) {
+        targetUserIds.push(...(rule.customAlertUserIds as string[]));
+      } else {
+        const allUsers = await storage.getAllUsers();
+        for (const u of allUsers) {
+          const perms = await storage.getUserPermissions(u.id);
+          const isOwner = perms.some((p: any) => p.name === 'admin.manage_all');
+          const isManager = perms.some((p: any) => p.name === 'scheduling.manage');
+          if (alertRecipients === 'owner' && isOwner) targetUserIds.push(u.id);
+          else if (alertRecipients === 'manager' && isManager) targetUserIds.push(u.id);
+          else if (alertRecipients === 'both' && (isOwner || isManager)) targetUserIds.push(u.id);
+        }
+      }
+
+      for (const targetId of targetUserIds) {
+        await notificationService.sendToUser(targetId, payload);
+      }
+
+      await storage.updateOffsiteSession(session.id, {
+        wasAlertSent: true,
+        alertSentAt: new Date(),
+      });
+
+      console.log(`[Geofence] Offsite alert sent for user ${userId} to ${targetUserIds.length} recipients`);
+    } catch (error) {
+      console.error('[Geofence] Error sending offsite alert:', error);
+    }
+  }
+
   async processGeofenceEvent(event: GeofenceEvent): Promise<void> {
     try {
       const { userId, latitude, longitude, eventType, timestamp } = event;
@@ -270,31 +365,108 @@ export class GeofencingService {
           activeExitTimers.delete(userId);
           console.log(`[Geofence] User ${userId} returned to work location, cancelled auto clock-out`);
         }
+        if (activeOffsiteTimers.has(userId)) {
+          clearTimeout(activeOffsiteTimers.get(userId)!);
+          activeOffsiteTimers.delete(userId);
+          console.log(`[Geofence] User ${userId} returned, cancelled offsite alert timer`);
+        }
+
+        const activeSessions = await storage.getOffsiteSessions({ userId, status: 'active' });
+        for (const session of activeSessions) {
+          const exitTime = new Date(session.exitTime);
+          const durationMinutes = Math.round((Date.now() - exitTime.getTime()) / 60000);
+          await storage.updateOffsiteSession(session.id, {
+            returnTime: new Date(),
+            durationMinutes,
+            status: 'returned',
+          });
+          console.log(`[Geofence] Closed offsite session ${session.id} for user ${userId} (${durationMinutes} min)`);
+        }
+
         if (!activeTimeEntry) {
           await notificationService.sendClockInReminder(userId, locationCheck.location!.name);
         }
       } else if (eventType === 'exit') {
         if (activeTimeEntry) {
           const exitLocation = await this.getLocationForTimeEntry(activeTimeEntry);
-          const { graceMs, autoClockOut } = await this.getEffectiveGraceMs(exitLocation);
+          const exitLocationId = exitLocation?.id || activeTimeEntry.locationId || '';
 
-          await notificationService.sendClockOutReminder(
-            userId,
-            exitLocation?.name || 'work location'
-          );
+          const matchingRule = exitLocationId ? await this.findMatchingOffsiteRule(userId, exitLocationId) : null;
 
-          if (autoClockOut) {
-            if (activeExitTimers.has(userId)) {
-              clearTimeout(activeExitTimers.get(userId)!);
+          if (matchingRule) {
+            const session = await storage.createOffsiteSession({
+              timeEntryId: activeTimeEntry.id,
+              userId,
+              locationId: exitLocationId,
+              ruleId: matchingRule.id,
+              exitTime: new Date(),
+              status: 'active',
+            });
+
+            console.log(`[Geofence] Created offsite session ${session.id} for user ${userId} (rule: ${matchingRule.name}, allowed: ${matchingRule.allowedMinutes} min)`);
+
+            const alertAfterMs = (matchingRule.alertAfterMinutes || matchingRule.allowedMinutes) * 60 * 1000;
+            const alertTimer = setTimeout(async () => {
+              activeOffsiteTimers.delete(userId);
+              const currentSession = (await storage.getOffsiteSessions({ userId, status: 'active' }))
+                .find(s => s.id === session.id);
+              if (currentSession) {
+                await storage.updateOffsiteSession(session.id, { status: 'exceeded' });
+                await this.sendOffsiteAlert(currentSession, matchingRule, userId, exitLocation?.name || 'work location');
+
+                const { graceMs, autoClockOut } = await this.getEffectiveGraceMs(exitLocation);
+                const remainingAllowedMs = Math.max(0, (matchingRule.allowedMinutes * 60 * 1000) - alertAfterMs);
+                const totalGraceMs = remainingAllowedMs + graceMs;
+
+                if (autoClockOut && totalGraceMs > 0) {
+                  console.log(`[Geofence] Offsite time exceeded for user ${userId}, auto clock-out in ${totalGraceMs / 1000}s`);
+                  const clockOutTimer = setTimeout(async () => {
+                    activeExitTimers.delete(userId);
+                    await this.executeAutoClockOut(userId, latitude, longitude);
+                    const stillActive = (await storage.getOffsiteSessions({ userId, status: 'exceeded' }))
+                      .find(s => s.id === session.id);
+                    if (stillActive) {
+                      await storage.updateOffsiteSession(session.id, { status: 'auto_clocked_out' });
+                    }
+                  }, totalGraceMs);
+                  activeExitTimers.set(userId, clockOutTimer);
+                }
+              }
+            }, alertAfterMs);
+
+            activeOffsiteTimers.set(userId, alertTimer);
+          } else {
+            const { graceMs, autoClockOut } = await this.getEffectiveGraceMs(exitLocation);
+
+            if (exitLocationId) {
+              await storage.createOffsiteSession({
+                timeEntryId: activeTimeEntry.id,
+                userId,
+                locationId: exitLocationId,
+                ruleId: null,
+                exitTime: new Date(),
+                status: 'active',
+              });
             }
-            console.log(`[Geofence] Auto clock-out scheduled for user ${userId} in ${graceMs / 1000} seconds`);
-            
-            const timer = setTimeout(async () => {
-              activeExitTimers.delete(userId);
-              await this.executeAutoClockOut(userId, latitude, longitude);
-            }, graceMs);
-            
-            activeExitTimers.set(userId, timer);
+
+            await notificationService.sendClockOutReminder(
+              userId,
+              exitLocation?.name || 'work location'
+            );
+
+            if (autoClockOut) {
+              if (activeExitTimers.has(userId)) {
+                clearTimeout(activeExitTimers.get(userId)!);
+              }
+              console.log(`[Geofence] Auto clock-out scheduled for user ${userId} in ${graceMs / 1000} seconds`);
+              
+              const timer = setTimeout(async () => {
+                activeExitTimers.delete(userId);
+                await this.executeAutoClockOut(userId, latitude, longitude);
+              }, graceMs);
+              
+              activeExitTimers.set(userId, timer);
+            }
           }
         }
       }

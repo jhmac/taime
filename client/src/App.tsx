@@ -103,6 +103,7 @@ import KudosWallPage from "@/features/kudos/KudosWallPage";
 import LeanBoard from "@/pages/LeanBoard";
 import InsightsPage from "@/pages/InsightsPage";
 import CashManagement from "@/pages/CashManagement";
+import Timesheets from "@/pages/Timesheets";
 import { WebSocketProvider } from "@/contexts/WebSocketContext";
 import type { Permission } from "@shared/schema";
 
@@ -297,6 +298,9 @@ function AuthenticatedApp() {
       <Route path="/lean-board" component={LeanBoard} />
       <Route path="/cash">
         <ProtectedRoute><CashManagement /></ProtectedRoute>
+      </Route>
+      <Route path="/timesheets">
+        <ProtectedRoute permission="hr.payroll_view"><Timesheets /></ProtectedRoute>
       </Route>
       <Route path="/insights" component={InsightsPage} />
       <Route path="/support" component={SupportPage} />
