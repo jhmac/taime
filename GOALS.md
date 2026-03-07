@@ -70,19 +70,25 @@ Sneebly works top-down. Higher = fix first.
 - **Daily Ritual System** (Morning Huddle, Daily Debrief, Daily Improvement Quotes, Kudos, Midday Pulse)
 - **Improvement Video Platform** (60-second video sharing with YouTube/S3 storage)
 - **SOP Library & Execution** (Structured procedures, Decision Tree SOPs, Training Hub)
-- **GTD Workflow Engine** (AI-powered inbox, weekly review ritual)
+- **GTD Workflow Engine** (AI-powered inbox processor, weekly review ritual)
 - **In-App Messaging** (Real-time threaded chats, direct messages, channels)
 - **Anomaly Detection & Push Notifications** (Clock-in/payroll anomalies, Web Push notifications)
 - **Timesheets & Pay Period Review** (Pay period table, Daily Review, Time Card Modal, AI OT Prevention, Off-Site Allowance)
 - **Digital Cash Management System** (Opening/closing wizard, AI deposit verification, AI Cash Investigation)
+- **Smart Task Suggestions (AI Review Assistant)** (Proactive daily task prioritization using employee context)
+- **SOP Intelligence Layer** (AI-powered analysis of SOP execution data)
+- **Lean Board** (Team-level improvement tracking board with daily snapshots and mini-charts)
 
 ### IN DEV — Being Built Now
 - Shopify Deep Sync (real-time sales data streaming)
+- SOP Evolution System (AI-powered revision proposals based on feedback)
+- RAG Semantic Search (Vector-based SOP search using pgvector)
 
 ### PLANNED — On the Roadmap but Not Started
 - Payroll Export (Gusto/ADP integration)
 - Visual Dashboards (labor cost trends, punctuality, task completion)
 - Offline Mode (local storage for time entries)
+- Holiday Pay System (AI-powered multipliers for holiday pay)
 
 ## Improvement Preferences
 
