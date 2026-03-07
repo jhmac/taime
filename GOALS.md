@@ -78,17 +78,17 @@ Sneebly works top-down. Higher = fix first.
 - **Smart Task Suggestions (AI Review Assistant)** (Proactive daily task prioritization using employee context)
 - **SOP Intelligence Layer** (AI-powered analysis of SOP execution data)
 - **Lean Board** (Team-level improvement tracking board with daily snapshots and mini-charts)
+- **Holiday Pay System** (AI-powered parsing of rules for automatic holiday pay multipliers)
+- **SOP Evolution System** (AI-powered revision proposals based on feedback)
+- **RAG Semantic Search** (Vector-based SOP search using pgvector)
+- **Offline Mode** (Local storage for time entries using IndexedDB and Service Worker)
 
 ### IN DEV — Being Built Now
 - Shopify Deep Sync (real-time sales data streaming)
-- SOP Evolution System (AI-powered revision proposals based on feedback)
-- RAG Semantic Search (Vector-based SOP search using pgvector)
 
 ### PLANNED — On the Roadmap but Not Started
 - Payroll Export (Gusto/ADP integration)
 - Visual Dashboards (labor cost trends, punctuality, task completion)
-- Offline Mode (local storage for time entries)
-- Holiday Pay System (AI-powered multipliers for holiday pay)
 
 ## Improvement Preferences
 
