@@ -67,16 +67,21 @@ Sneebly works top-down. Higher = fix first.
 - Member Directory with inline profile editing
 - Payroll Setup Wizard (onboarding flow)
 - Activity Logging (audit trail of admin actions)
+- **Daily Ritual System** (Morning Huddle, Daily Debrief, Daily Improvement Quotes, Kudos, Midday Pulse)
+- **Improvement Video Platform** (60-second video sharing with YouTube/S3 storage)
+- **SOP Library & Execution** (Structured procedures, Decision Tree SOPs, Training Hub)
+- **GTD Workflow Engine** (AI-powered inbox, weekly review ritual)
+- **In-App Messaging** (Real-time threaded chats, direct messages, channels)
+- **Anomaly Detection & Push Notifications** (Clock-in/payroll anomalies, Web Push notifications)
+- **Timesheets & Pay Period Review** (Pay period table, Daily Review, Time Card Modal, AI OT Prevention, Off-Site Allowance)
+- **Digital Cash Management System** (Opening/closing wizard, AI deposit verification, AI Cash Investigation)
 
 ### IN DEV — Being Built Now
 - Shopify Deep Sync (real-time sales data streaming)
 
 ### PLANNED — On the Roadmap but Not Started
-- In-App Messaging (real-time threads)
 - Payroll Export (Gusto/ADP integration)
-- Anomaly Detection (unusual clock-in patterns, payroll errors)
 - Visual Dashboards (labor cost trends, punctuality, task completion)
-- PWA + Push Notifications
 - Offline Mode (local storage for time entries)
 
 ## Improvement Preferences
