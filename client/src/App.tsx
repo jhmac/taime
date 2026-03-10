@@ -104,6 +104,7 @@ import LeanBoard from "@/pages/LeanBoard";
 import InsightsPage from "@/pages/InsightsPage";
 import CashManagement from "@/pages/CashManagement";
 import Timesheets from "@/pages/Timesheets";
+import PayrollExport from "@/pages/PayrollExport";
 import { WebSocketProvider } from "@/contexts/WebSocketContext";
 import type { Permission } from "@shared/schema";
 
@@ -265,7 +266,7 @@ function AuthenticatedApp() {
         <ProtectedRoute permission="hr.payroll_view"><PayPeriodManagement /></ProtectedRoute>
       </Route>
       <Route path="/analytics">
-        <ProtectedRoute permission="hr.view_team"><Analytics /></ProtectedRoute>
+        <ProtectedRoute permission="admin.manage_all"><Analytics /></ProtectedRoute>
       </Route>
       <Route path="/performance" component={Performance} />
       <Route path="/learning" component={Learning} />
@@ -301,6 +302,9 @@ function AuthenticatedApp() {
       </Route>
       <Route path="/timesheets">
         <ProtectedRoute permission="hr.payroll_view"><Timesheets /></ProtectedRoute>
+      </Route>
+      <Route path="/payroll-export">
+        <ProtectedRoute permission="hr.payroll_view"><PayrollExport /></ProtectedRoute>
       </Route>
       <Route path="/insights" component={InsightsPage} />
       <Route path="/support" component={SupportPage} />

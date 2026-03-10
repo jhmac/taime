@@ -15,6 +15,7 @@ const pageTitles: Record<string, string> = {
   '/hr/roles': 'Role Management',
   '/operations': 'Operations',
   '/performance': 'Performance',
+  '/payroll-export': 'Payroll Export',
   '/admin': 'Settings',
 };
 

@@ -503,8 +503,8 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
     try {
       const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
-      const canViewAll = userPermissions.some((p: any) => p.name === "time.view_all" || p.name === "admin.manage_all");
-      if (!canViewAll) {
+      const canExport = userPermissions.some((p: any) => p.name === "time.view_all" || p.name === "admin.manage_all" || p.name === "hr.payroll_view");
+      if (!canExport) {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
 

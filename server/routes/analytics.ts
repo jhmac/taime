@@ -10,7 +10,7 @@ export function registerAnalyticsRoutes(app: Express, storage: IStorage, isAuthe
     try {
       const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
-      const canView = userPermissions.some(p => p.name === 'hr.view_team' || p.name === 'admin.manage_all');
+      const canView = userPermissions.some(p => p.name === 'admin.manage_all');
 
       if (!canView) {
         return res.status(403).json({ message: "Access denied" });
@@ -30,10 +30,15 @@ export function registerAnalyticsRoutes(app: Express, storage: IStorage, isAuthe
       weekStart.setDate(now.getDate() - now.getDay());
       weekStart.setHours(0, 0, 0, 0);
 
+      const lastWeekStart = new Date(weekStart);
+      lastWeekStart.setDate(lastWeekStart.getDate() - 7);
+      const lastWeekEnd = new Date(weekStart);
+      lastWeekEnd.setMilliseconds(-1);
+
       const [allTimeEntries, allUsers, allSchedules, allTasks] = await Promise.all([
         storage.getAllTimeEntries(thirtyDaysAgo, now),
         cache.getOrSet('analytics:users', () =>
-          db.select({ id: users.id, hourlyRate: users.hourlyRate, isActive: users.isActive })
+          db.select({ id: users.id, hourlyRate: users.hourlyRate, isActive: users.isActive, firstName: users.firstName, lastName: users.lastName })
             .from(users).where(eq(users.isActive, true)),
           120_000
         ),
@@ -85,6 +90,14 @@ export function registerAnalyticsRoutes(app: Express, storage: IStorage, isAuthe
         scheduleMap.get(key)!.push(new Date(s.startTime));
       });
 
+      const userNameMap = new Map<string, string>();
+      allUsers.forEach(u => {
+        const name = [u.firstName, u.lastName].filter(Boolean).join(' ') || u.id;
+        userNameMap.set(u.id, name);
+      });
+
+      const employeePunctuality = new Map<string, { onTime: number; late: number }>();
+
       allTimeEntries.forEach(entry => {
         const clockIn = new Date(entry.clockInTime);
         const key = `${entry.userId}_${clockIn.toISOString().split('T')[0]}`;
@@ -94,10 +107,18 @@ export function registerAnalyticsRoutes(app: Express, storage: IStorage, isAuthe
             Math.abs(curr.getTime() - clockIn.getTime()) < Math.abs(prev.getTime() - clockIn.getTime()) ? curr : prev
           );
           const diffMinutes = (clockIn.getTime() - closest.getTime()) / 60000;
+
+          if (!employeePunctuality.has(entry.userId)) {
+            employeePunctuality.set(entry.userId, { onTime: 0, late: 0 });
+          }
+          const ep = employeePunctuality.get(entry.userId)!;
+
           if (diffMinutes <= 5) {
             onTime++;
+            ep.onTime++;
           } else {
             late++;
+            ep.late++;
           }
         }
       });
@@ -110,6 +131,20 @@ export function registerAnalyticsRoutes(app: Express, storage: IStorage, isAuthe
         percentage: punctualityTotal > 0 ? Math.round((onTime / punctualityTotal) * 100) : 100,
       };
 
+      const employeePunctualityBreakdown = Array.from(employeePunctuality.entries())
+        .map(([uid, data]) => {
+          const total = data.onTime + data.late;
+          return {
+            userId: uid,
+            name: userNameMap.get(uid) || uid,
+            onTime: data.onTime,
+            late: data.late,
+            total,
+            percentage: total > 0 ? Math.round((data.onTime / total) * 100) : 100,
+          };
+        })
+        .sort((a, b) => a.percentage - b.percentage);
+
       const weekTasks = allTasks.filter(t => {
         const created = new Date(t.createdAt!);
         return created >= weekStart;
@@ -120,6 +155,12 @@ export function registerAnalyticsRoutes(app: Express, storage: IStorage, isAuthe
         total: weekTasks.length,
         percentage: weekTasks.length > 0 ? Math.round((completedTasks / weekTasks.length) * 100) : 0,
       };
+
+      const lastWeekTasks = allTasks.filter(t => {
+        const created = new Date(t.createdAt!);
+        return created >= lastWeekStart && created <= lastWeekEnd;
+      });
+      const lastWeekCompleted = lastWeekTasks.filter(t => t.status === 'completed').length;
 
       const activeEntries = allTimeEntries.filter(e => !e.clockOutTime);
       const todayEntries = allTimeEntries.filter(e => {
@@ -146,7 +187,43 @@ export function registerAnalyticsRoutes(app: Express, storage: IStorage, isAuthe
         totalEmployees: allUsers.length,
       };
 
-      res.json({ laborCostByDay, punctualityScore, taskCompletion, teamSummary });
+      let thisWeekHours = 0;
+      let thisWeekCost = 0;
+      let lastWeekHours = 0;
+      let lastWeekCost = 0;
+
+      allTimeEntries.forEach(entry => {
+        if (!entry.clockOutTime) return;
+        const clockIn = new Date(entry.clockInTime);
+        const clockOut = new Date(entry.clockOutTime);
+        const hours = Math.max(0, (clockOut.getTime() - clockIn.getTime()) / 3600000 - (entry.breakMinutes || 0) / 60);
+        const rate = userRateMap.get(entry.userId) || 15;
+
+        if (clockIn >= weekStart) {
+          thisWeekHours += hours;
+          thisWeekCost += hours * rate;
+        } else if (clockIn >= lastWeekStart && clockIn <= lastWeekEnd) {
+          lastWeekHours += hours;
+          lastWeekCost += hours * rate;
+        }
+      });
+
+      const weeklyComparison = {
+        thisWeek: {
+          hours: Math.round(thisWeekHours * 100) / 100,
+          cost: Math.round(thisWeekCost * 100) / 100,
+          tasksCompleted: completedTasks,
+          tasksTotal: weekTasks.length,
+        },
+        lastWeek: {
+          hours: Math.round(lastWeekHours * 100) / 100,
+          cost: Math.round(lastWeekCost * 100) / 100,
+          tasksCompleted: lastWeekCompleted,
+          tasksTotal: lastWeekTasks.length,
+        },
+      };
+
+      res.json({ laborCostByDay, punctualityScore, taskCompletion, teamSummary, employeePunctualityBreakdown, weeklyComparison });
     } catch (error) {
       console.error("Error fetching analytics dashboard:", error);
       res.status(500).json({ message: "Failed to fetch analytics data" });

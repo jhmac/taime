@@ -82,13 +82,14 @@ Sneebly works top-down. Higher = fix first.
 - **SOP Evolution System** (AI-powered revision proposals based on feedback)
 - **RAG Semantic Search** (Vector-based SOP search using pgvector)
 - **Offline Mode** (Local storage for time entries using IndexedDB and Service Worker)
+- **Payroll Export** (Dedicated export page with QuickBooks/Gusto/ADP presets, custom field selection, CSV download)
+- **Visual Dashboards** (Labor cost trends, punctuality scores, task completion, employee breakdown — owner/admin only)
 
 ### IN DEV — Being Built Now
 - Shopify Deep Sync (real-time sales data streaming)
 
 ### PLANNED — On the Roadmap but Not Started
-- Payroll Export (Gusto/ADP integration)
-- Visual Dashboards (labor cost trends, punctuality, task completion)
+- (No pending planned features — all shipped!)
 
 ## Improvement Preferences
 

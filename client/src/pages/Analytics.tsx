@@ -15,6 +15,14 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 
 interface LaborCostDay {
   date: string;
@@ -23,11 +31,27 @@ interface LaborCostDay {
   employeeCount: number;
 }
 
+interface EmployeePunctuality {
+  userId: string;
+  name: string;
+  onTime: number;
+  late: number;
+  total: number;
+  percentage: number;
+}
+
+interface WeeklyComparison {
+  thisWeek: { hours: number; cost: number; tasksCompleted: number; tasksTotal: number };
+  lastWeek: { hours: number; cost: number; tasksCompleted: number; tasksTotal: number };
+}
+
 interface DashboardData {
   laborCostByDay: LaborCostDay[];
   punctualityScore: { onTime: number; late: number; total: number; percentage: number };
   taskCompletion: { completed: number; total: number; percentage: number };
   teamSummary: { activeNow: number; totalHoursToday: number; tasksCompletedToday: number; totalEmployees: number };
+  employeePunctualityBreakdown: EmployeePunctuality[];
+  weeklyComparison: WeeklyComparison;
 }
 
 interface Anomaly {
@@ -41,6 +65,30 @@ interface Anomaly {
 interface AnomalyResult {
   anomalies: Anomaly[];
   patterns: Record<string, any>;
+}
+
+function ComparisonIndicator({ current, previous, format = 'number' }: { current: number; previous: number; format?: 'number' | 'currency' | 'hours' }) {
+  if (previous === 0 && current === 0) return null;
+  const diff = previous > 0 ? ((current - previous) / previous) * 100 : current > 0 ? 100 : 0;
+  const isPositive = diff > 0;
+  const isNeutral = diff === 0;
+
+  const formatVal = (v: number) => {
+    if (format === 'currency') return `$${v.toFixed(0)}`;
+    if (format === 'hours') return `${v.toFixed(1)}h`;
+    return v.toString();
+  };
+
+  return (
+    <div className="flex items-center gap-1 mt-1">
+      {!isNeutral && (
+        <i className={`fas fa-arrow-${isPositive ? 'up' : 'down'} text-[10px] ${isPositive ? 'text-green-500' : 'text-red-500'}`}></i>
+      )}
+      <span className={`text-[10px] ${isNeutral ? 'text-muted-foreground' : isPositive ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+        {isNeutral ? 'No change' : `${Math.abs(Math.round(diff))}% vs last week (${formatVal(previous)})`}
+      </span>
+    </div>
+  );
 }
 
 export default function Analytics() {
@@ -95,6 +143,12 @@ export default function Analytics() {
     return 'text-red-600 dark:text-red-400';
   };
 
+  const punctualityBg = (pct: number) => {
+    if (pct >= 90) return 'bg-green-100 dark:bg-green-900/30';
+    if (pct >= 70) return 'bg-yellow-100 dark:bg-yellow-900/30';
+    return 'bg-red-100 dark:bg-red-900/30';
+  };
+
   return (
     <div className="min-h-full bg-background">
       <section className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground p-5 md:p-6 md:rounded-xl md:m-6 md:mt-4">
@@ -124,6 +178,39 @@ export default function Analytics() {
           </div>
         ) : data ? (
           <div className="space-y-4">
+            {data.weeklyComparison && (
+              <div className={isMobile ? "grid grid-cols-2 gap-3" : "grid grid-cols-4 gap-4"}>
+                <Card className="border-t-4 border-t-blue-500">
+                  <CardContent className="p-4">
+                    <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Hours This Week</p>
+                    <p className="text-2xl font-bold mt-1">{data.weeklyComparison.thisWeek.hours.toFixed(1)}h</p>
+                    <ComparisonIndicator current={data.weeklyComparison.thisWeek.hours} previous={data.weeklyComparison.lastWeek.hours} format="hours" />
+                  </CardContent>
+                </Card>
+                <Card className="border-t-4 border-t-green-500">
+                  <CardContent className="p-4">
+                    <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Labor Cost This Week</p>
+                    <p className="text-2xl font-bold mt-1">${data.weeklyComparison.thisWeek.cost.toFixed(0)}</p>
+                    <ComparisonIndicator current={data.weeklyComparison.thisWeek.cost} previous={data.weeklyComparison.lastWeek.cost} format="currency" />
+                  </CardContent>
+                </Card>
+                <Card className="border-t-4 border-t-purple-500">
+                  <CardContent className="p-4">
+                    <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Tasks Completed</p>
+                    <p className="text-2xl font-bold mt-1">{data.weeklyComparison.thisWeek.tasksCompleted}</p>
+                    <ComparisonIndicator current={data.weeklyComparison.thisWeek.tasksCompleted} previous={data.weeklyComparison.lastWeek.tasksCompleted} />
+                  </CardContent>
+                </Card>
+                <Card className="border-t-4 border-t-amber-500">
+                  <CardContent className="p-4">
+                    <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Punctuality</p>
+                    <p className={`text-2xl font-bold mt-1 ${punctualityColor(data.punctualityScore.percentage)}`}>{data.punctualityScore.percentage}%</p>
+                    <p className="text-[10px] text-muted-foreground mt-1">{data.punctualityScore.onTime} on time / {data.punctualityScore.late} late</p>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
             <div className={isMobile ? "grid grid-cols-2 gap-3" : "grid grid-cols-4 gap-4"}>
               <Card>
                 <CardContent className="p-4">
@@ -346,6 +433,72 @@ export default function Analytics() {
                 </CardContent>
               </Card>
             </div>
+
+            {data.employeePunctualityBreakdown && data.employeePunctualityBreakdown.length > 0 && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <i className="fas fa-user-clock text-primary"></i>
+                    Employee Punctuality Breakdown
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Employee</TableHead>
+                          <TableHead className="text-center">On Time</TableHead>
+                          <TableHead className="text-center">Late</TableHead>
+                          <TableHead className="text-center">Total</TableHead>
+                          <TableHead className="text-center">Score</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {data.employeePunctualityBreakdown.map((emp) => (
+                          <TableRow key={emp.userId}>
+                            <TableCell className="font-medium">{emp.name}</TableCell>
+                            <TableCell className="text-center text-green-600 dark:text-green-400">{emp.onTime}</TableCell>
+                            <TableCell className="text-center text-red-600 dark:text-red-400">{emp.late}</TableCell>
+                            <TableCell className="text-center">{emp.total}</TableCell>
+                            <TableCell className="text-center">
+                              <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${punctualityBg(emp.percentage)} ${punctualityColor(emp.percentage)}`}>
+                                {emp.percentage}%
+                              </span>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {connectedShop?.shopDomain && data.weeklyComparison && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <i className="fas fa-balance-scale text-primary"></i>
+                    Labor Cost vs Revenue
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="p-4 bg-red-50 dark:bg-red-900/10 rounded-lg text-center">
+                      <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Weekly Labor Cost</p>
+                      <p className="text-2xl font-bold text-red-600 dark:text-red-400">
+                        ${data.weeklyComparison.thisWeek.cost.toFixed(0)}
+                      </p>
+                    </div>
+                    <div className="p-4 bg-green-50 dark:bg-green-900/10 rounded-lg text-center">
+                      <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Shopify Revenue</p>
+                      <p className="text-sm text-muted-foreground mt-2">View in Shopify Analytics below</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </div>
         ) : (
           <div className="text-center py-12">
