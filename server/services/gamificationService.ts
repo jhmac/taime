@@ -519,11 +519,17 @@ export class GamificationService {
           `);
 
           try {
-            await notificationService.sendToUser(score.userId, {
-              title: '🏆 Achievement Unlocked!',
-              body: `${ach.icon} ${ach.name} — ${ach.description}`,
-              data: { type: 'achievement_unlocked', achievementKey: ach.key, url: '/my-score' },
-            });
+            const globalSettings = await this.getSettings();
+            if (globalSettings.scoreNotificationsEnabled ?? true) {
+              const userPref = await db.select({ scoreNotificationsEnabled: users.scoreNotificationsEnabled }).from(users).where(eq(users.id, score.userId)).limit(1);
+              if (!(userPref.length > 0 && userPref[0].scoreNotificationsEnabled === false)) {
+                await notificationService.sendToUser(score.userId, {
+                  title: '🏆 Achievement Unlocked!',
+                  body: `${ach.icon} ${ach.name} — ${ach.description}`,
+                  data: { type: 'achievement_unlocked', achievementKey: ach.key, url: '/my-score' },
+                });
+              }
+            }
           } catch {}
         } catch {}
       }

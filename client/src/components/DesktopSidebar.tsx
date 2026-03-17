@@ -5,6 +5,14 @@ import { useAuth } from '@/hooks/useAuth';
 import { cn } from '@/lib/utils';
 import type { Permission } from '@shared/schema';
 
+const TIER_COLORS: Record<string, string> = {
+  bronze: 'text-orange-600',
+  silver: 'text-gray-500',
+  gold: 'text-yellow-500',
+  platinum: 'text-blue-500',
+  diamond: 'text-purple-500',
+};
+
 const generalNavItems = [
   { path: '/', icon: 'fas fa-home', label: 'Dashboard' },
   { path: '/schedules', icon: 'fas fa-calendar-alt', label: 'Schedules' },
@@ -68,6 +76,12 @@ export default function DesktopSidebar() {
     refetchInterval: 30000,
   });
   const unreadCount = unreadData?.data?.count || 0;
+
+  const { data: miniScore } = useQuery<{ overallScore: number; tier: string }>({
+    queryKey: ['/api/gamification/my-score'],
+    enabled: !!user,
+    staleTime: 5 * 60 * 1000,
+  });
 
   function NavButton({ path, icon, label, badge }: { path: string; icon: string; label: string; badge?: number }) {
     const isActive = location === path || (path !== '/' && location.startsWith(path));
@@ -160,6 +174,35 @@ export default function DesktopSidebar() {
           </>
         )}
       </nav>
+
+      {miniScore && (
+        <div
+          onClick={() => navigate('/my-score')}
+          className={cn(
+            "mx-2 mb-1 p-2 rounded-lg cursor-pointer hover:bg-sidebar-accent transition-colors border border-sidebar-border",
+            collapsed ? "flex justify-center" : "flex items-center gap-2"
+          )}
+        >
+          <div className="relative flex-shrink-0">
+            <svg width="28" height="28" className="transform -rotate-90">
+              <circle cx="14" cy="14" r="11" fill="none" stroke="currentColor" strokeWidth="3" className="text-sidebar-border" />
+              <circle cx="14" cy="14" r="11" fill="none" strokeWidth="3" strokeLinecap="round"
+                className={TIER_COLORS[miniScore.tier] || TIER_COLORS.bronze}
+                style={{ stroke: 'currentColor' }}
+                strokeDasharray={2 * Math.PI * 11}
+                strokeDashoffset={2 * Math.PI * 11 * (1 - miniScore.overallScore / 100)} />
+            </svg>
+            <div className="absolute inset-0 flex items-center justify-center">
+              <span className="text-[9px] font-bold text-sidebar-foreground">{miniScore.overallScore}</span>
+            </div>
+          </div>
+          {!collapsed && (
+            <div className="min-w-0">
+              <span className="text-xs font-medium text-sidebar-foreground capitalize">{miniScore.tier}</span>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="p-2 border-t border-sidebar-border">
         <button

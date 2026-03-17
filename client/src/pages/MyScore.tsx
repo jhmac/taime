@@ -231,15 +231,22 @@ export default function MyScore() {
         <div className="flex justify-center py-4">
           <ScoreRing score={overallScore} tier={tier} size={140} />
         </div>
-        {nextTier?.nextTier && (
-          <div className="text-center">
-            <p className="text-sm opacity-80">
-              <ChevronUp className="h-4 w-4 inline" /> {nextTier.pointsNeeded} points to{' '}
-              <span className="font-semibold capitalize">{nextTier.nextTier}</span>
-            </p>
-            <Progress value={((overallScore - (TIER_CONFIG[tier] ? 0 : 0)) / nextTier.threshold) * 100} className="mt-2 h-1.5 bg-white/20" />
-          </div>
-        )}
+        {nextTier?.nextTier && (() => {
+          const tierThresholds: Record<string, number> = { bronze: 0, silver: 40, gold: 60, platinum: 80, diamond: 95 };
+          const currentTierMin = tierThresholds[tier] || 0;
+          const nextTierMin = nextTier.threshold;
+          const tierRange = nextTierMin - currentTierMin;
+          const tierProgress = tierRange > 0 ? Math.min(100, Math.max(0, ((overallScore - currentTierMin) / tierRange) * 100)) : 100;
+          return (
+            <div className="text-center">
+              <p className="text-sm opacity-80">
+                <ChevronUp className="h-4 w-4 inline" /> {nextTier.pointsNeeded} points to{' '}
+                <span className="font-semibold capitalize">{nextTier.nextTier}</span>
+              </p>
+              <Progress value={tierProgress} className="mt-2 h-1.5 bg-white/20" />
+            </div>
+          );
+        })()}
         {scoreData?.prizeEligibility && (
           <div className="mt-3 bg-white/15 rounded-lg p-2 text-center text-sm">
             🎁 {scoreData.prizeEligibility}
@@ -291,6 +298,20 @@ export default function MyScore() {
                   </div>
                 ) : (
                   <div className="space-y-1">
+                    {(() => {
+                      const rank = scoreData?.rank || 0;
+                      const total = scoreData?.totalMembers || 0;
+                      let message = '';
+                      if (rank === 1) message = "You're #1! Keep up the incredible work!";
+                      else if (rank <= 3) message = `You're in the top 3! Amazing performance!`;
+                      else if (rank <= 5) message = `${rank - 3} spot${rank - 3 > 1 ? 's' : ''} away from the podium — keep pushing!`;
+                      else if (total > 0) message = `You're ranked #${rank} of ${total}. Every point counts!`;
+                      return message ? (
+                        <div className="text-center py-2 px-3 mb-2 bg-primary/5 rounded-lg border border-primary/10">
+                          <p className="text-sm font-medium text-primary">{message}</p>
+                        </div>
+                      ) : null;
+                    })()}
                     {(leaderboardData?.leaderboard || []).map((entry: LeaderboardEntry, i: number) => (
                       <LeaderboardRow key={i} entry={entry} index={i} />
                     ))}
