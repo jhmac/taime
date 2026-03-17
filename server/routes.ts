@@ -47,7 +47,9 @@ import { registerSmartSuggestionRoutes } from "./routes/smartSuggestions";
 import { registerCashManagementRoutes } from "./routes/cashManagement";
 import { registerTimesheetRoutes } from "./routes/timesheets";
 import { registerOffsiteRulesRoutes } from "./routes/offsiteRules";
+import { registerGamificationRoutes } from "./routes/gamification";
 import { startBackgroundInsightsCron, stopBackgroundInsightsCron } from "./services/backgroundInsights";
+import { startGamificationCron, stopGamificationCron } from "./services/gamificationCron";
 import { createActionLoggerMiddleware, handleClientErrorReport, getActionSummary } from "./services/actionLogger";
 import { startSurfacingCron, stopSurfacingCron } from "./services/sopSurfacing";
 import { startMiddayPulseCron, stopMiddayPulseCron } from "./services/middayPulse";
@@ -177,6 +179,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerCashManagementRoutes(app, storage, isAuthenticated);
   registerOffsiteRulesRoutes(app, storage, isAuthenticated);
   registerTimesheetRoutes(app, storage, isAuthenticated);
+  registerGamificationRoutes(app, storage, isAuthenticated);
 
   const httpServer = createServer(app);
 
@@ -237,6 +240,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   startSOPInsightsCron();
   startSOPEvolutionCron();
   startBackgroundInsightsCron();
+  startGamificationCron();
   seedShiftHandoffSOP().catch(err => logger.error({ error: err.message }, 'Handoff SOP seed failed'));
 
   function gracefulShutdown() {
@@ -249,6 +253,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     stopSOPInsightsCron();
     stopSOPEvolutionCron();
     stopBackgroundInsightsCron();
+    stopGamificationCron();
 
     const shutdownPayload = JSON.stringify({ type: "server_restarting" });
     wsConnections.forEach((conns) => {

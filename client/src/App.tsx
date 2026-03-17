@@ -105,6 +105,7 @@ import InsightsPage from "@/pages/InsightsPage";
 import CashManagement from "@/pages/CashManagement";
 import Timesheets from "@/pages/Timesheets";
 import PayrollExport from "@/pages/PayrollExport";
+import MyScore from "@/pages/MyScore";
 import { WebSocketProvider } from "@/contexts/WebSocketContext";
 import type { Permission } from "@shared/schema";
 
@@ -306,6 +307,7 @@ function AuthenticatedApp() {
       <Route path="/payroll-export">
         <ProtectedRoute permission="hr.payroll_view"><PayrollExport /></ProtectedRoute>
       </Route>
+      <Route path="/my-score" component={MyScore} />
       <Route path="/insights" component={InsightsPage} />
       <Route path="/support" component={SupportPage} />
       <Route path="/admin">

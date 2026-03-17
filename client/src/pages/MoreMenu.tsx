@@ -23,6 +23,7 @@ export default function MoreMenu() {
     { icon: 'fas fa-user', label: 'Profile', path: '/employee-settings', iconColor: 'text-muted-foreground' },
     { icon: 'fas fa-file-alt', label: 'Requests', subtitle: 'Time Off, Trade, Cover, Availability...', path: '/requests', iconColor: 'text-muted-foreground' },
     { icon: 'fas fa-users', label: 'Team', path: '/team-directory', iconColor: 'text-muted-foreground' },
+    { icon: 'fas fa-trophy', label: 'My Score', subtitle: 'Performance score, tier & badges', path: '/my-score', iconColor: 'text-yellow-500' },
     { icon: 'fas fa-bolt', label: 'Cash Out', path: '/payroll', iconColor: 'text-muted-foreground' },
     { icon: 'fas fa-cash-register', label: 'Cash Management', subtitle: 'Drawer counts, deposits, investigation', path: '/cash', iconColor: 'text-green-600' },
     { icon: 'fas fa-sliders-h', label: 'Settings', subtitle: 'Calendar Sync, Notifications & Alerts, Sign Out...', path: '/employee-settings', iconColor: 'text-muted-foreground' },

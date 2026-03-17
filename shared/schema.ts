@@ -1743,3 +1743,58 @@ export const cashDiscrepancyLog = pgTable("cash_discrepancy_log", {
 export const insertCashDiscrepancyLogSchema = createInsertSchema(cashDiscrepancyLog).omit({ id: true, createdAt: true });
 export type CashDiscrepancyLog = typeof cashDiscrepancyLog.$inferSelect;
 export type InsertCashDiscrepancyLog = z.infer<typeof insertCashDiscrepancyLogSchema>;
+
+export const scoreHistory = pgTable("score_history", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  snapshotDate: date("snapshot_date").notNull(),
+  overallScore: integer("overall_score").notNull().default(0),
+  attendanceScore: integer("attendance_score").notNull().default(0),
+  taskScore: integer("task_score").notNull().default(0),
+  sopScore: integer("sop_score").notNull().default(0),
+  engagementScore: integer("engagement_score").notNull().default(0),
+  tier: varchar("tier").notNull().default('bronze'),
+  rank: integer("rank"),
+  totalPoints: integer("total_points").default(0),
+  streakDays: integer("streak_days").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_score_history_user_date").on(table.userId, table.snapshotDate),
+  uniqueIndex("uq_score_history_user_date").on(table.userId, table.snapshotDate),
+]);
+
+export const gamificationSettings = pgTable("gamification_settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id"),
+  tierThresholds: jsonb("tier_thresholds").default({
+    bronze: 0, silver: 40, gold: 60, platinum: 80, diamond: 95
+  }),
+  prizeDescriptions: jsonb("prize_descriptions").default({
+    gold: "Free lunch this month!",
+    platinum: "Gift card reward",
+    diamond: "Employee of the month recognition"
+  }),
+  categoryWeights: jsonb("category_weights").default({
+    attendance: 30, tasks: 30, sops: 20, engagement: 20
+  }),
+  scoreNotificationsEnabled: boolean("score_notifications_enabled").default(true),
+  updatedBy: varchar("updated_by").references(() => users.id),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const userAchievements = pgTable("user_achievements", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  achievementKey: varchar("achievement_key").notNull(),
+  achievementName: varchar("achievement_name").notNull(),
+  achievementDescription: varchar("achievement_description"),
+  achievementIcon: varchar("achievement_icon"),
+  earnedAt: timestamp("earned_at").defaultNow(),
+}, (table) => [
+  index("idx_user_achievements_user").on(table.userId),
+  uniqueIndex("uq_user_achievements_user_key").on(table.userId, table.achievementKey),
+]);
+
+export type ScoreHistory = typeof scoreHistory.$inferSelect;
+export type GamificationSettings = typeof gamificationSettings.$inferSelect;
+export type UserAchievement = typeof userAchievements.$inferSelect;

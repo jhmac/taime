@@ -91,6 +91,110 @@ function ComparisonIndicator({ current, previous, format = 'number' }: { current
   );
 }
 
+const TIER_COLORS: Record<string, string> = {
+  bronze: 'text-orange-600 bg-orange-50',
+  silver: 'text-gray-600 bg-gray-50',
+  gold: 'text-yellow-600 bg-yellow-50',
+  platinum: 'text-blue-600 bg-blue-50',
+  diamond: 'text-purple-600 bg-purple-50',
+};
+
+function TeamScoresSection() {
+  const { data: teamScores = [], isLoading } = useQuery<any[]>({
+    queryKey: ['/api/gamification/team-scores'],
+  });
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardHeader><CardTitle className="text-sm">Team Gamification Scores</CardTitle></CardHeader>
+        <CardContent><Skeleton className="h-40 w-full" /></CardContent>
+      </Card>
+    );
+  }
+
+  const tierCounts: Record<string, number> = {};
+  const avgScore = teamScores.length > 0
+    ? Math.round(teamScores.reduce((sum, s) => sum + s.overallScore, 0) / teamScores.length)
+    : 0;
+
+  teamScores.forEach(s => {
+    tierCounts[s.tier] = (tierCounts[s.tier] || 0) + 1;
+  });
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-bold flex items-center gap-2">
+          <i className="fas fa-trophy text-yellow-500"></i> Team Gamification Scores
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+          <div className="text-center p-3 bg-muted/30 rounded-lg">
+            <div className="text-2xl font-bold">{avgScore}</div>
+            <div className="text-xs text-muted-foreground">Avg Score</div>
+          </div>
+          <div className="text-center p-3 bg-muted/30 rounded-lg">
+            <div className="text-2xl font-bold">{teamScores.length}</div>
+            <div className="text-xs text-muted-foreground">Team Members</div>
+          </div>
+          <div className="text-center p-3 bg-muted/30 rounded-lg">
+            <div className="text-2xl font-bold">{tierCounts['diamond'] || 0}</div>
+            <div className="text-xs text-muted-foreground">Diamond</div>
+          </div>
+          <div className="text-center p-3 bg-muted/30 rounded-lg">
+            <div className="text-2xl font-bold">{tierCounts['platinum'] || 0}</div>
+            <div className="text-xs text-muted-foreground">Platinum</div>
+          </div>
+        </div>
+
+        {teamScores.length > 0 && (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-12">#</TableHead>
+                <TableHead>Name</TableHead>
+                <TableHead className="text-center">Score</TableHead>
+                <TableHead className="text-center">Tier</TableHead>
+                <TableHead className="text-center">Streak</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {teamScores.map((s: any) => {
+                const tc = TIER_COLORS[s.tier] || TIER_COLORS.bronze;
+                return (
+                  <TableRow key={s.userId}>
+                    <TableCell className="font-medium">{s.rank}</TableCell>
+                    <TableCell>{s.firstName} {s.lastName?.charAt(0)}.</TableCell>
+                    <TableCell className="text-center font-semibold">{s.overallScore}</TableCell>
+                    <TableCell className="text-center">
+                      <Badge variant="outline" className={`capitalize text-xs ${tc}`}>{s.tier}</Badge>
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {s.streakDays > 0 ? (
+                        <span className="text-xs">🔥 {s.streakDays}d</span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">-</span>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        )}
+
+        {teamScores.length === 0 && (
+          <div className="text-center py-6 text-sm text-muted-foreground">
+            No score data yet. Scores compute nightly.
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function Analytics() {
   const isMobile = useIsMobile();
   const { data, isLoading } = useQuery<DashboardData>({
@@ -590,6 +694,8 @@ export default function Analytics() {
             ) : null}
           </CardContent>
         </Card>
+
+        <TeamScoresSection />
       </div>
     </div>
   );

@@ -17,6 +17,7 @@ const pageTitles: Record<string, string> = {
   '/performance': 'Performance',
   '/payroll-export': 'Payroll Export',
   '/admin': 'Settings',
+  '/my-score': 'My Score',
 };
 
 export default function TopNavigation() {
