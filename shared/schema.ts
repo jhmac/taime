@@ -93,6 +93,7 @@ export const users = pgTable("users", {
   emergencyContactPhone: varchar("emergency_contact_phone"),
   preferredName: varchar("preferred_name"),
   personalEmail: varchar("personal_email"),
+  scoreNotificationsEnabled: boolean("score_notifications_enabled").default(true),
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

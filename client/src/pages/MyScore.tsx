@@ -1,15 +1,17 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
+import { apiRequest } from '@/lib/queryClient';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Trophy, Star, Target, TrendingUp, Medal, Crown,
-  Flame, Zap, Award, ChevronUp, Users, Clock
+  Flame, Zap, Award, ChevronUp, Users, Clock, Bell
 } from 'lucide-react';
 
 const TIER_CONFIG: Record<string, { color: string; bg: string; border: string; icon: any; gradient: string }> = {
@@ -113,6 +115,7 @@ function AchievementBadge({ achievement, earned }: { achievement: any; earned: b
 export default function MyScore() {
   const { user } = useAuth();
   const [historyRange, setHistoryRange] = useState('30d');
+  const qc = useQueryClient();
 
   const { data: scoreData, isLoading } = useQuery<any>({
     queryKey: ['/api/gamification/my-score'],
@@ -132,6 +135,20 @@ export default function MyScore() {
   const { data: allAchievements = [] } = useQuery<any[]>({
     queryKey: ['/api/gamification/achievements'],
     enabled: !!user,
+  });
+
+  const { data: notifPref } = useQuery<{ scoreNotificationsEnabled: boolean }>({
+    queryKey: ['/api/gamification/notification-preference'],
+    enabled: !!user,
+  });
+
+  const toggleNotifMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      return await apiRequest('PUT', '/api/gamification/notification-preference', { enabled });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['/api/gamification/notification-preference'] });
+    },
   });
 
   if (isLoading) {
@@ -311,6 +328,25 @@ export default function MyScore() {
             </Card>
           </TabsContent>
         </Tabs>
+
+        <Card className="mt-4">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Bell className="h-4 w-4 text-muted-foreground" />
+                <div>
+                  <p className="text-sm font-medium">Score Notifications</p>
+                  <p className="text-xs text-muted-foreground">Tier changes, achievements & weekly summaries</p>
+                </div>
+              </div>
+              <Switch
+                checked={notifPref?.scoreNotificationsEnabled ?? true}
+                onCheckedChange={(checked) => toggleNotifMutation.mutate(checked)}
+                disabled={toggleNotifMutation.isPending}
+              />
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

@@ -12,7 +12,7 @@ export function registerGamificationRoutes(app: Express, storage: IStorage, isAu
       myScore.totalMembers = rankInfo.totalMembers;
 
       const settings = await gamificationService.getSettings();
-      const nextTier = gamificationService.getNextTierInfo(myScore.overallScore);
+      const nextTier = await gamificationService.getNextTierInfo(myScore.overallScore);
       const prizeDescriptions = (settings.prizeDescriptions as any) || {};
       const prizeEligibility = prizeDescriptions[myScore.tier] || null;
 
@@ -129,6 +129,32 @@ export function registerGamificationRoutes(app: Express, storage: IStorage, isAu
     } catch (error: any) {
       console.error("Error saving score snapshots:", error);
       res.status(500).json({ message: "Failed to save snapshots" });
+    }
+  });
+
+  app.get('/api/gamification/notification-preference', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      res.json({ scoreNotificationsEnabled: user?.scoreNotificationsEnabled ?? true });
+    } catch (error: any) {
+      console.error("Error fetching notification preference:", error);
+      res.status(500).json({ message: "Failed to fetch preference" });
+    }
+  });
+
+  app.put('/api/gamification/notification-preference', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { enabled } = req.body;
+      const { db } = await import('../db');
+      const { users } = await import('@shared/schema');
+      const { eq } = await import('drizzle-orm');
+      await db.update(users).set({ scoreNotificationsEnabled: !!enabled }).where(eq(users.id, userId));
+      res.json({ success: true, scoreNotificationsEnabled: !!enabled });
+    } catch (error: any) {
+      console.error("Error updating notification preference:", error);
+      res.status(500).json({ message: "Failed to update preference" });
     }
   });
 

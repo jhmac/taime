@@ -304,10 +304,17 @@ export class GamificationService {
   }
 
   async getScoreHistory(userId: string, range: string = '30d') {
+    if (range === 'all') {
+      const history = await db.select()
+        .from(scoreHistory)
+        .where(eq(scoreHistory.userId, userId))
+        .orderBy(asc(scoreHistory.snapshotDate));
+      return history;
+    }
+
     let daysBack = 30;
     if (range === '7d') daysBack = 7;
     else if (range === '90d') daysBack = 90;
-    else if (range === 'all') daysBack = 365;
 
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - daysBack);
@@ -455,6 +462,8 @@ export class GamificationService {
 
     for (const score of scores) {
       try {
+        const userRow = await db.select({ scoreNotificationsEnabled: users.scoreNotificationsEnabled }).from(users).where(eq(users.id, score.userId)).limit(1);
+        if (userRow.length > 0 && userRow[0].scoreNotificationsEnabled === false) continue;
         const yesterday = new Date();
         yesterday.setDate(yesterday.getDate() - 1);
         const yesterdayStr = yesterday.toISOString().split('T')[0];
@@ -530,8 +539,10 @@ export class GamificationService {
     return ACHIEVEMENT_DEFINITIONS;
   }
 
-  getNextTierInfo(score: number) {
-    return getNextTierInfo(score);
+  async getNextTierInfo(score: number) {
+    const settings = await this.getSettings();
+    const thresholds = (settings.tierThresholds as Record<string, number>) || DEFAULT_THRESHOLDS;
+    return getNextTierInfo(score, thresholds);
   }
 }
 
