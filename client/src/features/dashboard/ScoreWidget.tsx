@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Trophy, Medal, Star, Award, Crown, Flame, ChevronRight } from 'lucide-react';
 
-const TIER_ICONS: Record<string, any> = {
+const TIER_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   bronze: Medal, silver: Star, gold: Trophy, platinum: Award, diamond: Crown,
 };
 const TIER_COLORS: Record<string, string> = {
@@ -21,7 +21,13 @@ export default function ScoreWidget() {
   const { user } = useAuth();
   const [, navigate] = useLocation();
 
-  const { data: scoreData, isLoading } = useQuery<any>({
+  const { data: scoreData, isLoading } = useQuery<{
+    overallScore: number;
+    tier: string;
+    streakDays: number;
+    rank: number;
+    totalMembers: number;
+  }>({
     queryKey: ['/api/gamification/my-score'],
     enabled: !!user,
     staleTime: 5 * 60 * 1000,

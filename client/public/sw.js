@@ -229,6 +229,10 @@ self.addEventListener('notificationclick', (event) => {
   else if (data.type === 'payroll_ready') url = '/?action=payroll';
   else if (data.type === 'anomaly_alert') url = data.url || '/dashboard';
   else if (action === 'view_details' && data.type === 'anomaly_alert') url = '/dashboard';
+  else if (data.type === 'achievement_unlocked') url = data.url || '/my-score';
+  else if (data.type === 'tier_change') url = data.url || '/my-score';
+  else if (data.type === 'top_rank') url = data.url || '/my-score';
+  else if (data.type === 'weekly_score_summary') url = data.url || '/my-score';
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true })

@@ -1,7 +1,7 @@
 import { db } from '../db';
 import { storage } from '../storage';
-import { users, clockEvents, scoreHistory, userAchievements, gamificationSettings } from '@shared/schema';
-import { eq, and, gte, lte, desc, asc, sql } from 'drizzle-orm';
+import { users, clockEvents, scoreHistory, userAchievements, gamificationSettings, type UserAchievement, type GamificationSettings } from '@shared/schema';
+import { eq, and, gte, lte, desc, asc, sql, count } from 'drizzle-orm';
 import { NotificationService } from './notificationService';
 
 const notificationService = new NotificationService();
@@ -20,6 +20,49 @@ interface ScoreBreakdown {
   engagement: CategoryScore;
 }
 
+interface TierThresholds {
+  bronze: number;
+  silver: number;
+  gold: number;
+  platinum: number;
+  diamond: number;
+}
+
+interface CategoryWeights {
+  attendance: number;
+  tasks: number;
+  sops: number;
+  engagement: number;
+}
+
+interface PrizeDescriptions {
+  [tier: string]: string;
+}
+
+interface AchievementDefinition {
+  key: string;
+  name: string;
+  description: string;
+  icon: string;
+}
+
+interface GamificationSettingsData {
+  id?: string;
+  storeId?: string | null;
+  tierThresholds: TierThresholds;
+  prizeDescriptions: PrizeDescriptions;
+  categoryWeights: CategoryWeights;
+  scoreNotificationsEnabled: boolean;
+  updatedBy?: string | null;
+  updatedAt?: Date | null;
+}
+
+interface NextTierInfo {
+  nextTier: string | null;
+  pointsNeeded: number;
+  threshold: number;
+}
+
 interface UserScore {
   userId: string;
   firstName: string;
@@ -30,8 +73,12 @@ interface UserScore {
   rank: number;
   totalMembers: number;
   streakDays: number;
-  achievements: any[];
+  achievements: UserAchievement[];
   totalPoints: number;
+}
+
+interface DbRow {
+  [key: string]: string | number | null;
 }
 
 const DEFAULT_WEIGHTS = { attendance: 30, tasks: 30, sops: 20, engagement: 20 };
@@ -52,7 +99,7 @@ const ACHIEVEMENT_DEFINITIONS = [
   { key: 'early_bird', name: 'Early Bird', description: 'Clocked in early 10 times', icon: '🐦' },
 ];
 
-function getTier(score: number, thresholds: any = DEFAULT_THRESHOLDS): string {
+function getTier(score: number, thresholds: TierThresholds = DEFAULT_THRESHOLDS): string {
   if (score >= (thresholds.diamond || 95)) return 'diamond';
   if (score >= (thresholds.platinum || 80)) return 'platinum';
   if (score >= (thresholds.gold || 60)) return 'gold';
@@ -60,7 +107,7 @@ function getTier(score: number, thresholds: any = DEFAULT_THRESHOLDS): string {
   return 'bronze';
 }
 
-function getNextTierInfo(score: number, thresholds: any = DEFAULT_THRESHOLDS) {
+function getNextTierInfo(score: number, thresholds: TierThresholds = DEFAULT_THRESHOLDS): NextTierInfo {
   const tiers = [
     { name: 'silver', threshold: thresholds.silver || 40 },
     { name: 'gold', threshold: thresholds.gold || 60 },
@@ -82,9 +129,20 @@ function normalizeScore(raw: number, maxPossible: number): number {
 }
 
 export class GamificationService {
-  async getSettings(storeId?: string): Promise<any> {
+  async getSettings(_storeId?: string): Promise<GamificationSettingsData> {
     const rows = await db.select().from(gamificationSettings).limit(1);
-    if (rows.length > 0) return rows[0];
+    if (rows.length > 0) {
+      return {
+        id: rows[0].id,
+        storeId: rows[0].storeId,
+        tierThresholds: (rows[0].tierThresholds as TierThresholds) ?? DEFAULT_THRESHOLDS,
+        prizeDescriptions: (rows[0].prizeDescriptions as PrizeDescriptions) ?? {},
+        categoryWeights: (rows[0].categoryWeights as CategoryWeights) ?? DEFAULT_WEIGHTS,
+        scoreNotificationsEnabled: rows[0].scoreNotificationsEnabled ?? true,
+        updatedBy: rows[0].updatedBy,
+        updatedAt: rows[0].updatedAt,
+      };
+    }
     return {
       tierThresholds: DEFAULT_THRESHOLDS,
       prizeDescriptions: { gold: 'Free lunch this month!', platinum: 'Gift card reward', diamond: 'Employee of the month recognition' },
@@ -95,8 +153,8 @@ export class GamificationService {
 
   async computeUserScore(userId: string, allUserIds?: string[]): Promise<UserScore> {
     const settings = await this.getSettings();
-    const weights = (settings.categoryWeights as any) || DEFAULT_WEIGHTS;
-    const thresholds = (settings.tierThresholds as any) || DEFAULT_THRESHOLDS;
+    const weights = settings.categoryWeights;
+    const thresholds = settings.tierThresholds;
 
     const now = new Date();
     const thirtyDaysAgo = new Date(now);
@@ -143,10 +201,10 @@ export class GamificationService {
         WHERE employee_id = ${userId} 
         AND created_at >= ${thirtyDaysAgo.toISOString()}
       `);
-      const rows = (sopExecs as any).rows || [];
-      if (rows.length > 0) {
-        const completed = rows.filter((r: any) => r.status === 'completed').length;
-        sopScore = rows.length > 0 ? Math.round((completed / rows.length) * 100) : 50;
+      const sopRows = (sopExecs as { rows: DbRow[] }).rows || [];
+      if (sopRows.length > 0) {
+        const completed = sopRows.filter((r) => r.status === 'completed').length;
+        sopScore = Math.round((completed / sopRows.length) * 100);
       }
     } catch (err) {
       console.warn('[Gamification] SOP score fallback for', userId, err);
@@ -159,9 +217,9 @@ export class GamificationService {
         db.execute(sql`SELECT COUNT(*) as cnt FROM kudos WHERE to_employee_id = ${userId} AND created_at >= ${thirtyDaysAgo.toISOString()}`),
         db.execute(sql`SELECT COUNT(*) as cnt FROM daily_debriefs WHERE employee_id = ${userId} AND created_at >= ${thirtyDaysAgo.toISOString()}`),
       ]);
-      const given = parseInt((kudosGiven as any).rows?.[0]?.cnt || '0');
-      const received = parseInt((kudosReceived as any).rows?.[0]?.cnt || '0');
-      const debriefCount = parseInt((debriefs as any).rows?.[0]?.cnt || '0');
+      const given = parseInt(String((kudosGiven as { rows: DbRow[] }).rows?.[0]?.cnt ?? '0'));
+      const received = parseInt(String((kudosReceived as { rows: DbRow[] }).rows?.[0]?.cnt ?? '0'));
+      const debriefCount = parseInt(String((debriefs as { rows: DbRow[] }).rows?.[0]?.cnt ?? '0'));
       const engagementRaw = Math.min(given * 5 + received * 3 + debriefCount * 4, 100);
       engagementScore = engagementRaw || 50;
     } catch (err) {
@@ -195,7 +253,7 @@ export class GamificationService {
         WHERE user_id = ${userId} AND clock_in_time >= ${new Date(now.getTime() - 90 * 86400000).toISOString()}
         ORDER BY d DESC
       `);
-      const dates = ((recentEntries as any).rows || []).map((r: any) => r.d);
+      const dates = ((recentEntries as { rows: DbRow[] }).rows || []).map((r) => String(r.d));
       if (dates.length > 0) {
         streakDays = 1;
         for (let i = 1; i < dates.length; i++) {
@@ -246,18 +304,34 @@ export class GamificationService {
 
   async getUserRank(userId: string, userScore: number): Promise<{ rank: number; totalMembers: number }> {
     try {
-      const result = await db.execute(sql`
-        SELECT 
-          (SELECT COUNT(*) FROM users WHERE is_active = true) as total,
-          (SELECT COUNT(*) FROM score_history sh 
-           INNER JOIN (SELECT user_id, MAX(snapshot_date) as max_date FROM score_history GROUP BY user_id) latest
-           ON sh.user_id = latest.user_id AND sh.snapshot_date = latest.max_date
-           WHERE sh.overall_score > ${userScore}) as higher_count
-      `);
-      const row = (result as any).rows?.[0];
-      const total = parseInt(row?.total || '1');
-      const higherCount = parseInt(row?.higher_count || '0');
-      return { rank: higherCount + 1, totalMembers: total };
+      const activeUsers = await db.select({ id: users.id }).from(users).where(eq(users.isActive, true));
+      const totalMembers = activeUsers.length;
+
+      const snapshotCheck = await db.execute(sql`SELECT COUNT(*) as cnt FROM score_history`);
+      const snapshotCount = parseInt(String((snapshotCheck as { rows: DbRow[] }).rows?.[0]?.cnt ?? '0'));
+
+      if (snapshotCount > 0) {
+        const result = await db.execute(sql`
+          SELECT COUNT(*) as higher_count FROM score_history sh 
+          INNER JOIN (SELECT user_id, MAX(snapshot_date) as max_date FROM score_history GROUP BY user_id) latest
+          ON sh.user_id = latest.user_id AND sh.snapshot_date = latest.max_date
+          WHERE sh.overall_score > ${userScore}
+        `);
+        const higherCount = parseInt(String((result as { rows: DbRow[] }).rows?.[0]?.higher_count ?? '0'));
+        return { rank: higherCount + 1, totalMembers };
+      }
+
+      let higherCount = 0;
+      for (const u of activeUsers) {
+        if (u.id === userId) continue;
+        try {
+          const otherScore = await this.computeUserScore(u.id);
+          if (otherScore.overallScore > userScore) higherCount++;
+        } catch {
+          // skip users whose score can't be computed
+        }
+      }
+      return { rank: higherCount + 1, totalMembers };
     } catch (err) {
       console.warn('[Gamification] getUserRank fallback:', err);
       return { rank: 1, totalMembers: 1 };
@@ -407,7 +481,7 @@ export class GamificationService {
             GROUP BY employee_id
             HAVING COUNT(DISTINCT sop_id) >= 5
           `);
-          if (((mastered as any).rows || []).length > 0) {
+          if (((mastered as { rows: DbRow[] }).rows || []).length > 0) {
             const def = ACHIEVEMENT_DEFINITIONS.find(d => d.key === 'sop_master')!;
             toAward.push(def);
           }
@@ -419,7 +493,7 @@ export class GamificationService {
           const kudosCount = await db.execute(sql`
             SELECT COUNT(*) as cnt FROM kudos WHERE from_employee_id = ${score.userId}
           `);
-          if (parseInt((kudosCount as any).rows?.[0]?.cnt || '0') >= 10) {
+          if (parseInt(String((kudosCount as { rows: DbRow[] }).rows?.[0]?.cnt ?? '0')) >= 10) {
             const def = ACHIEVEMENT_DEFINITIONS.find(d => d.key === 'team_player')!;
             toAward.push(def);
           }
@@ -429,7 +503,7 @@ export class GamificationService {
           const received = await db.execute(sql`
             SELECT COUNT(*) as cnt FROM kudos WHERE to_employee_id = ${score.userId}
           `);
-          if (parseInt((received as any).rows?.[0]?.cnt || '0') >= 20) {
+          if (parseInt(String((received as { rows: DbRow[] }).rows?.[0]?.cnt ?? '0')) >= 20) {
             const def = ACHIEVEMENT_DEFINITIONS.find(d => d.key === 'helpful_hero')!;
             toAward.push(def);
           }
@@ -513,7 +587,7 @@ export class GamificationService {
     }
   }
 
-  async updateSettings(data: any, updatedBy: string) {
+  async updateSettings(data: Partial<GamificationSettingsData>, updatedBy: string) {
     const existing = await db.select().from(gamificationSettings).limit(1);
     if (existing.length > 0) {
       await db.execute(sql`

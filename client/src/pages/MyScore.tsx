@@ -14,7 +14,7 @@ import {
   Flame, Zap, Award, ChevronUp, Users, Clock, Bell
 } from 'lucide-react';
 
-const TIER_CONFIG: Record<string, { color: string; bg: string; border: string; icon: any; gradient: string }> = {
+const TIER_CONFIG: Record<string, { color: string; bg: string; border: string; icon: React.ComponentType<{ className?: string }>; gradient: string }> = {
   bronze: { color: 'text-orange-700', bg: 'bg-orange-100', border: 'border-orange-300', icon: Medal, gradient: 'from-orange-400 to-orange-600' },
   silver: { color: 'text-gray-600', bg: 'bg-gray-100', border: 'border-gray-300', icon: Star, gradient: 'from-gray-400 to-gray-500' },
   gold: { color: 'text-yellow-600', bg: 'bg-yellow-100', border: 'border-yellow-400', icon: Trophy, gradient: 'from-yellow-400 to-yellow-600' },
@@ -52,7 +52,7 @@ function ScoreRing({ score, tier, size = 120 }: { score: number; tier: string; s
   );
 }
 
-function CategoryBar({ label, score, icon, color }: { label: string; score: number; icon: any; color: string }) {
+function CategoryBar({ label, score, icon, color }: { label: string; score: number; icon: React.ComponentType<{ className?: string }>; color: string }) {
   const Icon = icon;
   return (
     <div className="space-y-1.5">
@@ -68,7 +68,50 @@ function CategoryBar({ label, score, icon, color }: { label: string; score: numb
   );
 }
 
-function LeaderboardRow({ entry, index }: { entry: any; index: number }) {
+interface LeaderboardEntry {
+  rank: number;
+  score: number;
+  tier: string;
+  isYou: boolean;
+  streakDays: number;
+}
+
+interface AchievementData {
+  achievementKey?: string;
+  key?: string;
+  achievementName?: string;
+  name?: string;
+  achievementIcon?: string;
+  icon?: string;
+  achievementDescription?: string;
+  description?: string;
+  earnedAt?: string;
+}
+
+interface ScoreHistoryEntry {
+  snapshotDate: string;
+  overallScore: number;
+  tier: string;
+}
+
+interface ScoreData {
+  overallScore: number;
+  tier: string;
+  breakdown: {
+    attendance: { normalized: number };
+    tasks: { normalized: number };
+    sops: { normalized: number };
+    engagement: { normalized: number };
+  };
+  nextTier: { nextTier: string | null; pointsNeeded: number; threshold: number } | null;
+  streakDays: number;
+  rank: number;
+  totalMembers: number;
+  achievements: AchievementData[];
+  prizeEligibility: string | null;
+}
+
+function LeaderboardRow({ entry, index }: { entry: LeaderboardEntry; index: number }) {
   const config = TIER_CONFIG[entry.tier] || TIER_CONFIG.bronze;
 
   return (
@@ -100,7 +143,7 @@ function LeaderboardRow({ entry, index }: { entry: any; index: number }) {
   );
 }
 
-function AchievementBadge({ achievement, earned }: { achievement: any; earned: boolean }) {
+function AchievementBadge({ achievement, earned }: { achievement: AchievementData; earned: boolean }) {
   return (
     <div className={`flex flex-col items-center gap-1 p-3 rounded-xl border ${earned ? 'bg-card border-border' : 'bg-muted/30 border-transparent opacity-40'}`}>
       <span className="text-2xl">{achievement.achievementIcon || achievement.icon}</span>
@@ -117,22 +160,22 @@ export default function MyScore() {
   const [historyRange, setHistoryRange] = useState('30d');
   const qc = useQueryClient();
 
-  const { data: scoreData, isLoading } = useQuery<any>({
+  const { data: scoreData, isLoading } = useQuery<ScoreData>({
     queryKey: ['/api/gamification/my-score'],
     enabled: !!user,
   });
 
-  const { data: leaderboardData, isLoading: lbLoading } = useQuery<any>({
+  const { data: leaderboardData, isLoading: lbLoading } = useQuery<{ leaderboard: LeaderboardEntry[] }>({
     queryKey: ['/api/gamification/leaderboard'],
     enabled: !!user,
   });
 
-  const { data: historyData = [] } = useQuery<any[]>({
+  const { data: historyData = [] } = useQuery<ScoreHistoryEntry[]>({
     queryKey: [`/api/gamification/score-history?range=${historyRange}`],
     enabled: !!user,
   });
 
-  const { data: allAchievements = [] } = useQuery<any[]>({
+  const { data: allAchievements = [] } = useQuery<AchievementData[]>({
     queryKey: ['/api/gamification/achievements'],
     enabled: !!user,
   });
@@ -167,7 +210,7 @@ export default function MyScore() {
   const nextTier = scoreData?.nextTier;
   const streakDays = scoreData?.streakDays || 0;
   const earnedAchievements = scoreData?.achievements || [];
-  const earnedKeys = new Set(earnedAchievements.map((a: any) => a.achievementKey));
+  const earnedKeys = new Set(earnedAchievements.map((a: AchievementData) => a.achievementKey));
   const config = TIER_CONFIG[tier] || TIER_CONFIG.bronze;
 
   return (
@@ -248,7 +291,7 @@ export default function MyScore() {
                   </div>
                 ) : (
                   <div className="space-y-1">
-                    {(leaderboardData?.leaderboard || []).map((entry: any, i: number) => (
+                    {(leaderboardData?.leaderboard || []).map((entry: LeaderboardEntry, i: number) => (
                       <LeaderboardRow key={i} entry={entry} index={i} />
                     ))}
                     {(leaderboardData?.leaderboard || []).length === 0 && (
@@ -270,10 +313,10 @@ export default function MyScore() {
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
-                  {earnedAchievements.map((a: any) => (
+                  {earnedAchievements.map((a: AchievementData) => (
                     <AchievementBadge key={a.achievementKey} achievement={a} earned={true} />
                   ))}
-                  {allAchievements.filter((a: any) => !earnedKeys.has(a.key)).map((a: any) => (
+                  {allAchievements.filter((a: AchievementData) => !earnedKeys.has(a.key)).map((a: AchievementData) => (
                     <AchievementBadge key={a.key} achievement={{ achievementIcon: a.icon, achievementName: a.name }} earned={false} />
                   ))}
                 </div>
@@ -306,7 +349,7 @@ export default function MyScore() {
                 ) : (
                   <div className="space-y-0">
                     <div className="h-40 flex items-end gap-1">
-                      {historyData.map((h: any, i: number) => {
+                      {historyData.map((h: ScoreHistoryEntry, i: number) => {
                         const barHeight = Math.max(4, (h.overallScore / 100) * 100);
                         const tierC = TIER_CONFIG[h.tier] || TIER_CONFIG.bronze;
                         return (

@@ -1,9 +1,13 @@
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { useToast } from '@/hooks/use-toast';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import ShopifyAnalytics from '@/components/ShopifyAnalytics';
 import {
@@ -64,7 +68,7 @@ interface Anomaly {
 
 interface AnomalyResult {
   anomalies: Anomaly[];
-  patterns: Record<string, any>;
+  patterns: Record<string, unknown>;
 }
 
 function ComparisonIndicator({ current, previous, format = 'number' }: { current: number; previous: number; format?: 'number' | 'currency' | 'hours' }) {
@@ -99,8 +103,18 @@ const TIER_COLORS: Record<string, string> = {
   diamond: 'text-purple-600 bg-purple-50',
 };
 
+interface TeamScore {
+  userId: string;
+  firstName: string;
+  lastName: string;
+  overallScore: number;
+  tier: string;
+  rank: number;
+  streakDays: number;
+}
+
 function TeamScoresSection() {
-  const { data: teamScores = [], isLoading } = useQuery<any[]>({
+  const { data: teamScores = [], isLoading } = useQuery<TeamScore[]>({
     queryKey: ['/api/gamification/team-scores'],
   });
 
@@ -161,7 +175,7 @@ function TeamScoresSection() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {teamScores.map((s: any) => {
+              {teamScores.map((s: TeamScore) => {
                 const tc = TIER_COLORS[s.tier] || TIER_COLORS.bronze;
                 return (
                   <TableRow key={s.userId}>
@@ -195,17 +209,156 @@ function TeamScoresSection() {
   );
 }
 
+interface GamificationSettingsForm {
+  tierThresholds: { bronze: number; silver: number; gold: number; platinum: number; diamond: number };
+  prizeDescriptions: { gold: string; platinum: string; diamond: string };
+}
+
+function GamificationSettingsPanel() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState<GamificationSettingsForm>({
+    tierThresholds: { bronze: 0, silver: 40, gold: 60, platinum: 80, diamond: 95 },
+    prizeDescriptions: { gold: '', platinum: '', diamond: '' },
+  });
+
+  const { data: settings, isLoading } = useQuery<GamificationSettingsForm & { scoreNotificationsEnabled: boolean }>({
+    queryKey: ['/api/gamification/settings'],
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: async (data: GamificationSettingsForm) => {
+      return await apiRequest('PUT', '/api/gamification/settings', data);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['/api/gamification/settings'] });
+      toast({ title: 'Settings saved', description: 'Gamification settings updated successfully.' });
+      setEditing(false);
+    },
+    onError: () => {
+      toast({ title: 'Error', description: 'Failed to save settings.', variant: 'destructive' });
+    },
+  });
+
+  const startEditing = () => {
+    if (settings) {
+      setForm({
+        tierThresholds: settings.tierThresholds || { bronze: 0, silver: 40, gold: 60, platinum: 80, diamond: 95 },
+        prizeDescriptions: settings.prizeDescriptions || { gold: '', platinum: '', diamond: '' },
+      });
+    }
+    setEditing(true);
+  };
+
+  if (isLoading) {
+    return <Skeleton className="h-40 w-full" />;
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-sm font-bold flex items-center gap-2">
+            <i className="fas fa-sliders-h text-blue-500"></i> Gamification Settings
+          </CardTitle>
+          {!editing && (
+            <Button size="sm" variant="outline" onClick={startEditing}>
+              <i className="fas fa-edit mr-1"></i> Edit
+            </Button>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent>
+        {editing ? (
+          <div className="space-y-4">
+            <div>
+              <h4 className="text-xs font-semibold text-muted-foreground mb-2 uppercase">Tier Thresholds (score 0-100)</h4>
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                {(['bronze', 'silver', 'gold', 'platinum', 'diamond'] as const).map(tier => (
+                  <div key={tier}>
+                    <Label className="text-xs capitalize">{tier}</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={form.tierThresholds[tier]}
+                      onChange={(e) => setForm(prev => ({
+                        ...prev,
+                        tierThresholds: { ...prev.tierThresholds, [tier]: parseInt(e.target.value) || 0 }
+                      }))}
+                      className="h-8 text-sm"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div>
+              <h4 className="text-xs font-semibold text-muted-foreground mb-2 uppercase">Prize Descriptions</h4>
+              <div className="space-y-2">
+                {(['gold', 'platinum', 'diamond'] as const).map(tier => (
+                  <div key={tier}>
+                    <Label className="text-xs capitalize">{tier} Prize</Label>
+                    <Input
+                      value={form.prizeDescriptions[tier] || ''}
+                      onChange={(e) => setForm(prev => ({
+                        ...prev,
+                        prizeDescriptions: { ...prev.prizeDescriptions, [tier]: e.target.value }
+                      }))}
+                      placeholder={`Reward for ${tier} tier...`}
+                      className="h-8 text-sm"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="flex gap-2 pt-2">
+              <Button size="sm" onClick={() => saveMutation.mutate(form)} disabled={saveMutation.isPending}>
+                {saveMutation.isPending ? 'Saving...' : 'Save Settings'}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>Cancel</Button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div>
+              <h4 className="text-xs font-semibold text-muted-foreground mb-1 uppercase">Tier Thresholds</h4>
+              <div className="flex flex-wrap gap-2">
+                {settings && Object.entries(settings.tierThresholds).map(([tier, val]) => (
+                  <Badge key={tier} variant="outline" className="capitalize text-xs">
+                    {tier}: {val as number}+
+                  </Badge>
+                ))}
+              </div>
+            </div>
+            <div>
+              <h4 className="text-xs font-semibold text-muted-foreground mb-1 uppercase">Prizes</h4>
+              {settings && Object.entries(settings.prizeDescriptions).map(([tier, desc]) => (
+                desc ? (
+                  <div key={tier} className="text-xs text-muted-foreground">
+                    <span className="capitalize font-medium">{tier}:</span> {desc as string}
+                  </div>
+                ) : null
+              ))}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function Analytics() {
   const isMobile = useIsMobile();
   const { data, isLoading } = useQuery<DashboardData>({
     queryKey: ['/api/analytics/dashboard'],
   });
 
-  const { data: shopifyShops = [] } = useQuery<any[]>({
+  const { data: shopifyShops = [] } = useQuery<{ id: string; shopDomain: string; isActive: boolean }[]>({
     queryKey: ['/api/shopify/shops'],
   });
 
-  const connectedShop = shopifyShops.find((s: any) => s.isActive);
+  const connectedShop = shopifyShops.find((s) => s.isActive);
 
   const anomalyScan = useMutation({
     mutationFn: async () => {
@@ -696,6 +849,8 @@ export default function Analytics() {
         </Card>
 
         <TeamScoresSection />
+
+        <GamificationSettingsPanel />
       </div>
     </div>
   );
