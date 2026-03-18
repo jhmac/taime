@@ -10,7 +10,6 @@ packages = ["glib", "nss", "nspr", "at-spi2-atk", "cups", "dbus", "expat", "libd
 deploymentTarget = "autoscale"
 build = ["npm", "run", "build"]
 run = ["npm", "run", "start"]
-publicDir = "dist/public"
 
 [env]
 PORT = "5000"
