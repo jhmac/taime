@@ -35,13 +35,13 @@ export default function Landing() {
               <Bot className="w-6 h-6 md:w-7 md:h-7 text-white" />
             </div>
             <div>
-              <h1 className="text-xl md:text-3xl font-bold tracking-tight">Taime Clock</h1>
-              <p className="text-blue-100 text-xs md:hidden">AI-Powered Workforce Management</p>
+              <h1 className="text-xl md:text-3xl font-bold tracking-tight">Taime</h1>
+              <p className="text-blue-100 text-xs md:hidden">AI Boutique Manager</p>
             </div>
           </div>
 
           <p className="hidden md:block text-blue-100 text-base md:text-lg mb-8 leading-relaxed">
-            AI-Powered Workforce Management — streamline scheduling, time tracking, and team productivity.
+            AI Boutique Manager — streamline scheduling, time tracking, and team productivity.
           </p>
 
           <div className="hidden md:block space-y-5">

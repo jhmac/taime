@@ -71,7 +71,7 @@ export default function MoreMenu() {
       <div className="px-4 mt-6">
         <Card>
           <CardContent className="p-4 text-center">
-            <div className="text-xs text-muted-foreground mb-1">Your Taime Clock PIN</div>
+            <div className="text-xs text-muted-foreground mb-1">Your Taime PIN</div>
             <div className="text-3xl font-bold tracking-widest font-mono">{pin}</div>
           </CardContent>
         </Card>

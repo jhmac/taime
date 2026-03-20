@@ -1,7 +1,7 @@
-# Taime Clock - AI-Powered Workforce Management
+# Taime - AI Boutique Manager
 
 ## Overview
-Taime Clock is an AI-powered Progressive Web App (PWA) designed to enhance workforce management. Its core purpose is to streamline time tracking, scheduling, task management, and payroll processes using AI. Key capabilities include geofencing-enabled time clocking, automated task assignment, and comprehensive payroll management, all delivered through a mobile-first, user-friendly interface. The project aims to boost operational efficiency, optimize labor costs, and provide actionable business insights.
+Taime is an AI-powered Progressive Web App (PWA) designed as an AI boutique manager. Its core purpose is to streamline time tracking, scheduling, task management, and payroll processes using AI. Key capabilities include geofencing-enabled time clocking, automated task assignment, and comprehensive payroll management, all delivered through a mobile-first, user-friendly interface. The project aims to boost operational efficiency, optimize labor costs, and provide actionable business insights.
 
 ## User Preferences
 Preferred communication style: Simple, everyday language.

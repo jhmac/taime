@@ -1,7 +1,7 @@
 {
-  "name": "Taime Clock - AI-Powered Workforce Management",
-  "short_name": "Taime Clock",
-  "description": "AI-Powered Workforce Management Platform for teams with smart time tracking, scheduling, and task management",
+  "name": "Taime - AI Boutique Manager",
+  "short_name": "Taime",
+  "description": "AI Boutique Manager for teams with smart time tracking, scheduling, and task management",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",

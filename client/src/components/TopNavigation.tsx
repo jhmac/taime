@@ -25,7 +25,7 @@ export default function TopNavigation() {
   const isMobile = useIsMobile();
   const [location] = useLocation();
 
-  const pageTitle = pageTitles[location] || 'Taime Clock';
+  const pageTitle = pageTitles[location] || 'Taime';
 
   if (isMobile) {
     return (

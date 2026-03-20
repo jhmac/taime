@@ -146,7 +146,7 @@ export function registerAiAssistantRoutes(app: Express, storage: IStorage, isAut
         contextInfo += `\nPending tasks: ${pendingTasks.map(t => t.title).join(', ')}`;
       }
 
-      const systemPrompt = `You are a friendly, knowledgeable AI Success Coach for a retail/service business team. Your name is Taime Assistant. You help employees succeed at their job by answering questions about store procedures, policies, and best practices.
+      const systemPrompt = `You are a friendly, knowledgeable AI Success Coach for a retail/service business team. Your name is Taime AI. You help employees succeed at their job by answering questions about store procedures, policies, and best practices.
 
 IMPORTANT RULES:
 - Base your answers on the Standard Operating Procedures (SOPs) provided below. Always reference which SOP your answer comes from.
@@ -241,7 +241,7 @@ ${sopContext}`;
         }
       }
 
-      const systemPrompt = `You are Taime Assistant, a friendly AI Success Coach. Generate a brief, motivating pre-shift briefing for an employee.
+      const systemPrompt = `You are Taime AI, a friendly AI Success Coach. Generate a brief, motivating pre-shift briefing for an employee.
 
 Keep it concise (3-5 bullet points max). Include:
 1. A warm greeting using their name

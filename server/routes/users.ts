@@ -26,10 +26,11 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
         return res.status(409).json({ message: "A team member with this email already exists" });
       }
 
-      const newUserData: Record<string, any> = {
+      const newUserData: Record<string, string | null | Date> = {
         email: email.trim(),
         firstName: firstName || null,
         lastName: lastName || null,
+        invitedAt: new Date(),
       };
       if (roleId) newUserData.roleId = roleId;
       if (hourlyRate) newUserData.hourlyRate = hourlyRate;
@@ -40,7 +41,7 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
       const inviterName = inviter ? `${inviter.firstName || ''} ${inviter.lastName || ''}`.trim() || 'Your manager' : 'Your manager';
 
       const settings = await db.select().from(companySettings).limit(1);
-      const companyName = settings[0]?.companyName || 'Taime Clock';
+      const companyName = settings[0]?.companyName || 'Taime';
 
       const recipientName = `${firstName || ''} ${lastName || ''}`.trim();
 
@@ -71,16 +72,21 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
         return res.status(404).json({ message: "User not found or has no email" });
       }
 
+      if (targetUser.inviteAcceptedAt) {
+        return res.status(400).json({ message: "This user has already accepted their invite" });
+      }
+
       const inviter = await storage.getUser(currentUserId);
       const inviterName = inviter ? `${inviter.firstName || ''} ${inviter.lastName || ''}`.trim() || 'Your manager' : 'Your manager';
 
       const settings = await db.select().from(companySettings).limit(1);
-      const companyName = settings[0]?.companyName || 'Taime Clock';
+      const companyName = settings[0]?.companyName || 'Taime';
 
       const recipientName = `${targetUser.firstName || ''} ${targetUser.lastName || ''}`.trim();
 
       const sent = await sendTeamInviteEmail(req, targetUser.email, recipientName, inviterName, companyName);
       if (sent) {
+        await db.update(users).set({ invitedAt: new Date() }).where(eq(users.id, userId));
         res.json({ message: "Invitation email sent successfully" });
       } else {
         res.status(500).json({ message: "Failed to send invitation email" });

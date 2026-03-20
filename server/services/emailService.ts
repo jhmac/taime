@@ -35,10 +35,10 @@ export async function sendTeamInviteEmail(
             Hi ${displayName},
           </p>
           <p style="color: #333; font-size: 16px; line-height: 1.6; margin: 0 0 16px 0;">
-            ${inviterName} has added you to the <strong>${companyName}</strong> team on Taime Clock, our workforce management platform.
+            ${inviterName} has added you to the <strong>${companyName}</strong> team on Taime, our AI boutique manager platform.
           </p>
           <p style="color: #333; font-size: 16px; line-height: 1.6; margin: 0 0 24px 0;">
-            With Taime Clock, you can clock in and out, view your schedule, manage tasks, and stay connected with your team.
+            With Taime, you can clock in and out, view your schedule, manage tasks, and stay connected with your team.
           </p>
           <div style="text-align: center;">
             <a href="${appUrl}" style="display: inline-block; background-color: #6c63ff; color: #ffffff; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-size: 16px; font-weight: 600;">
@@ -56,7 +56,7 @@ export async function sendTeamInviteEmail(
       identifier: grantId,
       requestBody: {
         to: [{ name: displayName, email: recipientEmail }],
-        subject: `You've been invited to join ${companyName} on Taime Clock`,
+        subject: `You've been invited to join ${companyName} on Taime`,
         body: htmlBody,
       },
     });

@@ -238,7 +238,7 @@ export default function AIAssistant() {
               )}
               <Bot className="w-5 h-5" />
               <div>
-                <span className="font-semibold text-sm">Taime Assistant</span>
+                <span className="font-semibold text-sm">Taime AI</span>
                 <span className="text-xs opacity-80 ml-2">AI Success Coach</span>
               </div>
             </div>

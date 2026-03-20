@@ -4,7 +4,7 @@ import { config } from '../lib/config';
 
 if (config.vapid.publicKey && config.vapid.privateKey) {
   webpush.setVapidDetails(
-    'mailto:admin@taimeclock.com',
+    'mailto:admin@taime.app',
     config.vapid.publicKey,
     config.vapid.privateKey
   );

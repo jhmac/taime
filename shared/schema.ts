@@ -94,6 +94,8 @@ export const users = pgTable("users", {
   preferredName: varchar("preferred_name"),
   personalEmail: varchar("personal_email"),
   scoreNotificationsEnabled: boolean("score_notifications_enabled").default(true),
+  invitedAt: timestamp("invited_at"),
+  inviteAcceptedAt: timestamp("invite_accepted_at"),
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

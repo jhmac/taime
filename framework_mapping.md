@@ -1,4 +1,4 @@
-# Taime Clock - Framework & Feature Mapping
+# Taime - Framework & Feature Mapping
 
 ## Frontend
 | Framework/Library | Purpose | Linked Features |

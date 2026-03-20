@@ -32,6 +32,7 @@ import {
   Loader2,
   AlertTriangle,
   Users,
+  Send,
 } from "lucide-react";
 
 function getInitials(firstName?: string | null, lastName?: string | null) {
@@ -98,7 +99,7 @@ export default function Team() {
   const can = (perm: string) =>
     permissions?.some?.((p) => p.name === perm || p.name === "admin.manage_all") || isAdminRole || false;
 
-  const canManageEmployees = can("hr.edit_team");
+  const canManageEmployees = can("hr.edit_team") || can("hr.manage_employees");
   const canEditRoles = can("admin.role_management");
   const canViewPayRates = can("hr.view_team");
   const canEditPayRates = can("hr.edit_team");
@@ -141,6 +142,19 @@ export default function Team() {
       queryClient.invalidateQueries({ queryKey: ["/api/users"] });
       setEditingPayRate(null);
       toast({ title: "Pay rate updated", description: "Hourly rate has been updated." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const resendInviteMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      const res = await apiRequest("POST", `/api/users/${userId}/resend-invite`);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Invite sent", description: "Invitation email has been resent successfully." });
     },
     onError: (err: Error) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -426,16 +440,36 @@ export default function Team() {
                         )}
                       </td>
                     )}
-                    <td className="p-3">
-                      {member.isActive !== false ? (
-                        <Badge className="bg-green-100 text-green-700 border-green-300 hover:bg-green-100">
-                          Active
-                        </Badge>
-                      ) : (
-                        <Badge variant="outline" className="border-gray-400 text-gray-500">
-                          Inactive
-                        </Badge>
-                      )}
+                    <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center gap-2">
+                        {member.isActive !== false ? (
+                          member.invitedAt && !member.inviteAcceptedAt ? (
+                            <Badge variant="outline" className="border-amber-400 text-amber-600 bg-amber-50">
+                              Pending Invite
+                            </Badge>
+                          ) : (
+                            <Badge className="bg-green-100 text-green-700 border-green-300 hover:bg-green-100">
+                              Active
+                            </Badge>
+                          )
+                        ) : (
+                          <Badge variant="outline" className="border-gray-400 text-gray-500">
+                            Inactive
+                          </Badge>
+                        )}
+                        {canManageEmployees && member.isActive !== false && member.invitedAt && !member.inviteAcceptedAt && member.email && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 text-xs text-violet-600 hover:text-violet-700 px-2"
+                            disabled={resendInviteMutation.isPending}
+                            onClick={() => resendInviteMutation.mutate(member.id)}
+                          >
+                            <Send className="h-3 w-3 mr-1" />
+                            Resend
+                          </Button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );

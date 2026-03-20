@@ -1,4 +1,4 @@
-const CACHE_NAME = 'taime-clock-v2.3.0';
+const CACHE_NAME = 'taime-v3.0.0';
 const STATIC_CACHE_URLS = [
   '/manifest.json',
   '/icon-192x192.png',
@@ -7,7 +7,7 @@ const STATIC_CACHE_URLS = [
   'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css'
 ];
 
-const DB_NAME = 'taime-clock-offline';
+const DB_NAME = 'taime-offline';
 const STORE_NAME = 'pendingTimeEntries';
 
 function openDB() {
@@ -206,7 +206,7 @@ self.addEventListener('push', (event) => {
     event.waitUntil(self.registration.showNotification(data.title, options));
   } catch (error) {
     event.waitUntil(
-      self.registration.showNotification('Taime Clock', {
+      self.registration.showNotification('Taime', {
         body: 'You have a new notification',
         icon: '/icon-192x192.png',
         badge: '/badge-72x72.png'

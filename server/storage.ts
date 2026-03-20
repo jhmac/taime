@@ -335,10 +335,13 @@ export class DatabaseStorage implements IStorage {
     if (userData.email) {
       const [existingByEmail] = await db.select().from(users).where(eq(users.email, userData.email));
       if (existingByEmail && existingByEmail.id !== userData.id) {
-        const updateData: any = { updatedAt: new Date() };
+        const updateData: Record<string, string | Date | null> = { updatedAt: new Date() };
         if (userData.firstName) updateData.firstName = userData.firstName;
         if (userData.lastName) updateData.lastName = userData.lastName;
         if (userData.profileImageUrl) updateData.profileImageUrl = userData.profileImageUrl;
+        if (!existingByEmail.inviteAcceptedAt && existingByEmail.invitedAt) {
+          updateData.inviteAcceptedAt = new Date();
+        }
         const [updated] = await db.update(users).set(updateData).where(eq(users.id, existingByEmail.id)).returning();
         return updated;
       }
