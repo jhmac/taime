@@ -4,8 +4,56 @@ import { users, roles, companySettings, employeeDocuments, managerNotes } from "
 import { eq, desc } from "drizzle-orm";
 import { db } from "../db";
 import { sendTeamInviteEmail } from "../services/emailService";
+import { randomBytes } from "crypto";
+
+function generateInviteToken(): string {
+  return randomBytes(32).toString("hex");
+}
 
 export function registerUserRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
+  app.get('/api/invite/:token', async (req, res) => {
+    try {
+      const { token } = req.params;
+      const [user] = await db.select({
+        id: users.id,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        email: users.email,
+        roleId: users.roleId,
+        invitedAt: users.invitedAt,
+        inviteAcceptedAt: users.inviteAcceptedAt,
+        inviteCount: users.inviteCount,
+      }).from(users).where(eq(users.inviteToken, token)).limit(1);
+
+      if (!user) {
+        return res.status(404).json({ message: "Invite not found or has expired" });
+      }
+      if (user.inviteAcceptedAt) {
+        return res.status(410).json({ message: "This invite has already been accepted" });
+      }
+
+      const settings = await db.select().from(companySettings).limit(1);
+      const companyName = settings[0]?.companyName || 'Taime';
+
+      const roleName = user.roleId
+        ? await db.select({ displayName: roles.displayName }).from(roles).where(eq(roles.id, user.roleId)).then(r => r[0]?.displayName)
+        : null;
+
+      res.json({
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+        companyName,
+        roleName: roleName || null,
+        invitedAt: user.invitedAt,
+        inviteCount: user.inviteCount,
+      });
+    } catch (error) {
+      console.error("Error fetching invite:", error);
+      res.status(500).json({ message: "Failed to load invite" });
+    }
+  });
+
   app.post('/api/users', isAuthenticated, async (req: any, res) => {
     try {
       const currentUserId = req.user.id;
@@ -26,11 +74,14 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
         return res.status(409).json({ message: "A team member with this email already exists" });
       }
 
-      const newUserData: Record<string, string | null | Date> = {
+      const inviteToken = generateInviteToken();
+      const newUserData: Record<string, string | null | Date | number> = {
         email: email.trim(),
         firstName: firstName || null,
         lastName: lastName || null,
         invitedAt: new Date(),
+        inviteToken,
+        inviteCount: 1,
       };
       if (roleId) newUserData.roleId = roleId;
       if (hourlyRate) newUserData.hourlyRate = hourlyRate;
@@ -44,8 +95,9 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
       const companyName = settings[0]?.companyName || 'Taime';
 
       const recipientName = `${firstName || ''} ${lastName || ''}`.trim();
+      const roleName = roleId ? await db.select({ displayName: roles.displayName }).from(roles).where(eq(roles.id, roleId)).then(r => r[0]?.displayName) : null;
 
-      sendTeamInviteEmail(req, email.trim(), recipientName, inviterName, companyName).catch(err => {
+      sendTeamInviteEmail(req, email.trim(), recipientName, inviterName, companyName, inviteToken, roleName || null).catch(err => {
         console.error("Background email send failed:", err);
       });
 
@@ -84,9 +136,16 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
 
       const recipientName = `${targetUser.firstName || ''} ${targetUser.lastName || ''}`.trim();
 
-      const sent = await sendTeamInviteEmail(req, targetUser.email, recipientName, inviterName, companyName);
+      const newToken = generateInviteToken();
+      const roleInfo = targetUser.roleId ? await db.select({ displayName: roles.displayName }).from(roles).where(eq(roles.id, targetUser.roleId)).then(r => r[0]?.displayName) : null;
+
+      const sent = await sendTeamInviteEmail(req, targetUser.email, recipientName, inviterName, companyName, newToken, roleInfo || null);
       if (sent) {
-        await db.update(users).set({ invitedAt: new Date() }).where(eq(users.id, userId));
+        await db.update(users).set({
+          invitedAt: new Date(),
+          inviteToken: newToken,
+          inviteCount: (targetUser.inviteCount || 0) + 1,
+        }).where(eq(users.id, userId));
         res.json({ message: "Invitation email sent successfully" });
       } else {
         res.status(500).json({ message: "Failed to send invitation email" });

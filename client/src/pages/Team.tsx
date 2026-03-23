@@ -33,10 +33,26 @@ import {
   AlertTriangle,
   Users,
   Send,
+  Link,
+  Check,
+  Clock,
+  Mail,
 } from "lucide-react";
 
 function getInitials(firstName?: string | null, lastName?: string | null) {
   return `${firstName?.[0] || ""}${lastName?.[0] || ""}`.toUpperCase() || "?";
+}
+
+function timeAgo(dateStr: string | Date | null | undefined): string {
+  if (!dateStr) return "";
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
 }
 
 function getEmploymentTypeLabel(type?: string | null) {
@@ -75,6 +91,8 @@ export default function Team() {
   const [editingPayRate, setEditingPayRate] = useState<string | null>(null);
   const [payRateValue, setPayRateValue] = useState("");
   const [sortAsc, setSortAsc] = useState(true);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [invitedMember, setInvitedMember] = useState<{ name: string; email: string } | null>(null);
 
   const { data: members = [], isLoading, error } = useQuery<User[]>({
     queryKey: ["/api/users", { includeAll: showTerminated }],
@@ -109,15 +127,24 @@ export default function Team() {
       const res = await apiRequest("POST", "/api/users", data);
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/users"] });
-      setAddDialogOpen(false);
-      toast({ title: "Member added", description: "New team member has been added successfully." });
+      const name = [variables.firstName, variables.lastName].filter(Boolean).join(" ") || variables.email;
+      setInvitedMember({ name, email: variables.email });
     },
     onError: (err: Error) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
     },
   });
+
+  const copyInviteLink = (member: User) => {
+    if (!member.inviteToken) return;
+    const link = `${window.location.origin}/join/${member.inviteToken}`;
+    navigator.clipboard.writeText(link).then(() => {
+      setCopiedId(member.id);
+      setTimeout(() => setCopiedId(null), 2000);
+    });
+  };
 
   const updateRoleMutation = useMutation({
     mutationFn: async ({ userId, roleId }: { userId: string; roleId: string }) => {
@@ -441,33 +468,60 @@ export default function Team() {
                       </td>
                     )}
                     <td className="p-3" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex items-center gap-2">
-                        {member.isActive !== false ? (
-                          member.invitedAt && !member.inviteAcceptedAt ? (
-                            <Badge variant="outline" className="border-amber-400 text-amber-600 bg-amber-50">
-                              Pending Invite
-                            </Badge>
+                      <div className="flex flex-col gap-1.5">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {member.isActive !== false ? (
+                            member.invitedAt && !member.inviteAcceptedAt ? (
+                              <Badge variant="outline" className="border-amber-400 text-amber-600 bg-amber-50 gap-1">
+                                <Clock className="h-2.5 w-2.5" />
+                                Pending
+                              </Badge>
+                            ) : (
+                              <Badge className="bg-green-100 text-green-700 border-green-300 hover:bg-green-100">
+                                Active
+                              </Badge>
+                            )
                           ) : (
-                            <Badge className="bg-green-100 text-green-700 border-green-300 hover:bg-green-100">
-                              Active
+                            <Badge variant="outline" className="border-gray-400 text-gray-500">
+                              Inactive
                             </Badge>
-                          )
-                        ) : (
-                          <Badge variant="outline" className="border-gray-400 text-gray-500">
-                            Inactive
-                          </Badge>
+                          )}
+                        </div>
+                        {member.invitedAt && !member.inviteAcceptedAt && (
+                          <p className="text-xs text-muted-foreground flex items-center gap-1">
+                            <Mail className="h-2.5 w-2.5" />
+                            Invited {timeAgo(member.invitedAt)}
+                            {(member.inviteCount || 0) > 1 && ` · ${member.inviteCount}x`}
+                          </p>
                         )}
                         {canManageEmployees && member.isActive !== false && member.invitedAt && !member.inviteAcceptedAt && member.email && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-7 text-xs text-violet-600 hover:text-violet-700 px-2"
-                            disabled={resendInviteMutation.isPending}
-                            onClick={() => resendInviteMutation.mutate(member.id)}
-                          >
-                            <Send className="h-3 w-3 mr-1" />
-                            Resend
-                          </Button>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-6 text-xs text-violet-600 hover:text-violet-700 px-2"
+                              disabled={resendInviteMutation.isPending}
+                              onClick={() => resendInviteMutation.mutate(member.id)}
+                            >
+                              <Send className="h-2.5 w-2.5 mr-1" />
+                              Resend
+                            </Button>
+                            {member.inviteToken && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-6 text-xs text-muted-foreground hover:text-violet-600 px-2"
+                                onClick={() => copyInviteLink(member)}
+                              >
+                                {copiedId === member.id ? (
+                                  <Check className="h-2.5 w-2.5 mr-1 text-green-600" />
+                                ) : (
+                                  <Link className="h-2.5 w-2.5 mr-1" />
+                                )}
+                                {copiedId === member.id ? "Copied!" : "Copy link"}
+                              </Button>
+                            )}
+                          </div>
                         )}
                       </div>
                     </td>
@@ -479,56 +533,113 @@ export default function Team() {
         </div>
       )}
 
-      <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Add Team Member</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleAddSubmit} className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label htmlFor="firstName">First Name</Label>
-                <Input id="firstName" name="firstName" />
+      <Dialog open={addDialogOpen} onOpenChange={(open) => {
+        setAddDialogOpen(open);
+        if (!open) setInvitedMember(null);
+      }}>
+        <DialogContent className="sm:max-w-md">
+          {invitedMember ? (
+            <>
+              <DialogHeader>
+                <DialogTitle>Invite Sent!</DialogTitle>
+              </DialogHeader>
+              <div className="py-4 space-y-4">
+                <div className="flex flex-col items-center text-center gap-3 py-4">
+                  <div className="h-14 w-14 rounded-full bg-green-100 flex items-center justify-center">
+                    <Check className="h-7 w-7 text-green-600" />
+                  </div>
+                  <div>
+                    <p className="font-semibold text-gray-900">{invitedMember.name}</p>
+                    <p className="text-sm text-muted-foreground">{invitedMember.email}</p>
+                  </div>
+                  <div className="bg-violet-50 rounded-xl px-4 py-3 text-sm text-violet-700 max-w-xs">
+                    <Mail className="h-4 w-4 inline mr-1.5 mb-0.5" />
+                    An invite email has been sent. They'll see a personalized welcome page when they click the link.
+                  </div>
+                </div>
               </div>
-              <div>
-                <Label htmlFor="lastName">Last Name</Label>
-                <Input id="lastName" name="lastName" />
-              </div>
-            </div>
-            <div>
-              <Label htmlFor="email">Email *</Label>
-              <Input id="email" name="email" type="email" required />
-            </div>
-            <div>
-              <Label htmlFor="roleId">Role</Label>
-              <Select name="roleId">
-                <SelectTrigger>
-                  <SelectValue placeholder="Select role" />
-                </SelectTrigger>
-                <SelectContent>
-                  {roles.map((r) => (
-                    <SelectItem key={r.id} value={r.id}>{r.displayName}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label htmlFor="hourlyRate">Hourly Rate</Label>
-              <Input id="hourlyRate" name="hourlyRate" type="number" step="0.01" placeholder="0.00" />
-            </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setAddDialogOpen(false)}>
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                className="bg-violet-600 hover:bg-violet-700 text-white"
-                disabled={addMemberMutation.isPending}
-              >
-                {addMemberMutation.isPending ? "Adding..." : "Add Member"}
-              </Button>
-            </DialogFooter>
-          </form>
+              <DialogFooter className="gap-2">
+                <Button variant="outline" onClick={() => {
+                  setInvitedMember(null);
+                }}>
+                  Add Another
+                </Button>
+                <Button className="bg-violet-600 hover:bg-violet-700 text-white" onClick={() => {
+                  setAddDialogOpen(false);
+                  setInvitedMember(null);
+                }}>
+                  Done
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              <DialogHeader>
+                <DialogTitle>Invite Team Member</DialogTitle>
+              </DialogHeader>
+              <form onSubmit={handleAddSubmit} className="space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label htmlFor="firstName">First Name</Label>
+                    <Input id="firstName" name="firstName" placeholder="Jane" />
+                  </div>
+                  <div>
+                    <Label htmlFor="lastName">Last Name</Label>
+                    <Input id="lastName" name="lastName" placeholder="Smith" />
+                  </div>
+                </div>
+                <div>
+                  <Label htmlFor="email">Work Email *</Label>
+                  <Input id="email" name="email" type="email" required placeholder="jane@company.com" />
+                  <p className="text-xs text-muted-foreground mt-1">They'll receive an invite at this address</p>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label htmlFor="roleId">Role</Label>
+                    <Select name="roleId">
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select role" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {roles.map((r) => (
+                          <SelectItem key={r.id} value={r.id}>{r.displayName}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label htmlFor="hourlyRate">Hourly Rate</Label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
+                      <Input id="hourlyRate" name="hourlyRate" type="number" step="0.01" placeholder="0.00" className="pl-6" />
+                    </div>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setAddDialogOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    className="bg-violet-600 hover:bg-violet-700 text-white gap-2"
+                    disabled={addMemberMutation.isPending}
+                  >
+                    {addMemberMutation.isPending ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Sending invite...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="h-4 w-4" />
+                        Send Invite
+                      </>
+                    )}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </>
+          )}
         </DialogContent>
       </Dialog>
 

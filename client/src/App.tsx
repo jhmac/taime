@@ -1,5 +1,5 @@
 import { useState, useEffect, Component, type ReactNode, type ErrorInfo } from "react";
-import { Switch, Route } from "wouter";
+import { Switch, Route, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { ClerkProvider, SignedIn, SignedOut } from "@clerk/clerk-react";
@@ -106,6 +106,7 @@ import CashManagement from "@/pages/CashManagement";
 import Timesheets from "@/pages/Timesheets";
 import PayrollExport from "@/pages/PayrollExport";
 import MyScore from "@/pages/MyScore";
+import JoinPage from "@/pages/JoinPage";
 import { WebSocketProvider } from "@/contexts/WebSocketContext";
 import type { Permission } from "@shared/schema";
 
@@ -321,6 +322,16 @@ function AuthenticatedApp() {
 }
 
 function Router() {
+  const [location] = useLocation();
+
+  if (location.startsWith("/join/")) {
+    return (
+      <Switch>
+        <Route path="/join/:token" component={JoinPage} />
+      </Switch>
+    );
+  }
+
   return (
     <>
       <SignedOut>

@@ -20,43 +20,131 @@ export async function sendTeamInviteEmail(
   recipientName: string,
   inviterName: string,
   companyName: string,
+  inviteToken?: string | null,
+  roleName?: string | null,
 ): Promise<boolean> {
   try {
     const appUrl = getAppUrl(req);
     const displayName = recipientName.trim() || recipientEmail;
+    const firstName = displayName.split(" ")[0] || displayName;
+
+    const inviteUrl = inviteToken ? `${appUrl}/join/${inviteToken}` : appUrl;
+
+    const roleText = roleName ? `<p style="color:#6c63ff;font-size:14px;font-weight:600;margin:0 0 20px 0;letter-spacing:0.3px;">Your role: ${roleName}</p>` : "";
+
+    const featuresHtml = `
+      <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
+        <tr>
+          <td width="33%" style="padding:0 8px 0 0;vertical-align:top;">
+            <div style="background:#f0eeff;border-radius:10px;padding:14px 12px;text-align:center;">
+              <div style="font-size:20px;margin-bottom:6px;">⏰</div>
+              <p style="color:#1a1a2e;font-size:12px;font-weight:600;margin:0;">Time Tracking</p>
+              <p style="color:#666;font-size:11px;margin:4px 0 0 0;line-height:1.4;">Clock in & out from anywhere</p>
+            </div>
+          </td>
+          <td width="33%" style="padding:0 4px;vertical-align:top;">
+            <div style="background:#f0eeff;border-radius:10px;padding:14px 12px;text-align:center;">
+              <div style="font-size:20px;margin-bottom:6px;">📅</div>
+              <p style="color:#1a1a2e;font-size:12px;font-weight:600;margin:0;">Schedules</p>
+              <p style="color:#666;font-size:11px;margin:4px 0 0 0;line-height:1.4;">View shifts & availability</p>
+            </div>
+          </td>
+          <td width="33%" style="padding:0 0 0 8px;vertical-align:top;">
+            <div style="background:#f0eeff;border-radius:10px;padding:14px 12px;text-align:center;">
+              <div style="font-size:20px;margin-bottom:6px;">✅</div>
+              <p style="color:#1a1a2e;font-size:12px;font-weight:600;margin:0;">Tasks & SOPs</p>
+              <p style="color:#666;font-size:11px;margin:4px 0 0 0;line-height:1.4;">Stay on top of your work</p>
+            </div>
+          </td>
+        </tr>
+      </table>
+    `;
 
     const htmlBody = `
-      <div style="font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; max-width: 600px; margin: 0 auto; padding: 32px; background-color: #ffffff;">
-        <div style="text-align: center; margin-bottom: 32px;">
-          <h1 style="color: #1a1a2e; font-size: 24px; margin: 0;">Welcome to ${companyName}</h1>
-        </div>
-        <div style="background: #f8f9fa; border-radius: 12px; padding: 24px; margin-bottom: 24px;">
-          <p style="color: #333; font-size: 16px; line-height: 1.6; margin: 0 0 16px 0;">
-            Hi ${displayName},
-          </p>
-          <p style="color: #333; font-size: 16px; line-height: 1.6; margin: 0 0 16px 0;">
-            ${inviterName} has added you to the <strong>${companyName}</strong> team on Taime, our AI boutique manager platform.
-          </p>
-          <p style="color: #333; font-size: 16px; line-height: 1.6; margin: 0 0 24px 0;">
-            With Taime, you can clock in and out, view your schedule, manage tasks, and stay connected with your team.
-          </p>
-          <div style="text-align: center;">
-            <a href="${appUrl}" style="display: inline-block; background-color: #6c63ff; color: #ffffff; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-size: 16px; font-weight: 600;">
-              Get Started
-            </a>
-          </div>
-        </div>
-        <p style="color: #888; font-size: 13px; text-align: center; margin: 0;">
-          If you have any questions, reach out to your manager or reply to this email.
-        </p>
-      </div>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>You're invited to join ${companyName}</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f4f4f8;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f8;padding:40px 16px;">
+    <tr>
+      <td align="center">
+        <table width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;">
+
+          <!-- Header -->
+          <tr>
+            <td style="padding:0 0 24px 0;text-align:center;">
+              <div style="display:inline-block;background:linear-gradient(135deg,#6c63ff,#9b8fff);border-radius:16px;padding:14px 24px;">
+                <span style="color:#ffffff;font-size:22px;font-weight:800;letter-spacing:-0.5px;">Taime</span>
+              </div>
+              <p style="color:#888;font-size:12px;margin:8px 0 0 0;letter-spacing:1px;text-transform:uppercase;">AI Boutique Manager</p>
+            </td>
+          </tr>
+
+          <!-- Main card -->
+          <tr>
+            <td style="background:#ffffff;border-radius:20px;padding:36px 36px 32px 36px;box-shadow:0 4px 24px rgba(108,99,255,0.08);">
+
+              <!-- Inviter avatar -->
+              <div style="text-align:center;margin-bottom:24px;">
+                <div style="width:56px;height:56px;background:linear-gradient(135deg,#6c63ff,#9b8fff);border-radius:50%;display:inline-flex;align-items:center;justify-content:center;margin:0 auto;">
+                  <span style="color:#fff;font-size:22px;font-weight:700;line-height:56px;">${inviterName.charAt(0).toUpperCase()}</span>
+                </div>
+                <p style="color:#666;font-size:13px;margin:8px 0 0 0;"><strong style="color:#1a1a2e;">${inviterName}</strong> invited you</p>
+              </div>
+
+              <h1 style="color:#1a1a2e;font-size:24px;font-weight:700;margin:0 0 8px 0;text-align:center;line-height:1.3;">
+                Join ${companyName}<br />on Taime
+              </h1>
+              <p style="color:#555;font-size:15px;line-height:1.6;margin:0 0 6px 0;text-align:center;">
+                Hi ${firstName}, you're invited to join the <strong>${companyName}</strong> team.
+              </p>
+              ${roleText}
+
+              <!-- Divider -->
+              <div style="border-top:1px solid #f0f0f8;margin:20px 0 24px 0;"></div>
+
+              <!-- Features -->
+              ${featuresHtml}
+
+              <!-- CTA button -->
+              <div style="text-align:center;margin-bottom:20px;">
+                <a href="${inviteUrl}" style="display:inline-block;background:linear-gradient(135deg,#6c63ff,#9b8fff);color:#ffffff;padding:16px 40px;border-radius:12px;text-decoration:none;font-size:16px;font-weight:700;letter-spacing:0.2px;box-shadow:0 4px 14px rgba(108,99,255,0.35);">
+                  Accept Invitation &rarr;
+                </a>
+              </div>
+              <p style="color:#aaa;font-size:12px;text-align:center;margin:0;">
+                Or copy this link: <a href="${inviteUrl}" style="color:#6c63ff;text-decoration:none;word-break:break-all;">${inviteUrl}</a>
+              </p>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding:24px 0 0 0;text-align:center;">
+              <p style="color:#aaa;font-size:12px;margin:0;line-height:1.6;">
+                You received this because ${inviterName} added you to ${companyName}.<br />
+                If you weren't expecting this, you can safely ignore this email.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
     `;
 
     await nylas.messages.send({
       identifier: grantId,
       requestBody: {
         to: [{ name: displayName, email: recipientEmail }],
-        subject: `You've been invited to join ${companyName} on Taime`,
+        subject: `${inviterName} invited you to join ${companyName} on Taime`,
         body: htmlBody,
       },
     });

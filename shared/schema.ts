@@ -96,6 +96,8 @@ export const users = pgTable("users", {
   scoreNotificationsEnabled: boolean("score_notifications_enabled").default(true),
   invitedAt: timestamp("invited_at"),
   inviteAcceptedAt: timestamp("invite_accepted_at"),
+  inviteToken: varchar("invite_token").unique(),
+  inviteCount: integer("invite_count").default(0),
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
