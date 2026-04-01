@@ -28,6 +28,12 @@ export function registerGamificationRoutes(app: Express, storage: IStorage, isAu
       const prizeDescriptions = (settings.prizeDescriptions ?? {}) as Record<string, string>;
       const prizeEligibility = prizeDescriptions[myScore.tier] || null;
 
+      try {
+        await gamificationService.generateAndSaveNotices(userId);
+      } catch (noticeErr) {
+        console.warn('[Gamification] Notice generation failed (non-fatal):', noticeErr);
+      }
+
       res.json({
         ...myScore,
         nextTier,
@@ -168,6 +174,52 @@ export function registerGamificationRoutes(app: Express, storage: IStorage, isAu
       res.json(gamificationService.getAchievementDefinitions());
     } catch (error: unknown) {
       res.status(500).json({ message: "Failed to fetch achievements" });
+    }
+  });
+
+  app.get('/api/gamification/notices', isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = (req as AuthRequest).user.id;
+      const notices = await gamificationService.getNotices(userId);
+      const unreadCount = notices.filter(n => !n.isRead).length;
+      res.json({ notices, unreadCount });
+    } catch (error: unknown) {
+      console.error("Error fetching notices:", error);
+      res.status(500).json({ message: "Failed to fetch notices" });
+    }
+  });
+
+  app.get('/api/gamification/notices/unread-count', isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = (req as AuthRequest).user.id;
+      const count = await gamificationService.getUnreadNoticeCount(userId);
+      res.json({ count });
+    } catch (error: unknown) {
+      console.error("Error fetching unread count:", error);
+      res.status(500).json({ message: "Failed to fetch unread count" });
+    }
+  });
+
+  app.patch('/api/gamification/notices/read-all', isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = (req as AuthRequest).user.id;
+      await gamificationService.markAllNoticesRead(userId);
+      res.json({ success: true });
+    } catch (error: unknown) {
+      console.error("Error marking all notices as read:", error);
+      res.status(500).json({ message: "Failed to mark all as read" });
+    }
+  });
+
+  app.patch('/api/gamification/notices/:id/read', isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = (req as AuthRequest).user.id;
+      const noticeId = req.params.id;
+      await gamificationService.markNoticeRead(noticeId, userId);
+      res.json({ success: true });
+    } catch (error: unknown) {
+      console.error("Error marking notice as read:", error);
+      res.status(500).json({ message: "Failed to mark notice as read" });
     }
   });
 }

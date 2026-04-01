@@ -1803,3 +1803,20 @@ export const userAchievements = pgTable("user_achievements", {
 export type ScoreHistory = typeof scoreHistory.$inferSelect;
 export type GamificationSettings = typeof gamificationSettings.$inferSelect;
 export type UserAchievement = typeof userAchievements.$inferSelect;
+
+export const scoreNotices = pgTable("score_notices", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  category: varchar("category").notNull(),
+  severity: varchar("severity").notNull().default("info"),
+  message: text("message").notNull(),
+  isRead: boolean("is_read").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_score_notices_user").on(table.userId),
+  uniqueIndex("uq_score_notices_user_category").on(table.userId, table.category),
+]);
+
+export const insertScoreNoticeSchema = createInsertSchema(scoreNotices).omit({ id: true, createdAt: true });
+export type InsertScoreNotice = z.infer<typeof insertScoreNoticeSchema>;
+export type ScoreNotice = typeof scoreNotices.$inferSelect;

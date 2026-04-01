@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useLocation } from 'wouter';
 import { useAuth } from '@/hooks/useAuth';
 import { apiRequest } from '@/lib/queryClient';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,10 +10,64 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { formatDistanceToNow } from 'date-fns';
 import {
   Trophy, Star, Target, TrendingUp, Medal, Crown,
-  Flame, Zap, Award, ChevronUp, Users, Clock, Bell
+  Flame, Zap, Award, ChevronUp, Users, Clock, Bell, CheckCheck, AlertTriangle, Info
 } from 'lucide-react';
+
+interface ScoreNotice {
+  id: string;
+  userId: string;
+  category: string;
+  severity: string;
+  message: string;
+  isRead: boolean;
+  createdAt: string;
+}
+
+const NOTICE_CATEGORY_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  attendance: Clock,
+  tasks: Target,
+  sops: Award,
+  engagement: Users,
+};
+
+function NoticeItem({ notice, onMarkRead }: { notice: ScoreNotice; onMarkRead: (id: string) => void }) {
+  const Icon = NOTICE_CATEGORY_ICONS[notice.category] || Bell;
+  const isWarning = notice.severity === 'warning';
+  return (
+    <div className={`flex gap-3 p-3 rounded-lg border transition-colors ${!notice.isRead ? 'bg-blue-50/40 dark:bg-blue-950/20 border-blue-100 dark:border-blue-900' : 'border-border bg-card'}`}>
+      <div className={`mt-0.5 shrink-0 p-1.5 rounded-full ${isWarning ? 'bg-amber-100 dark:bg-amber-900/30' : 'bg-blue-100 dark:bg-blue-900/30'}`}>
+        <Icon className={`h-4 w-4 ${isWarning ? 'text-amber-600' : 'text-blue-600'}`} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-start gap-2">
+          {isWarning
+            ? <AlertTriangle className="h-3.5 w-3.5 text-amber-500 mt-0.5 shrink-0" />
+            : <Info className="h-3.5 w-3.5 text-blue-500 mt-0.5 shrink-0" />}
+          <p className="text-sm leading-snug">{notice.message}</p>
+        </div>
+        <div className="flex items-center justify-between mt-1.5">
+          <span className="text-xs text-muted-foreground">
+            {formatDistanceToNow(new Date(notice.createdAt), { addSuffix: true })}
+          </span>
+          {!notice.isRead && (
+            <button
+              className="text-xs text-primary hover:underline"
+              onClick={() => onMarkRead(notice.id)}
+            >
+              Mark as read
+            </button>
+          )}
+        </div>
+      </div>
+      {!notice.isRead && (
+        <div className="w-2 h-2 rounded-full bg-blue-500 mt-1.5 shrink-0" />
+      )}
+    </div>
+  );
+}
 
 const TIER_CONFIG: Record<string, { color: string; bg: string; border: string; icon: React.ComponentType<{ className?: string }>; gradient: string }> = {
   bronze: { color: 'text-orange-700', bg: 'bg-orange-100', border: 'border-orange-300', icon: Medal, gradient: 'from-orange-400 to-orange-600' },
@@ -158,7 +213,30 @@ function AchievementBadge({ achievement, earned }: { achievement: AchievementDat
 export default function MyScore() {
   const { user } = useAuth();
   const [historyRange, setHistoryRange] = useState('30d');
+  const [location] = useLocation();
   const qc = useQueryClient();
+
+  const defaultTab = (() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const tab = params.get('tab');
+      return ['breakdown', 'rankings', 'achievements', 'history', 'notices'].includes(tab || '') ? tab! : 'breakdown';
+    } catch {
+      return 'breakdown';
+    }
+  })();
+
+  const [activeTab, setActiveTab] = useState(defaultTab);
+
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const tab = params.get('tab');
+      if (tab && ['breakdown', 'rankings', 'achievements', 'history', 'notices'].includes(tab)) {
+        setActiveTab(tab);
+      }
+    } catch {}
+  }, [location]);
 
   const { data: scoreData, isLoading } = useQuery<ScoreData>({
     queryKey: ['/api/gamification/my-score'],
@@ -193,6 +271,24 @@ export default function MyScore() {
       qc.invalidateQueries({ queryKey: ['/api/gamification/notification-preference'] });
     },
   });
+
+  const { data: noticesData, isLoading: noticesLoading } = useQuery<{ notices: ScoreNotice[]; unreadCount: number }>({
+    queryKey: ['/api/gamification/notices'],
+    enabled: !!user,
+  });
+
+  const markReadMutation = useMutation({
+    mutationFn: async (id: string) => apiRequest('PATCH', `/api/gamification/notices/${id}/read`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['/api/gamification/notices'] }),
+  });
+
+  const markAllReadMutation = useMutation({
+    mutationFn: async () => apiRequest('PATCH', '/api/gamification/notices/read-all'),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['/api/gamification/notices'] }),
+  });
+
+  const notices = noticesData?.notices ?? [];
+  const unreadNoticeCount = noticesData?.unreadCount ?? 0;
 
   if (isLoading) {
     return (
@@ -255,12 +351,20 @@ export default function MyScore() {
       </div>
 
       <div className="p-4 space-y-4 max-w-2xl mx-auto">
-        <Tabs defaultValue="breakdown">
-          <TabsList className="w-full grid grid-cols-4">
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="w-full grid grid-cols-5">
             <TabsTrigger value="breakdown">Score</TabsTrigger>
             <TabsTrigger value="rankings">Rank</TabsTrigger>
             <TabsTrigger value="achievements">Badges</TabsTrigger>
             <TabsTrigger value="history">History</TabsTrigger>
+            <TabsTrigger value="notices" className="relative">
+              Notices
+              {unreadNoticeCount > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[16px] h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center px-0.5">
+                  {unreadNoticeCount}
+                </span>
+              )}
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="breakdown" className="mt-4">
@@ -386,6 +490,53 @@ export default function MyScore() {
                       <span>{historyData[0]?.snapshotDate}</span>
                       <span>{historyData[historyData.length - 1]?.snapshotDate}</span>
                     </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="notices" className="mt-4">
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm font-bold flex items-center gap-2">
+                    <Bell className="h-4 w-4 text-blue-500" /> Score Notices
+                    {unreadNoticeCount > 0 && (
+                      <Badge variant="destructive" className="text-xs ml-1">{unreadNoticeCount} unread</Badge>
+                    )}
+                  </CardTitle>
+                  {unreadNoticeCount > 0 && (
+                    <button
+                      className="text-xs text-primary flex items-center gap-1 hover:underline"
+                      onClick={() => markAllReadMutation.mutate()}
+                      disabled={markAllReadMutation.isPending}
+                    >
+                      <CheckCheck className="h-3 w-3" /> Mark all read
+                    </button>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent>
+                {noticesLoading ? (
+                  <div className="space-y-3">
+                    {[1,2,3].map(i => <Skeleton key={i} className="h-20 w-full" />)}
+                  </div>
+                ) : notices.length === 0 ? (
+                  <div className="text-center py-8">
+                    <Bell className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
+                    <p className="text-sm font-medium text-muted-foreground">All clear — no notices right now</p>
+                    <p className="text-xs text-muted-foreground mt-1">Notices appear when your scores need attention</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {notices.map((notice: ScoreNotice) => (
+                      <NoticeItem
+                        key={notice.id}
+                        notice={notice}
+                        onMarkRead={(id) => markReadMutation.mutate(id)}
+                      />
+                    ))}
                   </div>
                 )}
               </CardContent>

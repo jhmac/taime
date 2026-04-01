@@ -1,7 +1,15 @@
+import { useState } from 'react';
 import { UserButton } from '@clerk/clerk-react';
 import { useAuth } from '@/hooks/useAuth';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { useLocation } from 'wouter';
+import { useLocation, Link } from 'wouter';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { apiRequest } from '@/lib/queryClient';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Bell, Clock, Target, Award, Users, CheckCheck } from 'lucide-react';
+import { formatDistanceToNow } from 'date-fns';
 
 const pageTitles: Record<string, string> = {
   '/': 'Dashboard',
@@ -19,6 +27,208 @@ const pageTitles: Record<string, string> = {
   '/admin': 'Settings',
   '/my-score': 'My Score',
 };
+
+interface ScoreNotice {
+  id: string;
+  userId: string;
+  category: string;
+  severity: string;
+  message: string;
+  isRead: boolean;
+  createdAt: string;
+}
+
+const CATEGORY_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  attendance: Clock,
+  tasks: Target,
+  sops: Award,
+  engagement: Users,
+};
+
+function NoticeIcon({ category, severity }: { category: string; severity: string }) {
+  const Icon = CATEGORY_ICONS[category] || Bell;
+  const color = severity === 'warning' ? 'text-amber-500' : 'text-blue-500';
+  return <Icon className={`h-4 w-4 ${color} shrink-0`} />;
+}
+
+function NotificationsDropdown() {
+  const { user } = useAuth();
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+
+  const { data: noticesData } = useQuery<{ notices: ScoreNotice[]; unreadCount: number }>({
+    queryKey: ['/api/gamification/notices'],
+    enabled: !!user,
+    refetchInterval: 60000,
+  });
+
+  const markReadMutation = useMutation({
+    mutationFn: async (id: string) => apiRequest('PATCH', `/api/gamification/notices/${id}/read`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['/api/gamification/notices'] }),
+  });
+
+  const markAllReadMutation = useMutation({
+    mutationFn: async () => apiRequest('PATCH', '/api/gamification/notices/read-all'),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['/api/gamification/notices'] }),
+  });
+
+  const unreadCount = noticesData?.unreadCount ?? 0;
+  const recentNotices = (noticesData?.notices ?? []).slice(0, 5);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          className="relative p-2 rounded-lg hover:bg-muted transition-colors"
+          data-testid="notifications-button"
+        >
+          <Bell className="h-5 w-5 text-muted-foreground" />
+          {unreadCount > 0 && (
+            <span className="absolute top-1 right-1 min-w-[16px] h-4 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center px-0.5">
+              {unreadCount > 99 ? '99+' : unreadCount}
+            </span>
+          )}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-80 p-0" align="end">
+        <div className="flex items-center justify-between px-4 py-3 border-b">
+          <h3 className="font-semibold text-sm">Score Notices</h3>
+          {unreadCount > 0 && (
+            <button
+              className="text-xs text-primary flex items-center gap-1 hover:underline"
+              onClick={() => markAllReadMutation.mutate()}
+            >
+              <CheckCheck className="h-3 w-3" /> Mark all read
+            </button>
+          )}
+        </div>
+        <div className="max-h-80 overflow-y-auto">
+          {recentNotices.length === 0 ? (
+            <div className="px-4 py-6 text-center text-sm text-muted-foreground">
+              All clear — no notices right now
+            </div>
+          ) : (
+            recentNotices.map((notice) => (
+              <div
+                key={notice.id}
+                className={`px-4 py-3 border-b last:border-0 flex gap-3 cursor-pointer hover:bg-muted/30 transition-colors ${!notice.isRead ? 'bg-blue-50/40 dark:bg-blue-950/20' : ''}`}
+                onClick={() => !notice.isRead && markReadMutation.mutate(notice.id)}
+              >
+                <NoticeIcon category={notice.category} severity={notice.severity} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-foreground leading-snug line-clamp-2">{notice.message}</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    {formatDistanceToNow(new Date(notice.createdAt), { addSuffix: true })}
+                  </p>
+                </div>
+                {!notice.isRead && (
+                  <div className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-1 shrink-0" />
+                )}
+              </div>
+            ))
+          )}
+        </div>
+        <div className="px-4 py-2 border-t">
+          <Link
+            href="/my-score?tab=notices"
+            className="text-xs text-primary hover:underline"
+            onClick={() => setOpen(false)}
+          >
+            View all notices →
+          </Link>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function MobileBellButton() {
+  const { user } = useAuth();
+  const [open, setOpen] = useState(false);
+  const qc = useQueryClient();
+
+  const { data: noticesData } = useQuery<{ notices: ScoreNotice[]; unreadCount: number }>({
+    queryKey: ['/api/gamification/notices'],
+    enabled: !!user,
+    refetchInterval: 60000,
+  });
+
+  const markReadMutation = useMutation({
+    mutationFn: async (id: string) => apiRequest('PATCH', `/api/gamification/notices/${id}/read`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['/api/gamification/notices'] }),
+  });
+
+  const markAllReadMutation = useMutation({
+    mutationFn: async () => apiRequest('PATCH', '/api/gamification/notices/read-all'),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['/api/gamification/notices'] }),
+  });
+
+  const unreadCount = noticesData?.unreadCount ?? 0;
+  const recentNotices = (noticesData?.notices ?? []).slice(0, 5);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button className="relative p-1.5" data-testid="notifications-button">
+          <Bell className="h-5 w-5 text-muted-foreground" />
+          {unreadCount > 0 && (
+            <span className="absolute top-0 right-0 min-w-[14px] h-3.5 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center px-0.5">
+              {unreadCount > 99 ? '99+' : unreadCount}
+            </span>
+          )}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-72 p-0" align="end">
+        <div className="flex items-center justify-between px-4 py-3 border-b">
+          <h3 className="font-semibold text-sm">Score Notices</h3>
+          {unreadCount > 0 && (
+            <button
+              className="text-xs text-primary flex items-center gap-1 hover:underline"
+              onClick={() => markAllReadMutation.mutate()}
+            >
+              <CheckCheck className="h-3 w-3" /> Mark all read
+            </button>
+          )}
+        </div>
+        <div className="max-h-72 overflow-y-auto">
+          {recentNotices.length === 0 ? (
+            <div className="px-4 py-6 text-center text-sm text-muted-foreground">
+              All clear — no notices right now
+            </div>
+          ) : (
+            recentNotices.map((notice) => (
+              <div
+                key={notice.id}
+                className={`px-4 py-3 border-b last:border-0 flex gap-3 cursor-pointer hover:bg-muted/30 transition-colors ${!notice.isRead ? 'bg-blue-50/40 dark:bg-blue-950/20' : ''}`}
+                onClick={() => !notice.isRead && markReadMutation.mutate(notice.id)}
+              >
+                <NoticeIcon category={notice.category} severity={notice.severity} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-foreground leading-snug line-clamp-2">{notice.message}</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    {formatDistanceToNow(new Date(notice.createdAt), { addSuffix: true })}
+                  </p>
+                </div>
+                {!notice.isRead && (
+                  <div className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-1 shrink-0" />
+                )}
+              </div>
+            ))
+          )}
+        </div>
+        <div className="px-4 py-2 border-t">
+          <Link
+            href="/my-score?tab=notices"
+            className="text-xs text-primary hover:underline"
+            onClick={() => setOpen(false)}
+          >
+            View all notices →
+          </Link>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 export default function TopNavigation() {
   const { user } = useAuth();
@@ -38,9 +248,7 @@ export default function TopNavigation() {
             <h1 className="text-base font-semibold">{pageTitle}</h1>
           </div>
           <div className="flex items-center gap-3">
-            <button className="relative p-1.5" data-testid="notifications-button">
-              <i className="fas fa-bell text-muted-foreground"></i>
-            </button>
+            <MobileBellButton />
             {user && <UserButton afterSignOutUrl="/" />}
           </div>
         </div>
@@ -55,9 +263,7 @@ export default function TopNavigation() {
           <h1 className="text-lg font-semibold">{pageTitle}</h1>
         </div>
         <div className="flex items-center gap-4">
-          <button className="relative p-2 rounded-lg hover:bg-muted transition-colors" data-testid="notifications-button">
-            <i className="fas fa-bell text-muted-foreground"></i>
-          </button>
+          <NotificationsDropdown />
           {user && (
             <div className="flex items-center gap-3">
               <span className="text-sm text-muted-foreground">

@@ -1,6 +1,6 @@
 import { db } from '../db';
 import { storage } from '../storage';
-import { users, clockEvents, scoreHistory, userAchievements, gamificationSettings, type UserAchievement, type GamificationSettings } from '@shared/schema';
+import { users, clockEvents, scoreHistory, userAchievements, gamificationSettings, scoreNotices, type UserAchievement, type GamificationSettings, type ScoreNotice } from '@shared/schema';
 import { eq, and, gte, lte, desc, asc, sql, count } from 'drizzle-orm';
 import { NotificationService } from './notificationService';
 
@@ -623,6 +623,179 @@ export class GamificationService {
     const settings = await this.getSettings();
     const thresholds = (settings.tierThresholds as Record<string, number>) || DEFAULT_THRESHOLDS;
     return getNextTierInfo(score, thresholds);
+  }
+
+  async generateAndSaveNotices(userId: string): Promise<void> {
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now);
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const scoreData = await this.computeUserScore(userId);
+    const breakdown = scoreData.breakdown;
+    const freshNotices: { category: string; severity: string; message: string }[] = [];
+
+    const schedulesResult = await db.execute(sql`
+      SELECT COUNT(*) as cnt FROM schedules
+      WHERE user_id = ${userId}
+      AND start_time >= ${thirtyDaysAgo.toISOString()}
+      AND start_time <= ${now.toISOString()}
+    `);
+    const scheduledShifts = parseInt(String((schedulesResult as { rows: DbRow[] }).rows?.[0]?.cnt ?? '0'));
+
+    if (breakdown.attendance.normalized < 30) {
+      if (scheduledShifts === 0) {
+        freshNotices.push({
+          category: 'attendance',
+          severity: 'info',
+          message: 'No shifts were scheduled for you this period — attendance score will update once you\'re on the schedule',
+        });
+      } else {
+        const clockedInResult = await db.execute(sql`
+          SELECT COUNT(*) as cnt FROM clock_events
+          WHERE user_id = ${userId}
+          AND event_type = 'shift-start'
+          AND created_at >= ${thirtyDaysAgo.toISOString()}
+        `);
+        const clockedInCount = parseInt(String((clockedInResult as { rows: DbRow[] }).rows?.[0]?.cnt ?? '0'));
+        const missedShifts = Math.max(0, scheduledShifts - clockedInCount);
+
+        if (missedShifts > 0) {
+          const timeOffCoveredResult = await db.execute(sql`
+            SELECT COUNT(*) as cnt FROM schedules s
+            WHERE s.user_id = ${userId}
+            AND s.start_time >= ${thirtyDaysAgo.toISOString()}
+            AND s.start_time <= ${now.toISOString()}
+            AND EXISTS (
+              SELECT 1 FROM time_off_requests tor
+              WHERE tor.user_id = ${userId}
+              AND tor.status = 'approved'
+              AND tor.start_date <= s.start_time
+              AND tor.end_date >= s.start_time
+            )
+          `);
+          const timeOffCoveredCount = parseInt(String((timeOffCoveredResult as { rows: DbRow[] }).rows?.[0]?.cnt ?? '0'));
+          const uncoveredMissedShifts = Math.max(0, missedShifts - timeOffCoveredCount);
+
+          if (uncoveredMissedShifts > 0) {
+            freshNotices.push({
+              category: 'attendance',
+              severity: 'warning',
+              message: `You missed clock-ins for ${uncoveredMissedShifts} scheduled shift${uncoveredMissedShifts !== 1 ? 's' : ''} this period`,
+            });
+          }
+        } else {
+          freshNotices.push({
+            category: 'attendance',
+            severity: 'warning',
+            message: 'Your attendance score is low. Late or missed clock-outs may be affecting your score — review your recent shifts',
+          });
+        }
+      }
+    }
+
+    const assignedTasksResult = await db.execute(sql`
+      SELECT COUNT(*) as cnt FROM tasks
+      WHERE assigned_to = ${userId}
+      AND created_at >= ${thirtyDaysAgo.toISOString()}
+    `);
+    const assignedTasks = parseInt(String((assignedTasksResult as { rows: DbRow[] }).rows?.[0]?.cnt ?? '0'));
+
+    if (breakdown.tasks.normalized < 30 && assignedTasks > 0) {
+      freshNotices.push({
+        category: 'tasks',
+        severity: 'warning',
+        message: 'Your task completion rate is low. Try completing assigned tasks before their due dates to boost your score',
+      });
+    }
+
+    if (breakdown.sops.normalized < 30) {
+      freshNotices.push({
+        category: 'sops',
+        severity: 'warning',
+        message: 'Your SOP completion rate is below 30%. Review and complete outstanding SOPs to improve your score',
+      });
+    }
+
+    if (breakdown.engagement.normalized < 30) {
+      freshNotices.push({
+        category: 'engagement',
+        severity: 'warning',
+        message: 'Your engagement score is low. Try participating in daily debriefs and giving kudos to teammates to improve',
+      });
+    }
+
+    const freshCategories = new Set(freshNotices.map(n => n.category));
+    const allCategories = ['attendance', 'tasks', 'sops', 'engagement'];
+    const categoriesNoLongerActive = allCategories.filter(c => !freshCategories.has(c));
+
+    if (categoriesNoLongerActive.length > 0) {
+      await db.execute(sql`
+        DELETE FROM score_notices
+        WHERE user_id = ${userId}
+        AND category = ANY(${categoriesNoLongerActive})
+      `);
+    }
+
+    for (const notice of freshNotices) {
+      await db.execute(sql`
+        INSERT INTO score_notices (user_id, category, severity, message, is_read)
+        VALUES (${userId}, ${notice.category}, ${notice.severity}, ${notice.message}, false)
+        ON CONFLICT (user_id, category) DO UPDATE SET
+          severity = EXCLUDED.severity,
+          message = EXCLUDED.message
+        WHERE score_notices.message != EXCLUDED.message
+      `);
+    }
+  }
+
+  async getNotices(userId: string): Promise<ScoreNotice[]> {
+    try {
+      const result = await db.execute(sql`
+        SELECT id, user_id, category, severity, message, is_read, created_at
+        FROM score_notices
+        WHERE user_id = ${userId}
+        ORDER BY created_at DESC
+        LIMIT 50
+      `);
+      return ((result as { rows: DbRow[] }).rows || []).map((r) => ({
+        id: String(r.id),
+        userId: String(r.user_id),
+        category: String(r.category),
+        severity: String(r.severity),
+        message: String(r.message),
+        isRead: r.is_read === true || r.is_read === 't' || r.is_read === 'true' || r.is_read === 1,
+        createdAt: r.created_at ? new Date(String(r.created_at)) : new Date(),
+      }));
+    } catch (err) {
+      console.warn('[Gamification] Failed to fetch notices:', err);
+      return [];
+    }
+  }
+
+  async getUnreadNoticeCount(userId: string): Promise<number> {
+    try {
+      const result = await db.execute(sql`
+        SELECT COUNT(*) as cnt FROM score_notices
+        WHERE user_id = ${userId} AND is_read = false
+      `);
+      return parseInt(String((result as { rows: DbRow[] }).rows?.[0]?.cnt ?? '0'));
+    } catch {
+      return 0;
+    }
+  }
+
+  async markNoticeRead(noticeId: string, userId: string): Promise<void> {
+    await db.execute(sql`
+      UPDATE score_notices SET is_read = true
+      WHERE id = ${noticeId} AND user_id = ${userId}
+    `);
+  }
+
+  async markAllNoticesRead(userId: string): Promise<void> {
+    await db.execute(sql`
+      UPDATE score_notices SET is_read = true
+      WHERE user_id = ${userId}
+    `);
   }
 }
 
