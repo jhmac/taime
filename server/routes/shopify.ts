@@ -1,7 +1,7 @@
-import type { Express } from "express";
+import type { Express, Response } from "express";
 import type { IStorage } from "../storage";
-import { shops, userShops, shopifyDailySales, users } from "@shared/schema";
-import { eq, and, gte, lte, desc } from "drizzle-orm";
+import { shops, userShops, shopifyDailySales, shopifyOrders, users } from "@shared/schema";
+import { eq, and, or, gte, lte, desc, sql } from "drizzle-orm";
 import { db } from "../db";
 import crypto from "crypto";
 import { ShopifyService } from "../services/shopifyService";
@@ -1070,6 +1070,184 @@ Rules:
     } catch (error) {
       console.error("Error generating AI staffing recommendations:", error);
       res.status(500).json({ message: "Failed to generate staffing recommendations" });
+    }
+  });
+
+  /**
+   * GDPR Mandatory Webhooks — Required for Shopify App Store compliance.
+   *
+   * All three endpoints validate the Shopify HMAC-SHA256 signature (base64)
+   * from the X-Shopify-Hmac-Sha256 header using the SHOPIFY_API_SECRET.
+   *
+   * Configure in Shopify Partner Dashboard > App setup > GDPR mandatory webhooks:
+   *   Customer data request: POST /api/webhooks/shopify/customers/data_request
+   *   Customer erasure:      POST /api/webhooks/shopify/customers/redact
+   *   Shop erasure:          POST /api/webhooks/shopify/shop/redact
+   */
+
+  app.post("/api/webhooks/shopify/customers/data_request", async (req: any, res: Response) => {
+    try {
+      const hmacHeader = req.headers["x-shopify-hmac-sha256"] as string;
+      const apiSecret = config.shopify.apiSecret;
+      const rawBody: Buffer = req.rawBody || Buffer.from(JSON.stringify(req.body));
+      if (!apiSecret || !hmacHeader || !verifyShopifyWebhookHmac(rawBody, hmacHeader, apiSecret)) {
+        console.warn("[GDPR] Customer data request: HMAC verification failed");
+        return res.status(401).json({ error: "Invalid HMAC signature" });
+      }
+
+      const { shop_domain, customer, orders_requested } = req.body;
+      const normalizedDomain = (shop_domain || "").toLowerCase().trim();
+      const customerId: string | null = customer?.id ? String(customer.id) : null;
+      const customerEmail: string | null = customer?.email || null;
+      const requestedOrderIds: string[] = (orders_requested || []).map((o: any) => String(o.id || o));
+
+      console.log(
+        `[GDPR] Customer data request — shop: ${normalizedDomain}, customerId: ${customerId}, email: ${customerEmail}`
+      );
+
+      const shopRecord = await db.select({
+        shopDomain: shops.shopDomain,
+        shopName: shops.shopName,
+        isActive: shops.isActive,
+        installedAt: shops.installedAt,
+      }).from(shops).where(eq(shops.shopDomain, normalizedDomain)).limit(1);
+
+      const salesData = await db.select({
+        id: shopifyDailySales.id,
+        date: shopifyDailySales.date,
+        orderCount: shopifyDailySales.orderCount,
+        totalRevenue: shopifyDailySales.totalRevenue,
+      }).from(shopifyDailySales).where(eq(shopifyDailySales.shopDomain, normalizedDomain));
+
+      const customerConditions: any[] = [];
+      if (customerId) {
+        customerConditions.push(
+          sql`${shopifyOrders.customerData}->>'id' = ${customerId}`
+        );
+      }
+      if (customerEmail) {
+        customerConditions.push(eq(shopifyOrders.email, customerEmail));
+      }
+      for (const orderId of requestedOrderIds) {
+        customerConditions.push(eq(shopifyOrders.orderId, orderId));
+      }
+
+      let customerOrderData: any[] = [];
+      if (customerConditions.length > 0) {
+        customerOrderData = await db.select({
+          id: shopifyOrders.id,
+          orderId: shopifyOrders.orderId,
+          orderNumber: shopifyOrders.orderNumber,
+          email: shopifyOrders.email,
+          totalPrice: shopifyOrders.totalPrice,
+          orderCreatedAt: shopifyOrders.orderCreatedAt,
+        }).from(shopifyOrders).where(
+          and(eq(shopifyOrders.shopDomain, normalizedDomain), or(...customerConditions)!)
+        );
+      }
+
+      console.log(`[GDPR] Data held for customer at shop ${normalizedDomain}:`, {
+        shopExists: shopRecord.length > 0,
+        aggregatedSalesDaysCount: salesData.length,
+        customerOrderRecordsCount: customerOrderData.length,
+        customerIdentifier: { id: customerId, email: customerEmail },
+        requestedOrderIds,
+        dataHeld: {
+          tables: ["shops", "user_shops", "shopify_daily_sales", "shopify_orders"],
+          note: "shopify_daily_sales contains aggregated daily totals (no per-customer PII); shopify_orders may contain customer email and order data.",
+        },
+      });
+
+      return res.status(200).json({ message: "Data request received and logged" });
+    } catch (error) {
+      console.error("[GDPR] Customer data request error:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.post("/api/webhooks/shopify/customers/redact", async (req: any, res: Response) => {
+    try {
+      const hmacHeader = req.headers["x-shopify-hmac-sha256"] as string;
+      const apiSecret = config.shopify.apiSecret;
+      const rawBody: Buffer = req.rawBody || Buffer.from(JSON.stringify(req.body));
+      if (!apiSecret || !hmacHeader || !verifyShopifyWebhookHmac(rawBody, hmacHeader, apiSecret)) {
+        console.warn("[GDPR] Customer redact: HMAC verification failed");
+        return res.status(401).json({ error: "Invalid HMAC signature" });
+      }
+
+      const { shop_domain, customer, orders_to_redact } = req.body;
+      const normalizedDomain = (shop_domain || "").toLowerCase().trim();
+      const orderIds: string[] = (orders_to_redact || []).map((o: any) => String(o.id || o));
+      const customerId: string | null = customer?.id ? String(customer.id) : null;
+      const customerEmail: string | null = customer?.email || null;
+
+      console.log(
+        `[GDPR] Customer redact request — shop: ${normalizedDomain}, customerId: ${customerId}, email: ${customerEmail}`
+      );
+
+      if (orderIds.length > 0) {
+        for (const orderId of orderIds) {
+          await db.update(shopifyOrders)
+            .set({ email: null, customerData: null })
+            .where(and(eq(shopifyOrders.shopDomain, normalizedDomain), eq(shopifyOrders.orderId, orderId)));
+        }
+      }
+
+      const identityConditions: any[] = [];
+      if (customerId) {
+        identityConditions.push(sql`${shopifyOrders.customerData}->>'id' = ${customerId}`);
+      }
+      if (customerEmail) {
+        identityConditions.push(eq(shopifyOrders.email, customerEmail));
+      }
+      if (identityConditions.length > 0) {
+        await db.update(shopifyOrders)
+          .set({ email: null, customerData: null })
+          .where(and(eq(shopifyOrders.shopDomain, normalizedDomain), or(...identityConditions)!));
+      }
+
+      console.log(`[GDPR] Customer redaction completed for shop: ${normalizedDomain}`, {
+        customerId,
+        customerEmail,
+        orderIdsRedacted: orderIds,
+        identityFieldsUsed: [customerId ? "customerId" : null, customerEmail ? "email" : null].filter(Boolean),
+      });
+
+      return res.status(200).json({ message: "Customer data redaction request processed" });
+    } catch (error) {
+      console.error("[GDPR] Customer redact error:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.post("/api/webhooks/shopify/shop/redact", async (req: any, res: Response) => {
+    try {
+      const hmacHeader = req.headers["x-shopify-hmac-sha256"] as string;
+      const apiSecret = config.shopify.apiSecret;
+      const rawBody: Buffer = req.rawBody || Buffer.from(JSON.stringify(req.body));
+      if (!apiSecret || !hmacHeader || !verifyShopifyWebhookHmac(rawBody, hmacHeader, apiSecret)) {
+        console.warn("[GDPR] Shop redact: HMAC verification failed");
+        return res.status(401).json({ error: "Invalid HMAC signature" });
+      }
+
+      const { shop_domain } = req.body;
+      const normalizedDomain = (shop_domain || "").toLowerCase().trim();
+
+      console.log(`[GDPR] Shop redact request — shop: ${normalizedDomain}`);
+
+      await db.delete(shopifyOrders).where(eq(shopifyOrders.shopDomain, normalizedDomain));
+      await db.delete(shopifyDailySales).where(eq(shopifyDailySales.shopDomain, normalizedDomain));
+      await db.delete(userShops).where(eq(userShops.shopDomain, normalizedDomain));
+      await db.delete(shops).where(eq(shops.shopDomain, normalizedDomain));
+
+      console.log(`[GDPR] Shop redaction completed for: ${normalizedDomain}`, {
+        tablesCleared: ["shopify_orders", "shopify_daily_sales", "user_shops", "shops"],
+      });
+
+      return res.status(200).json({ message: "Shop data redacted successfully" });
+    } catch (error) {
+      console.error("[GDPR] Shop redact error:", error);
+      return res.status(500).json({ error: "Internal server error" });
     }
   });
 }
