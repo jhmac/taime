@@ -114,11 +114,11 @@ import JoinPage from "@/pages/JoinPage";
 import { WebSocketProvider } from "@/contexts/WebSocketContext";
 import type { Permission } from "@shared/schema";
 
-function ProtectedRoute({ children, permission }: { children: React.ReactNode; permission?: string }) {
+function ProtectedRoute({ children, permission, allowAllAuthenticated }: { children: React.ReactNode; permission?: string; allowAllAuthenticated?: boolean }) {
   const { user, isLoading } = useAuth();
   const { data: permissions = [], isError: permissionsError, isLoading: permissionsLoading } = useQuery<Permission[]>({
     queryKey: ["/api/auth/permissions"],
-    enabled: !!user,
+    enabled: !!user && !allowAllAuthenticated,
     retry: 2,
     retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
     staleTime: 5 * 60 * 1000,
@@ -134,7 +134,44 @@ function ProtectedRoute({ children, permission }: { children: React.ReactNode; p
     }
   }, [isLoading, permissionsLoading]);
 
-  if (isLoading || !user || permissionsLoading) {
+  if (isLoading) {
+    if (loadingTimedOut) {
+      return (
+        <div className="min-h-screen bg-background p-4">
+          <div className="space-y-4 max-w-sm mx-auto mt-20">
+            <div className="rounded-lg border bg-card p-6">
+              <h3 className="text-lg font-semibold">Loading is taking too long</h3>
+              <p className="text-sm text-muted-foreground mt-2">
+                We're having trouble loading this page. Please try refreshing.
+              </p>
+              <button onClick={() => window.location.reload()} className="text-sm text-primary underline mt-3">
+                Refresh
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
+  if (allowAllAuthenticated) {
+    return <>{children}</>;
+  }
+
+  if (permissionsLoading) {
     if (loadingTimedOut) {
       return (
         <div className="min-h-screen bg-background p-4">
@@ -309,7 +346,7 @@ function AuthenticatedApp() {
       <Route path="/gtd/review" component={WeeklyReview} />
       <Route path="/lean-board" component={LeanBoard} />
       <Route path="/cash">
-        <ProtectedRoute><CashManagement /></ProtectedRoute>
+        <ProtectedRoute allowAllAuthenticated><CashManagement /></ProtectedRoute>
       </Route>
       <Route path="/timesheets">
         <ProtectedRoute permission="hr.payroll_view"><Timesheets /></ProtectedRoute>

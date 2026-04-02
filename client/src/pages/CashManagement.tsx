@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
@@ -146,6 +146,18 @@ export default function CashManagement() {
   const closingSessions = sessions.filter((s: any) => s.sessionType === "closing");
   const hasDeposit = deposits.length > 0;
 
+  const closingTimeStr = settings?.closingTime as string | undefined;
+  const closingTimeBlocked = (() => {
+    if (!closingTimeStr) return false;
+    const [h, m] = closingTimeStr.split(":").map(Number);
+    const now = new Date();
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    return nowMinutes < h * 60 + m;
+  })();
+  const closingTimeFormatted = closingTimeStr
+    ? new Date(0, 0, 0, ...closingTimeStr.split(":").map(Number) as [number, number]).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })
+    : null;
+
   const getRegisterStatus = (regName: string) => {
     const opening = openingSessions.find((s: any) => s.registerName === regName);
     const closing = closingSessions.find((s: any) => s.registerName === regName);
@@ -267,14 +279,21 @@ export default function CashManagement() {
                             )}
                           </div>
                         ) : (
-                          <Button size="sm" variant="outline" className="w-full h-10"
-                            onClick={() => createSessionMutation.mutate({
-                              sessionType: "closing", registerName: reg.name,
-                              startingCash: settings?.defaultStartingCash || "200.00",
-                            })}
-                            disabled={createSessionMutation.isPending || selectedDate !== today || !opening || opening.status === "pending"}>
-                            <i className="fas fa-door-closed mr-1" /> Close Drawer
-                          </Button>
+                          <div className="space-y-1">
+                            <Button size="sm" variant="outline" className="w-full h-10"
+                              onClick={() => createSessionMutation.mutate({
+                                sessionType: "closing", registerName: reg.name,
+                                startingCash: settings?.defaultStartingCash || "200.00",
+                              })}
+                              disabled={createSessionMutation.isPending || selectedDate !== today || !opening || opening.status === "pending" || closingTimeBlocked}>
+                              <i className="fas fa-door-closed mr-1" /> Close Drawer
+                            </Button>
+                            {closingTimeBlocked && closingTimeFormatted && (
+                              <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                                <i className="fas fa-clock" /> Available after {closingTimeFormatted}
+                              </p>
+                            )}
+                          </div>
                         )}
                       </div>
                     </div>
@@ -322,7 +341,7 @@ export default function CashManagement() {
           ))}
 
           {isAdmin && (
-            <OwnerSection selectedDate={selectedDate} ownerTab={ownerTab} setOwnerTab={setOwnerTab} deposits={deposits} />
+            <OwnerSection selectedDate={selectedDate} ownerTab={ownerTab} setOwnerTab={setOwnerTab} deposits={deposits} settings={settings} />
           )}
         </>
       )}
@@ -330,7 +349,7 @@ export default function CashManagement() {
   );
 }
 
-function OwnerSection({ selectedDate, ownerTab, setOwnerTab, deposits }: { selectedDate: string; ownerTab: string; setOwnerTab: (t: string) => void; deposits: any[] }) {
+function OwnerSection({ selectedDate, ownerTab, setOwnerTab, deposits, settings }: { selectedDate: string; ownerTab: string; setOwnerTab: (t: string) => void; deposits: any[]; settings: any }) {
   const { toast } = useToast();
 
   const { data: dailyReport, isLoading: reportLoading } = useQuery({
@@ -345,6 +364,10 @@ function OwnerSection({ selectedDate, ownerTab, setOwnerTab, deposits }: { selec
 
   const [investigationData, setInvestigationData] = useState<any>(null);
   const [investigating, setInvestigating] = useState(false);
+  const [closingTimeInput, setClosingTimeInput] = useState(settings?.closingTime || "");
+  useEffect(() => {
+    setClosingTimeInput(settings?.closingTime || "");
+  }, [settings?.closingTime]);
 
   const reviewMutation = useMutation({
     mutationFn: async ({ depositId, status, reviewNotes }: { depositId: string; status: string; reviewNotes?: string }) => {
@@ -355,6 +378,18 @@ function OwnerSection({ selectedDate, ownerTab, setOwnerTab, deposits }: { selec
       queryClient.invalidateQueries({ queryKey: ["/api/cash/daily-report"] });
       toast({ title: "Review saved" });
     },
+  });
+
+  const settingsMutation = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await apiRequest("PUT", "/api/cash/settings", data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/cash/settings"] });
+      toast({ title: "Settings saved" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
   const runInvestigation = async () => {
@@ -379,10 +414,11 @@ function OwnerSection({ selectedDate, ownerTab, setOwnerTab, deposits }: { selec
       </CardHeader>
       <CardContent>
         <Tabs value={ownerTab} onValueChange={setOwnerTab}>
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="daily">Daily</TabsTrigger>
             <TabsTrigger value="trends">Trends</TabsTrigger>
             <TabsTrigger value="investigation">Investigation</TabsTrigger>
+            <TabsTrigger value="settings">Settings</TabsTrigger>
           </TabsList>
 
           <TabsContent value="daily" className="space-y-3 mt-3">
@@ -545,6 +581,47 @@ function OwnerSection({ selectedDate, ownerTab, setOwnerTab, deposits }: { selec
                 </Button>
               </div>
             )}
+          </TabsContent>
+
+          <TabsContent value="settings" className="space-y-4 mt-3">
+            <div className="space-y-3">
+              <div>
+                <label className="text-sm font-medium">Closing Time</label>
+                <p className="text-xs text-muted-foreground mb-2">
+                  Employees cannot start a closing count before this time. Leave empty to allow at any time.
+                </p>
+                <div className="flex gap-2 items-center">
+                  <Input
+                    type="time"
+                    value={closingTimeInput}
+                    onChange={(e) => setClosingTimeInput(e.target.value)}
+                    className="w-40"
+                  />
+                  {closingTimeInput && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setClosingTimeInput("")}
+                      className="text-muted-foreground"
+                    >
+                      <i className="fas fa-times mr-1" /> Clear
+                    </Button>
+                  )}
+                </div>
+                {closingTimeInput && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Closing count will be available after {new Date(0, 0, 0, ...closingTimeInput.split(":").map(Number) as [number, number]).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })}
+                  </p>
+                )}
+              </div>
+              <Button
+                onClick={() => settingsMutation.mutate({ ...settings, closingTime: closingTimeInput || null })}
+                disabled={settingsMutation.isPending}
+                size="sm"
+              >
+                {settingsMutation.isPending ? <><i className="fas fa-spinner fa-spin mr-1" /> Saving...</> : <><i className="fas fa-save mr-1" /> Save Settings</>}
+              </Button>
+            </div>
           </TabsContent>
         </Tabs>
       </CardContent>

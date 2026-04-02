@@ -110,9 +110,19 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
 
   app.put("/api/cash/settings", isAuthenticated, async (req: any, res) => {
     try {
-      if (!(await requireCashAccess(req, res))) return;
-      const storeId = await resolveStoreId(req.auth?.userId);
-      const { defaultStartingCash, registers, overShortThreshold, requireDepositPhoto, requireOverShortExplanation, autoFlagThreshold } = req.body;
+      const userId = req.auth?.userId;
+      const isOwnerOrAdmin = await requireOwnerOrAdmin(storage, userId);
+      if (!isOwnerOrAdmin) {
+        return res.status(403).json({ error: "Only admins and owners can update Cash Management settings" });
+      }
+      const storeId = await resolveStoreId(userId);
+      const { defaultStartingCash, registers, overShortThreshold, requireDepositPhoto, requireOverShortExplanation, autoFlagThreshold, closingTime } = req.body;
+
+      if (closingTime !== undefined && closingTime !== null && closingTime !== "") {
+        if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(closingTime)) {
+          return res.status(400).json({ error: "closingTime must be in HH:MM 24-hour format (e.g. '21:00')" });
+        }
+      }
 
       const [existing] = await db.select().from(cashManagementSettings)
         .where(eq(cashManagementSettings.storeId, storeId));
@@ -124,6 +134,7 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
             registers, overShortThreshold: overShortThreshold?.toString(),
             requireDepositPhoto, requireOverShortExplanation,
             autoFlagThreshold: autoFlagThreshold?.toString(),
+            closingTime: closingTime || null,
             updatedAt: new Date(),
           })
           .where(eq(cashManagementSettings.storeId, storeId))
@@ -138,6 +149,7 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
         overShortThreshold: overShortThreshold?.toString() || "5.00",
         requireDepositPhoto, requireOverShortExplanation,
         autoFlagThreshold: autoFlagThreshold?.toString() || "20.00",
+        closingTime: closingTime || null,
       }).returning();
 
       res.json(created);
@@ -160,6 +172,21 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
 
       if (!sessionType || !registerName) {
         return res.status(400).json({ error: "sessionType and registerName are required" });
+      }
+
+      if (sessionType === "closing") {
+        const [storeSettings] = await db.select().from(cashManagementSettings)
+          .where(eq(cashManagementSettings.storeId, storeId));
+        if (storeSettings?.closingTime) {
+          const now = new Date();
+          const [closingHour, closingMinute] = storeSettings.closingTime.split(":").map(Number);
+          const closingMinutes = closingHour * 60 + closingMinute;
+          const nowMinutes = now.getHours() * 60 + now.getMinutes();
+          if (nowMinutes < closingMinutes) {
+            const formatted = new Date(0, 0, 0, closingHour, closingMinute).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+            return res.status(403).json({ error: `Closing count is not available until ${formatted}`, closingTime: storeSettings.closingTime });
+          }
+        }
       }
 
       const today = new Date().toISOString().split("T")[0];
