@@ -6,7 +6,6 @@ import {
   Users,
   Calendar,
   CheckSquare,
-  Menu,
   Sparkles,
   ChevronRight,
   Clock,
@@ -15,7 +14,9 @@ import {
   Award,
   MoreHorizontal,
   Activity,
-  MessageSquare
+  MessageSquare,
+  MessageCircle,
+  Settings
 } from "lucide-react";
 
 const Card = ({ children, className = "", style = {} }: { children: React.ReactNode; className?: string; style?: React.CSSProperties }) => (
@@ -250,23 +251,35 @@ export function Dashboard() {
         </div>
 
         {/* Bottom Navigation */}
-        <div className="absolute bottom-0 w-full z-50 px-4 pb-6 pt-10 pointer-events-none" style={{ background: "linear-gradient(to top, #FFFBF5 60%, transparent)" }}>
-          <div className="h-[72px] rounded-[24px] px-6 flex justify-between items-center pointer-events-auto" style={{ backgroundColor: "rgba(255,251,245,0.96)", backdropFilter: "blur(20px)", border: "1px solid #F0EBE3", boxShadow: "0 -4px 20px rgba(0,0,0,0.05)" }}>
-            <button className="flex flex-col items-center gap-1.5 relative">
-              <Home size={22} strokeWidth={2.5} style={{ color: "#F47D31" }} />
-              <div className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full" style={{ backgroundColor: "#F47D31" }} />
-            </button>
-            <button className="flex flex-col items-center gap-1.5"><Users size={22} strokeWidth={2} style={{ color: "#1A1A2E40" }} /></button>
-            <button className="flex flex-col items-center gap-1.5"><Calendar size={22} strokeWidth={2} style={{ color: "#1A1A2E40" }} /></button>
-            <button className="flex flex-col items-center gap-1.5 relative">
-              <CheckSquare size={22} strokeWidth={2} style={{ color: "#1A1A2E40" }} />
-              <div className="absolute -top-1 -right-1.5 w-3.5 h-3.5 rounded-full border-2 border-white flex items-center justify-center" style={{ backgroundColor: "#FF6B6B" }}>
-                <span className="text-[8px] font-extrabold text-white leading-none">3</span>
-              </div>
-            </button>
-            <button className="flex flex-col items-center gap-1.5"><Menu size={22} strokeWidth={2} style={{ color: "#1A1A2E40" }} /></button>
+        <div className="absolute bottom-0 w-full z-50 pointer-events-none" style={{ background: "linear-gradient(to top, #FFFBF5 55%, transparent)", paddingTop: 32 }}>
+          <div className="mx-4 mb-5 rounded-[28px] pointer-events-auto" style={{ backgroundColor: "#FFFFFF", boxShadow: "0 4px 24px rgba(0,0,0,0.10)", padding: "10px 24px 10px" }}>
+            <div className="flex justify-between items-center">
+              {/* Home — ACTIVE */}
+              <button className="flex flex-col items-center gap-1">
+                <div className="w-11 h-11 rounded-2xl flex items-center justify-center" style={{ backgroundColor: "#F47D31" }}>
+                  <Home size={21} strokeWidth={2.5} className="text-white" />
+                </div>
+                <span className="text-[11px] font-extrabold" style={{ color: "#F47D31" }}>Home</span>
+              </button>
+              {/* Calendar */}
+              <button className="flex flex-col items-center gap-1 pt-1">
+                <Calendar size={22} strokeWidth={1.8} style={{ color: "#1A1A2E55" }} />
+              </button>
+              {/* Team */}
+              <button className="flex flex-col items-center gap-1 pt-1">
+                <Users size={22} strokeWidth={1.8} style={{ color: "#1A1A2E55" }} />
+              </button>
+              {/* Messages */}
+              <button className="flex flex-col items-center gap-1 pt-1">
+                <MessageCircle size={22} strokeWidth={1.8} style={{ color: "#1A1A2E55" }} />
+              </button>
+              {/* Settings */}
+              <button className="flex flex-col items-center gap-1 pt-1">
+                <Settings size={22} strokeWidth={1.8} style={{ color: "#1A1A2E55" }} />
+              </button>
+            </div>
           </div>
-          <div className="w-[120px] h-1.5 rounded-full mx-auto mt-5" style={{ backgroundColor: "#1A1A2E20" }} />
+          <div className="w-[120px] h-1.5 rounded-full mx-auto" style={{ backgroundColor: "#1A1A2E20" }} />
         </div>
 
       </div>
