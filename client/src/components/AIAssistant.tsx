@@ -221,14 +221,14 @@ export default function AIAssistant() {
       {!isOpen && (
         <button
           onClick={() => setIsOpen(true)}
-          className="fixed bottom-20 right-4 z-50 w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-lg hover:shadow-xl transition-all hover:scale-105 flex items-center justify-center"
+          className="fixed bottom-32 right-4 z-50 w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-lg hover:shadow-xl transition-all hover:scale-105 flex items-center justify-center md:bottom-20"
         >
           <Bot className="w-6 h-6" />
         </button>
       )}
 
       {isOpen && (
-        <div className="fixed bottom-4 right-4 z-50 w-[380px] max-w-[calc(100vw-2rem)] h-[600px] max-h-[calc(100vh-6rem)] flex flex-col bg-background border rounded-xl shadow-2xl overflow-hidden">
+        <div className="fixed bottom-32 right-4 z-50 w-[380px] max-w-[calc(100vw-2rem)] h-[600px] max-h-[calc(100vh-9rem)] flex flex-col bg-background border rounded-xl shadow-2xl overflow-hidden md:bottom-4 md:max-h-[calc(100vh-6rem)]">
           <div className="flex items-center justify-between px-4 py-3 border-b bg-primary text-primary-foreground">
             <div className="flex items-center gap-2">
               {view !== 'chat' && view !== 'history' && (

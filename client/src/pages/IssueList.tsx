@@ -229,7 +229,7 @@ export default function IssueList() {
 
       <Button
         size="lg"
-        className="fixed bottom-20 right-4 md:bottom-6 md:right-6 rounded-full h-14 w-14 shadow-lg z-40 p-0"
+        className="fixed bottom-32 right-4 md:bottom-6 md:right-6 rounded-full h-14 w-14 shadow-lg z-40 p-0"
         onClick={() => setShowReportDialog(true)}
       >
         <AlertTriangle className="h-6 w-6" />

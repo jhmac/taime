@@ -15,7 +15,7 @@ const adminNavItems: NavItem[] = [
   { path: '/schedules', icon: Calendar, label: 'Schedule' },
   { path: '/team', icon: Users, label: 'Team' },
   { path: '/messages', icon: MessageCircle, label: 'Messages', badge: true },
-  { path: '/admin', icon: Settings, label: 'Settings' },
+  { path: '/more', icon: Settings, label: 'More' },
 ];
 
 const employeeNavItems: NavItem[] = [
@@ -39,10 +39,18 @@ export default function BottomNavigation() {
   });
   const unreadCount = unreadData?.data?.count || 0;
 
+  const moreRoutes = [
+    '/more', '/requests', '/team-directory', '/employee-settings', '/support',
+    '/profile', '/my-score', '/availability', '/kudos', '/communication',
+    '/learning', '/lean-board', '/improvements', '/issues', '/gtd',
+    '/tasks', '/payroll', '/timesheets', '/payroll-export', '/cash',
+    '/hr', '/analytics', '/performance', '/operations', '/admin',
+  ];
+
   const isActive = (path: string) => {
     if (path === '/') return location === '/';
     if (path === '/more') {
-      return ['/more', '/requests', '/team-directory', '/employee-settings', '/support', '/profile'].includes(location);
+      return location === '/more' || moreRoutes.some(r => location === r || location.startsWith(r + '/'));
     }
     return location === path || location.startsWith(path + '/');
   };

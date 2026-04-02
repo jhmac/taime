@@ -270,7 +270,7 @@ export default function AskMAinagerSheet() {
     <>
       <button
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-20 right-4 z-50 w-14 h-14 rounded-full bg-gradient-to-br from-violet-600 to-indigo-600 text-white shadow-lg hover:shadow-xl transition-all hover:scale-105 flex flex-col items-center justify-center gap-0.5"
+        className="fixed bottom-32 right-4 z-50 w-14 h-14 rounded-full bg-gradient-to-br from-violet-600 to-indigo-600 text-white shadow-lg hover:shadow-xl transition-all hover:scale-105 flex flex-col items-center justify-center gap-0.5 md:bottom-20"
         aria-label="Ask MAinager"
       >
         <Sparkles className="h-5 w-5" />
