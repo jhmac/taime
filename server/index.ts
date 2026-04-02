@@ -1,5 +1,6 @@
 import express, { type Request, Response, NextFunction } from "express";
 import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { config } from "./lib/config";
@@ -24,6 +25,8 @@ process.on('unhandledRejection', (reason: any) => {
 
 const app = express();
 
+app.set('trust proxy', 1);
+
 app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false,
@@ -31,6 +34,15 @@ app.use(helmet({
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: false, limit: '10mb' }));
+
+const globalApiRateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 300,
+  message: { message: "Too many requests, please try again later" },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api', globalApiRateLimiter);
 
 import path from "path";
 app.use('/uploads/videos', express.static(path.resolve(process.cwd(), 'uploads', 'videos'), {
