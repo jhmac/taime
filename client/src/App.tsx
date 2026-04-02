@@ -89,6 +89,7 @@ import MorningHuddle from "@/pages/MorningHuddle";
 import MorningWhisper from "@/pages/MorningWhisper";
 import ImprovementFeed from "@/pages/ImprovementFeed";
 import NotFound from "@/pages/not-found";
+import ShopifyCallbackSuccess from "@/pages/ShopifyCallbackSuccess";
 import OfflineIndicator from "@/components/OfflineIndicator";
 import SmartClockPrompt from "@/components/SmartClockPrompt";
 import FocusClockOut from "@/components/FocusClockOut";
@@ -346,6 +347,14 @@ function Router() {
 
   if (location === "/privacy") {
     return <PrivacyPolicy />;
+  }
+
+  if (location.startsWith("/shopify-callback-success")) {
+    return (
+      <Switch>
+        <Route path="/shopify-callback-success" component={ShopifyCallbackSuccess} />
+      </Switch>
+    );
   }
 
   return (

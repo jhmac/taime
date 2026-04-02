@@ -1,8 +1,9 @@
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useState } from 'react';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Store } from 'lucide-react';
+import { Store, ExternalLink, RefreshCw, Unlink, TrendingUp, ShoppingCart } from 'lucide-react';
 import type { PosConnectionSectionProps } from '@/components/settings/types';
 
 export default function PosConnectionSection({
@@ -14,6 +15,22 @@ export default function PosConnectionSection({
   syncSalesMutation,
   salesData,
 }: PosConnectionSectionProps) {
+  const [storeName, setStoreName] = useState('');
+
+  function handleConnect() {
+    const raw = storeName.trim();
+    if (!raw) return;
+    const domain = raw.includes('.myshopify.com')
+      ? raw.toLowerCase()
+      : `${raw.toLowerCase()}.myshopify.com`;
+    setShopifyDomain(domain);
+    connectShopifyMutation.mutate(domain);
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'Enter') handleConnect();
+  }
+
   return (
     <div className="space-y-6">
       <Card>
@@ -21,50 +38,109 @@ export default function PosConnectionSection({
           <CardTitle className="text-base flex items-center gap-2">
             <Store className="w-5 h-5" /> Shopify Integration
           </CardTitle>
+          <CardDescription>
+            Connect your Shopify store to unlock AI-powered staffing recommendations based on your real sales data.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {connectedShop ? (
             <div className="space-y-4">
-              <div className="flex items-center justify-between p-4 border rounded-lg bg-green-50 dark:bg-green-900/10">
+              <div className="flex items-center justify-between p-4 border rounded-lg bg-green-50 dark:bg-green-900/10 border-green-200 dark:border-green-800">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+                  <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center flex-shrink-0">
                     <Store className="w-5 h-5 text-green-600" />
                   </div>
                   <div>
-                    <p className="font-medium text-sm">{connectedShop.shopDomain}</p>
-                    <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">Connected</Badge>
+                    <p className="font-semibold text-sm text-green-900 dark:text-green-100">{connectedShop.shopName || connectedShop.shopDomain}</p>
+                    <p className="text-xs text-green-700 dark:text-green-400">{connectedShop.shopDomain}</p>
+                    <Badge className="mt-1 bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 text-xs">
+                      Connected
+                    </Badge>
                   </div>
                 </div>
-                <div className="flex gap-2">
-                  <Button size="sm" variant="outline" onClick={() => syncSalesMutation.mutate(connectedShop.shopDomain)} disabled={syncSalesMutation.isPending}>
-                    {syncSalesMutation.isPending ? 'Syncing...' : 'Sync Sales'}
+                <div className="flex gap-2 flex-shrink-0">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => syncSalesMutation.mutate(connectedShop.shopDomain)}
+                    disabled={syncSalesMutation.isPending}
+                    className="gap-1.5"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${syncSalesMutation.isPending ? 'animate-spin' : ''}`} />
+                    {syncSalesMutation.isPending ? 'Syncing…' : 'Sync Sales'}
                   </Button>
-                  <Button size="sm" variant="destructive" onClick={() => disconnectShopifyMutation.mutate(connectedShop.shopDomain)} disabled={disconnectShopifyMutation.isPending}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => disconnectShopifyMutation.mutate(connectedShop.shopDomain)}
+                    disabled={disconnectShopifyMutation.isPending}
+                    className="gap-1.5 text-red-600 hover:text-red-700 border-red-200 hover:border-red-300"
+                  >
+                    <Unlink className="w-3.5 h-3.5" />
                     Disconnect
                   </Button>
                 </div>
               </div>
+
               {salesData && (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  <div className="p-3 border rounded-lg text-center">
-                    <p className="text-2xl font-bold">{salesData.totalOrders || 0}</p>
-                    <p className="text-xs text-muted-foreground">Total Orders</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="p-4 border rounded-lg flex items-center gap-3">
+                    <ShoppingCart className="w-5 h-5 text-muted-foreground flex-shrink-0" />
+                    <div>
+                      <p className="text-2xl font-bold">{(salesData.totalOrders || 0).toLocaleString()}</p>
+                      <p className="text-xs text-muted-foreground">Total Orders Synced</p>
+                    </div>
                   </div>
-                  <div className="p-3 border rounded-lg text-center">
-                    <p className="text-2xl font-bold">${(salesData.totalRevenue || 0).toLocaleString()}</p>
-                    <p className="text-xs text-muted-foreground">Total Revenue</p>
+                  <div className="p-4 border rounded-lg flex items-center gap-3">
+                    <TrendingUp className="w-5 h-5 text-muted-foreground flex-shrink-0" />
+                    <div>
+                      <p className="text-2xl font-bold">${(salesData.totalRevenue || 0).toLocaleString()}</p>
+                      <p className="text-xs text-muted-foreground">Total Revenue</p>
+                    </div>
                   </div>
                 </div>
               )}
             </div>
           ) : (
             <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">Connect your Shopify store to sync sales data and get AI-powered staffing recommendations.</p>
-              <div className="flex gap-2">
-                <Input placeholder="your-store.myshopify.com" value={shopifyDomain} onChange={e => setShopifyDomain(e.target.value)} />
-                <Button onClick={() => connectShopifyMutation.mutate(shopifyDomain)} disabled={!shopifyDomain || connectShopifyMutation.isPending}>
-                  {connectShopifyMutation.isPending ? 'Connecting...' : 'Connect'}
-                </Button>
+              <div className="rounded-lg border border-dashed p-6 bg-muted/30 text-center space-y-3">
+                <div className="w-12 h-12 rounded-full bg-[#96bf48]/10 flex items-center justify-center mx-auto">
+                  <Store className="w-6 h-6 text-[#96bf48]" />
+                </div>
+                <div>
+                  <p className="font-medium text-sm">Connect your Shopify store</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    You'll be redirected to Shopify to authorize access. Once connected, Taime will sync your sales data automatically.
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Store name</label>
+                <div className="flex gap-2 items-center">
+                  <div className="flex-1 flex items-center border rounded-md overflow-hidden focus-within:ring-2 focus-within:ring-ring">
+                    <Input
+                      className="border-0 ring-0 focus-visible:ring-0 rounded-none"
+                      placeholder="your-store"
+                      value={storeName}
+                      onChange={e => setStoreName(e.target.value)}
+                      onKeyDown={handleKeyDown}
+                      disabled={connectShopifyMutation.isPending}
+                    />
+                    <span className="px-3 text-sm text-muted-foreground bg-muted border-l py-2 whitespace-nowrap">.myshopify.com</span>
+                  </div>
+                  <Button
+                    onClick={handleConnect}
+                    disabled={!storeName.trim() || connectShopifyMutation.isPending}
+                    className="gap-2 bg-[#96bf48] hover:bg-[#7ea33c] text-white flex-shrink-0"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    {connectShopifyMutation.isPending ? 'Opening…' : 'Connect'}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  A Shopify authorization window will open. Click <strong>Install</strong> to grant access.
+                </p>
               </div>
             </div>
           )}

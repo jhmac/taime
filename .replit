@@ -56,7 +56,6 @@ defaultBucketID = "replit-objstore-e4ded847-a601-4b0b-a5f7-a98c6109f723"
 [userenv]
 
 [userenv.shared]
-APP_URL = "http://localhost:5000"
 
 [postMerge]
 path = "scripts/post-merge.sh"

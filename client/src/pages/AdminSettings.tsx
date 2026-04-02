@@ -315,9 +315,32 @@ export default function AdminSettings() {
       return res.json();
     },
     onSuccess: (data: any) => {
-      if (data.authUrl) {
-        window.location.href = data.authUrl;
-      }
+      if (!data.authUrl) return;
+      const popup = window.open(
+        data.authUrl,
+        'shopify-connect',
+        'width=700,height=750,scrollbars=yes,resizable=yes'
+      );
+      const handleMessage = (event: MessageEvent) => {
+        if (event.origin !== window.location.origin) return;
+        if (event.data?.type === 'shopify-oauth-success') {
+          queryClient.invalidateQueries({ queryKey: ['/api/shopify/shops'] });
+          queryClient.invalidateQueries({ queryKey: ['/api/shopify/sales-data'] });
+          toast({ title: "Shopify Connected", description: "Your store has been connected successfully." });
+          setShopifyDomain('');
+        } else if (event.data?.type === 'shopify-oauth-error') {
+          toast({ title: "Connection Failed", description: event.data.message || "Please try again.", variant: "destructive" });
+        }
+        window.removeEventListener('message', handleMessage);
+        if (popup && !popup.closed) popup.close();
+      };
+      window.addEventListener('message', handleMessage);
+      const pollClosed = setInterval(() => {
+        if (popup?.closed) {
+          clearInterval(pollClosed);
+          window.removeEventListener('message', handleMessage);
+        }
+      }, 500);
     },
     onError: (error) => {
       toast({ title: "Error", description: `Failed to connect: ${error.message}`, variant: "destructive" });

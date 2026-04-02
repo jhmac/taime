@@ -9,6 +9,14 @@ const nylas = new Nylas({
 const grantId = config.nylas.grantId;
 
 function getAppUrl(req: { headers: Record<string, string | undefined> }): string {
+  if (config.server.appUrl) {
+    return config.server.appUrl.replace(/\/$/, "");
+  }
+  const replitDomains = process.env.REPLIT_DOMAINS;
+  if (replitDomains) {
+    const primaryDomain = replitDomains.split(",")[0].trim();
+    return `https://${primaryDomain}`;
+  }
   const host = req.headers["host"] || "localhost:5000";
   const protocol = host.includes(".replit.app") || host.includes(".repl.co") ? "https" : "http";
   return `${protocol}://${host}`;

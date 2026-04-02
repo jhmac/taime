@@ -33,6 +33,14 @@ setInterval(() => {
 }, 300000);
 
 function getAppUrl(requestHostname?: string): string {
+  if (config.server.appUrl) {
+    return config.server.appUrl.replace(/\/$/, "");
+  }
+  const replitDomains = process.env.REPLIT_DOMAINS;
+  if (replitDomains) {
+    const primaryDomain = replitDomains.split(",")[0].trim();
+    return `https://${primaryDomain}`;
+  }
   if (requestHostname) {
     const protocol = requestHostname.includes('replit.dev')
       || requestHostname.includes('.replit.app') ? 'https' : 'http';
@@ -109,14 +117,14 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
         const existingCode = processedAuthCodes.get(code);
         if (existingCode) {
           if (existingCode.status === 'success') {
-            return res.redirect(`/admin?shopify=connected&shop=${encodeURIComponent(String(shop))}`);
+            return res.redirect(`/shopify-callback-success?shop=${encodeURIComponent(String(shop))}`);
           }
           if (existingCode.status === 'processing') {
             for (let i = 0; i < 10; i++) {
               await new Promise(resolve => setTimeout(resolve, 500));
               const updated = processedAuthCodes.get(code);
               if (updated?.status === 'success') {
-                return res.redirect(`/admin?shopify=connected&shop=${encodeURIComponent(String(shop))}`);
+                return res.redirect(`/shopify-callback-success?shop=${encodeURIComponent(String(shop))}`);
               }
               if (updated?.status === 'failed') break;
             }
@@ -131,12 +139,12 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
         if (code && typeof code === 'string') {
           processedAuthCodes.set(code, { timestamp: Date.now(), status: 'failed' });
         }
-        return res.redirect(`/admin?shopify=error&message=${encodeURIComponent('Session expired. Please try again.')}`);
+        return res.redirect(`/shopify-callback-success?error=1&message=${encodeURIComponent('Session expired. Please try again.')}`);
       }
       oauthStates.delete(state as string);
 
       if (!shop || !code || typeof shop !== 'string' || typeof code !== 'string') {
-        return res.redirect(`/admin?shopify=error&message=${encodeURIComponent('Missing OAuth parameters')}`);
+        return res.redirect(`/shopify-callback-success?error=1&message=${encodeURIComponent('Missing OAuth parameters')}`);
       }
 
       const shopDomain = shop.toLowerCase().trim();
@@ -161,7 +169,7 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
         const hmacBuffer = Buffer.from(String(hmac), 'hex');
         if (hashBuffer.length !== hmacBuffer.length || !crypto.timingSafeEqual(hashBuffer, hmacBuffer)) {
           console.error('[Shopify OAuth] HMAC verification failed');
-          return res.redirect(`/admin?shopify=error&message=${encodeURIComponent('Security verification failed')}`);
+          return res.redirect(`/shopify-callback-success?error=1&message=${encodeURIComponent('Security verification failed')}`);
         }
       }
 
@@ -243,7 +251,7 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
         processedAuthCodes.set(code, { timestamp: Date.now(), status: 'success' });
       }
 
-      res.redirect(`/admin?shopify=connected&shop=${encodeURIComponent(shopDomain)}`);
+      res.redirect(`/shopify-callback-success?shop=${encodeURIComponent(shopDomain)}`);
     } catch (error) {
       const { code } = req.query;
       if (code && typeof code === 'string') {
@@ -251,7 +259,7 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
       }
       console.error('[Shopify OAuth] Callback error:', error);
       if (!res.headersSent) {
-        res.redirect(`/admin?shopify=error&message=${encodeURIComponent('Connection failed. Please try again.')}`);
+        res.redirect(`/shopify-callback-success?error=1&message=${encodeURIComponent('Connection failed. Please try again.')}`);
       }
     }
   });

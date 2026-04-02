@@ -4,6 +4,7 @@ const serverSchema = z.object({
   port: z.coerce.number().default(5000),
   nodeEnv: z.enum(["development", "production", "test"]).default("development"),
   logLevel: z.string().default(""),
+  appUrl: z.string().optional().default(""),
 });
 
 const databaseSchema = z.object({
@@ -78,6 +79,18 @@ const RECOMMENDED_VARS: Array<{ path: string; label: string }> = [
   { path: "anthropic.apiKey", label: "ANTHROPIC_API_KEY (AI features)" },
 ];
 
+const PRODUCTION_REQUIRED_VARS: Array<{ path: string; label: string }> = [
+  { path: "clerk.secretKey", label: "CLERK_SECRET_KEY" },
+  { path: "clerk.publishableKey", label: "CLERK_PUBLISHABLE_KEY" },
+  { path: "anthropic.apiKey", label: "ANTHROPIC_API_KEY" },
+  { path: "nylas.apiKey", label: "NYLAS_API_KEY" },
+  { path: "nylas.grantId", label: "NYLAS_GRANT_ID" },
+  { path: "vapid.publicKey", label: "VAPID_PUBLIC_KEY" },
+  { path: "vapid.privateKey", label: "VAPID_PRIVATE_KEY" },
+  { path: "shopify.apiKey", label: "SHOPIFY_API_KEY" },
+  { path: "shopify.apiSecret", label: "SHOPIFY_API_SECRET" },
+];
+
 function getNestedValue(obj: Record<string, any>, path: string): unknown {
   return path.split(".").reduce((acc, key) => acc?.[key], obj);
 }
@@ -88,6 +101,7 @@ function loadConfig(): AppConfig {
       port: process.env.PORT,
       nodeEnv: process.env.NODE_ENV,
       logLevel: process.env.LOG_LEVEL,
+      appUrl: process.env.APP_URL,
     },
     database: {
       url: process.env.DATABASE_URL,
@@ -147,14 +161,29 @@ function loadConfig(): AppConfig {
     result.data.server.logLevel = result.data.server.nodeEnv === "production" ? "info" : "debug";
   }
 
-  const missingRecommended = RECOMMENDED_VARS.filter(
-    (v) => !getNestedValue(result.data, v.path)
-  );
-  if (missingRecommended.length > 0) {
-    console.warn(
-      `[Config] Warning: Missing recommended environment variables:\n` +
-      missingRecommended.map((v) => `  - ${v.label}`).join("\n")
+  const isProduction = result.data.server.nodeEnv === "production";
+
+  if (isProduction) {
+    const missingRequired = PRODUCTION_REQUIRED_VARS.filter(
+      (v) => !getNestedValue(result.data, v.path)
     );
+    if (missingRequired.length > 0) {
+      console.error(
+        `\n[Config] FATAL: Missing required environment variables for production:\n` +
+        missingRequired.map((v) => `  - ${v.label}`).join("\n") + "\n"
+      );
+      process.exit(1);
+    }
+  } else {
+    const missingRecommended = RECOMMENDED_VARS.filter(
+      (v) => !getNestedValue(result.data, v.path)
+    );
+    if (missingRecommended.length > 0) {
+      console.warn(
+        `[Config] Warning: Missing recommended environment variables:\n` +
+        missingRecommended.map((v) => `  - ${v.label}`).join("\n")
+      );
+    }
   }
 
   return result.data;
