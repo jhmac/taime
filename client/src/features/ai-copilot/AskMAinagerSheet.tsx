@@ -70,6 +70,7 @@ function getQuickSuggestions(): { text: string; full: string }[] {
 
 export default function AskMAinagerSheet() {
   const { user } = useAuth();
+  const isAdmin = user?.role?.name === 'admin' || user?.role?.name === 'owner';
   const [, navigate] = useLocation();
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -95,6 +96,10 @@ export default function AskMAinagerSheet() {
     window.addEventListener("open-ask-mainager", handler);
     return () => window.removeEventListener("open-ask-mainager", handler);
   }, []);
+
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent("ask-mainager-state", { detail: { isOpen } }));
+  }, [isOpen]);
 
   const scrollToBottom = useCallback(() => {
     setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
@@ -268,17 +273,19 @@ export default function AskMAinagerSheet() {
 
   return (
     <>
-      <button
-        onClick={() => setIsOpen(true)}
-        className="fixed bottom-32 right-4 z-50 w-14 h-14 rounded-full bg-gradient-to-br from-violet-600 to-indigo-600 text-white shadow-lg hover:shadow-xl transition-all hover:scale-105 flex flex-col items-center justify-center gap-0.5 md:bottom-20"
-        aria-label="Ask MAinager"
-      >
-        <Sparkles className="h-5 w-5" />
-        <span className="text-[9px] font-semibold leading-none">Ask</span>
-        {pulseVisible && (
-          <span className="absolute inset-0 rounded-full bg-violet-400 animate-ping opacity-40 pointer-events-none" />
-        )}
-      </button>
+      {isAdmin && (
+        <button
+          onClick={() => setIsOpen(true)}
+          className="fixed bottom-32 right-4 z-50 w-14 h-14 rounded-full bg-gradient-to-br from-violet-600 to-indigo-600 text-white shadow-lg hover:shadow-xl transition-all hover:scale-105 flex flex-col items-center justify-center gap-0.5 md:bottom-20"
+          aria-label="Ask MAinager"
+        >
+          <Sparkles className="h-5 w-5" />
+          <span className="text-[9px] font-semibold leading-none">Ask</span>
+          {pulseVisible && (
+            <span className="absolute inset-0 rounded-full bg-violet-400 animate-ping opacity-40 pointer-events-none" />
+          )}
+        </button>
+      )}
 
       {isOpen && (
         <div className="fixed inset-0 z-[60] md:inset-auto md:bottom-4 md:right-4 md:w-[420px] md:h-[600px] md:rounded-2xl md:shadow-2xl flex flex-col bg-background border border-border overflow-hidden">

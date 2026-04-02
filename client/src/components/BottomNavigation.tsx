@@ -1,34 +1,50 @@
+import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
-import { Home, Calendar, Users, MessageCircle, Settings, LayoutDashboard, ClipboardList } from 'lucide-react';
+import { Home, Calendar, Users, MessageCircle, Settings, LayoutDashboard, Sparkles } from 'lucide-react';
 
 type NavItem = {
-  path: string;
+  path?: string;
+  action?: () => void;
   icon: React.ComponentType<{ className?: string; size?: number; strokeWidth?: number }>;
   label: string;
   badge?: boolean;
+  key: string;
 };
 
 const adminNavItems: NavItem[] = [
-  { path: '/', icon: LayoutDashboard, label: 'Home' },
-  { path: '/schedules', icon: Calendar, label: 'Schedule' },
-  { path: '/team', icon: Users, label: 'Team' },
-  { path: '/messages', icon: MessageCircle, label: 'Messages', badge: true },
-  { path: '/more', icon: Settings, label: 'More' },
+  { key: 'home', path: '/', icon: LayoutDashboard, label: 'Home' },
+  { key: 'schedule', path: '/schedules', icon: Calendar, label: 'Schedule' },
+  { key: 'team', path: '/team', icon: Users, label: 'Team' },
+  { key: 'messages', path: '/messages', icon: MessageCircle, label: 'Messages', badge: true },
+  { key: 'more', path: '/more', icon: Settings, label: 'More' },
 ];
 
+function openAskMAinager() {
+  window.dispatchEvent(new Event('open-ask-mainager'));
+}
+
 const employeeNavItems: NavItem[] = [
-  { path: '/', icon: Home, label: 'Home' },
-  { path: '/schedules', icon: Calendar, label: 'Schedule' },
-  { path: '/team-directory', icon: Users, label: 'Team' },
-  { path: '/messages', icon: MessageCircle, label: 'Messages', badge: true },
-  { path: '/more', icon: Settings, label: 'More' },
+  { key: 'home', path: '/', icon: Home, label: 'Home' },
+  { key: 'schedule', path: '/schedules', icon: Calendar, label: 'Schedule' },
+  { key: 'ai', action: openAskMAinager, icon: Sparkles, label: 'Ask AI' },
+  { key: 'messages', path: '/messages', icon: MessageCircle, label: 'Messages', badge: true },
+  { key: 'more', path: '/more', icon: Settings, label: 'More' },
 ];
 
 export default function BottomNavigation() {
   const [location, navigate] = useLocation();
   const { user } = useAuth();
+  const [aiSheetOpen, setAiSheetOpen] = useState(false);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      setAiSheetOpen((e as CustomEvent<{ isOpen: boolean }>).detail.isOpen);
+    };
+    window.addEventListener("ask-mainager-state", handler);
+    return () => window.removeEventListener("ask-mainager-state", handler);
+  }, []);
 
   const isAdmin = user?.role?.name === 'admin' || user?.role?.name === 'owner';
   const navItems = isAdmin ? adminNavItems : employeeNavItems;
@@ -47,12 +63,14 @@ export default function BottomNavigation() {
     '/hr', '/analytics', '/performance', '/operations', '/admin',
   ];
 
-  const isActive = (path: string) => {
-    if (path === '/') return location === '/';
-    if (path === '/more') {
+  const isActive = (item: NavItem) => {
+    if (item.key === 'ai') return aiSheetOpen;
+    if (!item.path) return false;
+    if (item.path === '/') return location === '/';
+    if (item.path === '/more') {
       return location === '/more' || moreRoutes.some(r => location === r || location.startsWith(r + '/'));
     }
-    return location === path || location.startsWith(path + '/');
+    return location === item.path || location.startsWith(item.path + '/');
   };
 
   return (
@@ -71,14 +89,21 @@ export default function BottomNavigation() {
       >
         <div className="flex justify-between items-center">
           {navItems.map((item) => {
-            const active = isActive(item.path);
+            const active = isActive(item);
             const Icon = item.icon;
+            const handleClick = () => {
+              if (item.action) {
+                item.action();
+              } else if (item.path) {
+                navigate(item.path);
+              }
+            };
             return (
               <button
-                key={item.path}
-                onClick={() => navigate(item.path)}
+                key={item.key}
+                onClick={handleClick}
                 className="flex flex-col items-center gap-0.5 relative transition-transform active:scale-95"
-                data-testid={`nav-${item.label.toLowerCase()}`}
+                data-testid={`nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
               >
                 {active ? (
                   <>
