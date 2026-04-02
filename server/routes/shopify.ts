@@ -49,6 +49,28 @@ function getAppUrl(requestHostname?: string): string {
   return 'http://localhost:5000';
 }
 
+function getProductionWebhookUrl(): string | null {
+  if (process.env.REPLIT_DOMAINS) {
+    const domains = process.env.REPLIT_DOMAINS.split(',');
+    const primaryDomain = domains[0]?.trim();
+    if (primaryDomain) {
+      return `https://${primaryDomain}/api/webhooks/shopify`;
+    }
+  }
+  if (process.env.REPL_SLUG && process.env.REPL_OWNER) {
+    return `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co/api/webhooks/shopify`;
+  }
+  return null;
+}
+
+function verifyShopifyWebhookHmac(rawBody: Buffer, hmacHeader: string, secret: string): boolean {
+  const hash = crypto.createHmac('sha256', secret).update(rawBody).digest('base64');
+  const hashBuffer = Buffer.from(hash, 'base64');
+  const hmacBuffer = Buffer.from(hmacHeader, 'base64');
+  if (hashBuffer.length !== hmacBuffer.length) return false;
+  return crypto.timingSafeEqual(hashBuffer, hmacBuffer);
+}
+
 async function getShopifyCredentials(shopDomain: string): Promise<{ shopDomain: string; accessToken: string } | null> {
   try {
     const normalizedDomain = shopDomain.trim().toLowerCase();
@@ -73,6 +95,102 @@ async function getShopifyCredentials(shopDomain: string): Promise<{ shopDomain: 
 }
 
 export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
+  app.post("/api/webhooks/shopify", async (req: any, res) => {
+    try {
+      const hmacHeader = req.headers['x-shopify-hmac-sha256'] as string;
+      const shopDomain = req.headers['x-shopify-shop-domain'] as string;
+      const topic = req.headers['x-shopify-topic'] as string;
+
+      if (!hmacHeader || !shopDomain || !topic) {
+        return res.status(401).json({ error: "Missing required webhook headers" });
+      }
+
+      const apiSecret = config.shopify.apiSecret;
+      if (!apiSecret) {
+        console.error('[Shopify Webhook] API secret not configured');
+        return res.status(500).json({ error: "Webhook validation not configured" });
+      }
+
+      const rawBody: Buffer = req.rawBody || Buffer.from(JSON.stringify(req.body));
+      if (!verifyShopifyWebhookHmac(rawBody, hmacHeader, apiSecret)) {
+        console.warn(`[Shopify Webhook] HMAC verification failed for shop: ${shopDomain}`);
+        return res.status(401).json({ error: "Webhook signature verification failed" });
+      }
+
+      res.status(200).json({ received: true });
+
+      if (topic === 'orders/create') {
+        const order = req.body;
+        try {
+          const normalizedDomain = shopDomain.trim().toLowerCase();
+          const orderDate = new Date(order.created_at);
+          const dateKey = orderDate.toISOString().split('T')[0];
+          const date = new Date(dateKey + 'T00:00:00Z');
+          const dayOfWeek = date.getUTCDay();
+
+          const orderTotal = parseFloat(order.total_price || order.subtotal_price || '0');
+          let itemCount = 0;
+          if (order.line_items && Array.isArray(order.line_items)) {
+            for (const item of order.line_items) {
+              itemCount += item.quantity || 1;
+            }
+          }
+
+          const existing = await db.select()
+            .from(shopifyDailySales)
+            .where(and(
+              eq(shopifyDailySales.shopDomain, normalizedDomain),
+              eq(shopifyDailySales.date, date)
+            ))
+            .limit(1);
+
+          if (existing.length > 0) {
+            const currentOrderCount = existing[0].orderCount || 0;
+            const currentRevenue = parseFloat(existing[0].totalRevenue || '0');
+            const currentItems = existing[0].itemCount || 0;
+            const newOrderCount = currentOrderCount + 1;
+            const newRevenue = currentRevenue + orderTotal;
+            const newItems = currentItems + itemCount;
+            const newAvgOrderValue = newOrderCount > 0 ? Math.round((newRevenue / newOrderCount) * 100) / 100 : 0;
+
+            await db.update(shopifyDailySales)
+              .set({
+                orderCount: newOrderCount,
+                totalRevenue: String(Math.round(newRevenue * 100) / 100),
+                itemCount: newItems,
+                averageOrderValue: String(newAvgOrderValue),
+              })
+              .where(eq(shopifyDailySales.id, existing[0].id));
+          } else {
+            const avgOrderValue = Math.round(orderTotal * 100) / 100;
+            await db.insert(shopifyDailySales).values({
+              shopDomain: normalizedDomain,
+              date,
+              dayOfWeek,
+              orderCount: 1,
+              totalRevenue: String(Math.round(orderTotal * 100) / 100),
+              itemCount,
+              averageOrderValue: String(avgOrderValue),
+            });
+          }
+
+          await db.update(shops)
+            .set({ lastSyncAt: new Date(), updatedAt: new Date() })
+            .where(eq(shops.shopDomain, normalizedDomain));
+
+          console.log(`[Shopify Webhook] Processed orders/create for ${normalizedDomain} on ${dateKey}`);
+        } catch (processingError) {
+          console.error('[Shopify Webhook] Error processing order payload:', processingError);
+        }
+      }
+    } catch (error) {
+      console.error('[Shopify Webhook] Handler error:', error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: "Internal server error" });
+      }
+    }
+  });
+
   app.get("/api/shopify/auth", isAuthenticated, async (req: any, res) => {
     try {
       const shop = req.query.shop as string;
@@ -249,6 +367,23 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
 
       if (code) {
         processedAuthCodes.set(code, { timestamp: Date.now(), status: 'success' });
+      }
+
+      const webhookUrl = getProductionWebhookUrl();
+      if (webhookUrl) {
+        try {
+          const shopifyService = new ShopifyService(shopDomain, accessToken);
+          const webhookResult = await shopifyService.registerWebhook(webhookUrl, 'orders/create');
+          if (webhookResult?.userErrors?.length > 0) {
+            console.warn('[Shopify OAuth] Webhook registration warnings:', webhookResult.userErrors);
+          } else {
+            console.log(`[Shopify OAuth] Webhook registered for ${shopDomain} -> ${webhookUrl}`);
+          }
+        } catch (webhookError) {
+          console.error('[Shopify OAuth] Webhook registration failed (non-fatal):', webhookError);
+        }
+      } else {
+        console.log('[Shopify OAuth] Skipping webhook registration: no production URL available');
       }
 
       res.redirect(`/shopify-callback-success?shop=${encodeURIComponent(shopDomain)}`);

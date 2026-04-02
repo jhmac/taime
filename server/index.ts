@@ -32,6 +32,18 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false,
 }));
 
+app.use('/api/webhooks/shopify', express.raw({ type: 'application/json', limit: '10mb' }), (req: any, _res, next) => {
+  if (Buffer.isBuffer(req.body)) {
+    req.rawBody = req.body;
+    try {
+      req.body = JSON.parse(req.body.toString('utf8'));
+    } catch {
+      req.body = {};
+    }
+  }
+  next();
+});
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: false, limit: '10mb' }));
 
