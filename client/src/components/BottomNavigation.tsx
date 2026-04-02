@@ -1,22 +1,29 @@
 import { useLocation } from 'wouter';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
-import { cn } from '@/lib/utils';
+import { Home, Calendar, Users, MessageCircle, Settings, LayoutDashboard, ClipboardList } from 'lucide-react';
 
-const employeeNavItems = [
-  { path: '/', icon: 'fas fa-home', label: 'Homebase' },
-  { path: '/schedules', icon: 'fas fa-calendar-alt', label: 'Schedule' },
-  { path: '/payroll', icon: 'fas fa-dollar-sign', label: 'Money' },
-  { path: '/messages', icon: 'fas fa-comment', label: 'Messages', badge: true },
-  { path: '/more', icon: 'fas fa-bars', label: 'More' },
+type NavItem = {
+  path: string;
+  icon: React.ComponentType<{ className?: string; size?: number; strokeWidth?: number }>;
+  label: string;
+  badge?: boolean;
+};
+
+const adminNavItems: NavItem[] = [
+  { path: '/', icon: LayoutDashboard, label: 'Home' },
+  { path: '/schedules', icon: Calendar, label: 'Schedule' },
+  { path: '/team', icon: Users, label: 'Team' },
+  { path: '/messages', icon: MessageCircle, label: 'Messages', badge: true },
+  { path: '/admin', icon: Settings, label: 'Settings' },
 ];
 
-const adminNavItems = [
-  { path: '/', icon: 'fas fa-tachometer-alt', label: 'Dashboard' },
-  { path: '/tasks', icon: 'fas fa-clipboard-list', label: 'Tasks' },
-  { path: '/schedules', icon: 'fas fa-calendar-alt', label: 'Schedule' },
-  { path: '/messages', icon: 'fas fa-comment', label: 'Messages', badge: true },
-  { path: '/payroll', icon: 'fas fa-dollar-sign', label: 'Payroll' },
+const employeeNavItems: NavItem[] = [
+  { path: '/', icon: Home, label: 'Home' },
+  { path: '/schedules', icon: Calendar, label: 'Schedule' },
+  { path: '/team-directory', icon: Users, label: 'Team' },
+  { path: '/messages', icon: MessageCircle, label: 'Messages', badge: true },
+  { path: '/more', icon: Settings, label: 'More' },
 ];
 
 export default function BottomNavigation() {
@@ -41,35 +48,59 @@ export default function BottomNavigation() {
   };
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-background border-t border-border z-50 safe-area-bottom" data-testid="bottom-navigation">
-      <div className="flex items-center justify-around py-1">
-        {navItems.map((item) => {
-          const active = isActive(item.path);
-          return (
-            <button
-              key={item.path}
-              onClick={() => navigate(item.path)}
-              className={cn(
-                "flex flex-col items-center py-2 px-3 transition-colors min-w-0 flex-1 relative",
-                active
-                  ? "text-primary"
-                  : "text-muted-foreground"
-              )}
-              data-testid={`nav-${item.label.toLowerCase()}`}
-            >
-              <div className="relative">
-                <i className={cn(item.icon, "text-lg")}></i>
-                {'badge' in item && item.badge && unreadCount > 0 && (
-                  <span className="absolute -top-1.5 -right-2.5 bg-red-500 text-white text-[9px] font-bold rounded-full h-4 min-w-[16px] flex items-center justify-center px-0.5">
-                    {unreadCount > 99 ? "99+" : unreadCount}
-                  </span>
+    <nav
+      className="fixed bottom-0 left-0 right-0 z-50 safe-area-bottom"
+      style={{ background: 'linear-gradient(to top, hsl(40 100% 98%) 55%, transparent)', paddingTop: 16 }}
+      data-testid="bottom-navigation"
+    >
+      <div
+        className="mx-3 mb-3 rounded-[28px]"
+        style={{
+          backgroundColor: '#FFFFFF',
+          boxShadow: '0 4px 24px rgba(0,0,0,0.10)',
+          padding: '8px 20px 8px',
+        }}
+      >
+        <div className="flex justify-between items-center">
+          {navItems.map((item) => {
+            const active = isActive(item.path);
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.path}
+                onClick={() => navigate(item.path)}
+                className="flex flex-col items-center gap-0.5 relative transition-transform active:scale-95"
+                data-testid={`nav-${item.label.toLowerCase()}`}
+              >
+                {active ? (
+                  <>
+                    <div
+                      className="w-12 h-12 rounded-2xl flex items-center justify-center"
+                      style={{ backgroundColor: 'hsl(25 91% 57%)' }}
+                    >
+                      <Icon size={20} strokeWidth={2.5} className="text-white" />
+                    </div>
+                    <span className="text-[11px] font-extrabold" style={{ color: 'hsl(25 91% 57%)' }}>
+                      {item.label}
+                    </span>
+                  </>
+                ) : (
+                  <div className="flex flex-col items-center pt-2 pb-1 relative">
+                    <Icon size={22} strokeWidth={1.8} className="text-muted-foreground" />
+                    {item.badge && unreadCount > 0 && (
+                      <span className="absolute -top-1 -right-2.5 bg-red-500 text-white text-[9px] font-bold rounded-full h-4 min-w-[16px] flex items-center justify-center px-0.5">
+                        {unreadCount > 99 ? '99+' : unreadCount}
+                      </span>
+                    )}
+                  </div>
                 )}
-              </div>
-              <span className="text-[10px] mt-0.5 truncate">{item.label}</span>
-            </button>
-          );
-        })}
+              </button>
+            );
+          })}
+        </div>
       </div>
+      {/* iOS home indicator */}
+      <div className="w-28 h-1 rounded-full mx-auto mb-1" style={{ backgroundColor: 'rgba(26,26,46,0.15)' }} />
     </nav>
   );
 }

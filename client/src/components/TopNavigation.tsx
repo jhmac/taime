@@ -47,7 +47,7 @@ const CATEGORY_ICONS: Record<string, React.ComponentType<{ className?: string }>
 
 function NoticeIcon({ category, severity }: { category: string; severity: string }) {
   const Icon = CATEGORY_ICONS[category] || Bell;
-  const color = severity === 'warning' ? 'text-amber-500' : 'text-blue-500';
+  const color = severity === 'warning' ? 'text-amber-500' : 'text-primary';
   return <Icon className={`h-4 w-4 ${color} shrink-0`} />;
 }
 
@@ -111,7 +111,7 @@ function NotificationsDropdown() {
             recentNotices.map((notice) => (
               <div
                 key={notice.id}
-                className={`px-4 py-3 border-b last:border-0 flex gap-3 cursor-pointer hover:bg-muted/30 transition-colors ${!notice.isRead ? 'bg-blue-50/40 dark:bg-blue-950/20' : ''}`}
+                className={`px-4 py-3 border-b last:border-0 flex gap-3 cursor-pointer hover:bg-muted/30 transition-colors ${!notice.isRead ? 'bg-primary/5' : ''}`}
                 onClick={() => !notice.isRead && markReadMutation.mutate(notice.id)}
               >
                 <NoticeIcon category={notice.category} severity={notice.severity} />
@@ -122,7 +122,7 @@ function NotificationsDropdown() {
                   </p>
                 </div>
                 {!notice.isRead && (
-                  <div className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-1 shrink-0" />
+                  <div className="w-1.5 h-1.5 rounded-full bg-primary mt-1 shrink-0" />
                 )}
               </div>
             ))
@@ -199,7 +199,7 @@ function MobileBellButton() {
             recentNotices.map((notice) => (
               <div
                 key={notice.id}
-                className={`px-4 py-3 border-b last:border-0 flex gap-3 cursor-pointer hover:bg-muted/30 transition-colors ${!notice.isRead ? 'bg-blue-50/40 dark:bg-blue-950/20' : ''}`}
+                className={`px-4 py-3 border-b last:border-0 flex gap-3 cursor-pointer hover:bg-muted/30 transition-colors ${!notice.isRead ? 'bg-primary/5' : ''}`}
                 onClick={() => !notice.isRead && markReadMutation.mutate(notice.id)}
               >
                 <NoticeIcon category={notice.category} severity={notice.severity} />
@@ -210,7 +210,7 @@ function MobileBellButton() {
                   </p>
                 </div>
                 {!notice.isRead && (
-                  <div className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-1 shrink-0" />
+                  <div className="w-1.5 h-1.5 rounded-full bg-primary mt-1 shrink-0" />
                 )}
               </div>
             ))
