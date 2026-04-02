@@ -241,6 +241,7 @@ export default function AdminSettings() {
         enableSmartClockPrompt: settings.enableSmartClockPrompt || false,
         enableClockOutOnFocusLoss: settings.enableClockOutOnFocusLoss || false,
         focusLossGraceSeconds: settings.focusLossGraceSeconds ?? 30,
+        requireMobileClockIn: settings.requireMobileClockIn || false,
       });
     }
   }, [settings]);

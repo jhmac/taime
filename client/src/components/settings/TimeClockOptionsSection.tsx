@@ -53,6 +53,13 @@ export default function TimeClockOptionsSection({ settingsForm, updateForm }: Se
             </div>
             <Switch checked={settingsForm.enableMobileTimeClock ?? true} onCheckedChange={val => updateForm('enableMobileTimeClock', val)} />
           </div>
+          <div className="flex items-center justify-between">
+            <div>
+              <Label className="text-sm">Require mobile device to clock in</Label>
+              <p className="text-xs text-muted-foreground">Employees on desktop or tablet cannot clock in — they must use their mobile phone</p>
+            </div>
+            <Switch checked={settingsForm.requireMobileClockIn || false} onCheckedChange={val => updateForm('requireMobileClockIn', val)} />
+          </div>
           <div className="flex items-start gap-3">
             <Checkbox checked={settingsForm.allowUnscheduledMobileClockIn || false} onCheckedChange={val => updateForm('allowUnscheduledMobileClockIn', !!val)} />
             <div>

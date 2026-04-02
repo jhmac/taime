@@ -2,14 +2,15 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { useGeolocation } from '@/hooks/useGeolocation';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
 import { isUnauthorizedError } from '@/lib/authUtils';
-import type { TimeEntry, WorkLocation } from '@shared/schema';
-import { MapPin, Shield, AlertTriangle, CheckCircle2, XCircle, Wifi, ExternalLink } from 'lucide-react';
+import type { TimeEntry, WorkLocation, CompanySettings } from '@shared/schema';
+import { MapPin, Shield, AlertTriangle, CheckCircle2, XCircle, Wifi, ExternalLink, Smartphone } from 'lucide-react';
 
 function triggerHaptic(pattern: number | number[] = 200) {
   try {
@@ -21,6 +22,7 @@ function triggerHaptic(pattern: number | number[] = 200) {
 
 export default function TimeClockWidget() {
   const { user } = useAuth();
+  const isMobile = useIsMobile();
   const { position, getCurrentPosition, watchPosition, clearWatch, loading: locationLoading, error: locationError } = useGeolocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -71,6 +73,12 @@ export default function TimeClockWidget() {
   const { data: workLocations = [] } = useQuery<WorkLocation[]>({
     queryKey: ['/api/work-locations'],
   });
+
+  const { data: companySettings } = useQuery<CompanySettings>({
+    queryKey: ['/api/company-settings'],
+  });
+
+  const requireMobileClockIn = companySettings?.requireMobileClockIn ?? false;
 
   useEffect(() => {
     if (workLocations.length > 0 && !hasRequestedLocation.current) {
@@ -700,39 +708,47 @@ export default function TimeClockWidget() {
           </div>
         )}
 
-        {/* Clock In/Out Button */}
-        <Button
-          onClick={handleClockAction}
-          disabled={clockInMutation.isPending || clockOutMutation.isPending || activeEntryLoading || (locationPermission === 'denied' && workLocations.length > 0 && !activeTimeEntry)}
-          className={`w-full py-4 text-lg font-semibold transition-colors ${
-            activeTimeEntry
-              ? 'bg-destructive hover:bg-destructive/90 text-destructive-foreground'
-              : 'bg-primary hover:bg-primary/90 text-primary-foreground'
-          }`}
-          data-testid="clock-action-button"
-        >
-          {clockInMutation.isPending || clockOutMutation.isPending ? (
-            <>
-              <i className="fas fa-spinner fa-spin mr-2"></i>
-              Processing...
-            </>
-          ) : activeTimeEntry ? (
-            <>
-              <i className="fas fa-stop mr-2"></i>
-              Clock Out
-            </>
-          ) : locationLoading ? (
-            <>
-              <i className="fas fa-spinner fa-spin mr-2"></i>
-              Getting Location...
-            </>
-          ) : (
-            <>
-              <i className="fas fa-play mr-2"></i>
-              Clock In
-            </>
-          )}
-        </Button>
+        {/* Clock In/Out Button — or mobile-only message */}
+        {requireMobileClockIn && !isMobile && !activeTimeEntry ? (
+          <div className="flex flex-col items-center gap-2 rounded-lg border border-muted bg-muted/30 p-4 text-center" data-testid="mobile-only-message">
+            <Smartphone className="h-8 w-8 text-muted-foreground" />
+            <p className="text-sm font-medium text-foreground">Clock-in is only available on a mobile device</p>
+            <p className="text-xs text-muted-foreground">Please use your phone to clock in.</p>
+          </div>
+        ) : (
+          <Button
+            onClick={handleClockAction}
+            disabled={clockInMutation.isPending || clockOutMutation.isPending || activeEntryLoading || (locationPermission === 'denied' && workLocations.length > 0 && !activeTimeEntry)}
+            className={`w-full py-4 text-lg font-semibold transition-colors ${
+              activeTimeEntry
+                ? 'bg-destructive hover:bg-destructive/90 text-destructive-foreground'
+                : 'bg-primary hover:bg-primary/90 text-primary-foreground'
+            }`}
+            data-testid="clock-action-button"
+          >
+            {clockInMutation.isPending || clockOutMutation.isPending ? (
+              <>
+                <i className="fas fa-spinner fa-spin mr-2"></i>
+                Processing...
+              </>
+            ) : activeTimeEntry ? (
+              <>
+                <i className="fas fa-stop mr-2"></i>
+                Clock Out
+              </>
+            ) : locationLoading ? (
+              <>
+                <i className="fas fa-spinner fa-spin mr-2"></i>
+                Getting Location...
+              </>
+            ) : (
+              <>
+                <i className="fas fa-play mr-2"></i>
+                Clock In
+              </>
+            )}
+          </Button>
+        )}
 
         {/* Geofence Status (while clocked in) */}
         {activeTimeEntry && geofenceStatus && (

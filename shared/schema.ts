@@ -456,6 +456,7 @@ export const companySettings = pgTable("company_settings", {
   enableClockOutOnFocusLoss: boolean("enable_clock_out_on_focus_loss").default(false),
   focusLossGraceSeconds: integer("focus_loss_grace_seconds").default(30),
   autoResumeWindowSeconds: integer("auto_resume_window_seconds").default(120),
+  requireMobileClockIn: boolean("require_mobile_clock_in").default(false),
   version: integer("version").default(1).notNull(),
 });
 
