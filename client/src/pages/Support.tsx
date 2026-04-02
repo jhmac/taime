@@ -25,12 +25,12 @@ export default function SupportPage() {
     {
       icon: 'fas fa-file-alt',
       label: 'Terms of Service',
-      action: () => toast({ title: 'Terms of Service', description: 'Terms page coming soon.' }),
+      action: () => navigate('/terms'),
     },
     {
       icon: 'fas fa-shield-alt',
       label: 'Privacy Policy',
-      action: () => toast({ title: 'Privacy Policy', description: 'Privacy page coming soon.' }),
+      action: () => navigate('/privacy'),
     },
     {
       icon: 'fas fa-ban',

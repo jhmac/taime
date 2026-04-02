@@ -75,6 +75,8 @@ import Requests from "@/pages/Requests";
 import TeamDirectory from "@/pages/TeamDirectory";
 import EmployeeSettings from "@/pages/EmployeeSettings";
 import SupportPage from "@/pages/Support";
+import TermsOfService from "@/pages/TermsOfService";
+import PrivacyPolicy from "@/pages/PrivacyPolicy";
 import SOPLibrary from "@/pages/SOPLibrary";
 import SOPBuilder from "@/pages/SOPBuilder";
 import SOPDetail from "@/pages/SOPDetail";
@@ -336,6 +338,14 @@ function Router() {
         <Route path="/join/:token" component={JoinPage} />
       </Switch>
     );
+  }
+
+  if (location === "/terms") {
+    return <TermsOfService />;
+  }
+
+  if (location === "/privacy") {
+    return <PrivacyPolicy />;
   }
 
   return (
