@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { config } from "../lib/config";
 import { db } from "../db";
-import { eq, and, gte, lte, desc, sql, count } from "drizzle-orm";
+import { eq, and, gte, lte, isNull, desc, sql, count } from "drizzle-orm";
 import {
   users, schedules, tasks, issues, timeEntries, workLocations,
   sopExecutions, dailyDebriefs, aiChatConversations, aiChatMessages,
@@ -36,6 +36,9 @@ async function gatherContext(storeId: string, employeeId: string, question: stri
   const weekAgo = new Date(now);
   weekAgo.setDate(weekAgo.getDate() - 7);
 
+  const last24h = new Date(now);
+  last24h.setHours(last24h.getHours() - 24);
+
   const [
     employee,
     store,
@@ -46,6 +49,7 @@ async function gatherContext(storeId: string, employeeId: string, question: stri
     sopCompletionCount,
     recentBugs,
     sopResults,
+    clockedInNow,
   ] = await Promise.all([
     db.select({
       id: users.id, firstName: users.firstName, lastName: users.lastName,
@@ -91,7 +95,7 @@ async function gatherContext(storeId: string, employeeId: string, question: stri
       .from(timeEntries)
       .where(and(
         eq(timeEntries.userId, employeeId),
-        sql`${timeEntries.clockOutTime} IS NULL`,
+        isNull(timeEntries.clockOutTime),
       ))
       .limit(1)
       .then(r => r[0]),
@@ -115,6 +119,33 @@ async function gatherContext(storeId: string, employeeId: string, question: stri
       logger.warn({ error: err.message }, "[AskMAinager] SOP search failed, continuing without RAG");
       return [] as Awaited<ReturnType<typeof searchSOPs>>;
     }),
+
+    db.select({
+      userId: timeEntries.userId,
+      clockInTime: timeEntries.clockInTime,
+    })
+      .from(timeEntries)
+      .where(and(
+        eq(timeEntries.locationId, storeId),
+        isNull(timeEntries.clockOutTime),
+        gte(timeEntries.clockInTime, last24h),
+      ))
+      .then(async (rows) => {
+        if (rows.length === 0) return [];
+        const activeUserIds = [...new Set(rows.map(r => r.userId))];
+        const nameRows = await db.select({
+          id: users.id, firstName: users.firstName, lastName: users.lastName,
+        }).from(users)
+          .where(sql`${users.id} IN (${sql.join(activeUserIds.map(id => sql`${id}`), sql`, `)})`);
+        const nameMap = Object.fromEntries(nameRows.map(u => [u.id, `${u.firstName || ""} ${u.lastName || ""}`.trim() || "Unknown"]));
+        const seen = new Set<string>();
+        return rows
+          .filter(r => { if (seen.has(r.userId)) return false; seen.add(r.userId); return true; })
+          .map(r => ({
+            name: nameMap[r.userId] || "Unknown",
+            clockInTime: r.clockInTime,
+          }));
+      }),
   ]);
 
   const userIds = [...new Set(todaySchedules.map(s => s.userId))];
@@ -173,10 +204,17 @@ async function gatherContext(storeId: string, employeeId: string, question: stri
     ? "Recent team feedback: " + recentBugs.join("; ")
     : "";
 
+  const clockedInSummary = clockedInNow.length > 0
+    ? clockedInNow.map(e => {
+        const since = new Date(e.clockInTime).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+        return `- ${e.name} (clocked in at ${since})`;
+      }).join("\n")
+    : "No employees are currently clocked in.";
+
   return {
     employeeName, roleName, storeName, shiftStatus, timeContext,
     scheduleSummary, tasksSummary, issuesSummary, sopChunks,
-    bugThemes, sopResults, sopCompletionCount,
+    bugThemes, sopResults, sopCompletionCount, clockedInSummary,
     currentTime: now.toLocaleTimeString(),
     currentDate: now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }),
   };
@@ -255,8 +293,11 @@ Employee: ${ctx.employeeName} (Role: ${ctx.roleName})
 Shift status: ${ctx.shiftStatus}
 SOPs completed: ${ctx.sopCompletionCount}
 
-Today's Schedule:
+Today's Scheduled Shifts (employees on the schedule today):
 ${ctx.scheduleSummary}
+
+Currently Clocked In Right Now (employees with an active open clock-in):
+${ctx.clockedInSummary}
 
 Active Tasks for ${ctx.employeeName}:
 ${ctx.tasksSummary}
@@ -277,7 +318,7 @@ ${ctx.sopChunks}`;
   try {
     let timeoutId: ReturnType<typeof setTimeout>;
     const timeoutPromise = new Promise<never>((_, reject) => {
-      timeoutId = setTimeout(() => reject(new Error("AI timeout")), 10000);
+      timeoutId = setTimeout(() => reject(new Error("AI timeout")), 30000);
     });
 
     const response = await Promise.race([
@@ -310,8 +351,12 @@ ${ctx.sopChunks}`;
       .map(r => ({ templateId: r.templateId, title: r.templateTitle }));
     const uniqueSops = [...new Map(referencedSops.map(s => [s.templateId, s])).values()];
 
-    const confidence: "high" | "medium" | "low" =
-      ctx.sopResults.length > 0 && ctx.sopResults[0].similarityScore > 0.5
+    const operationalKeywords = /who.*(clocked|clock|working|on shift|in today)|clocked.*(in|out)|clock.*(in|out)|schedule|who.*(here|work)|on the schedule|time (entry|entries)|currently working/i;
+    const isOperationalQuestion = operationalKeywords.test(params.question);
+
+    const confidence: "high" | "medium" | "low" = isOperationalQuestion
+      ? "high"
+      : ctx.sopResults.length > 0 && ctx.sopResults[0].similarityScore > 0.5
         ? "high"
         : ctx.sopResults.length > 0 && ctx.sopResults[0].similarityScore > 0.25
           ? "medium"
