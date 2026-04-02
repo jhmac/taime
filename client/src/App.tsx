@@ -386,6 +386,10 @@ function Router() {
     return <PrivacyPolicy />;
   }
 
+  if (location === "/support") {
+    return <SupportPage />;
+  }
+
   if (location.startsWith("/shopify-callback-success")) {
     return (
       <Switch>

@@ -4,6 +4,7 @@ import { useToast } from '@/hooks/use-toast';
 interface SupportItem {
   icon: string;
   label: string;
+  sublabel?: string;
   action: () => void;
 }
 
@@ -12,6 +13,12 @@ export default function SupportPage() {
   const { toast } = useToast();
 
   const items: SupportItem[] = [
+    {
+      icon: 'fas fa-envelope',
+      label: 'Email Support',
+      sublabel: 'support@mainager.app',
+      action: () => { window.location.href = 'mailto:support@mainager.app'; },
+    },
     {
       icon: 'fas fa-headset',
       label: 'Chat with Support',
@@ -59,6 +66,9 @@ export default function SupportPage() {
             <i className={`${item.icon} w-6 text-center text-lg text-muted-foreground`}></i>
             <div className="flex-1">
               <div className="text-sm font-medium">{item.label}</div>
+              {item.sublabel && (
+                <div className="text-xs text-muted-foreground mt-0.5">{item.sublabel}</div>
+              )}
             </div>
             <i className="fas fa-chevron-right text-xs text-muted-foreground"></i>
           </button>

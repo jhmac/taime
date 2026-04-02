@@ -119,6 +119,18 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
 
       res.status(200).json({ received: true });
 
+      if (topic === 'app/uninstalled') {
+        try {
+          const normalizedDomain = shopDomain.trim().toLowerCase();
+          await db.update(shops)
+            .set({ isActive: false, accessToken: null, updatedAt: new Date() })
+            .where(eq(shops.shopDomain, normalizedDomain));
+          console.log(`[Shopify Webhook] app/uninstalled: deactivated shop ${normalizedDomain}`);
+        } catch (processingError) {
+          console.error('[Shopify Webhook] Error processing app/uninstalled payload:', processingError);
+        }
+      }
+
       if (topic === 'orders/create') {
         const order = req.body;
         try {
@@ -373,11 +385,18 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
       if (webhookUrl) {
         try {
           const shopifyService = new ShopifyService(shopDomain, accessToken);
-          const webhookResult = await shopifyService.registerWebhook(webhookUrl, 'orders/create');
-          if (webhookResult?.userErrors?.length > 0) {
-            console.warn('[Shopify OAuth] Webhook registration warnings:', webhookResult.userErrors);
-          } else {
-            console.log(`[Shopify OAuth] Webhook registered for ${shopDomain} -> ${webhookUrl}`);
+          const webhooksToRegister = ['orders/create', 'app/uninstalled'];
+          for (const webhookTopic of webhooksToRegister) {
+            try {
+              const webhookResult = await shopifyService.registerWebhook(webhookUrl, webhookTopic);
+              if (webhookResult?.userErrors?.length > 0) {
+                console.warn(`[Shopify OAuth] Webhook registration warnings for ${webhookTopic}:`, webhookResult.userErrors);
+              } else {
+                console.log(`[Shopify OAuth] Webhook registered for ${shopDomain} topic=${webhookTopic} -> ${webhookUrl}`);
+              }
+            } catch (topicError) {
+              console.error(`[Shopify OAuth] Webhook registration failed for topic ${webhookTopic} (non-fatal):`, topicError);
+            }
           }
         } catch (webhookError) {
           console.error('[Shopify OAuth] Webhook registration failed (non-fatal):', webhookError);
