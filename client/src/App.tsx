@@ -84,6 +84,7 @@ import TrainingHub from "@/pages/TrainingHub";
 import IssueList from "@/pages/IssueList";
 import IssueDetail from "@/pages/IssueDetail";
 import MorningHuddle from "@/pages/MorningHuddle";
+import MorningWhisper from "@/pages/MorningWhisper";
 import ImprovementFeed from "@/pages/ImprovementFeed";
 import NotFound from "@/pages/not-found";
 import OfflineIndicator from "@/components/OfflineIndicator";
@@ -294,6 +295,7 @@ function AuthenticatedApp() {
       <Route path="/issues" component={IssueList} />
       <Route path="/issues/:id" component={IssueDetail} />
       <Route path="/huddle" component={MorningHuddle} />
+      <Route path="/whisper" component={MorningWhisper} />
       <Route path="/improvements" component={ImprovementFeed} />
       <Route path="/gtd/inbox" component={GTDInbox} />
       <Route path="/gtd/actions" component={GTDActions} />
