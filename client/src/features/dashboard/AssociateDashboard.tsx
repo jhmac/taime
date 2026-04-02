@@ -28,6 +28,7 @@ import {
   ClipboardList,
   BarChart3,
   GraduationCap,
+  Building2,
 } from 'lucide-react';
 
 export default function AssociateDashboard() {
@@ -261,6 +262,17 @@ export default function AssociateDashboard() {
                   <Heart className="h-4 w-4 text-pink-600 dark:text-pink-400" />
                 </div>
                 <span className="text-xs font-medium">Give a Kudo</span>
+              </CardContent>
+            </Card>
+            <Card
+              className="cursor-pointer hover:shadow-md transition-shadow"
+              onClick={() => navigate('/cash')}
+            >
+              <CardContent className="p-3 flex flex-col items-center text-center">
+                <div className="w-10 h-10 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center mb-1.5">
+                  <Building2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                </div>
+                <span className="text-xs font-medium">Cash Management</span>
               </CardContent>
             </Card>
           </div>
