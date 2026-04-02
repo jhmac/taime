@@ -31,7 +31,7 @@ export default function GTDDashboardWidget() {
           <Skeleton className="h-5 w-40 mb-4" />
           <div className="grid grid-cols-2 gap-3">
             {[1, 2, 3, 4].map(i => (
-              <Skeleton key={i} className="h-16 rounded-lg" />
+              <Skeleton key={i} className="h-20 rounded-2xl" />
             ))}
           </div>
           <Skeleton className="h-9 w-full mt-4" />
@@ -49,32 +49,28 @@ export default function GTDDashboardWidget() {
       label: "Inbox",
       value: stats.inbox_count,
       icon: Inbox,
-      color: "text-blue-500 dark:text-blue-400",
-      bg: "bg-blue-50 dark:bg-blue-950/30",
+      bg: "bg-blue-500 dark:bg-blue-600",
       onClick: () => navigate("/gtd/inbox"),
     },
     {
       label: "Due Today",
       value: stats.actions_today_count,
       icon: CalendarCheck,
-      color: "text-emerald-500 dark:text-emerald-400",
-      bg: "bg-emerald-50 dark:bg-emerald-950/30",
+      bg: "bg-emerald-500 dark:bg-emerald-600",
       onClick: () => navigate("/gtd/actions"),
     },
     {
       label: "Overdue",
       value: overdueTotal,
       icon: AlertTriangle,
-      color: overdueTotal > 0 ? "text-red-500 dark:text-red-400" : "text-muted-foreground",
-      bg: overdueTotal > 0 ? "bg-red-50 dark:bg-red-950/30" : "bg-muted/50",
+      bg: overdueTotal > 0 ? "bg-red-500 dark:bg-red-600" : "bg-slate-400 dark:bg-slate-600",
       onClick: () => navigate("/gtd/actions"),
     },
     {
       label: "Quick Wins",
       value: stats.two_minute_actions_count,
       icon: Zap,
-      color: stats.two_minute_actions_count > 0 ? "text-amber-500 dark:text-amber-400" : "text-muted-foreground",
-      bg: stats.two_minute_actions_count > 0 ? "bg-amber-50 dark:bg-amber-950/30" : "bg-muted/50",
+      bg: stats.two_minute_actions_count > 0 ? "bg-amber-500 dark:bg-amber-600" : "bg-slate-400 dark:bg-slate-600",
       onClick: () => navigate("/gtd/actions"),
     },
   ];
@@ -89,13 +85,15 @@ export default function GTDDashboardWidget() {
             <button
               key={m.label}
               onClick={m.onClick}
-              className={`${m.bg} rounded-lg p-3 text-left transition-colors hover:opacity-80`}
+              className={`${m.bg} rounded-2xl p-4 text-left transition-transform active:scale-95 hover:brightness-110 cursor-pointer`}
             >
-              <div className="flex items-center gap-2 mb-1">
-                <m.icon className={`h-4 w-4 ${m.color}`} />
-                <span className="text-xs text-muted-foreground">{m.label}</span>
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
+                  <m.icon className="h-4 w-4 text-white" />
+                </div>
               </div>
-              <span className={`text-xl font-bold ${m.color}`}>{m.value}</span>
+              <span className="text-2xl font-bold text-white block">{m.value}</span>
+              <span className="text-xs text-white/80 font-medium">{m.label}</span>
             </button>
           ))}
         </div>

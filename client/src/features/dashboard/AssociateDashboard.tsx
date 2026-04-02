@@ -230,51 +230,43 @@ export default function AssociateDashboard() {
         )}
 
         <DashboardErrorBoundary fallback="Quick actions failed to load">
-          <div className="grid grid-cols-3 gap-3">
-            <Card
-              className="cursor-pointer hover:shadow-md transition-shadow"
+          <div className="grid grid-cols-2 gap-3">
+            <button
               onClick={() => navigate('/issues')}
+              className="rounded-2xl bg-red-500 dark:bg-red-600 p-4 flex flex-col items-center text-center gap-2 transition-transform active:scale-95 hover:brightness-110 cursor-pointer"
             >
-              <CardContent className="p-3 flex flex-col items-center text-center">
-                <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center mb-1.5">
-                  <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-400" />
-                </div>
-                <span className="text-xs font-medium">Report Issue</span>
-              </CardContent>
-            </Card>
-            <Card
-              className="cursor-pointer hover:shadow-md transition-shadow"
+              <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center">
+                <AlertTriangle className="h-6 w-6 text-white" />
+              </div>
+              <span className="text-sm font-semibold text-white">Report Issue</span>
+            </button>
+            <button
               onClick={() => navigate('/improvements')}
+              className="rounded-2xl bg-orange-500 dark:bg-orange-600 p-4 flex flex-col items-center text-center gap-2 transition-transform active:scale-95 hover:brightness-110 cursor-pointer"
             >
-              <CardContent className="p-3 flex flex-col items-center text-center">
-                <div className="w-10 h-10 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center mb-1.5">
-                  <Video className="h-4 w-4 text-orange-600 dark:text-orange-400" />
-                </div>
-                <span className="text-xs font-medium">Record Improvement</span>
-              </CardContent>
-            </Card>
-            <Card
-              className="cursor-pointer hover:shadow-md transition-shadow"
+              <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center">
+                <Video className="h-6 w-6 text-white" />
+              </div>
+              <span className="text-sm font-semibold text-white">Record Improvement</span>
+            </button>
+            <button
               onClick={() => navigate('/communication')}
+              className="rounded-2xl bg-pink-500 dark:bg-pink-600 p-4 flex flex-col items-center text-center gap-2 transition-transform active:scale-95 hover:brightness-110 cursor-pointer"
             >
-              <CardContent className="p-3 flex flex-col items-center text-center">
-                <div className="w-10 h-10 rounded-full bg-pink-100 dark:bg-pink-900/30 flex items-center justify-center mb-1.5">
-                  <Heart className="h-4 w-4 text-pink-600 dark:text-pink-400" />
-                </div>
-                <span className="text-xs font-medium">Give a Kudo</span>
-              </CardContent>
-            </Card>
-            <Card
-              className="cursor-pointer hover:shadow-md transition-shadow"
+              <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center">
+                <Heart className="h-6 w-6 text-white" />
+              </div>
+              <span className="text-sm font-semibold text-white">Give a Kudo</span>
+            </button>
+            <button
               onClick={() => navigate('/cash')}
+              className="rounded-2xl bg-emerald-500 dark:bg-emerald-600 p-4 flex flex-col items-center text-center gap-2 transition-transform active:scale-95 hover:brightness-110 cursor-pointer"
             >
-              <CardContent className="p-3 flex flex-col items-center text-center">
-                <div className="w-10 h-10 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center mb-1.5">
-                  <Building2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-                </div>
-                <span className="text-xs font-medium">Cash Management</span>
-              </CardContent>
-            </Card>
+              <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center">
+                <Building2 className="h-6 w-6 text-white" />
+              </div>
+              <span className="text-sm font-semibold text-white">Cash Management</span>
+            </button>
           </div>
         </DashboardErrorBoundary>
 
@@ -330,28 +322,26 @@ function TrainingProgressCard() {
   const remaining = total - masteredCount;
 
   return (
-    <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => navigate('/sops/training')}>
-      <CardContent className="p-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-              <GraduationCap className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-            </div>
-            <div>
-              <h3 className="text-sm font-bold">Training Hub</h3>
-              <p className="text-xs text-muted-foreground">
-                {remaining > 0 
-                  ? `${remaining} procedure${remaining > 1 ? 's' : ''} to learn` 
-                  : 'All training mastered!'}
-              </p>
-            </div>
-          </div>
-          <div className="text-right">
-            <div className="text-lg font-bold text-primary">{masteredCount}/{total}</div>
-            <div className="text-[10px] text-muted-foreground">mastered</div>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
+    <button
+      onClick={() => navigate('/sops/training')}
+      className="w-full rounded-2xl bg-blue-600 dark:bg-blue-700 p-4 flex items-center gap-4 transition-transform active:scale-95 hover:brightness-110 cursor-pointer text-left"
+    >
+      <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center shrink-0">
+        <GraduationCap className="h-6 w-6 text-white" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <h3 className="text-sm font-bold text-white">Training Hub</h3>
+        <p className="text-xs text-white/70">
+          {remaining > 0 
+            ? `${remaining} procedure${remaining > 1 ? 's' : ''} to learn` 
+            : 'All training mastered!'}
+        </p>
+      </div>
+      <div className="text-right shrink-0">
+        <div className="text-lg font-bold text-white">{masteredCount}/{total}</div>
+        <div className="text-[10px] text-white/70">mastered</div>
+      </div>
+      <ChevronRight className="h-5 w-5 text-white/70 shrink-0" />
+    </button>
   );
 }

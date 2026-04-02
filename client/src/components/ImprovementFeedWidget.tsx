@@ -55,13 +55,16 @@ export default function ImprovementFeedWidget() {
 
   if (videos.length === 0) {
     return (
-      <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => navigate("/improvements")}>
-        <CardContent className="p-4 text-center">
-          <Video className="h-8 w-8 text-orange-400 mx-auto mb-2" />
-          <p className="text-sm font-medium">Got a quick improvement?</p>
-          <p className="text-xs text-muted-foreground mt-0.5">Record a 60-second video!</p>
-        </CardContent>
-      </Card>
+      <button
+        onClick={() => navigate("/improvements")}
+        className="w-full rounded-2xl bg-orange-500 dark:bg-orange-600 p-5 flex flex-col items-center text-center gap-2 transition-transform active:scale-95 hover:brightness-110 cursor-pointer"
+      >
+        <div className="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center">
+          <Video className="h-6 w-6 text-white" />
+        </div>
+        <p className="text-sm font-bold text-white">Record your first improvement →</p>
+        <p className="text-xs text-white/70">Share a 60-second video to help your team</p>
+      </button>
     );
   }
 
