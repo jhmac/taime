@@ -29,12 +29,31 @@ export function registerPushRoutes(app: Express, storage: IStorage, isAuthentica
   app.post('/api/push/test', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      await notificationService.sendToUser(userId, {
+      const result = await notificationService.sendToUserWithResult(userId, {
         title: '🔔 Test Notification',
         body: 'This is a test push notification from Taime. If you see this, notifications are working!',
         data: { type: 'test' },
       });
-      res.json({ success: true, message: 'Test notification sent' });
+
+      if (result.total === 0) {
+        return res.status(400).json({ success: false, message: 'No push subscriptions found. Please enable notifications first.' });
+      }
+
+      if (result.succeeded === 0) {
+        return res.status(502).json({
+          success: false,
+          message: `Delivery failed for all ${result.total} subscription(s). Subscriptions may be expired.`,
+          telemetry: result,
+        });
+      }
+
+      res.json({
+        success: true,
+        message: result.failed > 0
+          ? `Test notification sent to ${result.succeeded}/${result.total} subscription(s). ${result.failed} failed.`
+          : 'Test notification sent',
+        telemetry: result,
+      });
     } catch (error) {
       console.error("Error sending test notification:", error);
       res.status(500).json({ message: "Failed to send test notification" });

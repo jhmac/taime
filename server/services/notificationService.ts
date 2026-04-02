@@ -23,50 +23,73 @@ export interface NotificationPayload {
   }>;
 }
 
+export interface SendResult {
+  total: number;
+  succeeded: number;
+  failed: number;
+}
+
 export class NotificationService {
+  /**
+   * Send push notification to a specific user, returning delivery telemetry
+   */
+  async sendToUserWithResult(userId: string, payload: NotificationPayload): Promise<SendResult> {
+    const subscriptions = await storage.getUserPushSubscriptions(userId);
+
+    if (subscriptions.length === 0) {
+      console.log(`No push subscriptions found for user ${userId}`);
+      return { total: 0, succeeded: 0, failed: 0 };
+    }
+
+    const notificationPayload = JSON.stringify({
+      title: payload.title,
+      body: payload.body,
+      icon: payload.icon || '/icon-192x192.png',
+      badge: payload.badge || '/badge-72x72.png',
+      data: payload.data || {},
+      actions: payload.actions || [],
+    });
+
+    const results = await Promise.allSettled(
+      subscriptions.map(async (subscription) => {
+        await webpush.sendNotification(
+          {
+            endpoint: subscription.endpoint,
+            keys: {
+              p256dh: subscription.p256dh,
+              auth: subscription.auth,
+            },
+          },
+          notificationPayload
+        );
+      })
+    );
+
+    let succeeded = 0;
+    let failed = 0;
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
+      if (result.status === 'fulfilled') {
+        succeeded++;
+      } else {
+        failed++;
+        const error = result.reason;
+        console.error(`Failed to send notification to subscription ${subscriptions[i].id}:`, error);
+        if (error?.statusCode === 410) {
+          await storage.deletePushSubscription(subscriptions[i].id);
+        }
+      }
+    }
+
+    return { total: subscriptions.length, succeeded, failed };
+  }
+
   /**
    * Send push notification to a specific user
    */
   async sendToUser(userId: string, payload: NotificationPayload): Promise<void> {
     try {
-      const subscriptions = await storage.getUserPushSubscriptions(userId);
-      
-      if (subscriptions.length === 0) {
-        console.log(`No push subscriptions found for user ${userId}`);
-        return;
-      }
-
-      const notificationPayload = JSON.stringify({
-        title: payload.title,
-        body: payload.body,
-        icon: payload.icon || '/icon-192x192.png',
-        badge: payload.badge || '/badge-72x72.png',
-        data: payload.data || {},
-        actions: payload.actions || [],
-      });
-
-      const promises = subscriptions.map(async (subscription) => {
-        try {
-          await webpush.sendNotification(
-            {
-              endpoint: subscription.endpoint,
-              keys: {
-                p256dh: subscription.p256dh,
-                auth: subscription.auth,
-              },
-            },
-            notificationPayload
-          );
-        } catch (error) {
-          console.error(`Failed to send notification to subscription ${subscription.id}:`, error);
-          // If subscription is invalid, deactivate it
-          if (error.statusCode === 410) {
-            await storage.deletePushSubscription(subscription.id);
-          }
-        }
-      });
-
-      await Promise.allSettled(promises);
+      await this.sendToUserWithResult(userId, payload);
     } catch (error) {
       console.error('Failed to send notifications:', error);
       throw error;
