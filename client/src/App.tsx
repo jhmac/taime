@@ -261,7 +261,9 @@ function AuthenticatedApp() {
       <Route path="/team/:id">
         <ProtectedRoute permission="hr.view_team"><TeamMember /></ProtectedRoute>
       </Route>
-      <Route path="/tasks" component={TaskManagement} />
+      <Route path="/tasks">
+        <ProtectedRoute><TaskManagement /></ProtectedRoute>
+      </Route>
       <Route path="/schedules" component={ScheduleManagement} />
       <Route path="/availability" component={Availability} />
       <Route path="/payroll">
@@ -270,7 +272,9 @@ function AuthenticatedApp() {
       <Route path="/analytics">
         <ProtectedRoute permission="admin.manage_all"><Analytics /></ProtectedRoute>
       </Route>
-      <Route path="/performance" component={Performance} />
+      <Route path="/performance">
+        <ProtectedRoute><Performance /></ProtectedRoute>
+      </Route>
       <Route path="/learning" component={Learning} />
       <Route path="/more" component={MoreMenu} />
       <Route path="/requests" component={Requests} />

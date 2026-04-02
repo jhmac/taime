@@ -3,7 +3,6 @@ import { useLocation } from 'wouter';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { cn } from '@/lib/utils';
-import type { Permission } from '@shared/schema';
 
 const TIER_COLORS: Record<string, string> = {
   bronze: 'text-orange-600',
@@ -57,19 +56,7 @@ export default function DesktopSidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const { user } = useAuth();
 
-  const { data: userPermissions = [] } = useQuery<Permission[]>({
-    queryKey: ["/api/auth/permissions"],
-    enabled: !!user,
-  });
-
   const isAdmin = user?.role?.name === 'admin' || user?.role?.name === 'owner';
-
-  const visibleManagementItems = managementNavItems.filter(item => {
-    if (isAdmin) return true;
-    return userPermissions.some(p => p.name === item.permission || p.name === 'admin.manage_all');
-  });
-
-  const showManagement = visibleManagementItems.length > 0;
 
   const { data: unreadData } = useQuery<{ success: boolean; data: { count: number } }>({
     queryKey: ["/api/messages/unread-count"],
@@ -158,7 +145,7 @@ export default function DesktopSidebar() {
           <NavButton key={item.path} {...item} />
         ))}
 
-        {showManagement && (
+        {isAdmin && (
           <>
             <div className={cn("pt-4 pb-1", collapsed && "pt-2 pb-0")}>
               {!collapsed && (
@@ -168,7 +155,7 @@ export default function DesktopSidebar() {
               )}
               {collapsed && <div className="border-t border-sidebar-border mx-2"></div>}
             </div>
-            {visibleManagementItems.map(item => (
+            {managementNavItems.map(item => (
               <NavButton key={item.path} {...item} />
             ))}
           </>

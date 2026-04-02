@@ -9,3 +9,4 @@ vite.config.ts.*
 .sneebly/
 .logs/
 .logs/action-log.jsonl
+.logs/error-log.jsonl
