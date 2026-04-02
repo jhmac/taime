@@ -1,11 +1,11 @@
 import React from 'react';
-import { 
-  Search, 
-  Filter, 
-  Home, 
-  Users, 
-  Calendar, 
-  CheckSquare, 
+import {
+  Search,
+  Filter,
+  Home,
+  Users,
+  Calendar,
+  CheckSquare,
   Menu,
   Plus,
   Sparkles,
@@ -13,195 +13,135 @@ import {
 } from 'lucide-react';
 
 const TEAM_MEMBERS = [
-  {
-    id: 1,
-    name: 'Summer Furrh',
-    role: 'Sales Associate',
-    status: 'Clocked In 🟢',
-    statusColor: 'text-[#6BCB77]', // healthy metric
-    score: 94,
-    hours: '28h this week',
-    initials: 'SF',
-    avatarBg: 'bg-[#FF6B6B]/20 text-[#FF6B6B] border-[#FF6B6B]/30 shadow-[0_0_15px_rgba(255,107,107,0.2)]'
-  },
-  {
-    id: 4,
-    name: 'Sophia Davis',
-    role: 'Stylist',
-    status: 'Clocked In 🟢',
-    statusColor: 'text-[#6BCB77]',
-    score: 91,
-    hours: '32h this week',
-    initials: 'SD',
-    avatarBg: 'bg-[#6BCB77]/20 text-[#6BCB77] border-[#6BCB77]/30 shadow-[0_0_15px_rgba(107,203,119,0.2)]'
-  },
-  {
-    id: 5,
-    name: 'Sydney Wall',
-    role: 'Keyholder',
-    status: 'Clocked In 🟢',
-    statusColor: 'text-[#6BCB77]',
-    score: 88,
-    hours: '15h this week',
-    initials: 'SW',
-    avatarBg: 'bg-[#F47D31]/20 text-[#F47D31] border-[#F47D31]/30 shadow-[0_0_15px_rgba(244,125,49,0.2)]'
-  },
-  {
-    id: 2,
-    name: 'Taylor Holman',
-    role: 'Manager',
-    status: 'Off Today ⚪',
-    statusColor: 'text-neutral-400',
-    score: 87,
-    hours: '0h this week',
-    initials: 'TH',
-    avatarBg: 'bg-[#4ECDC4]/20 text-[#4ECDC4] border-[#4ECDC4]/30 shadow-[0_0_15px_rgba(78,205,196,0.2)]'
-  },
-  {
-    id: 3,
-    name: 'Sela Waller',
-    role: 'Sales Associate',
-    status: 'Late 🔴',
-    statusColor: 'text-[#FF6B6B]',
-    score: 72,
-    hours: '12h this week',
-    initials: 'SW',
-    avatarBg: 'bg-[#F9C846]/20 text-[#F9C846] border-[#F9C846]/30 shadow-[0_0_15px_rgba(249,200,70,0.2)]'
-  }
+  { id: 1, name: 'Summer Furrh',  role: 'Sales Associate', status: 'Clocked In',  statusColor: "#3D8B40", statusBg: "#6BCB7712", statusBorder: "#6BCB7728", score: 94, hours: '28h this week', initials: 'SF', avatarGrad: 'linear-gradient(135deg, #FF6B6B, #F47D31)' },
+  { id: 4, name: 'Sophia Davis',  role: 'Stylist',          status: 'Clocked In',  statusColor: "#3D8B40", statusBg: "#6BCB7712", statusBorder: "#6BCB7728", score: 91, hours: '32h this week', initials: 'SD', avatarGrad: 'linear-gradient(135deg, #6BCB77, #4ECDC4)' },
+  { id: 5, name: 'Sydney Wall',   role: 'Keyholder',        status: 'Clocked In',  statusColor: "#3D8B40", statusBg: "#6BCB7712", statusBorder: "#6BCB7728", score: 88, hours: '15h this week', initials: 'SW', avatarGrad: 'linear-gradient(135deg, #F47D31, #F9C846)' },
+  { id: 2, name: 'Taylor Holman', role: 'Manager',          status: 'Off Today',   statusColor: "#1A1A2E60", statusBg: "#1A1A2E08", statusBorder: "#1A1A2E15", score: 87, hours: '0h this week',  initials: 'TH', avatarGrad: 'linear-gradient(135deg, #4ECDC4, #6BCB77)' },
+  { id: 3, name: 'Sela Waller',   role: 'Sales Associate',  status: 'Late',        statusColor: "#C0392B",  statusBg: "#FF6B6B0C", statusBorder: "#FF6B6B20", score: 72, hours: '12h this week', initials: 'SW', avatarGrad: 'linear-gradient(135deg, #F9C846, #F47D31)' },
 ];
 
-export default function Team() {
+export function Team() {
   return (
-    <div className="w-[390px] h-[844px] bg-[#0B0F19] text-white relative overflow-hidden font-['Nunito'] border-8 border-[#000000] rounded-[3rem]">
-      {/* Ambient background glows */}
-      <div className="absolute top-0 right-0 w-96 h-96 bg-[#F47D31]/10 rounded-full blur-[100px] pointer-events-none" />
-      <div className="absolute bottom-40 left-0 w-80 h-80 bg-[#F9C846]/10 rounded-full blur-[80px] pointer-events-none" />
+    <div className="flex justify-center items-center min-h-screen" style={{ backgroundColor: "#F0EBE3", fontFamily: "'Nunito', 'Nunito Sans', system-ui, sans-serif" }}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800;900&display=swap'); .no-scroll::-webkit-scrollbar{display:none;} .no-scroll{-ms-overflow-style:none;scrollbar-width:none;}`}</style>
 
-      {/* Header */}
-      <div className="px-5 pt-12 pb-4 relative z-10">
-        <h1 className="text-2xl font-bold tracking-tight text-white mb-4">Team</h1>
-        
-        <div className="flex gap-3">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
-            <input 
-              type="text" 
-              placeholder="Search team..." 
-              className="w-full bg-[#12141D]/80 border border-white/[0.08] rounded-full py-2.5 pl-10 pr-4 text-sm text-white placeholder:text-neutral-500 focus:outline-none focus:ring-1 focus:ring-[#F47D31]/50 backdrop-blur-2xl transition-all"
-            />
-          </div>
-          <button className="w-10 h-10 rounded-full bg-[#12141D]/80 border border-white/[0.08] flex items-center justify-center text-neutral-300 hover:bg-white/10 transition-colors backdrop-blur-2xl shrink-0">
-            <Filter className="w-4 h-4" />
-          </button>
+      <div className="relative w-[390px] h-[844px] overflow-hidden flex flex-col" style={{ backgroundColor: "#FFFBF5", borderRadius: "52px", border: "8px solid #DDD8D0", boxShadow: "0 40px 80px rgba(0,0,0,0.14)" }}>
+
+        {/* Status bar placeholder */}
+        <div className="h-14 w-full flex justify-between items-center px-7 pt-2 z-50 absolute top-0">
+          <span className="text-[15px] font-bold" style={{ color: "#1A1A2E" }}>9:41</span>
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 w-[120px] h-[32px] bg-black rounded-full z-50" />
         </div>
-      </div>
 
-      {/* Scrollable Content */}
-      <div className="px-5 pb-32 h-full overflow-y-auto hide-scrollbar relative z-10 space-y-4">
-        
-        {/* AI Insight Banner */}
-        <div className="bg-gradient-to-r from-[#F47D31]/10 to-[#F9C846]/10 border border-[#F47D31]/20 rounded-3xl p-4 backdrop-blur-2xl relative overflow-hidden group cursor-pointer bg-[#12141D]/80">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-[#F47D31]/10 rounded-full blur-[30px] -mr-10 -mt-10 transition-transform group-hover:scale-110" />
-          <div className="flex gap-3 relative z-10">
-            <div className="w-8 h-8 rounded-full bg-[#F47D31]/20 flex items-center justify-center shrink-0 border border-[#F47D31]/30">
-              <Sparkles className="w-4 h-4 text-[#F47D31]" />
+        {/* Header */}
+        <div className="px-5 pt-16 pb-4 relative z-10">
+          <h1 className="text-[24px] font-extrabold tracking-tight mb-4" style={{ color: "#1A1A2E" }}>Team</h1>
+
+          <div className="flex gap-3">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: "#1A1A2E60" }} />
+              <input
+                type="text"
+                placeholder="Search team..."
+                className="w-full rounded-full py-2.5 pl-10 pr-4 text-sm focus:outline-none"
+                style={{ backgroundColor: "#FFFFFF", border: "1px solid #F0EBE3", color: "#1A1A2E", boxShadow: "0 2px 8px rgba(0,0,0,0.05)" }}
+              />
             </div>
-            <div>
-              <p className="text-sm font-semibold text-[#FFF8F0] leading-snug">
-                Sela has been late 3 times this week — consider a check-in
-              </p>
-              <button className="text-xs text-[#F47D31] font-bold mt-2 hover:text-[#E3691A] transition-colors">
-                Take action →
-              </button>
-            </div>
+            <button className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: "#FFFFFF", border: "1px solid #F0EBE3", boxShadow: "0 2px 8px rgba(0,0,0,0.05)" }}>
+              <Filter className="w-4 h-4" style={{ color: "#1A1A2E70" }} />
+            </button>
           </div>
         </div>
 
-        {/* Team List */}
-        <div className="space-y-3 pt-2">
-          {TEAM_MEMBERS.map((member) => (
-            <div 
-              key={member.id}
-              className="bg-[#12141D]/80 border border-white/[0.08] rounded-3xl p-4 flex items-center gap-4 hover:bg-white/[0.05] transition-colors cursor-pointer backdrop-blur-2xl group"
-            >
-              <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-base border ${member.avatarBg} shrink-0`}>
-                {member.initials}
+        {/* Scrollable Content */}
+        <div className="no-scroll px-5 pb-32 h-full overflow-y-auto relative z-10 space-y-4">
+
+          {/* AI Insight Banner */}
+          <div className="rounded-2xl p-4 cursor-pointer relative overflow-hidden" style={{ background: "linear-gradient(135deg, #F47D3110, #F9C84610)", border: "1px solid #F47D3120" }}>
+            <div className="flex gap-3 relative z-10">
+              <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: "linear-gradient(135deg, #F47D31, #F9C846)" }}>
+                <Sparkles className="w-4 h-4 text-white" />
               </div>
-              
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between mb-1">
-                  <h3 className="font-bold text-neutral-100 truncate">{member.name}</h3>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs font-semibold text-neutral-400">Score</span>
-                    <span className="text-sm font-bold text-[#F9C846] bg-[#F9C846]/10 px-2 py-0.5 rounded-full border border-[#F9C846]/20">
-                      {member.score}
+              <div>
+                <p className="text-sm font-extrabold leading-snug" style={{ color: "#1A1A2E" }}>
+                  Sela has been late 3 times this week — consider a check-in
+                </p>
+                <button className="text-xs font-extrabold mt-2 flex items-center gap-0.5" style={{ color: "#F47D31" }}>
+                  Take action <ChevronRight size={13} />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Team List */}
+          <div className="space-y-3 pt-2">
+            {TEAM_MEMBERS.map((member) => (
+              <div
+                key={member.id}
+                className="rounded-2xl p-4 flex items-center gap-4 cursor-pointer"
+                style={{ backgroundColor: "#FFFFFF", border: "1px solid #F0EBE3", boxShadow: "0 2px 10px rgba(0,0,0,0.05)" }}
+              >
+                <div className="w-12 h-12 rounded-full flex items-center justify-center font-extrabold text-sm text-white flex-shrink-0" style={{ background: member.avatarGrad }}>
+                  {member.initials}
+                </div>
+
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between mb-1">
+                    <h3 className="font-extrabold truncate" style={{ color: "#1A1A2E" }}>{member.name}</h3>
+                    <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
+                      <span className="text-xs font-extrabold" style={{ color: "#1A1A2E60" }}>Score</span>
+                      <span className="text-sm font-extrabold px-2 py-0.5 rounded-full" style={{ backgroundColor: "#F47D3112", color: "#C05E1E", border: "1px solid #F47D3120" }}>
+                        {member.score}
+                      </span>
+                    </div>
+                  </div>
+
+                  <p className="text-xs font-semibold truncate mb-2" style={{ color: "#1A1A2E70" }}>{member.role}</p>
+
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-extrabold px-2.5 py-1 rounded-full" style={{ backgroundColor: member.statusBg, color: member.statusColor, border: `1px solid ${member.statusBorder}` }}>
+                      {member.status}
                     </span>
+                    <span className="text-[11px] font-semibold" style={{ color: "#1A1A2E50" }}>{member.hours}</span>
                   </div>
                 </div>
-                
-                <p className="text-xs font-medium text-neutral-400 truncate mb-2">
-                  {member.role}
-                </p>
-                
-                <div className="flex items-center justify-between">
-                  <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full bg-white/5 border border-white/5 ${member.statusColor}`}>
-                    {member.status}
-                  </span>
-                  <span className="text-[11px] font-medium text-neutral-500">
-                    {member.hours}
-                  </span>
-                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      </div>
 
-      {/* Floating Action Button */}
-      <div className="absolute bottom-28 right-5 z-20">
-        <button className="bg-[#F47D31] hover:bg-[#E3691A] text-white rounded-full px-5 py-3.5 flex items-center gap-2 shadow-[0_0_20px_rgba(244,125,49,0.3)] border border-[#F47D31]/50 transition-transform active:scale-95 font-bold text-sm">
-          <Plus className="w-4 h-4" />
-          Invite Member
-        </button>
-      </div>
-
-      {/* Bottom Nav */}
-      <div className="absolute bottom-0 left-0 right-0 h-24 bg-[#0B0F19]/90 backdrop-blur-xl border-t border-white/10 z-30 px-6 pb-6">
-        <div className="h-full flex items-center justify-between">
-          <button className="flex flex-col items-center gap-1.5 text-neutral-500 hover:text-white transition-colors">
-            <Home className="w-5 h-5" />
-            <span className="text-[10px] font-bold">Home</span>
-          </button>
-          <button className="flex flex-col items-center gap-1.5 text-white transition-colors relative">
-            <Users className="w-5 h-5 text-[#F47D31]" />
-            <span className="text-[10px] font-bold text-[#F47D31]">Team</span>
-            <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 w-1 h-1 bg-[#F47D31] rounded-full shadow-[0_0_8px_rgba(244,125,49,0.8)]" />
-          </button>
-          <button className="flex flex-col items-center gap-1.5 text-neutral-500 hover:text-white transition-colors">
-            <Calendar className="w-5 h-5" />
-            <span className="text-[10px] font-bold">Schedule</span>
-          </button>
-          <button className="flex flex-col items-center gap-1.5 text-neutral-500 hover:text-white transition-colors">
-            <CheckSquare className="w-5 h-5" />
-            <span className="text-[10px] font-bold">Tasks</span>
-          </button>
-          <button className="flex flex-col items-center gap-1.5 text-neutral-500 hover:text-white transition-colors">
-            <Menu className="w-5 h-5" />
-            <span className="text-[10px] font-bold">More</span>
+        {/* Floating Action Button */}
+        <div className="absolute bottom-28 right-5 z-20">
+          <button className="text-white rounded-full px-5 py-3.5 flex items-center gap-2 font-extrabold text-sm" style={{ background: "linear-gradient(135deg, #F47D31, #F9C846)", boxShadow: "0 8px 24px rgba(244,125,49,0.35)" }}>
+            <Plus className="w-4 h-4" />
+            Invite Member
           </button>
         </div>
+
+        {/* Bottom Navigation */}
+        <div className="absolute bottom-0 w-full z-50 px-4 pb-6 pt-10 pointer-events-none" style={{ background: "linear-gradient(to top, #FFFBF5 60%, transparent)" }}>
+          <div className="h-[72px] rounded-[24px] px-6 flex justify-between items-center pointer-events-auto" style={{ backgroundColor: "rgba(255,251,245,0.96)", backdropFilter: "blur(20px)", border: "1px solid #F0EBE3", boxShadow: "0 -4px 20px rgba(0,0,0,0.05)" }}>
+            <button className="flex flex-col items-center gap-1 text-[10px] font-bold" style={{ color: "#1A1A2E50" }}>
+              <Home className="w-5 h-5" />Home
+            </button>
+            <button className="flex flex-col items-center gap-1 text-[10px] font-extrabold relative" style={{ color: "#F47D31" }}>
+              <Users className="w-5 h-5" />Team
+              <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full" style={{ backgroundColor: "#F47D31" }} />
+            </button>
+            <button className="flex flex-col items-center gap-1 text-[10px] font-bold" style={{ color: "#1A1A2E50" }}>
+              <Calendar className="w-5 h-5" />Schedule
+            </button>
+            <button className="flex flex-col items-center gap-1 text-[10px] font-bold" style={{ color: "#1A1A2E50" }}>
+              <CheckSquare className="w-5 h-5" />Tasks
+            </button>
+            <button className="flex flex-col items-center gap-1 text-[10px] font-bold" style={{ color: "#1A1A2E50" }}>
+              <Menu className="w-5 h-5" />More
+            </button>
+          </div>
+          <div className="w-[120px] h-1.5 rounded-full mx-auto mt-5" style={{ backgroundColor: "#1A1A2E20" }} />
+        </div>
+
       </div>
-      
-      {/* CSS for hide-scrollbar */}
-      <style dangerouslySetInnerHTML={{__html: `
-        .hide-scrollbar::-webkit-scrollbar {
-          display: none;
-        }
-        .hide-scrollbar {
-          -ms-overflow-style: none;
-          scrollbar-width: none;
-        }
-      `}} />
     </div>
   );
 }
