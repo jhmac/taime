@@ -84,7 +84,7 @@ export default function ShopifyBillingPlans() {
     enabled: true,
   });
 
-  const { data: billingStatus, isLoading: statusLoading, refetch: refetchStatus } = useQuery<BillingStatus>({
+  const { data: billingStatus, isLoading: statusLoading, isError: statusError, refetch: refetchStatus } = useQuery<BillingStatus>({
     queryKey: ["/api/shopify/billing/status", shopDomain],
     queryFn: async () => {
       const r = await fetch(`/api/shopify/billing/status?shop=${encodeURIComponent(shopDomain)}`);
@@ -92,7 +92,18 @@ export default function ShopifyBillingPlans() {
       return r.json();
     },
     enabled: !!shopDomain,
+    retry: 1,
   });
+
+  useEffect(() => {
+    if (statusError) {
+      toast({
+        title: "Could not load billing status",
+        description: "Unable to retrieve your current plan. Please refresh the page.",
+        variant: "destructive",
+      });
+    }
+  }, [statusError]);
 
   const subscribeMutation = useMutation({
     mutationFn: async (planName: string) => {
