@@ -86,9 +86,11 @@ export default function ShopifyBillingPlans() {
 
   const { data: billingStatus, isLoading: statusLoading, refetch: refetchStatus } = useQuery<BillingStatus>({
     queryKey: ["/api/shopify/billing/status", shopDomain],
-    queryFn: () =>
-      fetch(`/api/shopify/billing/status?shop=${encodeURIComponent(shopDomain)}`)
-        .then(r => r.json()),
+    queryFn: async () => {
+      const r = await fetch(`/api/shopify/billing/status?shop=${encodeURIComponent(shopDomain)}`);
+      if (!r.ok) throw new Error(`Billing status fetch failed: ${r.status}`);
+      return r.json();
+    },
     enabled: !!shopDomain,
   });
 

@@ -9,7 +9,6 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Sparkles, X, Minus, Send, Loader2, ThumbsUp, ThumbsDown,
   BookOpen, AlertTriangle, ClipboardList, Calendar,
-  CheckCircle2, MessageSquarePlus,
 } from "lucide-react";
 import { useLocation } from "wouter";
 
