@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
 import { users, roles, companySettings, employeeDocuments, managerNotes } from "@shared/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, isNull } from "drizzle-orm";
 import { db } from "../db";
 import { sendTeamInviteEmail } from "../services/emailService";
 import { randomBytes } from "crypto";
@@ -586,6 +586,114 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
     } catch (error) {
       console.error("Error deleting note:", error);
       res.status(500).json({ message: "Failed to delete note" });
+    }
+  });
+
+  // Send first invite to a member who has never been invited
+  app.post('/api/users/:userId/send-invite', isAuthenticated, async (req: any, res) => {
+    try {
+      const currentUserId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(currentUserId);
+      const canManage = userPermissions.some(p => p.name === 'hr.manage_employees' || p.name === 'hr.edit_team');
+
+      if (!canManage) {
+        return res.status(403).json({ message: "Employee management access required" });
+      }
+
+      const { userId } = req.params;
+      const targetUser = await storage.getUser(userId);
+      if (!targetUser || !targetUser.email) {
+        return res.status(404).json({ message: "User not found or has no email" });
+      }
+
+      if (targetUser.inviteAcceptedAt) {
+        return res.status(400).json({ message: "This user has already accepted their invite" });
+      }
+
+      if (targetUser.invitedAt) {
+        return res.status(400).json({ message: "This user has already been invited. Use resend-invite to send again." });
+      }
+
+      const inviter = await storage.getUser(currentUserId);
+      const inviterName = inviter ? `${inviter.firstName || ''} ${inviter.lastName || ''}`.trim() || 'Your manager' : 'Your manager';
+
+      const settings = await db.select().from(companySettings).limit(1);
+      const companyName = settings[0]?.companyName || 'Taime';
+
+      const recipientName = `${targetUser.firstName || ''} ${targetUser.lastName || ''}`.trim();
+
+      const newToken = targetUser.inviteToken || generateInviteToken();
+      const roleInfo = targetUser.roleId ? await db.select({ displayName: roles.displayName }).from(roles).where(eq(roles.id, targetUser.roleId)).then(r => r[0]?.displayName) : null;
+
+      const sent = await sendTeamInviteEmail(req, targetUser.email, recipientName, inviterName, companyName, newToken, roleInfo || null);
+      if (sent) {
+        await db.update(users).set({
+          invitedAt: new Date(),
+          inviteToken: newToken,
+          inviteCount: (targetUser.inviteCount || 0) + 1,
+        }).where(eq(users.id, userId));
+        res.json({ message: "Invitation email sent successfully" });
+      } else {
+        res.status(500).json({ message: "Failed to send invitation email" });
+      }
+    } catch (error) {
+      console.error("Error sending invite:", error);
+      res.status(500).json({ message: "Failed to send invitation" });
+    }
+  });
+
+  // Bulk invite: send invites to all uninvited/pending members who have an email
+  app.post('/api/users/bulk-invite', isAuthenticated, async (req: any, res) => {
+    try {
+      const currentUserId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(currentUserId);
+      const canManage = userPermissions.some(p => p.name === 'hr.manage_employees' || p.name === 'hr.edit_team');
+
+      if (!canManage) {
+        return res.status(403).json({ message: "Employee management access required" });
+      }
+
+      const inviter = await storage.getUser(currentUserId);
+      const inviterName = inviter ? `${inviter.firstName || ''} ${inviter.lastName || ''}`.trim() || 'Your manager' : 'Your manager';
+
+      const settings = await db.select().from(companySettings).limit(1);
+      const companyName = settings[0]?.companyName || 'Taime';
+
+      // Get all users with email who haven't accepted invite
+      const pendingUsers = await db.select().from(users)
+        .where(isNull(users.inviteAcceptedAt));
+
+      const eligibleUsers = pendingUsers.filter(u => u.email);
+
+      let sentCount = 0;
+      let failedCount = 0;
+
+      for (const targetUser of eligibleUsers) {
+        try {
+          const newToken = targetUser.inviteToken || generateInviteToken();
+          const recipientName = `${targetUser.firstName || ''} ${targetUser.lastName || ''}`.trim();
+          const roleInfo = targetUser.roleId ? await db.select({ displayName: roles.displayName }).from(roles).where(eq(roles.id, targetUser.roleId)).then(r => r[0]?.displayName) : null;
+
+          const sent = await sendTeamInviteEmail(req, targetUser.email!, recipientName, inviterName, companyName, newToken, roleInfo || null);
+          if (sent) {
+            await db.update(users).set({
+              invitedAt: new Date(),
+              inviteToken: newToken,
+              inviteCount: (targetUser.inviteCount || 0) + 1,
+            }).where(eq(users.id, targetUser.id));
+            sentCount++;
+          } else {
+            failedCount++;
+          }
+        } catch {
+          failedCount++;
+        }
+      }
+
+      res.json({ message: `Sent ${sentCount} invite${sentCount !== 1 ? 's' : ''}${failedCount > 0 ? `, ${failedCount} failed` : ''}`, sentCount, failedCount });
+    } catch (error) {
+      console.error("Error bulk inviting:", error);
+      res.status(500).json({ message: "Failed to send bulk invites" });
     }
   });
 }
