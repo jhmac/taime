@@ -779,8 +779,9 @@ Keep your response concise, practical, and focused on actionable staffing advice
         ))
         .orderBy(shopifyDailySales.date);
 
-      const allTimeEntries = await storage.getAllTimeEntries(startDate, now);
-      const allUsers = await db.select().from(users).where(eq(users.isActive, true));
+      const shopifyCompanyId = req.user?.companyId;
+      const allTimeEntries = await storage.getAllTimeEntries(startDate, now, shopifyCompanyId);
+      const allUsers = await storage.getAllUsers(shopifyCompanyId);
 
       const userRateMap = new Map<string, number>();
       allUsers.forEach(u => {

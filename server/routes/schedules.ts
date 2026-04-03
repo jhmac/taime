@@ -1,8 +1,6 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
-import { insertScheduleSchema, users } from "@shared/schema";
-import { eq } from "drizzle-orm";
-import { db } from "../db";
+import { insertScheduleSchema } from "@shared/schema";
 import { notificationService } from "../services/notificationService";
 import { claudeService } from "../services/claudeService";
 
@@ -10,7 +8,8 @@ export function registerScheduleRoutes(app: Express, storage: IStorage, isAuthen
   app.post('/api/schedules', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const body = { ...req.body, createdBy: userId };
+      const companyId = req.user?.companyId;
+      const body = { ...req.body, createdBy: userId, ...(companyId ? { companyId } : {}) };
       if (body.startTime && typeof body.startTime === 'string') {
         body.startTime = new Date(body.startTime);
       }
@@ -48,14 +47,15 @@ export function registerScheduleRoutes(app: Express, storage: IStorage, isAuthen
       const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
       const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
 
+      const companyId = req.user?.companyId;
       let schedules;
       const userPermissions = await storage.getUserPermissions(userId);
       const canViewAll = userPermissions.some(p => p.name === 'schedule.view_all');
       
       if (canViewAll) {
-        schedules = await storage.getAllSchedules(startDate, endDate);
+        schedules = await storage.getAllSchedules(startDate, endDate, companyId);
       } else {
-        schedules = await storage.getUserSchedules(userId, startDate, endDate);
+        schedules = await storage.getUserSchedules(userId, companyId, startDate, endDate);
       }
 
       res.json(schedules);
@@ -73,7 +73,12 @@ export function registerScheduleRoutes(app: Express, storage: IStorage, isAuthen
       if (!canManage) {
         return res.status(403).json({ message: "Permission denied" });
       }
-      await storage.deleteSchedule(req.params.id);
+      const companyId = req.user?.companyId;
+      const existing = await storage.getSchedule(req.params.id, companyId);
+      if (!existing) {
+        return res.status(404).json({ message: "Schedule not found" });
+      }
+      await storage.deleteSchedule(req.params.id, companyId);
       broadcastToAll({ type: 'schedule_deleted', data: { scheduleId: req.params.id } });
       res.json({ success: true });
     } catch (error) {
@@ -86,9 +91,11 @@ export function registerScheduleRoutes(app: Express, storage: IStorage, isAuthen
     try {
       const { payrollPeriodId, businessHours, constraints } = req.body;
       
-      const availabilityData = await storage.getAllAvailabilityForPeriod(payrollPeriodId);
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(403).json({ message: "Company context required" });
+      const availabilityData = await storage.getAllAvailabilityForPeriod(payrollPeriodId, companyId);
       
-      const allUsers = await db.select().from(users).where(eq(users.isActive, true));
+      const allUsers = await storage.getAllUsers(companyId);
       const userMap = new Map(allUsers.map((u: any) => [u.id, u]));
       
       const transformedData = availabilityData.map((avail: any) => {
@@ -125,6 +132,7 @@ export function registerScheduleRoutes(app: Express, storage: IStorage, isAuthen
         endTime: new Date(`${scheduleItem.date}T${scheduleItem.endTime}`),
         location: 'Main Location',
         notes: scheduleItem.reasoning,
+        ...(companyId ? { companyId } : {}),
       }));
 
       const created = await storage.createSchedulesBatch(schedulesToCreate);

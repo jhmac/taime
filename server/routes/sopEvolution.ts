@@ -31,7 +31,9 @@ export function registerSOPEvolutionRoutes(app: Express, storage: IStorage, isAu
       const isManager = await requireManagerOrAbove(storage, req.user.id);
       if (!isManager) return res.status(403).json({ message: "Manager or owner access required" });
 
-      const storeId = await resolveStoreId();
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(403).json({ message: "Company context required" });
+      const storeId = await resolveStoreId(companyId);
       if (!storeId) return res.status(400).json({ message: "No store configured" });
 
       const { status, sop_template_id } = req.query;
@@ -74,7 +76,9 @@ export function registerSOPEvolutionRoutes(app: Express, storage: IStorage, isAu
       const isOwner = await requireOwnerOrAdmin(storage, req.user.id);
       if (!isOwner) return res.status(403).json({ message: "Owner or admin access required" });
 
-      const storeId = await resolveStoreId();
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(403).json({ message: "Company context required" });
+      const storeId = await resolveStoreId(companyId);
       if (!storeId) return res.status(400).json({ message: "No store configured" });
 
       const parsed = reviewSchema.safeParse(req.body);
@@ -111,7 +115,9 @@ export function registerSOPEvolutionRoutes(app: Express, storage: IStorage, isAu
       const isManager = await requireManagerOrAbove(storage, req.user.id);
       if (!isManager) return res.status(403).json({ message: "Manager or owner access required" });
 
-      const storeId = await resolveStoreId();
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(403).json({ message: "Company context required" });
+      const storeId = await resolveStoreId(companyId);
       if (!storeId) return res.status(400).json({ message: "No store configured" });
 
       const result = await db.select({
@@ -144,7 +150,9 @@ export function registerSOPEvolutionRoutes(app: Express, storage: IStorage, isAu
       const isOwner = await requireOwnerOrAdmin(storage, req.user.id);
       if (!isOwner) return res.status(403).json({ message: "Owner or admin access required" });
 
-      const storeId = await resolveStoreId();
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(403).json({ message: "Company context required" });
+      const storeId = await resolveStoreId(companyId);
       if (!storeId) return res.status(400).json({ message: "No store configured" });
 
       const count = await generateRevisionProposals(storeId);

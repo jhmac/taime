@@ -15,7 +15,9 @@ async function requireAdmin(storage: IStorage, userId: string): Promise<boolean>
 export function registerSopRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
   app.get('/api/sop/categories', isAuthenticated, async (req: any, res) => {
     try {
-      const categories = await storage.getSopCategories();
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(403).json({ message: "Company context required" });
+      const categories = await storage.getSopCategories(companyId);
       res.json(categories);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -24,12 +26,15 @@ export function registerSopRoutes(app: Express, storage: IStorage, isAuthenticat
 
   app.post('/api/sop/categories', isAuthenticated, async (req: any, res) => {
     try {
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(403).json({ message: "Company context required" });
       if (!(await requireAdmin(storage, req.user.id))) {
         return res.status(403).json({ message: "Admin access required" });
       }
       const data = insertSopCategorySchema.parse({
         ...req.body,
         createdBy: req.user.id,
+        companyId,
       });
       const category = await storage.createSopCategory(data);
       res.json(category);
@@ -40,9 +45,15 @@ export function registerSopRoutes(app: Express, storage: IStorage, isAuthenticat
 
   app.put('/api/sop/categories/:id', isAuthenticated, async (req: any, res) => {
     try {
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(403).json({ message: "Company context required" });
       if (!(await requireAdmin(storage, req.user.id))) {
         return res.status(403).json({ message: "Admin access required" });
       }
+      const categories = await storage.getSopCategories(companyId);
+      const existing = categories.find(c => c.id === req.params.id);
+      if (!existing) return res.status(404).json({ message: "Category not found" });
+
       const updateSchema = z.object({
         name: z.string().optional(),
         description: z.string().nullable().optional(),
@@ -51,7 +62,7 @@ export function registerSopRoutes(app: Express, storage: IStorage, isAuthenticat
         isActive: z.boolean().optional(),
       });
       const validated = updateSchema.parse(req.body);
-      const category = await storage.updateSopCategory(req.params.id, {
+      const category = await storage.updateSopCategory(req.params.id, companyId, {
         ...validated,
         updatedAt: new Date(),
       });
@@ -63,10 +74,16 @@ export function registerSopRoutes(app: Express, storage: IStorage, isAuthenticat
 
   app.delete('/api/sop/categories/:id', isAuthenticated, async (req: any, res) => {
     try {
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(403).json({ message: "Company context required" });
       if (!(await requireAdmin(storage, req.user.id))) {
         return res.status(403).json({ message: "Admin access required" });
       }
-      await storage.deleteSopCategory(req.params.id);
+      const categories = await storage.getSopCategories(companyId);
+      const existing = categories.find(c => c.id === req.params.id);
+      if (!existing) return res.status(404).json({ message: "Category not found" });
+
+      await storage.deleteSopCategory(req.params.id, companyId);
       res.json({ success: true });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -75,9 +92,11 @@ export function registerSopRoutes(app: Express, storage: IStorage, isAuthenticat
 
   app.get('/api/sop/documents', isAuthenticated, async (req: any, res) => {
     try {
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(403).json({ message: "Company context required" });
       const isAdmin = await requireAdmin(storage, req.user.id);
       const categoryId = req.query.categoryId as string | undefined;
-      const documents = await storage.getSopDocuments(categoryId);
+      const documents = await storage.getSopDocuments(categoryId, companyId);
       if (isAdmin) {
         res.json(documents);
       } else {
@@ -90,7 +109,9 @@ export function registerSopRoutes(app: Express, storage: IStorage, isAuthenticat
 
   app.get('/api/sop/documents/:id', isAuthenticated, async (req: any, res) => {
     try {
-      const doc = await storage.getSopDocument(req.params.id);
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(403).json({ message: "Company context required" });
+      const doc = await storage.getSopDocument(req.params.id, companyId);
       if (!doc) {
         return res.status(404).json({ message: "Document not found" });
       }
@@ -106,6 +127,8 @@ export function registerSopRoutes(app: Express, storage: IStorage, isAuthenticat
 
   app.post('/api/sop/documents', isAuthenticated, async (req: any, res) => {
     try {
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(403).json({ message: "Company context required" });
       if (!(await requireAdmin(storage, req.user.id))) {
         return res.status(403).json({ message: "Admin access required" });
       }
@@ -113,6 +136,7 @@ export function registerSopRoutes(app: Express, storage: IStorage, isAuthenticat
         ...req.body,
         createdBy: req.user.id,
         updatedBy: req.user.id,
+        companyId,
       });
       const doc = await storage.createSopDocument(data);
       res.json(doc);
@@ -123,8 +147,14 @@ export function registerSopRoutes(app: Express, storage: IStorage, isAuthenticat
 
   app.put('/api/sop/documents/:id', isAuthenticated, async (req: any, res) => {
     try {
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(403).json({ message: "Company context required" });
       if (!(await requireAdmin(storage, req.user.id))) {
         return res.status(403).json({ message: "Admin access required" });
+      }
+      const existing = await storage.getSopDocument(req.params.id, companyId);
+      if (!existing) {
+        return res.status(404).json({ message: "Document not found" });
       }
       const updateSchema = z.object({
         title: z.string().optional(),
@@ -136,7 +166,7 @@ export function registerSopRoutes(app: Express, storage: IStorage, isAuthenticat
         isPublished: z.boolean().optional(),
       });
       const validated = updateSchema.parse(req.body);
-      const doc = await storage.updateSopDocument(req.params.id, {
+      const doc = await storage.updateSopDocument(req.params.id, companyId, {
         ...validated,
         updatedBy: req.user.id,
         updatedAt: new Date(),
@@ -149,10 +179,16 @@ export function registerSopRoutes(app: Express, storage: IStorage, isAuthenticat
 
   app.delete('/api/sop/documents/:id', isAuthenticated, async (req: any, res) => {
     try {
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(403).json({ message: "Company context required" });
       if (!(await requireAdmin(storage, req.user.id))) {
         return res.status(403).json({ message: "Admin access required" });
       }
-      await storage.deleteSopDocument(req.params.id);
+      const existing = await storage.getSopDocument(req.params.id, companyId);
+      if (!existing) {
+        return res.status(404).json({ message: "Document not found" });
+      }
+      await storage.deleteSopDocument(req.params.id, companyId);
       res.json({ success: true });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -161,11 +197,13 @@ export function registerSopRoutes(app: Express, storage: IStorage, isAuthenticat
 
   app.get('/api/sop/search', isAuthenticated, async (req: any, res) => {
     try {
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(403).json({ message: "Company context required" });
       const query = req.query.q as string;
       if (!query) {
         return res.status(400).json({ message: "Search query required" });
       }
-      const results = await storage.searchSopDocuments(query);
+      const results = await storage.searchSopDocuments(query, companyId);
       res.json(results);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -174,7 +212,9 @@ export function registerSopRoutes(app: Express, storage: IStorage, isAuthenticat
 
   app.get('/api/training/modules', isAuthenticated, async (req: any, res) => {
     try {
-      const modules = await storage.getTrainingModules();
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(403).json({ message: "Company context required" });
+      const modules = await storage.getTrainingModules(companyId);
       res.json(modules.filter(m => m.isActive));
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -183,12 +223,15 @@ export function registerSopRoutes(app: Express, storage: IStorage, isAuthenticat
 
   app.post('/api/training/modules', isAuthenticated, async (req: any, res) => {
     try {
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(403).json({ message: "Company context required" });
       if (!(await requireAdmin(storage, req.user.id))) {
         return res.status(403).json({ message: "Admin access required" });
       }
       const data = insertTrainingModuleSchema.parse({
         ...req.body,
         createdBy: req.user.id,
+        companyId,
       });
       const module = await storage.createTrainingModule(data);
       res.json(module);
@@ -199,9 +242,15 @@ export function registerSopRoutes(app: Express, storage: IStorage, isAuthenticat
 
   app.put('/api/training/modules/:id', isAuthenticated, async (req: any, res) => {
     try {
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(403).json({ message: "Company context required" });
       if (!(await requireAdmin(storage, req.user.id))) {
         return res.status(403).json({ message: "Admin access required" });
       }
+      const modules = await storage.getTrainingModules(companyId);
+      const existing = modules.find(m => m.id === req.params.id);
+      if (!existing) return res.status(404).json({ message: "Module not found" });
+
       const updateSchema = z.object({
         title: z.string().optional(),
         description: z.string().nullable().optional(),
@@ -213,7 +262,7 @@ export function registerSopRoutes(app: Express, storage: IStorage, isAuthenticat
         isActive: z.boolean().optional(),
       });
       const validated = updateSchema.parse(req.body);
-      const module = await storage.updateTrainingModule(req.params.id, {
+      const module = await storage.updateTrainingModule(req.params.id, companyId, {
         ...validated,
         updatedAt: new Date(),
       });
@@ -225,10 +274,16 @@ export function registerSopRoutes(app: Express, storage: IStorage, isAuthenticat
 
   app.delete('/api/training/modules/:id', isAuthenticated, async (req: any, res) => {
     try {
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(403).json({ message: "Company context required" });
       if (!(await requireAdmin(storage, req.user.id))) {
         return res.status(403).json({ message: "Admin access required" });
       }
-      await storage.deleteTrainingModule(req.params.id);
+      const modules = await storage.getTrainingModules(companyId);
+      const existing = modules.find(m => m.id === req.params.id);
+      if (!existing) return res.status(404).json({ message: "Module not found" });
+
+      await storage.deleteTrainingModule(req.params.id, companyId);
       res.json({ success: true });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -245,7 +300,7 @@ export function registerSopRoutes(app: Express, storage: IStorage, isAuthenticat
         }
         userId = queryUserId;
       }
-      const progress = await storage.getEmployeeTrainingProgress(userId);
+      const progress = await storage.getEmployeeTrainingProgress(userId, req.user?.companyId);
       res.json(progress);
     } catch (error: any) {
       res.status(500).json({ message: error.message });

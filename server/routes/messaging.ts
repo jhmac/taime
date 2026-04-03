@@ -34,6 +34,9 @@ export function registerMessageRoutes(
   app.get("/api/messages/contacts", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user?.id;
+      const companyId = req.user?.companyId;
+      const conditions = [eq(users.isActive, true)];
+      if (companyId) conditions.push(eq(users.companyId, companyId));
       const allUsers = await db
         .select({
           id: users.id,
@@ -43,7 +46,7 @@ export function registerMessageRoutes(
           roleId: users.roleId,
         })
         .from(users)
-        .where(eq(users.isActive, true));
+        .where(and(...conditions));
       const contacts = allUsers.filter(u => u.id !== userId);
       res.json(contacts);
     } catch (error) {
@@ -68,16 +71,27 @@ export function registerMessageRoutes(
 
       const threadIdList = myThreadIds.map(t => t.threadId);
 
+      const companyId = user.companyId;
       const threads = await db
         .select()
         .from(messageThreads)
-        .where(inArray(messageThreads.id, threadIdList))
+        .where(
+          companyId
+            ? and(inArray(messageThreads.id, threadIdList), eq(messageThreads.companyId, companyId))
+            : inArray(messageThreads.id, threadIdList)
+        )
         .orderBy(desc(messageThreads.updatedAt));
+
+      const scopedThreadIds = threads.map(t => t.id);
+
+      if (scopedThreadIds.length === 0) {
+        return res.json({ success: true, data: [] });
+      }
 
       const allParticipants = await db
         .select()
         .from(threadParticipants)
-        .where(inArray(threadParticipants.threadId, threadIdList));
+        .where(inArray(threadParticipants.threadId, scopedThreadIds));
 
       const participantUserIds = [...new Set(allParticipants.map(p => p.userId))];
       const userRows = participantUserIds.length > 0
@@ -90,7 +104,7 @@ export function registerMessageRoutes(
       const lastMessages = await db.execute(sql`
         SELECT DISTINCT ON (thread_id) thread_id, id, sender_id, content, message_type, deleted_at, created_at
         FROM thread_messages
-        WHERE thread_id = ANY(${threadIdList})
+        WHERE thread_id = ANY(${scopedThreadIds})
         ORDER BY thread_id, created_at DESC
       `);
 
@@ -109,7 +123,7 @@ export function registerMessageRoutes(
         SELECT m.thread_id, COUNT(*) as count
         FROM thread_messages m
         JOIN thread_participants p ON p.thread_id = m.thread_id AND p.user_id = ${user.id}
-        WHERE m.thread_id = ANY(${threadIdList})
+        WHERE m.thread_id = ANY(${scopedThreadIds})
           AND m.sender_id != ${user.id}
           AND (p.last_read_at IS NULL OR m.created_at > p.last_read_at)
         GROUP BY m.thread_id
@@ -160,14 +174,22 @@ export function registerMessageRoutes(
       const allParticipantIds = [...new Set([user.id, ...parsed.participant_ids])];
 
       const validUsers = await db
-        .select({ id: users.id })
+        .select({ id: users.id, companyId: users.companyId })
         .from(users)
         .where(inArray(users.id, parsed.participant_ids));
       if (validUsers.length !== parsed.participant_ids.length) {
         return res.status(400).json({ error: "One or more participants not found" });
       }
+      if (user.companyId) {
+        const crossCompany = validUsers.some(u => u.companyId && u.companyId !== user.companyId);
+        if (crossCompany) {
+          return res.status(403).json({ error: "Cannot add participants from other companies" });
+        }
+      }
 
-      const storeId = await resolveStoreId() || "default";
+      const companyId = user.companyId;
+      if (!companyId) return res.status(403).json({ error: "Company context required" });
+      const storeId = await resolveStoreId(companyId) || "default";
 
       if (parsed.thread_type === "direct" && allParticipantIds.length === 2) {
         const existingThreads = await db.execute(sql`
@@ -190,6 +212,7 @@ export function registerMessageRoutes(
         threadType: parsed.thread_type,
         title: parsed.title || null,
         createdBy: user.id,
+        ...(user.companyId ? { companyId: user.companyId } : {}),
       }).returning();
 
       await db.insert(threadParticipants).values(
@@ -236,6 +259,10 @@ export function registerMessageRoutes(
         .where(eq(messageThreads.id, threadId));
 
       if (!thread) return res.status(404).json({ error: "Thread not found" });
+
+      if (!thread.companyId || !user.companyId || thread.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
 
       const limit = Math.min(parseInt(req.query.limit as string) || 50, 100);
       const before = req.query.before as string | undefined;
@@ -440,6 +467,12 @@ export function registerMessageRoutes(
         .where(eq(threadMessages.id, req.params.messageId));
 
       if (!message) return res.status(404).json({ error: "Message not found" });
+
+      const [thread] = await db.select().from(messageThreads).where(eq(messageThreads.id, message.threadId));
+      if (!thread || !thread.companyId || !user.companyId || thread.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
       if (message.senderId !== user.id) return res.status(403).json({ error: "Not your message" });
       if (message.deletedAt) return res.status(400).json({ error: "Message is deleted" });
 
@@ -488,6 +521,11 @@ export function registerMessageRoutes(
 
       if (!message) return res.status(404).json({ error: "Message not found" });
 
+      const [thread] = await db.select().from(messageThreads).where(eq(messageThreads.id, message.threadId));
+      if (!thread || !thread.companyId || !user.companyId || thread.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
       const isAdmin = user.role?.name === "admin" || user.role?.name === "owner";
       if (message.senderId !== user.id && !isAdmin) {
         return res.status(403).json({ error: "Not authorized" });
@@ -523,13 +561,19 @@ export function registerMessageRoutes(
       const user = (req as any).user;
       if (!user) return res.status(401).json({ error: "Unauthorized" });
 
+      const userCompanyId = user.companyId as string | undefined;
+      if (!userCompanyId) {
+        return res.json({ success: true, data: { count: 0 } });
+      }
       const result = await db.execute(sql`
         SELECT COALESCE(SUM(cnt), 0) as total FROM (
           SELECT COUNT(*) as cnt
           FROM thread_messages m
           JOIN thread_participants p ON p.thread_id = m.thread_id AND p.user_id = ${user.id}
+          JOIN message_threads t ON t.id = m.thread_id
           WHERE m.sender_id != ${user.id}
             AND (p.last_read_at IS NULL OR m.created_at > p.last_read_at)
+            AND t.company_id = ${userCompanyId}
         ) sub
       `);
 
@@ -546,6 +590,16 @@ export function registerMessageRoutes(
 
       const { thread_id } = req.body;
       if (!thread_id) return res.status(400).json({ error: "thread_id required" });
+
+      const [thread] = await db.select().from(messageThreads).where(eq(messageThreads.id, thread_id));
+      if (!thread || !thread.companyId || !user.companyId || thread.companyId !== user.companyId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const isParticipant = await db.select({ id: threadParticipants.id }).from(threadParticipants).where(and(eq(threadParticipants.threadId, thread_id), eq(threadParticipants.userId, user.id))).limit(1);
+      if (!isParticipant.length) {
+        return res.status(403).json({ error: "Not a participant in this thread" });
+      }
 
       const allParticipants = await db
         .select({ userId: threadParticipants.userId })

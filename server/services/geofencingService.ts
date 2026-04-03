@@ -18,6 +18,15 @@ const activeOffsiteTimers = new Map<string, NodeJS.Timeout>();
 const lastLocationReport = new Map<string, number>();
 
 export class GeofencingService {
+  private async getUserCompanyId(userId: string): Promise<string | undefined> {
+    try {
+      const user = await storage.getUser(userId);
+      return user?.companyId ?? undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
     const R = 6371000;
     const φ1 = (lat1 * Math.PI) / 180;
@@ -52,7 +61,8 @@ export class GeofencingService {
     verifiedVia?: 'gps';
   }> {
     try {
-      const allLocations = await storage.getAllWorkLocations();
+      const companyId = await this.getUserCompanyId(userId);
+      const allLocations = await storage.getAllWorkLocations(companyId);
       
       for (const location of allLocations) {
         if (!location.latitude || !location.longitude) continue;
@@ -93,7 +103,7 @@ export class GeofencingService {
     }
   }
 
-  async checkWifiSsid(wifiSsid: string): Promise<{
+  async checkWifiSsid(wifiSsid: string, userId?: string): Promise<{
     isInWorkLocation: boolean;
     location?: any;
     verifiedVia?: 'wifi';
@@ -103,7 +113,8 @@ export class GeofencingService {
         return { isInWorkLocation: false };
       }
 
-      const allLocations = await storage.getAllWorkLocations();
+      const companyId = userId ? await this.getUserCompanyId(userId) : undefined;
+      const allLocations = await storage.getAllWorkLocations(companyId);
       const normalizedSsid = wifiSsid.trim().toLowerCase();
       
       for (const location of allLocations) {
@@ -133,7 +144,7 @@ export class GeofencingService {
     verifiedVia?: 'gps' | 'wifi';
   }> {
     if (wifiSsid) {
-      const wifiResult = await this.checkWifiSsid(wifiSsid);
+      const wifiResult = await this.checkWifiSsid(wifiSsid, userId);
       if (wifiResult.isInWorkLocation) {
         return wifiResult;
       }
@@ -165,7 +176,8 @@ export class GeofencingService {
     }>;
   }> {
     try {
-      const allLocations = await storage.getAllWorkLocations();
+      const companyId = await this.getUserCompanyId(userId);
+      const allLocations = await storage.getAllWorkLocations(companyId);
       const results: Array<{
         id: string;
         name: string;
@@ -305,7 +317,8 @@ export class GeofencingService {
       if (alertRecipients === 'custom' && rule.customAlertUserIds) {
         targetUserIds.push(...(rule.customAlertUserIds as string[]));
       } else {
-        const allUsers = await storage.getAllUsers();
+        const userCompanyId = await this.getUserCompanyId(userId);
+        const allUsers = userCompanyId ? await storage.getAllUsers(userCompanyId) : [];
         for (const u of allUsers) {
           const perms = await storage.getUserPermissions(u.id);
           const isOwner = perms.some((p: any) => p.name === 'admin.manage_all');
@@ -320,10 +333,12 @@ export class GeofencingService {
         await notificationService.sendToUser(targetId, payload);
       }
 
-      await storage.updateOffsiteSession(session.id, {
-        wasAlertSent: true,
-        alertSentAt: new Date(),
-      });
+      if (session.companyId) {
+        await storage.updateOffsiteSession(session.id, session.companyId, {
+          wasAlertSent: true,
+          alertSentAt: new Date(),
+        });
+      }
 
       console.log(`[Geofence] Offsite alert sent for user ${userId} to ${targetUserIds.length} recipients`);
     } catch (error) {
@@ -335,13 +350,14 @@ export class GeofencingService {
     try {
       const { userId, latitude, longitude, eventType, timestamp } = event;
       
+      const companyId = await this.getUserCompanyId(userId);
       const locationCheck = await this.checkUserLocation(userId, latitude, longitude);
-      let activeTimeEntry = await storage.getActiveTimeEntry(userId);
+      let activeTimeEntry = companyId ? await storage.getActiveTimeEntry(userId, companyId) : undefined;
 
       if (!activeTimeEntry && (eventType === 'exit' || eventType === 'auto_clock_out')) {
         console.warn(`[Geofence] No active time entry found for user ${userId} during ${eventType} event, retrying...`);
         await new Promise(resolve => setTimeout(resolve, 500));
-        activeTimeEntry = await storage.getActiveTimeEntry(userId);
+        activeTimeEntry = companyId ? await storage.getActiveTimeEntry(userId, companyId) : undefined;
         if (!activeTimeEntry) {
           console.warn(`[Geofence] Still no active time entry for user ${userId} during ${eventType} event`);
         }
@@ -351,6 +367,7 @@ export class GeofencingService {
 
       await db.insert(geofenceEvents).values({
         userId,
+        companyId: companyId || undefined,
         locationId: locationId || 'unknown',
         eventType,
         latitude: String(latitude),
@@ -371,16 +388,19 @@ export class GeofencingService {
           console.log(`[Geofence] User ${userId} returned, cancelled offsite alert timer`);
         }
 
-        const activeSessions = await storage.getOffsiteSessions({ userId, status: 'active' });
-        for (const session of activeSessions) {
-          const exitTime = new Date(session.exitTime);
-          const durationMinutes = Math.round((Date.now() - exitTime.getTime()) / 60000);
-          await storage.updateOffsiteSession(session.id, {
-            returnTime: new Date(),
-            durationMinutes,
-            status: 'returned',
-          });
-          console.log(`[Geofence] Closed offsite session ${session.id} for user ${userId} (${durationMinutes} min)`);
+        const userCompanyId = await this.getUserCompanyId(userId);
+        if (userCompanyId) {
+          const activeSessions = await storage.getOffsiteSessions({ userId, status: 'active', companyId: userCompanyId });
+          for (const session of activeSessions) {
+            const exitTime = new Date(session.exitTime);
+            const durationMinutes = Math.round((Date.now() - exitTime.getTime()) / 60000);
+            await storage.updateOffsiteSession(session.id, userCompanyId, {
+              returnTime: new Date(),
+              durationMinutes,
+              status: 'returned',
+            });
+            console.log(`[Geofence] Closed offsite session ${session.id} for user ${userId} (${durationMinutes} min)`);
+          }
         }
 
         if (!activeTimeEntry) {
@@ -406,12 +426,14 @@ export class GeofencingService {
             console.log(`[Geofence] Created offsite session ${session.id} for user ${userId} (rule: ${matchingRule.name}, allowed: ${matchingRule.allowedMinutes} min)`);
 
             const alertAfterMs = (matchingRule.alertAfterMinutes || matchingRule.allowedMinutes) * 60 * 1000;
+            const capturedCompanyId = await this.getUserCompanyId(userId);
             const alertTimer = setTimeout(async () => {
               activeOffsiteTimers.delete(userId);
-              const currentSession = (await storage.getOffsiteSessions({ userId, status: 'active' }))
+              if (!capturedCompanyId) return;
+              const currentSession = (await storage.getOffsiteSessions({ userId, status: 'active', companyId: capturedCompanyId }))
                 .find(s => s.id === session.id);
               if (currentSession) {
-                await storage.updateOffsiteSession(session.id, { status: 'exceeded' });
+                if (capturedCompanyId) await storage.updateOffsiteSession(session.id, capturedCompanyId, { status: 'exceeded' });
                 await this.sendOffsiteAlert(currentSession, matchingRule, userId, exitLocation?.name || 'work location');
 
                 const { graceMs, autoClockOut } = await this.getEffectiveGraceMs(exitLocation);
@@ -423,10 +445,10 @@ export class GeofencingService {
                   const clockOutTimer = setTimeout(async () => {
                     activeExitTimers.delete(userId);
                     await this.executeAutoClockOut(userId, latitude, longitude);
-                    const stillActive = (await storage.getOffsiteSessions({ userId, status: 'exceeded' }))
+                    const stillActive = (await storage.getOffsiteSessions({ userId, status: 'exceeded', companyId: capturedCompanyId }))
                       .find(s => s.id === session.id);
                     if (stillActive) {
-                      await storage.updateOffsiteSession(session.id, { status: 'auto_clocked_out' });
+                      if (capturedCompanyId) await storage.updateOffsiteSession(session.id, capturedCompanyId, { status: 'auto_clocked_out' });
                     }
                   }, totalGraceMs);
                   activeExitTimers.set(userId, clockOutTimer);
@@ -477,9 +499,8 @@ export class GeofencingService {
   }
 
   private async getLocationForTimeEntry(timeEntry: any): Promise<any> {
-    if (timeEntry.locationId) {
-      const allLocations = await storage.getAllWorkLocations();
-      return allLocations.find(l => l.id === timeEntry.locationId) || null;
+    if (timeEntry.locationId && timeEntry.companyId) {
+      return await storage.getWorkLocation(timeEntry.locationId, timeEntry.companyId) || null;
     }
     return null;
   }
@@ -498,7 +519,8 @@ export class GeofencingService {
 
     // Fallback to company settings
     try {
-      const companySettings = await storage.getCompanySettings();
+      const locationCompanyId = exitLocation ? (exitLocation as any).companyId : undefined;
+      const companySettings = locationCompanyId ? await storage.getCompanySettings(locationCompanyId) : undefined;
       if (companySettings) {
         const companyGraceRaw = companySettings.autoClockOutAfterMinutes;
         const companyGrace = companyGraceRaw ? parseFloat(String(companyGraceRaw)) : NaN;
@@ -527,11 +549,13 @@ export class GeofencingService {
   }
 
   async handleLocationLost(userId: string): Promise<boolean> {
-    const activeTimeEntry = await storage.getActiveTimeEntry(userId);
+    const companyId = await this.getUserCompanyId(userId);
+    const activeTimeEntry = companyId ? await storage.getActiveTimeEntry(userId, companyId) : undefined;
     if (!activeTimeEntry) return false;
 
     await db.insert(geofenceEvents).values({
       userId,
+      companyId: companyId || undefined,
       locationId: activeTimeEntry.locationId || 'unknown',
       eventType: 'location_lost',
       latitude: null,
@@ -552,15 +576,17 @@ export class GeofencingService {
 
       const timer = setTimeout(async () => {
         activeExitTimers.delete(userId);
-        const entry = await storage.getActiveTimeEntry(userId);
-        if (entry) {
-          await storage.updateTimeEntry(entry.id, {
+        const userCompanyId = await this.getUserCompanyId(userId);
+        const entry = userCompanyId ? await storage.getActiveTimeEntry(userId, userCompanyId) : undefined;
+        if (entry && entry.companyId) {
+          await storage.updateTimeEntry(entry.id, entry.companyId, {
             clockOutTime: new Date(),
             clockOutSource: 'auto-geofence',
             notes: `${entry.notes ? entry.notes + ' | ' : ''}Auto clocked out: location permission revoked`,
           });
           await db.insert(geofenceEvents).values({
             userId,
+            companyId: entry.companyId,
             locationId: entry.locationId || 'unknown',
             eventType: 'auto_clock_out',
             latitude: null,
@@ -579,7 +605,8 @@ export class GeofencingService {
 
   async executeAutoClockOut(userId: string, latitude?: number, longitude?: number): Promise<boolean> {
     try {
-      const activeTimeEntry = await storage.getActiveTimeEntry(userId);
+      const companyId = await this.getUserCompanyId(userId);
+      const activeTimeEntry = companyId ? await storage.getActiveTimeEntry(userId, companyId) : undefined;
       if (!activeTimeEntry) {
         console.log(`[Geofence] No active time entry for user ${userId}, skipping auto clock-out`);
         return false;
@@ -619,7 +646,11 @@ export class GeofencingService {
         return false;
       }
 
-      await storage.updateTimeEntry(activeTimeEntry.id, {
+      if (!activeTimeEntry.companyId) {
+        console.warn(`[Geofence] Cannot auto clock-out user ${userId}: time entry missing companyId`);
+        return false;
+      }
+      await storage.updateTimeEntry(activeTimeEntry.id, activeTimeEntry.companyId, {
         clockOutTime: exitEvent.length > 0 && exitEvent[0].createdAt ? exitEvent[0].createdAt : new Date(),
         clockOutSource: 'auto-geofence',
         notes: `${activeTimeEntry.notes ? activeTimeEntry.notes + ' | ' : ''}Auto clocked out: left geofence boundary`,
@@ -627,6 +658,7 @@ export class GeofencingService {
 
       await db.insert(geofenceEvents).values({
         userId,
+        companyId: activeTimeEntry.companyId || undefined,
         locationId: activeTimeEntry.locationId || 'unknown',
         eventType: 'auto_clock_out',
         latitude: latitude != null ? String(latitude) : null,
@@ -649,7 +681,8 @@ export class GeofencingService {
     graceRemaining: number | null;
     exitedAt: Date | null;
   }> {
-    const activeTimeEntry = await storage.getActiveTimeEntry(userId);
+    const companyId = await this.getUserCompanyId(userId);
+    const activeTimeEntry = companyId ? await storage.getActiveTimeEntry(userId, companyId) : undefined;
     if (!activeTimeEntry) {
       const recentAutoClockOut = await db.select()
         .from(timeEntries)
@@ -722,6 +755,7 @@ export class GeofencingService {
       const locationId = exitLocation?.id || activeTimeEntry.locationId || 'unknown';
       const [newEvent] = await db.insert(geofenceEvents).values({
         userId,
+        companyId: activeTimeEntry.companyId || undefined,
         locationId,
         eventType: 'exit',
         latitude: String(latitude),
@@ -778,12 +812,13 @@ export class GeofencingService {
     }
   }
 
-  async getNearestWorkLocation(latitude: number, longitude: number): Promise<{
+  async getNearestWorkLocation(latitude: number, longitude: number, userId?: string): Promise<{
     location?: any;
     distance?: number;
   }> {
     try {
-      const allLocations = await storage.getAllWorkLocations();
+      const companyId = userId ? await this.getUserCompanyId(userId) : undefined;
+      const allLocations = await storage.getAllWorkLocations(companyId);
       let nearestLocation = null;
       let minDistance = Infinity;
 
@@ -839,7 +874,8 @@ export class GeofencingService {
           });
         }
       } else if (!currentLocationCheck.isInWorkLocation) {
-        const activeTimeEntry = await storage.getActiveTimeEntry(userId);
+        const monitorCompanyId = await this.getUserCompanyId(userId);
+        const activeTimeEntry = monitorCompanyId ? await storage.getActiveTimeEntry(userId, monitorCompanyId) : undefined;
         if (activeTimeEntry) {
           const existingExit = await db.select()
             .from(geofenceEvents)

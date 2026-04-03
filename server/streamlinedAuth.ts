@@ -49,12 +49,14 @@ export const requireAuth: RequestHandler = async (req: any, res, next) => {
           (e: any) => e.id === clerkUser.primaryEmailAddressId
         );
         const email = primaryEmailObj?.emailAddress || '';
+        const defaultCompany = await storage.getOrCreateDefaultCompany();
         const synced = await storage.upsertUser({
           id: auth.userId,
           email,
           firstName: clerkUser.firstName || '',
           lastName: clerkUser.lastName || '',
           profileImageUrl: clerkUser.imageUrl || '',
+          companyId: defaultCompany.id,
         });
         if (synced) {
           userWithRole = await storage.getUserWithRole(synced.id);
@@ -63,11 +65,19 @@ export const requireAuth: RequestHandler = async (req: any, res, next) => {
         console.warn('[Auth] Auto-sync failed for', auth.userId, syncErr);
       }
     }
-    req.user = userWithRole || { id: auth.userId };
+    if (!userWithRole) {
+      console.error('[Auth] Could not resolve user record for', auth.userId, '— failing closed');
+      return res.status(503).json({ message: "User account not found. Please try again." });
+    }
+    if (!userWithRole.companyId) {
+      console.error('[Auth] User', auth.userId, 'has no companyId — rejecting to prevent unscoped data access');
+      return res.status(503).json({ message: "User account configuration incomplete. Please contact support." });
+    }
+    req.user = userWithRole;
     next();
   } catch (error) {
-    req.user = { id: auth.userId };
-    next();
+    console.error('[Auth] Error resolving user for', auth.userId, '— failing closed for security');
+    return res.status(503).json({ message: "Service temporarily unavailable. Please try again." });
   }
 };
 

@@ -25,18 +25,21 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
   app.get('/api/availability', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(403).json({ message: "Company context required" });
       const { payrollPeriodId, startDate, endDate } = req.query;
       
       if (startDate && endDate) {
         const availability = await storage.getUserAvailabilityByDateRange(
           userId,
+          companyId,
           new Date(startDate as string),
           new Date(endDate as string)
         );
         return res.json(availability);
       }
       
-      const availability = await storage.getUserAvailability(userId, payrollPeriodId as string);
+      const availability = await storage.getUserAvailability(userId, companyId, payrollPeriodId as string);
       res.json(availability);
     } catch (error) {
       console.error("Error fetching availability:", error);
@@ -47,7 +50,9 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
   app.get('/api/availability/period/:periodId', isAuthenticated, async (req: any, res) => {
     try {
       const { periodId } = req.params;
-      const availability = await storage.getAllAvailabilityForPeriod(periodId);
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(403).json({ message: "Company context required" });
+      const availability = await storage.getAllAvailabilityForPeriod(periodId, companyId);
       res.json(availability);
     } catch (error) {
       console.error("Error fetching period availability:", error);
@@ -63,7 +68,8 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
       }
       const availability = await storage.getAllAvailabilityByDateRange(
         new Date(startDate as string),
-        new Date(endDate as string)
+        new Date(endDate as string),
+        req.user?.companyId
       );
       res.json(availability);
     } catch (error) {
@@ -94,6 +100,7 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
         reason: reason || null,
         adminNotes: null,
         reviewedBy: null,
+        ...(req.user?.companyId ? { companyId: req.user.companyId } : {}),
       });
       
       res.json(request);
@@ -110,11 +117,11 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
       const { all } = req.query;
 
       if (all === 'true' && isAdmin) {
-        const requests = await storage.getTimeOffRequests();
+        const requests = await storage.getTimeOffRequests(undefined, req.user?.companyId);
         return res.json(requests);
       }
       
-      const requests = await storage.getTimeOffRequests(userId);
+      const requests = await storage.getTimeOffRequests(userId, req.user?.companyId);
       res.json(requests);
     } catch (error) {
       console.error("Error fetching time-off requests:", error);
@@ -126,10 +133,11 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
     try {
       const { id } = req.params;
       const userId = req.user.id;
+      const companyId = req.user?.companyId;
       const isAdmin = req.user?.role?.name === 'admin' || req.user?.role?.name === 'owner';
       const { status, adminNotes } = req.body;
 
-      const existing = await storage.getTimeOffRequest(id);
+      const existing = await storage.getTimeOffRequest(id, companyId);
       if (!existing) {
         return res.status(404).json({ message: "Time-off request not found" });
       }
@@ -149,7 +157,7 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
         updates.reviewedAt = new Date();
       }
 
-      const updated = await storage.updateTimeOffRequest(id, updates);
+      const updated = await storage.updateTimeOffRequest(id, companyId, updates);
       res.json(updated);
     } catch (error) {
       console.error("Error updating time-off request:", error);
@@ -161,9 +169,10 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
     try {
       const { id } = req.params;
       const userId = req.user.id;
+      const companyId = req.user?.companyId;
       const isAdmin = req.user?.role?.name === 'admin' || req.user?.role?.name === 'owner';
 
-      const existing = await storage.getTimeOffRequest(id);
+      const existing = await storage.getTimeOffRequest(id, companyId);
       if (!existing) {
         return res.status(404).json({ message: "Time-off request not found" });
       }
@@ -172,7 +181,7 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
         return res.status(403).json({ message: "Not authorized" });
       }
 
-      await storage.deleteTimeOffRequest(id);
+      await storage.deleteTimeOffRequest(id, companyId);
       res.json({ message: "Request deleted" });
     } catch (error) {
       console.error("Error deleting time-off request:", error);

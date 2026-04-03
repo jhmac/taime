@@ -9,7 +9,12 @@ export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAu
       if (!locationId) {
         return res.status(400).json({ message: "locationId query parameter is required" });
       }
-      const rules = await storage.getOffsiteRules(locationId);
+      const companyId = req.user?.companyId;
+      const location = await storage.getWorkLocation(locationId, companyId);
+      if (!location) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      const rules = await storage.getOffsiteRules(locationId, companyId);
       res.json(rules);
     } catch (error) {
       console.error("Error fetching offsite rules:", error);
@@ -29,6 +34,7 @@ export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAu
       const parsed = insertOffsiteAllowanceRuleSchema.safeParse({
         ...req.body,
         createdBy: userId,
+        ...(req.user?.companyId ? { companyId: req.user.companyId } : {}),
       });
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid data", errors: parsed.error.flatten() });
@@ -52,7 +58,8 @@ export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAu
       }
 
       const { id } = req.params;
-      const existing = await storage.getOffsiteRule(id);
+      const ruleCompanyId = req.user?.companyId;
+      const existing = await storage.getOffsiteRule(id, ruleCompanyId);
       if (!existing) {
         return res.status(404).json({ message: "Rule not found" });
       }
@@ -86,7 +93,7 @@ export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAu
         return res.status(400).json({ message: "No valid fields to update" });
       }
 
-      const updated = await storage.updateOffsiteRule(id, updates);
+      const updated = await storage.updateOffsiteRule(id, updates, ruleCompanyId);
       res.json(updated);
     } catch (error) {
       console.error("Error updating offsite rule:", error);
@@ -104,12 +111,13 @@ export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAu
       }
 
       const { id } = req.params;
-      const existing = await storage.getOffsiteRule(id);
+      const deleteRuleCompanyId = req.user?.companyId;
+      const existing = await storage.getOffsiteRule(id, deleteRuleCompanyId);
       if (!existing) {
         return res.status(404).json({ message: "Rule not found" });
       }
 
-      await storage.deleteOffsiteRule(id);
+      await storage.deleteOffsiteRule(id, deleteRuleCompanyId);
       res.json({ success: true });
     } catch (error) {
       console.error("Error deleting offsite rule:", error);
@@ -128,15 +136,18 @@ export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAu
         return res.status(403).json({ message: "Admin access required" });
       }
 
-      const filters: { status?: string } = {};
+      const companyId = req.user?.companyId;
+      if (!companyId) throw new Error("Company context required");
+
+      const filters: { status?: string; companyId: string } = { companyId };
       if (req.query.status) filters.status = req.query.status as string;
 
-      const sessions = await storage.getOffsiteSessions(filters);
-
-      const allUsers = await storage.getAllUsers();
+      const allUsers = await storage.getAllUsers(companyId);
       const userMap = new Map(allUsers.map(u => [u.id, u]));
 
-      const enriched = sessions.map(session => {
+      const companySessions = await storage.getOffsiteSessions(filters);
+
+      const enriched = companySessions.map(session => {
         const user = userMap.get(session.userId);
         return {
           ...session,
@@ -168,7 +179,15 @@ export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAu
         }
       }
 
-      const sessions = await storage.getOffsiteSessions({ userId: id });
+      const targetUser = await storage.getUser(id);
+      if (!targetUser) {
+        return res.status(404).json({ message: "Employee not found" });
+      }
+      if (!targetUser.companyId || targetUser.companyId !== req.user?.companyId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const sessions = await storage.getOffsiteSessions({ userId: id, companyId: req.user?.companyId });
       res.json(sessions);
     } catch (error) {
       console.error("Error fetching employee offsite sessions:", error);

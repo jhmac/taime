@@ -7,10 +7,21 @@ import type { IStorage } from "../storage";
 import logger from "../lib/logger";
 import { resolveStoreId } from "../lib/storeResolver";
 
+const MANAGER_ROLES = ["admin", "owner", "manager"];
+
+async function requireManagerRole(storage: IStorage, userId: string): Promise<boolean> {
+  const userWithRole = await storage.getUserWithRole(userId);
+  if (!userWithRole) return false;
+  const roleName: string = userWithRole.role?.name || "";
+  return MANAGER_ROLES.includes(roleName);
+}
+
 export function registerLeanBoardRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
   app.get("/api/lean-board", isAuthenticated, async (req: any, res) => {
     try {
-      const storeId = await resolveStoreId() || "default";
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(403).json({ message: "Company context required" });
+      const storeId = await resolveStoreId(companyId) || companyId;
       const period = (req.query.period as string) || "week";
 
       if (!["today", "week", "month"].includes(period)) {
@@ -27,12 +38,15 @@ export function registerLeanBoardRoutes(app: Express, storage: IStorage, isAuthe
 
   app.get("/api/lean-board/history", isAuthenticated, async (req: any, res) => {
     try {
-      const user = await storage.getUser(req.user.id);
-      if (!user || !["admin", "owner", "manager"].includes(user.role || "")) {
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(403).json({ message: "Company context required" });
+
+      const isManager = await requireManagerRole(storage, req.user.id);
+      if (!isManager) {
         return res.status(403).json({ message: "History is available for managers and owners." });
       }
 
-      const storeId = await resolveStoreId() || "default";
+      const storeId = await resolveStoreId(companyId) || companyId;
       const dateFrom = req.query.date_from as string;
       const dateTo = req.query.date_to as string;
 
@@ -57,12 +71,15 @@ export function registerLeanBoardRoutes(app: Express, storage: IStorage, isAuthe
 
   app.post("/api/lean-board/generate-snapshot", isAuthenticated, async (req: any, res) => {
     try {
-      const user = await storage.getUser(req.user.id);
-      if (!user || !["admin", "owner", "manager"].includes(user.role || "")) {
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(403).json({ message: "Company context required" });
+
+      const isManager = await requireManagerRole(storage, req.user.id);
+      if (!isManager) {
         return res.status(403).json({ message: "Only managers and owners can trigger snapshots." });
       }
 
-      const storeId = await resolveStoreId() || "default";
+      const storeId = await resolveStoreId(companyId) || companyId;
       await generateDailySnapshot(storeId, new Date());
 
       res.json({ success: true, message: "Snapshot generated." });
@@ -73,12 +90,15 @@ export function registerLeanBoardRoutes(app: Express, storage: IStorage, isAuthe
 
   app.post("/api/lean-board/generate-summary", isAuthenticated, async (req: any, res) => {
     try {
-      const user = await storage.getUser(req.user.id);
-      if (!user || !["admin", "owner", "manager"].includes(user.role || "")) {
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(403).json({ message: "Company context required" });
+
+      const isManager = await requireManagerRole(storage, req.user.id);
+      if (!isManager) {
         return res.status(403).json({ message: "Only managers and owners can trigger summaries." });
       }
 
-      const storeId = await resolveStoreId() || "default";
+      const storeId = await resolveStoreId(companyId) || companyId;
       const summary = await generateWeeklyLeanSummary(storeId);
 
       res.json({ success: true, summary });

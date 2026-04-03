@@ -14,8 +14,9 @@ import { triggerClarification } from "../services/gtdClarificationAI";
 import type { IStorage } from "../storage";
 import logger from "../lib/logger";
 
-async function getFirstStoreId(): Promise<string> {
-  const [store] = await db.select({ id: workLocations.id }).from(workLocations).limit(1);
+async function getFirstStoreId(companyId: string): Promise<string> {
+  const [store] = await db.select({ id: workLocations.id }).from(workLocations)
+    .where(eq(workLocations.companyId, companyId)).limit(1);
   if (!store) throw new AppError(400, "No store configured", "NO_STORE");
   return store.id;
 }
@@ -31,7 +32,9 @@ export function registerRitualRoutes(
   broadcastToAll: (data: any) => void
 ) {
   app.get('/api/rituals/huddle/today', isAuthenticated, asyncHandler(async (req: any, res) => {
-    const storeId = await getFirstStoreId();
+    const companyId = req.user?.companyId;
+    if (!companyId) return res.status(403).json({ message: "Company context required" });
+    const storeId = await getFirstStoreId(companyId);
     const today = new Date();
     const huddle = await getOrGenerateHuddle(storeId, today);
 
@@ -57,7 +60,9 @@ export function registerRitualRoutes(
   }));
 
   app.put('/api/rituals/huddle/today', isAuthenticated, asyncHandler(async (req: any, res) => {
-    const storeId = await getFirstStoreId();
+    const companyId = req.user?.companyId;
+    if (!companyId) return res.status(403).json({ message: "Company context required" });
+    const storeId = await getFirstStoreId(companyId);
     const todayStr = new Date().toISOString().slice(0, 10);
 
     const updateSchema = z.object({
@@ -87,7 +92,9 @@ export function registerRitualRoutes(
   }));
 
   app.get('/api/rituals/pulse/today', isAuthenticated, asyncHandler(async (req: any, res) => {
-    const storeId = await getFirstStoreId();
+    const companyId = req.user?.companyId;
+    if (!companyId) return res.status(403).json({ message: "Company context required" });
+    const storeId = await getFirstStoreId(companyId);
     const now = new Date();
     const hour = now.getHours();
 
@@ -100,7 +107,9 @@ export function registerRitualRoutes(
   }));
 
   app.get('/api/rituals/quote/today', isAuthenticated, asyncHandler(async (req: any, res) => {
-    const storeId = await getFirstStoreId();
+    const companyId = req.user?.companyId;
+    if (!companyId) return res.status(403).json({ message: "Company context required" });
+    const storeId = await getFirstStoreId(companyId);
     const today = new Date();
     const quote = await generateDailyQuote(storeId, today);
     res.json({ success: true, data: quote });
@@ -108,7 +117,9 @@ export function registerRitualRoutes(
 
   app.post('/api/rituals/debrief', isAuthenticated, asyncHandler(async (req: any, res) => {
     const userId = req.user.id;
-    const storeId = await getFirstStoreId();
+    const companyId = req.user?.companyId;
+    if (!companyId) return res.status(403).json({ message: "Company context required" });
+    const storeId = await getFirstStoreId(companyId);
     const todayStr = new Date().toISOString().slice(0, 10);
 
     const body = insertDailyDebriefSchema.parse({
@@ -199,7 +210,9 @@ export function registerRitualRoutes(
 
   app.post('/api/kudos', isAuthenticated, asyncHandler(async (req: any, res) => {
     const userId = req.user.id;
-    const storeId = await getFirstStoreId();
+    const companyId = req.user?.companyId;
+    if (!companyId) return res.status(403).json({ message: "Company context required" });
+    const storeId = await getFirstStoreId(companyId);
 
     const messageText = req.body.message?.trim() || '';
     if (messageText.length > 280) {
@@ -237,7 +250,9 @@ export function registerRitualRoutes(
     const since = new Date();
     since.setDate(since.getDate() - days);
 
-    const storeId = await getFirstStoreId();
+    const companyId = req.user?.companyId;
+    if (!companyId) return res.status(403).json({ message: "Company context required" });
+    const storeId = await getFirstStoreId(companyId);
 
     const conditions = [eq(kudos.storeId, storeId), gte(kudos.createdAt, since)];
 
@@ -292,7 +307,9 @@ export function registerRitualRoutes(
 
   app.get('/api/kudos/stats', isAuthenticated, asyncHandler(async (req: any, res) => {
     const userId = req.user.id;
-    const storeId = await getFirstStoreId();
+    const companyId = req.user?.companyId;
+    if (!companyId) return res.status(403).json({ message: "Company context required" });
+    const storeId = await getFirstStoreId(companyId);
     const isAdmin = req.user.role?.name === 'admin' || req.user.role?.name === 'owner';
 
     const now = new Date();

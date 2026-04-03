@@ -122,17 +122,20 @@ const DEFAULT_SETTINGS = {
 };
 
 export function registerAdminRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
-  app.get('/api/company-settings', isAuthenticated, asyncHandler(async (_req: any, res) => {
-    const cached = cache.get('company:settings');
+  app.get('/api/company-settings', isAuthenticated, asyncHandler(async (req: any, res) => {
+    const companyId = req.user?.companyId;
+    const cacheKey = companyId ? `company:settings:${companyId}` : 'company:settings';
+    const cached = cache.get(cacheKey);
     if (cached) return res.json(cached);
-    const settings = await storage.getCompanySettings();
+    const settings = await storage.getCompanySettings(companyId);
     const result = settings || DEFAULT_SETTINGS;
-    cache.set('company:settings', result);
+    cache.set(cacheKey, result);
     res.json(result);
   }));
 
   app.put('/api/company-settings', isAuthenticated, asyncHandler(async (req: any, res) => {
     const userId = req.user.id;
+    const companyId = req.user?.companyId;
     await requireAdmin(storage, userId);
 
     const { expectedVersion, ...bodyWithoutVersion } = req.body;
@@ -152,16 +155,17 @@ export function registerAdminRoutes(app: Express, storage: IStorage, isAuthentic
       }
     }
 
-    const settings = await storage.updateCompanySettings(settingsUpdates);
+    const settings = await storage.updateCompanySettings(settingsUpdates, companyId);
     cache.invalidate('company:settings');
-    await storage.createActivityLog({ userId, action: 'update', targetType: 'company_settings', details: 'Updated company settings' });
+    if (companyId) cache.invalidate(`company:settings:${companyId}`);
+    await storage.createActivityLog({ userId, action: 'update', targetType: 'company_settings', details: 'Updated company settings', ...(companyId ? { companyId } : {}) });
     res.json(settings);
   }));
 
   app.get('/api/activity-logs', isAuthenticated, asyncHandler(async (req: any, res) => {
     await requireAdmin(storage, req.user.id);
     const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 50, 1), 200);
-    const logs = await storage.getActivityLogs(limit);
+    const logs = await storage.getActivityLogs(limit, req.user?.companyId);
     res.json(logs);
   }));
 
@@ -173,7 +177,7 @@ export function registerAdminRoutes(app: Express, storage: IStorage, isAuthentic
       throw new AppError(400, "Please provide an array of holidays", "VALIDATION_ERROR");
     }
 
-    const existingRules = await storage.getAllHolidayPayRules();
+    const existingRules = await storage.getAllHolidayPayRules(req.user?.companyId);
     const saved = [];
     for (const h of holidays) {
       if (!h.name || typeof h.month !== 'number' || typeof h.day !== 'number') continue;
@@ -182,7 +186,7 @@ export function registerAdminRoutes(app: Express, storage: IStorage, isAuthentic
 
       const existing = existingRules.find(r => r.month === h.month && r.day === h.day);
       if (existing) {
-        const updated = await storage.updateHolidayPayRule(existing.id, {
+        const updated = await storage.updateHolidayPayRule(existing.id, req.user.companyId, {
           name: h.name,
           payMultiplier: multiplier.toFixed(2),
           isActive: true,
@@ -196,6 +200,7 @@ export function registerAdminRoutes(app: Express, storage: IStorage, isAuthentic
           payMultiplier: multiplier.toFixed(2),
           isActive: true,
           createdBy: req.user.id,
+          ...(req.user?.companyId ? { companyId: req.user.companyId } : {}),
         });
         saved.push(rule);
       }
@@ -204,21 +209,27 @@ export function registerAdminRoutes(app: Express, storage: IStorage, isAuthentic
     res.json({ rules: saved, count: saved.length });
   }));
 
-  app.get('/api/holiday-pay-rules', isAuthenticated, asyncHandler(async (_req: any, res) => {
-    const rules = await storage.getAllHolidayPayRules();
+  app.get('/api/holiday-pay-rules', isAuthenticated, asyncHandler(async (req: any, res) => {
+    const rules = await storage.getAllHolidayPayRules(req.user?.companyId);
     res.json(rules);
   }));
 
   app.delete('/api/holiday-pay-rules/:id', isAuthenticated, asyncHandler(async (req: any, res) => {
     await requirePayrollOrAdmin(storage, req.user.id);
     const { id } = req.params;
-    await storage.deleteHolidayPayRule(id);
+    const companyId = req.user.companyId;
+    const existing = await storage.getHolidayPayRule(id, companyId);
+    if (!existing) return res.status(404).json({ message: "Rule not found" });
+    await storage.deleteHolidayPayRule(id, companyId);
     res.json({ success: true });
   }));
 
   app.patch('/api/holiday-pay-rules/:id', isAuthenticated, asyncHandler(async (req: any, res) => {
     await requirePayrollOrAdmin(storage, req.user.id);
     const { id } = req.params;
+    const companyId = req.user.companyId;
+    const existing = await storage.getHolidayPayRule(id, companyId);
+    if (!existing) return res.status(404).json({ message: "Rule not found" });
     const { name, month, day, payMultiplier, isActive } = req.body;
     const safeUpdates: Record<string, any> = {};
     if (name !== undefined && typeof name === 'string') safeUpdates.name = name;
@@ -230,7 +241,7 @@ export function registerAdminRoutes(app: Express, storage: IStorage, isAuthentic
     }
     if (isActive !== undefined && typeof isActive === 'boolean') safeUpdates.isActive = isActive;
 
-    const rule = await storage.updateHolidayPayRule(id, safeUpdates);
+    const rule = await storage.updateHolidayPayRule(id, companyId, safeUpdates);
     res.json(rule);
   }));
 }

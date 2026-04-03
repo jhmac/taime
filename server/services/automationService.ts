@@ -1,28 +1,39 @@
 import { storage } from "../storage";
+import { db } from "../db";
 import { claudeService } from "./claudeService";
+import { companies } from "@shared/schema";
 import type { PayrollPeriod, User, UserAvailability, Schedule, InsertSchedule } from "@shared/schema";
 
 export interface AutomationWorkflowService {
-  checkAndTriggerAutomation(): Promise<void>;
+  checkAndTriggerAutomation(companyId?: string): Promise<void>;
   requestAvailability(payrollPeriodId: string): Promise<void>;
   generateScheduleFromAvailability(payrollPeriodId: string): Promise<void>;
   sendScheduleForConfirmation(payrollPeriodId: string): Promise<void>;
   resolveConflictsAndFinalize(payrollPeriodId: string): Promise<void>;
-  initializeDefaultSettings(createdBy: string): Promise<void>;
+  initializeDefaultSettings(createdBy: string, companyId: string): Promise<void>;
 }
 
 class AutomationWorkflowServiceImpl implements AutomationWorkflowService {
   
-  async checkAndTriggerAutomation(): Promise<void> {
-    const settings = await storage.getPayPeriodSettings();
+  async checkAndTriggerAutomation(companyId?: string): Promise<void> {
+    if (!companyId) {
+      // Cron context: iterate over all companies
+      const allCompanies = await db.select({ id: companies.id }).from(companies);
+      for (const company of allCompanies) {
+        await this.checkAndTriggerAutomation(company.id);
+      }
+      return;
+    }
+
+    const settings = await storage.getPayPeriodSettings(companyId);
     if (!settings?.isAutomationEnabled) {
       return;
     }
 
-    const nextPeriod = await storage.getNextPayrollPeriod();
+    const nextPeriod = await storage.getNextPayrollPeriod(companyId);
     if (!nextPeriod) {
       // Create the first pay period
-      await this.createNewPayPeriod();
+      await this.createNewPayPeriod(companyId);
       return;
     }
 
@@ -51,17 +62,18 @@ class AutomationWorkflowServiceImpl implements AutomationWorkflowService {
     if (nextPeriod.workflowState === 'finalized') {
       const daysUntilEnd = Math.ceil((new Date(nextPeriod.endDate).getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
       if (daysUntilEnd <= (settings.daysBeforeNotification || 7)) {
-        await this.createNewPayPeriod();
+        await this.createNewPayPeriod(companyId);
       }
     }
   }
 
-  async createNewPayPeriod(): Promise<PayrollPeriod> {
+  async createNewPayPeriod(companyId: string): Promise<PayrollPeriod> {
     try {
-      const newPeriod = await storage.createNextPayPeriod();
+      const newPeriod = await storage.createNextPayPeriod(companyId);
       
       await storage.createWorkflowLog({
         payrollPeriodId: newPeriod.id,
+        companyId,
         workflowStep: 'pay_period_created',
         status: 'success',
         details: `New pay period created: ${newPeriod.startDate.toISOString()} to ${newPeriod.endDate.toISOString()}`,
@@ -81,15 +93,19 @@ class AutomationWorkflowServiceImpl implements AutomationWorkflowService {
 
   async requestAvailability(payrollPeriodId: string): Promise<void> {
     try {
+      const period = await storage.getPayrollPeriodByIdInternal(payrollPeriodId);
+      const companyId = period?.companyId;
+      if (!companyId) throw new Error(`[AutomationService] requestAvailability: period ${payrollPeriodId} has no companyId`);
       // Update workflow state
       await storage.updatePayrollPeriod(payrollPeriodId, {
         workflowState: 'availability_requested',
         availabilityNotificationSentAt: new Date()
-      });
+      }, companyId);
 
       // Log workflow step
       await storage.createWorkflowLog({
         payrollPeriodId,
+        companyId,
         workflowStep: 'availability_requested',
         status: 'success',
         details: 'Availability notification sent to all team members',
@@ -105,8 +121,10 @@ class AutomationWorkflowServiceImpl implements AutomationWorkflowService {
       setTimeout(() => this.checkAvailabilityCollection(payrollPeriodId), 5000);
       
     } catch (error) {
+      const period2 = await storage.getPayrollPeriodByIdInternal(payrollPeriodId).catch(() => null);
       await storage.createWorkflowLog({
         payrollPeriodId,
+        companyId: period2?.companyId ?? undefined,
         workflowStep: 'availability_requested',
         status: 'failed',
         details: `Failed to request availability: ${(error as Error).message}`,
@@ -118,7 +136,10 @@ class AutomationWorkflowServiceImpl implements AutomationWorkflowService {
 
   async checkAvailabilityCollection(payrollPeriodId: string): Promise<void> {
     try {
-      const availability = await storage.getAllAvailabilityForPeriod(payrollPeriodId);
+      const period = await storage.getPayrollPeriodByIdInternal(payrollPeriodId);
+      const companyId = period?.companyId ?? undefined;
+      if (!companyId) return;
+      const availability = await storage.getAllAvailabilityForPeriod(payrollPeriodId, companyId);
       // In a real implementation, get all active users
       const allUsers: User[] = []; // Placeholder for getting all users
       
@@ -129,10 +150,11 @@ class AutomationWorkflowServiceImpl implements AutomationWorkflowService {
       if (allUsersHaveSubmitted) {
         await storage.updatePayrollPeriod(payrollPeriodId, {
           workflowState: 'availability_collected'
-        });
+        }, companyId);
         
         await storage.createWorkflowLog({
           payrollPeriodId,
+          companyId,
           workflowStep: 'availability_collected',
           status: 'success',
           details: 'All team members have submitted their availability',
@@ -152,20 +174,25 @@ class AutomationWorkflowServiceImpl implements AutomationWorkflowService {
 
   async generateScheduleFromAvailability(payrollPeriodId: string): Promise<void> {
     try {
-      // Update workflow state
-      await storage.updatePayrollPeriod(payrollPeriodId, {
-        workflowState: 'schedule_generated',
-        scheduleGeneratedAt: new Date()
-      });
-
-      // Get availability data
-      const availability = await storage.getAllAvailabilityForPeriod(payrollPeriodId);
-      const period = await storage.getPayrollPeriods();
-      const currentPeriod = period.find(p => p.id === payrollPeriodId);
+      // Get the period for companyId context
+      const currentPeriod = await storage.getPayrollPeriodByIdInternal(payrollPeriodId);
       
       if (!currentPeriod) {
         throw new Error('Pay period not found');
       }
+
+      const periodCompanyId = currentPeriod.companyId ?? undefined;
+
+      // Update workflow state
+      await storage.updatePayrollPeriod(payrollPeriodId, {
+        workflowState: 'schedule_generated',
+        scheduleGeneratedAt: new Date()
+      }, periodCompanyId!);
+
+      // Get availability data
+      const availability = periodCompanyId
+        ? await storage.getAllAvailabilityForPeriod(payrollPeriodId, periodCompanyId)
+        : [];
 
       // Use AI to create schedule from availability
       const scheduleRequest = {
@@ -197,6 +224,7 @@ class AutomationWorkflowServiceImpl implements AutomationWorkflowService {
       for (const scheduleItem of aiSchedule.schedule) {
         const scheduleData: InsertSchedule = {
           userId: scheduleItem.userId,
+          companyId: periodCompanyId ?? undefined,
           startTime: new Date(`${scheduleItem.date}T${scheduleItem.startTime}`),
           endTime: new Date(`${scheduleItem.date}T${scheduleItem.endTime}`),
           title: 'Scheduled Shift',
@@ -208,6 +236,7 @@ class AutomationWorkflowServiceImpl implements AutomationWorkflowService {
 
       await storage.createWorkflowLog({
         payrollPeriodId,
+        companyId: periodCompanyId,
         workflowStep: 'schedule_generated',
         status: 'success',
         details: `AI generated ${aiSchedule.schedule.length} schedule entries`,
@@ -223,8 +252,10 @@ class AutomationWorkflowServiceImpl implements AutomationWorkflowService {
       setTimeout(() => this.sendScheduleForConfirmation(payrollPeriodId), 1000);
       
     } catch (error) {
+      const errPeriod = await storage.getPayrollPeriodByIdInternal(payrollPeriodId).catch(() => null);
       await storage.createWorkflowLog({
         payrollPeriodId,
+        companyId: errPeriod?.companyId ?? undefined,
         workflowStep: 'schedule_generated',
         status: 'failed',
         details: `Failed to generate schedule: ${(error as Error).message}`,
@@ -236,14 +267,18 @@ class AutomationWorkflowServiceImpl implements AutomationWorkflowService {
 
   async sendScheduleForConfirmation(payrollPeriodId: string): Promise<void> {
     try {
+      const period = await storage.getPayrollPeriodByIdInternal(payrollPeriodId);
+      const companyId = period?.companyId;
+      if (!companyId) throw new Error(`[AutomationService] sendScheduleForConfirmation: period ${payrollPeriodId} has no companyId`);
       // Update workflow state
       await storage.updatePayrollPeriod(payrollPeriodId, {
         workflowState: 'schedule_sent_for_review',
         scheduleSentAt: new Date()
-      });
+      }, companyId);
 
       await storage.createWorkflowLog({
         payrollPeriodId,
+        companyId,
         workflowStep: 'schedule_sent_for_review',
         status: 'success',
         details: 'Schedule sent to team for confirmation',
@@ -259,8 +294,10 @@ class AutomationWorkflowServiceImpl implements AutomationWorkflowService {
       setTimeout(() => this.autoConfirmSchedule(payrollPeriodId), 10000);
       
     } catch (error) {
+      const errPeriod2 = await storage.getPayrollPeriodByIdInternal(payrollPeriodId).catch(() => null);
       await storage.createWorkflowLog({
         payrollPeriodId,
+        companyId: errPeriod2?.companyId ?? undefined,
         workflowStep: 'schedule_sent_for_review',
         status: 'failed',
         details: `Failed to send schedule for review: ${(error as Error).message}`,
@@ -272,14 +309,18 @@ class AutomationWorkflowServiceImpl implements AutomationWorkflowService {
 
   async autoConfirmSchedule(payrollPeriodId: string): Promise<void> {
     try {
+      const period = await storage.getPayrollPeriodByIdInternal(payrollPeriodId);
+      const companyId = period?.companyId;
+      if (!companyId) throw new Error(`[AutomationService] autoConfirmSchedule: period ${payrollPeriodId} has no companyId`);
       // In a real implementation, you'd check actual user confirmations
       await storage.updatePayrollPeriod(payrollPeriodId, {
         workflowState: 'schedule_confirmed',
         scheduleConfirmedAt: new Date()
-      });
+      }, companyId);
 
       await storage.createWorkflowLog({
         payrollPeriodId,
+        companyId,
         workflowStep: 'schedule_confirmed',
         status: 'success',
         details: 'Team has confirmed the schedule',
@@ -298,11 +339,13 @@ class AutomationWorkflowServiceImpl implements AutomationWorkflowService {
 
   async resolveConflictsAndFinalize(payrollPeriodId: string): Promise<void> {
     try {
-      const settings = await storage.getPayPeriodSettings();
+      const period = await storage.getPayrollPeriodByIdInternal(payrollPeriodId);
+      const periodCompanyId = period?.companyId;
+      const settings = periodCompanyId ? await storage.getPayPeriodSettings(periodCompanyId) : undefined;
       
       if (settings?.automaticConflictResolution) {
         // Use AI to resolve any schedule conflicts
-        const schedules = await storage.getAllSchedules();
+        const schedules = periodCompanyId ? await storage.getAllSchedules(undefined, undefined, periodCompanyId) : [];
         const periodSchedules = schedules.filter(s => {
           // Filter schedules for this pay period
           return true; // Simplified for demo
@@ -313,13 +356,15 @@ class AutomationWorkflowServiceImpl implements AutomationWorkflowService {
       }
 
       // Finalize the schedule
+      if (!periodCompanyId) throw new Error(`[AutomationService] resolveConflictsAndFinalize: period ${payrollPeriodId} has no companyId`);
       await storage.updatePayrollPeriod(payrollPeriodId, {
         workflowState: 'finalized',
         finalizedAt: new Date()
-      });
+      }, periodCompanyId);
 
       await storage.createWorkflowLog({
         payrollPeriodId,
+        companyId: periodCompanyId,
         workflowStep: 'finalized',
         status: 'success',
         details: 'Schedule has been finalized and locked',
@@ -332,8 +377,10 @@ class AutomationWorkflowServiceImpl implements AutomationWorkflowService {
       console.log(`Pay period ${payrollPeriodId} has been finalized`);
       
     } catch (error) {
+      const errPeriod3 = await storage.getPayrollPeriodByIdInternal(payrollPeriodId).catch(() => null);
       await storage.createWorkflowLog({
         payrollPeriodId,
+        companyId: errPeriod3?.companyId ?? undefined,
         workflowStep: 'finalized',
         status: 'failed',
         details: `Failed to finalize schedule: ${(error as Error).message}`,
@@ -343,9 +390,9 @@ class AutomationWorkflowServiceImpl implements AutomationWorkflowService {
     }
   }
 
-  async initializeDefaultSettings(createdBy: string): Promise<void> {
+  async initializeDefaultSettings(createdBy: string, companyId: string): Promise<void> {
     try {
-      const existingSettings = await storage.getPayPeriodSettings();
+      const existingSettings = await storage.getPayPeriodSettings(companyId);
       
       if (!existingSettings) {
         await storage.updatePayPeriodSettings({
@@ -354,6 +401,7 @@ class AutomationWorkflowServiceImpl implements AutomationWorkflowService {
           daysBeforeNotification: 7,
           scheduleGenerationDays: 5,
           automaticConflictResolution: true,
+          companyId,
           createdBy,
           updatedBy: createdBy
         });

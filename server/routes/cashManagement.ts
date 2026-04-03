@@ -41,12 +41,12 @@ async function verifyDepositAccess(depositId: string, storeId: string) {
   return deposit || null;
 }
 
-async function checkClockedIn(userId: string): Promise<{ clockedIn: boolean; atStore: boolean; activeEntry: any | null }> {
+async function checkClockedIn(userId: string, companyId?: string): Promise<{ clockedIn: boolean; atStore: boolean; activeEntry: any | null }> {
   const [entry] = await db.select().from(timeEntries)
     .where(and(eq(timeEntries.userId, userId), isNull(timeEntries.clockOutTime)))
     .limit(1);
   if (!entry) return { clockedIn: false, atStore: false, activeEntry: null };
-  const storeId = await resolveStoreId();
+  const storeId = await resolveStoreId(companyId);
   const atStore = !storeId || entry.locationId === storeId;
   return { clockedIn: true, atStore, activeEntry: entry };
 }
@@ -55,8 +55,8 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
 
   app.get("/api/cash/access-check", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.auth?.userId;
-      const { clockedIn, atStore, activeEntry } = await checkClockedIn(userId);
+      const userId = req.auth?.userId || req.user?.id;
+      const { clockedIn, atStore, activeEntry } = await checkClockedIn(userId, req.user?.companyId);
       const user = await storage.getUser(userId);
       const isManagerOrAbove = user?.role === "admin" || user?.role === "owner" || user?.role === "manager";
       res.json({
@@ -77,8 +77,8 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
   });
 
   async function requireCashAccess(req: any, res: any): Promise<boolean> {
-    const userId = req.auth?.userId;
-    const { clockedIn, atStore } = await checkClockedIn(userId);
+    const userId = req.auth?.userId || req.user?.id;
+    const { clockedIn, atStore } = await checkClockedIn(userId, req.user?.companyId);
     if (clockedIn && atStore) return true;
     const user = await storage.getUser(userId);
     if (user?.role === "admin" || user?.role === "owner" || user?.role === "manager") return true;
@@ -90,7 +90,7 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
   app.get("/api/cash/settings", isAuthenticated, async (req: any, res) => {
     try {
       if (!(await requireCashAccess(req, res))) return;
-      const storeId = await resolveStoreId(req.auth?.userId);
+      const storeId = await resolveStoreId(req.user?.companyId);
       const [existing] = await db.select().from(cashManagementSettings)
         .where(eq(cashManagementSettings.storeId, storeId));
 
@@ -115,7 +115,7 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
       if (!isOwnerOrAdmin) {
         return res.status(403).json({ error: "Only admins and owners can update Cash Management settings" });
       }
-      const storeId = await resolveStoreId(userId);
+      const storeId = await resolveStoreId(req.user?.companyId);
       const { defaultStartingCash, registers, overShortThreshold, requireDepositPhoto, requireOverShortExplanation, autoFlagThreshold, closingTime } = req.body;
 
       if (closingTime !== undefined && closingTime !== null && closingTime !== "") {
@@ -162,7 +162,7 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
   // ===== Drawer Sessions =====
   app.post("/api/cash/sessions", isAuthenticated, async (req: any, res) => {
     try {
-      const storeId = await resolveStoreId(req.auth?.userId);
+      const storeId = await resolveStoreId(req.user?.companyId);
       const userId = req.auth?.userId;
       const { clockedIn, atStore } = await checkClockedIn(userId);
       if (!clockedIn || !atStore) {
@@ -214,7 +214,7 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
   app.get("/api/cash/sessions", isAuthenticated, async (req: any, res) => {
     try {
       if (!(await requireCashAccess(req, res))) return;
-      const storeId = await resolveStoreId(req.auth?.userId);
+      const storeId = await resolveStoreId(req.user?.companyId);
       const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
       const typeFilter = req.query.type as string | undefined;
 
@@ -237,7 +237,7 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
   app.get("/api/cash/sessions/:id", isAuthenticated, async (req: any, res) => {
     try {
       if (!(await requireCashAccess(req, res))) return;
-      const storeId = await resolveStoreId(req.auth?.userId);
+      const storeId = await resolveStoreId(req.user?.companyId);
       const session = await verifySessionAccess(req.params.id, storeId);
       if (!session) return res.status(404).json({ error: "Session not found" });
       res.json(session);
@@ -253,7 +253,7 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
       if (!clockedIn || !atStore) return res.status(403).json({ error: "You must be clocked in at the store to submit a cash count" });
       const { counts } = req.body;
 
-      const storeId = await resolveStoreId(userId);
+      const storeId = await resolveStoreId(req.user?.companyId);
       const session = await verifySessionAccess(req.params.id, storeId);
       if (!session) return res.status(404).json({ error: "Session not found" });
 
@@ -298,7 +298,7 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
       const { clockedIn, atStore } = await checkClockedIn(userId);
       if (!clockedIn || !atStore) return res.status(403).json({ error: "You must be clocked in at the store to submit register data" });
       const { registerCashSales, registerTotalSales, registerShopifyPayments } = req.body;
-      const storeId = await resolveStoreId(userId);
+      const storeId = await resolveStoreId(req.user?.companyId);
       const session = await verifySessionAccess(req.params.id, storeId);
       if (!session) return res.status(404).json({ error: "Session not found" });
 
@@ -335,7 +335,7 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
       const { clockedIn, atStore } = await checkClockedIn(userId);
       if (!clockedIn || !atStore) return res.status(403).json({ error: "You must be clocked in at the store to recount" });
       const { counts } = req.body;
-      const storeId = await resolveStoreId(userId);
+      const storeId = await resolveStoreId(req.user?.companyId);
       const session = await verifySessionAccess(req.params.id, storeId);
       if (!session) return res.status(404).json({ error: "Session not found" });
 
@@ -381,7 +381,7 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
       const userId = req.auth?.userId;
       const { clockedIn, atStore } = await checkClockedIn(userId);
       if (!clockedIn || !atStore) return res.status(403).json({ error: "You must be clocked in at the store to submit an explanation" });
-      const storeId = await resolveStoreId(userId);
+      const storeId = await resolveStoreId(req.user?.companyId);
       const session = await verifySessionAccess(req.params.id, storeId);
       if (!session) return res.status(404).json({ error: "Session not found" });
       const { explanation } = req.body;
@@ -399,7 +399,7 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
       const userId = req.auth?.userId;
       const isManager = await requireManagerOrAbove(storage, userId);
       if (!isManager) return res.status(403).json({ error: "Manager access required" });
-      const storeId = await resolveStoreId(userId);
+      const storeId = await resolveStoreId(req.user?.companyId);
       const session = await verifySessionAccess(req.params.id, storeId);
       if (!session) return res.status(404).json({ error: "Session not found" });
       const [updated] = await db.update(drawerSessions).set({
@@ -419,7 +419,7 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
       const userId = req.auth?.userId;
       const { clockedIn, atStore } = await checkClockedIn(userId);
       if (!clockedIn || !atStore) return res.status(403).json({ error: "You must be clocked in at the store to create a deposit" });
-      const storeId = await resolveStoreId(userId);
+      const storeId = await resolveStoreId(req.user?.companyId);
       const { expectedAmount, actualAmount, depositSlipPhoto, registerSummaryPhoto, drawerSummaryPhoto } = req.body;
       const today = new Date().toISOString().split("T")[0];
 
@@ -449,7 +449,7 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
   app.get("/api/cash/deposits", isAuthenticated, async (req: any, res) => {
     try {
       if (!(await requireCashAccess(req, res))) return;
-      const storeId = await resolveStoreId(req.auth?.userId);
+      const storeId = await resolveStoreId(req.user?.companyId);
       const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
 
       const deposits = await db.select().from(cashDeposits)
@@ -464,7 +464,7 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
   app.get("/api/cash/deposits/:id", isAuthenticated, async (req: any, res) => {
     try {
       if (!(await requireCashAccess(req, res))) return;
-      const storeId = await resolveStoreId(req.auth?.userId);
+      const storeId = await resolveStoreId(req.user?.companyId);
       const deposit = await verifyDepositAccess(req.params.id, storeId);
       if (!deposit) return res.status(404).json({ error: "Deposit not found" });
       res.json(deposit);
@@ -475,7 +475,7 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
 
   app.post("/api/cash/deposits/:id/analyze", isAuthenticated, async (req: any, res) => {
     try {
-      const storeId = await resolveStoreId(req.auth?.userId);
+      const storeId = await resolveStoreId(req.user?.companyId);
       const deposit = await verifyDepositAccess(req.params.id, storeId);
       if (!deposit) return res.status(404).json({ error: "Deposit not found" });
       if (!deposit.depositSlipPhoto) return res.status(400).json({ error: "No deposit slip photo" });
@@ -500,7 +500,7 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
       const userId = req.auth?.userId;
       const isOwner = await requireOwnerOrAdmin(storage, userId);
       if (!isOwner) return res.status(403).json({ error: "Owner or admin access required" });
-      const storeId = await resolveStoreId(userId);
+      const storeId = await resolveStoreId(req.user?.companyId);
       const deposit = await verifyDepositAccess(req.params.id, storeId);
       if (!deposit) return res.status(404).json({ error: "Deposit not found" });
       const { status, reviewNotes } = req.body;
@@ -520,7 +520,7 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
   app.get("/api/cash/daily-report", isAuthenticated, async (req: any, res) => {
     try {
       if (!(await requireCashAccess(req, res))) return;
-      const storeId = await resolveStoreId(req.auth?.userId);
+      const storeId = await resolveStoreId(req.user?.companyId);
       const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
       const report = await getDailyCashReport(storeId, date);
       res.json(report);
@@ -533,7 +533,7 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
   app.get("/api/cash/trends", isAuthenticated, async (req: any, res) => {
     try {
       if (!(await requireCashAccess(req, res))) return;
-      const storeId = await resolveStoreId(req.auth?.userId);
+      const storeId = await resolveStoreId(req.user?.companyId);
       const days = parseInt(req.query.days as string) || 30;
       const cutoff = new Date();
       cutoff.setDate(cutoff.getDate() - days);
@@ -569,7 +569,7 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
       const userId = req.auth?.userId;
       const isOwner = await requireOwnerOrAdmin(storage, userId);
       if (!isOwner) return res.status(403).json({ error: "Owner or admin access required" });
-      const storeId = await resolveStoreId(userId);
+      const storeId = await resolveStoreId(req.user?.companyId);
       const days = parseInt(req.query.days as string) || 90;
       const analysis = await analyzeCashPatterns(storeId, days);
       res.json(analysis);
@@ -583,7 +583,7 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
     try {
       const isManager = await requireManagerOrAbove(storage, req.auth?.userId);
       if (!isManager) return res.status(403).json({ error: "Manager access required" });
-      const storeId = await resolveStoreId(req.auth?.userId);
+      const storeId = await resolveStoreId(req.user?.companyId);
       const days = parseInt(req.query.days as string) || 90;
       const profile = await getEmployeeCashProfile(storeId, req.params.userId, days);
       res.json(profile);

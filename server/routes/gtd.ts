@@ -121,8 +121,9 @@ const updateReferenceSchema = z.object({
   tags: z.array(z.string()).optional(),
 });
 
-async function getStoreId(): Promise<string> {
-  const [store] = await db.select({ id: workLocations.id }).from(workLocations).limit(1);
+async function getStoreId(companyId: string): Promise<string> {
+  const [store] = await db.select({ id: workLocations.id }).from(workLocations)
+    .where(eq(workLocations.companyId, companyId)).limit(1);
   if (!store) throw new AppError(400, "No store configured", "NO_STORE");
   return store.id;
 }
@@ -153,7 +154,9 @@ export function registerGtdRoutes(
 
   app.post('/api/gtd/inbox', isAuthenticated, asyncHandler(async (req: any, res) => {
     const userId = req.user.id;
-    const storeId = await getStoreId();
+    const companyId = req.user?.companyId;
+    if (!companyId) return res.status(403).json({ message: "Company context required" });
+    const storeId = await getStoreId(companyId);
     const body = captureSchema.parse(req.body);
 
     const [item] = await db.insert(gtdInboxItems).values({
@@ -178,7 +181,9 @@ export function registerGtdRoutes(
 
   app.get('/api/gtd/inbox', isAuthenticated, asyncHandler(async (req: any, res) => {
     const userId = req.user.id;
-    const storeId = await getStoreId();
+    const companyId = req.user?.companyId;
+    if (!companyId) return res.status(403).json({ message: "Company context required" });
+    const storeId = await getStoreId(companyId);
     const { limit, offset } = parsePagination(req.query);
     const isManager = await isManagerOrOwner(storage, userId);
 
@@ -209,7 +214,9 @@ export function registerGtdRoutes(
   app.post('/api/gtd/inbox/:id/process', isAuthenticated, asyncHandler(async (req: any, res) => {
     const userId = req.user.id;
     const { id } = req.params;
-    const storeId = await getStoreId();
+    const companyId = req.user?.companyId;
+    if (!companyId) return res.status(403).json({ message: "Company context required" });
+    const storeId = await getStoreId(companyId);
 
     const [item] = await db.select().from(gtdInboxItems).where(eq(gtdInboxItems.id, id));
     if (!item) throw new AppError(404, "Inbox item not found", "NOT_FOUND");
@@ -357,7 +364,9 @@ export function registerGtdRoutes(
 
   app.get('/api/gtd/actions', isAuthenticated, asyncHandler(async (req: any, res) => {
     const userId = req.user.id;
-    const storeId = await getStoreId();
+    const companyId = req.user?.companyId;
+    if (!companyId) return res.status(403).json({ message: "Company context required" });
+    const storeId = await getStoreId(companyId);
     const { limit, offset } = parsePagination(req.query);
     const isManager = await isManagerOrOwner(storage, userId);
 
@@ -417,7 +426,9 @@ export function registerGtdRoutes(
 
   app.post('/api/gtd/actions', isAuthenticated, asyncHandler(async (req: any, res) => {
     const userId = req.user.id;
-    const storeId = await getStoreId();
+    const companyId = req.user?.companyId;
+    if (!companyId) return res.status(403).json({ message: "Company context required" });
+    const storeId = await getStoreId(companyId);
     const body = createActionSchema.parse(req.body);
 
     const [action] = await db.insert(gtdNextActions).values({
@@ -510,7 +521,9 @@ export function registerGtdRoutes(
 
   app.get('/api/gtd/projects', isAuthenticated, asyncHandler(async (req: any, res) => {
     const userId = req.user.id;
-    const storeId = await getStoreId();
+    const companyId = req.user?.companyId;
+    if (!companyId) return res.status(403).json({ message: "Company context required" });
+    const storeId = await getStoreId(companyId);
     const { limit, offset } = parsePagination(req.query);
     const isManager = await isManagerOrOwner(storage, userId);
 
@@ -561,7 +574,9 @@ export function registerGtdRoutes(
 
   app.post('/api/gtd/projects', isAuthenticated, asyncHandler(async (req: any, res) => {
     const userId = req.user.id;
-    const storeId = await getStoreId();
+    const companyId = req.user?.companyId;
+    if (!companyId) return res.status(403).json({ message: "Company context required" });
+    const storeId = await getStoreId(companyId);
     const body = createProjectSchema.parse(req.body);
 
     const [project] = await db.insert(gtdProjects).values({
@@ -650,7 +665,9 @@ export function registerGtdRoutes(
 
   app.get('/api/gtd/waiting', isAuthenticated, asyncHandler(async (req: any, res) => {
     const userId = req.user.id;
-    const storeId = await getStoreId();
+    const companyId = req.user?.companyId;
+    if (!companyId) return res.status(403).json({ message: "Company context required" });
+    const storeId = await getStoreId(companyId);
     const { limit, offset } = parsePagination(req.query);
     const isManager = await isManagerOrOwner(storage, userId);
 
@@ -688,7 +705,9 @@ export function registerGtdRoutes(
 
   app.post('/api/gtd/waiting', isAuthenticated, asyncHandler(async (req: any, res) => {
     const userId = req.user.id;
-    const storeId = await getStoreId();
+    const companyId = req.user?.companyId;
+    if (!companyId) return res.status(403).json({ message: "Company context required" });
+    const storeId = await getStoreId(companyId);
     const body = createWaitingSchema.parse(req.body);
 
     const [item] = await db.insert(gtdWaitingFor).values({
@@ -741,7 +760,9 @@ export function registerGtdRoutes(
 
   app.get('/api/gtd/someday', isAuthenticated, asyncHandler(async (req: any, res) => {
     const userId = req.user.id;
-    const storeId = await getStoreId();
+    const companyId = req.user?.companyId;
+    if (!companyId) return res.status(403).json({ message: "Company context required" });
+    const storeId = await getStoreId(companyId);
     const { limit, offset } = parsePagination(req.query);
     const isManager = await isManagerOrOwner(storage, userId);
 
@@ -770,7 +791,9 @@ export function registerGtdRoutes(
 
   app.post('/api/gtd/someday', isAuthenticated, asyncHandler(async (req: any, res) => {
     const userId = req.user.id;
-    const storeId = await getStoreId();
+    const companyId = req.user?.companyId;
+    if (!companyId) return res.status(403).json({ message: "Company context required" });
+    const storeId = await getStoreId(companyId);
     const body = createSomedaySchema.parse(req.body);
 
     const [item] = await db.insert(gtdSomedayMaybe).values({
@@ -787,7 +810,9 @@ export function registerGtdRoutes(
   app.put('/api/gtd/someday/:id', isAuthenticated, asyncHandler(async (req: any, res) => {
     const userId = req.user.id;
     const { id } = req.params;
-    const storeId = await getStoreId();
+    const companyId = req.user?.companyId;
+    if (!companyId) return res.status(403).json({ message: "Company context required" });
+    const storeId = await getStoreId(companyId);
 
     const [existing] = await db.select().from(gtdSomedayMaybe).where(eq(gtdSomedayMaybe.id, id));
     if (!existing) throw new AppError(404, "Someday/maybe item not found", "NOT_FOUND");
@@ -846,7 +871,9 @@ export function registerGtdRoutes(
 
   app.get('/api/gtd/reference', isAuthenticated, asyncHandler(async (req: any, res) => {
     const userId = req.user.id;
-    const storeId = await getStoreId();
+    const companyId = req.user?.companyId;
+    if (!companyId) return res.status(403).json({ message: "Company context required" });
+    const storeId = await getStoreId(companyId);
     const { limit, offset } = parsePagination(req.query);
     const isManager = await isManagerOrOwner(storage, userId);
 
@@ -877,7 +904,9 @@ export function registerGtdRoutes(
 
   app.post('/api/gtd/reference', isAuthenticated, asyncHandler(async (req: any, res) => {
     const userId = req.user.id;
-    const storeId = await getStoreId();
+    const companyId = req.user?.companyId;
+    if (!companyId) return res.status(403).json({ message: "Company context required" });
+    const storeId = await getStoreId(companyId);
     const body = createReferenceSchema.parse(req.body);
 
     const [item] = await db.insert(gtdReference).values({
@@ -938,7 +967,9 @@ export function registerGtdRoutes(
 
   app.get('/api/gtd/dashboard', isAuthenticated, asyncHandler(async (req: any, res) => {
     const userId = req.user.id;
-    const storeId = await getStoreId();
+    const companyId = req.user?.companyId;
+    if (!companyId) return res.status(403).json({ message: "Company context required" });
+    const storeId = await getStoreId(companyId);
     const today = new Date().toISOString().slice(0, 10);
 
     const [inboxResult] = await db.select({ count: count() }).from(gtdInboxItems)

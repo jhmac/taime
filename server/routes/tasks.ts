@@ -7,7 +7,8 @@ export function registerTaskRoutes(app: Express, storage: IStorage, isAuthentica
   app.post('/api/tasks', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const data = insertTaskSchema.parse({ ...req.body, createdBy: userId });
+      const companyId = req.user?.companyId;
+      const data = insertTaskSchema.parse({ ...req.body, createdBy: userId, ...(companyId ? { companyId } : {}) });
       
       const task = await storage.createTask(data);
       
@@ -33,14 +34,15 @@ export function registerTaskRoutes(app: Express, storage: IStorage, isAuthentica
       const userId = req.user.id;
       const user = await storage.getUser(userId);
 
+      const companyId = req.user?.companyId;
       let tasks;
       const userPermissions = await storage.getUserPermissions(userId);
       const canViewAll = userPermissions.some(p => p.name === 'tasks.view_all');
       
       if (canViewAll) {
-        tasks = await storage.getAllTasks();
+        tasks = await storage.getAllTasks(companyId);
       } else {
-        tasks = await storage.getUserTasks(userId);
+        tasks = await storage.getUserTasks(userId, companyId);
       }
 
       res.json(tasks);
@@ -54,8 +56,9 @@ export function registerTaskRoutes(app: Express, storage: IStorage, isAuthentica
     try {
       const { id } = req.params;
       const userId = req.user.id;
+      const companyId = req.user?.companyId;
 
-      const existing = await storage.getTask(id);
+      const existing = await storage.getTask(id, companyId);
       if (!existing) {
         return res.status(404).json({ message: "Task not found" });
       }
@@ -83,7 +86,7 @@ export function registerTaskRoutes(app: Express, storage: IStorage, isAuthentica
         safeUpdates.completedAt = new Date();
       }
 
-      const task = await storage.updateTask(id, safeUpdates);
+      const task = await storage.updateTask(id, companyId, safeUpdates);
       
       broadcastToAll({
         type: 'task_updated',
@@ -101,6 +104,7 @@ export function registerTaskRoutes(app: Express, storage: IStorage, isAuthentica
     try {
       const { id } = req.params;
       const userId = req.user.id;
+      const companyId = req.user?.companyId;
       const { imageUrl } = req.body;
       
       if (!imageUrl) {
@@ -111,7 +115,7 @@ export function registerTaskRoutes(app: Express, storage: IStorage, isAuthentica
         return res.status(400).json({ message: "Image too large (max 2MB)" });
       }
 
-      const existing = await storage.getTask(id);
+      const existing = await storage.getTask(id, companyId);
       if (!existing) {
         return res.status(404).json({ message: "Task not found" });
       }
@@ -123,7 +127,7 @@ export function registerTaskRoutes(app: Express, storage: IStorage, isAuthentica
         return res.status(403).json({ message: "You can only upload images to your own tasks" });
       }
 
-      const task = await storage.updateTask(id, { completionImageUrl: imageUrl });
+      const task = await storage.updateTask(id, companyId, { completionImageUrl: imageUrl });
       
       broadcastToAll({
         type: 'task_updated',
@@ -141,6 +145,7 @@ export function registerTaskRoutes(app: Express, storage: IStorage, isAuthentica
     try {
       const { id } = req.params;
       const userId = req.user.id;
+      const companyId = req.user?.companyId;
 
       const userPermissions = await storage.getUserPermissions(userId);
       const isManager = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'hr.manage_employees');
@@ -148,7 +153,12 @@ export function registerTaskRoutes(app: Express, storage: IStorage, isAuthentica
         return res.status(403).json({ message: "Only managers can delete tasks" });
       }
 
-      await storage.deleteTask(id);
+      const existing = await storage.getTask(id, companyId);
+      if (!existing) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+
+      await storage.deleteTask(id, companyId);
       broadcastToAll({
         type: 'task_deleted',
         data: { taskId: id },

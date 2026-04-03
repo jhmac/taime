@@ -14,7 +14,9 @@ export function registerMorningWhisperRoutes(app: Express, storage: IStorage, is
         return res.status(403).json({ message: "Morning Whisper is available for managers and owners." });
       }
 
-      const storeId = await resolveStoreId() || "default";
+      const companyId = req.user?.companyId;
+      if (!companyId) return res.status(403).json({ message: "Company context required" });
+      const storeId = await resolveStoreId(companyId) || "default";
       const result = await getOrGenerateWhisper(storeId, req.user.id);
 
       res.json(result);

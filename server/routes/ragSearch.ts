@@ -17,7 +17,9 @@ export function registerRAGRoutes(
       throw new AppError(403, "Only owners and admins can trigger re-indexing", "FORBIDDEN");
     }
 
-    const storeId = await resolveStoreId();
+    const companyId = req.user?.companyId;
+    if (!companyId) throw new AppError(403, "Company context required", "FORBIDDEN");
+    const storeId = await resolveStoreId(companyId);
     if (!storeId) throw new AppError(400, "No store configured", "VALIDATION_ERROR");
 
     res.json({ success: true, message: "Re-indexing started in background" });
@@ -44,7 +46,9 @@ export function registerRAGRoutes(
   }));
 
   app.get("/api/rag/search", isAuthenticated, asyncHandler(async (req: any, res) => {
-    const storeId = await resolveStoreId();
+    const companyId = req.user?.companyId;
+    if (!companyId) throw new AppError(403, "Company context required", "FORBIDDEN");
+    const storeId = await resolveStoreId(companyId);
     if (!storeId) throw new AppError(400, "No store configured", "VALIDATION_ERROR");
 
     const query = req.query.q as string;
@@ -59,7 +63,9 @@ export function registerRAGRoutes(
   }));
 
   app.get("/api/rag/status", isAuthenticated, asyncHandler(async (req: any, res) => {
-    const storeId = await resolveStoreId();
+    const companyId = req.user?.companyId;
+    if (!companyId) throw new AppError(403, "Company context required", "FORBIDDEN");
+    const storeId = await resolveStoreId(companyId);
     if (!storeId) throw new AppError(400, "No store configured", "VALIDATION_ERROR");
 
     const { db } = await import("../db");

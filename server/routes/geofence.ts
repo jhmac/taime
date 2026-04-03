@@ -3,7 +3,7 @@ import type { IStorage } from "../storage";
 import { geofencingService } from "../services/geofencingService";
 import { db } from "../db";
 import { workLocations, geofenceEvents } from "@shared/schema";
-import { eq, desc } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 
 export function registerGeofenceRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
   app.post('/api/geofence/check', isAuthenticated, async (req: any, res) => {
@@ -141,15 +141,19 @@ export function registerGeofenceRoutes(app: Express, storage: IStorage, isAuthen
         return res.status(403).json({ message: "Admin access required" });
       }
 
-      const events = await db.select()
-        .from(geofenceEvents)
-        .orderBy(desc(geofenceEvents.createdAt))
-        .limit(200);
-
-      const allUsers = await storage.getAllUsers();
+      const allUsers = await storage.getAllUsers(req.user?.companyId);
       const userMap = new Map(allUsers.map(u => [u.id, u]));
-      const allLocations = await storage.getAllWorkLocations();
+      const allLocations = await storage.getAllWorkLocations(req.user?.companyId);
       const locationMap = new Map(allLocations.map(l => [l.id, l]));
+
+      const companyUserIds = Array.from(userMap.keys());
+
+      const events = companyUserIds.length > 0
+        ? await db.select().from(geofenceEvents)
+            .where(sql`${geofenceEvents.userId} = ANY(ARRAY[${sql.join(companyUserIds.map(id => sql`${id}`), sql`, `)}]::text[])`)
+            .orderBy(desc(geofenceEvents.createdAt))
+            .limit(200)
+        : [];
 
       const enrichedEvents = events.map(event => ({
         ...event,
@@ -168,7 +172,7 @@ export function registerGeofenceRoutes(app: Express, storage: IStorage, isAuthen
 
   app.get('/api/work-locations', isAuthenticated, async (req: any, res) => {
     try {
-      const locations = await db.select().from(workLocations).where(eq(workLocations.isActive, true));
+      const locations = await storage.getAllWorkLocations(req.user?.companyId);
       res.json(locations);
     } catch (error) {
       console.error("Error fetching work locations:", error);
@@ -202,6 +206,7 @@ export function registerGeofenceRoutes(app: Express, storage: IStorage, isAuthen
         geofenceGraceMinutes: geofenceGraceMinutes ?? 5,
         geofenceEnabled: geofenceEnabled !== false,
         autoClockOut: autoClockOut !== false,
+        companyId: req.user?.companyId || null,
       }).returning();
 
       res.json(location);
@@ -222,6 +227,12 @@ export function registerGeofenceRoutes(app: Express, storage: IStorage, isAuthen
 
     const { id } = req.params;
     const validated = req.body;
+    const companyId = req.user?.companyId;
+
+    const existing = await storage.getWorkLocation(id, companyId);
+    if (!existing) {
+      return res.status(404).json({ message: "Location not found" });
+    }
 
     const updateData: any = {};
     if (validated.name !== undefined) updateData.name = validated.name;
@@ -239,7 +250,7 @@ export function registerGeofenceRoutes(app: Express, storage: IStorage, isAuthen
 
     const [updated] = await db.update(workLocations)
       .set(updateData)
-      .where(eq(workLocations.id, id))
+      .where(and(eq(workLocations.id, id), eq(workLocations.companyId, companyId)))
       .returning();
 
       if (!updated) {
@@ -263,10 +274,16 @@ export function registerGeofenceRoutes(app: Express, storage: IStorage, isAuthen
       }
 
       const { id } = req.params;
+      const deleteCompanyId = req.user?.companyId;
+
+      const existingLoc = await storage.getWorkLocation(id, deleteCompanyId);
+      if (!existingLoc) {
+        return res.status(404).json({ message: "Location not found" });
+      }
 
       await db.update(workLocations)
         .set({ isActive: false })
-        .where(eq(workLocations.id, id));
+        .where(and(eq(workLocations.id, id), eq(workLocations.companyId, deleteCompanyId)));
 
       res.json({ success: true });
     } catch (error) {

@@ -25,7 +25,9 @@ export function registerBackgroundInsightRoutes(app: Express, storage: IStorage,
     const isManager = await requireManagerOrAbove(storage, req.user.id);
     if (!isManager) throw new AppError(403, "Manager or above access required", "FORBIDDEN");
 
-    const storeId = await resolveStoreId();
+    const companyId = req.user?.companyId;
+    if (!companyId) throw new AppError(403, "Company context required", "FORBIDDEN");
+    const storeId = await resolveStoreId(companyId);
     if (!storeId) {
       return res.json({ success: true, data: { totalActive: 0, actionNeededCount: 0, byType: {} } });
     }
@@ -58,7 +60,9 @@ export function registerBackgroundInsightRoutes(app: Express, storage: IStorage,
     const isManager = await requireManagerOrAbove(storage, req.user.id);
     if (!isManager) throw new AppError(403, "Manager or above access required", "FORBIDDEN");
 
-    const storeId = await resolveStoreId();
+    const companyId = req.user?.companyId;
+    if (!companyId) throw new AppError(403, "Company context required", "FORBIDDEN");
+    const storeId = await resolveStoreId(companyId);
     if (!storeId) {
       return res.json({ success: true, data: [] });
     }
@@ -93,12 +97,18 @@ export function registerBackgroundInsightRoutes(app: Express, storage: IStorage,
     const isManager = await requireManagerOrAbove(storage, req.user.id);
     if (!isManager) throw new AppError(403, "Manager or above access required", "FORBIDDEN");
 
+    const companyId = req.user?.companyId;
+    if (!companyId) throw new AppError(403, "Company context required", "FORBIDDEN");
+
     const { id } = req.params;
     const body = z.object({
       status: z.enum(["acknowledged", "dismissed", "acted_on"]),
     }).parse(req.body);
 
-    const [insight] = await db.select().from(backgroundInsights).where(eq(backgroundInsights.id, id));
+    // Validate tenant ownership via storeId scoped to company
+    const storeId = await resolveStoreId(companyId);
+    const [insight] = await db.select().from(backgroundInsights)
+      .where(and(eq(backgroundInsights.id, id), eq(backgroundInsights.storeId, storeId)));
     if (!insight) throw new AppError(404, "Insight not found", "NOT_FOUND");
 
     const updateData: Record<string, unknown> = {
@@ -112,10 +122,11 @@ export function registerBackgroundInsightRoutes(app: Express, storage: IStorage,
 
     await db.update(backgroundInsights)
       .set(updateData)
-      .where(eq(backgroundInsights.id, id));
+      .where(and(eq(backgroundInsights.id, id), eq(backgroundInsights.storeId, storeId)));
 
     cache.invalidatePrefix("bg-insights-summary:");
-    const [updated] = await db.select().from(backgroundInsights).where(eq(backgroundInsights.id, id));
+    const [updated] = await db.select().from(backgroundInsights)
+      .where(and(eq(backgroundInsights.id, id), eq(backgroundInsights.storeId, storeId)));
     res.json({ success: true, data: updated });
   }));
 
@@ -125,7 +136,9 @@ export function registerBackgroundInsightRoutes(app: Express, storage: IStorage,
       throw new AppError(403, "Admin access required", "FORBIDDEN");
     }
 
-    const storeId = await resolveStoreId();
+    const generateCompanyId = req.user?.companyId;
+    if (!generateCompanyId) throw new AppError(403, "Company context required", "FORBIDDEN");
+    const storeId = await resolveStoreId(generateCompanyId);
     if (!storeId) throw new AppError(400, "No store configured", "MISSING_STORE");
 
     runAllInsightGenerators(storeId).catch(err =>
