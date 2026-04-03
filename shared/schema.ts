@@ -741,6 +741,10 @@ export const shops = pgTable("shops", {
   lastSyncAt: timestamp("last_sync_at"),
   installedAt: timestamp("installed_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+  subscriptionId: varchar("subscription_id"),
+  planName: varchar("plan_name").default("free_trial"),
+  billingStatus: varchar("billing_status").default("trial"),
+  trialEndsAt: timestamp("trial_ends_at"),
 });
 
 // User to Shop junction table

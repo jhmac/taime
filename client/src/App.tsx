@@ -90,6 +90,7 @@ import MorningWhisper from "@/pages/MorningWhisper";
 import ImprovementFeed from "@/pages/ImprovementFeed";
 import NotFound from "@/pages/not-found";
 import ShopifyCallbackSuccess from "@/pages/ShopifyCallbackSuccess";
+import ShopifyBillingPlans from "@/pages/ShopifyBillingPlans";
 import OfflineIndicator from "@/components/OfflineIndicator";
 import SmartClockPrompt from "@/components/SmartClockPrompt";
 import FocusClockOut from "@/components/FocusClockOut";
@@ -394,6 +395,14 @@ function Router() {
     return (
       <Switch>
         <Route path="/shopify-callback-success" component={ShopifyCallbackSuccess} />
+      </Switch>
+    );
+  }
+
+  if (location.startsWith("/shopify-billing")) {
+    return (
+      <Switch>
+        <Route path="/shopify-billing" component={ShopifyBillingPlans} />
       </Switch>
     );
   }
