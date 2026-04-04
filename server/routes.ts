@@ -48,6 +48,7 @@ import { registerCashManagementRoutes } from "./routes/cashManagement";
 import { registerTimesheetRoutes } from "./routes/timesheets";
 import { registerOffsiteRulesRoutes } from "./routes/offsiteRules";
 import { registerGamificationRoutes } from "./routes/gamification";
+import { registerOnboardingRoutes } from "./routes/onboarding";
 import { startBackgroundInsightsCron, stopBackgroundInsightsCron } from "./services/backgroundInsights";
 import { startGamificationCron, stopGamificationCron } from "./services/gamificationCron";
 import { createActionLoggerMiddleware, handleClientErrorReport, getActionSummary } from "./services/actionLogger";
@@ -180,6 +181,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerOffsiteRulesRoutes(app, storage, isAuthenticated);
   registerTimesheetRoutes(app, storage, isAuthenticated);
   registerGamificationRoutes(app, storage, isAuthenticated);
+  registerOnboardingRoutes(app, storage, isAuthenticated);
 
   const httpServer = createServer(app);
 

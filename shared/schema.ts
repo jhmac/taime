@@ -23,6 +23,9 @@ export const companies = pgTable("companies", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   name: varchar("name").notNull().default("My Company"),
   plan: varchar("plan").default("starter"),
+  employeeCount: integer("employee_count"),
+  shopifyUrl: varchar("shopify_url"),
+  isDefault: boolean("is_default").default(false),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

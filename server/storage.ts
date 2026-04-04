@@ -352,12 +352,12 @@ export class DatabaseStorage implements IStorage {
   async getOrCreateDefaultCompany(): Promise<Company> {
     const cached = cache.get<Company>('company:default');
     if (cached) return cached;
-    const [existing] = await db.select().from(companies).limit(1);
+    const [existing] = await db.select().from(companies).where(eq(companies.isDefault, true)).limit(1);
     if (existing) {
       cache.set('company:default', existing, 5 * 60 * 1000);
       return existing;
     }
-    const [created] = await db.insert(companies).values({ name: 'My Company', plan: 'starter' }).returning();
+    const [created] = await db.insert(companies).values({ name: 'My Company', plan: 'starter', isDefault: true }).returning();
     cache.set('company:default', created, 5 * 60 * 1000);
     return created;
   }
