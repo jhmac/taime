@@ -11,7 +11,7 @@ import type { WorkLocation, CompanySettings, ActivityLog, HolidayPayRule } from 
 import {
   Settings, MapPin, Calendar, Clock, DollarSign, Users, User, Bell,
   Shield, FileText, MessageSquare, Store, Menu, X, ChevronRight,
-  ExternalLink, Trophy, BookOpen, BrainCircuit
+  ExternalLink, Trophy, BookOpen, BrainCircuit, Building2
 } from 'lucide-react';
 
 import BasicInfoSection from '@/components/settings/BasicInfoSection';
@@ -34,11 +34,13 @@ import AISchedulingSection from '@/components/settings/AISchedulingSection';
 import WorkPatternsSection from '@/components/settings/WorkPatternsSection';
 import GeofenceMapSection from '@/components/settings/GeofenceMapSection';
 import OffsiteAllowanceSection from '@/components/settings/OffsiteAllowanceSection';
+import StoreLocationsSection from '@/components/settings/StoreLocationsSection';
 
 const SIDEBAR_SECTIONS = [
   {
     category: 'Location',
     items: [
+      { id: 'store-locations', label: 'Store locations', icon: Building2 },
       { id: 'basic-info', label: 'Basic info', icon: MapPin },
       { id: 'geofencing', label: 'Geofencing', icon: Shield },
       { id: 'offsite-allowances', label: 'Off-site allowances', icon: MapPin },
@@ -494,6 +496,8 @@ export default function AdminSettings() {
 
   const renderContent = () => {
     switch (activeSection) {
+      case 'store-locations':
+        return <StoreLocationsSection />;
       case 'basic-info':
         return (
           <BasicInfoSection
@@ -652,7 +656,7 @@ export default function AdminSettings() {
             <h1 className="text-lg font-semibold">Settings</h1>
           </div>
         </div>
-        {activeSection !== 'profile' && activeSection !== 'notifications' && activeSection !== 'manager-log' && activeSection !== 'team-permissions' && activeSection !== 'pos-connection' && activeSection !== 'performance-scoring' && activeSection !== 'sop-management' && activeSection !== 'ai-scheduling' && activeSection !== 'geofencing' && activeSection !== 'offsite-allowances' && (
+        {activeSection !== 'profile' && activeSection !== 'notifications' && activeSection !== 'manager-log' && activeSection !== 'team-permissions' && activeSection !== 'pos-connection' && activeSection !== 'performance-scoring' && activeSection !== 'sop-management' && activeSection !== 'ai-scheduling' && activeSection !== 'geofencing' && activeSection !== 'offsite-allowances' && activeSection !== 'store-locations' && (
           <Button onClick={handleSaveSettings} disabled={updateSettingsMutation.isPending} size="sm">
             {updateSettingsMutation.isPending ? 'Saving...' : 'Save changes'}
           </Button>

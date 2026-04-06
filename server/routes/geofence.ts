@@ -185,7 +185,7 @@ export function registerGeofenceRoutes(app: Express, storage: IStorage, isAuthen
         return res.status(403).json({ message: "Admin access required" });
       }
 
-      const { name, address, latitude, longitude, radius, geofenceType, geofencePolygon, geofenceGraceMinutes, geofenceEnabled, autoClockOut } = req.body;
+      const { name, address, phone, email, timezone, hoursOfOperation, latitude, longitude, radius, geofenceType, geofencePolygon, geofenceGraceMinutes, geofenceEnabled, autoClockOut } = req.body;
 
       if (!name) {
         return res.status(400).json({ message: "Location name is required" });
@@ -194,6 +194,10 @@ export function registerGeofenceRoutes(app: Express, storage: IStorage, isAuthen
       const [location] = await db.insert(workLocations).values({
         name,
         address: address || null,
+        phone: phone || null,
+        email: email || null,
+        timezone: timezone || null,
+        hoursOfOperation: hoursOfOperation || null,
         latitude: latitude ? String(latitude) : null,
         longitude: longitude ? String(longitude) : null,
         radius: radius || 100,
@@ -226,6 +230,10 @@ export function registerGeofenceRoutes(app: Express, storage: IStorage, isAuthen
     const updateData: any = {};
     if (validated.name !== undefined) updateData.name = validated.name;
     if (validated.address !== undefined) updateData.address = validated.address;
+    if (validated.phone !== undefined) updateData.phone = validated.phone;
+    if (validated.email !== undefined) updateData.email = validated.email;
+    if (validated.timezone !== undefined) updateData.timezone = validated.timezone;
+    if (validated.hoursOfOperation !== undefined) updateData.hoursOfOperation = validated.hoursOfOperation;
     if (validated.latitude !== undefined) updateData.latitude = validated.latitude ? String(validated.latitude) : null;
     if (validated.longitude !== undefined) updateData.longitude = validated.longitude ? String(validated.longitude) : null;
     if (validated.radius !== undefined) updateData.radius = validated.radius;
