@@ -13,17 +13,17 @@ type NavItem = {
   key: string;
 };
 
-const adminNavItems: NavItem[] = [
-  { key: 'home', path: '/', icon: LayoutDashboard, label: 'Home' },
-  { key: 'schedule', path: '/schedules', icon: Calendar, label: 'Schedule' },
-  { key: 'team', path: '/team', icon: Users, label: 'Team' },
-  { key: 'messages', path: '/messages', icon: MessageCircle, label: 'Messages', badge: true },
-  { key: 'more', path: '/more', icon: Settings, label: 'More' },
-];
-
 function openAskMAinager() {
   window.dispatchEvent(new Event('open-ask-mainager'));
 }
+
+const adminNavItems: NavItem[] = [
+  { key: 'home', path: '/', icon: LayoutDashboard, label: 'Home' },
+  { key: 'schedule', path: '/schedules', icon: Calendar, label: 'Schedule' },
+  { key: 'ai', action: openAskMAinager, icon: Sparkles, label: 'Ask AI' },
+  { key: 'messages', path: '/messages', icon: MessageCircle, label: 'Messages', badge: true },
+  { key: 'more', path: '/more', icon: Settings, label: 'More' },
+];
 
 const employeeNavItems: NavItem[] = [
   { key: 'home', path: '/', icon: Home, label: 'Home' },
