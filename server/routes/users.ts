@@ -159,11 +159,27 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
   app.get('/api/users', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canViewTeam = userPermissions.some(p => p.name === 'hr.view_team' || p.name === 'schedule.view_all');
-      
+      const roleName = req.user.role?.name;
+
+      const isOwnerOrAdmin = roleName === 'owner' || roleName === 'admin';
+      let canViewTeam = isOwnerOrAdmin;
+
       if (!canViewTeam) {
-        const currentUser = await storage.getUser(userId);
+        const userPermissions = await storage.getUserPermissions(userId);
+        canViewTeam = userPermissions.some(p => p.name === 'hr.view_team' || p.name === 'schedule.view_all');
+        console.log(`[/api/users] userId=${userId} roleName=${roleName} permissionsCount=${userPermissions.length} canViewTeam=${canViewTeam}`);
+      } else {
+        console.log(`[/api/users] userId=${userId} roleName=${roleName} canViewTeam=true (via role)`);
+      }
+
+      if (!canViewTeam) {
+        let currentUser = await storage.getUser(userId);
+        if (!currentUser && req.user.email) {
+          currentUser = await storage.getUserByEmail(req.user.email);
+        }
+        if (!currentUser) {
+          console.warn(`[/api/users] Fallback miss: no user found for id=${userId} email=${req.user.email || 'none'}`);
+        }
         res.json(currentUser ? [currentUser] : []);
         return;
       }
