@@ -55,7 +55,7 @@ export default function TimeClockWidget() {
 
   const { data: activeTimeEntry, isLoading: activeEntryLoading } = useQuery<TimeEntry | null>({
     queryKey: ['/api/time-entries/active'],
-    refetchInterval: 30000,
+    refetchInterval: (query) => (query.state.data ? 10000 : 30000),
   });
 
   const { data: todayEntries = [] } = useQuery<TimeEntry[]>({
@@ -133,6 +133,7 @@ export default function TimeClockWidget() {
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ['/api/time-entries'] });
       queryClient.invalidateQueries({ queryKey: ['/api/time-entries/active'] });
+      queryClient.refetchQueries({ queryKey: ['/api/time-entries/active'] });
       logClockEvent('shift-start', data?.id);
       toast({
         title: "Clocked In",
@@ -490,31 +491,40 @@ export default function TimeClockWidget() {
         return;
       }
 
-      if (!position) {
+      let currentPos = position;
+      if (!currentPos) {
         try {
-          await getCurrentPosition();
+          const acquired = await getCurrentPosition();
+          currentPos = acquired ?? null;
         } catch (err: any) {
           toast({
             title: "Location Access Needed",
             description: "Please allow location access in your browser or device settings to clock in. On iPhone: Settings > Privacy > Location Services.",
             variant: "destructive",
           });
+          return;
         }
-        return;
+        if (!currentPos) {
+          toast({
+            title: "Location Not Ready",
+            description: "Your location is being acquired. Please tap Clock In again.",
+          });
+          return;
+        }
       }
 
       try {
         const locationCheck = await apiRequest('POST', '/api/geofence/check', {
-          latitude: position.latitude,
-          longitude: position.longitude,
+          latitude: currentPos.latitude,
+          longitude: currentPos.longitude,
         });
 
         const result = await locationCheck.json();
         
         if (!result.isInWorkLocation) {
           logClockEvent('geofence-denied', undefined, {
-            latitude: position.latitude,
-            longitude: position.longitude,
+            latitude: currentPos.latitude,
+            longitude: currentPos.longitude,
           });
           toast({
             title: "Location Required",
@@ -526,8 +536,8 @@ export default function TimeClockWidget() {
 
         clockInMutation.mutate({
           locationId: result.location.id,
-          latitude: position.latitude,
-          longitude: position.longitude,
+          latitude: currentPos.latitude,
+          longitude: currentPos.longitude,
         });
       } catch (error) {
         toast({

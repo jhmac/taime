@@ -121,6 +121,7 @@ export function registerTimeEntryRoutes(app: Express, storage: IStorage, isAuthe
 
   app.get('/api/time-entries/active', isAuthenticated, async (req: any, res) => {
     try {
+      res.setHeader('Cache-Control', 'no-store');
       const userId = req.user.id;
       const activeEntry = await storage.getActiveTimeEntry(userId);
       res.json(activeEntry || null);
