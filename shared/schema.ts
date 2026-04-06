@@ -708,7 +708,7 @@ export const userShops = pgTable("user_shops", {
 
 // Shopify Daily Sales
 export const shopifyDailySales = pgTable("shopify_daily_sales", {
-  id: serial("id").primaryKey(),
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   shopDomain: varchar("shop_domain").notNull(),
   date: timestamp("date").notNull(),
   dayOfWeek: integer("day_of_week"),
