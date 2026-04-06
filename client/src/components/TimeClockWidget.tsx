@@ -584,301 +584,226 @@ export default function TimeClockWidget() {
     return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
   };
 
+  // Compute today's total hours for the stats line
+  const todayTotalDisplay = (() => {
+    let totalMs = 0;
+    const now = new Date();
+    for (const entry of todayEntries) {
+      if (activeTimeEntry && entry.id === activeTimeEntry.id) continue;
+      const start = new Date(entry.clockInTime);
+      const end = entry.clockOutTime ? new Date(entry.clockOutTime) : now;
+      totalMs += end.getTime() - start.getTime();
+    }
+    if (activeTimeEntry) {
+      totalMs += now.getTime() - new Date(activeTimeEntry.clockInTime).getTime();
+    }
+    const hours = Math.floor(totalMs / (1000 * 60 * 60));
+    const minutes = Math.floor((totalMs % (1000 * 60 * 60)) / (1000 * 60));
+    return `${hours}h ${minutes}m`;
+  })();
+
+  // Full-screen geofence countdown takeover — shown when outside with a grace timer
+  const showCountdown = activeTimeEntry && geofenceStatus && !geofenceStatus.isInWorkLocation && countdownSeconds != null;
+
   return (
-    <Card className="mb-4" data-testid="time-clock-widget">
-      <CardHeader>
-        <CardTitle className="text-base flex items-center">
-          <i className="fas fa-clock text-primary mr-2"></i>
-          Time Clock
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="text-center space-y-4">
-        {/* Current Time Display */}
-        <div>
-          <div className="text-3xl font-bold text-foreground" data-testid="current-time">
+    <Card data-testid="time-clock-widget" className="overflow-hidden">
+
+      {/* ── GEOFENCE COUNTDOWN — full takeover ─────────────── */}
+      {showCountdown && (
+        <CardContent className="p-6 text-center">
+          <div className="flex flex-col items-center gap-5">
+            <div className="flex items-center gap-2">
+              <XCircle className="h-6 w-6 text-red-500 animate-pulse" />
+              <p className="text-xl font-black text-red-700 dark:text-red-300">Outside Work Zone</p>
+            </div>
+
+            {/* Circular countdown */}
+            <div className="relative flex items-center justify-center">
+              <div className="absolute inset-0 bg-red-500/10 rounded-full animate-ping scale-75" />
+              <svg className="w-44 h-44 drop-shadow-xl" viewBox="0 0 120 120">
+                <circle cx="60" cy="60" r="54" fill="none" stroke="currentColor" className="text-red-100 dark:text-red-950" strokeWidth="10" />
+                <circle
+                  cx="60" cy="60" r="54" fill="none" stroke="currentColor"
+                  className="text-red-600 dark:text-red-500"
+                  strokeWidth="10" strokeLinecap="round"
+                  strokeDasharray={`${2 * Math.PI * 54}`}
+                  strokeDashoffset={`${2 * Math.PI * 54 * (1 - (countdownSeconds! / Math.max(totalGraceSecondsRef.current || countdownSeconds!, 1)))}`}
+                  transform="rotate(-90 60 60)"
+                  style={{ transition: 'stroke-dashoffset 1s linear' }}
+                />
+              </svg>
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <span className="text-5xl font-black tabular-nums text-red-700 dark:text-red-400">
+                  {countdownSeconds! >= 60
+                    ? `${Math.floor(countdownSeconds! / 60)}:${String(countdownSeconds! % 60).padStart(2, '0')}`
+                    : countdownSeconds}
+                </span>
+                <span className="text-xs font-bold uppercase tracking-widest text-red-500 mt-1">
+                  {countdownSeconds! >= 60 ? 'minutes' : 'seconds'}
+                </span>
+              </div>
+            </div>
+
+            <p className="text-sm font-semibold text-red-700 dark:text-red-300">
+              Return to the work area or clock out now
+            </p>
+
+            {/* Clock out button stays accessible */}
+            <Button
+              onClick={handleClockAction}
+              disabled={clockOutMutation.isPending}
+              className="w-full bg-destructive hover:bg-destructive/90 text-destructive-foreground text-base font-bold py-4"
+              data-testid="clock-action-button"
+            >
+              {clockOutMutation.isPending ? 'Clocking out…' : '■  Clock Out'}
+            </Button>
+          </div>
+        </CardContent>
+      )}
+
+      {/* ── NORMAL VIEW ─────────────────────────────────────── */}
+      {!showCountdown && (
+        <CardContent className="p-5 text-center space-y-4">
+
+          {/* Time — no date (dashboard header already shows it) */}
+          <div
+            className="text-4xl font-extrabold tabular-nums text-foreground tracking-tight"
+            data-testid="current-time"
+          >
             {formatTime(currentTime)}
           </div>
-          <div className="text-muted-foreground text-sm" data-testid="current-date">
-            {formatDate(currentTime)}
-          </div>
-        </div>
 
-        {/* Active Session Info */}
-        {activeTimeEntry && (
-          <div className={`${geofenceStatus?.isInWorkLocation === false ? 'bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800' : 'bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800'} border rounded-lg p-3 transition-colors`}>
-            <p className={`text-sm font-medium ${geofenceStatus?.isInWorkLocation === false ? 'text-red-800 dark:text-red-300' : 'text-green-800 dark:text-green-300'}`}>
-              {geofenceStatus?.isInWorkLocation === false ? 'Outside Work Zone' : 'Currently Clocked In'}
-            </p>
-            {geofenceStatus?.isInWorkLocation === false && geofenceStatus?.geofenceExitInfo?.exitedAt ? (
-              <>
-                <p className="text-xs text-red-700 dark:text-red-400">
-                  Left at {new Date(geofenceStatus.geofenceExitInfo.exitedAt).toLocaleTimeString('en-US', { hour12: true })}
-                </p>
-                <p className="text-sm font-bold text-red-800 dark:text-red-300 mt-1">
-                  Outside for: {getOutsideDuration()}
-                </p>
-              </>
-            ) : (
-              <>
-                <p className={`text-xs ${geofenceStatus?.isInWorkLocation === false ? 'text-red-700 dark:text-red-400' : 'text-green-700 dark:text-green-400'}`}>
-                  Started at {new Date(activeTimeEntry.clockInTime).toLocaleTimeString('en-US', { hour12: true })}
-                </p>
-                <p className={`text-sm font-bold ${geofenceStatus?.isInWorkLocation === false ? 'text-red-800 dark:text-red-300' : 'text-green-800 dark:text-green-300'} mt-1`}>
-                  Duration: {getActiveWorkDuration()}
-                </p>
-              </>
-            )}
-          </div>
-        )}
-
-        {/* Location Permission Notice */}
-        {workLocations.length > 0 && (locationPermission === 'denied' || (locationError && !position)) && !activeTimeEntry && (
-          <div
-            className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg p-3 cursor-pointer active:bg-red-100 dark:active:bg-red-950/50 transition-colors"
-            onClick={() => {
-              getCurrentPosition()
-                .then(() => {
-                  setLocationPermission('granted');
-                  toast({ title: 'Location enabled', description: 'Location access has been granted.' });
-                })
-                .catch(() => {
-                  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-                  const isAndroid = /Android/.test(navigator.userAgent);
-                  let instructions = '';
-                  if (isIOS) {
-                    instructions = 'Open your iPhone Settings app → Privacy & Security → Location Services → find your browser (Safari/Chrome) and set to "While Using". Then come back and refresh this page.';
-                  } else if (isAndroid) {
-                    instructions = 'Open your phone Settings app → Apps → find your browser → Permissions → Location → set to "Allow". Then come back and refresh this page.';
-                  } else {
-                    instructions = 'Click the lock/info icon in your browser address bar → find Location → set to "Allow", then reload the page.';
-                  }
-                  toast({
-                    title: 'How to Enable Location',
-                    description: instructions,
-                    duration: 12000,
-                  });
-                });
-            }}
-          >
-            <div className="flex items-center gap-2">
-              <XCircle className="h-4 w-4 text-red-600 dark:text-red-400 shrink-0" />
-              <div className="text-left flex-1">
-                <p className="text-sm font-medium text-red-800 dark:text-red-300">Location Access Required</p>
-                <p className="text-xs text-red-600 dark:text-red-400">
-                  Tap here to enable location services for clocking in.
-                </p>
-              </div>
-              <ExternalLink className="h-4 w-4 text-red-400 dark:text-red-500 shrink-0" />
-            </div>
-          </div>
-        )}
-
-        {/* Pre Clock-In Geofence Status */}
-        {!activeTimeEntry && geofenceStatus && workLocations.length > 0 && (
-          <div className={`rounded-lg p-3 text-sm ${
-            geofenceStatus.isInWorkLocation
-              ? 'bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800'
-              : 'bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800'
-          }`}>
-            <div className="flex items-center gap-2">
-              {geofenceStatus.isInWorkLocation ? (
-                <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400 shrink-0" />
-              ) : (
-                <AlertTriangle className="h-4 w-4 text-orange-600 dark:text-orange-400 shrink-0" />
-              )}
-              <div className="text-left flex-1">
-                <p className={`font-medium ${
-                  geofenceStatus.isInWorkLocation ? 'text-green-800 dark:text-green-300' : 'text-orange-800 dark:text-orange-300'
-                }`}>
-                  {geofenceStatus.isInWorkLocation
-                    ? `At ${geofenceStatus.location?.name || 'Work Location'}`
-                    : 'Outside Work Location'}
-                </p>
-                <p className={`text-xs ${
-                  geofenceStatus.isInWorkLocation ? 'text-green-600 dark:text-green-400' : 'text-orange-600 dark:text-orange-400'
-                }`}>
-                  {geofenceStatus.isInWorkLocation
-                    ? 'You are inside the geofence — ready to clock in'
-                    : geofenceStatus.nearestLocation
-                      ? `Nearest: ${geofenceStatus.nearestLocation.name} (${Math.round(geofenceStatus.nearestLocation.distance)}m away)`
-                      : 'You must be at a work location to clock in'}
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Clock In/Out Button — or mobile-only message */}
-        {requireMobileClockIn && !isMobile && !activeTimeEntry ? (
-          <div className="flex flex-col items-center gap-2 rounded-lg border border-muted bg-muted/30 p-4 text-center" data-testid="mobile-only-message">
-            <Smartphone className="h-8 w-8 text-muted-foreground" />
-            <p className="text-sm font-medium text-foreground">Clock-in is only available on a mobile device</p>
-            <p className="text-xs text-muted-foreground">Please use your phone to clock in.</p>
-          </div>
-        ) : (
-          <Button
-            onClick={handleClockAction}
-            disabled={clockInMutation.isPending || clockOutMutation.isPending || activeEntryLoading || (locationPermission === 'denied' && workLocations.length > 0 && !activeTimeEntry)}
-            className={`w-full py-4 text-lg font-semibold transition-colors ${
-              activeTimeEntry
-                ? 'bg-destructive hover:bg-destructive/90 text-destructive-foreground'
-                : 'bg-primary hover:bg-primary/90 text-primary-foreground'
-            }`}
-            data-testid="clock-action-button"
-          >
-            {clockInMutation.isPending || clockOutMutation.isPending ? (
-              <>
-                <i className="fas fa-spinner fa-spin mr-2"></i>
-                Processing...
-              </>
-            ) : activeTimeEntry ? (
-              <>
-                <i className="fas fa-stop mr-2"></i>
-                Clock Out
-              </>
-            ) : locationLoading ? (
-              <>
-                <i className="fas fa-spinner fa-spin mr-2"></i>
-                Getting Location...
-              </>
-            ) : (
-              <>
-                <i className="fas fa-play mr-2"></i>
-                Clock In
-              </>
-            )}
-          </Button>
-        )}
-
-        {/* Geofence Status (while clocked in) */}
-        {activeTimeEntry && geofenceStatus && (
-          <div className={`rounded-lg p-3 text-sm ${
-            !geofenceStatus.isInWorkLocation
-              ? 'bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800'
-              : geofenceStatus.boundaryWarning
-                ? 'bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800'
-                : 'bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800'
-          }`}>
-            {!geofenceStatus.isInWorkLocation && countdownSeconds != null ? (
-            <div className="flex flex-col items-center gap-4 py-6">
-              <div className="flex items-center gap-2">
-                <XCircle className="h-6 w-6 text-red-600 dark:text-red-400 animate-pulse" />
-                <p className="font-black text-red-800 dark:text-red-300 text-xl">Outside Work Zone</p>
-              </div>
-              <div className="relative flex items-center justify-center">
-                <div className="absolute inset-0 bg-red-500/10 rounded-full animate-ping scale-75" />
-                <svg className="w-48 h-48 drop-shadow-xl" viewBox="0 0 120 120">
-                  <circle cx="60" cy="60" r="54" fill="none" stroke="currentColor" className="text-red-100 dark:text-red-950" strokeWidth="10" />
-                  <circle cx="60" cy="60" r="54" fill="none" stroke="currentColor" className="text-red-600 dark:text-red-500" strokeWidth="10" strokeLinecap="round"
-                    strokeDasharray={`${2 * Math.PI * 54}`}
-                    strokeDashoffset={`${2 * Math.PI * 54 * (1 - (countdownSeconds / Math.max(totalGraceSecondsRef.current || countdownSeconds, 1)))}`}
-                    transform="rotate(-90 60 60)"
-                    style={{ transition: 'stroke-dashoffset 1s linear' }}
-                  />
-                </svg>
-                <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <span className="text-6xl font-black tabular-nums text-red-700 dark:text-red-400">
-                    {countdownSeconds >= 60 ? `${Math.floor(countdownSeconds / 60)}:${String(countdownSeconds % 60).padStart(2, '0')}` : countdownSeconds}
-                  </span>
-                  <span className="text-xs font-bold uppercase tracking-widest text-red-500 dark:text-red-400 mt-1">
-                    {countdownSeconds >= 60 ? 'minutes' : 'seconds'}
-                  </span>
-                </div>
-              </div>
-              <div className="bg-red-50 dark:bg-red-900/20 p-3 rounded-xl border border-red-200 dark:border-red-800 max-w-[280px] text-center">
-                <p className="text-sm text-red-700 dark:text-red-300 font-bold">
-                  Auto clock-out starting in {countdownSeconds}s
-                </p>
-                <p className="text-xs text-red-600 dark:text-red-400 mt-1">
-                  Please return to the work area immediately or clock out manually.
-                </p>
-              </div>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2">
-              {!geofenceStatus.isInWorkLocation ? (
-                <XCircle className="h-4 w-4 text-red-600 dark:text-red-400 shrink-0" />
-              ) : geofenceStatus.boundaryWarning ? (
-                <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
-              ) : (
-                <Shield className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
-              )}
-              <div className="text-left flex-1">
-                <p className={`font-medium ${
-                  !geofenceStatus.isInWorkLocation ? 'text-red-800 dark:text-red-300' :
-                  geofenceStatus.boundaryWarning ? 'text-amber-800 dark:text-amber-300' :
-                  'text-blue-800 dark:text-blue-300'
-                }`}>
-                  {!geofenceStatus.isInWorkLocation ? 'Outside Work Zone — Clock Out Required' :
-                   geofenceStatus.boundaryWarning ? 'Near Boundary' :
-                   `Inside ${geofenceStatus.location?.name || 'Work Zone'}`}
-                </p>
-                <p className={`text-xs ${
-                  !geofenceStatus.isInWorkLocation ? 'text-red-600 dark:text-red-400' :
-                  geofenceStatus.boundaryWarning ? 'text-amber-600 dark:text-amber-400' :
-                  'text-blue-600 dark:text-blue-400'
-                }`}>
-                  {!geofenceStatus.isInWorkLocation
-                    ? 'You have left the work area. Please return or clock out.'
-                    : geofenceStatus.boundaryWarning
-                      ? 'You are near the edge of your work area'
-                      : 'Geofence verified'}
-                </p>
-              </div>
+          {/* Clocked-in status — single clean line */}
+          {activeTimeEntry && (
+            <div className="flex items-center justify-center gap-2">
+              <span
+                className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
+                  geofenceStatus?.isInWorkLocation === false ? 'bg-red-500' : 'bg-green-500 animate-pulse'
+                }`}
+              />
+              <span className="text-base font-semibold text-foreground">
+                {geofenceStatus?.isInWorkLocation === false
+                  ? `Outside zone · ${getOutsideDuration() ?? getActiveWorkDuration()}`
+                  : `On shift · ${getActiveWorkDuration()}`}
+              </span>
             </div>
           )}
-          </div>
-        )}
 
-        {/* Location Status */}
-        {!activeTimeEntry && !geofenceStatus && workLocations.length > 0 && (
-          <div className="flex items-center justify-center space-x-2 text-sm">
-            <MapPin className="h-4 w-4 text-muted-foreground" />
-            <span className="text-muted-foreground" data-testid="location-status">
-              {locationLoading ? 'Getting location...' : !position ? 'Tap Clock In to enable location' : 'Checking geofence...'}
-            </span>
-          </div>
-        )}
-        {!activeTimeEntry && workLocations.length === 0 && (
-          <div className="flex items-center justify-center space-x-2 text-sm">
-            <MapPin className="h-4 w-4 text-muted-foreground" />
-            <span className="text-muted-foreground" data-testid="location-status">
-              No locations configured
-            </span>
-          </div>
-        )}
+          {/* Location permission error (pre-clock-in only) */}
+          {workLocations.length > 0 && (locationPermission === 'denied' || (locationError && !position)) && !activeTimeEntry && (
+            <div
+              className="flex items-center gap-2 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-2xl p-3 cursor-pointer text-left"
+              onClick={() => {
+                getCurrentPosition()
+                  .then(() => {
+                    setLocationPermission('granted');
+                    toast({ title: 'Location enabled', description: 'Location access has been granted.' });
+                  })
+                  .catch(() => {
+                    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+                    const isAndroid = /Android/.test(navigator.userAgent);
+                    let instructions = isIOS
+                      ? 'Settings → Privacy & Security → Location Services → Safari → "While Using"'
+                      : isAndroid
+                        ? 'Settings → Apps → Browser → Permissions → Location → Allow'
+                        : 'Click the lock icon in the address bar → Location → Allow';
+                    toast({ title: 'Enable Location', description: instructions, duration: 12000 });
+                  });
+              }}
+            >
+              <XCircle className="h-5 w-5 text-red-500 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-red-700 dark:text-red-300">Location required</p>
+                <p className="text-xs text-red-600 dark:text-red-400">Tap to enable location services</p>
+              </div>
+              <ExternalLink className="h-4 w-4 text-red-400 shrink-0" />
+            </div>
+          )}
 
-        {/* Quick Stats */}
-        <div className="grid grid-cols-2 gap-3 pt-2">
-          <div className="bg-muted/50 rounded-lg p-3">
-            <p className="text-muted-foreground text-xs">Today's Hours</p>
-            <p className="text-lg font-bold text-foreground" data-testid="today-hours">
-              {(() => {
-                let totalMs = 0;
-                const now = new Date();
-                for (const entry of todayEntries) {
-                  if (activeTimeEntry && entry.id === activeTimeEntry.id) continue;
-                  const start = new Date(entry.clockInTime);
-                  const end = entry.clockOutTime ? new Date(entry.clockOutTime) : now;
-                  totalMs += end.getTime() - start.getTime();
-                }
-                if (activeTimeEntry) {
-                  totalMs += now.getTime() - new Date(activeTimeEntry.clockInTime).getTime();
-                }
-                const hours = Math.floor(totalMs / (1000 * 60 * 60));
-                const minutes = Math.floor((totalMs % (1000 * 60 * 60)) / (1000 * 60));
-                return `${hours}h ${minutes}m`;
-              })()}
+          {/* Pre-clock-in geofence pill */}
+          {!activeTimeEntry && geofenceStatus && workLocations.length > 0 && (
+            <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-semibold ${
+              geofenceStatus.isInWorkLocation
+                ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+                : 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300'
+            }`}>
+              {geofenceStatus.isInWorkLocation
+                ? <><CheckCircle2 className="h-4 w-4" /> At {geofenceStatus.location?.name || 'Work Location'}</>
+                : <><AlertTriangle className="h-4 w-4" /> {geofenceStatus.nearestLocation ? `${Math.round(geofenceStatus.nearestLocation.distance)}m from ${geofenceStatus.nearestLocation.name}` : 'Not at a work location'}</>
+              }
+            </div>
+          )}
+
+          {/* Location loading hint */}
+          {!activeTimeEntry && !geofenceStatus && workLocations.length > 0 && (
+            <p className="text-sm text-muted-foreground" data-testid="location-status">
+              {locationLoading ? 'Getting location…' : !position ? 'Location needed to clock in' : 'Checking location…'}
             </p>
+          )}
+
+          {/* Clock In / Out button */}
+          {requireMobileClockIn && !isMobile && !activeTimeEntry ? (
+            <div className="flex flex-col items-center gap-2 rounded-2xl border border-muted bg-muted/30 p-4" data-testid="mobile-only-message">
+              <Smartphone className="h-7 w-7 text-muted-foreground" />
+              <p className="text-sm font-semibold text-foreground">Mobile clock-in only</p>
+              <p className="text-xs text-muted-foreground">Use your phone to clock in</p>
+            </div>
+          ) : (
+            <Button
+              onClick={handleClockAction}
+              disabled={clockInMutation.isPending || clockOutMutation.isPending || activeEntryLoading || (locationPermission === 'denied' && workLocations.length > 0 && !activeTimeEntry)}
+              className={`w-full text-base font-bold py-4 rounded-2xl ${
+                activeTimeEntry
+                  ? 'bg-destructive hover:bg-destructive/90 text-destructive-foreground'
+                  : 'bg-primary hover:bg-primary/90 text-primary-foreground'
+              }`}
+              data-testid="clock-action-button"
+            >
+              {clockInMutation.isPending || clockOutMutation.isPending
+                ? 'Processing…'
+                : activeTimeEntry
+                  ? '■  Clock Out'
+                  : locationLoading
+                    ? 'Getting location…'
+                    : '▶  Clock In'}
+            </Button>
+          )}
+
+          {/* Geofence status pill — clocked in, normal */}
+          {activeTimeEntry && geofenceStatus && (
+            <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-semibold ${
+              !geofenceStatus.isInWorkLocation
+                ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
+                : geofenceStatus.boundaryWarning
+                  ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300'
+                  : 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+            }`}>
+              {!geofenceStatus.isInWorkLocation
+                ? <><XCircle className="h-4 w-4" /> Outside work zone</>
+                : geofenceStatus.boundaryWarning
+                  ? <><AlertTriangle className="h-4 w-4" /> Near boundary</>
+                  : <><Shield className="h-4 w-4" /> {geofenceStatus.location?.name || 'Work zone'}</>
+              }
+            </div>
+          )}
+
+          {/* Today's hours — single stat, only show break if > 0 */}
+          <div className="flex items-center justify-center gap-6 pt-1">
+            <div className="text-center">
+              <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Today</p>
+              <p className="text-xl font-extrabold text-foreground" data-testid="today-hours">{todayTotalDisplay}</p>
+            </div>
+            {activeTimeEntry && (activeTimeEntry.breakMinutes ?? 0) > 0 && (
+              <div className="text-center">
+                <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Break</p>
+                <p className="text-xl font-extrabold text-foreground" data-testid="break-time">{activeTimeEntry.breakMinutes}m</p>
+              </div>
+            )}
           </div>
-          <div className="bg-muted/50 rounded-lg p-3">
-            <p className="text-muted-foreground text-xs">Break Time</p>
-            <p className="text-lg font-bold text-foreground" data-testid="break-time">
-              {activeTimeEntry ? `${activeTimeEntry.breakMinutes || 0}m` : '0m'}
-            </p>
-          </div>
-        </div>
-      </CardContent>
+
+        </CardContent>
+      )}
+
     </Card>
   );
 }
