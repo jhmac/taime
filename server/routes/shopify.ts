@@ -1,7 +1,7 @@
 import type { Express, Response } from "express";
 import type { IStorage } from "../storage";
 import { shops, userShops, shopifyDailySales, shopifyOrders, users } from "@shared/schema";
-import { eq, and, or, gte, lte, desc, sql } from "drizzle-orm";
+import { eq, and, or, gte, lte, desc, sql, inArray } from "drizzle-orm";
 import { db } from "../db";
 import crypto from "crypto";
 import { ShopifyService } from "../services/shopifyService";
@@ -417,6 +417,66 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
     } catch (error) {
       console.error("Error fetching shops:", error);
       res.status(500).json({ message: "Failed to fetch connected shops" });
+    }
+  });
+
+  app.get("/api/shopify/connection-status", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.id || req.auth?.userId;
+
+      // Resolve the shop linked to the authenticated user via userShops
+      const userShopLinks = await db.select({ shopDomain: userShops.shopDomain })
+        .from(userShops)
+        .where(eq(userShops.userId, userId));
+
+      const userDomains = userShopLinks.map(r => r.shopDomain);
+      if (!userDomains.length) {
+        return res.json({ connected: false, live: false });
+      }
+
+      // Find the first active shop among the user's linked shops
+      const activeShopRows = await db.select().from(shops)
+        .where(and(eq(shops.isActive, true), inArray(shops.shopDomain, userDomains)))
+        .limit(1);
+
+      if (!activeShopRows.length) {
+        return res.json({ connected: false, live: false });
+      }
+      const shop = activeShopRows[0];
+      const credentials = await getShopifyCredentials(shop.shopDomain);
+      if (!credentials) {
+        return res.json({
+          connected: true,
+          live: false,
+          shopDomain: shop.shopDomain,
+          shopName: shop.shopName,
+          lastSyncAt: shop.lastSyncAt,
+          error: "Access token not available",
+        });
+      }
+      try {
+        const shopifyService = new ShopifyService(credentials.shopDomain, credentials.accessToken);
+        const shopInfo = await shopifyService.getShopInfo();
+        return res.json({
+          connected: true,
+          live: true,
+          shopDomain: shop.shopDomain,
+          shopName: shopInfo?.name || shop.shopName,
+          lastSyncAt: shop.lastSyncAt,
+        });
+      } catch (apiError: any) {
+        return res.json({
+          connected: true,
+          live: false,
+          shopDomain: shop.shopDomain,
+          shopName: shop.shopName,
+          lastSyncAt: shop.lastSyncAt,
+          error: apiError?.message || "Could not reach Shopify API",
+        });
+      }
+    } catch (error) {
+      console.error("[Shopify] connection-status error:", error);
+      res.status(500).json({ error: "Failed to check connection status" });
     }
   });
 

@@ -196,7 +196,7 @@ export default function CashManagement() {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <Card><CardContent className="p-3 text-center">
               <p className="text-xs text-muted-foreground">Opened</p>
-              <p className="text-lg font-bold">{openingSessions.filter((s: any) => s.status !== "pending").length}/{registers.length}</p>
+              <p className="text-lg font-bold">{openingSessions.length}/{registers.length}</p>
             </CardContent></Card>
             <Card><CardContent className="p-3 text-center">
               <p className="text-xs text-muted-foreground">Closed</p>
@@ -251,6 +251,13 @@ export default function CashManagement() {
                                 <i className="fas fa-check mr-1" /> Verify
                               </Button>
                             )}
+                          </div>
+                        ) : opening && opening.status === "pending" ? (
+                          <div className="text-sm">
+                            <p className="font-medium text-amber-600 flex items-center gap-1">
+                              <i className="fas fa-spinner fa-spin" />
+                              In Progress
+                            </p>
                           </div>
                         ) : (
                           <Button size="sm" variant="outline" className="w-full h-10"

@@ -1,10 +1,27 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { apiRequest } from '@/lib/queryClient';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Store, ExternalLink, RefreshCw, Unlink, TrendingUp, ShoppingCart } from 'lucide-react';
+import { Store, ExternalLink, RefreshCw, Unlink, TrendingUp, ShoppingCart, Wifi, WifiOff } from 'lucide-react';
 import type { PosConnectionSectionProps } from '@/components/settings/types';
+
+function formatTimeAgo(date: string | Date | null): string {
+  if (!date) return 'Never';
+  const d = new Date(date);
+  const now = new Date();
+  const diff = now.getTime() - d.getTime();
+  const secs = Math.floor(diff / 1000);
+  if (secs < 60) return 'Just now';
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return d.toLocaleDateString();
+}
 
 export default function PosConnectionSection({
   shopifyDomain,
@@ -16,6 +33,34 @@ export default function PosConnectionSection({
   salesData,
 }: PosConnectionSectionProps) {
   const [storeName, setStoreName] = useState('');
+  const [testingConnection, setTestingConnection] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<{
+    live: boolean;
+    shopName?: string | null;
+    lastSyncAt?: string | Date | null;
+    error?: string;
+  } | null>(null);
+
+  async function runConnectionTest() {
+    setTestingConnection(true);
+    try {
+      const res = await apiRequest('GET', '/api/shopify/connection-status');
+      const data = await res.json();
+      setConnectionStatus(data);
+    } catch (err: any) {
+      setConnectionStatus({ live: false, error: err?.message || 'Failed to reach server' });
+    } finally {
+      setTestingConnection(false);
+    }
+  }
+
+  useEffect(() => {
+    if (connectedShop) {
+      runConnectionTest();
+    } else {
+      setConnectionStatus(null);
+    }
+  }, [connectedShop?.shopDomain]);
 
   function handleConnect() {
     const raw = storeName.trim();
@@ -53,22 +98,58 @@ export default function PosConnectionSection({
                   <div>
                     <p className="font-semibold text-sm text-green-900 dark:text-green-100">{connectedShop.shopName || connectedShop.shopDomain}</p>
                     <p className="text-xs text-green-700 dark:text-green-400">{connectedShop.shopDomain}</p>
-                    <Badge className="mt-1 bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 text-xs">
-                      Connected
-                    </Badge>
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                      <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 text-xs">
+                        Connected
+                      </Badge>
+                      {connectionStatus !== null && (
+                        connectionStatus.live ? (
+                          <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400 text-xs flex items-center gap-1">
+                            <Wifi className="w-3 h-3" /> Live
+                          </Badge>
+                        ) : (
+                          <Badge variant="destructive" className="text-xs flex items-center gap-1">
+                            <WifiOff className="w-3 h-3" />
+                            {connectionStatus.error ? 'Connection error' : 'Unreachable'}
+                          </Badge>
+                        )
+                      )}
+                    </div>
+                    {connectionStatus?.lastSyncAt && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Last synced {formatTimeAgo(connectionStatus.lastSyncAt)}
+                      </p>
+                    )}
+                    {connectionStatus?.live === false && connectionStatus?.error && (
+                      <p className="text-xs text-red-600 dark:text-red-400 mt-1 max-w-xs truncate" title={connectionStatus.error}>
+                        {connectionStatus.error}
+                      </p>
+                    )}
                   </div>
                 </div>
-                <div className="flex gap-2 flex-shrink-0">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => syncSalesMutation.mutate(connectedShop.shopDomain)}
-                    disabled={syncSalesMutation.isPending}
-                    className="gap-1.5"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${syncSalesMutation.isPending ? 'animate-spin' : ''}`} />
-                    {syncSalesMutation.isPending ? 'Syncing…' : 'Sync Sales'}
-                  </Button>
+                <div className="flex gap-2 flex-shrink-0 flex-col items-end">
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={runConnectionTest}
+                      disabled={testingConnection}
+                      className="gap-1.5"
+                    >
+                      <Wifi className={`w-3.5 h-3.5 ${testingConnection ? 'animate-pulse' : ''}`} />
+                      {testingConnection ? 'Testing…' : 'Test Connection'}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => syncSalesMutation.mutate(connectedShop.shopDomain)}
+                      disabled={syncSalesMutation.isPending}
+                      className="gap-1.5"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${syncSalesMutation.isPending ? 'animate-spin' : ''}`} />
+                      {syncSalesMutation.isPending ? 'Syncing…' : 'Sync Sales'}
+                    </Button>
+                  </div>
                   <Button
                     size="sm"
                     variant="outline"
