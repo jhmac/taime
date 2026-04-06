@@ -8,12 +8,11 @@ export function registerInsightRoutes(app: Express, storage: IStorage, isAuthent
       const userPermissions = await storage.getUserPermissions(userId);
       const canViewAllInsights = userPermissions.some(p => p.name === 'hr.insights');
       
-      const companyId = req.user?.companyId;
       let insights;
       if (canViewAllInsights) {
-        insights = await storage.getUserInsights(undefined, companyId);
+        insights = await storage.getUserInsights();
       } else {
-        insights = await storage.getUserInsights(userId, companyId);
+        insights = await storage.getUserInsights(userId);
       }
 
       res.json(insights);

@@ -1,7 +1,6 @@
 import { ReactNode } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { useLocation } from 'wouter';
 import TopNavigation from './TopNavigation';
 import DesktopSidebar from './DesktopSidebar';
 import BottomNavigation from './BottomNavigation';
@@ -14,9 +13,8 @@ interface LayoutProps {
 export default function Layout({ children }: LayoutProps) {
   const { isAuthenticated } = useAuth();
   const isMobile = useIsMobile();
-  const [location] = useLocation();
 
-  if (!isAuthenticated || location === '/onboarding') {
+  if (!isAuthenticated) {
     return <>{children}</>;
   }
 

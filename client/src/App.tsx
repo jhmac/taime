@@ -90,7 +90,6 @@ import MorningWhisper from "@/pages/MorningWhisper";
 import ImprovementFeed from "@/pages/ImprovementFeed";
 import NotFound from "@/pages/not-found";
 import ShopifyCallbackSuccess from "@/pages/ShopifyCallbackSuccess";
-import ShopifyBillingPlans from "@/pages/ShopifyBillingPlans";
 import OfflineIndicator from "@/components/OfflineIndicator";
 import SmartClockPrompt from "@/components/SmartClockPrompt";
 import FocusClockOut from "@/components/FocusClockOut";
@@ -112,7 +111,6 @@ import Timesheets from "@/pages/Timesheets";
 import PayrollExport from "@/pages/PayrollExport";
 import MyScore from "@/pages/MyScore";
 import JoinPage from "@/pages/JoinPage";
-import Onboarding from "@/pages/Onboarding";
 import { WebSocketProvider } from "@/contexts/WebSocketContext";
 import type { Permission } from "@shared/schema";
 
@@ -248,14 +246,6 @@ function AuthenticatedApp() {
   const { isAuthenticated, isLoading, user } = useAuth();
   const { showSetupModal, closeSetupModal } = usePayrollSetup();
   const [authTimedOut, setAuthTimedOut] = useState(false);
-  const [location, navigate] = useLocation();
-
-  const { data: companyStatus, isLoading: companyStatusLoading } = useQuery<{ needsOnboarding: boolean }>({
-    queryKey: ["/api/companies/status"],
-    enabled: isAuthenticated,
-    staleTime: 60 * 1000,
-    retry: 1,
-  });
 
   useEffect(() => {
     if (isLoading || !isAuthenticated) {
@@ -264,16 +254,6 @@ function AuthenticatedApp() {
       return () => clearTimeout(timer);
     }
   }, [isLoading, isAuthenticated]);
-
-  useEffect(() => {
-    if (!isAuthenticated || companyStatusLoading) return;
-    if (companyStatus && companyStatus.needsOnboarding && location !== "/onboarding") {
-      navigate("/onboarding");
-    }
-    if (companyStatus && !companyStatus.needsOnboarding && location === "/onboarding") {
-      navigate("/admin");
-    }
-  }, [isAuthenticated, companyStatus, companyStatusLoading, location, navigate]);
 
   if (isLoading || !isAuthenticated) {
     if (authTimedOut) {
@@ -295,18 +275,6 @@ function AuthenticatedApp() {
     );
   }
 
-  if (companyStatusLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-      </div>
-    );
-  }
-
-  if (companyStatus && companyStatus.needsOnboarding) {
-    return <Onboarding />;
-  }
-
   return (
     <>
     <OfflineIndicator />
@@ -315,7 +283,6 @@ function AuthenticatedApp() {
     <AskMAinagerSheet />
     <QuickCaptureButton />
     <Switch>
-      <Route path="/onboarding" component={Onboarding} />
       <Route path="/" component={DashboardRouter} />
       <Route path="/operations">
         <ProtectedRoute permission="admin.manage_all"><Operations /></ProtectedRoute>
@@ -419,22 +386,10 @@ function Router() {
     return <PrivacyPolicy />;
   }
 
-  if (location === "/support") {
-    return <SupportPage />;
-  }
-
   if (location.startsWith("/shopify-callback-success")) {
     return (
       <Switch>
         <Route path="/shopify-callback-success" component={ShopifyCallbackSuccess} />
-      </Switch>
-    );
-  }
-
-  if (location.startsWith("/shopify-billing")) {
-    return (
-      <Switch>
-        <Route path="/shopify-billing" component={ShopifyBillingPlans} />
       </Switch>
     );
   }

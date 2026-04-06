@@ -7,7 +7,7 @@ import {
   Hourglass, Sprout, ClipboardCheck, ClipboardList, DollarSign,
   FileSpreadsheet, UserCog, ShieldCheck, BarChart, Medal,
   Settings, Cog, LogOut, ChevronRight, Banknote, Building2,
-  Coffee, Lightbulb, LifeBuoy, History, FileDown, Sparkles,
+  Coffee, Lightbulb, LifeBuoy, History, FileDown,
 } from 'lucide-react';
 
 interface MenuItem {
@@ -51,6 +51,7 @@ function NavRow({ item }: { item: MenuItem }) {
 export default function MoreMenu() {
   const { user } = useAuth();
   const { signOut } = useClerk();
+  const [, navigate] = useLocation();
 
   const isAdmin = user?.role?.name === 'admin' || user?.role?.name === 'owner';
   const initials = `${(user?.firstName || '')[0] || ''}${(user?.lastName || '')[0] || ''}`.toUpperCase();
@@ -63,7 +64,7 @@ export default function MoreMenu() {
         { icon: Trophy, label: 'My Score', subtitle: 'Performance score, tier & badges', path: '/my-score', iconBg: 'bg-yellow-100', iconColor: 'text-yellow-600' },
         { icon: Clock, label: 'Availability', subtitle: 'Set your weekly availability', path: '/availability', iconBg: 'bg-teal-100', iconColor: 'text-teal-600' },
         { icon: FileText, label: 'Requests', subtitle: 'Time off, shift trades & cover', path: '/requests', iconBg: 'bg-blue-100', iconColor: 'text-blue-600' },
-        ...(!isAdmin ? [{ icon: Banknote, label: 'Payroll', subtitle: 'View your pay & cash out', path: '/payroll', iconBg: 'bg-green-100', iconColor: 'text-green-600' } as MenuItem] : []),
+        { icon: Banknote, label: 'Payroll', subtitle: 'View your pay & cash out', path: '/payroll', iconBg: 'bg-green-100', iconColor: 'text-green-600' },
       ],
     },
     {
@@ -71,20 +72,15 @@ export default function MoreMenu() {
       items: [
         { icon: Heart, label: 'Kudos', subtitle: 'Give & receive recognition', path: '/kudos', iconBg: 'bg-red-100', iconColor: 'text-red-500' },
         { icon: Megaphone, label: 'Shoutouts', subtitle: 'Team announcements & wins', path: '/communication', iconBg: 'bg-purple-100', iconColor: 'text-purple-600' },
-        { icon: AlertTriangle, label: 'Issues', subtitle: 'Report a problem', path: '/issues', iconBg: 'bg-amber-100', iconColor: 'text-amber-600' },
-        { icon: Users, label: 'Team Directory', subtitle: 'Find your teammates', path: '/team-directory', iconBg: 'bg-slate-100', iconColor: 'text-slate-600' },
-      ],
-    },
-    {
-      title: 'Learn & Grow',
-      items: [
         { icon: Coffee, label: 'Morning Huddle', subtitle: 'Daily team standup', path: '/huddle', iconBg: 'bg-amber-100', iconColor: 'text-amber-700' },
-        { icon: Sparkles, label: 'Morning Whisper', subtitle: 'AI briefing for your day', path: '/whisper', iconBg: 'bg-violet-100', iconColor: 'text-violet-600' },
+        { icon: Coffee, label: 'Morning Whisper', subtitle: 'AI briefing for your day', path: '/whisper', iconBg: 'bg-orange-100', iconColor: 'text-orange-600' },
         { icon: GraduationCap, label: 'Learning', subtitle: 'SOPs, training & knowledge', path: '/learning', iconBg: 'bg-indigo-100', iconColor: 'text-indigo-600' },
-        { icon: History, label: 'SOP Revisions', subtitle: 'Track SOP changes', path: '/sops/revisions', iconBg: 'bg-slate-100', iconColor: 'text-slate-600' },
+        { icon: History, label: 'SOP Revisions', subtitle: 'Track SOP changes', path: '/sops/revisions', iconBg: 'bg-violet-100', iconColor: 'text-violet-600' },
         { icon: BarChart2, label: 'Lean Board', subtitle: 'Store performance metrics', path: '/lean-board', iconBg: 'bg-cyan-100', iconColor: 'text-cyan-600' },
         { icon: Lightbulb, label: 'AI Insights', subtitle: 'Smart store analytics', path: '/insights', iconBg: 'bg-yellow-100', iconColor: 'text-yellow-600' },
         { icon: Video, label: 'Improvements', subtitle: '60-second improvement videos', path: '/improvements', iconBg: 'bg-orange-100', iconColor: 'text-orange-500' },
+        { icon: AlertTriangle, label: 'Issues', subtitle: 'Report a problem', path: '/issues', iconBg: 'bg-amber-100', iconColor: 'text-amber-600' },
+        { icon: Users, label: 'Team Directory', subtitle: 'Find your teammates', path: '/team-directory', iconBg: 'bg-slate-100', iconColor: 'text-slate-600' },
         { icon: LifeBuoy, label: 'Support', subtitle: 'Help & contact', path: '/support', iconBg: 'bg-sky-100', iconColor: 'text-sky-600' },
       ],
     },

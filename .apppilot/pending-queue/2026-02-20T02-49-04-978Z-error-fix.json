@@ -1,0 +1,23 @@
+{
+  "type": "error-fix",
+  "error": {
+    "message": "WebSocket connection to 'ws://localhost:5000/?token=WIQayglIFIgB' failed: Error during WebSocket handshake: Unexpected response code: 400",
+    "stack": "",
+    "file": ".",
+    "signature": "crawl:console-error:WebSocket connection to 'ws://localhost:5000/?token=WIQayglIFIgB' failed: Error "
+  },
+  "suggestion": {
+    "action": "queue",
+    "spec": {
+      "problem": "WebSocket connection failing with 400 error during handshake due to token authentication issue",
+      "rootCause": "WebSocket server likely not properly validating or accepting the token parameter in the connection URL",
+      "successCriteria": "WebSocket connection establishes successfully with valid token authentication",
+      "filePath": "server.ts",
+      "oldCode": "// Need to examine current WebSocket setup to provide specific fix",
+      "newCode": "// Need to examine current WebSocket server configuration and token validation logic",
+      "testCommand": "npm test",
+      "notes": "This is a WebSocket handshake authentication issue. Need to examine the WebSocket server setup in server.ts to see how token authentication is handled. The 400 error suggests the server is rejecting the token parameter or the authentication logic has a bug."
+    },
+    "reason": "path-not-in-safe-list"
+  }
+}

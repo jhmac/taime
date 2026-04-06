@@ -1,0 +1,284 @@
+{
+  "errors": [
+    {
+      "signature": "specsFixesApplied is not defined",
+      "message": "specsFixesApplied is not defined",
+      "file": "/sneebly/api/status",
+      "occurrences": 4,
+      "firstSeen": "2026-02-19T17:41:36.424Z",
+      "lastSeen": "2026-02-19T17:41:39.362Z",
+      "status": "new"
+    },
+    {
+      "signature": "crawl:request-failed:GET https://replit.com/public/js/replit-dev-banner.js failed: net::ERR_BLOCKED_B",
+      "message": "GET https://replit.com/public/js/replit-dev-banner.js failed: net::ERR_BLOCKED_BY_ORB",
+      "status": "new",
+      "occurrences": 2,
+      "firstSeen": "2026-02-19T19:08:01.751Z",
+      "lastSeen": "2026-02-19T19:10:37.648Z",
+      "source": "site-crawler",
+      "severity": "medium",
+      "url": "https://replit.com/public/js/replit-dev-banner.js"
+    },
+    {
+      "signature": "crawl:console-error:WebSocket connection to 'ws://localhost:5000/?token=WIQayglIFIgB' failed: Error ",
+      "message": "WebSocket connection to 'ws://localhost:5000/?token=WIQayglIFIgB' failed: Error during WebSocket handshake: Unexpected response code: 400",
+      "status": "new",
+      "occurrences": 1,
+      "firstSeen": "2026-02-19T19:08:01.751Z",
+      "lastSeen": "2026-02-19T19:08:01.751Z",
+      "source": "site-crawler",
+      "severity": "high",
+      "url": "http://localhost:5000"
+    },
+    {
+      "signature": "crawl:uncaught-exception:Failed to construct 'WebSocket': The URL 'ws://localhost:undefined/?token=WIQayg",
+      "message": "Failed to construct 'WebSocket': The URL 'ws://localhost:undefined/?token=WIQayglIFIgB' is invalid.",
+      "status": "new",
+      "occurrences": 1,
+      "firstSeen": "2026-02-19T19:08:01.751Z",
+      "lastSeen": "2026-02-19T19:08:01.751Z",
+      "source": "site-crawler",
+      "severity": "high",
+      "url": "http://localhost:5000"
+    },
+    {
+      "signature": "crawl:console-error:WebSocket connection to 'ws://localhost:5000/?token=ACmrv-jsKNmG' failed: Error ",
+      "message": "WebSocket connection to 'ws://localhost:5000/?token=ACmrv-jsKNmG' failed: Error during WebSocket handshake: Unexpected response code: 400",
+      "status": "new",
+      "occurrences": 1,
+      "firstSeen": "2026-02-19T19:10:37.648Z",
+      "lastSeen": "2026-02-19T19:10:37.648Z",
+      "source": "site-crawler",
+      "severity": "high",
+      "url": "http://localhost:5000"
+    },
+    {
+      "signature": "crawl:uncaught-exception:Failed to construct 'WebSocket': The URL 'ws://localhost:undefined/?token=ACmrv-",
+      "message": "Failed to construct 'WebSocket': The URL 'ws://localhost:undefined/?token=ACmrv-jsKNmG' is invalid.",
+      "status": "new",
+      "occurrences": 1,
+      "firstSeen": "2026-02-19T19:10:37.648Z",
+      "lastSeen": "2026-02-19T19:10:37.648Z",
+      "source": "site-crawler",
+      "severity": "high",
+      "url": "http://localhost:5000"
+    },
+    {
+      "signature": "auth-fail:401:/api/schedules",
+      "message": "[401] Auth failure on \"View schedules\" (GET /api/schedules) — user anonymous",
+      "file": "/api/schedules",
+      "occurrences": 3,
+      "firstSeen": "2026-02-19T21:21:36.295Z",
+      "lastSeen": "2026-02-20T00:54:17.425Z",
+      "status": "new"
+    },
+    {
+      "signature": "client:Clock_in_failed__geofence_check_error",
+      "message": "[CLIENT] Clock In button: Clock in failed: geofence check error",
+      "file": "/dashboard",
+      "occurrences": 1,
+      "firstSeen": "2026-02-19T21:21:37.355Z",
+      "lastSeen": "2026-02-19T21:21:37.355Z",
+      "status": "new"
+    },
+    {
+      "signature": "auth-fail:401:/api/ai-scheduling/settings",
+      "message": "[401] Auth failure on \"GET /api/ai-scheduling/settings\" (GET /api/ai-scheduling/settings) — user anonymous",
+      "file": "/api/ai-scheduling/settings",
+      "occurrences": 2,
+      "firstSeen": "2026-02-19T23:17:21.892Z",
+      "lastSeen": "2026-02-19T23:19:06.311Z",
+      "status": "new"
+    },
+    {
+      "signature": "auth-fail:401:/api/ai-scheduling/roster",
+      "message": "[401] Auth failure on \"GET /api/ai-scheduling/roster\" (GET /api/ai-scheduling/roster) — user anonymous",
+      "file": "/api/ai-scheduling/roster",
+      "occurrences": 2,
+      "firstSeen": "2026-02-19T23:37:33.632Z",
+      "lastSeen": "2026-02-19T23:38:47.738Z",
+      "status": "new"
+    },
+    {
+      "signature": "auth-fail:401:/api/payroll/setup-status",
+      "message": "[401] Auth failure on \"View payroll\" (GET /api/payroll/setup-status) — user anonymous",
+      "file": "/api/payroll/setup-status",
+      "occurrences": 2,
+      "firstSeen": "2026-02-20T00:00:31.957Z",
+      "lastSeen": "2026-02-20T00:01:57.810Z",
+      "status": "new"
+    },
+    {
+      "signature": "auth-fail:401:/api/holiday-pay-rules",
+      "message": "[401] Auth failure on \"GET /api/holiday-pay-rules\" (GET /api/holiday-pay-rules) — user anonymous",
+      "file": "/api/holiday-pay-rules",
+      "occurrences": 2,
+      "firstSeen": "2026-02-20T00:09:14.272Z",
+      "lastSeen": "2026-02-20T00:54:17.640Z",
+      "status": "new"
+    },
+    {
+      "signature": "500:GET:/api/holiday-pay-rules",
+      "message": "[500] GET /api/holiday-pay-rules failed: Failed to fetch holiday pay rules",
+      "file": "/api/holiday-pay-rules",
+      "occurrences": 1,
+      "firstSeen": "2026-02-20T00:32:07.811Z",
+      "lastSeen": "2026-02-20T00:32:07.811Z",
+      "status": "new"
+    },
+    {
+      "signature": "client:Failed_to_fetch_holiday_pay_rules",
+      "message": "[CLIENT] API call: GET /api/holiday-pay-rules: Failed to fetch holiday pay rules",
+      "file": "/payroll",
+      "occurrences": 1,
+      "firstSeen": "2026-02-20T00:32:13.061Z",
+      "lastSeen": "2026-02-20T00:32:13.061Z",
+      "status": "new"
+    },
+    {
+      "signature": "500:POST:/api/holiday-pay-rules/bulk",
+      "message": "[500] POST /api/holiday-pay-rules/bulk failed: Failed to save holiday pay rules",
+      "file": "/api/holiday-pay-rules/bulk",
+      "occurrences": 1,
+      "firstSeen": "2026-02-20T00:33:43.146Z",
+      "lastSeen": "2026-02-20T00:33:43.146Z",
+      "status": "new"
+    },
+    {
+      "signature": "client:Failed_to_save_holiday_pay_rules",
+      "message": "[CLIENT] API call: POST /api/holiday-pay-rules/bulk: Failed to save holiday pay rules",
+      "file": "/payroll",
+      "occurrences": 1,
+      "firstSeen": "2026-02-20T00:33:48.209Z",
+      "lastSeen": "2026-02-20T00:33:48.209Z",
+      "status": "new"
+    },
+    {
+      "signature": "auth-fail:401:/api/users",
+      "message": "[401] Auth failure on \"View team members\" (GET /api/users) — user anonymous",
+      "file": "/api/users",
+      "occurrences": 2,
+      "firstSeen": "2026-02-20T00:34:46.197Z",
+      "lastSeen": "2026-02-20T00:54:17.176Z",
+      "status": "new"
+    },
+    {
+      "signature": "auth-fail:401:/api/clock-events",
+      "message": "[401] Auth failure on \"View clock events\" (GET /api/clock-events) — user anonymous",
+      "file": "/api/clock-events",
+      "occurrences": 1,
+      "firstSeen": "2026-02-20T00:34:46.206Z",
+      "lastSeen": "2026-02-20T00:34:46.206Z",
+      "status": "new"
+    },
+    {
+      "signature": "auth-fail:401:/api/tasks",
+      "message": "[401] Auth failure on \"View tasks\" (GET /api/tasks) — user anonymous",
+      "file": "/api/tasks",
+      "occurrences": 2,
+      "firstSeen": "2026-02-20T00:34:46.211Z",
+      "lastSeen": "2026-02-20T00:54:17.427Z",
+      "status": "new"
+    },
+    {
+      "signature": "auth-fail:401:/api/messages",
+      "message": "[401] Auth failure on \"View messages\" (GET /api/messages) — user anonymous",
+      "file": "/api/messages",
+      "occurrences": 2,
+      "firstSeen": "2026-02-20T00:34:46.213Z",
+      "lastSeen": "2026-02-20T00:54:17.444Z",
+      "status": "new"
+    },
+    {
+      "signature": "auth-fail:401:/api/time-entries",
+      "message": "[401] Auth failure on \"View time entries\" (GET /api/time-entries) — user anonymous",
+      "file": "/api/time-entries",
+      "occurrences": 1,
+      "firstSeen": "2026-02-20T00:54:17.179Z",
+      "lastSeen": "2026-02-20T00:54:17.179Z",
+      "status": "new"
+    },
+    {
+      "signature": "auth-fail:401:/api/time-entries/active",
+      "message": "[401] Auth failure on \"Check active time entry\" (GET /api/time-entries/active) — user anonymous",
+      "file": "/api/time-entries/active",
+      "occurrences": 1,
+      "firstSeen": "2026-02-20T00:54:17.423Z",
+      "lastSeen": "2026-02-20T00:54:17.423Z",
+      "status": "new"
+    },
+    {
+      "signature": "auth-fail:401:/api/company-settings",
+      "message": "[401] Auth failure on \"Load company settings\" (GET /api/company-settings) — user anonymous",
+      "file": "/api/company-settings",
+      "occurrences": 1,
+      "firstSeen": "2026-02-20T00:54:17.470Z",
+      "lastSeen": "2026-02-20T00:54:17.470Z",
+      "status": "new"
+    },
+    {
+      "signature": "auth-fail:401:/api/payroll/periods",
+      "message": "[401] Auth failure on \"View payroll\" (GET /api/payroll/periods) — user anonymous",
+      "file": "/api/payroll/periods",
+      "occurrences": 1,
+      "firstSeen": "2026-02-20T00:54:17.588Z",
+      "lastSeen": "2026-02-20T00:54:17.588Z",
+      "status": "new"
+    },
+    {
+      "signature": "auth-fail:401:/api/payroll/settings",
+      "message": "[401] Auth failure on \"View payroll\" (GET /api/payroll/settings) — user anonymous",
+      "file": "/api/payroll/settings",
+      "occurrences": 1,
+      "firstSeen": "2026-02-20T00:54:17.618Z",
+      "lastSeen": "2026-02-20T00:54:17.618Z",
+      "status": "new"
+    },
+    {
+      "signature": "auth-fail:401:/api/work-locations",
+      "message": "[401] Auth failure on \"View work locations\" (GET /api/work-locations) — user anonymous",
+      "file": "/api/work-locations",
+      "occurrences": 1,
+      "firstSeen": "2026-02-20T00:54:17.697Z",
+      "lastSeen": "2026-02-20T00:54:17.697Z",
+      "status": "new"
+    },
+    {
+      "signature": "500:GET:/api/messages",
+      "message": "[500] View messages failed: Failed to fetch messages",
+      "file": "/api/messages",
+      "occurrences": 1,
+      "firstSeen": "2026-02-20T02:47:30.655Z",
+      "lastSeen": "2026-02-20T02:47:30.655Z",
+      "status": "new"
+    },
+    {
+      "signature": "500:GET:/api/groups",
+      "message": "[500] GET /api/groups failed: Failed to fetch groups",
+      "file": "/api/groups",
+      "occurrences": 1,
+      "firstSeen": "2026-02-20T02:47:30.666Z",
+      "lastSeen": "2026-02-20T02:47:30.666Z",
+      "status": "new"
+    },
+    {
+      "signature": "client:Failed_to_fetch_messages",
+      "message": "[CLIENT] API call: GET /api/messages: Failed to fetch messages",
+      "file": "/communication",
+      "occurrences": 1,
+      "firstSeen": "2026-02-20T02:47:35.811Z",
+      "lastSeen": "2026-02-20T02:47:35.811Z",
+      "status": "new"
+    },
+    {
+      "signature": "client:Failed_to_fetch_groups",
+      "message": "[CLIENT] API call: GET /api/groups: Failed to fetch groups",
+      "file": "/communication",
+      "occurrences": 1,
+      "firstSeen": "2026-02-20T02:47:35.813Z",
+      "lastSeen": "2026-02-20T02:47:35.813Z",
+      "status": "new"
+    }
+  ]
+}

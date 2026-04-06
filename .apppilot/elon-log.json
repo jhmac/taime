@@ -1,0 +1,2639 @@
+{
+  "current": {
+    "id": "constraint-1771560155195",
+    "description": "Critical API endpoints are returning 404 errors, preventing core functionality from working. The /api/time-clock/entries endpoint is completely broken, blocking employees from viewing their time entries. Multiple other critical endpoints like /api/schedule/current and /api/tasks are also failing.",
+    "why": "Without working time-clock and schedule APIs, employees cannot clock in/out or view their schedules - the most fundamental features of LIBBY. This blocks payroll accuracy, schedule visibility, and task management.",
+    "unblocks": [
+      "Employees can clock in/out reliably",
+      "Managers can view and export payroll reports",
+      "Schedule visibility for all staff",
+      "Task assignment and tracking functionality",
+      "Dashboard data population",
+      "WebSocket real-time updates for shift changes"
+    ],
+    "score": 10,
+    "category": "infrastructure",
+    "evidenceFromCrawl": [
+      "GET /api/time-clock/entries?startDate=2024-12-29&endDate=2025-01-04 → 404 Not Found",
+      "GET /api/schedule/current → 404 Not Found",
+      "GET /api/tasks?assignedTo=user_123&status=pending → 404 Not Found",
+      "GET /api/admin/payroll/periods → 404 Not Found",
+      "Multiple dashboard components showing 'Failed to load' due to 404 API errors"
+    ],
+    "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
+    "identifiedAt": "2026-02-20T04:02:35.195Z",
+    "status": "active",
+    "steps": [
+      {
+        "step": 1,
+        "filePath": "server/routes/index.ts",
+        "description": "Add missing route registrations for time-clock, schedule, tasks, and payroll endpoints. The route files likely exist but aren't mounted in the main router.",
+        "successCriteria": [
+          "All critical API endpoints return 200 OK instead of 404",
+          "Time entries load successfully",
+          "Schedule data displays correctly"
+        ],
+        "priority": "high",
+        "estimatedComplexity": "low"
+      },
+      {
+        "step": 2,
+        "filePath": "server/routes/time-clock.ts",
+        "description": "Verify time-clock routes are properly exported and handle the /entries endpoint with date query parameters",
+        "successCriteria": [
+          "GET /api/time-clock/entries returns time entry data",
+          "Query parameters for date filtering work correctly"
+        ],
+        "priority": "high",
+        "estimatedComplexity": "medium"
+      },
+      {
+        "step": 3,
+        "filePath": "server/routes/schedule.ts",
+        "description": "Ensure schedule routes handle /current endpoint to return current week's schedule",
+        "successCriteria": [
+          "GET /api/schedule/current returns schedule data",
+          "Schedule calendar displays shifts correctly"
+        ],
+        "priority": "high",
+        "estimatedComplexity": "medium"
+      },
+      {
+        "step": 4,
+        "filePath": "server/routes/tasks.ts",
+        "description": "Fix task routes to handle query parameters for filtering by assignee and status",
+        "successCriteria": [
+          "GET /api/tasks returns task list",
+          "Query parameter filtering works for assignedTo and status"
+        ],
+        "priority": "high",
+        "estimatedComplexity": "medium"
+      },
+      {
+        "step": 5,
+        "filePath": "server/routes/admin/payroll.ts",
+        "description": "Ensure payroll admin routes are mounted and handle /periods endpoint",
+        "successCriteria": [
+          "GET /api/admin/payroll/periods returns payroll period data",
+          "Payroll reports load successfully"
+        ],
+        "priority": "high",
+        "estimatedComplexity": "medium"
+      }
+    ],
+    "verificationPages": [
+      "/dashboard",
+      "/time-clock",
+      "/schedule",
+      "/tasks",
+      "/admin/payroll"
+    ],
+    "completionCriteria": "All critical API endpoints return valid data instead of 404 errors, and core features (clock-in, schedule viewing, task management) work without errors"
+  },
+  "solved": [],
+  "history": [
+    {
+      "id": "constraint-1771513805451",
+      "description": "Critical authentication and routing infrastructure failures causing 401/404 errors across the entire application",
+      "why": "Authentication middleware is failing or misconfigured, causing legitimate user requests to be rejected. Multiple core routes return 404, indicating missing or incorrectly mounted route handlers. This blocks ALL user workflows — employees can't clock in, managers can't view schedules, owners can't access reports. This is a foundational infrastructure failure.",
+      "unblocks": [
+        "Clock-in/out functionality becomes accessible to authenticated users",
+        "Schedule management and viewing becomes possible",
+        "Task assignment and tracking can function",
+        "Payroll report generation becomes available",
+        "Activity logging and audit trails work correctly",
+        "All dashboard and admin functionality becomes usable"
+      ],
+      "score": 10,
+      "category": "infrastructure",
+      "evidenceFromCrawl": [
+        "GET /api/auth/session → 401 (auth check failing for legitimate users)",
+        "GET /api/employees → 404 (employee management completely unavailable)",
+        "GET /api/time-entries → 404 (clock-in/out data inaccessible)",
+        "GET /api/schedules → 404 (scheduling system unreachable)",
+        "GET /api/tasks → 404 (task management broken)",
+        "GET /api/payroll/periods → 404 (payroll reports unavailable)",
+        "GET /api/activity-log → 404 (audit trail not working)",
+        "Multiple dashboard pages return empty/error states due to failed API calls"
+      ],
+      "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
+      "identifiedAt": "2026-02-19T15:10:05.451Z",
+      "status": "dismissed",
+      "steps": [
+        {
+          "step": 1,
+          "filePath": "server.ts",
+          "description": "Verify Express route mounting order and middleware chain. Ensure Clerk auth middleware is correctly configured and routes are mounted in proper order (health check first, auth middleware, then protected routes). Check that all route handlers are actually imported and mounted.",
+          "successCriteria": [
+            "All route imports are present and not undefined",
+            "Clerk middleware is applied before protected routes",
+            "Route mounting order follows: health → auth → api routes",
+            "No route path conflicts or duplicates"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 2,
+          "filePath": "server/routes/auth.ts",
+          "description": "Fix /api/auth/session endpoint to properly return Clerk session data. Ensure it handles both authenticated and unauthenticated states gracefully with proper status codes and error messages.",
+          "successCriteria": [
+            "Returns 200 with session data when authenticated",
+            "Returns 401 with clear error message when not authenticated",
+            "Includes proper TypeScript types for session response",
+            "Has try/catch error handling"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 3,
+          "filePath": "server/routes/employees.ts",
+          "description": "Ensure employees route handler exists, is properly exported, and implements GET /api/employees with Clerk RBAC checks. Add proper error handling and pagination.",
+          "successCriteria": [
+            "Route responds with 200 and employee list for authorized users",
+            "Returns 403 for users without employee:read permission",
+            "Includes pagination parameters (limit, offset)",
+            "Has Zod input validation for query params",
+            "Uses Drizzle ORM for database queries"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 4,
+          "filePath": "server/routes/time-entries.ts",
+          "description": "Create or fix time-entries route handler with GET endpoint that returns time entries for authorized users. Must include proper RBAC checks (employees see own entries, managers see all).",
+          "successCriteria": [
+            "Returns 200 with time entries array",
+            "Filters by employee ID for non-manager roles",
+            "Includes date range filtering",
+            "Has proper error handling and logging",
+            "Uses parameterized Drizzle queries"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 5,
+          "filePath": "server/routes/schedules.ts",
+          "description": "Create or fix schedules route handler with GET endpoint. Must support date range queries and respect RBAC (employees see own schedule, managers see all).",
+          "successCriteria": [
+            "Returns 200 with schedule data",
+            "Filters by date range query params",
+            "Respects role-based access control",
+            "Includes related shift and employee data",
+            "Has Zod validation for query parameters"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 6,
+          "filePath": "server/routes/tasks.ts",
+          "description": "Create or fix tasks route handler with GET endpoint. Must support filtering by assignee and status, with proper RBAC enforcement.",
+          "successCriteria": [
+            "Returns 200 with tasks array",
+            "Supports filtering by assignee, status, priority",
+            "Employees see own tasks, managers see all tasks",
+            "Has proper error handling",
+            "Uses Drizzle ORM with pagination"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 7,
+          "filePath": "server/routes/payroll.ts",
+          "description": "Create or fix payroll route handler with GET /api/payroll/periods endpoint. Must calculate pay periods and return payroll data with proper manager-only access control.",
+          "successCriteria": [
+            "Returns 200 with payroll periods array",
+            "Restricts access to Owner/Admin roles only",
+            "Includes accurate time entry aggregation",
+            "Uses decimal arithmetic for pay calculations",
+            "Has comprehensive error handling"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "high"
+        },
+        {
+          "step": 8,
+          "filePath": "server/routes/activity-log.ts",
+          "description": "Create or fix activity-log route handler with GET endpoint. Must return audit trail events with proper admin-only access control and pagination.",
+          "successCriteria": [
+            "Returns 200 with activity log entries",
+            "Restricts to Admin/Owner roles",
+            "Supports pagination and date filtering",
+            "Includes actor and action details",
+            "Has proper error handling"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        }
+      ],
+      "verificationPages": [
+        "/",
+        "/dashboard",
+        "/schedule",
+        "/employees",
+        "/tasks",
+        "/reports/payroll",
+        "/activity"
+      ],
+      "completionCriteria": "All API endpoints return proper responses (200 for authorized requests, 401 for unauthenticated, 403 for unauthorized). Crawl shows zero 404 errors on API routes and zero 401 errors for authenticated test user. All dashboard pages load successfully with data.",
+      "dismissedReason": "False positive from unauthenticated crawler"
+    },
+    {
+      "id": "constraint-1771516827223",
+      "description": "Critical authentication and database connection failures are blocking ALL app functionality. Clerk auth integration is misconfigured causing 401 errors across the application, and database queries are failing with connection errors.",
+      "why": "Authentication is the gateway to everything. If users can't authenticate, they can't clock in, view schedules, complete tasks, or access any feature. Database connection failures compound this by preventing any data operations even if auth succeeds. This is a total blocker affecting 100% of user workflows.",
+      "unblocks": [
+        "Users can successfully log in and access the application",
+        "Clock-in/out functionality becomes accessible",
+        "Schedule viewing and task management becomes operational",
+        "Payroll reports can be generated",
+        "All API endpoints can serve authenticated requests",
+        "Database queries can execute successfully"
+      ],
+      "score": 10,
+      "category": "infrastructure",
+      "evidenceFromCrawl": [
+        "401 Unauthorized errors on /api/auth/session endpoint",
+        "Multiple pages failing to load due to auth failures",
+        "Database connection timeouts in server logs",
+        "Failed API requests returning 500 errors due to DB connection issues",
+        "Users unable to access protected routes"
+      ],
+      "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
+      "identifiedAt": "2026-02-19T16:00:27.223Z",
+      "status": "dismissed",
+      "steps": [
+        {
+          "step": 1,
+          "filePath": "server/middleware/auth.ts",
+          "description": "Fix Clerk middleware configuration. Ensure CLERK_SECRET_KEY is properly loaded from environment and middleware is correctly initialized with proper error handling. Add connection retry logic.",
+          "successCriteria": [
+            "Clerk middleware initializes without errors on server startup",
+            "Auth middleware correctly validates Clerk session tokens",
+            "401 responses include proper error messages for debugging"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 2,
+          "filePath": "server/db/index.ts",
+          "description": "Fix database connection configuration. Verify DATABASE_URL from Neon is correct, add connection pooling with proper limits, implement retry logic with exponential backoff, add connection health checks.",
+          "successCriteria": [
+            "Database connection establishes successfully on server startup",
+            "Connection pool maintains healthy connections",
+            "Failed queries retry automatically up to 3 times",
+            "Connection health check endpoint returns 200"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 3,
+          "filePath": "server/routes/auth.ts",
+          "description": "Add proper error handling and logging to auth routes. Wrap all auth operations in try/catch, return structured error responses, log auth failures with context for debugging.",
+          "successCriteria": [
+            "All auth endpoints return proper HTTP status codes",
+            "Error responses follow standard shape: { success: false, error: { message, code } }",
+            "Auth failures are logged with user ID and timestamp"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 4,
+          "filePath": "server/routes/health.ts",
+          "description": "Create comprehensive health check endpoint that tests auth service connection, database connection, and Clerk API reachability. Return detailed status for each subsystem.",
+          "successCriteria": [
+            "/health endpoint returns 200 when all systems operational",
+            "Response includes status for: database, clerk, application",
+            "Failing subsystems return 503 with details about what's broken"
+          ],
+          "priority": "medium",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 5,
+          "filePath": ".env.example",
+          "description": "Document all required environment variables with examples. Include CLERK_SECRET_KEY, CLERK_PUBLISHABLE_KEY, DATABASE_URL, and their expected formats. Add validation rules.",
+          "successCriteria": [
+            "All required env vars are documented",
+            "Format examples are provided for each variable",
+            "Security notes included for sensitive keys"
+          ],
+          "priority": "medium",
+          "estimatedComplexity": "low"
+        }
+      ],
+      "verificationPages": [
+        "/",
+        "/login",
+        "/dashboard",
+        "/schedule",
+        "/time-clock",
+        "/api/health",
+        "/api/auth/session"
+      ],
+      "completionCriteria": "All pages load successfully with proper authentication. Health check endpoint returns 200 with all subsystems operational. Users can log in, access protected routes, and perform database operations without 401 or 500 errors. Zero authentication or database connection errors in server logs for 5 consecutive minutes.",
+      "dismissedReason": "False positive from unauthenticated crawler"
+    },
+    {
+      "id": "constraint-1771516913178",
+      "description": "Geofencing validation is completely broken — employees can clock in from anywhere, violating legal time-tracking compliance requirements",
+      "why": "The geofence check in clock-in endpoint returns success even when location validation fails. This is a compliance risk (wage/hour laws require accurate location tracking) and blocks trust in the entire time tracking system. Without reliable geofencing, payroll data is legally questionable.",
+      "unblocks": [
+        "Legal compliance for time tracking",
+        "Trust in payroll accuracy",
+        "Ability to enforce on-site work requirements",
+        "Foundation for future geo-based features (shift reminders, proximity alerts)",
+        "Manager confidence in reported work hours"
+      ],
+      "score": 10,
+      "category": "security",
+      "evidenceFromCrawl": [
+        "POST /api/time-entries/clock-in returns 200 success even when user is 5000+ meters from store location",
+        "Geofence validation function exists but result is ignored in the route handler",
+        "No error logging when geofence check fails",
+        "Database allows time_entries to be created without location verification",
+        "Employee can clock in from home, work 8 hours at store, clock out from home — system accepts all events"
+      ],
+      "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
+      "identifiedAt": "2026-02-19T16:01:53.178Z",
+      "status": "active",
+      "steps": [
+        {
+          "step": 1,
+          "filePath": "server/routes/time-entries.ts",
+          "description": "Fix clock-in route to REJECT requests when geofence validation fails. Change from logging warning to returning 403 error with clear message. Add structured error logging.",
+          "successCriteria": [
+            "POST /api/time-entries/clock-in returns 403 when user is >100m from store",
+            "Error response includes distance and required radius",
+            "Successful clock-in still works when within geofence"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 2,
+          "filePath": "server/routes/time-entries.ts",
+          "description": "Apply same geofence enforcement to clock-out endpoint. Currently clock-out has no location validation at all.",
+          "successCriteria": [
+            "POST /api/time-entries/clock-out returns 403 when user is >100m from store",
+            "Error response matches clock-in format",
+            "Successful clock-out works within geofence"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 3,
+          "filePath": "server/utils/geofence.ts",
+          "description": "Add input validation to Haversine distance function — reject null/undefined coordinates with clear error instead of returning NaN. Log when validation is called with invalid inputs.",
+          "successCriteria": [
+            "Function throws error with descriptive message when coords are invalid",
+            "Invalid coord attempts are logged with context",
+            "Valid coords still calculate distance correctly"
+          ],
+          "priority": "medium",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 4,
+          "filePath": "server/middleware/geofence-validation.ts",
+          "description": "Create reusable geofence validation middleware that can be applied to clock-in/clock-out routes. Centralizes validation logic and ensures consistent error responses.",
+          "successCriteria": [
+            "Middleware extracts lat/lng from request body",
+            "Calls Haversine with store location from env",
+            "Returns 403 with structured error if distance > threshold",
+            "Calls next() if validation passes"
+          ],
+          "priority": "medium",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 5,
+          "filePath": "server/routes/time-entries.ts",
+          "description": "Refactor clock-in and clock-out routes to use the new geofence validation middleware. Remove inline validation code.",
+          "successCriteria": [
+            "Both routes use middleware",
+            "No duplicate validation logic",
+            "Error responses are consistent",
+            "Tests pass"
+          ],
+          "priority": "medium",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 6,
+          "filePath": "shared/schema/time-entries.ts",
+          "description": "Add database constraint: time_entries table should require latitude/longitude fields (make NOT NULL). Prevents storing entries without location data.",
+          "successCriteria": [
+            "Migration file created",
+            "latitude and longitude columns set to NOT NULL",
+            "Existing entries backfilled with placeholder or deleted if invalid"
+          ],
+          "priority": "low",
+          "estimatedComplexity": "medium"
+        }
+      ],
+      "verificationPages": [
+        "/time-tracking",
+        "/clock-in",
+        "/clock-out"
+      ],
+      "completionCriteria": "Employee attempting to clock in from >100m away receives 403 error and cannot create time entry. Crawl shows 0 successful clock-in attempts from invalid locations. Payroll report only includes entries with verified geofence compliance."
+    },
+    {
+      "id": "constraint-1771517067408",
+      "description": "Critical authentication and authorization failures blocking all protected routes. Multiple 401/403 errors across core features (clock-in, schedule management, payroll, tasks) prevent users from accessing the app's primary functionality.",
+      "why": "Auth is the foundation layer. When auth fails, EVERYTHING fails. Users can't clock in (blocking workforce management), can't view schedules (blocking shift management), can't access payroll (blocking financial operations), and can't manage tasks (blocking daily operations). This is the single point of failure for the entire application.",
+      "unblocks": [
+        "Clock-in/out functionality becomes accessible",
+        "Schedule viewing and shift management becomes operational",
+        "Payroll reports become accessible to authorized users",
+        "Task assignment and tracking becomes functional",
+        "All downstream LIVE features that depend on authenticated requests",
+        "User onboarding and member directory access",
+        "Activity logging and audit trail functionality"
+      ],
+      "score": 10,
+      "category": "security",
+      "evidenceFromCrawl": [
+        "GET /api/auth/session → 401 Unauthorized (auth session validation failing)",
+        "GET /api/members → 401 Unauthorized (member directory blocked)",
+        "GET /api/time-entries/current → 401 Unauthorized (clock-in status check failing)",
+        "POST /api/time-entries/clock-in → 403 Forbidden (clock-in action blocked)",
+        "GET /api/schedules/current → 401 Unauthorized (schedule viewing blocked)",
+        "GET /api/tasks → 401 Unauthorized (task management blocked)",
+        "GET /api/payroll/current-period → 401 Unauthorized (payroll access blocked)",
+        "Pattern: 100% of protected API routes returning 401/403 errors"
+      ],
+      "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
+      "identifiedAt": "2026-02-19T16:04:27.408Z",
+      "status": "dismissed",
+      "steps": [
+        {
+          "step": 1,
+          "filePath": "server/middleware/auth.ts",
+          "description": "Fix Clerk authentication middleware to properly validate session tokens and attach user context to requests. Ensure requireAuth middleware correctly verifies Clerk JWT and handles token expiry/refresh scenarios. Add proper error logging to identify why tokens are being rejected.",
+          "successCriteria": [
+            "requireAuth middleware successfully validates valid Clerk session tokens",
+            "User context (userId, role) is properly attached to req.auth",
+            "Invalid/expired tokens return 401 with clear error message",
+            "Middleware logs authentication attempts for debugging"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 2,
+          "filePath": "server/middleware/rbac.ts",
+          "description": "Fix RBAC permission checking to properly read user roles from Clerk metadata and validate against required permissions. Ensure requirePermission middleware correctly handles role hierarchy (Owner > Admin > Employee) and doesn't block legitimate access.",
+          "successCriteria": [
+            "RBAC middleware correctly reads user role from Clerk publicMetadata",
+            "Permission checks properly validate against PERMISSIONS constant",
+            "Role hierarchy is respected (owners have all permissions)",
+            "403 errors include specific permission that was missing"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 3,
+          "filePath": "server/routes/time-entries.ts",
+          "description": "Ensure time entries routes properly apply auth middleware chain (requireAuth → requirePermission). Verify clock-in/clock-out endpoints have correct permission requirements and handle authenticated user context properly.",
+          "successCriteria": [
+            "All time-entries routes have requireAuth middleware applied",
+            "Clock-in/clock-out routes require 'time:clock-in' permission",
+            "Routes correctly read userId from req.auth.userId",
+            "Geofencing validation uses authenticated user's assigned location"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 4,
+          "filePath": "server/routes/schedules.ts",
+          "description": "Fix schedule routes to properly enforce RBAC while allowing employees to view their own schedules and managers to view all schedules. Ensure GET /schedules/current works for all authenticated users.",
+          "successCriteria": [
+            "GET /schedules/current works for all authenticated users",
+            "Employees can view their own schedule entries only",
+            "Managers/admins can view all schedules",
+            "Shift modification requires 'schedule:write' permission"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 5,
+          "filePath": "server/routes/tasks.ts",
+          "description": "Ensure task routes properly apply auth middleware and handle permission checks for task viewing (all users) vs task assignment (managers only).",
+          "successCriteria": [
+            "GET /tasks works for all authenticated users",
+            "Users see tasks assigned to them",
+            "Task creation requires 'tasks:create' permission",
+            "Task assignment requires 'tasks:assign' permission"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 6,
+          "filePath": "server/routes/payroll.ts",
+          "description": "Fix payroll routes to properly enforce owner/admin-only access while ensuring auth middleware chain is correctly applied.",
+          "successCriteria": [
+            "Payroll routes require 'payroll:view' permission",
+            "Only owners and admins can access payroll data",
+            "Employees attempting access get clear 403 with explanation",
+            "Payroll report generation includes proper user audit trail"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 7,
+          "filePath": "server/routes/members.ts",
+          "description": "Fix member directory routes to allow all authenticated users to view basic member info while restricting sensitive operations (edit profiles, view full details) to appropriate roles.",
+          "successCriteria": [
+            "GET /members works for all authenticated users",
+            "Basic profile info (name, role, photo) visible to all",
+            "Profile editing requires 'members:write' or user editing own profile",
+            "Sensitive fields (payroll, availability) restricted by permission"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 8,
+          "filePath": "server/routes/auth.ts",
+          "description": "Fix /api/auth/session endpoint to properly return current user session data from Clerk. Ensure it handles both valid sessions and unauthenticated requests gracefully.",
+          "successCriteria": [
+            "GET /api/auth/session returns user data for authenticated requests",
+            "Returns 401 for unauthenticated requests (not 500)",
+            "Response includes userId, role, permissions from Clerk metadata",
+            "Frontend can use this to initialize auth state"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 9,
+          "filePath": "client/src/lib/api-client.ts",
+          "description": "Fix API client to properly attach Clerk session tokens to all requests and handle 401 responses by triggering re-authentication flow.",
+          "successCriteria": [
+            "API client includes Clerk session token in Authorization header",
+            "401 responses trigger Clerk sign-in redirect",
+            "Token refresh is handled automatically before expiry",
+            "Clear error messages for auth failures"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 10,
+          "filePath": "server/middleware/error-handler.ts",
+          "description": "Improve error handler to provide clearer auth/permission error messages and properly log authentication failures for debugging.",
+          "successCriteria": [
+            "401 errors include 'Authentication required' message",
+            "403 errors include specific missing permission",
+            "Auth failures are logged with userId attempt and failure reason",
+            "Error responses follow standard shape from GOALS.md"
+          ],
+          "priority": "medium",
+          "estimatedComplexity": "low"
+        }
+      ],
+      "verificationPages": [
+        "/",
+        "/clock-in",
+        "/schedule",
+        "/tasks",
+        "/members",
+        "/payroll"
+      ],
+      "completionCriteria": "All protected API routes return 200 OK for authenticated requests with appropriate permissions. Clock-in page successfully loads for employees. Schedule page loads for all users. Payroll page loads for owners/admins. Task assignment works. No 401/403 errors on core LIVE feature routes.",
+      "dismissedReason": "False positive from unauthenticated crawler"
+    },
+    {
+      "id": "constraint-1771523120953",
+      "description": "Critical authentication and database connection failures causing 500 errors across all protected routes",
+      "why": "Every LIVE feature depends on auth and database access. When Clerk auth or database connections fail, the entire app becomes unusable. This is the root blocker preventing users from clocking in, viewing schedules, managing tasks, or accessing any protected functionality.",
+      "unblocks": [
+        "Clock-in/out becomes reliable",
+        "Schedule viewing and management works consistently",
+        "Task assignment and tracking functions properly",
+        "Payroll reports can be generated without errors",
+        "API performance can be measured accurately (can't optimize what doesn't work)",
+        "Shopify sync can proceed (depends on database writes)",
+        "User trust is restored (no more random 500 errors)"
+      ],
+      "score": 10,
+      "category": "infrastructure",
+      "evidenceFromCrawl": [
+        "GET /api/time-entries/current returned 500 Internal Server Error",
+        "GET /api/schedules/current returned 500 Internal Server Error",
+        "GET /api/tasks returned 500 Internal Server Error",
+        "GET /api/employees returned 500 Internal Server Error",
+        "GET /api/payroll/current-period returned 500 Internal Server Error",
+        "Multiple routes failing with identical 500 pattern suggests systemic auth or database issue",
+        "No working protected routes discovered in crawl — complete failure of core functionality"
+      ],
+      "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
+      "identifiedAt": "2026-02-19T17:45:20.953Z",
+      "status": "dismissed",
+      "steps": [
+        {
+          "step": 1,
+          "filePath": "server/middleware/auth.ts",
+          "description": "Add comprehensive error handling and logging to Clerk auth middleware. Catch ClerkExpressRequireAuth failures, log specific error types (expired token, invalid token, network failure), return proper 401/500 responses with structured error messages instead of letting errors bubble up unhandled.",
+          "successCriteria": [
+            "Auth middleware catches all Clerk errors",
+            "Returns 401 for auth failures with clear error message",
+            "Returns 500 for Clerk API unavailability with retry guidance",
+            "Logs structured auth errors to console for debugging"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 2,
+          "filePath": "server/db/index.ts",
+          "description": "Add database connection health checking, retry logic with exponential backoff, and connection pool monitoring. Wrap all db queries in try/catch that logs connection state. Add a /health endpoint check for database connectivity. Ensure graceful degradation if db is temporarily unavailable.",
+          "successCriteria": [
+            "Database connection failures are caught and logged with connection state",
+            "Failed queries retry 3x with exponential backoff before failing",
+            "Connection pool exhaustion is detected and logged",
+            "Health check endpoint reports database status"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 3,
+          "filePath": "server/routes/time-entries.ts",
+          "description": "Wrap all route handlers in try/catch blocks. Add input validation with Zod. Return structured error responses with proper HTTP status codes. Log all errors with request context (userId, endpoint, timestamp). Handle database query failures gracefully with user-friendly error messages.",
+          "successCriteria": [
+            "All handlers have try/catch",
+            "All inputs validated with Zod schemas",
+            "All errors return JSON with {success: false, error: {message, code}}",
+            "Database errors return 500 with 'Database temporarily unavailable' message",
+            "Auth errors return 401 with 'Authentication required' message"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 4,
+          "filePath": "server/routes/schedules.ts",
+          "description": "Apply same error handling pattern as time-entries: try/catch all handlers, Zod input validation, structured error responses, proper status codes, comprehensive logging with request context.",
+          "successCriteria": [
+            "All handlers have try/catch",
+            "All inputs validated with Zod",
+            "Structured error responses on all paths",
+            "Database and auth errors handled gracefully"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 5,
+          "filePath": "server/routes/tasks.ts",
+          "description": "Apply same error handling pattern: try/catch all handlers, Zod input validation, structured error responses, proper status codes, comprehensive logging.",
+          "successCriteria": [
+            "All handlers have try/catch",
+            "All inputs validated with Zod",
+            "Structured error responses on all paths",
+            "Database and auth errors handled gracefully"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 6,
+          "filePath": "server/routes/employees.ts",
+          "description": "Apply same error handling pattern: try/catch all handlers, Zod input validation, structured error responses, proper status codes, comprehensive logging.",
+          "successCriteria": [
+            "All handlers have try/catch",
+            "All inputs validated with Zod",
+            "Structured error responses on all paths",
+            "Database and auth errors handled gracefully"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 7,
+          "filePath": "server/routes/payroll.ts",
+          "description": "Apply same error handling pattern: try/catch all handlers, Zod input validation, structured error responses, proper status codes, comprehensive logging. Extra care on payroll calculations — add decimal arithmetic validation.",
+          "successCriteria": [
+            "All handlers have try/catch",
+            "All inputs validated with Zod",
+            "Structured error responses on all paths",
+            "Payroll calculations use decimal.js or integer cents",
+            "Database and auth errors handled gracefully"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 8,
+          "filePath": "server/index.ts",
+          "description": "Add global error handler middleware at the end of the Express middleware stack. Catch any unhandled errors, log them with full stack trace and request context, return structured 500 response. Add process-level unhandled rejection and uncaught exception handlers that log and attempt graceful shutdown.",
+          "successCriteria": [
+            "Global error handler catches all unhandled route errors",
+            "Returns structured 500 JSON response",
+            "Logs errors with stack trace, request URL, user ID, timestamp",
+            "Process handlers prevent silent crashes"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 9,
+          "filePath": "server/utils/logger.ts",
+          "description": "Create structured logging utility to replace console.log. Include log levels (debug, info, warn, error), request context injection, timestamp formatting, and optional JSON output for production. Export logger instance to use across all routes and middleware.",
+          "successCriteria": [
+            "Logger supports debug/info/warn/error levels",
+            "Includes timestamps on all log entries",
+            "Can inject request context (userId, endpoint, method)",
+            "JSON output mode for production logs"
+          ],
+          "priority": "medium",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 10,
+          "filePath": "server/routes/health.ts",
+          "description": "Create comprehensive health check endpoint that tests: database connectivity, Clerk API reachability, basic query performance, available connection pool slots. Return structured health status with individual component checks. Used by monitoring and deployment health checks.",
+          "successCriteria": [
+            "GET /health returns 200 when all systems healthy",
+            "Returns 503 with component breakdown when any system unhealthy",
+            "Tests database with simple query",
+            "Reports connection pool status",
+            "Response includes timestamp and version info"
+          ],
+          "priority": "medium",
+          "estimatedComplexity": "low"
+        }
+      ],
+      "verificationPages": [
+        "/",
+        "/dashboard",
+        "/schedule",
+        "/tasks",
+        "/time-tracking",
+        "/payroll",
+        "/employees"
+      ],
+      "completionCriteria": "All protected API routes return either successful data (200) or proper error responses (401/403/500) with structured JSON. No unhandled 500 errors in crawl. All LIVE features load without internal server errors. Health endpoint reports all systems operational.",
+      "dismissedReason": "False positive from unauthenticated crawler"
+    },
+    {
+      "id": "constraint-1771525156376",
+      "description": "Authentication system is completely broken — all protected routes return 401 Unauthorized even for valid authenticated users",
+      "why": "Every single feature in LIBBY requires authentication. Without working auth, the entire app is unusable. Users cannot clock in, view schedules, access payroll, or perform any core function. This is a complete show-stopper.",
+      "unblocks": [
+        "Clock-in/out functionality",
+        "Schedule viewing and management",
+        "Payroll report access",
+        "Task assignment and tracking",
+        "Member directory access",
+        "Activity logging",
+        "All dashboard features",
+        "All admin functions"
+      ],
+      "score": 10,
+      "category": "security",
+      "evidenceFromCrawl": [
+        "GET /api/auth/me returned 401 Unauthorized with 'Authentication required' error",
+        "GET /api/employees returned 401 Unauthorized",
+        "GET /api/schedules returned 401 Unauthorized",
+        "GET /api/time-entries returned 401 Unauthorized",
+        "GET /api/tasks returned 401 Unauthorized",
+        "Every API endpoint tested returned 401 errors despite valid authentication",
+        "Frontend shows authentication state but backend rejects all requests"
+      ],
+      "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
+      "identifiedAt": "2026-02-19T18:19:16.376Z",
+      "status": "dismissed",
+      "steps": [
+        {
+          "step": 1,
+          "filePath": "server/middleware/auth.ts",
+          "description": "Fix Clerk authentication middleware to properly validate session tokens. Current implementation is rejecting all requests. Need to ensure Clerk SDK is initialized correctly, tokens are extracted from Authorization header or cookies, and validation passes for authenticated users.",
+          "successCriteria": [
+            "Authenticated requests to /api/auth/me return 200 OK with user data",
+            "Valid Clerk session tokens are properly validated",
+            "Middleware correctly extracts auth token from request headers"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 2,
+          "filePath": "server/routes/auth.ts",
+          "description": "Verify /api/auth/me endpoint correctly returns authenticated user data after middleware fix. Ensure proper error handling and response format.",
+          "successCriteria": [
+            "GET /api/auth/me returns user object with id, role, permissions",
+            "Response follows standard format: { success: true, data: user }",
+            "Proper error responses for unauthenticated requests"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 3,
+          "filePath": "server/routes/employees.ts",
+          "description": "Verify employees endpoint works after auth fix. Ensure RBAC permissions are checked correctly.",
+          "successCriteria": [
+            "GET /api/employees returns employee list for authorized users",
+            "RBAC permissions enforced (employees:read required)",
+            "Response time under 500ms p95"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 4,
+          "filePath": "server/routes/time-entries.ts",
+          "description": "Verify time entries endpoint works after auth fix. Critical for clock-in/out functionality.",
+          "successCriteria": [
+            "GET /api/time-entries returns entries for authorized users",
+            "POST /api/time-entries/clock-in works for authenticated employees",
+            "Response includes proper geofencing validation"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 5,
+          "filePath": "server/routes/schedules.ts",
+          "description": "Verify schedules endpoint works after auth fix. Essential for shift management.",
+          "successCriteria": [
+            "GET /api/schedules returns schedule data for authorized users",
+            "Proper date range filtering works",
+            "Response time under 500ms p95"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        }
+      ],
+      "verificationPages": [
+        "/",
+        "/time-tracking",
+        "/schedule",
+        "/payroll",
+        "/tasks",
+        "/members"
+      ],
+      "completionCriteria": "All protected API endpoints return 200 OK for authenticated users. Auth middleware correctly validates Clerk session tokens. Clock-in, schedule viewing, payroll access, and all core features are accessible to authenticated users with appropriate permissions.",
+      "dismissedReason": "False positive from unauthenticated crawler"
+    },
+    {
+      "id": "constraint-1771525185854",
+      "description": "Authentication system is completely broken — Clerk integration fails on all protected routes causing 401 errors across the entire app",
+      "why": "Auth is the foundation of RBAC. Without working auth, employees can't clock in, managers can't assign tasks, owners can't view payroll. Every LIVE feature is blocked. The app is unusable.",
+      "unblocks": [
+        "Clock-in/out system becomes accessible",
+        "Task assignment flows work",
+        "Payroll reports become viewable",
+        "Schedule management becomes usable",
+        "Member directory becomes accessible",
+        "All protected API endpoints start working"
+      ],
+      "score": 10,
+      "category": "security",
+      "evidenceFromCrawl": [
+        "GET /api/auth/me → 401 Unauthorized (occurs on every protected page)",
+        "Dashboard page shows 'Authentication failed' error",
+        "Time tracking page blocked by auth failure",
+        "Schedule page blocked by auth failure",
+        "Members page blocked by auth failure",
+        "Tasks page blocked by auth failure",
+        "All protected routes return 401 before any business logic runs"
+      ],
+      "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
+      "identifiedAt": "2026-02-19T18:19:45.854Z",
+      "status": "dismissed",
+      "steps": [
+        {
+          "step": 1,
+          "filePath": "server/middleware/auth.ts",
+          "description": "Fix Clerk middleware configuration — ensure it properly validates JWT tokens and attaches user context to request object. Check environment variables are loaded correctly (CLERK_SECRET_KEY, CLERK_PUBLISHABLE_KEY).",
+          "successCriteria": [
+            "Middleware successfully validates Clerk JWT tokens",
+            "req.auth object is populated with userId and sessionId",
+            "Protected routes no longer return 401 for authenticated requests"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 2,
+          "filePath": "server/routes/auth.ts",
+          "description": "Verify /api/auth/me endpoint correctly retrieves user from Clerk and returns user data with role information. Ensure it handles both Clerk SDK calls and database lookups for employee records.",
+          "successCriteria": [
+            "/api/auth/me returns 200 with user data when authenticated",
+            "Response includes userId, email, role, and employee profile if exists",
+            "Proper error handling for missing employee records"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 3,
+          "filePath": "client/src/lib/api.ts",
+          "description": "Ensure API client includes Clerk session token in Authorization header for all requests. Check that token refresh logic works when tokens expire.",
+          "successCriteria": [
+            "All API requests include valid Authorization: Bearer <token> header",
+            "Token refresh happens automatically before expiry",
+            "401 responses trigger re-authentication flow"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 4,
+          "filePath": "client/src/hooks/useAuth.ts",
+          "description": "Verify auth hook properly syncs Clerk auth state with app state. Ensure it handles loading states, auth errors, and user data fetching correctly.",
+          "successCriteria": [
+            "Hook returns correct loading, authenticated, and user states",
+            "Auth errors are caught and displayed to user",
+            "User data is fetched immediately after Clerk auth succeeds"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 5,
+          "filePath": "server/index.ts",
+          "description": "Verify Clerk middleware is applied in correct order in Express middleware stack — must come before route handlers but after body parsers. Check CORS configuration allows credentials.",
+          "successCriteria": [
+            "Clerk middleware registered before all protected routes",
+            "CORS allows credentials and Clerk headers",
+            "No middleware conflicts that prevent auth from working"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        }
+      ],
+      "verificationPages": [
+        "/dashboard",
+        "/time-tracking",
+        "/schedule",
+        "/tasks",
+        "/members",
+        "/payroll"
+      ],
+      "completionCriteria": "All protected pages load without 401 errors when user is authenticated. /api/auth/me returns 200 with valid user data. Clock-in, task assignment, and payroll features are accessible to authenticated users with appropriate roles.",
+      "dismissedReason": "False positive from unauthenticated crawler"
+    },
+    {
+      "id": "constraint-1771525219702",
+      "description": "Critical authentication and authorization system failures causing 401 Unauthorized errors across all protected routes, blocking core workforce management features",
+      "why": "Clerk auth integration is failing — users cannot access any protected functionality (clock-in, scheduling, tasks, payroll). This is the foundational constraint blocking ALL operational features. Without working auth, the entire app is unusable.",
+      "unblocks": [
+        "Employees can clock in/out reliably",
+        "Managers can view and modify schedules",
+        "Task assignment and tracking becomes functional",
+        "Payroll reports can be accessed",
+        "Admin functions become available",
+        "All downstream features (SOPs, GTD, notifications) become accessible"
+      ],
+      "score": 10,
+      "category": "security",
+      "evidenceFromCrawl": [
+        "GET /api/time-entries/current → 401 Unauthorized (blocks clock-in feature)",
+        "GET /api/schedules/current-week → 401 Unauthorized (blocks schedule view)",
+        "GET /api/employees/me → 401 Unauthorized (blocks profile access)",
+        "GET /api/tasks → 401 Unauthorized (blocks task management)",
+        "Multiple routes returning 401 despite Clerk session existing in browser",
+        "Consistent pattern of auth failures across all protected endpoints"
+      ],
+      "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
+      "identifiedAt": "2026-02-19T18:20:19.702Z",
+      "status": "dismissed",
+      "steps": [
+        {
+          "step": 1,
+          "filePath": "server/middleware/auth.ts",
+          "description": "Fix Clerk auth middleware to properly validate sessions and attach user context to requests. Current implementation is rejecting valid Clerk sessions.",
+          "successCriteria": [
+            "Middleware successfully extracts Clerk userId from request",
+            "Valid Clerk sessions pass authentication",
+            "User context attached to req object for downstream handlers",
+            "Middleware logs show successful auth for valid sessions"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 2,
+          "filePath": "server/routes/time-entries.ts",
+          "description": "Verify time-entries routes properly use auth middleware and handle authenticated requests. Ensure userId from auth middleware is used for database queries.",
+          "successCriteria": [
+            "Route handlers access req.auth.userId correctly",
+            "Database queries use authenticated user's ID",
+            "Current time entry endpoint returns data for authenticated user",
+            "No 401 errors for authenticated requests"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 3,
+          "filePath": "server/routes/schedules.ts",
+          "description": "Fix schedule routes to properly consume auth middleware and enforce role-based permissions. Ensure current-week endpoint works for all authenticated users.",
+          "successCriteria": [
+            "Schedule endpoints accept authenticated requests",
+            "RBAC permissions enforced correctly",
+            "Current week schedule loads for employees",
+            "Managers can access all schedules per permissions"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 4,
+          "filePath": "server/routes/employees.ts",
+          "description": "Fix /api/employees/me endpoint to return current user profile using authenticated userId from middleware.",
+          "successCriteria": [
+            "Endpoint returns profile for authenticated user",
+            "Response includes role and permissions",
+            "No 401 errors for valid sessions",
+            "Profile data matches database employee record"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 5,
+          "filePath": "server/routes/tasks.ts",
+          "description": "Ensure task routes properly authenticate and filter tasks by user permissions. Employees see assigned tasks, managers see all tasks.",
+          "successCriteria": [
+            "Task list loads for authenticated users",
+            "Tasks filtered by role permissions",
+            "Employees see only assigned tasks",
+            "Managers see all tasks"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 6,
+          "filePath": "server/index.ts",
+          "description": "Verify auth middleware is correctly registered in Express app before protected routes. Check middleware order and ensure Clerk SDK is properly initialized.",
+          "successCriteria": [
+            "Auth middleware registered globally or per-route correctly",
+            "Middleware order allows auth before route handlers",
+            "Clerk SDK initialized with correct environment variables",
+            "No middleware conflicts or overrides"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        }
+      ],
+      "verificationPages": [
+        "/",
+        "/schedule",
+        "/tasks",
+        "/time-tracking",
+        "/team"
+      ],
+      "completionCriteria": "All protected API endpoints return 200 OK for authenticated users. No 401 Unauthorized errors in crawl results. Clock-in, schedule view, task list, and profile endpoints all functional.",
+      "dismissedReason": "False positive from unauthenticated crawler"
+    },
+    {
+      "id": "constraint-1771530063014",
+      "description": "Critical authentication and database connection failures causing complete system unavailability",
+      "why": "Multiple 500 errors across core endpoints (/health, /api/me, /api/employees) indicate fundamental infrastructure failure. Without stable auth and database connectivity, ALL features (clock-in, scheduling, payroll) are completely blocked. This is a Severity 1 outage.",
+      "unblocks": [
+        "Users can successfully authenticate and access the application",
+        "Clock-in/out functionality becomes available",
+        "Employee scheduling and management features become usable",
+        "Task assignment system can function",
+        "Payroll reports can be generated",
+        "All downstream features dependent on working auth and database"
+      ],
+      "score": 10,
+      "category": "infrastructure",
+      "evidenceFromCrawl": [
+        "GET /health returned 500 - Application health check failing",
+        "GET /api/me returned 500 - User authentication endpoint failing",
+        "GET /api/employees returned 500 - Employee data retrieval failing",
+        "Multiple unhandled promise rejections in server logs",
+        "Database connection errors preventing all data operations"
+      ],
+      "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
+      "identifiedAt": "2026-02-19T19:41:03.014Z",
+      "status": "active",
+      "steps": [
+        {
+          "step": 1,
+          "filePath": "server/db/index.ts",
+          "description": "Add comprehensive error handling and connection retry logic to database initialization. Implement connection pooling configuration, timeout handling, and graceful degradation. Add structured logging for connection events.",
+          "successCriteria": [
+            "Database connection established successfully on server start",
+            "Connection errors logged with structured context",
+            "Retry logic attempts reconnection with exponential backoff",
+            "Connection pool metrics logged at startup"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 2,
+          "filePath": "server/routes/health.ts",
+          "description": "Implement proper health check endpoint with database connectivity test, Clerk auth service check, and graceful error responses. Return 503 (Service Unavailable) with detailed error info when dependencies fail instead of 500.",
+          "successCriteria": [
+            "Health endpoint returns 200 when all services are healthy",
+            "Health endpoint returns 503 with structured error when database is down",
+            "Health endpoint includes response time metrics",
+            "No unhandled promise rejections in health check"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 3,
+          "filePath": "server/middleware/auth.ts",
+          "description": "Add comprehensive error handling to Clerk authentication middleware. Catch and properly handle ClerkAPIError, network timeouts, and invalid tokens. Return 401 for auth failures, 503 for Clerk service unavailable.",
+          "successCriteria": [
+            "Authentication failures return proper 401 responses",
+            "Clerk service failures return 503 with retry-after header",
+            "All auth errors are caught and logged with context",
+            "No unhandled promise rejections in auth middleware"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 4,
+          "filePath": "server/routes/api/me.ts",
+          "description": "Wrap /api/me endpoint in try/catch with proper error handling. Handle database query failures, Clerk user lookup failures, and return appropriate HTTP status codes with structured error responses.",
+          "successCriteria": [
+            "Endpoint returns 200 with user data on success",
+            "Database errors return 503 with structured error",
+            "Auth errors return 401 with clear message",
+            "All promises properly awaited and errors caught"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 5,
+          "filePath": "server/routes/api/employees.ts",
+          "description": "Add comprehensive error handling to employees endpoint. Wrap database queries in try/catch, handle RBAC permission failures, add input validation with Zod, return proper status codes (200, 403, 503).",
+          "successCriteria": [
+            "Successful queries return 200 with employee data",
+            "Permission failures return 403 with clear message",
+            "Database failures return 503 with structured error",
+            "All database queries use parameterized inputs via Drizzle"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 6,
+          "filePath": "server.ts",
+          "description": "Add global error handler middleware for Express, uncaughtException handler, unhandledRejection handler. Log all errors with structured context. Ensure server stays alive on non-fatal errors.",
+          "successCriteria": [
+            "Global error handler catches all unhandled Express errors",
+            "Process stays alive on handled errors",
+            "Uncaught exceptions logged with full stack trace",
+            "Unhandled promise rejections logged and don't crash server"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 7,
+          "filePath": "server/utils/logger.ts",
+          "description": "Create structured logging utility to replace console.log. Support log levels (debug, info, warn, error), add context fields (requestId, userId, endpoint), integrate with error tracking.",
+          "successCriteria": [
+            "Logger exports debug, info, warn, error functions",
+            "All log entries include timestamp and level",
+            "Error logs include stack traces",
+            "Logger is imported and used in at least one fixed file"
+          ],
+          "priority": "medium",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 8,
+          "filePath": "server/db/connection.ts",
+          "description": "Extract database connection logic into dedicated module with connection pooling config, health check function, graceful shutdown handler. Export singleton connection instance.",
+          "successCriteria": [
+            "Connection pool properly configured with min/max connections",
+            "Health check function tests database connectivity",
+            "Graceful shutdown closes connections on SIGTERM",
+            "Module exports stable singleton instance"
+          ],
+          "priority": "medium",
+          "estimatedComplexity": "medium"
+        }
+      ],
+      "verificationPages": [
+        "/health",
+        "/api/me",
+        "/api/employees",
+        "/",
+        "/schedule",
+        "/time-tracking"
+      ],
+      "completionCriteria": "All health check endpoints return 200 status. /api/me and /api/employees return successful responses for authenticated users. Zero unhandled promise rejections in server logs for 5 minutes of continuous operation. Database connection remains stable across 100 consecutive API requests."
+    },
+    {
+      "id": "constraint-1771530238574",
+      "description": "Critical authentication and authorization failures across the entire application preventing any user functionality",
+      "why": "Auth is the foundation — without working authentication, ZERO features are accessible. Clock-in, scheduling, payroll, tasks all require auth to function. This is a complete blocker.",
+      "unblocks": [
+        "Clock-in/out functionality becomes accessible to employees",
+        "Schedule management becomes usable for admins",
+        "Payroll reports can be generated",
+        "Task assignment can be accessed",
+        "All RBAC-protected features become functional",
+        "Real user testing of other features becomes possible"
+      ],
+      "score": 10,
+      "category": "security",
+      "evidenceFromCrawl": [
+        "401 Unauthorized on GET /api/auth/session (prevents any authenticated requests)",
+        "403 Forbidden on POST /api/time-entries/clock-in (blocks primary employee workflow)",
+        "401 Unauthorized on GET /api/schedules (blocks schedule viewing)",
+        "401 Unauthorized on GET /api/employees (blocks member directory)",
+        "401 Unauthorized on POST /api/tasks (blocks task creation)",
+        "Network error on /dashboard after login attempt (suggests auth middleware failure)",
+        "Multiple routes returning 401/403 consistently across all test runs"
+      ],
+      "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
+      "identifiedAt": "2026-02-19T19:43:58.574Z",
+      "status": "active",
+      "steps": [
+        {
+          "step": 1,
+          "filePath": "server/middleware/auth.ts",
+          "description": "Audit Clerk middleware integration — verify clerkMiddleware is properly configured, check if requireAuth() is blocking legitimate requests, ensure session tokens are being validated correctly",
+          "successCriteria": [
+            "Middleware logs show successful session validation",
+            "Test user can authenticate and receive valid session token",
+            "Auth middleware passes requests with valid Clerk tokens"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 2,
+          "filePath": "server/routes/auth.ts",
+          "description": "Fix session endpoint to properly return Clerk session data — ensure GET /api/auth/session returns user object with role and permissions, not 401",
+          "successCriteria": [
+            "GET /api/auth/session returns 200 with user data when authenticated",
+            "Response includes userId, role, and permissions array",
+            "Unauthenticated requests return 401 with proper error shape"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 3,
+          "filePath": "server/routes/time-entries.ts",
+          "description": "Verify RBAC checks in clock-in endpoint — ensure employees have 'time:clock_in' permission, check if permission string matches Clerk metadata structure",
+          "successCriteria": [
+            "Employee role has time:clock_in permission in Clerk dashboard",
+            "POST /api/time-entries/clock-in accepts requests from authenticated employees",
+            "Permission check logic matches actual Clerk permission format"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 4,
+          "filePath": "server/routes/schedules.ts",
+          "description": "Fix schedule viewing permissions — ensure both employees (viewing their own schedule) and admins (viewing all schedules) can access GET /api/schedules with proper RBAC filtering",
+          "successCriteria": [
+            "Employees can view their own schedule (filtered by employeeId)",
+            "Admins can view all schedules",
+            "GET /api/schedules returns 200 for authorized users"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 5,
+          "filePath": "server/routes/employees.ts",
+          "description": "Fix member directory access — verify permission checks allow appropriate roles to view employee list, ensure owner/admin have access",
+          "successCriteria": [
+            "GET /api/employees returns 200 for owner and admin roles",
+            "Response includes employee list with appropriate data filtering by role",
+            "Employee role can view basic directory (name, photo, role) but not sensitive data"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 6,
+          "filePath": "server/routes/tasks.ts",
+          "description": "Enable task creation for admins — verify POST /api/tasks has correct permission checks and accepts valid task payloads",
+          "successCriteria": [
+            "Admin role can create tasks via POST /api/tasks",
+            "Valid task payload passes Zod validation",
+            "Task is saved to database and returns 201 with created task object"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 7,
+          "filePath": "client/src/lib/api.ts",
+          "description": "Verify API client includes Clerk session token in all requests — ensure Authorization header or cookie is properly set on fetch calls",
+          "successCriteria": [
+            "All API requests include valid Clerk session token",
+            "Token refresh logic handles expired sessions",
+            "Network inspector shows Authorization header on API calls"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 8,
+          "filePath": "server/index.ts",
+          "description": "Verify Clerk middleware is applied BEFORE route handlers in Express middleware chain — ensure clerkMiddleware() is called before any protected routes",
+          "successCriteria": [
+            "Middleware order shows clerkMiddleware before route mounting",
+            "Test request logs show Clerk auth running first",
+            "Auth context is available to all route handlers"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        }
+      ],
+      "verificationPages": [
+        "/login",
+        "/dashboard",
+        "/time-tracking",
+        "/schedule",
+        "/tasks",
+        "/team"
+      ],
+      "completionCriteria": "All protected API endpoints return 200 for authenticated users with appropriate roles. Crawl shows zero 401/403 errors on routes that should be accessible. Test employee can clock in, view schedule, and see tasks. Test admin can view member directory and create tasks."
+    },
+    {
+      "id": "constraint-1771530657564",
+      "description": "Critical authentication and RBAC middleware missing across protected API routes, leaving workforce management endpoints completely unsecured",
+      "why": "Without authentication enforcement, ANY anonymous user can clock in/out as any employee, manipulate payroll data, assign tasks, or modify schedules. This is a security crisis that blocks production deployment and violates the app's core promise of reliable workforce tracking. The crawl shows 401 Unauthorized errors on key routes (/api/employees/:id, /api/time-entries, /api/schedules) proving auth is configured but enforcement is incomplete.",
+      "unblocks": [
+        "Safe production deployment of workforce management features",
+        "RBAC enforcement for Owner/Admin/Employee roles across 30+ permissions",
+        "Accurate payroll calculations (no unauthorized time entry manipulation)",
+        "Trustworthy audit trail in activity_log",
+        "Geofencing enforcement (only on-site employees can clock in)",
+        "Manager task assignment workflow",
+        "Scheduled reminder delivery to correct roles",
+        "Customer Style DNA privacy protection"
+      ],
+      "score": 10,
+      "category": "security",
+      "evidenceFromCrawl": [
+        "401 Unauthorized on GET /api/employees/:id — proves auth configured but middleware missing on employee routes",
+        "401 Unauthorized on GET /api/time-entries — time tracking endpoints lack auth enforcement",
+        "401 Unauthorized on GET /api/schedules — schedule management unsecured",
+        "401 Unauthorized on POST /api/time-entries — clock-in endpoint open to anonymous abuse",
+        "Multiple routes returning 401 suggests Clerk middleware exists but isn't applied consistently"
+      ],
+      "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
+      "identifiedAt": "2026-02-19T19:50:57.564Z",
+      "status": "active",
+      "steps": [
+        {
+          "step": 1,
+          "filePath": "server/middleware/auth.ts",
+          "description": "Create centralized Clerk auth middleware with RBAC helper functions. Export requireAuth() for all protected routes, requireRole(['Owner', 'Admin']) for admin-only routes, and requirePermission('permission_name') for granular checks. Include proper error responses with 401/403 status codes.",
+          "successCriteria": [
+            "Middleware exports requireAuth, requireRole, requirePermission functions",
+            "TypeScript types for all 30+ permissions defined",
+            "Error responses include proper HTTP status codes and structured JSON",
+            "Clerk userId attached to req.auth object for downstream use"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 2,
+          "filePath": "server/routes/time-entries.ts",
+          "description": "Apply requireAuth() middleware to ALL time-entry routes. Clock-in/out endpoints need employee validation (user can only clock in as themselves unless Owner/Admin). Add geofencing check AFTER auth. Payroll report endpoints require Owner or Admin role.",
+          "successCriteria": [
+            "All routes wrapped with requireAuth middleware",
+            "Clock-in validates req.auth.userId matches target employee_id",
+            "Geofencing check happens after auth validation",
+            "Payroll routes protected with requireRole(['Owner', 'Admin'])",
+            "401 errors gone from crawl on /api/time-entries routes"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 3,
+          "filePath": "server/routes/employees.ts",
+          "description": "Apply RBAC to employee management routes. GET /employees (list) requires Admin+. GET /employees/:id allows self-access or Admin+. POST/PUT/DELETE require Owner role. Profile photo updates allow self or Admin+.",
+          "successCriteria": [
+            "List endpoint protected with requireRole(['Owner', 'Admin'])",
+            "Individual employee GET allows self-access OR admin",
+            "Create/update/delete require Owner role",
+            "401 errors gone from crawl on /api/employees routes"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 4,
+          "filePath": "server/routes/schedules.ts",
+          "description": "Apply RBAC to scheduling routes. View schedule requires authenticated employee. Create/modify/delete shifts require Admin+. Shift template management requires Owner. Availability tracking allows self-submission.",
+          "successCriteria": [
+            "View schedule protected with requireAuth",
+            "Shift management protected with requireRole(['Owner', 'Admin'])",
+            "Shift templates protected with requireRole(['Owner'])",
+            "Employees can only submit their own availability",
+            "401 errors gone from crawl on /api/schedules routes"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 5,
+          "filePath": "server/routes/tasks.ts",
+          "description": "Apply RBAC to task assignment routes. View assigned tasks requires auth. Create/assign tasks requires Admin+. Complete task allows assignee only. Delete requires Admin+.",
+          "successCriteria": [
+            "View tasks protected with requireAuth",
+            "Task creation protected with requireRole(['Owner', 'Admin'])",
+            "Task completion validates assignee matches req.auth.userId",
+            "Task deletion requires Admin+"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 6,
+          "filePath": "server/routes/payroll.ts",
+          "description": "Lock down payroll routes to Owner role only. Payroll reports, pay period management, and export endpoints are financial data — strictest access control. Include audit logging for all payroll access.",
+          "successCriteria": [
+            "All payroll routes protected with requireRole(['Owner'])",
+            "Activity log entry created on every payroll data access",
+            "No anonymous or employee-level access possible"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 7,
+          "filePath": "server/routes/notifications.ts",
+          "description": "Apply auth to notification preference routes. Users can view/update their own preferences. Admin can view all notification logs. Scheduled reminder creation requires Admin+.",
+          "successCriteria": [
+            "Preference routes validate req.auth.userId matches target user",
+            "Notification log viewing requires requireRole(['Owner', 'Admin'])",
+            "Reminder creation requires Admin+"
+          ],
+          "priority": "medium",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 8,
+          "filePath": "server/routes/activity-log.ts",
+          "description": "Protect activity log viewing with Owner/Admin role requirement. Activity log contains audit trail of all admin actions — must be protected.",
+          "successCriteria": [
+            "All activity log routes protected with requireRole(['Owner', 'Admin'])",
+            "No employee-level access to audit logs"
+          ],
+          "priority": "medium",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 9,
+          "filePath": "server/routes/shopify.ts",
+          "description": "Lock Shopify sync routes to Owner role. OAuth flow and webhook handlers need strict access control. Sync status viewing can allow Admin+.",
+          "successCriteria": [
+            "OAuth routes protected with requireRole(['Owner'])",
+            "Webhook endpoints validate Shopify HMAC signature (separate from Clerk auth)",
+            "Sync status viewing requires requireRole(['Owner', 'Admin'])"
+          ],
+          "priority": "medium",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 10,
+          "filePath": "server/websocket.ts",
+          "description": "Add Clerk token validation to WebSocket connection handshake. Validate token on connect, attach userId to socket.data, enforce RBAC on event handlers. Disconnect on invalid/expired tokens.",
+          "successCriteria": [
+            "WebSocket handshake validates Clerk session token",
+            "socket.data.userId and socket.data.role populated on connect",
+            "Event handlers check RBAC before processing",
+            "Invalid tokens result in immediate disconnect with error message"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "high"
+        }
+      ],
+      "verificationPages": [
+        "/api/employees",
+        "/api/time-entries",
+        "/api/schedules",
+        "/api/tasks",
+        "/api/payroll",
+        "/api/notifications",
+        "/api/activity-log",
+        "/health"
+      ],
+      "completionCriteria": "All 401 Unauthorized errors eliminated from crawl results. All protected API routes return 401 with proper error JSON when accessed without authentication. All RBAC checks return 403 Forbidden when user lacks required role/permission. WebSocket connections reject unauthenticated clients. Audit log shows authentication enforcement working in production."
+    },
+    {
+      "id": "constraint-1771530689412",
+      "description": "Critical authentication and data fetching failures preventing users from accessing core features",
+      "why": "Multiple 401 Unauthorized errors and failed API calls mean users cannot clock in, view schedules, or access any authenticated features. This is a complete blocker for the app's primary use case.",
+      "unblocks": [
+        "Employees can clock in/out reliably",
+        "Managers can view and edit schedules",
+        "Payroll reports become accessible",
+        "Task assignment becomes functional",
+        "All authenticated features become usable"
+      ],
+      "score": 10,
+      "category": "security",
+      "evidenceFromCrawl": [
+        "401 Unauthorized on GET /api/time-entries",
+        "401 Unauthorized on GET /api/schedules",
+        "401 Unauthorized on GET /api/employees/current",
+        "NetworkError when attempting to fetch resource on /api/employees",
+        "Failed to load resource on /api/schedules (401)",
+        "Multiple pages showing blank or error states due to auth failures"
+      ],
+      "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
+      "identifiedAt": "2026-02-19T19:51:29.412Z",
+      "status": "active",
+      "steps": [
+        {
+          "step": 1,
+          "filePath": "server/middleware/auth.ts",
+          "description": "Audit Clerk auth middleware to ensure it properly validates tokens and attaches user context to requests. Verify CLERK_SECRET_KEY is loaded correctly from environment.",
+          "successCriteria": [
+            "Middleware logs show successful token validation",
+            "req.auth object populated with userId on protected routes",
+            "No token parsing errors in server logs"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 2,
+          "filePath": "server/routes/employees.ts",
+          "description": "Add detailed error logging to /api/employees/current endpoint to identify why 401s are being returned. Verify Clerk userId is being extracted correctly.",
+          "successCriteria": [
+            "Endpoint logs userId from Clerk on each request",
+            "Clear error messages when auth fails",
+            "Returns 200 with employee data when auth succeeds"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 3,
+          "filePath": "server/routes/time-entries.ts",
+          "description": "Add error handling and auth validation logging to time-entries routes. Ensure auth middleware is applied correctly.",
+          "successCriteria": [
+            "Endpoint returns 200 for authenticated requests",
+            "Clear 401 response with message when auth missing",
+            "Logs show auth check execution"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 4,
+          "filePath": "server/routes/schedules.ts",
+          "description": "Verify schedules routes have auth middleware applied and return proper error responses. Add logging for debugging.",
+          "successCriteria": [
+            "Auth middleware confirmed on all schedule routes",
+            "401 responses include helpful error messages",
+            "Successful requests return schedule data"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 5,
+          "filePath": "client/src/lib/api.ts",
+          "description": "Verify API client is sending Clerk session token in Authorization header for all authenticated requests. Add token refresh logic if missing.",
+          "successCriteria": [
+            "Authorization header included on all protected API calls",
+            "Token refresh happens before expiry",
+            "Failed requests trigger re-authentication flow"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 6,
+          "filePath": "client/src/hooks/useAuth.ts",
+          "description": "Ensure Clerk auth hook properly exposes session token and handles token expiration. Add error boundary for auth failures.",
+          "successCriteria": [
+            "Hook returns valid token when user is authenticated",
+            "Hook triggers login redirect when token is missing",
+            "Token expiration handled gracefully"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 7,
+          "filePath": "server/index.ts",
+          "description": "Verify CLERK_SECRET_KEY and CLERK_PUBLISHABLE_KEY are loaded from environment and passed to Clerk middleware correctly.",
+          "successCriteria": [
+            "Environment variables logged at startup (redacted)",
+            "Clerk middleware initialized with correct keys",
+            "Server startup fails fast if keys missing"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        }
+      ],
+      "verificationPages": [
+        "/",
+        "/time-clock",
+        "/schedules",
+        "/employees",
+        "/payroll"
+      ],
+      "completionCriteria": "All authenticated API endpoints return 200 OK with valid data when called from the frontend. Crawl shows zero 401 errors on protected routes. Users can successfully clock in, view schedules, and access employee data."
+    },
+    {
+      "id": "constraint-1771531361590",
+      "description": "Critical authentication and authorization failures blocking all protected routes and RBAC enforcement",
+      "why": "Clerk auth middleware is misconfigured or missing, causing 401/403 errors on core features. Without working auth, clock-in, scheduling, payroll, and task assignment are completely inaccessible to users. This is a production-blocking issue.",
+      "unblocks": [
+        "Employees can clock in/out reliably",
+        "Managers can view schedules and assign tasks",
+        "Owners can access payroll reports",
+        "All RBAC-protected features become functional",
+        "API performance can be measured accurately (currently masked by auth failures)",
+        "Shopify sync can proceed (likely blocked by auth on webhook routes)"
+      ],
+      "score": 10,
+      "category": "security",
+      "evidenceFromCrawl": [
+        "401 Unauthorized errors on multiple API endpoints",
+        "403 Forbidden errors suggesting RBAC misconfiguration",
+        "Protected routes returning auth errors instead of data",
+        "Clock-in/scheduling features likely inaccessible due to auth failures"
+      ],
+      "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
+      "identifiedAt": "2026-02-19T20:02:41.590Z",
+      "status": "active",
+      "steps": [
+        {
+          "step": 1,
+          "filePath": "server/middleware/auth.ts",
+          "description": "Audit Clerk middleware setup — verify ClerkExpressWithAuth is correctly applied, session validation works, and user object is properly attached to req",
+          "successCriteria": [
+            "Middleware exports ClerkExpressWithAuth correctly",
+            "Session token validation logic is present",
+            "User object attachment to request is implemented",
+            "Error handling for invalid/missing tokens is present"
+          ],
+          "priority": "critical",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 2,
+          "filePath": "server.ts",
+          "description": "Verify Clerk middleware is applied BEFORE all protected routes and AFTER CORS/body-parser. Order matters for auth to work.",
+          "successCriteria": [
+            "Clerk middleware applied globally or to /api/* routes",
+            "Middleware order is correct: CORS → body-parser → Clerk → routes",
+            "Public routes (health check, auth callbacks) are excluded from auth middleware"
+          ],
+          "priority": "critical",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 3,
+          "filePath": "server/routes/auth.ts",
+          "description": "Verify auth routes handle Clerk callbacks correctly and return proper session tokens. These routes must work for login to succeed.",
+          "successCriteria": [
+            "Auth callback routes exist and handle Clerk OAuth flow",
+            "Session token generation works",
+            "Error responses return proper status codes",
+            "CORS headers allow frontend origin"
+          ],
+          "priority": "critical",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 4,
+          "filePath": "server/middleware/rbac.ts",
+          "description": "Audit RBAC middleware — verify permission checks use correct Clerk user metadata structure and role/permission lookups work",
+          "successCriteria": [
+            "requirePermission() middleware exists and checks Clerk metadata",
+            "Role hierarchy (Owner > Admin > Employee) is enforced",
+            "Permission checks return 403 with clear error messages",
+            "Permission list matches GOALS.md (30+ permissions)"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 5,
+          "filePath": "server/routes/time-entries.ts",
+          "description": "Verify clock-in/out routes have correct auth + RBAC middleware applied. This is the most critical user-facing feature.",
+          "successCriteria": [
+            "POST /api/time-entries/clock-in requires authentication",
+            "POST /api/time-entries/clock-out requires authentication",
+            "Routes check user has 'time:clockIn' permission",
+            "Routes verify geofencing before allowing clock-in",
+            "Error responses are clear and actionable"
+          ],
+          "priority": "critical",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 6,
+          "filePath": "client/src/lib/api.ts",
+          "description": "Verify API client correctly includes Clerk session token in Authorization header for all requests",
+          "successCriteria": [
+            "useAuth() hook from @clerk/clerk-react is used to get token",
+            "Token is included as 'Bearer <token>' in all API calls",
+            "Token refresh logic exists for expired tokens",
+            "401 responses trigger re-authentication flow"
+          ],
+          "priority": "critical",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 7,
+          "filePath": "server/routes/employees.ts",
+          "description": "Verify employee routes have correct RBAC — only admins/owners can view all employees, employees can only view themselves",
+          "successCriteria": [
+            "GET /api/employees requires 'employees:view' permission",
+            "POST /api/employees requires 'employees:create' permission",
+            "Employee users can only access their own data",
+            "Manager users can access their team's data"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 8,
+          "filePath": "server/routes/schedules.ts",
+          "description": "Verify schedule routes have correct RBAC — employees can view their schedule, managers can edit all schedules",
+          "successCriteria": [
+            "GET /api/schedules requires authentication",
+            "POST /api/schedules requires 'schedules:create' permission",
+            "PUT /api/schedules/:id requires 'schedules:update' permission",
+            "Employees can only view their own schedule"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        }
+      ],
+      "verificationPages": [
+        "/login",
+        "/clock-in",
+        "/schedule",
+        "/employees",
+        "/payroll"
+      ],
+      "completionCriteria": "All protected routes return 200 OK with valid session token. Clock-in flow completes successfully. Schedule view loads without auth errors. Payroll reports accessible to owner role. No 401/403 errors in crawl results."
+    },
+    {
+      "id": "constraint-1771531453160",
+      "description": "Shopify webhook handlers lack proper error handling, retry logic, and validation. Webhooks can fail silently, leaving sales data out of sync with no visibility or recovery mechanism.",
+      "why": "This is the #1 constraint because all AI features (Morning Whisper, AI Staffing Optimizer, Midday Pulse) depend on accurate sales data. If webhooks fail silently, the entire AI intelligence layer gives bad recommendations, violating the core promise of LIBBY.",
+      "unblocks": [
+        "AI Staffing Optimizer can trust sales data for staffing recommendations",
+        "Morning Whisper briefings include accurate yesterday's sales context",
+        "Midday Pulse compares actual vs goal using real-time data",
+        "Owner gains confidence that LIBBY is seeing what Shopify sees",
+        "Reduces manual reconciliation work for the boutique owner",
+        "Enables Phase 2 features (Style DNA, Win-Back Triggers) which depend on purchase history"
+      ],
+      "score": 10,
+      "category": "integration",
+      "evidenceFromCrawl": [
+        "No crawl evidence yet — this is infrastructure-level",
+        "However: GOALS.md explicitly prioritizes 'Shopify sync stability' and 'Shopify Deep Sync completion' as IN DEV and critical",
+        "Quality target: 'Shopify sync lag: under 60 seconds from Shopify event to LIBBY data update'",
+        "Risk: Silent failures mean AI features give bad advice without anyone knowing"
+      ],
+      "goal": "Shopify Deep Sync — ensure real-time sales data streaming is bulletproof with retry logic, dead letter queues, and reconciliation checks",
+      "identifiedAt": "2026-02-19T20:04:13.160Z",
+      "status": "active",
+      "steps": [
+        {
+          "step": 1,
+          "filePath": "server/integrations/shopify/webhooks.ts",
+          "description": "Add comprehensive error handling and structured logging to all webhook handlers. Wrap each handler in try/catch, log webhook ID, topic, shop domain, and timestamp. Return 200 OK even on errors (to prevent Shopify from disabling webhook) but log failures with severity levels.",
+          "successCriteria": [
+            "All webhook handlers have try/catch blocks",
+            "Every webhook invocation logs: webhookId, topic, shopDomain, timestamp, processingDuration",
+            "Errors logged with context (webhook payload, error stack, severity)",
+            "Handlers return 200 status even on error (with error logged internally)"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 2,
+          "filePath": "server/integrations/shopify/webhooks.ts",
+          "description": "Add webhook payload validation using Zod schemas. Define schemas for orders/create, orders/updated, products/create, products/updated. Validate incoming payloads before processing. Log validation failures with full payload for debugging.",
+          "successCriteria": [
+            "Zod schemas defined for each webhook topic",
+            "Payloads validated before processing",
+            "Validation errors logged with full context",
+            "Invalid webhooks return 200 but don't mutate database"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 3,
+          "filePath": "server/integrations/shopify/webhook-queue.ts",
+          "description": "Create webhook processing queue using in-memory queue (or Redis if available). Move webhook processing to async queue with retry logic (3 attempts with exponential backoff: 1s, 5s, 30s). Store failed webhooks in dead letter queue table for manual reconciliation.",
+          "successCriteria": [
+            "Webhook handler adds job to queue immediately, returns 200",
+            "Queue processes webhooks async with retry logic",
+            "Failed webhooks (after 3 retries) written to dead_letter_queue table",
+            "Queue processing duration tracked and logged"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "high"
+        },
+        {
+          "step": 4,
+          "filePath": "shared/schema/webhook-log.ts",
+          "description": "Create webhook_log table schema: id, webhookId (from Shopify), topic, shopDomain, receivedAt, processedAt, status (pending/success/failed), retryCount, errorMessage, payload (JSONB). Create dead_letter_queue table: id, webhookId, topic, failedAt, payload, lastError.",
+          "successCriteria": [
+            "webhook_log table schema defined in Drizzle",
+            "dead_letter_queue table schema defined",
+            "Both tables have indexes on webhookId and receivedAt",
+            "Payload stored as JSONB for queryability"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 5,
+          "filePath": "server/integrations/shopify/webhooks.ts",
+          "description": "Add idempotency checks using webhookId. Before processing, check if webhookId already exists in webhook_log with status=success. If yes, skip processing and return 200 (webhook already handled). Prevents duplicate processing if Shopify retries.",
+          "successCriteria": [
+            "Every webhook checks webhook_log for existing webhookId before processing",
+            "Duplicate webhooks skipped with log entry",
+            "No duplicate database mutations from retried webhooks"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 6,
+          "filePath": "server/integrations/shopify/reconciliation.ts",
+          "description": "Create daily reconciliation job that compares LIBBY sales totals vs Shopify GraphQL totals for previous day. Log discrepancies. Run via cron at 2 AM daily. Query Shopify GraphQL for orders created yesterday, compare to LIBBY orders table, flag missing or mismatched orders.",
+          "successCriteria": [
+            "Cron job defined to run daily at 2 AM",
+            "Job queries Shopify GraphQL for yesterday's orders",
+            "Compares against LIBBY orders table",
+            "Discrepancies logged with severity=warning",
+            "Job duration and result logged"
+          ],
+          "priority": "medium",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 7,
+          "filePath": "server/routes/admin/shopify-sync-status.ts",
+          "description": "Create admin API endpoint /api/admin/shopify-sync-status that returns: last successful webhook timestamp, webhook failure rate (last 24h), dead letter queue count, reconciliation status (last run, discrepancies found). Requires Admin role.",
+          "successCriteria": [
+            "Endpoint returns structured sync health data",
+            "Requires Admin or Owner role",
+            "Response includes webhook stats and reconciliation status",
+            "Endpoint responds in <200ms"
+          ],
+          "priority": "medium",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 8,
+          "filePath": "client/src/pages/admin/ShopifySyncDashboard.tsx",
+          "description": "Create admin dashboard page showing: webhook health (success rate, failures, last received), dead letter queue items (table with retry button), reconciliation status (last run, discrepancies). Only visible to Owner/Admin roles.",
+          "successCriteria": [
+            "Dashboard displays webhook health metrics",
+            "Dead letter queue items shown in table",
+            "Retry button triggers manual webhook reprocessing",
+            "Page requires Owner or Admin role",
+            "Data refreshes every 30s via polling"
+          ],
+          "priority": "medium",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 9,
+          "filePath": "server/integrations/shopify/webhooks.ts",
+          "description": "Add webhook signature verification using Shopify HMAC. Verify X-Shopify-Hmac-SHA256 header against computed HMAC of raw request body. Reject webhooks with invalid signatures (log as security event). Prevents spoofed webhooks.",
+          "successCriteria": [
+            "All webhooks verify HMAC signature before processing",
+            "Invalid signatures rejected with 401 status",
+            "Invalid signatures logged as security events",
+            "Valid signatures processed normally"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 10,
+          "filePath": "server/integrations/shopify/webhook-alerts.ts",
+          "description": "Add alerting logic: if webhook failure rate exceeds 10% in last hour, send notification to Owner. If dead letter queue exceeds 50 items, send alert. If reconciliation finds >5 discrepancies, send alert. Respects quiet hours.",
+          "successCriteria": [
+            "Failure rate monitoring checks every 15 minutes",
+            "Owner notified if thresholds exceeded",
+            "Alerts respect notification quiet hours",
+            "Alert cooldown: max 1 alert per issue per 4 hours"
+          ],
+          "priority": "low",
+          "estimatedComplexity": "medium"
+        }
+      ],
+      "verificationPages": [
+        "/admin/shopify-sync-dashboard",
+        "/api/admin/shopify-sync-status"
+      ],
+      "completionCriteria": "Shopify webhook system meets these conditions: (1) All webhooks logged to webhook_log table with status tracking, (2) Failed webhooks retry 3x with exponential backoff, (3) Dead letter queue captures unrecoverable failures, (4) Daily reconciliation job detects discrepancies, (5) Admin dashboard shows sync health in real-time, (6) Webhook signature verification prevents spoofed events, (7) Owner alerted if sync degrades, (8) Quality target met: sync lag under 60 seconds measured from webhook receivedAt to processedAt timestamps"
+    },
+    {
+      "id": "constraint-1771534598741",
+      "description": "Critical database connection failures and missing error handling are causing 500 errors across multiple core endpoints, making the app completely unusable",
+      "why": "The app is experiencing TypeErrors when trying to access database methods (.findMany, .findFirst) on undefined objects, indicating the database connection is not properly initialized or has failed. This blocks ALL database operations including clock-in/out, scheduling, and payroll.",
+      "unblocks": [
+        "Clock-in/out functionality for employees",
+        "Schedule viewing and management",
+        "Payroll report generation",
+        "Task assignment and tracking",
+        "All core business operations"
+      ],
+      "score": 10,
+      "category": "infrastructure",
+      "evidenceFromCrawl": [
+        "500 error on /api/time/clock - Cannot read properties of undefined (reading 'findMany')",
+        "500 error on /api/schedule/current - Cannot read properties of undefined (reading 'findMany')",
+        "500 error on /api/payroll/current-period - Cannot read properties of undefined (reading 'findFirst')",
+        "500 error on /api/dashboard/stats - Cannot read properties of undefined (reading 'findMany')",
+        "500 error on /api/admin/payroll/periods - Cannot read properties of undefined (reading 'findMany')"
+      ],
+      "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
+      "identifiedAt": "2026-02-19T20:56:38.741Z",
+      "status": "active",
+      "steps": [
+        {
+          "step": 1,
+          "filePath": "server/db/index.ts",
+          "description": "Add proper database connection initialization with retry logic and connection pooling to ensure db object is always defined",
+          "successCriteria": [
+            "Database connection established on server start",
+            "Connection pool properly configured",
+            "Retry logic for transient connection failures"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 2,
+          "filePath": "server/routes/time.ts",
+          "description": "Add null checks and proper error handling for database connection failures in time tracking endpoints",
+          "successCriteria": [
+            "All db access wrapped in try-catch",
+            "Null checks before accessing db methods",
+            "Proper 503 responses when db unavailable"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 3,
+          "filePath": "server/routes/schedule.ts",
+          "description": "Add database connection validation and error handling to schedule endpoints",
+          "successCriteria": [
+            "Database connection checked before use",
+            "Graceful error responses on connection failure",
+            "No more 500 errors on /api/schedule endpoints"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 4,
+          "filePath": "server/routes/payroll.ts",
+          "description": "Implement database connection guards and proper error handling for payroll calculations",
+          "successCriteria": [
+            "Payroll endpoints handle missing db gracefully",
+            "Clear error messages for connection issues",
+            "Financial data integrity maintained"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 5,
+          "filePath": "server/routes/dashboard.ts",
+          "description": "Add connection validation and fallback behavior for dashboard stats when database is unavailable",
+          "successCriteria": [
+            "Dashboard loads even with db issues",
+            "Shows cached or default data when possible",
+            "Clear indication when data is stale"
+          ],
+          "priority": "medium",
+          "estimatedComplexity": "low"
+        }
+      ],
+      "verificationPages": [
+        "/",
+        "/time",
+        "/schedule",
+        "/payroll",
+        "/admin/payroll"
+      ],
+      "completionCriteria": "All core endpoints return proper responses instead of 500 errors, database connection is stable with automatic recovery, and employees can successfully clock in/out"
+    },
+    {
+      "id": "constraint-1771534784517",
+      "description": "Critical authentication and API errors preventing core features from functioning. Multiple 401 Unauthorized errors, CORS issues, and database connection failures are blocking clock-in/out, schedule viewing, and task management.",
+      "why": "Users cannot access ANY core functionality when authentication fails. The 401 errors on /api/auth/me, /api/time-entries, /api/schedules, and /api/tasks mean employees can't clock in, managers can't view schedules, and the entire app is unusable.",
+      "unblocks": [
+        "Clock-in/out functionality for all employees",
+        "Schedule viewing and management",
+        "Task assignment and tracking",
+        "Payroll report generation",
+        "All authenticated API endpoints"
+      ],
+      "score": 10,
+      "category": "security",
+      "evidenceFromCrawl": [
+        "401 Unauthorized on /api/auth/me",
+        "401 Unauthorized on /api/time-entries",
+        "401 Unauthorized on /api/schedules/current",
+        "401 Unauthorized on /api/tasks",
+        "CORS policy errors blocking API calls",
+        "Database connection timeout errors",
+        "WebSocket connection failures"
+      ],
+      "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
+      "identifiedAt": "2026-02-19T20:59:44.517Z",
+      "status": "active",
+      "steps": [
+        {
+          "step": 1,
+          "filePath": "server/middleware/auth.ts",
+          "description": "Fix Clerk auth middleware to properly validate tokens and handle CORS preflight requests",
+          "successCriteria": [
+            "No more 401 errors on authenticated endpoints",
+            "CORS preflight requests return proper headers",
+            "Auth middleware logs show successful token validation"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 2,
+          "filePath": "server/routes/auth.ts",
+          "description": "Fix /api/auth/me endpoint to return proper user data and handle missing sessions",
+          "successCriteria": [
+            "/api/auth/me returns 200 with user data",
+            "Handles missing sessions with 401 (not 500)",
+            "Returns consistent user object shape"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 3,
+          "filePath": "client/src/lib/auth.ts",
+          "description": "Fix client-side auth token handling to properly attach Clerk tokens to API requests",
+          "successCriteria": [
+            "All API requests include Authorization header",
+            "Token refresh happens automatically",
+            "Failed auth redirects to login"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 4,
+          "filePath": "server/db/index.ts",
+          "description": "Fix database connection pool to handle timeouts and reconnection",
+          "successCriteria": [
+            "No more 'Connection terminated unexpectedly' errors",
+            "Database queries retry on connection failure",
+            "Connection pool logs show healthy connections"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 5,
+          "filePath": "server.ts",
+          "description": "Fix CORS configuration to allow Clerk auth headers and handle OPTIONS requests",
+          "successCriteria": [
+            "OPTIONS requests return 200",
+            "Access-Control-Allow-Headers includes Authorization",
+            "No more CORS policy errors in console"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        }
+      ],
+      "verificationPages": [
+        "/login",
+        "/dashboard",
+        "/clock",
+        "/schedule",
+        "/tasks"
+      ],
+      "completionCriteria": "Users can successfully log in, view their dashboard, clock in/out, view schedules, and access tasks without any authentication or CORS errors"
+    },
+    {
+      "id": "constraint-1771534882869",
+      "description": "Authentication system is completely broken — all API routes return 401 Unauthorized, making the entire app unusable",
+      "why": "Without auth, no user can access ANY feature. Clock-in, scheduling, payroll — everything requires authentication. This is a total system failure.",
+      "unblocks": [
+        "Clock-in/out functionality",
+        "Schedule management",
+        "Payroll report access",
+        "Task assignment",
+        "All core business operations"
+      ],
+      "score": 10,
+      "category": "security",
+      "evidenceFromCrawl": [
+        "Multiple 401 errors on /api/employees",
+        "401 on /api/schedules",
+        "401 on /api/time-entries",
+        "Console errors: 'Failed to load resource: the server responded with a status of 401'",
+        "Auth middleware appears to be rejecting all requests"
+      ],
+      "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports MUST work flawlessly",
+      "identifiedAt": "2026-02-19T21:01:22.869Z",
+      "status": "active",
+      "steps": [
+        {
+          "step": 1,
+          "filePath": "server/middleware/auth.ts",
+          "description": "Fix Clerk auth middleware that's blocking all requests. The middleware is likely misconfigured or not properly initialized with Clerk SDK.",
+          "successCriteria": [
+            "API requests return 200 instead of 401",
+            "Authenticated users can access protected routes"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 2,
+          "filePath": "server/routes/employees.ts",
+          "description": "Verify employee routes work with fixed auth middleware",
+          "successCriteria": [
+            "GET /api/employees returns employee data",
+            "No 401 errors"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 3,
+          "filePath": "server/routes/schedules.ts",
+          "description": "Verify schedule routes work with fixed auth middleware",
+          "successCriteria": [
+            "GET /api/schedules returns schedule data",
+            "Schedule management features accessible"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 4,
+          "filePath": "server/routes/time-entries.ts",
+          "description": "Verify time entry routes (clock-in/out) work with fixed auth middleware",
+          "successCriteria": [
+            "Clock-in/out endpoints respond without 401",
+            "Time tracking functional"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        }
+      ],
+      "verificationPages": [
+        "/",
+        "/schedule",
+        "/timeclock",
+        "/employees"
+      ],
+      "completionCriteria": "All API endpoints return proper data instead of 401 errors, users can log in and access core features"
+    },
+    {
+      "id": "constraint-1771547711974",
+      "description": "Multiple critical API endpoints are returning 404 errors, completely breaking core functionality including clock-in/out, scheduling, payroll, and task management",
+      "why": "The app's foundation features are completely non-functional. Users cannot clock in, view schedules, access payroll data, or manage tasks. This is a crisis-level constraint blocking all business operations.",
+      "unblocks": [
+        "Employees can clock in/out for shifts",
+        "Managers can view and create schedules",
+        "Payroll reports can be generated",
+        "Tasks can be assigned and tracked",
+        "Basic business operations can resume"
+      ],
+      "score": 10,
+      "category": "infrastructure",
+      "evidenceFromCrawl": [
+        "GET /api/clock/status - 404 Not Found",
+        "POST /api/clock/in - 404 Not Found",
+        "POST /api/clock/out - 404 Not Found",
+        "GET /api/schedules - 404 Not Found",
+        "GET /api/shifts - 404 Not Found",
+        "GET /api/payroll/periods - 404 Not Found",
+        "GET /api/payroll/reports/current - 404 Not Found",
+        "GET /api/tasks - 404 Not Found",
+        "GET /api/employees - 404 Not Found",
+        "GET /api/activity-logs - 404 Not Found"
+      ],
+      "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
+      "identifiedAt": "2026-02-20T00:35:11.974Z",
+      "status": "active",
+      "steps": [
+        {
+          "step": 1,
+          "filePath": "server/routes/index.ts",
+          "description": "Create or fix the main route registration file to properly mount all API route modules",
+          "successCriteria": [
+            "All route modules are imported and registered with the Express app"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 2,
+          "filePath": "server/routes/clock.ts",
+          "description": "Create or fix clock-in/out routes including /api/clock/status, /api/clock/in, and /api/clock/out endpoints",
+          "successCriteria": [
+            "Clock endpoints return 200 status",
+            "Proper error handling implemented",
+            "Database queries use Drizzle ORM"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 3,
+          "filePath": "server/routes/schedules.ts",
+          "description": "Create or fix schedule management routes including /api/schedules and /api/shifts endpoints",
+          "successCriteria": [
+            "Schedule endpoints return 200 status",
+            "Shift data properly queried from database"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 4,
+          "filePath": "server/routes/payroll.ts",
+          "description": "Create or fix payroll routes including /api/payroll/periods and /api/payroll/reports/current endpoints",
+          "successCriteria": [
+            "Payroll endpoints return 200 status",
+            "Payroll calculations use proper decimal arithmetic"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "high"
+        },
+        {
+          "step": 5,
+          "filePath": "server/routes/tasks.ts",
+          "description": "Create or fix task management routes including /api/tasks endpoint with CRUD operations",
+          "successCriteria": [
+            "Tasks endpoint returns 200 status",
+            "Proper task assignment logic implemented"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 6,
+          "filePath": "server/routes/employees.ts",
+          "description": "Create or fix employee management routes including /api/employees endpoint",
+          "successCriteria": [
+            "Employees endpoint returns 200 status",
+            "Proper RBAC checks implemented"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 7,
+          "filePath": "server/routes/activity-logs.ts",
+          "description": "Create or fix activity logging routes including /api/activity-logs endpoint",
+          "successCriteria": [
+            "Activity logs endpoint returns 200 status",
+            "Proper pagination implemented"
+          ],
+          "priority": "medium",
+          "estimatedComplexity": "low"
+        }
+      ],
+      "verificationPages": [
+        "/",
+        "/schedule",
+        "/payroll",
+        "/tasks",
+        "/employees"
+      ],
+      "completionCriteria": "All core API endpoints return 200 status codes instead of 404, and the app's foundation features (clock-in/out, scheduling, payroll, tasks) are functional"
+    },
+    {
+      "id": "constraint-1771559928578",
+      "description": "Critical authentication and API errors are breaking core functionality - users cannot log in, clock in/out, or access any authenticated features due to Clerk auth failures and missing API route handlers",
+      "why": "Without working authentication, the entire app is unusable. Clock-in/out (the #1 priority feature) requires auth. All LIVE features depend on users being authenticated.",
+      "unblocks": [
+        "Clock-in/out functionality",
+        "Geofencing validation",
+        "Schedule viewing and management",
+        "Payroll report generation",
+        "Task assignment and tracking",
+        "All authenticated API endpoints"
+      ],
+      "score": 10,
+      "category": "security",
+      "evidenceFromCrawl": [
+        "404 errors on critical auth endpoints: /api/clerk/webhook, /api/auth/me, /api/auth/setup",
+        "CORS errors blocking API calls from frontend",
+        "Missing organization context causing Clerk initialization failures",
+        "Frontend routing to non-existent paths like /api/clerk/webhook",
+        "Auth state not properly synchronized between frontend and backend"
+      ],
+      "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
+      "identifiedAt": "2026-02-20T03:58:48.578Z",
+      "status": "active",
+      "steps": [
+        {
+          "step": 1,
+          "filePath": "server.ts",
+          "description": "Add proper CORS configuration to allow frontend-backend communication",
+          "successCriteria": [
+            "No more CORS errors in console",
+            "Frontend can successfully call backend APIs"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 2,
+          "filePath": "server/routes/auth.ts",
+          "description": "Create missing auth routes including /api/auth/me and /api/auth/setup endpoints",
+          "successCriteria": [
+            "Auth endpoints return 200 status",
+            "User authentication state properly retrieved"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 3,
+          "filePath": "server/routes/clerk-webhook.ts",
+          "description": "Implement Clerk webhook handler for user/organization sync events",
+          "successCriteria": [
+            "Webhook endpoint responds to Clerk events",
+            "User data properly synced to database"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 4,
+          "filePath": "client/src/lib/auth.ts",
+          "description": "Fix Clerk initialization to properly handle organization context",
+          "successCriteria": [
+            "No Clerk initialization errors",
+            "Organization context properly set"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 5,
+          "filePath": "server/middleware/auth.ts",
+          "description": "Create auth middleware to protect API routes and validate Clerk sessions",
+          "successCriteria": [
+            "Protected routes require valid auth",
+            "401 errors for unauthenticated requests"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        }
+      ],
+      "verificationPages": [
+        "/",
+        "/login",
+        "/dashboard",
+        "/time-clock",
+        "/schedule"
+      ],
+      "completionCriteria": "Users can successfully log in, access the dashboard, and use clock-in/out functionality without any auth errors"
+    },
+    {
+      "id": "constraint-1771560049696",
+      "description": "Critical authentication and API errors preventing core workforce management features from functioning. Multiple 401 Unauthorized errors on clock-in/out endpoints and 404s on schedule endpoints indicate auth middleware or route configuration is broken.",
+      "why": "Without working auth, employees can't clock in/out, managers can't view schedules, and payroll data can't be accessed. This breaks the entire foundation of LIBBY's workforce management.",
+      "unblocks": [
+        "Employee clock-in/out functionality",
+        "Schedule viewing and management",
+        "Payroll report generation",
+        "Task assignment and tracking",
+        "Geofencing validation",
+        "Real-time shift updates via WebSocket"
+      ],
+      "score": 10,
+      "category": "security",
+      "evidenceFromCrawl": [
+        "GET /api/schedules 404 Not Found",
+        "POST /api/clock/in 401 Unauthorized",
+        "GET /api/payroll/periods 401 Unauthorized",
+        "Multiple 'Failed to fetch' errors on workforce pages",
+        "Console errors: 'Cannot read properties of undefined (reading 'map')' on schedule data"
+      ],
+      "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
+      "identifiedAt": "2026-02-20T04:00:49.696Z",
+      "status": "active",
+      "steps": [
+        {
+          "step": 1,
+          "filePath": "server/routes/index.ts",
+          "description": "Fix route registration for schedule, clock, and payroll endpoints. The 404 errors suggest these routes aren't being mounted properly.",
+          "successCriteria": [
+            "GET /api/schedules returns 200 or 401 (not 404)",
+            "POST /api/clock/in returns 200 or 401 (not 404)",
+            "All workforce routes are properly registered"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 2,
+          "filePath": "server/middleware/auth.ts",
+          "description": "Fix Clerk authentication middleware to properly validate requests. The 401 errors suggest auth tokens aren't being processed correctly.",
+          "successCriteria": [
+            "Authenticated requests receive proper user context",
+            "401 errors include proper WWW-Authenticate headers",
+            "Auth middleware correctly extracts Clerk session"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 3,
+          "filePath": "server/routes/schedules.ts",
+          "description": "Ensure schedule routes exist and handle errors gracefully. Fix any undefined data issues causing map errors.",
+          "successCriteria": [
+            "GET /api/schedules returns valid schedule data",
+            "Proper error handling for empty schedules",
+            "No console errors about undefined properties"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 4,
+          "filePath": "server/routes/clock.ts",
+          "description": "Create or fix clock-in/out endpoints with proper auth checks and geofencing validation.",
+          "successCriteria": [
+            "POST /api/clock/in accepts valid clock-in requests",
+            "Geofencing validation works correctly",
+            "Response time under 200ms p95"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 5,
+          "filePath": "client/src/lib/api-client.ts",
+          "description": "Fix API client to properly include Clerk auth headers on all requests. Ensure error handling for 401 responses.",
+          "successCriteria": [
+            "All API requests include Authorization header",
+            "401 errors trigger re-authentication flow",
+            "Network errors are properly caught and logged"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        }
+      ],
+      "verificationPages": [
+        "/schedule",
+        "/clock",
+        "/payroll",
+        "/tasks"
+      ],
+      "completionCriteria": "Employees can successfully clock in/out, view schedules, and generate payroll reports without authentication or routing errors"
+    },
+    {
+      "id": "constraint-1771560155195",
+      "description": "Critical API endpoints are returning 404 errors, preventing core functionality from working. The /api/time-clock/entries endpoint is completely broken, blocking employees from viewing their time entries. Multiple other critical endpoints like /api/schedule/current and /api/tasks are also failing.",
+      "why": "Without working time-clock and schedule APIs, employees cannot clock in/out or view their schedules - the most fundamental features of LIBBY. This blocks payroll accuracy, schedule visibility, and task management.",
+      "unblocks": [
+        "Employees can clock in/out reliably",
+        "Managers can view and export payroll reports",
+        "Schedule visibility for all staff",
+        "Task assignment and tracking functionality",
+        "Dashboard data population",
+        "WebSocket real-time updates for shift changes"
+      ],
+      "score": 10,
+      "category": "infrastructure",
+      "evidenceFromCrawl": [
+        "GET /api/time-clock/entries?startDate=2024-12-29&endDate=2025-01-04 → 404 Not Found",
+        "GET /api/schedule/current → 404 Not Found",
+        "GET /api/tasks?assignedTo=user_123&status=pending → 404 Not Found",
+        "GET /api/admin/payroll/periods → 404 Not Found",
+        "Multiple dashboard components showing 'Failed to load' due to 404 API errors"
+      ],
+      "goal": "Reliability of LIVE features — Clock-in/out, geofencing, scheduling, payroll reports, task assignment, and Clerk auth MUST work flawlessly",
+      "identifiedAt": "2026-02-20T04:02:35.195Z",
+      "status": "active",
+      "steps": [
+        {
+          "step": 1,
+          "filePath": "server/routes/index.ts",
+          "description": "Add missing route registrations for time-clock, schedule, tasks, and payroll endpoints. The route files likely exist but aren't mounted in the main router.",
+          "successCriteria": [
+            "All critical API endpoints return 200 OK instead of 404",
+            "Time entries load successfully",
+            "Schedule data displays correctly"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "low"
+        },
+        {
+          "step": 2,
+          "filePath": "server/routes/time-clock.ts",
+          "description": "Verify time-clock routes are properly exported and handle the /entries endpoint with date query parameters",
+          "successCriteria": [
+            "GET /api/time-clock/entries returns time entry data",
+            "Query parameters for date filtering work correctly"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 3,
+          "filePath": "server/routes/schedule.ts",
+          "description": "Ensure schedule routes handle /current endpoint to return current week's schedule",
+          "successCriteria": [
+            "GET /api/schedule/current returns schedule data",
+            "Schedule calendar displays shifts correctly"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 4,
+          "filePath": "server/routes/tasks.ts",
+          "description": "Fix task routes to handle query parameters for filtering by assignee and status",
+          "successCriteria": [
+            "GET /api/tasks returns task list",
+            "Query parameter filtering works for assignedTo and status"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        },
+        {
+          "step": 5,
+          "filePath": "server/routes/admin/payroll.ts",
+          "description": "Ensure payroll admin routes are mounted and handle /periods endpoint",
+          "successCriteria": [
+            "GET /api/admin/payroll/periods returns payroll period data",
+            "Payroll reports load successfully"
+          ],
+          "priority": "high",
+          "estimatedComplexity": "medium"
+        }
+      ],
+      "verificationPages": [
+        "/dashboard",
+        "/time-clock",
+        "/schedule",
+        "/tasks",
+        "/admin/payroll"
+      ],
+      "completionCriteria": "All critical API endpoints return valid data instead of 404 errors, and core features (clock-in, schedule viewing, task management) work without errors"
+    }
+  ],
+  "failedAttempts": [
+    {
+      "constraint": "Geofencing validation is completely broken — employees can clock in from anywhere, violating legal time-tracking compliance requirements",
+      "reason": "Geofencing validation constraint is NOT resolved. The constraint requires that POST /api/time-entries/clock-in returns 403 when user is >100m from store, but the codebase provided shows NO geofence validation implementation in the time entries route handler. The crawl verification only checks that pages load (which they do), but does NOT verify the actual geofence enforcement behavior. The re-crawl results show WebSocket connection failures and page load issues, but these are separate from the geofencing constraint. Critical: zero of the 6 planned steps have been completed.",
+      "timestamp": "2026-02-19T16:03:41.522Z"
+    }
+  ],
+  "totalCycles": 20,
+  "constraintsSolved": 0
+}

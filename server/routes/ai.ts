@@ -23,9 +23,8 @@ export function registerAIRoutes(app: Express, storage: IStorage, isAuthenticate
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
 
-      const aiCompanyId = req.user?.companyId;
-      const schedules = await storage.getAllSchedules(today, tomorrow, aiCompanyId);
-      const tasks = await storage.getTasksForDate(today, aiCompanyId);
+      const schedules = await storage.getAllSchedules(today, tomorrow);
+      const tasks = await storage.getTasksForDate(today);
       
       const uniqueUserIds = [...new Set(schedules.map(s => s.userId))];
       const userRows = uniqueUserIds.length > 0
@@ -69,13 +68,13 @@ export function registerAIRoutes(app: Express, storage: IStorage, isAuthenticate
       });
 
       for (const assignment of assignments.assignments) {
-        await storage.updateTask(assignment.choreId, aiCompanyId, {
+        await storage.updateTask(assignment.choreId, {
           assignedTo: assignment.assignedTo,
           isAIAssigned: true,
           aiReasoning: assignment.reasoning,
         });
 
-        const task = await storage.getTask(assignment.choreId, aiCompanyId);
+        const task = await storage.getTask(assignment.choreId);
         if (task) {
           await notificationService.sendTaskAssignment(
             assignment.assignedTo,
@@ -105,8 +104,8 @@ export function registerAIRoutes(app: Express, storage: IStorage, isAuthenticate
       }
       
       const user = await storage.getUser(userId);
-      const activeTimeEntry = req.user?.companyId ? await storage.getActiveTimeEntry(userId, req.user.companyId) : undefined;
-      const recentTasks = await storage.getUserTasks(userId, req.user?.companyId);
+      const activeTimeEntry = await storage.getActiveTimeEntry(userId);
+      const recentTasks = await storage.getUserTasks(userId);
       
       const context = {
         user: {
@@ -139,9 +138,8 @@ export function registerAIRoutes(app: Express, storage: IStorage, isAuthenticate
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - 30);
 
-      const aiCompanyId = req.user?.companyId;
-      const timeEntriesData = await storage.getAllTimeEntries(startDate, endDate, aiCompanyId);
-      const allUsers = await storage.getAllUsers(aiCompanyId);
+      const timeEntriesData = await storage.getAllTimeEntries(startDate, endDate);
+      const allUsers = await db.select().from(users);
       const userMap: Record<string, string> = {};
       allUsers.forEach(u => {
         userMap[u.id] = `${u.firstName || ''} ${u.lastName || ''}`.trim() || 'Unknown';
@@ -162,7 +160,6 @@ export function registerAIRoutes(app: Express, storage: IStorage, isAuthenticate
 
       for (const anomaly of result.anomalies) {
         await storage.createAIInsight({
-          companyId: aiCompanyId || null,
           type: 'anomaly_detected',
           userId: anomaly.userId || null,
           title: anomaly.type,
@@ -202,8 +199,7 @@ export function registerAIRoutes(app: Express, storage: IStorage, isAuthenticate
       }
 
       const savedRules = [];
-      const aiHolidayCompanyId = req.user?.companyId;
-      const existingRules = await storage.getAllHolidayPayRules(aiHolidayCompanyId);
+      const existingRules = await storage.getAllHolidayPayRules();
       for (const holiday of result.holidays) {
         if (!holiday.name || typeof holiday.month !== 'number' || typeof holiday.day !== 'number') continue;
         if (holiday.month < 1 || holiday.month > 12 || holiday.day < 1 || holiday.day > 31) continue;
@@ -213,7 +209,7 @@ export function registerAIRoutes(app: Express, storage: IStorage, isAuthenticate
           r => r.month === holiday.month && r.day === holiday.day
         );
         if (existing) {
-          const updated = await storage.updateHolidayPayRule(existing.id, aiHolidayCompanyId, {
+          const updated = await storage.updateHolidayPayRule(existing.id, {
             name: holiday.name,
             payMultiplier: multiplier.toFixed(2),
           });
@@ -226,7 +222,6 @@ export function registerAIRoutes(app: Express, storage: IStorage, isAuthenticate
             payMultiplier: multiplier.toFixed(2),
             isActive: true,
             createdBy: userId,
-            ...(req.user?.companyId ? { companyId: req.user.companyId } : {}),
           });
           savedRules.push(rule);
         }

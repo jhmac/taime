@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { z } from "zod";
 import { db } from "../db";
-import { eq, and, desc, asc, sql, gte, lte, ilike, or, type SQL } from "drizzle-orm";
+import { eq, and, desc, asc, sql, gte, lte, ilike, or } from "drizzle-orm";
 import { issues, issueComments, insertIssueSchema, insertIssueCommentSchema, users, sopTemplates, workLocations, gtdInboxItems } from "@shared/schema";
 import { asyncHandler, AppError } from "../lib/routeWrapper";
 import type { IStorage } from "../storage";
@@ -17,21 +17,14 @@ export function registerIssueRoutes(
 ) {
   app.post('/api/issues', isAuthenticated, asyncHandler(async (req: any, res) => {
     const userId = req.user.id;
-    const companyId = req.user?.companyId;
-    if (!companyId) throw new AppError(403, "Company context required", "NO_COMPANY");
 
-    const storeLocations = await db
-      .select({ id: workLocations.id })
-      .from(workLocations)
-      .where(eq(workLocations.companyId, companyId))
-      .limit(1);
-    const storeId = storeLocations[0]?.id;
-    if (!storeId) throw new AppError(400, "No store configured for this company", "NO_STORE");
+    const allLocations = await db.select({ id: workLocations.id }).from(workLocations).limit(1);
+    const storeId = allLocations[0]?.id;
+    if (!storeId) throw new AppError(400, "No store configured", "NO_STORE");
 
     const body = insertIssueSchema.parse({
       ...req.body,
       storeId,
-      companyId,
       reportedBy: userId,
       status: 'open',
       priority: req.body.priority || 'medium',
@@ -90,15 +83,12 @@ export function registerIssueRoutes(
   }));
 
   app.get('/api/issues', isAuthenticated, asyncHandler(async (req: any, res) => {
-    const companyId = req.user?.companyId;
-    if (!companyId) throw new AppError(403, "Company context required", "NO_COMPANY");
-
     const {
       status, category, priority, assigned_to, date_from, date_to, search,
       limit: limitStr, offset: offsetStr,
     } = req.query as Record<string, string | undefined>;
 
-    const conditions: SQL<unknown>[] = [eq(issues.companyId, companyId)];
+    const conditions: any[] = [];
     if (status) conditions.push(eq(issues.status, status));
     if (category) conditions.push(eq(issues.category, category));
     if (priority) conditions.push(eq(issues.priority, priority));
@@ -109,15 +99,17 @@ export function registerIssueRoutes(
       conditions.push(or(
         ilike(issues.title, `%${search}%`),
         ilike(issues.description, `%${search}%`)
-      )!);
+      ));
     }
 
     const limit = Math.min(Math.max(parseInt(limitStr || '50'), 1), 200);
     const offset = Math.max(parseInt(offsetStr || '0'), 0);
 
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
     const rows = await db.select()
       .from(issues)
-      .where(and(...conditions))
+      .where(whereClause)
       .orderBy(
         asc(sql`CASE ${issues.priority} WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 END`),
         desc(issues.createdAt)
@@ -156,13 +148,9 @@ export function registerIssueRoutes(
   }));
 
   app.get('/api/issues/:id', isAuthenticated, asyncHandler(async (req: any, res) => {
-    const companyId = req.user?.companyId;
-    if (!companyId) throw new AppError(403, "Company context required", "NO_COMPANY");
     const { id } = req.params;
 
-    const [issue] = await db.select().from(issues).where(
-      and(eq(issues.id, id), eq(issues.companyId, companyId))
-    );
+    const [issue] = await db.select().from(issues).where(eq(issues.id, id));
     if (!issue) throw new AppError(404, "Issue not found", "NOT_FOUND");
 
     const comments = await db.select()
@@ -223,13 +211,9 @@ export function registerIssueRoutes(
 
   app.put('/api/issues/:id', isAuthenticated, asyncHandler(async (req: any, res) => {
     const userId = req.user.id;
-    const companyId = req.user?.companyId;
-    if (!companyId) throw new AppError(403, "Company context required", "NO_COMPANY");
     const { id } = req.params;
 
-    const [existing] = await db.select().from(issues).where(
-      and(eq(issues.id, id), eq(issues.companyId, companyId))
-    );
+    const [existing] = await db.select().from(issues).where(eq(issues.id, id));
     if (!existing) throw new AppError(404, "Issue not found", "NOT_FOUND");
 
     const updateSchema = z.object({
@@ -278,7 +262,7 @@ export function registerIssueRoutes(
 
     const [updated] = await db.update(issues)
       .set(setPayload)
-      .where(and(eq(issues.id, id), eq(issues.companyId, companyId)))
+      .where(eq(issues.id, id))
       .returning();
 
     if (statusChanging) {
@@ -299,13 +283,9 @@ export function registerIssueRoutes(
 
   app.post('/api/issues/:id/comments', isAuthenticated, asyncHandler(async (req: any, res) => {
     const userId = req.user.id;
-    const companyId = req.user?.companyId;
-    if (!companyId) throw new AppError(403, "Company context required", "NO_COMPANY");
     const { id } = req.params;
 
-    const [issue] = await db.select({ id: issues.id }).from(issues).where(
-      and(eq(issues.id, id), eq(issues.companyId, companyId))
-    );
+    const [issue] = await db.select({ id: issues.id }).from(issues).where(eq(issues.id, id));
     if (!issue) throw new AppError(404, "Issue not found", "NOT_FOUND");
 
     const body = insertIssueCommentSchema.parse({

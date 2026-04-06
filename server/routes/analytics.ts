@@ -1,5 +1,9 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
+import { users } from "@shared/schema";
+import { eq } from "drizzle-orm";
+import { db } from "../db";
+import { cache } from "../lib/cache";
 
 export function registerAnalyticsRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
   app.get('/api/analytics/dashboard', isAuthenticated, async (req: any, res) => {
@@ -31,14 +35,16 @@ export function registerAnalyticsRoutes(app: Express, storage: IStorage, isAuthe
       const lastWeekEnd = new Date(weekStart);
       lastWeekEnd.setMilliseconds(-1);
 
-      const analyticsCompanyId = req.user?.companyId;
-      const [allTimeEntries, allSchedules, allTasks, allUsersRaw] = await Promise.all([
-        storage.getAllTimeEntries(thirtyDaysAgo, now, analyticsCompanyId),
-        storage.getAllSchedules(thirtyDaysAgo, now, analyticsCompanyId),
-        storage.getAllTasks(analyticsCompanyId),
-        storage.getAllUsers(analyticsCompanyId),
+      const [allTimeEntries, allUsers, allSchedules, allTasks] = await Promise.all([
+        storage.getAllTimeEntries(thirtyDaysAgo, now),
+        cache.getOrSet('analytics:users', () =>
+          db.select({ id: users.id, hourlyRate: users.hourlyRate, isActive: users.isActive, firstName: users.firstName, lastName: users.lastName })
+            .from(users).where(eq(users.isActive, true)),
+          120_000
+        ),
+        storage.getAllSchedules(thirtyDaysAgo, now),
+        storage.getAllTasks(),
       ]);
-      const allUsers = allUsersRaw.filter(u => u.isActive);
 
       const userRateMap = new Map<string, number>();
       allUsers.forEach(u => {

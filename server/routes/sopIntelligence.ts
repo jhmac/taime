@@ -20,9 +20,7 @@ export function registerSOPIntelligenceRoutes(app: Express, storage: IStorage, i
       const isManager = await requireManagerOrAbove(storage, req.user.id);
       if (!isManager) return res.status(403).json({ message: "Manager or owner access required" });
 
-      const companyId = req.user?.companyId;
-      if (!companyId) return res.status(403).json({ message: "Company context required" });
-      const storeId = await resolveStoreId(companyId);
+      const storeId = await resolveStoreId();
       if (!storeId) return res.status(400).json({ message: "No store configured" });
 
       const { severity, sop_template_id, status } = req.query;
@@ -59,9 +57,7 @@ export function registerSOPIntelligenceRoutes(app: Express, storage: IStorage, i
       const isManager = await requireManagerOrAbove(storage, req.user.id);
       if (!isManager) return res.status(403).json({ message: "Manager or owner access required" });
 
-      const companyId = req.user?.companyId;
-      if (!companyId) return res.status(403).json({ message: "Company context required" });
-      const storeId = await resolveStoreId(companyId);
+      const storeId = await resolveStoreId();
       if (!storeId) return res.status(400).json({ message: "No store configured" });
 
       const { id } = req.params;
@@ -93,9 +89,7 @@ export function registerSOPIntelligenceRoutes(app: Express, storage: IStorage, i
       const isManager = await requireManagerOrAbove(storage, req.user.id);
       if (!isManager) return res.status(403).json({ message: "Manager or owner access required" });
 
-      const companyId = req.user?.companyId;
-      if (!companyId) return res.status(403).json({ message: "Company context required" });
-      const storeId = await resolveStoreId(companyId);
+      const storeId = await resolveStoreId();
       if (!storeId) return res.status(400).json({ message: "No store configured" });
 
       const { templateId } = req.params;
@@ -120,9 +114,7 @@ export function registerSOPIntelligenceRoutes(app: Express, storage: IStorage, i
       const isManager = await requireManagerOrAbove(storage, req.user.id);
       if (!isManager) return res.status(403).json({ message: "Manager or owner access required" });
 
-      const companyId = req.user?.companyId;
-      if (!companyId) return res.status(403).json({ message: "Company context required" });
-      const storeId = await resolveStoreId(companyId);
+      const storeId = await resolveStoreId();
       if (!storeId) return res.status(400).json({ message: "No store configured" });
 
       await generateSOPInsights(storeId);

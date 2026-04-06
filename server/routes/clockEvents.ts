@@ -38,7 +38,7 @@ export function registerClockEventRoutes(app: Express, storage: IStorage, isAuth
         return res.status(400).json({ message: "eventType is required" });
       }
 
-      const scoreSettings = await storage.getPerformanceScoreSettings(req.user?.companyId);
+      const scoreSettings = await storage.getPerformanceScoreSettings();
       let pointValue = 0;
       const setting = scoreSettings.find(s => s.eventType === eventType);
       if (setting && setting.isActive) {
@@ -56,7 +56,6 @@ export function registerClockEventRoutes(app: Express, storage: IStorage, isAuth
         eventType,
         pointValue,
         metadata: metadata || null,
-        ...(req.user?.companyId ? { companyId: req.user.companyId } : {}),
       });
 
       res.json(event);
@@ -76,20 +75,13 @@ export function registerClockEventRoutes(app: Express, storage: IStorage, isAuth
       const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
       const targetUserId = req.query.userId as string;
 
-      const companyId = req.user?.companyId;
       let events;
       if (canViewAll && targetUserId) {
-        if (companyId) {
-          const targetUser = await storage.getUser(targetUserId);
-          if (!targetUser || targetUser.companyId !== companyId) {
-            return res.status(403).json({ message: "Access denied" });
-          }
-        }
-        events = await storage.getClockEvents(targetUserId, startDate, endDate, companyId);
+        events = await storage.getClockEvents(targetUserId, startDate, endDate);
       } else if (canViewAll) {
-        events = await storage.getAllClockEvents(startDate, endDate, companyId);
+        events = await storage.getAllClockEvents(startDate, endDate);
       } else {
-        events = await storage.getClockEvents(userId, startDate, endDate, companyId);
+        events = await storage.getClockEvents(userId, startDate, endDate);
       }
 
       res.json(events);
@@ -109,12 +101,12 @@ export function registerClockEventRoutes(app: Express, storage: IStorage, isAuth
       const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
 
       if (!canViewAll) {
-        const events = await storage.getClockEvents(userId, startDate, endDate, req.user?.companyId);
+        const events = await storage.getClockEvents(userId, startDate, endDate);
         const totalPoints = events.reduce((sum, e) => sum + (e.pointValue || 0), 0);
         return res.json([{ userId, totalPoints, eventCount: events.length }]);
       }
 
-      const scores = await storage.getPerformanceScores(startDate, endDate, req.user?.companyId);
+      const scores = await storage.getPerformanceScores(startDate, endDate);
       res.json(scores);
     } catch (error) {
       console.error("Error fetching performance scores:", error);
@@ -136,7 +128,7 @@ export function registerClockEventRoutes(app: Express, storage: IStorage, isAuth
       const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
       const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
 
-      const events = await storage.getClockEvents(targetUserId, startDate, endDate, req.user?.companyId);
+      const events = await storage.getClockEvents(targetUserId, startDate, endDate);
 
       const categoryBreakdown: Record<string, { points: number; count: number }> = {};
       let totalPoints = 0;
@@ -167,18 +159,15 @@ export function registerClockEventRoutes(app: Express, storage: IStorage, isAuth
 
   app.get('/api/performance/settings', isAuthenticated, async (req: any, res) => {
     try {
-      const companyId = req.user?.companyId;
-      if (!companyId) return res.status(403).json({ message: "Company context required" });
-      let settings = await storage.getPerformanceScoreSettings(companyId);
+      let settings = await storage.getPerformanceScoreSettings();
       if (settings.length === 0) {
         for (const setting of DEFAULT_SCORE_SETTINGS) {
           await storage.upsertPerformanceScoreSetting({
             ...setting,
             isActive: true,
-            companyId,
           });
         }
-        settings = await storage.getPerformanceScoreSettings(companyId);
+        settings = await storage.getPerformanceScoreSettings();
       }
       res.json(settings);
     } catch (error) {
@@ -203,8 +192,6 @@ export function registerClockEventRoutes(app: Express, storage: IStorage, isAuth
       }
 
       const updated = [];
-      const companyId = req.user?.companyId;
-      if (!companyId) return res.status(403).json({ message: "Company context required" });
       for (const setting of settings) {
         const result = await storage.upsertPerformanceScoreSetting({
           eventType: setting.eventType,
@@ -213,7 +200,6 @@ export function registerClockEventRoutes(app: Express, storage: IStorage, isAuth
           pointValue: setting.pointValue,
           isActive: setting.isActive ?? true,
           updatedBy: userId,
-          companyId,
         });
         updated.push(result);
       }

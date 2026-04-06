@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
-import { aiSchedulingSettings, shopifyDailySales, users, userAvailability, schedules, shops, userShops, roles, workPatternTemplates, userWorkPatterns, clockEvents } from "@shared/schema";
+import { aiSchedulingSettings, shopifyDailySales, users, userAvailability, schedules, shops, roles, workPatternTemplates, userWorkPatterns, clockEvents } from "@shared/schema";
 import { eq, and, gte, lte, desc, inArray, sql } from "drizzle-orm";
 import { db } from "../db";
 import Anthropic from '@anthropic-ai/sdk';
@@ -68,15 +68,13 @@ export function registerAiSchedulingRoutes(app: Express, storage: IStorage, isAu
   app.get("/api/ai-scheduling/settings", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const companyId = req.user?.companyId;
-      if (!companyId) return res.status(403).json({ message: "Company context required" });
       const userPermissions = await storage.getUserPermissions(userId);
       const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
       if (!isAdmin) {
         return res.status(403).json({ message: "Admin access required" });
       }
 
-      const result = await db.select().from(aiSchedulingSettings).where(eq(aiSchedulingSettings.companyId, companyId)).limit(1);
+      const result = await db.select().from(aiSchedulingSettings).limit(1);
       if (result.length > 0) {
         res.json(result[0]);
       } else {
@@ -111,8 +109,6 @@ export function registerAiSchedulingRoutes(app: Express, storage: IStorage, isAu
   app.put("/api/ai-scheduling/settings", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const companyId = req.user?.companyId;
-      if (!companyId) return res.status(403).json({ message: "Company context required" });
       const userPermissions = await storage.getUserPermissions(userId);
       const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
       if (!isAdmin) {
@@ -121,7 +117,7 @@ export function registerAiSchedulingRoutes(app: Express, storage: IStorage, isAu
 
       const { shiftBlocks, staffingTiers, minimumStaffing, storeHours, shiftOverlapMinutes, overlapBudgetLimit } = req.body;
 
-      const existing = await db.select().from(aiSchedulingSettings).where(eq(aiSchedulingSettings.companyId, companyId)).limit(1);
+      const existing = await db.select().from(aiSchedulingSettings).limit(1);
 
       if (existing.length > 0) {
         await db.update(aiSchedulingSettings)
@@ -133,7 +129,7 @@ export function registerAiSchedulingRoutes(app: Express, storage: IStorage, isAu
             updatedBy: userId,
             updatedAt: new Date(),
           })
-          .where(and(eq(aiSchedulingSettings.id, existing[0].id), eq(aiSchedulingSettings.companyId, companyId)));
+          .where(eq(aiSchedulingSettings.id, existing[0].id));
 
         if (shiftOverlapMinutes !== undefined || overlapBudgetLimit !== undefined) {
           const id = existing[0].id;
@@ -141,16 +137,15 @@ export function registerAiSchedulingRoutes(app: Express, storage: IStorage, isAu
           const budgetVal = overlapBudgetLimit !== undefined ? (overlapBudgetLimit !== null ? Number(overlapBudgetLimit) : null) : undefined;
 
           if (overlapVal !== null && budgetVal !== undefined) {
-            await db.execute(sql`UPDATE ai_scheduling_settings SET shift_overlap_minutes = ${overlapVal}, overlap_budget_limit = ${budgetVal} WHERE id = ${id} AND company_id = ${companyId}`);
+            await db.execute(sql`UPDATE ai_scheduling_settings SET shift_overlap_minutes = ${overlapVal}, overlap_budget_limit = ${budgetVal} WHERE id = ${id}`);
           } else if (overlapVal !== null) {
-            await db.execute(sql`UPDATE ai_scheduling_settings SET shift_overlap_minutes = ${overlapVal} WHERE id = ${id} AND company_id = ${companyId}`);
+            await db.execute(sql`UPDATE ai_scheduling_settings SET shift_overlap_minutes = ${overlapVal} WHERE id = ${id}`);
           } else if (budgetVal !== undefined) {
-            await db.execute(sql`UPDATE ai_scheduling_settings SET overlap_budget_limit = ${budgetVal} WHERE id = ${id} AND company_id = ${companyId}`);
+            await db.execute(sql`UPDATE ai_scheduling_settings SET overlap_budget_limit = ${budgetVal} WHERE id = ${id}`);
           }
         }
       } else {
         await db.insert(aiSchedulingSettings).values({
-          companyId,
           shiftBlocks: shiftBlocks || [],
           staffingTiers: staffingTiers || [],
           minimumStaffing: minimumStaffing ?? 2,
@@ -158,17 +153,17 @@ export function registerAiSchedulingRoutes(app: Express, storage: IStorage, isAu
           updatedBy: userId,
         });
         if (shiftOverlapMinutes !== undefined || overlapBudgetLimit !== undefined) {
-          const result = await db.select({ id: aiSchedulingSettings.id }).from(aiSchedulingSettings).where(eq(aiSchedulingSettings.companyId, companyId)).limit(1);
+          const result = await db.select({ id: aiSchedulingSettings.id }).from(aiSchedulingSettings).limit(1);
           if (result.length > 0) {
             const id = result[0].id;
             const overlapVal = shiftOverlapMinutes !== undefined ? Number(shiftOverlapMinutes) : 60;
             const budgetVal = overlapBudgetLimit !== undefined ? (overlapBudgetLimit !== null ? Number(overlapBudgetLimit) : null) : null;
-            await db.execute(sql`UPDATE ai_scheduling_settings SET shift_overlap_minutes = ${overlapVal}, overlap_budget_limit = ${budgetVal} WHERE id = ${id} AND company_id = ${companyId}`);
+            await db.execute(sql`UPDATE ai_scheduling_settings SET shift_overlap_minutes = ${overlapVal}, overlap_budget_limit = ${budgetVal} WHERE id = ${id}`);
           }
         }
       }
 
-      const updated = await db.select().from(aiSchedulingSettings).where(eq(aiSchedulingSettings.companyId, companyId)).limit(1);
+      const updated = await db.select().from(aiSchedulingSettings).limit(1);
       res.json(updated[0]);
     } catch (error) {
       console.error("Error updating AI scheduling settings:", error);
@@ -179,8 +174,6 @@ export function registerAiSchedulingRoutes(app: Express, storage: IStorage, isAu
   app.post("/api/ai-scheduling/generate", isAuthenticated, aiRateLimiter, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const companyId = req.user?.companyId;
-      if (!companyId) return res.status(403).json({ message: "Company context required" });
       const userPermissions = await storage.getUserPermissions(userId);
       const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
       if (!isAdmin) {
@@ -192,7 +185,7 @@ export function registerAiSchedulingRoutes(app: Express, storage: IStorage, isAu
         return res.status(400).json({ message: "Start date and end date are required" });
       }
 
-      const settingsResult = await db.select().from(aiSchedulingSettings).where(eq(aiSchedulingSettings.companyId, companyId)).limit(1);
+      const settingsResult = await db.select().from(aiSchedulingSettings).limit(1);
       const settings = settingsResult[0] || {
         shiftBlocks: [
           { name: "Morning", startTime: "09:00", endTime: "14:00" },
@@ -216,15 +209,9 @@ export function registerAiSchedulingRoutes(app: Express, storage: IStorage, isAu
       let resolvedShopDomain = shopDomain;
 
       if (!resolvedShopDomain) {
-        // Scope shop lookup to the current user via userShops to prevent cross-tenant data access
-        const userShopResult = await db
-          .select({ shopDomain: shops.shopDomain })
-          .from(shops)
-          .innerJoin(userShops, eq(userShops.shopDomain, shops.shopDomain))
-          .where(and(eq(userShops.userId, userId), eq(shops.isActive, true)))
-          .limit(1);
-        if (userShopResult.length > 0) {
-          resolvedShopDomain = userShopResult[0].shopDomain;
+        const activeShops = await db.select().from(shops).where(eq(shops.isActive, true)).limit(1);
+        if (activeShops.length > 0) {
+          resolvedShopDomain = activeShops[0].shopDomain;
         }
       }
 
@@ -289,22 +276,16 @@ export function registerAiSchedulingRoutes(app: Express, storage: IStorage, isAu
         });
       }
 
-      const allUsers = await db.select().from(users).where(and(eq(users.isActive, true), eq(users.companyId, companyId)));
+      const allUsers = await db.select().from(users).where(eq(users.isActive, true));
 
-      const companyUserIds = allUsers.map(u => u.id);
-      const availabilityResult = companyUserIds.length > 0
-        ? await db.select()
-            .from(userAvailability)
-            .where(and(
-              gte(userAvailability.date, start),
-              lte(userAvailability.date, end),
-              inArray(userAvailability.userId, companyUserIds)
-            ))
-        : [];
+      const availabilityResult = await db.select()
+        .from(userAvailability)
+        .where(and(
+          gte(userAvailability.date, start),
+          lte(userAvailability.date, end)
+        ));
 
-      const allWorkPatterns = companyUserIds.length > 0
-        ? await db.select().from(userWorkPatterns).where(inArray(userWorkPatterns.userId, companyUserIds))
-        : [];
+      const allWorkPatterns = await db.select().from(userWorkPatterns);
       const workPatternsByUser: Record<string, Record<number, string>> = {};
       for (const wp of allWorkPatterns) {
         if (!workPatternsByUser[wp.userId]) workPatternsByUser[wp.userId] = {};
@@ -330,16 +311,14 @@ export function registerAiSchedulingRoutes(app: Express, storage: IStorage, isAu
 
       const scoreWindow = new Date();
       scoreWindow.setDate(scoreWindow.getDate() - 90);
-      const performanceScores = companyUserIds.length > 0
-        ? await db
-            .select({
-              userId: clockEvents.userId,
-              totalPoints: sql<number>`COALESCE(SUM(${clockEvents.pointValue}), 0)::int`,
-            })
-            .from(clockEvents)
-            .where(and(gte(clockEvents.createdAt, scoreWindow), inArray(clockEvents.userId, companyUserIds)))
-            .groupBy(clockEvents.userId)
-        : [];
+      const performanceScores = await db
+        .select({
+          userId: clockEvents.userId,
+          totalPoints: sql<number>`COALESCE(SUM(${clockEvents.pointValue}), 0)::int`,
+        })
+        .from(clockEvents)
+        .where(gte(clockEvents.createdAt, scoreWindow))
+        .groupBy(clockEvents.userId);
       const scoreMap: Record<string, number> = {};
       for (const s of performanceScores) {
         scoreMap[s.userId] = s.totalPoints;
@@ -558,8 +537,6 @@ Required JSON structure:
   app.post("/api/ai-scheduling/apply", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const companyId = req.user?.companyId;
-      if (!companyId) return res.status(403).json({ message: "Company context required" });
       const userPermissions = await storage.getUserPermissions(userId);
       const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
       if (!isAdmin) {
@@ -571,7 +548,7 @@ Required JSON structure:
         return res.status(400).json({ message: "Schedule entries are required" });
       }
 
-      const allUserIds = await db.select({ id: users.id }).from(users).where(and(eq(users.isActive, true), eq(users.companyId, companyId)));
+      const allUserIds = await db.select({ id: users.id }).from(users).where(eq(users.isActive, true));
       const validUserIds = new Set(allUserIds.map(u => u.id));
 
       const validEntries = scheduleEntries
@@ -608,8 +585,6 @@ Required JSON structure:
   app.get("/api/ai-scheduling/roster", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const companyId = req.user?.companyId;
-      if (!companyId) return res.status(403).json({ message: "Company context required" });
       const userPermissions = await storage.getUserPermissions(userId);
       const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
       if (!isAdmin) {
@@ -626,7 +601,7 @@ Required JSON structure:
         targetWeeklyHours: users.targetWeeklyHours,
         roleId: users.roleId,
         isActive: users.isActive,
-      }).from(users).where(and(eq(users.isActive, true), eq(users.companyId, companyId)));
+      }).from(users).where(eq(users.isActive, true));
 
       const allRoles = await db.select().from(roles);
       const roleMap = Object.fromEntries(allRoles.map(r => [r.id, r.name]));
@@ -651,8 +626,6 @@ Required JSON structure:
   app.put("/api/ai-scheduling/roster/:employeeId", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const companyId = req.user?.companyId;
-      if (!companyId) return res.status(403).json({ message: "Company context required" });
       const userPermissions = await storage.getUserPermissions(userId);
       const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
       if (!isAdmin) {
@@ -661,9 +634,6 @@ Required JSON structure:
 
       const { employeeId } = req.params;
       const { showInSchedule, targetWeeklyHours } = req.body;
-
-      const targetUser = await db.select({ id: users.id }).from(users).where(and(eq(users.id, employeeId), eq(users.companyId, companyId))).limit(1);
-      if (targetUser.length === 0) return res.status(403).json({ message: "Access denied: employee not in your company" });
 
       const updateData: any = {};
       if (typeof showInSchedule === 'boolean') {
@@ -687,7 +657,7 @@ Required JSON structure:
 
       await db.update(users)
         .set(updateData)
-        .where(and(eq(users.id, employeeId), eq(users.companyId, companyId)));
+        .where(eq(users.id, employeeId));
 
       res.json({ success: true });
     } catch (error) {
@@ -709,19 +679,14 @@ Required JSON structure:
   app.get("/api/ai-scheduling/work-patterns", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const companyId = req.user?.companyId;
-      if (!companyId) return res.status(403).json({ message: "Company context required" });
       const userPermissions = await storage.getUserPermissions(userId);
       const isAdmin = userPermissions.some((p: any) => p.name === 'admin.manage_all');
       if (!isAdmin) {
         return res.status(403).json({ message: "Admin access required" });
       }
 
-      const allUsers = await db.select().from(users).where(and(eq(users.isActive, true), eq(users.companyId, companyId)));
-      const companyUserIds = allUsers.map(u => u.id);
-      const allPatterns = companyUserIds.length > 0
-        ? await db.select().from(userWorkPatterns).where(inArray(userWorkPatterns.userId, companyUserIds))
-        : [];
+      const allUsers = await db.select().from(users).where(eq(users.isActive, true));
+      const allPatterns = await db.select().from(userWorkPatterns);
       const allRoles = await db.select().from(roles);
       const roleMap = Object.fromEntries(allRoles.map(r => [r.id, r.name]));
 
@@ -748,8 +713,6 @@ Required JSON structure:
   app.put("/api/ai-scheduling/work-patterns/:employeeId", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const companyId = req.user?.companyId;
-      if (!companyId) return res.status(403).json({ message: "Company context required" });
       const userPermissions = await storage.getUserPermissions(userId);
       const isAdmin = userPermissions.some((p: any) => p.name === 'admin.manage_all');
       if (!isAdmin) {
@@ -758,9 +721,6 @@ Required JSON structure:
 
       const { employeeId } = req.params;
       const { patterns, templateId } = req.body;
-
-      const targetUser = await db.select({ id: users.id }).from(users).where(and(eq(users.id, employeeId), eq(users.companyId, companyId))).limit(1);
-      if (targetUser.length === 0) return res.status(403).json({ message: "Access denied: employee not in your company" });
 
       if (!patterns || !Array.isArray(patterns) || patterns.length !== 7) {
         return res.status(400).json({ message: "Must provide patterns for all 7 days" });
@@ -797,8 +757,6 @@ Required JSON structure:
   app.post("/api/ai-scheduling/work-patterns/bulk-apply", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const companyId = req.user?.companyId;
-      if (!companyId) return res.status(403).json({ message: "Company context required" });
       const userPermissions = await storage.getUserPermissions(userId);
       const isAdmin = userPermissions.some((p: any) => p.name === 'admin.manage_all');
       if (!isAdmin) {
@@ -814,13 +772,9 @@ Required JSON structure:
         return res.status(400).json({ message: "Must provide patterns for all 7 days" });
       }
 
-      const companyUsers = await db.select({ id: users.id }).from(users).where(and(eq(users.companyId, companyId), inArray(users.id, employeeIds)));
-      const validEmployeeIds = companyUsers.map(u => u.id);
-      if (validEmployeeIds.length === 0) return res.status(403).json({ message: "Access denied: no valid employees in your company" });
+      await db.delete(userWorkPatterns).where(inArray(userWorkPatterns.userId, employeeIds));
 
-      await db.delete(userWorkPatterns).where(inArray(userWorkPatterns.userId, validEmployeeIds));
-
-      const values = validEmployeeIds.flatMap((empId: string) =>
+      const values = employeeIds.flatMap((empId: string) =>
         patterns.map((p: any) => ({
           userId: empId,
           dayOfWeek: p.day,
@@ -831,7 +785,7 @@ Required JSON structure:
 
       await db.insert(userWorkPatterns).values(values);
 
-      res.json({ success: true, updated: validEmployeeIds.length });
+      res.json({ success: true, updated: employeeIds.length });
     } catch (error) {
       console.error("Error bulk applying work patterns:", error);
       res.status(500).json({ message: "Failed to apply patterns" });

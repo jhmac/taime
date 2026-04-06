@@ -44,9 +44,6 @@ import {
   Download,
   Send,
   Plus,
-  Link,
-  Check,
-  UserCheck,
 } from "lucide-react";
 
 function getInitials(firstName?: string | null, lastName?: string | null) {
@@ -77,8 +74,6 @@ export default function TeamMember() {
   const [editingContact, setEditingContact] = useState(false);
   const [editingPersonalPayroll, setEditingPersonalPayroll] = useState(false);
   const [terminateDialogOpen, setTerminateDialogOpen] = useState(false);
-  const [resendConfirmOpen, setResendConfirmOpen] = useState(false);
-  const [copiedLink, setCopiedLink] = useState(false);
   const [newNote, setNewNote] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const certFileInputRef = useRef<HTMLInputElement>(null);
@@ -129,8 +124,6 @@ export default function TeamMember() {
   const can = (perm: string) =>
     permissions?.some?.((p) => p.name === perm || p.name === "admin.manage_all") || isAdminRole || false;
   const canEdit = can("hr.edit_team");
-  const canManageEmployees = can("hr.edit_team") || can("hr.manage_employees");
-  const canInvite = canManageEmployees;
 
   const updateUserMutation = useMutation({
     mutationFn: async (data: Record<string, any>) => {
@@ -163,46 +156,18 @@ export default function TeamMember() {
     },
   });
 
-  const sendInviteMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/users/${userId}/send-invite`);
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/users", userId] });
-      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
-      toast({ title: "Invite sent", description: "Invitation email has been sent." });
-    },
-    onError: (err: Error) => {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
-    },
-  });
-
   const resendInviteMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", `/api/users/${userId}/resend-invite`);
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/users", userId] });
-      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
-      setResendConfirmOpen(false);
-      toast({ title: "Resent", description: "Invitation email has been resent." });
+      toast({ title: "Sent", description: "Invitation email has been resent." });
     },
     onError: (err: Error) => {
-      setResendConfirmOpen(false);
       toast({ title: "Error", description: err.message, variant: "destructive" });
     },
   });
-
-  const copyInviteLink = () => {
-    if (!member?.inviteToken) return;
-    const link = `${window.location.origin}/join/${member.inviteToken}`;
-    navigator.clipboard.writeText(link).then(() => {
-      setCopiedLink(true);
-      setTimeout(() => setCopiedLink(false), 2000);
-    });
-  };
 
   const uploadDocMutation = useMutation({
     mutationFn: async (data: any) => {
@@ -445,103 +410,24 @@ export default function TeamMember() {
                 </span>
               )}
             </div>
-            {/* Invite status section - always shown */}
-            <div className="mt-3 border rounded-lg p-3 bg-muted/30 space-y-2">
-              {/* Progress track: Not Invited → Invited → Accepted */}
-              <div className="flex items-center gap-1 text-xs">
-                <span className={`flex items-center gap-1 font-medium ${!member.invitedAt && !member.inviteAcceptedAt ? 'text-purple-600' : 'text-muted-foreground'}`}>
-                  <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] ${!member.invitedAt && !member.inviteAcceptedAt ? 'bg-purple-100 text-purple-600' : 'bg-green-100 text-green-700'}`}>
-                    {!member.invitedAt && !member.inviteAcceptedAt ? '1' : <Check className="h-2.5 w-2.5" />}
-                  </span>
-                  Not Invited
-                </span>
-                <span className="flex-1 border-t border-dashed border-muted-foreground/30 mx-1" />
-                <span className={`flex items-center gap-1 font-medium ${member.invitedAt && !member.inviteAcceptedAt ? 'text-amber-600' : member.inviteAcceptedAt ? 'text-muted-foreground' : 'text-muted-foreground'}`}>
-                  <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] ${member.invitedAt && !member.inviteAcceptedAt ? 'bg-amber-100 text-amber-600' : member.inviteAcceptedAt ? 'bg-green-100 text-green-700' : 'bg-muted text-muted-foreground'}`}>
-                    {member.inviteAcceptedAt ? <Check className="h-2.5 w-2.5" /> : '2'}
-                  </span>
-                  Invited
-                </span>
-                <span className="flex-1 border-t border-dashed border-muted-foreground/30 mx-1" />
-                <span className={`flex items-center gap-1 font-medium ${member.inviteAcceptedAt ? 'text-green-700' : 'text-muted-foreground'}`}>
-                  <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] ${member.inviteAcceptedAt ? 'bg-green-100 text-green-700' : 'bg-muted text-muted-foreground'}`}>
-                    {member.inviteAcceptedAt ? <Check className="h-2.5 w-2.5" /> : '3'}
-                  </span>
-                  Accepted
-                </span>
-              </div>
-
-              {/* Invite count & last sent (only for pending) */}
-              {member.invitedAt && !member.inviteAcceptedAt && (
-                <p className="text-xs text-muted-foreground">
-                  <Mail className="h-3 w-3 inline mr-1" />
-                  Last invited {(() => {
-                    const diff = Date.now() - new Date(member.invitedAt).getTime();
-                    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-                    const hours = Math.floor(diff / (1000 * 60 * 60));
-                    if (hours < 1) return 'just now';
-                    if (hours < 24) return `${hours}h ago`;
-                    return `${days}d ago`;
-                  })()}
-                  {(member.inviteCount || 0) > 0 && ` · ${member.inviteCount} invite${member.inviteCount !== 1 ? 's' : ''} sent`}
-                </p>
+            <div className="flex items-center gap-2 mt-1">
+              {invitedAgo && (
+                <span className="text-xs text-muted-foreground">{invitedAgo}</span>
               )}
-
-              {/* Accepted timestamp */}
-              {member.inviteAcceptedAt && (
-                <p className="text-xs text-green-700">
-                  <UserCheck className="h-3 w-3 inline mr-1" />
-                  Accepted {(() => {
-                    const diff = Date.now() - new Date(member.inviteAcceptedAt).getTime();
-                    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-                    if (days === 0) return 'today';
-                    return `${days}d ago`;
-                  })()}
-                </p>
-              )}
-
-              {/* CTA buttons - only show for non-accepted members */}
-              {!member.inviteAcceptedAt && canInvite && member.email && (
-                <div className="flex items-center gap-2 flex-wrap">
-                  {!member.invitedAt ? (
-                    <Button
-                      size="sm"
-                      className="bg-purple-600 hover:bg-purple-700 text-white h-7 text-xs"
-                      disabled={sendInviteMutation.isPending}
-                      onClick={() => sendInviteMutation.mutate()}
-                    >
-                      {sendInviteMutation.isPending ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Send className="h-3 w-3 mr-1" />}
-                      Send Invite
-                    </Button>
-                  ) : (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="border-purple-400 text-purple-600 hover:bg-purple-50 h-7 text-xs"
-                      onClick={() => setResendConfirmOpen(true)}
-                    >
-                      <Send className="h-3 w-3 mr-1" />
-                      Resend Invite
-                    </Button>
-                  )}
-                  {member.inviteToken && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-7 text-xs text-muted-foreground hover:text-purple-600"
-                      onClick={copyInviteLink}
-                    >
-                      {copiedLink ? <Check className="h-3 w-3 mr-1 text-green-600" /> : <Link className="h-3 w-3 mr-1" />}
-                      {copiedLink ? "Copied!" : "Copy Link"}
-                    </Button>
-                  )}
-                </div>
-              )}
-              {!member.inviteAcceptedAt && canInvite && !member.email && (
-                <p className="text-xs text-orange-500 flex items-center gap-1">
-                  <Mail className="h-3 w-3" />
-                  Add an email address to send an invite
-                </p>
+              {canEdit && (
+                <button
+                  onClick={() => {
+                    if (!member.email) {
+                      toast({ title: "No email address", description: "Please add an email address before resending the invite.", variant: "destructive" });
+                      return;
+                    }
+                    resendInviteMutation.mutate();
+                  }}
+                  disabled={resendInviteMutation.isPending}
+                  className="text-xs text-purple-600 hover:underline font-medium"
+                >
+                  {resendInviteMutation.isPending ? "Sending..." : "Resend Invite"}
+                </button>
               )}
             </div>
           </div>
@@ -593,18 +479,9 @@ export default function TeamMember() {
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <span className="font-semibold">{member.locationName || "—"}</span>
-                  {(() => {
-                    if (!member.email) {
-                      return <Badge variant="outline" className="border-orange-400 text-orange-500 bg-orange-50">Incomplete</Badge>;
-                    }
-                    if (member.inviteAcceptedAt && member.isActive !== false) {
-                      return <Badge className="bg-green-100 text-green-700 hover:bg-green-100">Active</Badge>;
-                    }
-                    if (member.invitedAt && !member.inviteAcceptedAt) {
-                      return <Badge variant="outline" className="border-amber-400 text-amber-600 bg-amber-50">Pending</Badge>;
-                    }
-                    return <Badge variant="outline" className="border-gray-400 text-gray-500">Inactive</Badge>;
-                  })()}
+                  <Badge className="bg-green-100 text-green-700 hover:bg-green-100">
+                    {member.isActive !== false ? "Active" : "Inactive"}
+                  </Badge>
                 </div>
                 {canEdit && (
                   <Button
@@ -1440,33 +1317,6 @@ export default function TeamMember() {
           )}
         </div>
       )}
-
-      <Dialog open={resendConfirmOpen} onOpenChange={setResendConfirmOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Resend Invite?</DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            This will resend the invite email to <strong>{member.email}</strong>.
-            {(member.inviteCount || 0) > 0 && (
-              <span> This invitation has already been sent <strong>{member.inviteCount} time{member.inviteCount !== 1 ? 's' : ''}</strong>.</span>
-            )}
-          </p>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setResendConfirmOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              className="bg-purple-600 hover:bg-purple-700 text-white"
-              disabled={resendInviteMutation.isPending}
-              onClick={() => resendInviteMutation.mutate()}
-            >
-              {resendInviteMutation.isPending && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
-              Resend Invite
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       <Dialog open={terminateDialogOpen} onOpenChange={setTerminateDialogOpen}>
         <DialogContent>

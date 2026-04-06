@@ -7,10 +7,10 @@ class PayrollAutomationService {
   /**
    * Schedules the next payroll periods based on interval type
    */
-  async scheduleNextPayrollPeriods(intervalType: string, lastEndDate: Date, periodsToCreate: number = 3, companyId?: string) {
+  async scheduleNextPayrollPeriods(intervalType: string, lastEndDate: Date, periodsToCreate: number = 3) {
     try {
       const periods = [];
-      const existingPeriods = await storage.getPayrollPeriods(companyId);
+      const existingPeriods = await storage.getPayrollPeriods();
       let currentStartDate = new Date(lastEndDate);
       currentStartDate.setDate(currentStartDate.getDate() + 1);
 
@@ -26,9 +26,7 @@ class PayrollAutomationService {
         });
 
         if (!duplicate) {
-          if (!companyId) throw new Error('[PayrollAutomation] scheduleNextPayrollPeriods requires companyId');
           const period = await storage.createPayrollPeriod({
-            companyId,
             startDate: new Date(currentStartDate),
             endDate: endDate,
             workflowState: 'created',
@@ -82,16 +80,12 @@ class PayrollAutomationService {
    */
   async processPayrollWorkflow(periodId: string) {
     try {
-      const period = await storage.getPayrollPeriodByIdInternal(periodId);
+      const period = await storage.getPayrollPeriod(periodId);
       if (!period) {
         throw new Error(`Payroll period ${periodId} not found`);
       }
-      if (!period.companyId) {
-        throw new Error(`[PayrollAutomation] Payroll period ${periodId} has no companyId — skipping`);
-      }
-      const companyId = period.companyId;
 
-      const settings = await storage.getPayrollSettings(companyId);
+      const settings = await storage.getPayrollSettings();
       if (!settings || !settings.isAutomationEnabled) {
         console.log("Automation disabled, skipping workflow");
         return;
@@ -100,7 +94,6 @@ class PayrollAutomationService {
       // Log workflow step
       await storage.createWorkflowLog({
         payrollPeriodId: periodId,
-        companyId,
         workflowStep: 'automation_started',
         status: 'success',
         details: 'AI payroll automation workflow initiated',
@@ -122,11 +115,10 @@ class PayrollAutomationService {
       }
     } catch (error) {
       console.error(`Error processing workflow for period ${periodId}:`, error);
-      const errPeriod = await storage.getPayrollPeriodByIdInternal(periodId).catch(() => null);
+      
       // Log error
       await storage.createWorkflowLog({
         payrollPeriodId: periodId,
-        companyId: errPeriod?.companyId ?? undefined,
         workflowStep: 'automation_error',
         status: 'failed',
         details: error.message,
@@ -139,10 +131,8 @@ class PayrollAutomationService {
    */
   private async requestAvailability(periodId: string, settings: any) {
     try {
-      // Get all active users scoped to the period's company
-      const period = await storage.getPayrollPeriodByIdInternal(periodId);
-      const companyId = period?.companyId ?? undefined;
-      const users = await storage.getAllUsers(companyId);
+      // Get all active users
+      const users = await storage.getAllUsers();
       
       // Send availability notifications
       for (const user of users) {
@@ -153,11 +143,10 @@ class PayrollAutomationService {
       await storage.updatePayrollPeriod(periodId, {
         workflowState: 'availability_requested',
         availabilityNotificationSentAt: new Date(),
-      }, companyId!);
+      });
 
       await storage.createWorkflowLog({
         payrollPeriodId: periodId,
-        companyId,
         workflowStep: 'availability_requested',
         status: 'success',
         details: `Availability notifications sent to ${users.length} team members`,
@@ -174,12 +163,8 @@ class PayrollAutomationService {
    */
   private async generateSchedule(periodId: string, settings: any) {
     try {
-      // Get availability data - require companyId from period for tenant isolation
-      const period = await storage.getPayrollPeriodByIdInternal(periodId);
-      const periodCompanyId = period?.companyId ?? undefined;
-      const availabilityData = periodCompanyId
-        ? await storage.getAllAvailabilityForPeriod(periodId, periodCompanyId)
-        : [];
+      // Get availability data
+      const availabilityData = await storage.getAllAvailabilityForPeriod(periodId);
       
       // Call Claude AI to generate schedule
       const scheduleResult = await claudeService.createScheduleFromAvailability({
@@ -202,11 +187,10 @@ class PayrollAutomationService {
         workflowState: 'schedule_generated',
         scheduleGeneratedAt: new Date(),
         aiAnalysis: scheduleResult.analysis,
-      }, periodCompanyId!);
+      });
 
       await storage.createWorkflowLog({
         payrollPeriodId: periodId,
-        companyId: periodCompanyId,
         workflowStep: 'schedule_generated',
         status: 'success',
         details: 'AI-generated schedule created successfully',
@@ -225,9 +209,7 @@ class PayrollAutomationService {
   private async sendScheduleForReview(periodId: string, settings: any) {
     try {
       // Get all users assigned to this period
-      const period = await storage.getPayrollPeriodByIdInternal(periodId);
-      const periodCompanyId = period?.companyId ?? undefined;
-      const schedules = await storage.getSchedulesByPeriod(periodId, periodCompanyId);
+      const schedules = await storage.getSchedulesByPeriod(periodId);
       const userIds = [...new Set(schedules.map(s => s.userId))];
 
       // Send schedule notifications
@@ -239,11 +221,10 @@ class PayrollAutomationService {
       await storage.updatePayrollPeriod(periodId, {
         workflowState: 'schedule_sent_for_review',
         scheduleSentAt: new Date(),
-      }, periodCompanyId!);
+      });
 
       await storage.createWorkflowLog({
         payrollPeriodId: periodId,
-        companyId: periodCompanyId,
         workflowStep: 'schedule_sent_for_review',
         status: 'success',
         details: `Schedule sent to ${userIds.length} team members for confirmation`,
@@ -261,10 +242,8 @@ class PayrollAutomationService {
   private async finalizePayroll(periodId: string, settings: any) {
     try {
       // Get payroll data
-      const period = await storage.getPayrollPeriodByIdInternal(periodId);
-      const periodCompanyId = period?.companyId ?? undefined;
-      const timeEntries = await storage.getTimeEntriesByPeriod(periodId, periodCompanyId);
-      const schedules = await storage.getSchedulesByPeriod(periodId, periodCompanyId);
+      const timeEntries = await storage.getTimeEntriesByPeriod(periodId);
+      const schedules = await storage.getSchedulesByPeriod(periodId);
 
       // Generate payroll summary using AI
       const payrollSummary = await claudeService.generatePayrollSummary({
@@ -278,7 +257,7 @@ class PayrollAutomationService {
         workflowState: 'finalized',
         finalizedAt: new Date(),
         aiAnalysis: payrollSummary,
-      }, periodCompanyId!);
+      });
 
       // Send verification notification to designated user
       if (settings.notificationUserId) {
@@ -291,7 +270,6 @@ class PayrollAutomationService {
 
       await storage.createWorkflowLog({
         payrollPeriodId: periodId,
-        companyId: periodCompanyId,
         workflowStep: 'payroll_finalized',
         status: 'success',
         details: 'Payroll finalized and sent for verification',
@@ -299,7 +277,7 @@ class PayrollAutomationService {
       });
 
       // Automatically schedule next period if needed
-      await this.checkAndScheduleNextPeriod(settings, periodCompanyId);
+      await this.checkAndScheduleNextPeriod(settings);
 
     } catch (error) {
       console.error("Error finalizing payroll:", error);
@@ -310,23 +288,18 @@ class PayrollAutomationService {
   /**
    * Checks if we need to schedule the next payroll period
    */
-  private async checkAndScheduleNextPeriod(settings: any, companyId?: string) {
+  private async checkAndScheduleNextPeriod(settings: any) {
     try {
-      if (!companyId) {
-        console.warn('[PayrollAutomation] checkAndScheduleNextPeriod called without companyId — skipping');
-        return;
-      }
-      const upcomingPeriods = await storage.getUpcomingPayrollPeriods(3, companyId);
+      const upcomingPeriods = await storage.getUpcomingPayrollPeriods(3);
       
       if (upcomingPeriods.length < 2) {
         // Schedule more periods if we're running low
-        const lastPeriod = await storage.getLatestPayrollPeriod(companyId);
+        const lastPeriod = await storage.getLatestPayrollPeriod();
         if (lastPeriod) {
           await this.scheduleNextPayrollPeriods(
             settings.intervalType, 
             lastPeriod.endDate, 
-            3 - upcomingPeriods.length,
-            companyId
+            3 - upcomingPeriods.length
           );
         }
       }
@@ -336,29 +309,11 @@ class PayrollAutomationService {
   }
 
   /**
-   * Manual trigger to process all pending payroll workflows — iterates per company via period.companyId
+   * Manual trigger to process all pending payroll workflows
    */
   async processAllPendingWorkflows() {
     try {
-      const allCompanies = await storage.getAllCompanies();
-      let totalProcessed = 0;
-      for (const company of allCompanies) {
-        const pendingPeriods = await storage.getPendingPayrollPeriods(company.id);
-        for (const period of pendingPeriods) {
-          await this.processPayrollWorkflow(period.id);
-          totalProcessed++;
-        }
-      }
-      console.log(`Processed ${totalProcessed} pending workflows across ${allCompanies.length} companies`);
-    } catch (error) {
-      console.error("Error processing pending workflows:", error);
-    }
-  }
-  
-  // Legacy single-company method kept for direct calls with known companyId
-  async processAllPendingWorkflowsForCompany(companyId: string) {
-    try {
-      const pendingPeriods = await storage.getPendingPayrollPeriods(companyId);
+      const pendingPeriods = await storage.getPendingPayrollPeriods();
       
       for (const period of pendingPeriods) {
         await this.processPayrollWorkflow(period.id);

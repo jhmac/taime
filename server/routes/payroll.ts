@@ -1,5 +1,8 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
+import { users, companySettings } from "@shared/schema";
+import { eq } from "drizzle-orm";
+import { db } from "../db";
 import { claudeService } from "../services/claudeService";
 import { automationService } from "../services/automationService";
 import { payrollAutomationService } from "../services/payrollAutomationService";
@@ -19,7 +22,7 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
       const start = new Date(startDate);
       const end = new Date(endDate);
       
-      const timeEntries = await storage.getAllTimeEntries(start, end, req.user?.companyId);
+      const timeEntries = await storage.getAllTimeEntries(start, end);
       
       const payrollData = timeEntries.map(entry => {
         const clockIn = new Date(entry.clockInTime);
@@ -57,7 +60,7 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
 
   app.get('/api/payroll/periods', isAuthenticated, async (req: any, res) => {
     try {
-      const periods = await storage.getPayrollPeriods(req.user?.companyId);
+      const periods = await storage.getPayrollPeriods();
       res.json(periods);
     } catch (error) {
       console.error("Error fetching payroll periods:", error);
@@ -75,7 +78,7 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
         return res.status(403).json({ message: "Payroll management access required" });
       }
 
-      const period = await storage.createNextPayPeriod(req.user?.companyId);
+      const period = await storage.createNextPayPeriod();
       res.json(period);
     } catch (error) {
       console.error("Error creating payroll period:", error);
@@ -85,7 +88,7 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
 
   app.get('/api/payroll/settings', isAuthenticated, async (req: any, res) => {
     try {
-      const settings = await storage.getPayPeriodSettings(req.user?.companyId);
+      const settings = await storage.getPayPeriodSettings();
       res.json(settings);
     } catch (error) {
       console.error("Error fetching pay period settings:", error);
@@ -122,7 +125,7 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
         return res.status(403).json({ message: "Payroll management access required" });
       }
 
-      await automationService.checkAndTriggerAutomation(req.user?.companyId);
+      await automationService.checkAndTriggerAutomation();
       res.json({ success: true, message: "Automation triggered successfully" });
     } catch (error) {
       console.error("Error triggering automation:", error);
@@ -148,11 +151,10 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
       const start = new Date(startDate as string);
       const end = new Date(endDate as string);
 
-      const companyId = req.user?.companyId;
-      const timeEntriesData = await storage.getAllTimeEntries(start, end, companyId);
-      const allUsers = await storage.getAllUsers(companyId);
-      const settings = await storage.getCompanySettings(companyId);
-      const holidayRules = await storage.getAllHolidayPayRules(companyId);
+      const timeEntriesData = await storage.getAllTimeEntries(start, end);
+      const allUsers = await db.select().from(users);
+      const [settings] = await db.select().from(companySettings).limit(1);
+      const holidayRules = await storage.getAllHolidayPayRules();
 
       const userMap = new Map(allUsers.map(u => [u.id, u]));
       const holidayMap = new Map(holidayRules.map(r => [`${r.month}-${r.day}`, r]));
@@ -248,11 +250,7 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
   app.get('/api/payroll/periods/:id/workflow-logs', isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
-      const companyId = req.user?.companyId;
-      if (!companyId) return res.status(403).json({ message: "Company context required" });
-      const period = await storage.getPayrollPeriod(id, companyId);
-      if (!period) return res.status(404).json({ message: "Payroll period not found" });
-      const logs = await storage.getWorkflowLogs(id, companyId);
+      const logs = await storage.getWorkflowLogs(id);
       res.json(logs);
     } catch (error) {
       console.error("Error fetching workflow logs:", error);
@@ -263,11 +261,7 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
   app.get('/api/payroll/periods/:id/confirmations', isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
-      const companyId = req.user?.companyId;
-      if (!companyId) return res.status(403).json({ message: "Company context required" });
-      const period = await storage.getPayrollPeriod(id, companyId);
-      if (!period) return res.status(404).json({ message: "Payroll period not found" });
-      const confirmations = await storage.getScheduleConfirmations(id, companyId);
+      const confirmations = await storage.getScheduleConfirmations(id);
       res.json(confirmations);
     } catch (error) {
       console.error("Error fetching schedule confirmations:", error);
@@ -278,14 +272,11 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
   app.post('/api/payroll/periods/:id/confirm-schedule', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const confirmCompanyId = req.user?.companyId;
-      if (!confirmCompanyId) return res.status(403).json({ message: "Company context required" });
       const { id } = req.params;
       const { isConfirmed, feedback, conflicts } = req.body;
       
       const confirmation = await storage.createScheduleConfirmation({
         payrollPeriodId: id,
-        companyId: confirmCompanyId,
         userId,
         isConfirmed,
         feedback,
@@ -310,7 +301,7 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
         return res.status(403).json({ message: "Payroll management access required" });
       }
 
-      await automationService.initializeDefaultSettings(userId, req.user?.companyId);
+      await automationService.initializeDefaultSettings(userId);
       res.json({ success: true, message: "Automation settings initialized" });
     } catch (error) {
       console.error("Error initializing automation:", error);
@@ -360,10 +351,7 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
         settingsPayload.payDayOfWeek = payDayOfWeek;
       }
 
-      const companyId = req.user?.companyId;
-      if (!companyId) return res.status(403).json({ message: "Company context required" });
-
-      const existingSettings = await storage.getPayrollSettings(companyId);
+      const existingSettings = await storage.getPayrollSettings();
       
       if (existingSettings) {
         await storage.updatePayrollSettings(existingSettings.id, {
@@ -373,12 +361,11 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
       } else {
         await storage.createPayrollSettings({
           ...settingsPayload,
-          companyId,
           createdBy: userId,
         });
       }
 
-      const existingPeriods = await storage.getPayrollPeriods(companyId);
+      const existingPeriods = await storage.getPayrollPeriods();
       const firstStart = new Date(firstPayPeriodStart).toISOString().split('T')[0];
       const firstEnd = new Date(firstPayPeriodEnd).toISOString().split('T')[0];
       const alreadyExists = existingPeriods.some(p => {
@@ -391,7 +378,6 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
           startDate: new Date(firstPayPeriodStart),
           endDate: new Date(firstPayPeriodEnd),
           workflowState: 'created',
-          companyId,
         });
       }
 
@@ -413,17 +399,16 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
       const canManage = userPermissions.some(p => p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all');
       if (!canManage) return res.status(403).json({ message: "Payroll management access required" });
 
-      const companyId2 = req.user?.companyId;
-      const period = await storage.getPayrollPeriod(req.params.id, companyId2);
+      const period = await storage.getPayrollPeriod(req.params.id);
       if (!period) return res.status(404).json({ message: "Pay period not found" });
 
       const start = new Date(period.startDate);
       const end = new Date(period.endDate);
-      const timeEntriesData = await storage.getAllTimeEntries(start, end, companyId2);
-      const schedulesData = await storage.getAllSchedules(start, end, companyId2);
-      const allUsers = await storage.getAllUsers(companyId2);
-      const settings2 = await storage.getCompanySettings(companyId2);
-      const holidayRules = await storage.getAllHolidayPayRules(companyId2);
+      const timeEntriesData = await storage.getAllTimeEntries(start, end);
+      const schedulesData = await storage.getAllSchedules(start, end);
+      const allUsers = await db.select().from(users);
+      const [settings] = await db.select().from(companySettings).limit(1);
+      const holidayRules = await storage.getAllHolidayPayRules();
 
       const userMap = new Map(allUsers.map(u => [u.id, u]));
       const holidayMap = new Map(holidayRules.map(r => [`${r.month}-${r.day}`, r]));
@@ -431,8 +416,8 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
         timeEntriesData.map(e => `${e.userId}|${new Date(e.clockInTime).toDateString()}`)
       );
 
-      const overtimeThreshold = settings2?.overtimeThresholdHours || 40;
-      const overtimeMultiplier = parseFloat(settings2?.overtimeMultiplier || "1.50");
+      const overtimeThreshold = settings?.overtimeThresholdHours || 40;
+      const overtimeMultiplier = parseFloat(settings?.overtimeMultiplier || "1.50");
 
       const employeeMap: Record<string, {
         userId: string;
@@ -619,8 +604,7 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
       const canManage = userPermissions.some(p => p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all');
       if (!canManage) return res.status(403).json({ message: "Payroll management access required" });
 
-      const approveCompanyId = req.user?.companyId;
-      const period = await storage.getPayrollPeriod(req.params.id, approveCompanyId);
+      const period = await storage.getPayrollPeriod(req.params.id);
       if (!period) return res.status(404).json({ message: "Pay period not found" });
 
       await storage.updatePayrollPeriod(req.params.id, {
@@ -628,7 +612,7 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
         isProcessed: true,
         processedBy: userId,
         processedAt: new Date(),
-      }, approveCompanyId);
+      });
 
       res.json({ message: "Payroll approved successfully" });
     } catch (error) {
@@ -647,8 +631,7 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
       const { email } = req.body;
       if (!email) return res.status(400).json({ message: "Accountant email is required" });
 
-      const emailCompanyId = req.user?.companyId;
-      const period = await storage.getPayrollPeriod(req.params.id, emailCompanyId);
+      const period = await storage.getPayrollPeriod(req.params.id);
       if (!period) return res.status(404).json({ message: "Pay period not found" });
 
       res.json({ message: `Payroll export would be emailed to ${email}. Email integration pending setup.` });
@@ -666,7 +649,7 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
         p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all'
       );
       
-      const settings = await storage.getPayrollSettings(req.user?.companyId);
+      const settings = await storage.getPayrollSettings();
       
       res.json({ 
         needsSetup: canManagePayroll && (!settings || !settings.isSetupComplete),

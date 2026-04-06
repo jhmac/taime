@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
 import { users, roles, companySettings, employeeDocuments, managerNotes } from "@shared/schema";
-import { eq, and, desc, isNull } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import { db } from "../db";
 import { sendTeamInviteEmail } from "../services/emailService";
 import { randomBytes } from "crypto";
@@ -23,7 +23,6 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
         invitedAt: users.invitedAt,
         inviteAcceptedAt: users.inviteAcceptedAt,
         inviteCount: users.inviteCount,
-        companyId: users.companyId,
       }).from(users).where(eq(users.inviteToken, token)).limit(1);
 
       if (!user) {
@@ -33,10 +32,7 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
         return res.status(410).json({ message: "This invite has already been accepted" });
       }
 
-      // Scope company settings lookup to the invited user's company
-      const settings = user.companyId
-        ? await db.select().from(companySettings).where(eq(companySettings.companyId, user.companyId)).limit(1)
-        : [];
+      const settings = await db.select().from(companySettings).limit(1);
       const companyName = settings[0]?.companyName || 'Taime';
 
       const roleName = user.roleId
@@ -79,7 +75,6 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
       }
 
       const inviteToken = generateInviteToken();
-      const newUserCompanyId = req.user?.companyId;
       const newUserData: Record<string, string | null | Date | number> = {
         email: email.trim(),
         firstName: firstName || null,
@@ -88,7 +83,6 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
         inviteToken,
         inviteCount: 1,
       };
-      if (newUserCompanyId) newUserData.companyId = newUserCompanyId;
       if (roleId) newUserData.roleId = roleId;
       if (hourlyRate) newUserData.hourlyRate = hourlyRate;
 
@@ -97,10 +91,8 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
       const inviter = await storage.getUser(currentUserId);
       const inviterName = inviter ? `${inviter.firstName || ''} ${inviter.lastName || ''}`.trim() || 'Your manager' : 'Your manager';
 
-      const inviteCompanyId = req.user?.companyId;
-      if (!inviteCompanyId) return res.status(403).json({ message: "Company context required" });
-      const settingsQuery = await db.select().from(companySettings).where(eq(companySettings.companyId, inviteCompanyId)).limit(1);
-      const companyName = settingsQuery[0]?.companyName || 'Taime';
+      const settings = await db.select().from(companySettings).limit(1);
+      const companyName = settings[0]?.companyName || 'Taime';
 
       const recipientName = `${firstName || ''} ${lastName || ''}`.trim();
       const roleName = roleId ? await db.select({ displayName: roles.displayName }).from(roles).where(eq(roles.id, roleId)).then(r => r[0]?.displayName) : null;
@@ -127,14 +119,9 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
       }
 
       const { userId } = req.params;
-      const resendCompanyId = req.user?.companyId;
       const targetUser = await storage.getUser(userId);
       if (!targetUser || !targetUser.email) {
         return res.status(404).json({ message: "User not found or has no email" });
-      }
-
-      if (resendCompanyId && targetUser.companyId !== resendCompanyId) {
-        return res.status(403).json({ message: "Access denied" });
       }
 
       if (targetUser.inviteAcceptedAt) {
@@ -144,10 +131,8 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
       const inviter = await storage.getUser(currentUserId);
       const inviterName = inviter ? `${inviter.firstName || ''} ${inviter.lastName || ''}`.trim() || 'Your manager' : 'Your manager';
 
-      
-      if (!resendCompanyId) return res.status(403).json({ message: "Company context required" });
-      const resendSettingsQuery = await db.select().from(companySettings).where(eq(companySettings.companyId, resendCompanyId)).limit(1);
-      const companyName = resendSettingsQuery[0]?.companyName || 'Taime';
+      const settings = await db.select().from(companySettings).limit(1);
+      const companyName = settings[0]?.companyName || 'Taime';
 
       const recipientName = `${targetUser.firstName || ''} ${targetUser.lastName || ''}`.trim();
 
@@ -156,14 +141,11 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
 
       const sent = await sendTeamInviteEmail(req, targetUser.email, recipientName, inviterName, companyName, newToken, roleInfo || null);
       if (sent) {
-        const resendWhereClause = resendCompanyId
-          ? and(eq(users.id, userId), eq(users.companyId, resendCompanyId))
-          : eq(users.id, userId);
         await db.update(users).set({
           invitedAt: new Date(),
           inviteToken: newToken,
           inviteCount: (targetUser.inviteCount || 0) + 1,
-        }).where(resendWhereClause);
+        }).where(eq(users.id, userId));
         res.json({ message: "Invitation email sent successfully" });
       } else {
         res.status(500).json({ message: "Failed to send invitation email" });
@@ -177,7 +159,6 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
   app.get('/api/users', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const companyId = req.user.companyId;
       const userPermissions = await storage.getUserPermissions(userId);
       const canViewTeam = userPermissions.some(p => p.name === 'hr.view_team' || p.name === 'schedule.view_all');
       
@@ -188,11 +169,9 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
       }
       
       const includeAll = req.query.includeAll === 'true';
-      const conditions = companyId ? [eq(users.companyId, companyId)] : [];
-      if (!includeAll) conditions.push(eq(users.isActive, true));
-      const allUsers = conditions.length > 0
-        ? await db.select().from(users).where(and(...conditions))
-        : await db.select().from(users);
+      const allUsers = includeAll
+        ? await db.select().from(users)
+        : await db.select().from(users).where(eq(users.isActive, true));
       res.json(allUsers);
     } catch (error) {
       console.error("Error fetching users:", error);
@@ -203,13 +182,9 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
   app.get('/api/users/:userId', isAuthenticated, async (req: any, res) => {
     try {
       const { userId } = req.params;
-      const requestingCompanyId = req.user.companyId;
       const user = await storage.getUser(userId);
       if (!user) {
         return res.status(404).json({ message: "User not found" });
-      }
-      if (requestingCompanyId && user.companyId !== requestingCompanyId) {
-        return res.status(403).json({ message: "Access denied" });
       }
       const role = user.roleId ? await db.select().from(roles).where(eq(roles.id, user.roleId)).then(r => r[0]) : null;
       res.json({ ...user, role });
@@ -223,11 +198,7 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
     try {
       const { userId } = req.params;
       const updateData = req.body;
-      const updateCompanyId = req.user?.companyId;
-      const whereClause = updateCompanyId
-        ? and(eq(users.id, userId), eq(users.companyId, updateCompanyId))
-        : eq(users.id, userId);
-      const updated = await db.update(users).set({ ...updateData, updatedAt: new Date() }).where(whereClause).returning();
+      const updated = await db.update(users).set({ ...updateData, updatedAt: new Date() }).where(eq(users.id, userId)).returning();
       if (updated.length === 0) {
         return res.status(404).json({ message: "User not found" });
       }
@@ -243,8 +214,6 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
       const currentUserId = req.user.id;
       const { userId } = req.params;
       const { hourlyRate } = req.body;
-      const companyId = req.user?.companyId;
-      if (!companyId) return res.status(403).json({ message: "Company context required" });
 
       const userPermissions = await storage.getUserPermissions(currentUserId);
       const canEditPayRates = userPermissions.some(p => p.name === 'hr.edit_pay_rates');
@@ -253,12 +222,7 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
         return res.status(403).json({ message: "Pay rate editing access required" });
       }
 
-      const targetUser = await storage.getUser(userId);
-      if (!targetUser || targetUser.companyId !== companyId) {
-        return res.status(403).json({ message: "Access denied: user not in your company" });
-      }
-
-      const updatedUser = await storage.updateUserPayRate(userId, parseFloat(hourlyRate), companyId);
+      const updatedUser = await storage.updateUserPayRate(userId, parseFloat(hourlyRate));
       res.json(updatedUser);
     } catch (error) {
       console.error("Error updating pay rate:", error);
@@ -270,8 +234,6 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
     try {
       const currentUserId = req.user.id;
       const { userId } = req.params;
-      const companyId = req.user?.companyId;
-      if (!companyId) return res.status(403).json({ message: "Company context required" });
 
       const userPermissions = await storage.getUserPermissions(currentUserId);
       const canManageEmployees = userPermissions.some(p => p.name === 'hr.manage_employees');
@@ -284,12 +246,7 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
         return res.status(400).json({ message: "Cannot delete your own account" });
       }
 
-      const targetUser = await storage.getUser(userId);
-      if (!targetUser || targetUser.companyId !== companyId) {
-        return res.status(403).json({ message: "Access denied: user not in your company" });
-      }
-
-      await storage.deleteUser(userId, companyId);
+      await storage.deleteUser(userId);
       res.json({ message: "User deleted successfully" });
     } catch (error) {
       console.error("Error deleting user:", error);
@@ -302,8 +259,6 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
       const currentUserId = req.user.id;
       const { userId } = req.params;
       const { roleId } = req.body;
-      const companyId = req.user?.companyId;
-      if (!companyId) return res.status(403).json({ message: "Company context required" });
 
       const userPermissions = await storage.getUserPermissions(currentUserId);
       const canEditRoles = userPermissions.some(p => p.name === 'admin.role_management');
@@ -312,12 +267,7 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
         return res.status(403).json({ message: "Role management access required" });
       }
 
-      const targetUser = await storage.getUser(userId);
-      if (!targetUser || targetUser.companyId !== companyId) {
-        return res.status(403).json({ message: "Access denied: user not in your company" });
-      }
-
-      const updatedUser = await storage.updateUserRole(userId, roleId, companyId);
+      const updatedUser = await storage.updateUserRole(userId, roleId);
       res.json(updatedUser);
     } catch (error) {
       console.error("Error updating user role:", error);
@@ -328,9 +278,6 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
   app.patch('/api/users/:id/role', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const companyId = req.user?.companyId;
-      if (!companyId) return res.status(403).json({ message: "Company context required" });
-
       const userPermissions = await storage.getUserPermissions(userId);
       const canEditTeam = userPermissions.some(p => p.name === 'hr.edit_team');
       
@@ -340,13 +287,8 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
       
       const { id } = req.params;
       const { roleId } = req.body;
-
-      const targetUser = await storage.getUser(id);
-      if (!targetUser || targetUser.companyId !== companyId) {
-        return res.status(403).json({ message: "Access denied: user not in your company" });
-      }
       
-      await storage.assignUserRole(id, roleId, companyId);
+      await storage.assignUserRole(id, roleId);
       const updatedUser = await storage.getUserWithRole(id);
       res.json(updatedUser);
     } catch (error) {
@@ -359,8 +301,6 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
     try {
       const { id } = req.params;
       const requestingUserId = req.user.id;
-      const companyId = req.user?.companyId;
-      if (!companyId) return res.status(403).json({ message: "Company context required" });
       
       if (id !== requestingUserId) {
         const userPermissions = await storage.getUserPermissions(requestingUserId);
@@ -368,11 +308,6 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
         
         if (!canViewTeam) {
           return res.status(403).json({ message: "Permission denied" });
-        }
-        
-        const targetUser = await storage.getUser(id);
-        if (!targetUser || targetUser.companyId !== companyId) {
-          return res.status(403).json({ message: "Access denied: user not in your company" });
         }
       }
       
@@ -393,10 +328,8 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
       if (!canView && currentUserId !== userId) {
         return res.status(403).json({ message: "Not authorized to view these documents" });
       }
-      const companyId = req.user?.companyId;
-      if (!companyId) return res.status(403).json({ message: "Company context required" });
       const docs = await db.select().from(employeeDocuments)
-        .where(and(eq(employeeDocuments.userId, userId), eq(employeeDocuments.companyId, companyId)))
+        .where(eq(employeeDocuments.userId, userId))
         .orderBy(desc(employeeDocuments.createdAt));
       const docsWithoutData = docs.map(({ fileData, ...rest }) => rest);
       res.json(docsWithoutData);
@@ -428,9 +361,7 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
         return res.status(400).json({ message: "File type not allowed. Use PDF, JPG, PNG, or DOC." });
       }
 
-      const docCompanyId = req.user?.companyId;
       const [doc] = await db.insert(employeeDocuments).values({
-        companyId: docCompanyId || null,
         userId,
         category: category || 'general',
         name,
@@ -453,10 +384,7 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
     try {
       const { docId } = req.params;
       const currentUserId = req.user.id;
-      const downloadCompanyId = req.user?.companyId;
-      const [doc] = await db.select().from(employeeDocuments).where(downloadCompanyId
-        ? and(eq(employeeDocuments.id, docId), eq(employeeDocuments.companyId, downloadCompanyId))
-        : eq(employeeDocuments.id, docId));
+      const [doc] = await db.select().from(employeeDocuments).where(eq(employeeDocuments.id, docId));
       if (!doc) {
         return res.status(404).json({ message: "Document not found" });
       }
@@ -483,10 +411,7 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
       const userPermissions = await storage.getUserPermissions(currentUserId);
       const canManage = userPermissions.some(p => p.name === 'hr.manage_employees' || p.name === 'hr.edit_team');
 
-      const deleteDocCompanyId = req.user?.companyId;
-      const [doc] = await db.select().from(employeeDocuments).where(deleteDocCompanyId
-        ? and(eq(employeeDocuments.id, docId), eq(employeeDocuments.companyId, deleteDocCompanyId))
-        : eq(employeeDocuments.id, docId));
+      const [doc] = await db.select().from(employeeDocuments).where(eq(employeeDocuments.id, docId));
       if (!doc) {
         return res.status(404).json({ message: "Document not found" });
       }
@@ -495,9 +420,7 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
         return res.status(403).json({ message: "Not authorized to delete this document" });
       }
 
-      await db.delete(employeeDocuments).where(deleteDocCompanyId
-        ? and(eq(employeeDocuments.id, docId), eq(employeeDocuments.companyId, deleteDocCompanyId))
-        : eq(employeeDocuments.id, docId));
+      await db.delete(employeeDocuments).where(eq(employeeDocuments.id, docId));
       res.json({ message: "Document deleted" });
     } catch (error) {
       console.error("Error deleting document:", error);
@@ -514,10 +437,8 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
       if (!canView) {
         return res.status(403).json({ message: "Manager access required to view notes" });
       }
-      const notesCompanyId = req.user?.companyId;
-      if (!notesCompanyId) return res.status(403).json({ message: "Company context required" });
       const notes = await db.select().from(managerNotes)
-        .where(and(eq(managerNotes.userId, userId), eq(managerNotes.companyId, notesCompanyId)))
+        .where(eq(managerNotes.userId, userId))
         .orderBy(desc(managerNotes.createdAt));
       res.json(notes);
     } catch (error) {
@@ -542,13 +463,10 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
         return res.status(400).json({ message: "Note content is required" });
       }
 
-      const insertNoteCompanyId = req.user?.companyId;
       const [note] = await db.insert(managerNotes).values({
-        companyId: insertNoteCompanyId || null,
         userId,
-        managerId: currentUserId,
-        note: content.trim(),
-        category: 'general',
+        authorId: currentUserId,
+        content: content.trim(),
       }).returning();
 
       res.json(note);
@@ -563,15 +481,12 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
       const { noteId } = req.params;
       const currentUserId = req.user.id;
 
-      const deleteNoteCompanyId = req.user?.companyId;
-      const [note] = await db.select().from(managerNotes).where(deleteNoteCompanyId
-        ? and(eq(managerNotes.id, noteId), eq(managerNotes.companyId, deleteNoteCompanyId))
-        : eq(managerNotes.id, noteId));
+      const [note] = await db.select().from(managerNotes).where(eq(managerNotes.id, noteId));
       if (!note) {
         return res.status(404).json({ message: "Note not found" });
       }
 
-      if (note.managerId !== currentUserId) {
+      if (note.authorId !== currentUserId) {
         const userPermissions = await storage.getUserPermissions(currentUserId);
         const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
         if (!isAdmin) {
@@ -579,121 +494,11 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
         }
       }
 
-      await db.delete(managerNotes).where(deleteNoteCompanyId
-        ? and(eq(managerNotes.id, noteId), eq(managerNotes.companyId, deleteNoteCompanyId))
-        : eq(managerNotes.id, noteId));
+      await db.delete(managerNotes).where(eq(managerNotes.id, noteId));
       res.json({ message: "Note deleted" });
     } catch (error) {
       console.error("Error deleting note:", error);
       res.status(500).json({ message: "Failed to delete note" });
-    }
-  });
-
-  // Send first invite to a member who has never been invited
-  app.post('/api/users/:userId/send-invite', isAuthenticated, async (req: any, res) => {
-    try {
-      const currentUserId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(currentUserId);
-      const canManage = userPermissions.some(p => p.name === 'hr.manage_employees' || p.name === 'hr.edit_team');
-
-      if (!canManage) {
-        return res.status(403).json({ message: "Employee management access required" });
-      }
-
-      const { userId } = req.params;
-      const targetUser = await storage.getUser(userId);
-      if (!targetUser || !targetUser.email) {
-        return res.status(404).json({ message: "User not found or has no email" });
-      }
-
-      if (targetUser.inviteAcceptedAt) {
-        return res.status(400).json({ message: "This user has already accepted their invite" });
-      }
-
-      if (targetUser.invitedAt) {
-        return res.status(400).json({ message: "This user has already been invited. Use resend-invite to send again." });
-      }
-
-      const inviter = await storage.getUser(currentUserId);
-      const inviterName = inviter ? `${inviter.firstName || ''} ${inviter.lastName || ''}`.trim() || 'Your manager' : 'Your manager';
-
-      const settings = await db.select().from(companySettings).limit(1);
-      const companyName = settings[0]?.companyName || 'Taime';
-
-      const recipientName = `${targetUser.firstName || ''} ${targetUser.lastName || ''}`.trim();
-
-      const newToken = targetUser.inviteToken || generateInviteToken();
-      const roleInfo = targetUser.roleId ? await db.select({ displayName: roles.displayName }).from(roles).where(eq(roles.id, targetUser.roleId)).then(r => r[0]?.displayName) : null;
-
-      const sent = await sendTeamInviteEmail(req, targetUser.email, recipientName, inviterName, companyName, newToken, roleInfo || null);
-      if (sent) {
-        await db.update(users).set({
-          invitedAt: new Date(),
-          inviteToken: newToken,
-          inviteCount: (targetUser.inviteCount || 0) + 1,
-        }).where(eq(users.id, userId));
-        res.json({ message: "Invitation email sent successfully" });
-      } else {
-        res.status(500).json({ message: "Failed to send invitation email" });
-      }
-    } catch (error) {
-      console.error("Error sending invite:", error);
-      res.status(500).json({ message: "Failed to send invitation" });
-    }
-  });
-
-  // Bulk invite: send invites to all uninvited/pending members who have an email
-  app.post('/api/users/bulk-invite', isAuthenticated, async (req: any, res) => {
-    try {
-      const currentUserId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(currentUserId);
-      const canManage = userPermissions.some(p => p.name === 'hr.manage_employees' || p.name === 'hr.edit_team');
-
-      if (!canManage) {
-        return res.status(403).json({ message: "Employee management access required" });
-      }
-
-      const inviter = await storage.getUser(currentUserId);
-      const inviterName = inviter ? `${inviter.firstName || ''} ${inviter.lastName || ''}`.trim() || 'Your manager' : 'Your manager';
-
-      const settings = await db.select().from(companySettings).limit(1);
-      const companyName = settings[0]?.companyName || 'Taime';
-
-      // Get all users with email who haven't accepted invite
-      const pendingUsers = await db.select().from(users)
-        .where(isNull(users.inviteAcceptedAt));
-
-      const eligibleUsers = pendingUsers.filter(u => u.email);
-
-      let sentCount = 0;
-      let failedCount = 0;
-
-      for (const targetUser of eligibleUsers) {
-        try {
-          const newToken = targetUser.inviteToken || generateInviteToken();
-          const recipientName = `${targetUser.firstName || ''} ${targetUser.lastName || ''}`.trim();
-          const roleInfo = targetUser.roleId ? await db.select({ displayName: roles.displayName }).from(roles).where(eq(roles.id, targetUser.roleId)).then(r => r[0]?.displayName) : null;
-
-          const sent = await sendTeamInviteEmail(req, targetUser.email!, recipientName, inviterName, companyName, newToken, roleInfo || null);
-          if (sent) {
-            await db.update(users).set({
-              invitedAt: new Date(),
-              inviteToken: newToken,
-              inviteCount: (targetUser.inviteCount || 0) + 1,
-            }).where(eq(users.id, targetUser.id));
-            sentCount++;
-          } else {
-            failedCount++;
-          }
-        } catch {
-          failedCount++;
-        }
-      }
-
-      res.json({ message: `Sent ${sentCount} invite${sentCount !== 1 ? 's' : ''}${failedCount > 0 ? `, ${failedCount} failed` : ''}`, sentCount, failedCount });
-    } catch (error) {
-      console.error("Error bulk inviting:", error);
-      res.status(500).json({ message: "Failed to send bulk invites" });
     }
   });
 }

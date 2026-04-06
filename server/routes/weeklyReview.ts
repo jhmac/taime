@@ -24,10 +24,8 @@ export function registerWeeklyReviewRoutes(
     try {
       const userId = req.user?.id;
       if (!userId) return res.status(401).json({ success: false, message: "Not authenticated" });
-      const companyId = req.user?.companyId;
-      if (!companyId) return res.status(403).json({ success: false, message: "Company context required" });
 
-      const storeId = await resolveStoreId(companyId);
+      const storeId = await resolveStoreId();
       if (!storeId) return res.status(400).json({ success: false, message: "No store configured" });
 
       const weekStart = getWeekStart();
@@ -64,10 +62,8 @@ export function registerWeeklyReviewRoutes(
     try {
       const userId = req.user?.id;
       if (!userId) return res.status(401).json({ success: false, message: "Not authenticated" });
-      const companyId = req.user?.companyId;
-      if (!companyId) return res.status(403).json({ success: false, message: "Company context required" });
 
-      const storeId = await resolveStoreId(companyId);
+      const storeId = await resolveStoreId();
       if (!storeId) return res.status(400).json({ success: false, message: "No store configured" });
 
       const weekStart = getWeekStart();
@@ -113,10 +109,8 @@ export function registerWeeklyReviewRoutes(
     try {
       const userId = req.user?.id;
       if (!userId) return res.status(401).json({ success: false, message: "Not authenticated" });
-      const companyId = req.user?.companyId;
-      if (!companyId) return res.status(403).json({ success: false, message: "Company context required" });
 
-      const storeId = await resolveStoreId(companyId);
+      const storeId = await resolveStoreId();
       if (!storeId) return res.status(400).json({ success: false, message: "No store configured" });
 
       const limit = Math.min(parseInt(req.query.limit as string) || 10, 50);
@@ -158,17 +152,16 @@ export function startWeeklyReviewCron() {
       logger.info("[WeeklyReview] Pre-generating reviews for this Friday");
       lastPregenWeek = thisWeek;
 
-      const { users: usersSchema } = await import("@shared/schema");
-      const activeUsers = await db.select({ id: usersSchema.id, companyId: usersSchema.companyId })
-        .from(usersSchema)
-        .where(eq(usersSchema.isActive, true));
+      const storeId = await resolveStoreId();
+      if (!storeId) return;
+
+      const { users } = await import("@shared/schema");
+      const activeUsers = await db.select({ id: users.id })
+        .from(users)
+        .where(eq(users.isActive, true));
 
       for (const u of activeUsers) {
         try {
-          if (!u.companyId) continue;
-          const storeId = await resolveStoreId(u.companyId);
-          if (!storeId) continue;
-
           const [existing] = await db.select({ id: weeklyReviews.id }).from(weeklyReviews)
             .where(and(
               eq(weeklyReviews.storeId, storeId),

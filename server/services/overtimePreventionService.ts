@@ -67,14 +67,14 @@ export class OvertimePreventionService {
     this.storage = storage;
   }
 
-  async detectOvertimeRisks(companyId?: string): Promise<{
+  async detectOvertimeRisks(): Promise<{
     atRiskEmployees: EmployeeOTRisk[];
     suggestions: SwapSuggestion[];
     weekStart: Date;
     weekEnd: Date;
     threshold: number;
   }> {
-    const settings = companyId ? await this.storage.getCompanySettings(companyId) : undefined;
+    const settings = await this.storage.getCompanySettings();
     const otThreshold = settings?.overtimeThresholdHours ?? 40;
     const workWeekStart = settings?.workWeekStart ?? "sunday";
     const warningThreshold = Math.max(otThreshold - 5, otThreshold * 0.875);
@@ -82,13 +82,11 @@ export class OvertimePreventionService {
     const weekStart = getWeekStart(now, workWeekStart);
     const weekEnd = getWeekEnd(weekStart);
 
-    if (!companyId) throw new Error('[OvertimePreventionService] detectOvertimeRisks requires companyId for tenant isolation');
-
     const [allEntries, allSchedules, allUsers, allAvailability] = await Promise.all([
-      this.storage.getAllTimeEntries(weekStart, weekEnd, companyId),
-      this.storage.getAllSchedules(weekStart, weekEnd, companyId),
-      this.storage.getAllUsers(companyId),
-      this.storage.getAllAvailabilityByDateRange(weekStart, weekEnd, companyId),
+      this.storage.getAllTimeEntries(weekStart, weekEnd),
+      this.storage.getAllSchedules(weekStart, weekEnd),
+      this.storage.getAllUsers(),
+      this.storage.getAllAvailabilityByDateRange(weekStart, weekEnd),
     ]);
 
     const activeUsers = allUsers.filter((u: any) => u.isActive !== false);
@@ -283,14 +281,14 @@ Rank these suggestions from best to worst. For each, provide a concise reasoning
     return suggestions;
   }
 
-  async getOvertimeAlerts(companyId?: string): Promise<{
+  async getOvertimeAlerts(): Promise<{
     atRiskEmployees: EmployeeOTRisk[];
     alerts: any[];
     weekStart: Date;
     weekEnd: Date;
     threshold: number;
   }> {
-    const result = await this.detectOvertimeRisks(companyId);
+    const result = await this.detectOvertimeRisks();
 
     let enrichedSuggestions = result.suggestions;
     if (result.suggestions.length > 0) {
@@ -305,11 +303,10 @@ Rank these suggestions from best to worst. For each, provide a concise reasoning
     const weekStartDate = result.weekStart;
 
     for (const suggestion of enrichedSuggestions) {
-      const existing = companyId ? await this.storage.getOvertimeAlerts({
+      const existing = await this.storage.getOvertimeAlerts({
         status: "pending",
         weekStartDate,
-        companyId,
-      }) : [];
+      });
 
       const alreadyExists = existing.some(
         (e) =>
@@ -329,7 +326,6 @@ Rank these suggestions from best to worst. For each, provide a concise reasoning
           aiReasoning: suggestion.reasoning,
           status: "pending",
           weekStartDate,
-          companyId: companyId || null,
         });
         alerts.push({
           ...alert,
@@ -342,14 +338,13 @@ Rank these suggestions from best to worst. For each, provide a concise reasoning
       }
     }
 
-    const allAlerts = companyId ? await this.storage.getOvertimeAlerts({
+    const allAlerts = await this.storage.getOvertimeAlerts({
       status: "pending",
       weekStartDate,
-      companyId,
-    }) : [];
+    });
 
     const usersMap = new Map<string, any>();
-    const allUsers = companyId ? await this.storage.getAllUsers(companyId) : [];
+    const allUsers = await this.storage.getAllUsers();
     for (const u of allUsers) usersMap.set(u.id, u);
 
     const enrichedAlerts = allAlerts.map((alert) => {
@@ -377,9 +372,8 @@ Rank these suggestions from best to worst. For each, provide a concise reasoning
     };
   }
 
-  async applySwap(alertId: string, approvedBy: string, companyId?: string): Promise<{ success: boolean; message: string }> {
-    if (!companyId) return { success: false, message: "Company context required" };
-    const alerts = await this.storage.getOvertimeAlerts({ companyId });
+  async applySwap(alertId: string, approvedBy: string): Promise<{ success: boolean; message: string }> {
+    const alerts = await this.storage.getOvertimeAlerts({});
     const alert = alerts.find((a) => a.id === alertId);
 
     if (!alert) {
@@ -395,17 +389,18 @@ Rank these suggestions from best to worst. For each, provide a concise reasoning
     }
 
     try {
-      const originalShift = await this.storage.getSchedule(alert.atRiskShiftId, companyId);
+      const schedules = await this.storage.getAllSchedules();
+      const originalShift = schedules.find((s) => s.id === alert.atRiskShiftId);
 
       if (!originalShift) {
         return { success: false, message: "Original shift not found" };
       }
 
-      await this.storage.updateSchedule(alert.atRiskShiftId, companyId, {
+      await this.storage.updateSchedule(alert.atRiskShiftId, {
         userId: alert.suggestedReplacementId,
       });
 
-      await this.storage.updateOvertimeAlert(alertId, companyId, {
+      await this.storage.updateOvertimeAlert(alertId, {
         status: "applied",
         appliedAt: new Date(),
         appliedBy: approvedBy,
@@ -455,10 +450,9 @@ Rank these suggestions from best to worst. For each, provide a concise reasoning
     }
   }
 
-  async dismissAlert(alertId: string, dismissedBy: string, companyId?: string): Promise<{ success: boolean; message: string }> {
-    if (!companyId) return { success: false, message: "Company context required" };
+  async dismissAlert(alertId: string, dismissedBy: string): Promise<{ success: boolean; message: string }> {
     try {
-      await this.storage.updateOvertimeAlert(alertId, companyId, {
+      await this.storage.updateOvertimeAlert(alertId, {
         status: "dismissed",
         dismissedAt: new Date(),
         dismissedBy,

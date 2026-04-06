@@ -8,9 +8,7 @@ import { resolveStoreId } from "../lib/storeResolver";
 export function registerSmartSuggestionRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
   app.get("/api/ai/suggestions", isAuthenticated, asyncHandler(async (req: any, res) => {
     const userId = req.user.id;
-    const companyId = req.user?.companyId;
-    if (!companyId) return res.status(403).json({ message: "Company context required" });
-    const storeId = await resolveStoreId(companyId);
+    const storeId = await resolveStoreId();
     if (!storeId) return res.status(400).json({ message: "No store configured" });
 
     const result = await generateTaskSuggestions(userId, storeId);
@@ -19,9 +17,7 @@ export function registerSmartSuggestionRoutes(app: Express, storage: IStorage, i
 
   app.post("/api/ai/suggestions/refresh", isAuthenticated, asyncHandler(async (req: any, res) => {
     const userId = req.user.id;
-    const companyId = req.user?.companyId;
-    if (!companyId) return res.status(403).json({ message: "Company context required" });
-    const storeId = await resolveStoreId(companyId);
+    const storeId = await resolveStoreId();
     if (!storeId) return res.status(400).json({ message: "No store configured" });
 
     cache.invalidate(`smart-suggestions:${userId}`);

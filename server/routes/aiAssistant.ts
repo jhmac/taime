@@ -37,7 +37,7 @@ const askRateLimiter = rateLimit({
 export function registerAiAssistantRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
   app.get('/api/ai-assistant/conversations', isAuthenticated, async (req: any, res) => {
     try {
-      const conversations = await storage.getUserConversations(req.user.id, req.user.companyId);
+      const conversations = await storage.getUserConversations(req.user.id);
       res.json(conversations);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -48,7 +48,6 @@ export function registerAiAssistantRoutes(app: Express, storage: IStorage, isAut
     try {
       const conversation = await storage.createAiChatConversation({
         userId: req.user.id,
-        companyId: req.user.companyId || null,
         title: req.body.title || 'New conversation',
       });
       res.json(conversation);
@@ -59,11 +58,11 @@ export function registerAiAssistantRoutes(app: Express, storage: IStorage, isAut
 
   app.delete('/api/ai-assistant/conversations/:id', isAuthenticated, async (req: any, res) => {
     try {
-      const conv = await storage.getConversation(req.params.id, req.user.companyId);
+      const conv = await storage.getConversation(req.params.id);
       if (!conv || conv.userId !== req.user.id) {
         return res.status(403).json({ message: "Access denied" });
       }
-      await storage.deleteConversation(req.params.id, req.user.companyId);
+      await storage.deleteConversation(req.params.id);
       res.json({ success: true });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -72,11 +71,11 @@ export function registerAiAssistantRoutes(app: Express, storage: IStorage, isAut
 
   app.get('/api/ai-assistant/conversations/:id/messages', isAuthenticated, async (req: any, res) => {
     try {
-      const conv = await storage.getConversation(req.params.id, req.user.companyId);
+      const conv = await storage.getConversation(req.params.id);
       if (!conv || conv.userId !== req.user.id) {
         return res.status(403).json({ message: "Access denied" });
       }
-      const messages = await storage.getConversationMessages(req.params.id, req.user?.companyId);
+      const messages = await storage.getConversationMessages(req.params.id);
       res.json(messages);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -92,7 +91,7 @@ export function registerAiAssistantRoutes(app: Express, storage: IStorage, isAut
       const { message, conversationId } = chatSchema.parse(req.body);
 
       if (conversationId) {
-        const conv = await storage.getConversation(conversationId, req.user.companyId);
+        const conv = await storage.getConversation(conversationId);
         if (!conv || conv.userId !== req.user.id) {
           return res.status(403).json({ message: "Access denied" });
         }
@@ -102,7 +101,6 @@ export function registerAiAssistantRoutes(app: Express, storage: IStorage, isAut
       if (!convId) {
         const conv = await storage.createAiChatConversation({
           userId: req.user.id,
-          companyId: req.user.companyId || null,
           title: message.substring(0, 50),
         });
         convId = conv.id;
@@ -114,20 +112,20 @@ export function registerAiAssistantRoutes(app: Express, storage: IStorage, isAut
         content: message,
       });
 
-      const allSops = await storage.getSopDocuments(undefined, req.user?.companyId);
+      const allSops = await storage.getSopDocuments();
       const publishedSops = allSops.filter(s => s.isPublished);
 
       const sopContext = publishedSops.length > 0
         ? publishedSops.map(s => `## ${s.title}\n${s.content}\n${s.summary ? `Summary: ${s.summary}` : ''}`).join('\n\n---\n\n')
         : 'No SOPs have been published yet. Let the employee know that their admin is still setting up the knowledge base.';
 
-      const categories = await storage.getSopCategories(req.user?.companyId);
+      const categories = await storage.getSopCategories();
       const categoryList = categories.map(c => c.name).join(', ');
 
       const user = await storage.getUser(req.user.id);
       const userName = user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() : 'Team member';
 
-      const previousMessages = await storage.getConversationMessages(convId!, req.user?.companyId);
+      const previousMessages = await storage.getConversationMessages(convId);
       const chatHistory = previousMessages
         .slice(-10)
         .map(m => ({
@@ -136,8 +134,8 @@ export function registerAiAssistantRoutes(app: Express, storage: IStorage, isAut
         }));
 
       const today = new Date();
-      const schedules = await storage.getUserSchedules(req.user.id, req.user?.companyId, today, new Date(today.getTime() + 24 * 60 * 60 * 1000));
-      const userTasks = await storage.getUserTasks(req.user.id, req.user?.companyId);
+      const schedules = await storage.getUserSchedules(req.user.id, today, new Date(today.getTime() + 24 * 60 * 60 * 1000));
+      const userTasks = await storage.getUserTasks(req.user.id);
       const pendingTasks = userTasks.filter(t => t.status === 'pending' || t.status === 'in_progress');
 
       let contextInfo = '';
@@ -210,11 +208,11 @@ ${sopContext}`;
       tomorrow.setDate(tomorrow.getDate() + 1);
       today.setHours(0, 0, 0, 0);
 
-      const schedules = await storage.getUserSchedules(req.user.id, req.user?.companyId, today, tomorrow);
-      const userTasks = await storage.getUserTasks(req.user.id, req.user?.companyId);
+      const schedules = await storage.getUserSchedules(req.user.id, today, tomorrow);
+      const userTasks = await storage.getUserTasks(req.user.id);
       const pendingTasks = userTasks.filter(t => t.status === 'pending' || t.status === 'in_progress');
 
-      const allSops = await storage.getSopDocuments(undefined, req.user?.companyId);
+      const allSops = await storage.getSopDocuments();
       const publishedSops = allSops.filter(s => s.isPublished);
 
       let shiftInfo = 'No shifts scheduled today.';
@@ -228,7 +226,7 @@ ${sopContext}`;
 
       let commuteInfo = '';
       if (user?.homeLatitude && user?.homeLongitude && schedules.length > 0) {
-        const locations = await storage.getAllWorkLocations(req.user?.companyId);
+        const locations = await storage.getAllWorkLocations();
         const schedule = schedules[0];
         const location = locations.find(l => l.id === schedule.locationId);
         if (location?.latitude && location?.longitude) {
@@ -293,12 +291,12 @@ Available SOPs: ${publishedSops.length > 0 ? publishedSops.map(s => s.title).joi
       tomorrow.setDate(tomorrow.getDate() + 1);
       today.setHours(0, 0, 0, 0);
 
-      const schedules = await storage.getUserSchedules(req.user.id, req.user?.companyId, today, tomorrow);
+      const schedules = await storage.getUserSchedules(req.user.id, today, tomorrow);
       if (schedules.length === 0) {
         return res.json({ hasHomeLocation: true, noShift: true, message: "No shifts scheduled today." });
       }
 
-      const locations = await storage.getAllWorkLocations(req.user?.companyId);
+      const locations = await storage.getAllWorkLocations();
       const nextShift = schedules[0];
       const location = locations.find(l => l.id === nextShift.locationId);
 
@@ -350,7 +348,7 @@ Available SOPs: ${publishedSops.length > 0 ? publishedSops.map(s => s.title).joi
       await storage.updateUser(req.user.id, {
         homeLatitude: latitude.toString(),
         homeLongitude: longitude.toString(),
-      }, req.user?.companyId);
+      });
       res.json({ success: true });
     } catch (error: any) {
       res.status(400).json({ message: error.message });
@@ -359,7 +357,7 @@ Available SOPs: ${publishedSops.length > 0 ? publishedSops.map(s => s.title).joi
 
   app.get('/api/ai-assistant/commute-alerts', isAuthenticated, async (req: any, res) => {
     try {
-      const alerts = await storage.getUserCommuteAlerts(req.user.id, req.user?.companyId);
+      const alerts = await storage.getUserCommuteAlerts(req.user.id);
       res.json(alerts);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -384,7 +382,7 @@ Available SOPs: ${publishedSops.length > 0 ? publishedSops.map(s => s.title).joi
         }
       }
 
-      const storeId = await resolveStoreId(req.user?.companyId) || "default";
+      const storeId = await resolveStoreId() || "default";
 
       const taskPatterns = /what should i (be doing|do|focus|work on)|what.s next|what now|priorit|where (do i|should i) start/i;
       let enrichedQuestion = question;

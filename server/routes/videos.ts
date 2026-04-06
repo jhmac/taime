@@ -11,7 +11,7 @@ import {
   insertImprovementVideoSchema,
   insertVideoCommentSchema,
 } from "@shared/schema";
-import { eq, and, desc, sql, count, type SQL } from "drizzle-orm";
+import { eq, and, desc, sql, count } from "drizzle-orm";
 import { asyncHandler, AppError } from "../lib/routeWrapper";
 import {
   initVideoStorage,
@@ -87,7 +87,7 @@ export function registerVideoRoutes(
         throw new AppError(400, "File too large (max 100MB)", "FILE_TOO_LARGE");
       }
 
-      const storeId = await resolveStoreId(storage, req.user?.companyId);
+      const storeId = await resolveStoreId(storage);
       const info = getUploadInfo(storeId, body.fileName, body.contentType);
 
       res.json(info);
@@ -123,7 +123,7 @@ export function registerVideoRoutes(
       const userId = req.user.id;
       const body = createVideoSchema.parse(req.body);
 
-      const storeId = await resolveStoreId(storage, req.user?.companyId);
+      const storeId = await resolveStoreId(storage);
 
       const s3Url = body.s3Key ? getVideoUrl(body.s3Key) : null;
 
@@ -184,9 +184,9 @@ export function registerVideoRoutes(
       const limit = Math.min(Math.max(parseInt(limitStr as string) || 20, 1), 50);
       const offset = Math.max(parseInt(offsetStr as string) || 0, 0);
 
-      const storeId = await resolveStoreId(storage, req.user?.companyId);
+      const storeId = await resolveStoreId(storage);
 
-      const conditions: SQL<unknown>[] = [eq(improvementVideos.storeId, storeId), eq(improvementVideos.status, "ready")];
+      const conditions: any[] = [eq(improvementVideos.storeId, storeId), eq(improvementVideos.status, "ready")];
       if (category) conditions.push(eq(improvementVideos.category, category as string));
       if (employee_id)
         conditions.push(eq(improvementVideos.employeeId, employee_id as string));
@@ -285,11 +285,6 @@ export function registerVideoRoutes(
         throw new AppError(404, "Video not found", "VIDEO_NOT_FOUND");
       }
 
-      const userStoreId = await resolveStoreId(storage, req.user?.companyId);
-      if (video.storeId !== userStoreId) {
-        throw new AppError(403, "Access denied", "FORBIDDEN");
-      }
-
       db.update(improvementVideos)
         .set({ viewCount: sql`${improvementVideos.viewCount} + 1` })
         .where(eq(improvementVideos.id, id))
@@ -351,11 +346,6 @@ export function registerVideoRoutes(
       const userId = req.user.id;
       const { id } = req.params;
 
-      const [videoCheck] = await db.select({ id: improvementVideos.id, storeId: improvementVideos.storeId }).from(improvementVideos).where(eq(improvementVideos.id, id)).limit(1);
-      if (!videoCheck) throw new AppError(404, "Video not found", "VIDEO_NOT_FOUND");
-      const userStoreId = await resolveStoreId(storage, req.user?.companyId);
-      if (videoCheck.storeId !== userStoreId) throw new AppError(403, "Access denied", "FORBIDDEN");
-
       const [existing] = await db
         .select({ id: videoLikes.id })
         .from(videoLikes)
@@ -394,11 +384,6 @@ export function registerVideoRoutes(
       const userId = req.user.id;
       const { id } = req.params;
 
-      const [videoCheck] = await db.select({ id: improvementVideos.id, storeId: improvementVideos.storeId }).from(improvementVideos).where(eq(improvementVideos.id, id)).limit(1);
-      if (!videoCheck) throw new AppError(404, "Video not found", "VIDEO_NOT_FOUND");
-      const userStoreId = await resolveStoreId(storage, req.user?.companyId);
-      if (videoCheck.storeId !== userStoreId) throw new AppError(403, "Access denied", "FORBIDDEN");
-
       await db
         .delete(videoLikes)
         .where(
@@ -427,18 +412,13 @@ export function registerVideoRoutes(
       const body = commentSchema.parse(req.body);
 
       const [video] = await db
-        .select({ id: improvementVideos.id, storeId: improvementVideos.storeId, employeeId: improvementVideos.employeeId, title: improvementVideos.title })
+        .select({ id: improvementVideos.id, employeeId: improvementVideos.employeeId, title: improvementVideos.title })
         .from(improvementVideos)
         .where(eq(improvementVideos.id, id))
         .limit(1);
 
       if (!video) {
         throw new AppError(404, "Video not found", "VIDEO_NOT_FOUND");
-      }
-
-      const userStoreId = await resolveStoreId(storage, req.user?.companyId);
-      if (video.storeId !== userStoreId) {
-        throw new AppError(403, "Access denied", "FORBIDDEN");
       }
 
       const [comment] = await db
@@ -482,11 +462,6 @@ export function registerVideoRoutes(
         throw new AppError(404, "Video not found", "VIDEO_NOT_FOUND");
       }
 
-      const userStoreId = await resolveStoreId(storage, req.user?.companyId);
-      if (video.storeId !== userStoreId) {
-        throw new AppError(403, "Access denied", "FORBIDDEN");
-      }
-
       const isAuthor = video.employeeId === userId;
       let isManager = false;
       if (!isAuthor) {
@@ -517,11 +492,8 @@ export function registerVideoRoutes(
   );
 }
 
-async function resolveStoreId(storage: IStorage, companyId?: string): Promise<string> {
-  if (!companyId) {
-    throw new AppError(403, "Company not identified", "FORBIDDEN");
-  }
-  const locations = await storage.getAllWorkLocations(companyId);
+async function resolveStoreId(storage: IStorage): Promise<string> {
+  const locations = await storage.getAllWorkLocations();
   if (locations.length > 0) return locations[0].id;
-  throw new AppError(403, "No store found for company", "FORBIDDEN");
+  return "default";
 }

@@ -30,13 +30,12 @@ export function registerTimeEntryRoutes(app: Express, storage: IStorage, isAuthe
   app.post('/api/time-entries', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const companyId = req.user?.companyId;
-      const body = { ...req.body, userId, ...(companyId ? { companyId } : {}) };
+      const body = { ...req.body, userId };
       if (typeof body.clockInTime === 'string') body.clockInTime = new Date(body.clockInTime);
       if (typeof body.clockOutTime === 'string') body.clockOutTime = new Date(body.clockOutTime);
       const data = insertTimeEntrySchema.parse(body);
       
-      const allWorkLocations = await withRetry(() => storage.getAllWorkLocations(req.user?.companyId));
+      const allWorkLocations = await withRetry(() => storage.getAllWorkLocations());
       const hasActiveLocations = allWorkLocations.some(loc => loc.isActive && (loc as any).geofenceEnabled !== false);
       
       if (data.clockInTime && hasActiveLocations) {
@@ -108,9 +107,9 @@ export function registerTimeEntryRoutes(app: Express, storage: IStorage, isAuthe
       const canViewAll = userPermissions.some(p => p.name === 'time.view_all');
       
       if (canViewAll) {
-        timeEntries = await storage.getAllTimeEntries(startDate, endDate, req.user?.companyId);
+        timeEntries = await storage.getAllTimeEntries(startDate, endDate);
       } else {
-        timeEntries = await storage.getUserTimeEntries(userId, req.user?.companyId, startDate, endDate);
+        timeEntries = await storage.getUserTimeEntries(userId, startDate, endDate);
       }
 
       res.json(timeEntries);
@@ -123,9 +122,7 @@ export function registerTimeEntryRoutes(app: Express, storage: IStorage, isAuthe
   app.get('/api/time-entries/active', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const companyId = req.user?.companyId;
-      if (!companyId) return res.status(403).json({ message: "Company context required" });
-      const activeEntry = await storage.getActiveTimeEntry(userId, companyId);
+      const activeEntry = await storage.getActiveTimeEntry(userId);
       res.json(activeEntry || null);
     } catch (error) {
       console.error("Error fetching active time entry:", error);
@@ -136,8 +133,7 @@ export function registerTimeEntryRoutes(app: Express, storage: IStorage, isAuthe
   app.get('/api/time-entries/:id/history', isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
-      const companyId = req.user?.companyId;
-      const existing = await storage.getTimeEntry(id, companyId);
+      const existing = await storage.getTimeEntry(id);
       if (!existing) {
         return res.status(404).json({ message: "Time entry not found" });
       }
@@ -151,7 +147,7 @@ export function registerTimeEntryRoutes(app: Express, storage: IStorage, isAuthe
         return res.status(403).json({ message: "You can only view history for your own time entries" });
       }
 
-      const edits = await storage.getTimeEntryEdits(id, req.user?.companyId);
+      const edits = await storage.getTimeEntryEdits(id);
       res.json(edits);
     } catch (error) {
       console.error("Error fetching time entry history:", error);
@@ -163,9 +159,8 @@ export function registerTimeEntryRoutes(app: Express, storage: IStorage, isAuthe
     try {
       const { id } = req.params;
       const userId = req.user.id;
-      const companyId = req.user?.companyId;
 
-      const existing = await storage.getTimeEntry(id, companyId);
+      const existing = await storage.getTimeEntry(id);
       if (!existing) {
         return res.status(404).json({ message: "Time entry not found" });
       }
@@ -206,7 +201,6 @@ export function registerTimeEntryRoutes(app: Express, storage: IStorage, isAuthe
           auditPromises.push(
             storage.createTimeEntryEdit({
               timeEntryId: id,
-              companyId: companyId || undefined,
               editedBy: userId,
               fieldChanged: key,
               oldValue: oldStr,
@@ -218,7 +212,7 @@ export function registerTimeEntryRoutes(app: Express, storage: IStorage, isAuthe
       }
       await Promise.all(auditPromises);
 
-      const timeEntry = await storage.updateTimeEntry(id, companyId, safeUpdates);
+      const timeEntry = await storage.updateTimeEntry(id, safeUpdates);
       
       broadcastToAll({
         type: 'time_entry_updated',

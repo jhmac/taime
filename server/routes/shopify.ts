@@ -94,40 +94,6 @@ async function getShopifyCredentials(shopDomain: string): Promise<{ shopDomain: 
   }
 }
 
-async function checkShopBillingAccess(shopDomain: string): Promise<{ allowed: boolean; status: string; planName: string }> {
-  try {
-    const result = await db.select({
-      billingStatus: shops.billingStatus,
-      planName: shops.planName,
-      trialEndsAt: shops.trialEndsAt,
-    }).from(shops).where(eq(shops.shopDomain, shopDomain.toLowerCase().trim())).limit(1);
-
-    if (result.length === 0) return { allowed: false, status: 'not_found', planName: 'free_trial' };
-
-    const shop = result[0];
-    let status = shop.billingStatus;
-
-    if (!status) {
-      return { allowed: false, status: 'not_configured', planName: shop.planName || 'free_trial' };
-    }
-
-    if (status === 'trial') {
-      if (!shop.trialEndsAt) {
-        return { allowed: false, status: 'not_configured', planName: shop.planName || 'free_trial' };
-      }
-      if (new Date() > new Date(shop.trialEndsAt)) {
-        status = 'expired';
-        await db.update(shops).set({ billingStatus: 'expired', updatedAt: new Date() }).where(eq(shops.shopDomain, shopDomain.toLowerCase().trim()));
-      }
-    }
-
-    const allowed = status === 'active' || status === 'trial';
-    return { allowed, status, planName: shop.planName || 'free_trial' };
-  } catch {
-    return { allowed: false, status: 'error', planName: 'free_trial' };
-  }
-}
-
 export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
   app.post("/api/webhooks/shopify", async (req: any, res) => {
     try {
@@ -152,26 +118,6 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
       }
 
       res.status(200).json({ received: true });
-
-      if (topic === 'app/uninstalled') {
-        try {
-          const normalizedDomain = shopDomain.trim().toLowerCase();
-          await db.update(shops)
-            .set({
-              isActive: false,
-              accessToken: null,
-              subscriptionId: null,
-              billingStatus: 'inactive',
-              planName: 'free_trial',
-              trialEndsAt: null,
-              updatedAt: new Date(),
-            })
-            .where(eq(shops.shopDomain, normalizedDomain));
-          console.log(`[Shopify Webhook] app/uninstalled: cleared billing for ${normalizedDomain}`);
-        } catch (e) {
-          console.error('[Shopify Webhook] Error handling app/uninstalled:', e);
-        }
-      }
 
       if (topic === 'orders/create') {
         const order = req.body;
@@ -383,26 +329,17 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
         .where(eq(shops.shopDomain, shopDomain))
         .limit(1);
 
-      const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
-
       if (existing.length > 0) {
-        const updateData: Record<string, any> = {
-          accessToken: encryptedToken,
-          isActive: true,
-          shopName: shopInfo?.name || existing[0].shopName,
-          shopEmail: shopInfo?.email || existing[0].shopEmail,
-          currency: shopInfo?.currencyCode || existing[0].currency,
-          timezone: shopInfo?.timezoneAbbreviation || existing[0].timezone,
-          updatedAt: new Date(),
-        };
-        if (!existing[0].billingStatus || existing[0].billingStatus === 'inactive') {
-          updateData.billingStatus = 'trial';
-          updateData.planName = 'free_trial';
-          updateData.trialEndsAt = trialEndsAt;
-          updateData.subscriptionId = null;
-        }
         await db.update(shops)
-          .set(updateData)
+          .set({
+            accessToken: encryptedToken,
+            isActive: true,
+            shopName: shopInfo?.name || existing[0].shopName,
+            shopEmail: shopInfo?.email || existing[0].shopEmail,
+            currency: shopInfo?.currencyCode || existing[0].currency,
+            timezone: shopInfo?.timezoneAbbreviation || existing[0].timezone,
+            updatedAt: new Date(),
+          })
           .where(eq(shops.shopDomain, shopDomain));
       } else {
         await db.insert(shops).values({
@@ -413,9 +350,6 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
           shopEmail: shopInfo?.email || null,
           currency: shopInfo?.currencyCode || 'USD',
           timezone: shopInfo?.timezoneAbbreviation || null,
-          billingStatus: 'trial',
-          planName: 'free_trial',
-          trialEndsAt,
         });
       }
 
@@ -439,18 +373,11 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
       if (webhookUrl) {
         try {
           const shopifyService = new ShopifyService(shopDomain, accessToken);
-          const webhooksToRegister = ['orders/create', 'app/uninstalled'];
-          for (const webhookTopic of webhooksToRegister) {
-            try {
-              const webhookResult = await shopifyService.registerWebhook(webhookUrl, webhookTopic);
-              if (webhookResult?.userErrors?.length > 0) {
-                console.warn(`[Shopify OAuth] Webhook registration warnings for ${webhookTopic}:`, webhookResult.userErrors);
-              } else {
-                console.log(`[Shopify OAuth] Webhook registered for ${shopDomain} topic=${webhookTopic} -> ${webhookUrl}`);
-              }
-            } catch (topicError) {
-              console.error(`[Shopify OAuth] Webhook registration failed for topic ${webhookTopic} (non-fatal):`, topicError);
-            }
+          const webhookResult = await shopifyService.registerWebhook(webhookUrl, 'orders/create');
+          if (webhookResult?.userErrors?.length > 0) {
+            console.warn('[Shopify OAuth] Webhook registration warnings:', webhookResult.userErrors);
+          } else {
+            console.log(`[Shopify OAuth] Webhook registered for ${shopDomain} -> ${webhookUrl}`);
           }
         } catch (webhookError) {
           console.error('[Shopify OAuth] Webhook registration failed (non-fatal):', webhookError);
@@ -459,12 +386,7 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
         console.log('[Shopify OAuth] Skipping webhook registration: no production URL available');
       }
 
-      const isNewInstall = existing.length === 0 || !existing[0].billingStatus || existing[0].billingStatus === 'inactive';
-      if (isNewInstall) {
-        res.redirect(`/shopify-billing?shop=${encodeURIComponent(shopDomain)}&new=1`);
-      } else {
-        res.redirect(`/shopify-callback-success?shop=${encodeURIComponent(shopDomain)}`);
-      }
+      res.redirect(`/shopify-callback-success?shop=${encodeURIComponent(shopDomain)}`);
     } catch (error) {
       const { code } = req.query;
       if (code && typeof code === 'string') {
@@ -825,11 +747,6 @@ Keep your response concise, practical, and focused on actionable staffing advice
         return res.status(400).json({ error: "Shop domain required" });
       }
 
-      const billingAccess = await checkShopBillingAccess(shopDomain);
-      if (!billingAccess.allowed) {
-        return res.status(402).json({ error: "billing_required", billingStatus: billingAccess.status, message: "An active subscription is required to access labor cost analysis." });
-      }
-
       const daysBack = parseInt(req.query.daysBack as string || '30');
       const now = new Date();
       const startDate = new Date(now.getTime() - daysBack * 24 * 60 * 60 * 1000);
@@ -843,9 +760,8 @@ Keep your response concise, practical, and focused on actionable staffing advice
         ))
         .orderBy(shopifyDailySales.date);
 
-      const shopifyCompanyId = req.user?.companyId;
-      const allTimeEntries = await storage.getAllTimeEntries(startDate, now, shopifyCompanyId);
-      const allUsers = await storage.getAllUsers(shopifyCompanyId);
+      const allTimeEntries = await storage.getAllTimeEntries(startDate, now);
+      const allUsers = await db.select().from(users).where(eq(users.isActive, true));
 
       const userRateMap = new Map<string, number>();
       allUsers.forEach(u => {
@@ -906,11 +822,6 @@ Keep your response concise, practical, and focused on actionable staffing advice
 
       if (!shopDomain || !startDate || !endDate) {
         return res.status(400).json({ error: "Shop domain, startDate, and endDate are required" });
-      }
-
-      const billingAccess = await checkShopBillingAccess(shopDomain);
-      if (!billingAccess.allowed) {
-        return res.status(402).json({ error: "billing_required", billingStatus: billingAccess.status, message: "An active subscription is required to access year-over-year comparison." });
       }
 
       const domain = shopDomain.toLowerCase().trim();
@@ -1004,11 +915,6 @@ Keep your response concise, practical, and focused on actionable staffing advice
 
       if (!shopDomain || !startDate || !endDate) {
         return res.status(400).json({ error: "Shop domain, startDate, and endDate are required" });
-      }
-
-      const billingAccess = await checkShopBillingAccess(shopDomain);
-      if (!billingAccess.allowed) {
-        return res.status(402).json({ error: "billing_required", billingStatus: billingAccess.status, message: "An active subscription is required to access AI staffing recommendations." });
       }
 
       const domain = shopDomain.toLowerCase().trim();
@@ -1164,273 +1070,6 @@ Rules:
     } catch (error) {
       console.error("Error generating AI staffing recommendations:", error);
       res.status(500).json({ message: "Failed to generate staffing recommendations" });
-    }
-  });
-
-  /**
-   * Shopify Billing API Routes
-   * Plans: free_trial (14-day trial), starter ($29/mo), pro ($79/mo)
-   * billingStatus: trial | active | expired | cancelled | inactive
-   */
-
-  const BILLING_PLANS = {
-    free_trial: { name: 'Free Trial', price: 0, trialDays: 14, features: ['Basic analytics', 'Up to 5 staff', 'Order sync'] },
-    starter: { name: 'Starter', price: 29, trialDays: 0, features: ['Full analytics', 'Up to 15 staff', 'AI staffing recommendations', 'Order sync', 'Priority support'] },
-    pro: { name: 'Pro', price: 79, trialDays: 0, features: ['Full analytics', 'Unlimited staff', 'AI staffing recommendations', 'Order sync', 'Priority support', 'Year-over-year comparison', 'Labor cost analysis'] },
-  } as const;
-
-  type PlanKey = keyof typeof BILLING_PLANS;
-
-  app.get("/api/shopify/billing/plans", isAuthenticated, (_req, res) => {
-    res.json(BILLING_PLANS);
-  });
-
-  app.get("/api/shopify/billing/status", isAuthenticated, async (req: any, res) => {
-    try {
-      const shopDomain = req.query.shop as string;
-      if (!shopDomain) return res.status(400).json({ error: "Shop domain required" });
-
-      const domain = shopDomain.toLowerCase().trim();
-      const shopResult = await db.select().from(shops).where(eq(shops.shopDomain, domain)).limit(1);
-
-      if (shopResult.length === 0) return res.status(404).json({ error: "Shop not found" });
-
-      const shop = shopResult[0];
-
-      let computedStatus = shop.billingStatus || 'trial';
-      if (computedStatus === 'trial' && shop.trialEndsAt) {
-        if (new Date() > new Date(shop.trialEndsAt)) {
-          computedStatus = 'expired';
-          await db.update(shops).set({ billingStatus: 'expired', updatedAt: new Date() }).where(eq(shops.shopDomain, domain));
-        }
-      }
-
-      res.json({
-        shopDomain: domain,
-        planName: shop.planName || 'free_trial',
-        billingStatus: computedStatus,
-        trialEndsAt: shop.trialEndsAt,
-        subscriptionId: shop.subscriptionId,
-        planDetails: BILLING_PLANS[shop.planName as PlanKey] || BILLING_PLANS.free_trial,
-        isActive: computedStatus === 'active' || computedStatus === 'trial',
-      });
-    } catch (error) {
-      console.error('[Billing] Status check error:', error);
-      res.status(500).json({ error: "Failed to fetch billing status" });
-    }
-  });
-
-  app.post("/api/shopify/billing/subscribe", isAuthenticated, async (req: any, res) => {
-    try {
-      const { shopDomain: domain, planName } = req.body;
-      if (!domain || !planName) return res.status(400).json({ error: "Shop domain and plan name are required" });
-
-      const shopDomain = domain.toLowerCase().trim();
-      if (!Object.keys(BILLING_PLANS).includes(planName)) {
-        return res.status(400).json({ error: "Invalid plan" });
-      }
-
-      const plan = BILLING_PLANS[planName as PlanKey];
-
-      if (planName === 'free_trial') {
-        const shopResult = await db.select().from(shops).where(eq(shops.shopDomain, shopDomain)).limit(1);
-        if (shopResult.length === 0) return res.status(404).json({ error: "Shop not found" });
-
-        const existingShop = shopResult[0];
-        const currentStatus = existingShop.billingStatus || 'trial';
-
-        if (currentStatus === 'expired' || currentStatus === 'cancelled' || currentStatus === 'inactive') {
-          return res.status(400).json({ error: "Free trial already used. Please select a paid plan." });
-        }
-
-        if (currentStatus === 'active') {
-          return res.status(400).json({ error: "Already on an active paid plan." });
-        }
-
-        if (currentStatus === 'trial' && existingShop.trialEndsAt) {
-          return res.json({ success: true, planName: 'free_trial', billingStatus: 'trial', trialEndsAt: existingShop.trialEndsAt });
-        }
-
-        const trialEndsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
-        await db.update(shops).set({
-          planName: 'free_trial',
-          billingStatus: 'trial',
-          subscriptionId: null,
-          trialEndsAt,
-          updatedAt: new Date(),
-        }).where(eq(shops.shopDomain, shopDomain));
-        return res.json({ success: true, planName: 'free_trial', billingStatus: 'trial', trialEndsAt });
-      }
-
-      const credentials = await getShopifyCredentials(shopDomain);
-      if (!credentials) return res.status(400).json({ error: "No shop credentials found" });
-
-      const baseUrl = getAppUrl(req.get('host'));
-      const returnUrl = `${baseUrl}/api/shopify/billing/callback?shop=${encodeURIComponent(shopDomain)}&plan=${planName}`;
-
-      const shopifyService = new ShopifyService(credentials.shopDomain, credentials.accessToken);
-      const result = await shopifyService.createAppSubscription({
-        name: `MAinager ${plan.name}`,
-        price: plan.price,
-        returnUrl,
-        test: process.env.NODE_ENV !== 'production',
-      });
-
-      if (!result) return res.status(500).json({ error: "Failed to create subscription" });
-
-      await db.update(shops).set({
-        planName,
-        subscriptionId: result.subscriptionId,
-        billingStatus: 'pending',
-        updatedAt: new Date(),
-      }).where(eq(shops.shopDomain, shopDomain));
-
-      res.json({ confirmationUrl: result.confirmationUrl, subscriptionId: result.subscriptionId });
-    } catch (error) {
-      console.error('[Billing] Subscribe error:', error);
-      res.status(500).json({ error: "Failed to initiate subscription" });
-    }
-  });
-
-  app.get("/api/shopify/billing/callback", async (req: any, res) => {
-    try {
-      const shopDomain = (req.query.shop as string || '').toLowerCase().trim();
-      const planName = req.query.plan as string;
-
-      if (!shopDomain || !planName) {
-        return res.redirect(`/shopify-billing?error=1&message=${encodeURIComponent('Invalid billing callback parameters')}`);
-      }
-
-      if (!Object.keys(BILLING_PLANS).includes(planName) || planName === 'free_trial') {
-        return res.redirect(`/shopify-billing?error=1&message=${encodeURIComponent('Invalid plan in callback')}`);
-      }
-
-      const shopResult = await db.select().from(shops).where(eq(shops.shopDomain, shopDomain)).limit(1);
-      if (shopResult.length === 0) {
-        return res.redirect(`/shopify-billing?error=1&message=${encodeURIComponent('Shop not found')}`);
-      }
-
-      const shop = shopResult[0];
-
-      if (!shop.subscriptionId) {
-        console.warn(`[Billing] Callback for ${shopDomain} but no pending subscriptionId stored. Rejecting.`);
-        return res.redirect(`/shopify-billing?error=1&message=${encodeURIComponent('No pending subscription found. Please try again.')}&shop=${encodeURIComponent(shopDomain)}`);
-      }
-
-      if (shop.planName !== planName || shop.billingStatus !== 'pending') {
-        console.warn(`[Billing] Callback plan/status mismatch for ${shopDomain}. Expected plan=${planName} pending, got plan=${shop.planName} status=${shop.billingStatus}`);
-        return res.redirect(`/shopify-billing?error=1&message=${encodeURIComponent('Billing session mismatch. Please try again.')}&shop=${encodeURIComponent(shopDomain)}`);
-      }
-
-      const credentials = await getShopifyCredentials(shopDomain);
-      if (!credentials) {
-        return res.redirect(`/shopify-billing?error=1&message=${encodeURIComponent('Unable to verify subscription. Please try again.')}&shop=${encodeURIComponent(shopDomain)}`);
-      }
-
-      let subscriptionStatus: string | null = null;
-      try {
-        const shopifyService = new ShopifyService(credentials.shopDomain, credentials.accessToken);
-        const statusResult = await shopifyService.getSubscriptionStatus(shop.subscriptionId);
-        if (statusResult) {
-          subscriptionStatus = statusResult.status;
-        }
-      } catch (e) {
-        console.error('[Billing] Shopify subscription status verification failed:', e);
-      }
-
-      if (!subscriptionStatus) {
-        console.warn(`[Billing] Could not verify subscription status for ${shopDomain} subscriptionId=${shop.subscriptionId}. Failing closed.`);
-        return res.redirect(`/shopify-billing?error=1&message=${encodeURIComponent('Could not verify subscription status. Please contact support.')}&shop=${encodeURIComponent(shopDomain)}`);
-      }
-
-      const isConfirmedActive = subscriptionStatus === 'ACTIVE';
-
-      if (isConfirmedActive) {
-        await db.update(shops).set({
-          planName,
-          billingStatus: 'active',
-          trialEndsAt: null,
-          updatedAt: new Date(),
-        }).where(eq(shops.shopDomain, shopDomain));
-        console.log(`[Billing] Subscription confirmed ACTIVE for ${shopDomain}, plan=${planName}`);
-        res.redirect(`/shopify-billing?success=1&shop=${encodeURIComponent(shopDomain)}&plan=${planName}`);
-      } else {
-        await db.update(shops).set({
-          subscriptionId: null,
-          planName: 'free_trial',
-          billingStatus: shop.trialEndsAt && new Date() < new Date(shop.trialEndsAt) ? 'trial' : 'expired',
-          updatedAt: new Date(),
-        }).where(eq(shops.shopDomain, shopDomain));
-        console.warn(`[Billing] Subscription not approved for ${shopDomain}. Shopify status: ${subscriptionStatus}`);
-        res.redirect(`/shopify-billing?error=1&message=${encodeURIComponent(`Subscription not approved (status: ${subscriptionStatus}). No charge was made.`)}&shop=${encodeURIComponent(shopDomain)}`);
-      }
-    } catch (error) {
-      console.error('[Billing] Callback error:', error);
-      res.redirect(`/shopify-billing?error=1&message=${encodeURIComponent('Billing confirmation failed. No charge was made.')}`);
-    }
-  });
-
-  app.post("/api/shopify/billing/change-plan", isAuthenticated, async (req: any, res) => {
-    try {
-      const { shopDomain: domain, planName } = req.body;
-      if (!domain || !planName) return res.status(400).json({ error: "Shop domain and plan name are required" });
-
-      const shopDomain = domain.toLowerCase().trim();
-      if (!Object.keys(BILLING_PLANS).includes(planName)) {
-        return res.status(400).json({ error: "Invalid plan" });
-      }
-
-      const shopResult = await db.select().from(shops).where(eq(shops.shopDomain, shopDomain)).limit(1);
-      if (shopResult.length === 0) return res.status(404).json({ error: "Shop not found" });
-
-      const shop = shopResult[0];
-      const plan = BILLING_PLANS[planName as PlanKey];
-
-      if (planName === 'free_trial') {
-        return res.status(400).json({ error: "Cannot switch back to free trial" });
-      }
-
-      if (shop.planName === planName && shop.billingStatus === 'active') {
-        return res.status(400).json({ error: "Already on this plan" });
-      }
-
-      const credentials = await getShopifyCredentials(shopDomain);
-      if (!credentials) return res.status(400).json({ error: "No shop credentials found" });
-
-      const shopifyService = new ShopifyService(credentials.shopDomain, credentials.accessToken);
-
-      if (shop.subscriptionId && shop.billingStatus === 'active') {
-        try {
-          await shopifyService.cancelAppSubscription(shop.subscriptionId);
-          console.log(`[Billing] Cancelled prior subscription ${shop.subscriptionId} for ${shopDomain}`);
-        } catch (cancelErr) {
-          console.warn(`[Billing] Could not cancel prior subscription for ${shopDomain}:`, cancelErr);
-        }
-      }
-
-      const baseUrl = getAppUrl(req.get('host'));
-      const returnUrl = `${baseUrl}/api/shopify/billing/callback?shop=${encodeURIComponent(shopDomain)}&plan=${planName}`;
-
-      const result = await shopifyService.createAppSubscription({
-        name: `MAinager ${plan.name}`,
-        price: plan.price,
-        returnUrl,
-        test: process.env.NODE_ENV !== 'production',
-      });
-
-      if (!result) return res.status(500).json({ error: "Failed to create subscription" });
-
-      await db.update(shops).set({
-        planName,
-        subscriptionId: result.subscriptionId,
-        billingStatus: 'pending',
-        updatedAt: new Date(),
-      }).where(eq(shops.shopDomain, shopDomain));
-
-      res.json({ confirmationUrl: result.confirmationUrl, subscriptionId: result.subscriptionId });
-    } catch (error) {
-      console.error('[Billing] Change plan error:', error);
-      res.status(500).json({ error: "Failed to change plan" });
     }
   });
 

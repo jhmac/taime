@@ -96,15 +96,14 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
         return res.status(400).json({ message: "Invalid endDate" });
       }
 
-      const companyId = req.user?.companyId;
-      const settings = await storage.getCompanySettings(companyId);
+      const settings = await storage.getCompanySettings();
       const otThreshold = settings?.overtimeThresholdHours ?? 40;
       const workWeekStart = (settings as any)?.workWeekStart || "sunday";
 
       const [allEntries, allUsers, allOffsiteSessions] = await Promise.all([
-        storage.getAllTimeEntries(startDate, endDate, companyId),
-        storage.getAllUsers(companyId),
-        storage.getOffsiteSessions({ companyId }),
+        storage.getAllTimeEntries(startDate, endDate),
+        storage.getAllUsers(),
+        storage.getOffsiteSessions({}),
       ]);
 
       const offsiteByTimeEntry = new Map<string, any[]>();
@@ -274,18 +273,13 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
       const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
       const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
 
-      const timesheetCompanyId = req.user?.companyId;
       const [entries, user] = await Promise.all([
-        storage.getUserTimeEntries(targetUserId, timesheetCompanyId, startDate, endDate),
+        storage.getUserTimeEntries(targetUserId, startDate, endDate),
         storage.getUser(targetUserId),
       ]);
 
       if (!user) {
         return res.status(404).json({ message: "Employee not found" });
-      }
-
-      if (timesheetCompanyId && user.companyId !== timesheetCompanyId) {
-        return res.status(403).json({ message: "Access denied" });
       }
 
       const sortedEntries = [...entries].sort(
@@ -348,13 +342,12 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
         return res.status(403).json({ message: "Insufficient permissions to approve time entries" });
       }
 
-      const companyId = req.user?.companyId;
-      const entry = await storage.getTimeEntry(entryId, companyId);
+      const entry = await storage.getTimeEntry(entryId);
       if (!entry) {
         return res.status(404).json({ message: "Time entry not found" });
       }
 
-      const updated = await storage.updateTimeEntry(entryId, companyId, {
+      const updated = await storage.updateTimeEntry(entryId, {
         isApproved: true,
         approvedBy: userId,
         approvedAt: new Date(),
@@ -362,7 +355,6 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
 
       await storage.createTimeEntryEdit({
         timeEntryId: entryId,
-        companyId: companyId || undefined,
         editedBy: userId,
         fieldChanged: "isApproved",
         oldValue: "false",
@@ -391,20 +383,18 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
         return res.status(400).json({ message: "startDate and endDate are required" });
       }
 
-      const bulkCompanyId = req.user?.companyId;
-      const entries = await storage.getAllTimeEntries(new Date(startDate), new Date(endDate), bulkCompanyId);
+      const entries = await storage.getAllTimeEntries(new Date(startDate), new Date(endDate));
       const unapproved = entries.filter((e: any) => !e.isApproved && e.clockOutTime);
 
       let approvedCount = 0;
       for (const entry of unapproved) {
-        await storage.updateTimeEntry(entry.id, bulkCompanyId, {
+        await storage.updateTimeEntry(entry.id, {
           isApproved: true,
           approvedBy: userId,
           approvedAt: new Date(),
         });
         await storage.createTimeEntryEdit({
           timeEntryId: entry.id,
-          companyId: bulkCompanyId || undefined,
           editedBy: userId,
           fieldChanged: "isApproved",
           oldValue: "false",
@@ -435,20 +425,18 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
         return res.status(400).json({ message: "startDate and endDate are required" });
       }
 
-      const lockCompanyId = req.user?.companyId;
-      const entries = await storage.getAllTimeEntries(new Date(startDate), new Date(endDate), lockCompanyId);
+      const entries = await storage.getAllTimeEntries(new Date(startDate), new Date(endDate));
       let lockedCount = 0;
 
       for (const entry of entries) {
         if (!entry.isApproved) {
-          await storage.updateTimeEntry(entry.id, lockCompanyId, {
+          await storage.updateTimeEntry(entry.id, {
             isApproved: true,
             approvedBy: userId,
             approvedAt: new Date(),
           });
           await storage.createTimeEntryEdit({
             timeEntryId: entry.id,
-            companyId: lockCompanyId || undefined,
             editedBy: userId,
             fieldChanged: "isApproved",
             oldValue: "false",
@@ -480,9 +468,6 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
         return res.status(400).json({ message: "employeeId and clockInTime are required" });
       }
 
-      const addCompanyId = req.user?.companyId;
-      if (!addCompanyId) return res.status(403).json({ message: "Company context required" });
-
       const employee = await storage.getUser(employeeId);
       if (!employee) {
         return res.status(404).json({ message: "Employee not found" });
@@ -490,7 +475,6 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
 
       const entry = await storage.createTimeEntry({
         userId: employeeId,
-        companyId: addCompanyId,
         clockInTime: new Date(clockInTime),
         clockOutTime: clockOutTime ? new Date(clockOutTime) : undefined,
         breakMinutes: breakMinutes || 0,
@@ -501,7 +485,6 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
 
       await storage.createTimeEntryEdit({
         timeEntryId: entry.id,
-        companyId: addCompanyId,
         editedBy: userId,
         fieldChanged: "created",
         oldValue: null,
@@ -553,14 +536,13 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
         selectedFields = allFields;
       }
 
-      const exportCompanyId = req.user?.companyId;
-      const settings = await storage.getCompanySettings(exportCompanyId);
+      const settings = await storage.getCompanySettings();
       const otThreshold = settings?.overtimeThresholdHours ?? 40;
 
       const [allEntries, allUsers, exportOffsiteSessions] = await Promise.all([
-        storage.getAllTimeEntries(startDate, endDate, exportCompanyId),
-        storage.getAllUsers(exportCompanyId),
-        storage.getOffsiteSessions({ companyId: exportCompanyId }),
+        storage.getAllTimeEntries(startDate, endDate),
+        storage.getAllUsers(),
+        storage.getOffsiteSessions({}),
       ]);
 
       const exportOffsiteByEntry = new Map<string, number>();
@@ -576,7 +558,8 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
         userMap.set(user.id, user);
       }
 
-      const exportWorkWeekStart = (settings as any)?.workWeekStart || "sunday";
+      const exportSettings = await storage.getCompanySettings();
+      const exportWorkWeekStart = (exportSettings as any)?.workWeekStart || "sunday";
       const weeklyAccByUser = new Map<string, Map<string, number>>();
       const sortedEntries = [...allEntries].sort(
         (a, b) => new Date(a.clockInTime).getTime() - new Date(b.clockInTime).getTime()
@@ -674,7 +657,7 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
         return res.status(403).json({ message: "Insufficient permissions" });
       }
 
-      const result = await overtimeService.getOvertimeAlerts(req.user?.companyId);
+      const result = await overtimeService.getOvertimeAlerts();
 
       res.json({
         atRiskEmployees: result.atRiskEmployees,
@@ -702,7 +685,7 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
         return res.status(403).json({ message: "Insufficient permissions to apply overtime swaps" });
       }
 
-      const result = await overtimeService.applySwap(alertId, userId, req.user?.companyId);
+      const result = await overtimeService.applySwap(alertId, userId);
 
       if (!result.success) {
         return res.status(400).json({ message: result.message });
@@ -726,7 +709,7 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
         return res.status(403).json({ message: "Insufficient permissions to dismiss overtime alerts" });
       }
 
-      const result = await overtimeService.dismissAlert(alertId, userId, req.user?.companyId);
+      const result = await overtimeService.dismissAlert(alertId, userId);
 
       if (!result.success) {
         return res.status(400).json({ message: result.message });

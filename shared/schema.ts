@@ -18,21 +18,6 @@ import {
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-// ─── Companies (root tenant entity) ─────────────────────────────────────────
-export const companies = pgTable("companies", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  name: varchar("name").notNull().default("My Company"),
-  plan: varchar("plan").default("starter"),
-  employeeCount: integer("employee_count"),
-  shopifyUrl: varchar("shopify_url"),
-  isDefault: boolean("is_default").default(false),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
-export const insertCompanySchema = createInsertSchema(companies).omit({ id: true, createdAt: true });
-export type Company = typeof companies.$inferSelect;
-export type InsertCompany = z.infer<typeof insertCompanySchema>;
-
 // Session storage table for Replit Auth
 export const sessions = pgTable(
   "sessions",
@@ -77,7 +62,6 @@ export const rolePermissions = pgTable("role_permissions", {
 // User storage table for Replit Auth
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").references(() => companies.id),
   email: varchar("email").unique(),
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
@@ -125,7 +109,6 @@ export const users = pgTable("users", {
 // Work locations for geofencing
 export const workLocations = pgTable("work_locations", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").references(() => companies.id),
   name: varchar("name").notNull(),
   address: text("address"),
   latitude: decimal("latitude", { precision: 10, scale: 8 }),
@@ -144,7 +127,6 @@ export const workLocations = pgTable("work_locations", {
 // Time tracking entries
 export const timeEntries = pgTable("time_entries", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").references(() => companies.id),
   userId: varchar("user_id").references(() => users.id).notNull(),
   locationId: varchar("location_id").references(() => workLocations.id),
   clockInTime: timestamp("clock_in_time").notNull(),
@@ -165,7 +147,6 @@ export const timeEntries = pgTable("time_entries", {
 // Schedules
 export const schedules = pgTable("schedules", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").references(() => companies.id),
   userId: varchar("user_id").references(() => users.id).notNull(),
   locationId: varchar("location_id").references(() => workLocations.id),
   startTime: timestamp("start_time").notNull(),
@@ -186,7 +167,6 @@ export const taskStatusEnum = pgEnum("task_status", ["pending", "in_progress", "
 // Tasks/Chores
 export const tasks = pgTable("tasks", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").references(() => companies.id),
   title: varchar("title").notNull(),
   description: text("description"),
   assignedTo: varchar("assigned_to").references(() => users.id),
@@ -219,7 +199,6 @@ export const tasks = pgTable("tasks", {
 // Chat groups for group messaging
 export const chatGroups = pgTable("chat_groups", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").references(() => companies.id),
   name: varchar("name").notNull(),
   description: text("description"),
   createdBy: varchar("created_by").references(() => users.id).notNull(),
@@ -232,7 +211,6 @@ export const chatGroups = pgTable("chat_groups", {
 export const groupMembers = pgTable("group_members", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   groupId: varchar("group_id").references(() => chatGroups.id).notNull(),
-  companyId: varchar("company_id").references(() => companies.id),
   userId: varchar("user_id").references(() => users.id).notNull(),
   joinedAt: timestamp("joined_at").defaultNow(),
 });
@@ -240,7 +218,6 @@ export const groupMembers = pgTable("group_members", {
 // Team messages/communication
 export const messages = pgTable("messages", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").references(() => companies.id),
   senderId: varchar("sender_id").references(() => users.id).notNull(),
   recipientId: varchar("recipient_id").references(() => users.id),
   groupId: varchar("group_id").references(() => chatGroups.id),
@@ -255,7 +232,6 @@ export const messages = pgTable("messages", {
 // Pay period settings
 export const payPeriodSettings = pgTable("pay_period_settings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").references(() => companies.id),
   intervalType: varchar("interval_type").default("bi-weekly"),
   isAutomationEnabled: boolean("is_automation_enabled").default(false),
   daysBeforeNotification: integer("days_before_notification").default(7),
@@ -275,7 +251,6 @@ export const payPeriodSettings = pgTable("pay_period_settings", {
 // Shoutouts for team recognition
 export const shoutouts = pgTable("shoutouts", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").references(() => companies.id),
   senderId: varchar("sender_id").references(() => users.id).notNull(),
   recipientId: varchar("recipient_id").references(() => users.id).notNull(),
   category: varchar("category").notNull(), // 'Great Attitude', 'Team Player', 'Above & Beyond', 'Problem Solver', 'Customer Hero'
@@ -300,7 +275,6 @@ export const workflowStateEnum = pgEnum("workflow_state", [
 // Payroll periods
 export const payrollPeriods = pgTable("payroll_periods", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").references(() => companies.id),
   startDate: timestamp("start_date").notNull(),
   endDate: timestamp("end_date").notNull(),
   workflowState: workflowStateEnum("workflow_state").default("created"),
@@ -322,7 +296,6 @@ export const payrollPeriods = pgTable("payroll_periods", {
 // User availability
 export const userAvailability = pgTable("user_availability", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").references(() => companies.id),
   userId: varchar("user_id").references(() => users.id).notNull(),
   payrollPeriodId: varchar("payroll_period_id").references(() => payrollPeriods.id),
   date: timestamp("date").notNull(),
@@ -341,7 +314,6 @@ export const userAvailability = pgTable("user_availability", {
 // Time-off requests
 export const timeOffRequests = pgTable("time_off_requests", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").references(() => companies.id),
   userId: varchar("user_id").references(() => users.id).notNull(),
   type: varchar("type").notNull(),
   status: varchar("status").notNull().default("pending"),
@@ -361,7 +333,6 @@ export const timeOffRequests = pgTable("time_off_requests", {
 export const scheduleConfirmations = pgTable("schedule_confirmations", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   payrollPeriodId: varchar("payroll_period_id").references(() => payrollPeriods.id).notNull(),
-  companyId: varchar("company_id").references(() => companies.id),
   userId: varchar("user_id").references(() => users.id).notNull(),
   isConfirmed: boolean("is_confirmed").default(false),
   feedback: text("feedback"),
@@ -374,7 +345,6 @@ export const scheduleConfirmations = pgTable("schedule_confirmations", {
 export const workflowLogs = pgTable("workflow_logs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   payrollPeriodId: varchar("payroll_period_id").references(() => payrollPeriods.id).notNull(),
-  companyId: varchar("company_id").references(() => companies.id),
   workflowStep: varchar("workflow_step").notNull(),
   status: varchar("status").notNull(),
   details: text("details"),
@@ -385,7 +355,6 @@ export const workflowLogs = pgTable("workflow_logs", {
 // AI insights
 export const aiInsights = pgTable("ai_insights", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").references(() => companies.id),
   type: varchar("type").notNull(),
   userId: varchar("user_id").references(() => users.id),
   title: varchar("title").notNull(),
@@ -399,7 +368,6 @@ export const aiInsights = pgTable("ai_insights", {
 // Company settings
 export const companySettings = pgTable("company_settings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").unique().references(() => companies.id),
   companyName: varchar("company_name").default("My Company"),
   timezone: varchar("timezone").default("America/New_York"),
   businessStartHour: integer("business_start_hour").default(8),
@@ -495,7 +463,6 @@ export const companySettings = pgTable("company_settings", {
 // Activity logs
 export const activityLogs = pgTable("activity_logs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").references(() => companies.id),
   userId: varchar("user_id").references(() => users.id).notNull(),
   action: varchar("action").notNull(),
   targetType: varchar("target_type").notNull(),
@@ -508,7 +475,6 @@ export const activityLogs = pgTable("activity_logs", {
 // Clock events
 export const clockEvents = pgTable("clock_events", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").references(() => companies.id),
   userId: varchar("user_id").references(() => users.id).notNull(),
   timeEntryId: varchar("time_entry_id").references(() => timeEntries.id),
   eventType: varchar("event_type").notNull(),
@@ -522,22 +488,18 @@ export const clockEvents = pgTable("clock_events", {
 // Performance score settings
 export const performanceScoreSettings = pgTable("performance_score_settings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").references(() => companies.id),
-  eventType: varchar("event_type").notNull(),
+  eventType: varchar("event_type").notNull().unique(),
   category: varchar("category").notNull(),
   displayName: varchar("display_name").notNull(),
   pointValue: integer("point_value").notNull(),
   isActive: boolean("is_active").default(true),
   updatedBy: varchar("updated_by").references(() => users.id),
   updatedAt: timestamp("updated_at").defaultNow(),
-}, (table) => [
-  uniqueIndex("idx_perf_settings_company_event").on(table.companyId, table.eventType),
-]);
+});
 
 // Employee documents
 export const employeeDocuments = pgTable("employee_documents", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").references(() => companies.id),
   userId: varchar("user_id").references(() => users.id).notNull(),
   category: varchar("category").notNull(),
   name: varchar("name").notNull(),
@@ -552,7 +514,6 @@ export const employeeDocuments = pgTable("employee_documents", {
 // Manager notes
 export const managerNotes = pgTable("manager_notes", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").references(() => companies.id),
   userId: varchar("user_id").references(() => users.id).notNull(),
   managerId: varchar("manager_id").references(() => users.id).notNull(),
   note: text("note").notNull(),
@@ -565,7 +526,6 @@ export const managerNotes = pgTable("manager_notes", {
 // Holiday pay rules
 export const holidayPayRules = pgTable("holiday_pay_rules", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").references(() => companies.id),
   name: varchar("name").notNull(),
   month: integer("month").notNull(),
   day: integer("day").notNull(),
@@ -578,7 +538,6 @@ export const holidayPayRules = pgTable("holiday_pay_rules", {
 // SOP categories
 export const sopCategories = pgTable("sop_categories", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").references(() => companies.id),
   name: varchar("name").notNull(),
   description: text("description"),
   icon: varchar("icon"),
@@ -589,7 +548,6 @@ export const sopCategories = pgTable("sop_categories", {
 // SOP documents
 export const sopDocuments = pgTable("sop_documents", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").references(() => companies.id),
   categoryId: varchar("category_id").references(() => sopCategories.id).notNull(),
   title: varchar("title").notNull(),
   content: text("content").notNull(),
@@ -604,7 +562,6 @@ export const sopDocuments = pgTable("sop_documents", {
 // AI Chat
 export const aiChatConversations = pgTable("ai_chat_conversations", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").references(() => companies.id),
   userId: varchar("user_id").references(() => users.id).notNull(),
   title: varchar("title").notNull(),
   context: jsonb("context"),
@@ -615,7 +572,6 @@ export const aiChatConversations = pgTable("ai_chat_conversations", {
 export const aiChatMessages = pgTable("ai_chat_messages", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   conversationId: varchar("conversation_id").references(() => aiChatConversations.id).notNull(),
-  companyId: varchar("company_id").references(() => companies.id),
   role: varchar("role").notNull(),
   content: text("content").notNull(),
   sopReferences: text("sop_references").array(),
@@ -634,7 +590,6 @@ export const aiFeedback = pgTable("ai_feedback", {
 // Training modules
 export const trainingModules = pgTable("training_modules", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").references(() => companies.id),
   title: varchar("title").notNull(),
   description: text("description"),
   content: text("content").notNull(),
@@ -660,7 +615,6 @@ export const employeeTrainingProgress = pgTable("employee_training_progress", {
 export const commuteAlerts = pgTable("commute_alerts", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").references(() => users.id).notNull(),
-  companyId: varchar("company_id").references(() => companies.id),
   type: varchar("type").notNull(),
   title: varchar("title").notNull(),
   message: text("message").notNull(),
@@ -690,14 +644,12 @@ export const geofenceEvents = pgTable("geofence_events", {
   longitude: decimal("longitude", { precision: 11, scale: 8 }),
   distanceFromCenter: decimal("distance_from_center", { precision: 10, scale: 2 }),
   timeEntryId: varchar("time_entry_id").references(() => timeEntries.id),
-  companyId: varchar("company_id").references(() => companies.id),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
 // AI Scheduling Settings
 export const aiSchedulingSettings = pgTable("ai_scheduling_settings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").references(() => companies.id),
   shiftBlocks: jsonb("shift_blocks").default(sql`'[]'::jsonb`),
   staffingTiers: jsonb("staffing_tiers").default(sql`'[]'::jsonb`),
   minimumStaffing: integer("minimum_staffing").default(2),
@@ -744,10 +696,6 @@ export const shops = pgTable("shops", {
   lastSyncAt: timestamp("last_sync_at"),
   installedAt: timestamp("installed_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-  subscriptionId: varchar("subscription_id"),
-  planName: varchar("plan_name").default("free_trial"),
-  billingStatus: varchar("billing_status").default("trial"),
-  trialEndsAt: timestamp("trial_ends_at"),
 });
 
 // User to Shop junction table
@@ -876,7 +824,6 @@ export const sopStepCompletions = pgTable("sop_step_completions", {
 export const timeEntryEdits = pgTable("time_entry_edits", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   timeEntryId: varchar("time_entry_id").references(() => timeEntries.id).notNull(),
-  companyId: varchar("company_id").references(() => companies.id),
   editedBy: varchar("edited_by").references(() => users.id).notNull(),
   editedAt: timestamp("edited_at").defaultNow(),
   fieldChanged: varchar("field_changed").notNull(),
@@ -903,7 +850,6 @@ export const offsiteAllowanceRules = pgTable("offsite_allowance_rules", {
   customAlertUserIds: jsonb("custom_alert_user_ids").$type<string[]>(),
   isActive: boolean("is_active").default(true),
   createdBy: varchar("created_by").references(() => users.id),
-  companyId: varchar("company_id").references(() => companies.id),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("idx_offsite_rules_location").on(table.locationId),
@@ -922,7 +868,6 @@ export const offsiteSessions = pgTable("offsite_sessions", {
   wasAlertSent: boolean("was_alert_sent").default(false),
   alertSentAt: timestamp("alert_sent_at"),
   status: varchar("status").notNull().default("active"),
-  companyId: varchar("company_id").references(() => companies.id),
 }, (table) => [
   index("idx_offsite_sessions_user").on(table.userId),
   index("idx_offsite_sessions_status").on(table.status),
@@ -945,7 +890,6 @@ export const overtimeAlerts = pgTable("overtime_alerts", {
   dismissedAt: timestamp("dismissed_at"),
   dismissedBy: varchar("dismissed_by").references(() => users.id),
   weekStartDate: timestamp("week_start_date").notNull(),
-  companyId: varchar("company_id").references(() => companies.id),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("idx_overtime_alerts_employee").on(table.employeeId),
@@ -1053,7 +997,6 @@ export type InsertRole = z.infer<typeof insertRoleSchema>;
 export const issues = pgTable("issues", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   storeId: varchar("store_id").references(() => workLocations.id).notNull(),
-  companyId: varchar("company_id").references(() => companies.id),
   reportedBy: varchar("reported_by").notNull(),
   assignedTo: varchar("assigned_to"),
   title: text("title").notNull(),
@@ -1073,7 +1016,6 @@ export const issues = pgTable("issues", {
   index("idx_issues_store_category_created").on(table.storeId, table.category, table.createdAt),
   index("idx_issues_store_assigned_status").on(table.storeId, table.assignedTo, table.status),
   index("idx_issues_reported_created").on(table.reportedBy, table.createdAt),
-  index("idx_issues_company").on(table.companyId),
 ]);
 
 export const issueComments = pgTable("issue_comments", {
@@ -1532,7 +1474,6 @@ export const messageThreads = pgTable("message_threads", {
   threadType: text("thread_type").notNull(),
   title: text("title"),
   createdBy: text("created_by").notNull(),
-  companyId: varchar("company_id").references(() => companies.id),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 }, (table) => [
@@ -1554,7 +1495,6 @@ export const threadParticipants = pgTable("thread_participants", {
 export const threadMessages = pgTable("thread_messages", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   threadId: varchar("thread_id").notNull(),
-  companyId: varchar("company_id").references(() => companies.id),
   senderId: text("sender_id").notNull(),
   content: text("content").notNull(),
   messageType: text("message_type").notNull().default("text"),

@@ -95,9 +95,10 @@ export default function Team() {
   const [invitedMember, setInvitedMember] = useState<{ name: string; email: string } | null>(null);
 
   const { data: members = [], isLoading, error } = useQuery<User[]>({
-    queryKey: ["/api/users", { includeAll: true }],
+    queryKey: ["/api/users", { includeAll: showTerminated }],
     queryFn: async () => {
-      const res = await fetch("/api/users?includeAll=true", { credentials: "include" });
+      const url = showTerminated ? "/api/users?includeAll=true" : "/api/users";
+      const res = await fetch(url, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch users");
       return res.json();
     },
@@ -180,36 +181,7 @@ export default function Team() {
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
       toast({ title: "Invite sent", description: "Invitation email has been resent successfully." });
-    },
-    onError: (err: Error) => {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
-    },
-  });
-
-  const sendInviteMutation = useMutation({
-    mutationFn: async (userId: string) => {
-      const res = await apiRequest("POST", `/api/users/${userId}/send-invite`);
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
-      toast({ title: "Invite sent", description: "Invitation email has been sent successfully." });
-    },
-    onError: (err: Error) => {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
-    },
-  });
-
-  const bulkInviteMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/users/bulk-invite");
-      return res.json();
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
-      toast({ title: "Bulk invite complete", description: data.message });
     },
     onError: (err: Error) => {
       toast({ title: "Error", description: err.message, variant: "destructive" });
@@ -255,15 +227,7 @@ export default function Team() {
   const filtered = useMemo(() => {
     let list = members;
     if (!showTerminated) {
-      // Always show: active members, pending (invited but not accepted), incomplete (no email)
-      // Hide: explicitly terminated (isActive=false AND invite was accepted, meaning they were terminated after being active)
-      list = list.filter((m) => {
-        if (m.isActive !== false) return true;
-        // Inactive members who never accepted: show as pending/incomplete
-        if (!m.inviteAcceptedAt) return true;
-        // Inactive members who previously accepted (terminated): hide unless showTerminated
-        return false;
-      });
+      list = list.filter((m) => m.isActive !== false);
     }
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -354,24 +318,6 @@ export default function Team() {
           <Filter className="h-4 w-4 mr-1" />
           Filter
         </Button>
-        {canManageEmployees && (() => {
-          const pendingCount = members.filter(m => m.email && !m.inviteAcceptedAt).length;
-          return pendingCount > 0 ? (
-            <Button
-              variant="outline"
-              className="border-amber-400 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950"
-              disabled={bulkInviteMutation.isPending}
-              onClick={() => bulkInviteMutation.mutate()}
-            >
-              {bulkInviteMutation.isPending ? (
-                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-              ) : (
-                <Mail className="h-4 w-4 mr-1" />
-              )}
-              Invite All ({pendingCount})
-            </Button>
-          ) : null;
-        })()}
         {canManageEmployees && (
           <Button
             className="bg-violet-600 hover:bg-violet-700 text-white"
@@ -524,39 +470,22 @@ export default function Team() {
                     <td className="p-3" onClick={(e) => e.stopPropagation()}>
                       <div className="flex flex-col gap-1.5">
                         <div className="flex items-center gap-2 flex-wrap">
-                          {(() => {
-                            const noEmail = !member.email;
-                            const isPending = member.invitedAt && !member.inviteAcceptedAt;
-                            const isActive = member.isActive !== false;
-
-                            if (noEmail) {
-                              return (
-                                <Badge variant="outline" className="border-orange-400 text-orange-500 bg-orange-50 gap-1">
-                                  Incomplete
-                                </Badge>
-                              );
-                            }
-                            if (isActive && member.inviteAcceptedAt) {
-                              return (
-                                <Badge className="bg-green-100 text-green-700 border-green-300 hover:bg-green-100">
-                                  Active
-                                </Badge>
-                              );
-                            }
-                            if (isPending) {
-                              return (
-                                <Badge variant="outline" className="border-amber-400 text-amber-600 bg-amber-50 gap-1">
-                                  <Clock className="h-2.5 w-2.5" />
-                                  Pending
-                                </Badge>
-                              );
-                            }
-                            return (
-                              <Badge variant="outline" className="border-gray-400 text-gray-500">
-                                Inactive
+                          {member.isActive !== false ? (
+                            member.invitedAt && !member.inviteAcceptedAt ? (
+                              <Badge variant="outline" className="border-amber-400 text-amber-600 bg-amber-50 gap-1">
+                                <Clock className="h-2.5 w-2.5" />
+                                Pending
                               </Badge>
-                            );
-                          })()}
+                            ) : (
+                              <Badge className="bg-green-100 text-green-700 border-green-300 hover:bg-green-100">
+                                Active
+                              </Badge>
+                            )
+                          ) : (
+                            <Badge variant="outline" className="border-gray-400 text-gray-500">
+                              Inactive
+                            </Badge>
+                          )}
                         </div>
                         {member.invitedAt && !member.inviteAcceptedAt && (
                           <p className="text-xs text-muted-foreground flex items-center gap-1">
@@ -565,34 +494,18 @@ export default function Team() {
                             {(member.inviteCount || 0) > 1 && ` · ${member.inviteCount}x`}
                           </p>
                         )}
-                        {!member.email && (
-                          <p className="text-xs text-orange-500">No email on file</p>
-                        )}
-                        {canManageEmployees && !member.inviteAcceptedAt && member.email && (
+                        {canManageEmployees && member.isActive !== false && member.invitedAt && !member.inviteAcceptedAt && member.email && (
                           <div className="flex items-center gap-1">
-                            {member.invitedAt ? (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-6 text-xs text-violet-600 hover:text-violet-700 px-2"
-                                disabled={resendInviteMutation.isPending}
-                                onClick={() => resendInviteMutation.mutate(member.id)}
-                              >
-                                <Send className="h-2.5 w-2.5 mr-1" />
-                                Resend
-                              </Button>
-                            ) : (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-6 text-xs text-violet-600 hover:text-violet-700 px-2"
-                                disabled={sendInviteMutation.isPending}
-                                onClick={() => sendInviteMutation.mutate(member.id)}
-                              >
-                                <Send className="h-2.5 w-2.5 mr-1" />
-                                Send Invite
-                              </Button>
-                            )}
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-6 text-xs text-violet-600 hover:text-violet-700 px-2"
+                              disabled={resendInviteMutation.isPending}
+                              onClick={() => resendInviteMutation.mutate(member.id)}
+                            >
+                              <Send className="h-2.5 w-2.5 mr-1" />
+                              Resend
+                            </Button>
                             {member.inviteToken && (
                               <Button
                                 size="sm"

@@ -7,9 +7,6 @@ import { config } from "./lib/config";
 import logger from "./lib/logger";
 import { globalErrorHandler } from "./lib/routeWrapper";
 import { startRitualScheduler } from "./services/ritualScheduler";
-import { db } from "./db";
-import { users } from "@shared/schema";
-import { isNull, eq } from "drizzle-orm";
 
 process.on('uncaughtException', (err) => {
   if (err.message?.includes('Cannot set property message') ||
@@ -107,16 +104,6 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  // One-time migration: set isActive=false for all users without accepted invite
-  try {
-    await db.update(users)
-      .set({ isActive: false })
-      .where(isNull(users.inviteAcceptedAt));
-    log("Migration: set inactive for users without accepted invite");
-  } catch (err) {
-    logger.error({ err }, "Migration failed: inactive status update");
-  }
-
   const server = await registerRoutes(app);
 
   app.use(globalErrorHandler);

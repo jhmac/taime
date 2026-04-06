@@ -8,7 +8,7 @@ export function registerChoreRoutes(app: Express, storage: IStorage, isAuthentic
       const { dayOfWeek } = req.params;
       const { timeOfDay } = req.query;
       
-      const chores = await storage.getChoresForDay(dayOfWeek, timeOfDay as string, req.user?.companyId);
+      const chores = await storage.getChoresForDay(dayOfWeek, timeOfDay as string);
       res.json(chores);
     } catch (error) {
       console.error("Error fetching chores for day:", error);
@@ -18,7 +18,7 @@ export function registerChoreRoutes(app: Express, storage: IStorage, isAuthentic
 
   app.get('/api/chores/schedule', isAuthenticated, async (req: any, res) => {
     try {
-      const schedule = await storage.getWeeklyChoreSchedule(req.user?.companyId);
+      const schedule = await storage.getWeeklyChoreSchedule();
       res.json(schedule);
     } catch (error) {
       console.error("Error fetching weekly chore schedule:", error);
@@ -37,7 +37,7 @@ export function registerChoreRoutes(app: Express, storage: IStorage, isAuthentic
       }
       
       const data = choreAssignmentSchema.parse(req.body);
-      const updatedChore = await storage.assignChoreToUser(data.choreId, req.user?.companyId, data.userId);
+      const updatedChore = await storage.assignChoreToUser(data.choreId, data.userId);
       
       broadcastToAll({
         type: 'chore_assigned',
@@ -65,7 +65,7 @@ export function registerChoreRoutes(app: Express, storage: IStorage, isAuthentic
         }
       }
       
-      const updatedChore = await storage.signOffChore(data.choreId, req.user?.companyId, userId, data.isManager);
+      const updatedChore = await storage.signOffChore(data.choreId, userId, data.isManager);
       
       broadcastToAll({
         type: 'chore_signed_off',
@@ -82,7 +82,7 @@ export function registerChoreRoutes(app: Express, storage: IStorage, isAuthentic
   app.get('/api/chores/zone/:zone', isAuthenticated, async (req: any, res) => {
     try {
       const { zone } = req.params;
-      const chores = await storage.getChoresByZone(zone, req.user?.companyId);
+      const chores = await storage.getChoresByZone(zone);
       res.json(chores);
     } catch (error) {
       console.error("Error fetching chores by zone:", error);
