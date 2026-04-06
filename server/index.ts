@@ -7,7 +7,7 @@ import { config } from "./lib/config";
 import logger from "./lib/logger";
 import { globalErrorHandler } from "./lib/routeWrapper";
 import { startRitualScheduler } from "./services/ritualScheduler";
-import { backfillLegacyUserRoles } from "./lib/backfill";
+import { backfillLegacyUserRoles, backfillInactiveAuthenticatedUsers } from "./lib/backfill";
 
 process.on('uncaughtException', (err) => {
   if (err.message?.includes('Cannot set property message') ||
@@ -131,5 +131,6 @@ app.use((req, res, next) => {
     log(`serving on port ${port}`);
     startRitualScheduler();
     backfillLegacyUserRoles();
+    backfillInactiveAuthenticatedUsers();
   });
 })();

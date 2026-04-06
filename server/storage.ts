@@ -341,7 +341,7 @@ export class DatabaseStorage implements IStorage {
     if (userData.email) {
       const [existingByEmail] = await db.select().from(users).where(eq(users.email, userData.email));
       if (existingByEmail && existingByEmail.id !== userData.id) {
-        const updateData: Record<string, string | Date | null> = { updatedAt: new Date() };
+        const updateData: Record<string, string | boolean | Date | null> = { updatedAt: new Date(), isActive: true };
         if (userData.firstName) updateData.firstName = userData.firstName;
         if (userData.lastName) updateData.lastName = userData.lastName;
         if (userData.profileImageUrl) updateData.profileImageUrl = userData.profileImageUrl;
@@ -359,6 +359,7 @@ export class DatabaseStorage implements IStorage {
         target: users.id,
         set: {
           ...userData,
+          isActive: true,
           updatedAt: new Date(),
         },
       })

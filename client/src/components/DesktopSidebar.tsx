@@ -63,7 +63,7 @@ export default function DesktopSidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const { user } = useAuth();
 
-  const isAdmin = user?.role?.name === 'admin' || user?.role?.name === 'owner';
+  const isAdmin = user?.role?.name === 'admin' || user?.role?.name === 'owner' || user?.role?.name === 'manager';
 
   const { data: unreadData } = useQuery<{ success: boolean; data: { count: number } }>({
     queryKey: ["/api/messages/unread-count"],

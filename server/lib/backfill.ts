@@ -1,6 +1,6 @@
 import { db } from "../db";
 import { users, roles } from "@shared/schema";
-import { eq, isNull } from "drizzle-orm";
+import { eq, isNull, or, isNotNull, and } from "drizzle-orm";
 
 const SUPER_ADMIN_EMAIL = "jh@scuild.com";
 
@@ -53,5 +53,28 @@ export async function backfillLegacyUserRoles(): Promise<void> {
     }
   } catch (err) {
     console.warn("[Backfill] Role backfill failed (non-fatal):", err);
+  }
+}
+
+export async function backfillInactiveAuthenticatedUsers(): Promise<void> {
+  try {
+    const result = await db
+      .update(users)
+      .set({ isActive: true })
+      .where(
+        and(
+          isNotNull(users.inviteAcceptedAt),
+          or(
+            isNull(users.isActive),
+            eq(users.isActive, false)
+          )
+        )
+      )
+      .returning({ id: users.id });
+    if (result.length > 0) {
+      console.log(`[Backfill] Set isActive=true for ${result.length} invite-accepted user(s) who had isActive=false/null`);
+    }
+  } catch (err) {
+    console.warn("[Backfill] Inactive authenticated user backfill failed (non-fatal):", err);
   }
 }
