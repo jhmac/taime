@@ -29,6 +29,7 @@ import { registerAiAssistantRoutes } from "./routes/aiAssistant";
 import { registerAiSchedulingRoutes } from "./routes/aiScheduling";
 import { registerDashboardRoutes } from "./routes/dashboard";
 import { registerGtdRoutes } from "./routes/gtd";
+import { registerMeetingRoutes } from "./routes/meetings";
 import { registerWeeklyReviewRoutes, startWeeklyReviewCron, stopWeeklyReviewCron } from "./routes/weeklyReview";
 import { registerIssueRoutes } from "./routes/issues";
 import { registerRitualRoutes } from "./routes/rituals";
@@ -167,6 +168,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerRitualRoutes(app, storage, isAuthenticated, broadcastToAll);
   registerVideoRoutes(app, storage, isAuthenticated, broadcastToAll);
   registerGtdRoutes(app, storage, isAuthenticated, broadcastToAll);
+  registerMeetingRoutes(app, storage, isAuthenticated, broadcastToAll, sendToUsers);
   registerWeeklyReviewRoutes(app, storage, isAuthenticated);
   registerMessageRoutes(app, storage, isAuthenticated, sendToUsers);
   registerRAGRoutes(app, storage, isAuthenticated);

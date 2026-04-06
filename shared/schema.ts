@@ -1826,3 +1826,50 @@ export const scoreNotices = pgTable("score_notices", {
 export const insertScoreNoticeSchema = createInsertSchema(scoreNotices).omit({ id: true, createdAt: true });
 export type InsertScoreNotice = z.infer<typeof insertScoreNoticeSchema>;
 export type ScoreNotice = typeof scoreNotices.$inferSelect;
+
+// ── Meeting Intelligence ────────────────────────────────────────────
+
+export const meetingStatusEnum = pgEnum("meeting_status", ["recording", "processing", "ready", "failed"]);
+export const meetingTaskRecommendationStatusEnum = pgEnum("meeting_task_recommendation_status", ["pending", "accepted", "rejected"]);
+
+export const meetings = pgTable("meetings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => workLocations.id).notNull(),
+  createdBy: varchar("created_by").references(() => users.id).notNull(),
+  title: varchar("title").notNull(),
+  date: timestamp("date").notNull(),
+  durationSeconds: integer("duration_seconds"),
+  audioUrl: text("audio_url"),
+  transcript: text("transcript"),
+  synopsis: jsonb("synopsis"),
+  status: meetingStatusEnum("status").default("recording"),
+  participantIds: text("participant_ids").array().default([]),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_meetings_store_created").on(table.storeId, table.createdAt),
+  index("idx_meetings_created_by").on(table.createdBy),
+]);
+
+export const insertMeetingSchema = createInsertSchema(meetings).omit({ id: true, createdAt: true, updatedAt: true });
+export type Meeting = typeof meetings.$inferSelect;
+export type InsertMeeting = z.infer<typeof insertMeetingSchema>;
+
+export const meetingTaskRecommendations = pgTable("meeting_task_recommendations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  meetingId: varchar("meeting_id").references(() => meetings.id, { onDelete: "cascade" }).notNull(),
+  description: text("description").notNull(),
+  context: text("context"),
+  priority: varchar("priority").notNull().default("medium"),
+  assigneeId: varchar("assignee_id").references(() => users.id),
+  status: meetingTaskRecommendationStatusEnum("status").default("pending"),
+  gtdInboxItemId: varchar("gtd_inbox_item_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_meeting_task_recs_meeting_id").on(table.meetingId),
+]);
+
+export const insertMeetingTaskRecommendationSchema = createInsertSchema(meetingTaskRecommendations).omit({ id: true, createdAt: true, updatedAt: true });
+export type MeetingTaskRecommendation = typeof meetingTaskRecommendations.$inferSelect;
+export type InsertMeetingTaskRecommendation = z.infer<typeof insertMeetingTaskRecommendationSchema>;

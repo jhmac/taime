@@ -31,6 +31,12 @@ import {
   commuteAlerts,
   timeOffRequests,
   shoutouts,
+  meetings,
+  meetingTaskRecommendations,
+  type Meeting,
+  type InsertMeeting,
+  type MeetingTaskRecommendation,
+  type InsertMeetingTaskRecommendation,
   type User,
   type UpsertUser,
   type TimeEntry,
@@ -323,6 +329,19 @@ export interface IStorage {
   createOvertimeAlert(alert: InsertOvertimeAlert): Promise<OvertimeAlert>;
   getOvertimeAlerts(filters?: { status?: string; weekStartDate?: Date }): Promise<OvertimeAlert[]>;
   updateOvertimeAlert(id: string, updates: Partial<OvertimeAlert>): Promise<OvertimeAlert>;
+
+  // Meeting intelligence
+  createMeeting(meeting: InsertMeeting): Promise<Meeting>;
+  getMeeting(id: string): Promise<Meeting | undefined>;
+  getMeetingsByStore(storeId: string): Promise<Meeting[]>;
+  updateMeeting(id: string, updates: Partial<Meeting>): Promise<Meeting>;
+  deleteMeeting(id: string): Promise<void>;
+
+  createMeetingTaskRecommendation(rec: InsertMeetingTaskRecommendation): Promise<MeetingTaskRecommendation>;
+  getMeetingTaskRecommendations(meetingId: string): Promise<MeetingTaskRecommendation[]>;
+  getMeetingTaskRecommendation(id: string): Promise<MeetingTaskRecommendation | undefined>;
+  updateMeetingTaskRecommendation(id: string, updates: Partial<MeetingTaskRecommendation>): Promise<MeetingTaskRecommendation>;
+  deleteMeetingTaskRecommendation(id: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1763,6 +1782,70 @@ export class DatabaseStorage implements IStorage {
       .where(eq(overtimeAlerts.id, id))
       .returning();
     return updated;
+  }
+
+  // Meeting intelligence
+  async createMeeting(meeting: InsertMeeting): Promise<Meeting> {
+    const [created] = await db.insert(meetings).values(meeting).returning();
+    return created;
+  }
+
+  async getMeeting(id: string): Promise<Meeting | undefined> {
+    const [meeting] = await db.select().from(meetings).where(eq(meetings.id, id)).limit(1);
+    return meeting;
+  }
+
+  async getMeetingsByStore(storeId: string): Promise<Meeting[]> {
+    return await db
+      .select()
+      .from(meetings)
+      .where(eq(meetings.storeId, storeId))
+      .orderBy(desc(meetings.date))
+      .limit(200);
+  }
+
+  async updateMeeting(id: string, updates: Partial<Meeting>): Promise<Meeting> {
+    const [updated] = await db
+      .update(meetings)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(meetings.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteMeeting(id: string): Promise<void> {
+    await db.delete(meetings).where(eq(meetings.id, id));
+  }
+
+  async createMeetingTaskRecommendation(rec: InsertMeetingTaskRecommendation): Promise<MeetingTaskRecommendation> {
+    const [created] = await db.insert(meetingTaskRecommendations).values(rec).returning();
+    return created;
+  }
+
+  async getMeetingTaskRecommendations(meetingId: string): Promise<MeetingTaskRecommendation[]> {
+    return await db
+      .select()
+      .from(meetingTaskRecommendations)
+      .where(eq(meetingTaskRecommendations.meetingId, meetingId))
+      .orderBy(desc(meetingTaskRecommendations.createdAt));
+  }
+
+  async getMeetingTaskRecommendation(id: string): Promise<MeetingTaskRecommendation | undefined> {
+    const [rec] = await db.select().from(meetingTaskRecommendations).where(eq(meetingTaskRecommendations.id, id)).limit(1);
+    return rec;
+  }
+
+  async updateMeetingTaskRecommendation(id: string, updates: Partial<MeetingTaskRecommendation>): Promise<MeetingTaskRecommendation> {
+    const [updated] = await db
+      .update(meetingTaskRecommendations)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(meetingTaskRecommendations.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteMeetingTaskRecommendation(id: string): Promise<void> {
+    await db.delete(meetingTaskRecommendations).where(eq(meetingTaskRecommendations.id, id));
   }
 }
 
