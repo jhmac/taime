@@ -907,6 +907,17 @@ export const offsiteSessions = pgTable("offsite_sessions", {
   deviationAlertsSent: integer("deviation_alerts_sent").default(0),
   destinationNotReachedAlertSent: boolean("destination_not_reached_alert_sent").default(false),
   overdueReturnAlertSent: boolean("overdue_return_alert_sent").default(false),
+  // Trip receipt summary fields
+  totalDistanceMiles: decimal("total_distance_miles", { precision: 8, scale: 2 }),
+  deviationEventCount: integer("deviation_event_count").default(0),
+  maxDeviationMiles: decimal("max_deviation_miles", { precision: 8, scale: 2 }),
+  destinationReached: boolean("destination_reached"),
+  reimbursementCents: integer("reimbursement_cents"),
+  breadcrumbs: jsonb("breadcrumbs").$type<Array<{ lat: number; lng: number; ts: number }>>(),
+  // Admin review fields
+  reviewedBy: varchar("reviewed_by").references(() => users.id),
+  reviewedAt: timestamp("reviewed_at"),
+  adminNote: text("admin_note"),
 }, (table) => [
   index("idx_offsite_sessions_user").on(table.userId),
   index("idx_offsite_sessions_status").on(table.status),

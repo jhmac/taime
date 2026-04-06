@@ -335,8 +335,8 @@ export interface IStorage {
 
   // Off-site sessions
   createOffsiteSession(session: InsertOffsiteSession): Promise<OffsiteSession>;
-  getOffsiteSessions(filters?: { userId?: string; status?: string; timeEntryId?: string }): Promise<OffsiteSession[]>;
   getOffsiteSession(id: string): Promise<OffsiteSession | undefined>;
+  getOffsiteSessions(filters?: { userId?: string; status?: string; timeEntryId?: string; locationId?: string; from?: Date; to?: Date }): Promise<OffsiteSession[]>;
   updateOffsiteSession(id: string, updates: Partial<OffsiteSession>): Promise<OffsiteSession>;
 
   // Off-site breadcrumbs
@@ -1781,11 +1781,19 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async getOffsiteSessions(filters?: { userId?: string; status?: string; timeEntryId?: string }): Promise<OffsiteSession[]> {
-    const conditions: ReturnType<typeof eq>[] = [];
+  async getOffsiteSession(id: string): Promise<OffsiteSession | undefined> {
+    const [session] = await db.select().from(offsiteSessions).where(eq(offsiteSessions.id, id));
+    return session;
+  }
+
+  async getOffsiteSessions(filters?: { userId?: string; status?: string; timeEntryId?: string; locationId?: string; from?: Date; to?: Date }): Promise<OffsiteSession[]> {
+    const conditions: any[] = [];
     if (filters?.userId) conditions.push(eq(offsiteSessions.userId, filters.userId));
     if (filters?.status) conditions.push(eq(offsiteSessions.status, filters.status));
     if (filters?.timeEntryId) conditions.push(eq(offsiteSessions.timeEntryId, filters.timeEntryId));
+    if (filters?.locationId) conditions.push(eq(offsiteSessions.locationId, filters.locationId));
+    if (filters?.from) conditions.push(gte(offsiteSessions.exitTime, filters.from));
+    if (filters?.to) conditions.push(lte(offsiteSessions.exitTime, filters.to));
     return await db
       .select()
       .from(offsiteSessions)

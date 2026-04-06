@@ -293,6 +293,174 @@ export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAu
     }
   });
 
+  app.get('/api/offsite-sessions/:id/receipt', isAuthenticated, async (req: any, res) => {
+    try {
+      const requestingUserId = req.user.id;
+      const { id } = req.params;
+
+      const session = await storage.getOffsiteSession(id);
+      if (!session) {
+        return res.status(404).json({ message: "Session not found" });
+      }
+
+      if (requestingUserId !== session.userId) {
+        const userPermissions = await storage.getUserPermissions(requestingUserId);
+        const isAdmin = userPermissions.some((p: any) =>
+          p.name === 'admin.manage_all' || p.name === 'admin.manage_locations' || p.name === 'time.view_all'
+        );
+        if (!isAdmin) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      }
+
+      const allUsers = await storage.getAllUsers();
+      const userMap = new Map(allUsers.map(u => [u.id, u]));
+      const employee = userMap.get(session.userId);
+      const reviewer = session.reviewedBy ? userMap.get(session.reviewedBy) : null;
+
+      let rule = null;
+      if (session.ruleId) {
+        rule = await storage.getOffsiteRule(session.ruleId);
+      }
+
+      const mileageRateCents = rule?.mileageRateCents ?? 0;
+      const totalDistanceMiles = session.totalDistanceMiles ? parseFloat(String(session.totalDistanceMiles)) : 0;
+      const computedReimbursementCents = mileageRateCents > 0 && totalDistanceMiles > 0
+        ? Math.round(totalDistanceMiles * mileageRateCents)
+        : (session.reimbursementCents ?? 0);
+
+      const reimbursementMinutes = computedReimbursementCents > 0 && mileageRateCents > 0
+        ? Math.round((computedReimbursementCents / 100) / ((mileageRateCents / 100) * 60) * 60)
+        : 0;
+
+      const receipt = {
+        ...session,
+        employee: employee ? {
+          id: employee.id,
+          firstName: employee.firstName,
+          lastName: employee.lastName,
+          profileImageUrl: employee.profileImageUrl,
+          email: employee.email,
+        } : null,
+        rule: rule ? {
+          id: rule.id,
+          name: rule.name,
+          mileageRateCents: rule.mileageRateCents,
+          destinationName: rule.destinationName,
+          destinationAddress: rule.destinationAddress,
+          destinationLat: rule.destinationLat,
+          destinationLng: rule.destinationLng,
+        } : null,
+        reviewer: reviewer ? {
+          id: reviewer.id,
+          firstName: reviewer.firstName,
+          lastName: reviewer.lastName,
+        } : null,
+        computedReimbursementCents,
+        reimbursementMinutes,
+        mileageRateCents,
+      };
+
+      res.json(receipt);
+    } catch (error) {
+      console.error("Error fetching trip receipt:", error);
+      res.status(500).json({ message: "Failed to fetch trip receipt" });
+    }
+  });
+
+  app.patch('/api/offsite-sessions/:id/review', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const isAdmin = userPermissions.some((p: any) =>
+        p.name === 'admin.manage_all' || p.name === 'admin.manage_locations'
+      );
+      if (!isAdmin) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const { id } = req.params;
+      const session = await storage.getOffsiteSession(id);
+      if (!session) {
+        return res.status(404).json({ message: "Session not found" });
+      }
+
+      const { adminNote, markReviewed } = req.body;
+      const updates: any = {};
+      if (adminNote !== undefined) updates.adminNote = adminNote;
+      if (markReviewed === true) {
+        updates.reviewedBy = userId;
+        updates.reviewedAt = new Date();
+      } else if (markReviewed === false) {
+        updates.reviewedBy = null;
+        updates.reviewedAt = null;
+      }
+
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ message: "No valid fields to update" });
+      }
+
+      const updated = await storage.updateOffsiteSession(id, updates);
+      res.json(updated);
+    } catch (error) {
+      console.error("Error reviewing trip receipt:", error);
+      res.status(500).json({ message: "Failed to update trip review" });
+    }
+  });
+
+  app.get('/api/trip-history', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const isAdmin = userPermissions.some((p: any) =>
+        p.name === 'admin.manage_all' || p.name === 'admin.manage_locations'
+      );
+      if (!isAdmin) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const filters: any = {};
+      if (req.query.locationId) filters.locationId = req.query.locationId as string;
+      if (req.query.userId) filters.userId = req.query.userId as string;
+      if (req.query.from) filters.from = new Date(req.query.from as string);
+      if (req.query.to) filters.to = new Date(req.query.to as string);
+
+      const sessions = await storage.getOffsiteSessions(filters);
+
+      const allUsers = await storage.getAllUsers();
+      const userMap = new Map(allUsers.map(u => [u.id, u]));
+
+      const enriched = await Promise.all(sessions.map(async (session) => {
+        const employee = userMap.get(session.userId);
+        let rule = null;
+        if (session.ruleId) {
+          rule = await storage.getOffsiteRule(session.ruleId);
+        }
+        const mileageRateCents = rule?.mileageRateCents ?? 0;
+        const totalDistanceMiles = session.totalDistanceMiles ? parseFloat(String(session.totalDistanceMiles)) : 0;
+        const computedReimbursementCents = mileageRateCents > 0 && totalDistanceMiles > 0
+          ? Math.round(totalDistanceMiles * mileageRateCents)
+          : (session.reimbursementCents ?? 0);
+
+        return {
+          ...session,
+          employeeName: employee
+            ? `${employee.firstName || ''} ${employee.lastName || ''}`.trim() || employee.email
+            : 'Unknown',
+          employeeProfileImageUrl: employee?.profileImageUrl ?? null,
+          ruleName: rule?.name ?? null,
+          computedReimbursementCents,
+          mileageRateCents,
+        };
+      }));
+
+      res.json(enriched);
+    } catch (error) {
+      console.error("Error fetching trip history:", error);
+      res.status(500).json({ message: "Failed to fetch trip history" });
+    }
+  });
+
   // Google Maps proxy endpoints — API key stays on the server; restricted to admin/owner
   async function requireOwner(storage: IStorage, userId: string): Promise<boolean> {
     const perms = await storage.getUserPermissions(userId);

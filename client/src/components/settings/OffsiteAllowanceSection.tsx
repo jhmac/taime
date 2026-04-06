@@ -14,8 +14,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Skeleton } from '@/components/ui/skeleton';
-import { MapPin, Plus, Pencil, Trash2, Clock, Bell, Users, Shield, Navigation, X } from 'lucide-react';
+import { MapPin, Plus, Pencil, Trash2, Clock, Bell, Users, Shield, Navigation, X, History, CheckCircle2, AlertTriangle, Route, Wallet } from 'lucide-react';
 import type { OffsiteAllowanceRule, WorkLocation, User } from '@shared/schema';
+import TripReceiptModal from '@/components/TripReceiptModal';
 
 const ALLOWED_MINUTES_OPTIONS = [
   { label: '15 minutes', value: 15 },
@@ -227,6 +228,8 @@ export default function OffsiteAllowanceSection() {
   const [deleteRuleId, setDeleteRuleId] = useState<string | null>(null);
   const [formData, setFormData] = useState<RuleFormData>(defaultFormData);
   const [viewLocationId, setViewLocationId] = useState<string>('');
+  const [activeTab, setActiveTab] = useState<'rules' | 'history'>('rules');
+  const [selectedReceiptId, setSelectedReceiptId] = useState<string | null>(null);
 
   const { data: locations = [] } = useQuery<WorkLocation[]>({
     queryKey: ['/api/work-locations'],
@@ -242,6 +245,18 @@ export default function OffsiteAllowanceSection() {
   const { data: rules = [], isLoading } = useQuery<OffsiteAllowanceRule[]>({
     queryKey: [`/api/offsite-rules?locationId=${activeLocationId}`],
     enabled: !!activeLocationId,
+  });
+
+  const tripHistoryParams = new URLSearchParams();
+  if (activeLocationId) tripHistoryParams.set('locationId', activeLocationId);
+  const { data: tripHistory = [], isLoading: isHistoryLoading } = useQuery<any[]>({
+    queryKey: ['/api/trip-history', activeLocationId],
+    queryFn: async () => {
+      const res = await fetch(`/api/trip-history?${tripHistoryParams.toString()}`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to load trip history');
+      return res.json();
+    },
+    enabled: activeTab === 'history',
   });
 
   const createMutation = useMutation({
@@ -400,6 +415,43 @@ export default function OffsiteAllowanceSection() {
 
   const activeUsers = users.filter((u: User) => u.isActive !== false);
 
+  const formatDuration = (minutes: number | null) => {
+    if (minutes == null) return '—';
+    if (minutes < 60) return `${minutes}m`;
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  };
+
+  const formatMiles = (miles: string | null) => {
+    if (!miles) return '—';
+    return `${parseFloat(miles).toFixed(1)} mi`;
+  };
+
+  const formatCurrency = (cents: number) => {
+    return `$${(cents / 100).toFixed(2)}`;
+  };
+
+  const formatDateTime = (dateStr: string | null) => {
+    if (!dateStr) return '—';
+    return new Date(dateStr).toLocaleDateString('en-US', {
+      month: 'short', day: 'numeric', year: 'numeric',
+    });
+  };
+
+  const getTripStatusBadge = (trip: any) => {
+    if (trip.reviewedAt) {
+      return <Badge className="bg-green-100 text-green-700 border-green-200 text-xs">Reviewed</Badge>;
+    }
+    if (trip.status === 'returned') {
+      return <Badge variant="secondary" className="text-xs">Pending Review</Badge>;
+    }
+    if (trip.status === 'exceeded') {
+      return <Badge className="bg-amber-100 text-amber-700 border-amber-200 text-xs">Exceeded</Badge>;
+    }
+    return <Badge variant="outline" className="text-xs">{trip.status}</Badge>;
+  };
+
   if (isLoading) {
     return (
       <div className="space-y-4">
@@ -436,6 +488,105 @@ export default function OffsiteAllowanceSection() {
           </Select>
         </div>
       )}
+
+      <div className="border-b">
+        <div className="flex gap-0">
+          {[
+            { key: 'rules' as const, label: 'Rules', icon: <Shield className="w-3.5 h-3.5" /> },
+            { key: 'history' as const, label: 'Trip History', icon: <History className="w-3.5 h-3.5" /> },
+          ].map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === tab.key
+                  ? 'border-purple-600 text-purple-600'
+                  : 'border-transparent text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {tab.icon}
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {activeTab === 'history' && (
+        <div className="space-y-3">
+          {isHistoryLoading ? (
+            <div className="space-y-3">
+              <Skeleton className="h-20 w-full" />
+              <Skeleton className="h-20 w-full" />
+              <Skeleton className="h-20 w-full" />
+            </div>
+          ) : tripHistory.length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center">
+                <History className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
+                <p className="text-sm font-medium">No trips recorded yet</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Trip receipts will appear here once employees complete off-site trips.
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            tripHistory.map((trip: any) => (
+              <Card
+                key={trip.id}
+                className="cursor-pointer hover:shadow-md transition-shadow"
+                onClick={() => setSelectedReceiptId(trip.id)}
+              >
+                <CardContent className="py-3 px-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="font-medium text-sm truncate">{trip.employeeName}</span>
+                        {getTripStatusBadge(trip)}
+                      </div>
+                      <div className="text-xs text-muted-foreground mb-1">
+                        {trip.ruleName || 'Off-Site Trip'} · {formatDateTime(trip.exitTime)}
+                      </div>
+                      <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                        <span className="flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          {formatDuration(trip.durationMinutes)}
+                        </span>
+                        {trip.totalDistanceMiles && (
+                          <span className="flex items-center gap-1">
+                            <Route className="w-3 h-3" />
+                            {formatMiles(trip.totalDistanceMiles)}
+                          </span>
+                        )}
+                        {trip.computedReimbursementCents > 0 && (
+                          <span className="flex items-center gap-1 text-emerald-700">
+                            <Wallet className="w-3 h-3" />
+                            {formatCurrency(trip.computedReimbursementCents)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex-shrink-0 text-muted-foreground">
+                      {trip.reviewedAt ? (
+                        <CheckCircle2 className="w-4 h-4 text-green-600" />
+                      ) : (
+                        <AlertTriangle className="w-4 h-4 text-amber-500" />
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))
+          )}
+
+          <TripReceiptModal
+            sessionId={selectedReceiptId}
+            onClose={() => setSelectedReceiptId(null)}
+            isAdmin={true}
+          />
+        </div>
+      )}
+
+      {activeTab === 'rules' && <>
 
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -863,6 +1014,8 @@ export default function OffsiteAllowanceSection() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      </>}
     </div>
   );
 }

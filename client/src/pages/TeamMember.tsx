@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -44,7 +45,12 @@ import {
   Download,
   Send,
   Plus,
+  Route,
+  Wallet,
+  MapPin,
+  ExternalLink,
 } from "lucide-react";
+import TripReceiptModal from "@/components/TripReceiptModal";
 
 function getInitials(firstName?: string | null, lastName?: string | null) {
   return `${firstName?.[0] || ""}${lastName?.[0] || ""}`.toUpperCase() || "?";
@@ -75,6 +81,7 @@ export default function TeamMember() {
   const [editingPersonalPayroll, setEditingPersonalPayroll] = useState(false);
   const [terminateDialogOpen, setTerminateDialogOpen] = useState(false);
   const [newNote, setNewNote] = useState("");
+  const [selectedTripReceiptId, setSelectedTripReceiptId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const certFileInputRef = useRef<HTMLInputElement>(null);
 
@@ -118,6 +125,17 @@ export default function TeamMember() {
       return res.json();
     },
     enabled: !!userId,
+  });
+
+  const { data: recentTrips = [], isLoading: isTripsLoading } = useQuery<any[]>({
+    queryKey: ["/api/offsite-sessions/employee", userId],
+    queryFn: async () => {
+      const res = await fetch(`/api/offsite-sessions/employee/${userId}`, { credentials: "include" });
+      if (!res.ok) return [];
+      const data = await res.json();
+      return data.filter((s: any) => s.status !== 'active').slice(0, 5);
+    },
+    enabled: !!userId && activeTab === "job",
   });
 
   const isAdminRole = currentUser?.role?.name === 'owner' || currentUser?.role?.name === 'admin';
@@ -687,6 +705,70 @@ export default function TeamMember() {
               </div>
             </div>
           </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-lg font-bold">Recent Off-Site Trips</h2>
+            </div>
+            <div className="border rounded-lg overflow-hidden">
+              {isTripsLoading ? (
+                <div className="p-4 space-y-2">
+                  <Skeleton className="h-14 w-full" />
+                  <Skeleton className="h-14 w-full" />
+                </div>
+              ) : recentTrips.length === 0 ? (
+                <div className="p-4">
+                  <p className="text-sm text-muted-foreground">No completed off-site trips for {member.firstName} yet.</p>
+                </div>
+              ) : (
+                <div className="divide-y">
+                  {recentTrips.map((trip: any) => (
+                    <button
+                      key={trip.id}
+                      className="w-full text-left px-4 py-3 hover:bg-muted/50 transition-colors"
+                      onClick={() => setSelectedTripReceiptId(trip.id)}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-0.5">
+                            <span className="text-sm font-medium">
+                              {trip.exitTime ? new Date(trip.exitTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                            </span>
+                            {trip.reviewedAt ? (
+                              <Badge className="bg-green-100 text-green-700 border-green-200 text-xs">Reviewed</Badge>
+                            ) : (
+                              <Badge variant="secondary" className="text-xs">Pending</Badge>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap gap-x-3 text-xs text-muted-foreground">
+                            {trip.durationMinutes != null && (
+                              <span className="flex items-center gap-1">
+                                <Clock className="w-3 h-3" />
+                                {trip.durationMinutes < 60 ? `${trip.durationMinutes}m` : `${Math.floor(trip.durationMinutes / 60)}h ${trip.durationMinutes % 60}m`}
+                              </span>
+                            )}
+                            {trip.totalDistanceMiles && (
+                              <span className="flex items-center gap-1">
+                                <Route className="w-3 h-3" />
+                                {parseFloat(trip.totalDistanceMiles).toFixed(1)} mi
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <ExternalLink className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <TripReceiptModal
+            sessionId={selectedTripReceiptId}
+            onClose={() => setSelectedTripReceiptId(null)}
+            isAdmin={isAdminRole}
+          />
 
           <div>
             <div className="flex items-center justify-between mb-3">

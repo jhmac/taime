@@ -163,3 +163,28 @@
 ::-webkit-scrollbar-thumb:hover {
   background: hsl(var(--muted-foreground) / 0.5);
 }
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #trip-receipt-content,
+  #trip-receipt-content * {
+    visibility: visible;
+  }
+  #trip-receipt-content {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 100%;
+    max-height: none;
+    overflow: visible;
+    box-shadow: none;
+    border: none;
+    border-radius: 0;
+    padding: 24px;
+  }
+  .print\:hidden {
+    display: none !important;
+  }
+}
