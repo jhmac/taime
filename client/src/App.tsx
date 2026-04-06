@@ -111,6 +111,9 @@ import Timesheets from "@/pages/Timesheets";
 import PayrollExport from "@/pages/PayrollExport";
 import MyScore from "@/pages/MyScore";
 import JoinPage from "@/pages/JoinPage";
+import MeetingsList from "@/pages/MeetingsList";
+import MeetingsNew from "@/pages/MeetingsNew";
+import MeetingDetail from "@/pages/MeetingDetail";
 import { WebSocketProvider } from "@/contexts/WebSocketContext";
 import type { Permission } from "@shared/schema";
 
@@ -353,6 +356,15 @@ function AuthenticatedApp() {
       </Route>
       <Route path="/payroll-export">
         <ProtectedRoute permission="hr.payroll_view"><PayrollExport /></ProtectedRoute>
+      </Route>
+      <Route path="/meetings/new">
+        <ProtectedRoute permission="admin.manage_all"><MeetingsNew /></ProtectedRoute>
+      </Route>
+      <Route path="/meetings/:id">
+        <ProtectedRoute permission="admin.manage_all"><MeetingDetail /></ProtectedRoute>
+      </Route>
+      <Route path="/meetings">
+        <ProtectedRoute permission="admin.manage_all"><MeetingsList /></ProtectedRoute>
       </Route>
       <Route path="/my-score" component={MyScore} />
       <Route path="/insights" component={InsightsPage} />

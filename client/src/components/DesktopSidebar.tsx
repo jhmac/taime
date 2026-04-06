@@ -44,6 +44,7 @@ const gtdNavItems = [
 ];
 
 const managementNavItems = [
+  { path: '/meetings', icon: 'fas fa-microphone', label: 'Meetings' },
   { path: '/tasks', icon: 'fas fa-clipboard-list', label: 'Tasks', permission: 'tasks.view_all' },
   { path: '/team', icon: 'fas fa-users', label: 'Team', permission: 'hr.view_team' },
   { path: '/payroll', icon: 'fas fa-dollar-sign', label: 'Payroll', permission: 'hr.payroll_view' },

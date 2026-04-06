@@ -5,7 +5,7 @@ import fs from "fs";
 import { z } from "zod";
 import { db } from "../db";
 import { eq, ne, and } from "drizzle-orm";
-import { gtdInboxItems, meetingTaskRecommendations } from "@shared/schema";
+import { gtdInboxItems, meetingTaskRecommendations, users } from "@shared/schema";
 import { asyncHandler, AppError } from "../lib/routeWrapper";
 import { resolveStoreId } from "../lib/storeResolver";
 import type { IStorage } from "../storage";
@@ -53,6 +53,10 @@ const updateRecommendationSchema = z.object({
   status: z.enum(["pending", "rejected"]).optional(),
   assigneeId: z.string().nullable().optional(),
   priority: z.enum(["low", "medium", "high"]).optional(),
+});
+
+const acceptRecommendationSchema = z.object({
+  assigneeId: z.string().nullable().optional(),
 });
 
 async function getStoreId(): Promise<string> {
@@ -146,7 +150,29 @@ export function registerMeetingRoutes(
     }
 
     const recommendations = await storage.getMeetingTaskRecommendations(id);
-    res.json({ success: true, data: { ...meeting, recommendations } });
+
+    // Enrich recommendations with assignee names for the frontend
+    const allUsers = await db.select({ id: users.id, firstName: users.firstName, lastName: users.lastName }).from(users);
+    const userMap = Object.fromEntries(allUsers.map(u => [u.id, u]));
+
+    const enrichedRecs = recommendations.map(r => ({
+      ...r,
+      assigneeName: r.assigneeId && userMap[r.assigneeId]
+        ? `${userMap[r.assigneeId].firstName || ""} ${userMap[r.assigneeId].lastName || ""}`.trim()
+        : null,
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        ...meeting,
+        recommendations: enrichedRecs,
+        teamMembers: allUsers.map(u => ({
+          id: u.id,
+          name: `${u.firstName || ""} ${u.lastName || ""}`.trim(),
+        })),
+      },
+    });
   }));
 
   app.patch("/api/meetings/:id", isAuthenticated, asyncHandler(async (req: any, res) => {
@@ -197,7 +223,9 @@ export function registerMeetingRoutes(
       const audioPath = req.file.path as string;
       const audioUrl = `/uploads/meetings/${path.basename(audioPath)}`;
 
-      await storage.updateMeeting(id, { audioUrl, status: "processing" });
+      // Update duration if provided
+      const durationSeconds = req.body.durationSeconds ? parseInt(req.body.durationSeconds, 10) : undefined;
+      await storage.updateMeeting(id, { audioUrl, status: "processing", ...(durationSeconds ? { durationSeconds } : {}) });
       await broadcastToMeeting(meeting, { type: "meeting_processing_started", data: { meetingId: id } });
 
       res.json({ success: true, data: { meetingId: id, status: "processing" } });
@@ -302,15 +330,12 @@ export function registerMeetingRoutes(
         if (!assigneeUser || !assigneeUser.isActive) {
           throw new AppError(400, "Assignee user not found or inactive", "INVALID_ASSIGNEE");
         }
-        // Assignee must be a known participant in this meeting or its creator —
-        // the tightest same-store scoping check available given the single storeId model.
         const participantIds = meeting.participantIds as string[];
         const isKnownToMeeting =
           body.assigneeId === meeting.createdBy ||
           participantIds.includes(body.assigneeId);
 
         if (!isKnownToMeeting) {
-          // Also allow any active manager/owner of the store as a fallback
           const assigneeIsManager = await isManagerOrOwner(storage, body.assigneeId);
           if (!assigneeIsManager) {
             throw new AppError(400, "Assignee must be a meeting participant, creator, or store manager", "INVALID_ASSIGNEE");
@@ -352,14 +377,17 @@ export function registerMeetingRoutes(
         return res.json({ success: true, data: rec, message: "Already accepted" });
       }
 
+      // Allow overriding assignee via request body
+      const body = acceptRecommendationSchema.parse(req.body);
+      const assigneeOverride = body.assigneeId || null;
+
       // GTD inbox item is owned by the recommendation assignee when present, else the meeting creator
-      const inboxOwner = rec.assigneeId ?? meeting.createdBy;
+      const inboxOwner = assigneeOverride ?? rec.assigneeId ?? meeting.createdBy;
       const rawInput = rec.context
         ? `${rec.description}\n\nContext: ${rec.context}`
         : rec.description;
 
       // Atomically create inbox item and mark recommendation accepted.
-      // The conditional WHERE prevents duplicate inbox items on concurrent requests.
       const { inboxItem, updated } = await db.transaction(async (tx) => {
         const [item] = await tx.insert(gtdInboxItems).values({
           storeId,
@@ -369,13 +397,14 @@ export function registerMeetingRoutes(
           status: "unprocessed",
         }).returning();
 
-        // Conditional update: WHERE id = recId AND status != 'accepted'
-        // If another concurrent request already accepted this recommendation, this
-        // returns 0 rows, the transaction rolls back (aborting the inbox insert too),
-        // and the caller receives a 409 — preventing duplicate inbox items.
         const [rec_updated] = await tx
           .update(meetingTaskRecommendations)
-          .set({ status: "accepted", gtdInboxItemId: item.id, updatedAt: new Date() })
+          .set({
+            status: "accepted",
+            gtdInboxItemId: item.id,
+            assigneeId: assigneeOverride ?? rec.assigneeId,
+            updatedAt: new Date(),
+          })
           .where(
             and(
               eq(meetingTaskRecommendations.id, recId),
@@ -396,7 +425,38 @@ export function registerMeetingRoutes(
         data: { meetingId: id, recId, inboxItemId: inboxItem.id, assigneeId: inboxOwner },
       });
 
-      res.json({ success: true, data: updated, inboxItemId: inboxItem.id });
+      // Return with enriched assignee name for the frontend
+      const assigneeUser = inboxOwner ? await storage.getUserWithRole(inboxOwner) : null;
+      const assigneeName = assigneeUser
+        ? `${assigneeUser.firstName || ""} ${assigneeUser.lastName || ""}`.trim()
+        : null;
+
+      res.json({ success: true, data: { ...updated, assigneeName }, inboxItemId: inboxItem.id });
+    })
+  );
+
+  app.post(
+    "/api/meetings/:id/recommendations/:recId/reject",
+    isAuthenticated,
+    asyncHandler(async (req: any, res) => {
+      const userId = req.user.id as string;
+      const { id, recId } = req.params as { id: string; recId: string };
+      const storeId = await getStoreId();
+
+      const meeting = await storage.getMeeting(id);
+      if (!meeting) throw new AppError(404, "Meeting not found", "NOT_FOUND");
+      assertMeetingBelongsToStore(meeting, storeId);
+
+      const rec = await storage.getMeetingTaskRecommendation(recId);
+      if (!rec || rec.meetingId !== id) throw new AppError(404, "Recommendation not found", "NOT_FOUND");
+
+      const isManager = await isManagerOrOwner(storage, userId);
+      if (!isManager && meeting.createdBy !== userId) {
+        throw new AppError(403, "Not authorized", "FORBIDDEN");
+      }
+
+      const updated = await storage.updateMeetingTaskRecommendation(recId, { status: "rejected" });
+      res.json({ success: true, data: updated });
     })
   );
 
@@ -416,5 +476,26 @@ export function registerMeetingRoutes(
 
     await storage.deleteMeeting(id);
     res.json({ success: true });
+  }));
+
+  // Team members endpoint for participant/assignee pickers
+  app.get("/api/team/members", isAuthenticated, asyncHandler(async (req: any, res) => {
+    const userId = req.user.id as string;
+    const isAdmin = await isManagerOrOwner(storage, userId);
+    if (!isAdmin) throw new AppError(403, "Only managers and owners can list team members", "FORBIDDEN");
+
+    const allUsers = await db.select({
+      id: users.id,
+      firstName: users.firstName,
+      lastName: users.lastName,
+    }).from(users);
+
+    res.json({
+      success: true,
+      data: allUsers.map(u => ({
+        id: u.id,
+        name: `${u.firstName || ""} ${u.lastName || ""}`.trim() || "Unknown",
+      })),
+    });
   }));
 }

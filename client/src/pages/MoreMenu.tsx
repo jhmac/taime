@@ -7,7 +7,7 @@ import {
   Hourglass, Sprout, ClipboardCheck, ClipboardList, DollarSign,
   FileSpreadsheet, UserCog, ShieldCheck, BarChart, Medal,
   Settings, Cog, LogOut, ChevronRight, Banknote, Building2,
-  Coffee, Lightbulb, LifeBuoy, History, FileDown,
+  Coffee, Lightbulb, LifeBuoy, History, FileDown, Mic,
 } from 'lucide-react';
 
 interface MenuItem {
@@ -53,7 +53,7 @@ export default function MoreMenu() {
   const { signOut } = useClerk();
   const [, navigate] = useLocation();
 
-  const isAdmin = user?.role?.name === 'admin' || user?.role?.name === 'owner';
+  const isAdmin = user?.role?.name === 'admin' || user?.role?.name === 'owner' || user?.role?.name === 'manager';
   const initials = `${(user?.firstName || '')[0] || ''}${(user?.lastName || '')[0] || ''}`.toUpperCase();
 
   const sections: Section[] = [
@@ -99,6 +99,7 @@ export default function MoreMenu() {
       title: 'Management',
       adminOnly: true,
       items: [
+        { icon: Mic, label: 'Meetings', subtitle: 'Record & review AI meeting notes', path: '/meetings', iconBg: 'bg-violet-100', iconColor: 'text-violet-600' },
         { icon: ClipboardList, label: 'Tasks', subtitle: 'Store task management', path: '/tasks', iconBg: 'bg-blue-100', iconColor: 'text-blue-600' },
         { icon: Users, label: 'Team', subtitle: 'Staff roster & HR records', path: '/team', iconBg: 'bg-slate-100', iconColor: 'text-slate-600' },
         { icon: DollarSign, label: 'Payroll', subtitle: 'Pay runs & wage management', path: '/payroll', iconBg: 'bg-green-100', iconColor: 'text-green-600' },

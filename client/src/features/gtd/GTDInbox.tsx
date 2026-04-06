@@ -34,6 +34,7 @@ const SOURCE_CONFIG: Record<string, { label: string; icon: any; color: string }>
   issue_auto: { label: "Issue", icon: AlertTriangle, color: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" },
   sop_feedback: { label: "SOP", icon: ClipboardList, color: "bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400" },
   huddle: { label: "Huddle", icon: Sparkles, color: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400" },
+  meeting: { label: "Meeting", icon: Mic, color: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400" },
 };
 
 function relativeTime(dateStr: string): string {
