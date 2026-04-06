@@ -12,44 +12,37 @@ export async function backfillLegacyUserRoles(): Promise<void> {
       return;
     }
 
+    // Always enforce owner role for super-admin, regardless of current role
+    const [superAdmin] = await db
+      .select()
+      .from(users)
+      .where(eq(users.email, SUPER_ADMIN_EMAIL))
+      .limit(1);
+
+    if (superAdmin) {
+      if (superAdmin.roleId !== ownerRole.id) {
+        await db
+          .update(users)
+          .set({ roleId: ownerRole.id })
+          .where(eq(users.id, superAdmin.id));
+        console.log(`[Backfill] Corrected owner role for super-admin id=${superAdmin.id} email=${superAdmin.email} (was roleId=${superAdmin.roleId})`);
+      } else {
+        console.log(`[Backfill] Super-admin already has owner role (id=${superAdmin.id})`);
+      }
+    } else {
+      console.log(`[Backfill] Super-admin user (${SUPER_ADMIN_EMAIL}) not yet in DB`);
+    }
+
     const usersWithoutRole = await db
       .select()
       .from(users)
       .where(isNull(users.roleId));
 
-    if (usersWithoutRole.length === 0) {
-      return;
-    }
-
-    const superAdminUser = usersWithoutRole.find(
-      u => u.email?.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase()
-    );
-
-    if (superAdminUser) {
-      await db
-        .update(users)
-        .set({ roleId: ownerRole.id })
-        .where(eq(users.id, superAdminUser.id));
-      console.log(`[Backfill] Assigned owner role to super-admin user id=${superAdminUser.id} email=${superAdminUser.email}`);
-    }
-
-    const remainingWithoutRole = usersWithoutRole.filter(
+    const nonAdminWithoutRole = usersWithoutRole.filter(
       u => u.email?.toLowerCase() !== SUPER_ADMIN_EMAIL.toLowerCase()
     );
-    if (remainingWithoutRole.length > 0) {
-      console.log(`[Backfill] ${remainingWithoutRole.length} user(s) still have no role assigned (non-admin users)`);
-    }
-
-    const [verifiedSuperAdmin] = await db
-      .select({ id: users.id, email: users.email, roleId: users.roleId })
-      .from(users)
-      .where(eq(users.email, SUPER_ADMIN_EMAIL))
-      .limit(1);
-    if (verifiedSuperAdmin) {
-      const hasOwnerRole = verifiedSuperAdmin.roleId === ownerRole.id;
-      console.log(`[Backfill] Super-admin verification: id=${verifiedSuperAdmin.id} hasOwnerRole=${hasOwnerRole}`);
-    } else {
-      console.log(`[Backfill] Super-admin user (${SUPER_ADMIN_EMAIL}) not yet in DB`);
+    if (nonAdminWithoutRole.length > 0) {
+      console.log(`[Backfill] ${nonAdminWithoutRole.length} user(s) still have no role assigned (non-admin users)`);
     }
   } catch (err) {
     console.warn("[Backfill] Role backfill failed (non-fatal):", err);
