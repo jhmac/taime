@@ -3,6 +3,7 @@ import { useLocation } from 'wouter';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { cn } from '@/lib/utils';
+import { Sparkles } from 'lucide-react';
 
 const TIER_COLORS: Record<string, string> = {
   bronze: 'text-orange-600',
@@ -129,6 +130,19 @@ export default function DesktopSidebar() {
       </div>
 
       <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
+        <button
+          onClick={() => window.dispatchEvent(new Event('open-ask-mainager'))}
+          className={cn(
+            "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors",
+            "bg-primary/10 text-primary hover:bg-primary/20 font-medium",
+            collapsed && "justify-center px-0"
+          )}
+          title={collapsed ? 'Ask AI' : undefined}
+        >
+          <Sparkles className="w-5 h-5 flex-shrink-0" />
+          {!collapsed && <span className="flex-1 text-left">Ask AI</span>}
+        </button>
+
         {generalNavItems
           .filter(item => !('employeeOnly' in item && item.employeeOnly) || !isAdmin)
           .map(item => (

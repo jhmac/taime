@@ -273,20 +273,6 @@ export default function AskMAinagerSheet() {
 
   return (
     <>
-      {isAdmin && (
-        <button
-          onClick={() => setIsOpen(true)}
-          className="fixed bottom-32 right-4 z-50 w-14 h-14 rounded-full bg-gradient-to-br from-violet-600 to-indigo-600 text-white shadow-lg hover:shadow-xl transition-all hover:scale-105 flex flex-col items-center justify-center gap-0.5 md:bottom-20"
-          aria-label="Ask MAinager"
-        >
-          <Sparkles className="h-5 w-5" />
-          <span className="text-[9px] font-semibold leading-none">Ask</span>
-          {pulseVisible && (
-            <span className="absolute inset-0 rounded-full bg-violet-400 animate-ping opacity-40 pointer-events-none" />
-          )}
-        </button>
-      )}
-
       {isOpen && (
         <div className="fixed inset-0 z-[60] md:inset-auto md:bottom-4 md:right-4 md:w-[420px] md:h-[600px] md:rounded-2xl md:shadow-2xl flex flex-col bg-background border border-border overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-violet-600 to-indigo-600 text-white shrink-0">
