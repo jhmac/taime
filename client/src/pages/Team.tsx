@@ -37,6 +37,7 @@ import {
   Check,
   Clock,
   Mail,
+  Navigation,
 } from "lucide-react";
 
 function getInitials(firstName?: string | null, lastName?: string | null) {
@@ -103,6 +104,23 @@ export default function Team() {
       return res.json();
     },
   });
+
+  const { data: activeOffsiteSessions = [] } = useQuery<any[]>({
+    queryKey: ["/api/offsite-sessions"],
+    queryFn: async () => {
+      const res = await fetch("/api/offsite-sessions?status=active", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    refetchInterval: 30000,
+    enabled: isAdminRole,
+  });
+
+  const inTransitUserIds = new Set(
+    activeOffsiteSessions
+      .filter((s: any) => s.routePolyline)
+      .map((s: any) => s.userId)
+  );
 
   const { data: roles = [] } = useQuery<Role[]>({
     queryKey: ["/api/roles"],
@@ -484,6 +502,12 @@ export default function Team() {
                           ) : (
                             <Badge variant="outline" className="border-gray-400 text-gray-500">
                               Inactive
+                            </Badge>
+                          )}
+                          {inTransitUserIds.has(member.id) && (
+                            <Badge className="bg-blue-100 text-blue-700 border-blue-300 hover:bg-blue-100 gap-1 animate-pulse">
+                              <Navigation className="h-2.5 w-2.5" />
+                              In Transit
                             </Badge>
                           )}
                         </div>

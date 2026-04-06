@@ -741,6 +741,41 @@ export default function OffsiteAllowanceSection() {
             <Separator />
 
             <div className="space-y-2">
+              <Label className="flex items-center gap-1">
+                <MapPin className="w-3 h-3" />
+                Destination (Optional)
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                When set, GPS route tracking and deviation alerts will be enabled for this rule.
+              </p>
+              <Input
+                placeholder="Destination address (e.g., Bank of America, 123 Main St)"
+                value={formData.destinationAddress}
+                onChange={(e) => setFormData(prev => ({ ...prev, destinationAddress: e.target.value }))}
+              />
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  step="0.000001"
+                  placeholder="Latitude"
+                  value={formData.destinationLatitude}
+                  onChange={(e) => setFormData(prev => ({ ...prev, destinationLatitude: e.target.value }))}
+                  className="w-36"
+                />
+                <Input
+                  type="number"
+                  step="0.000001"
+                  placeholder="Longitude"
+                  value={formData.destinationLongitude}
+                  onChange={(e) => setFormData(prev => ({ ...prev, destinationLongitude: e.target.value }))}
+                  className="w-36"
+                />
+              </div>
+            </div>
+
+            <Separator />
+
+            <div className="space-y-2">
               <Label>Alert After (minutes)</Label>
               <p className="text-xs text-muted-foreground">Send a notification when the employee has been off-site for this long.</p>
               <Input

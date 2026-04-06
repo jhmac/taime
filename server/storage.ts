@@ -105,6 +105,7 @@ import {
   timeEntryEdits,
   offsiteAllowanceRules,
   offsiteSessions,
+  offsiteBreadcrumbs,
   overtimeAlerts,
   type TimeEntryEdit,
   type InsertTimeEntryEdit,
@@ -115,6 +116,8 @@ import {
   type InsertOffsiteAllowanceRule,
   type OffsiteSession,
   type InsertOffsiteSession,
+  type OffsiteBreadcrumb,
+  type InsertOffsiteBreadcrumb,
   type OvertimeAlert,
   type InsertOvertimeAlert,
   type DayNote,
@@ -333,7 +336,12 @@ export interface IStorage {
   // Off-site sessions
   createOffsiteSession(session: InsertOffsiteSession): Promise<OffsiteSession>;
   getOffsiteSessions(filters?: { userId?: string; status?: string; timeEntryId?: string }): Promise<OffsiteSession[]>;
+  getOffsiteSession(id: string): Promise<OffsiteSession | undefined>;
   updateOffsiteSession(id: string, updates: Partial<OffsiteSession>): Promise<OffsiteSession>;
+
+  // Off-site breadcrumbs
+  createOffsiteBreadcrumb(breadcrumb: InsertOffsiteBreadcrumb): Promise<OffsiteBreadcrumb>;
+  getOffsiteBreadcrumbs(sessionId: string): Promise<OffsiteBreadcrumb[]>;
 
   // Overtime alerts
   createOvertimeAlert(alert: InsertOvertimeAlert): Promise<OvertimeAlert>;
@@ -1786,6 +1794,11 @@ export class DatabaseStorage implements IStorage {
       .limit(200);
   }
 
+  async getOffsiteSession(id: string): Promise<OffsiteSession | undefined> {
+    const [session] = await db.select().from(offsiteSessions).where(eq(offsiteSessions.id, id));
+    return session;
+  }
+
   async updateOffsiteSession(id: string, updates: Partial<OffsiteSession>): Promise<OffsiteSession> {
     const [updated] = await db
       .update(offsiteSessions)
@@ -1793,6 +1806,19 @@ export class DatabaseStorage implements IStorage {
       .where(eq(offsiteSessions.id, id))
       .returning();
     return updated;
+  }
+
+  async createOffsiteBreadcrumb(breadcrumb: InsertOffsiteBreadcrumb): Promise<OffsiteBreadcrumb> {
+    const [created] = await db.insert(offsiteBreadcrumbs).values(breadcrumb).returning();
+    return created;
+  }
+
+  async getOffsiteBreadcrumbs(sessionId: string): Promise<OffsiteBreadcrumb[]> {
+    return await db
+      .select()
+      .from(offsiteBreadcrumbs)
+      .where(eq(offsiteBreadcrumbs.sessionId, sessionId))
+      .orderBy(offsiteBreadcrumbs.timestamp);
   }
 
   async createOvertimeAlert(alert: InsertOvertimeAlert): Promise<OvertimeAlert> {

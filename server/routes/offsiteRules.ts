@@ -2,6 +2,7 @@ import type { Express } from "express";
 import type { IStorage } from "../storage";
 import { insertOffsiteAllowanceRuleSchema, type InsertOffsiteAllowanceRule } from "@shared/schema";
 import { config } from "../lib/config";
+import { processOffsiteBreadcrumb } from "../services/routeTrackingService";
 
 export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
   app.get('/api/offsite-rules', isAuthenticated, async (req: any, res) => {
@@ -197,6 +198,75 @@ export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAu
     } catch (error) {
       console.error("Error fetching offsite sessions:", error);
       res.status(500).json({ message: "Failed to fetch offsite sessions" });
+    }
+  });
+
+  app.get('/api/offsite-sessions/active', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const sessions = await storage.getOffsiteSessions({ userId, status: 'active' });
+      res.json(sessions[0] || null);
+    } catch (error) {
+      console.error("Error fetching active offsite session:", error);
+      res.status(500).json({ message: "Failed to fetch active session" });
+    }
+  });
+
+  app.post('/api/offsite-sessions/:id/breadcrumb', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { id } = req.params;
+      const { latitude, longitude, accuracy } = req.body;
+
+      if (latitude == null || longitude == null) {
+        return res.status(400).json({ message: "latitude and longitude are required" });
+      }
+
+      const session = await storage.getOffsiteSession(id);
+      if (!session) {
+        return res.status(404).json({ message: "Session not found" });
+      }
+
+      if (session.userId !== userId) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
+      if (session.status !== 'active') {
+        return res.status(409).json({ message: "Session is not active" });
+      }
+
+      const result = await processOffsiteBreadcrumb(id, latitude, longitude, accuracy);
+      res.json({ success: true, ...result });
+    } catch (error) {
+      console.error("Error processing breadcrumb:", error);
+      res.status(500).json({ message: "Failed to process breadcrumb" });
+    }
+  });
+
+  app.get('/api/offsite-sessions/:id/breadcrumbs', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { id } = req.params;
+
+      const userPermissions = await storage.getUserPermissions(userId);
+      const isAdmin = userPermissions.some((p: any) =>
+        p.name === 'admin.manage_all' || p.name === 'admin.manage_locations' || p.name === 'time.view_all'
+      );
+
+      const session = await storage.getOffsiteSession(id);
+      if (!session) {
+        return res.status(404).json({ message: "Session not found" });
+      }
+
+      if (session.userId !== userId && !isAdmin) {
+        return res.status(403).json({ message: "Forbidden" });
+      }
+
+      const breadcrumbs = await storage.getOffsiteBreadcrumbs(id);
+      res.json(breadcrumbs);
+    } catch (error) {
+      console.error("Error fetching breadcrumbs:", error);
+      res.status(500).json({ message: "Failed to fetch breadcrumbs" });
     }
   });
 

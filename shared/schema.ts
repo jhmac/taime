@@ -899,10 +899,32 @@ export const offsiteSessions = pgTable("offsite_sessions", {
   wasAlertSent: boolean("was_alert_sent").default(false),
   alertSentAt: timestamp("alert_sent_at"),
   status: varchar("status").notNull().default("active"),
+  routePolyline: text("route_polyline"),
+  routeDistanceMeters: integer("route_distance_meters"),
+  routeDurationSeconds: integer("route_duration_seconds"),
+  estimatedReturnTime: timestamp("estimated_return_time"),
+  destinationArrivedAt: timestamp("destination_arrived_at"),
+  deviationAlertsSent: integer("deviation_alerts_sent").default(0),
+  destinationNotReachedAlertSent: boolean("destination_not_reached_alert_sent").default(false),
+  overdueReturnAlertSent: boolean("overdue_return_alert_sent").default(false),
 }, (table) => [
   index("idx_offsite_sessions_user").on(table.userId),
   index("idx_offsite_sessions_status").on(table.status),
   index("idx_offsite_sessions_time_entry").on(table.timeEntryId),
+]);
+
+// Off-site breadcrumbs (GPS trail during active offsite trips with destinations)
+export const offsiteBreadcrumbs = pgTable("offsite_breadcrumbs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  sessionId: varchar("session_id").references(() => offsiteSessions.id).notNull(),
+  latitude: decimal("latitude", { precision: 10, scale: 8 }).notNull(),
+  longitude: decimal("longitude", { precision: 11, scale: 8 }).notNull(),
+  accuracy: integer("accuracy"),
+  isDeviation: boolean("is_deviation").default(false),
+  distanceFromRouteMt: integer("distance_from_route_mt"),
+  timestamp: timestamp("timestamp").notNull().defaultNow(),
+}, (table) => [
+  index("idx_offsite_breadcrumbs_session").on(table.sessionId),
 ]);
 
 // Overtime alerts (AI-generated swap suggestions)
@@ -968,6 +990,7 @@ export const insertUserWorkPatternSchema = createInsertSchema(userWorkPatterns).
 export const insertTimeEntryEditSchema = createInsertSchema(timeEntryEdits).omit({ id: true, editedAt: true });
 export const insertOffsiteAllowanceRuleSchema = createInsertSchema(offsiteAllowanceRules).omit({ id: true, createdAt: true });
 export const insertOffsiteSessionSchema = createInsertSchema(offsiteSessions).omit({ id: true });
+export const insertOffsiteBreadcrumbSchema = createInsertSchema(offsiteBreadcrumbs).omit({ id: true });
 export const insertOvertimeAlertSchema = createInsertSchema(overtimeAlerts).omit({ id: true, createdAt: true });
 
 // Chore assignment and sign-off schemas
@@ -1266,6 +1289,8 @@ export type OffsiteAllowanceRule = typeof offsiteAllowanceRules.$inferSelect;
 export type InsertOffsiteAllowanceRule = z.infer<typeof insertOffsiteAllowanceRuleSchema>;
 export type OffsiteSession = typeof offsiteSessions.$inferSelect;
 export type InsertOffsiteSession = z.infer<typeof insertOffsiteSessionSchema>;
+export type OffsiteBreadcrumb = typeof offsiteBreadcrumbs.$inferSelect;
+export type InsertOffsiteBreadcrumb = z.infer<typeof insertOffsiteBreadcrumbSchema>;
 export type OvertimeAlert = typeof overtimeAlerts.$inferSelect;
 export type InsertOvertimeAlert = z.infer<typeof insertOvertimeAlertSchema>;
 export type SopTemplate = typeof sopTemplates.$inferSelect;

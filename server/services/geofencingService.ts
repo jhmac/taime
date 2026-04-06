@@ -3,6 +3,7 @@ import { notificationService } from './notificationService';
 import { db } from '../db';
 import { geofenceEvents, timeEntries, workLocations, offsiteAllowanceRules, offsiteSessions } from '@shared/schema';
 import { eq, and, isNull, isNotNull, desc } from 'drizzle-orm';
+import { fetchAndStoreRoute, clearWatchdogs } from './routeTrackingService';
 
 export interface GeofenceEvent {
   userId: string;
@@ -380,6 +381,7 @@ export class GeofencingService {
             durationMinutes,
             status: 'returned',
           });
+          clearWatchdogs(session.id);
           console.log(`[Geofence] Closed offsite session ${session.id} for user ${userId} (${durationMinutes} min)`);
         }
 
@@ -404,6 +406,12 @@ export class GeofencingService {
             });
 
             console.log(`[Geofence] Created offsite session ${session.id} for user ${userId} (rule: ${matchingRule.name}, allowed: ${matchingRule.allowedMinutes} min)`);
+
+            if (matchingRule.destinationLat && matchingRule.destinationLng) {
+              fetchAndStoreRoute(session, matchingRule, latitude, longitude).catch(err =>
+                console.error('[Geofence] fetchAndStoreRoute error:', err)
+              );
+            }
 
             const alertAfterMs = (matchingRule.alertAfterMinutes || matchingRule.allowedMinutes) * 60 * 1000;
             const alertTimer = setTimeout(async () => {

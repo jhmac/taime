@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { useGeolocation } from '@/hooks/useGeolocation';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { useOffsiteBreadcrumbReporter } from '@/hooks/useOffsiteBreadcrumbReporter';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -79,6 +80,15 @@ export default function TimeClockWidget() {
   });
 
   const requireMobileClockIn = companySettings?.requireMobileClockIn ?? false;
+
+  const { data: activeOffsiteSession } = useQuery<any>({
+    queryKey: ['/api/offsite-sessions/active'],
+    enabled: !!activeTimeEntry,
+    refetchInterval: 30000,
+  });
+
+  const offsiteSessionWithRoute = activeOffsiteSession?.routePolyline ? activeOffsiteSession : null;
+  useOffsiteBreadcrumbReporter(offsiteSessionWithRoute?.id ?? null);
 
   useEffect(() => {
     if (workLocations.length > 0 && !hasRequestedLocation.current) {
