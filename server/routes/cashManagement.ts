@@ -44,10 +44,12 @@ async function verifyDepositAccess(depositId: string, storeId: string) {
 async function checkClockedIn(userId: string): Promise<{ clockedIn: boolean; atStore: boolean; activeEntry: any | null }> {
   const [entry] = await db.select().from(timeEntries)
     .where(and(eq(timeEntries.userId, userId), isNull(timeEntries.clockOutTime)))
+    .orderBy(desc(timeEntries.clockInTime))
     .limit(1);
   if (!entry) return { clockedIn: false, atStore: false, activeEntry: null };
   const storeId = await resolveStoreId();
-  const atStore = !storeId || entry.locationId === storeId;
+  // If no location was recorded on clock-in (web clock-in), treat as at-store
+  const atStore = !storeId || !entry.locationId || entry.locationId === storeId;
   return { clockedIn: true, atStore, activeEntry: entry };
 }
 
@@ -55,12 +57,12 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
 
   app.get("/api/cash/access-check", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.auth?.userId;
+      const userId = req.user?.id || req.auth?.userId;
       const { clockedIn, atStore, activeEntry } = await checkClockedIn(userId);
       const user = await storage.getUser(userId);
       const isManagerOrAbove = user?.role === "admin" || user?.role === "owner" || user?.role === "manager";
       res.json({
-        allowed: (clockedIn && atStore) || isManagerOrAbove,
+        allowed: clockedIn || isManagerOrAbove,
         clockedIn,
         atStore,
         isManagerOrAbove,
@@ -77,12 +79,12 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
   });
 
   async function requireCashAccess(req: any, res: any): Promise<boolean> {
-    const userId = req.auth?.userId;
-    const { clockedIn, atStore } = await checkClockedIn(userId);
-    if (clockedIn && atStore) return true;
+    const userId = req.user?.id || req.auth?.userId;
+    const { clockedIn } = await checkClockedIn(userId);
+    if (clockedIn) return true;
     const user = await storage.getUser(userId);
     if (user?.role === "admin" || user?.role === "owner" || user?.role === "manager") return true;
-    res.status(403).json({ error: "You must be clocked in at the store to access Cash Management" });
+    res.status(403).json({ error: "You must be clocked in to access Cash Management" });
     return false;
   }
 
@@ -110,7 +112,7 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
 
   app.put("/api/cash/settings", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.auth?.userId;
+      const userId = req.user?.id || req.auth?.userId;
       const isOwnerOrAdmin = await requireOwnerOrAdmin(storage, userId);
       if (!isOwnerOrAdmin) {
         return res.status(403).json({ error: "Only admins and owners can update Cash Management settings" });
@@ -163,7 +165,7 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
   app.post("/api/cash/sessions", isAuthenticated, async (req: any, res) => {
     try {
       const storeId = await resolveStoreId(req.auth?.userId);
-      const userId = req.auth?.userId;
+      const userId = req.user?.id || req.auth?.userId;
       const { clockedIn, atStore } = await checkClockedIn(userId);
       if (!clockedIn || !atStore) {
         return res.status(403).json({ error: "You must be clocked in at the store to start a cash count" });
@@ -248,7 +250,7 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
 
   app.put("/api/cash/sessions/:id/count", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.auth?.userId;
+      const userId = req.user?.id || req.auth?.userId;
       const { clockedIn, atStore } = await checkClockedIn(userId);
       if (!clockedIn || !atStore) return res.status(403).json({ error: "You must be clocked in at the store to submit a cash count" });
       const { counts } = req.body;
@@ -294,7 +296,7 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
 
   app.put("/api/cash/sessions/:id/register-data", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.auth?.userId;
+      const userId = req.user?.id || req.auth?.userId;
       const { clockedIn, atStore } = await checkClockedIn(userId);
       if (!clockedIn || !atStore) return res.status(403).json({ error: "You must be clocked in at the store to submit register data" });
       const { registerCashSales, registerTotalSales, registerShopifyPayments } = req.body;
@@ -331,7 +333,7 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
 
   app.put("/api/cash/sessions/:id/recount", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.auth?.userId;
+      const userId = req.user?.id || req.auth?.userId;
       const { clockedIn, atStore } = await checkClockedIn(userId);
       if (!clockedIn || !atStore) return res.status(403).json({ error: "You must be clocked in at the store to recount" });
       const { counts } = req.body;
@@ -378,7 +380,7 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
 
   app.put("/api/cash/sessions/:id/explanation", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.auth?.userId;
+      const userId = req.user?.id || req.auth?.userId;
       const { clockedIn, atStore } = await checkClockedIn(userId);
       if (!clockedIn || !atStore) return res.status(403).json({ error: "You must be clocked in at the store to submit an explanation" });
       const storeId = await resolveStoreId(userId);
@@ -396,7 +398,7 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
 
   app.put("/api/cash/sessions/:id/verify", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.auth?.userId;
+      const userId = req.user?.id || req.auth?.userId;
       const isManager = await requireManagerOrAbove(storage, userId);
       if (!isManager) return res.status(403).json({ error: "Manager access required" });
       const storeId = await resolveStoreId(userId);
@@ -416,7 +418,7 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
   // ===== Deposits =====
   app.post("/api/cash/deposits", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.auth?.userId;
+      const userId = req.user?.id || req.auth?.userId;
       const { clockedIn, atStore } = await checkClockedIn(userId);
       if (!clockedIn || !atStore) return res.status(403).json({ error: "You must be clocked in at the store to create a deposit" });
       const storeId = await resolveStoreId(userId);
@@ -497,7 +499,7 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
 
   app.put("/api/cash/deposits/:id/review", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.auth?.userId;
+      const userId = req.user?.id || req.auth?.userId;
       const isOwner = await requireOwnerOrAdmin(storage, userId);
       if (!isOwner) return res.status(403).json({ error: "Owner or admin access required" });
       const storeId = await resolveStoreId(userId);
@@ -566,7 +568,7 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
 
   app.get("/api/cash/investigation", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.auth?.userId;
+      const userId = req.user?.id || req.auth?.userId;
       const isOwner = await requireOwnerOrAdmin(storage, userId);
       if (!isOwner) return res.status(403).json({ error: "Owner or admin access required" });
       const storeId = await resolveStoreId(userId);
