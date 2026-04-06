@@ -93,6 +93,7 @@ const companySettingsUpdateSchema = z.object({
   focusLossGraceSeconds: z.number().int().min(5).max(300).optional(),
   autoResumeWindowSeconds: z.number().int().min(30).max(600).optional(),
   requireMobileClockIn: z.boolean().optional(),
+  defaultMileageRateCents: z.number().int().min(0).max(1000).optional(),
 }).strict();
 
 async function requireAdmin(storage: IStorage, userId: string): Promise<void> {

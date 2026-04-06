@@ -58,6 +58,10 @@ const awsSchema = z.object({
   cloudfrontDomain: z.string().optional().default(""),
 });
 
+const googleMapsSchema = z.object({
+  apiKey: z.string().optional().default(""),
+});
+
 const configSchema = z.object({
   server: serverSchema,
   database: databaseSchema,
@@ -69,6 +73,7 @@ const configSchema = z.object({
   encryption: encryptionSchema,
   youtube: youtubeSchema,
   aws: awsSchema,
+  googleMaps: googleMapsSchema,
 });
 
 export type AppConfig = z.infer<typeof configSchema>;
@@ -144,6 +149,9 @@ function loadConfig(): AppConfig {
       secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
       s3Bucket: process.env.AWS_S3_BUCKET,
       cloudfrontDomain: process.env.AWS_CLOUDFRONT_DOMAIN,
+    },
+    googleMaps: {
+      apiKey: process.env.GOOGLE_MAPS_API_KEY,
     },
   };
 

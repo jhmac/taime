@@ -244,6 +244,7 @@ export default function AdminSettings() {
         enableClockOutOnFocusLoss: settings.enableClockOutOnFocusLoss || false,
         focusLossGraceSeconds: settings.focusLossGraceSeconds ?? 30,
         requireMobileClockIn: settings.requireMobileClockIn || false,
+        defaultMileageRateCents: settings.defaultMileageRateCents ?? 0,
       });
     }
   }, [settings]);

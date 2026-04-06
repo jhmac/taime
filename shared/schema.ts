@@ -461,6 +461,7 @@ export const companySettings = pgTable("company_settings", {
   focusLossGraceSeconds: integer("focus_loss_grace_seconds").default(30),
   autoResumeWindowSeconds: integer("auto_resume_window_seconds").default(120),
   requireMobileClockIn: boolean("require_mobile_clock_in").default(false),
+  defaultMileageRateCents: integer("default_mileage_rate_cents").default(0),
   version: integer("version").default(1).notNull(),
 });
 
@@ -873,6 +874,12 @@ export const offsiteAllowanceRules = pgTable("offsite_allowance_rules", {
   alertRecipients: varchar("alert_recipients").notNull().default("both"),
   customAlertUserIds: jsonb("custom_alert_user_ids").$type<string[]>(),
   isActive: boolean("is_active").default(true),
+  destinationAddress: text("destination_address"),
+  destinationPlaceId: varchar("destination_place_id"),
+  destinationLat: decimal("destination_lat", { precision: 10, scale: 8 }),
+  destinationLng: decimal("destination_lng", { precision: 11, scale: 8 }),
+  destinationName: varchar("destination_name"),
+  mileageRateCents: integer("mileage_rate_cents").default(0),
   createdBy: varchar("created_by").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiRequest, invalidatePrefix } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Skeleton } from '@/components/ui/skeleton';
-import { MapPin, Plus, Pencil, Trash2, Clock, Bell, Users, Shield } from 'lucide-react';
+import { MapPin, Plus, Pencil, Trash2, Clock, Bell, Users, Shield, Navigation, X } from 'lucide-react';
 import type { OffsiteAllowanceRule, WorkLocation, User } from '@shared/schema';
 
 const ALLOWED_MINUTES_OPTIONS = [
@@ -23,6 +23,15 @@ const ALLOWED_MINUTES_OPTIONS = [
   { label: '45 minutes', value: 45 },
   { label: '60 minutes', value: 60 },
 ];
+
+interface PlaceSuggestion {
+  place_id: string;
+  description: string;
+  structured_formatting?: {
+    main_text: string;
+    secondary_text: string;
+  };
+}
 
 interface RuleFormData {
   name: string;
@@ -38,6 +47,12 @@ interface RuleFormData {
   alertAfterMinutes: number;
   alertRecipients: string;
   customAlertUserIds: string[];
+  destinationAddress: string;
+  destinationPlaceId: string;
+  destinationLat: string;
+  destinationLng: string;
+  destinationName: string;
+  mileageRateCents: number;
 }
 
 const defaultFormData: RuleFormData = {
@@ -54,7 +69,155 @@ const defaultFormData: RuleFormData = {
   alertAfterMinutes: 20,
   alertRecipients: 'both',
   customAlertUserIds: [],
+  destinationAddress: '',
+  destinationPlaceId: '',
+  destinationLat: '',
+  destinationLng: '',
+  destinationName: '',
+  mileageRateCents: 0,
 };
+
+function DestinationSearch({
+  value,
+  onChange,
+}: {
+  value: { address: string; placeId: string; lat: string; lng: string; name: string };
+  onChange: (v: { address: string; placeId: string; lat: string; lng: string; name: string }) => void;
+}) {
+  const [query, setQuery] = useState(value.address || '');
+  const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [hasSelection, setHasSelection] = useState(!!value.placeId);
+  const [staticMapUrl, setStaticMapUrl] = useState<string | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (value.lat && value.lng) {
+      setStaticMapUrl(`/api/maps/static-map?lat=${value.lat}&lng=${value.lng}`);
+    }
+  }, [value.lat, value.lng]);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setShowDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const handleInput = (val: string) => {
+    setQuery(val);
+    setHasSelection(false);
+    setStaticMapUrl(null);
+    onChange({ address: '', placeId: '', lat: '', lng: '', name: '' });
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (!val.trim()) {
+      setSuggestions([]);
+      setShowDropdown(false);
+      return;
+    }
+    debounceRef.current = setTimeout(async () => {
+      setIsLoading(true);
+      try {
+        const res = await fetch(`/api/maps/places/autocomplete?input=${encodeURIComponent(val)}`);
+        const data = await res.json();
+        setSuggestions(data.predictions || []);
+        setShowDropdown(true);
+      } catch {
+        setSuggestions([]);
+      } finally {
+        setIsLoading(false);
+      }
+    }, 350);
+  };
+
+  const handleSelect = async (suggestion: PlaceSuggestion) => {
+    setQuery(suggestion.description);
+    setShowDropdown(false);
+    setSuggestions([]);
+    setIsLoading(true);
+    try {
+      const res = await fetch(`/api/maps/geocode?place_id=${suggestion.place_id}`);
+      const data = await res.json();
+      const result = data.results?.[0];
+      if (result) {
+        const lat = String(result.geometry.location.lat);
+        const lng = String(result.geometry.location.lng);
+        const name = suggestion.structured_formatting?.main_text || suggestion.description.split(',')[0];
+        onChange({ address: suggestion.description, placeId: suggestion.place_id, lat, lng, name });
+        setHasSelection(true);
+        setStaticMapUrl(`/api/maps/static-map?lat=${lat}&lng=${lng}`);
+      }
+    } catch {
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleClear = () => {
+    setQuery('');
+    setHasSelection(false);
+    setSuggestions([]);
+    setStaticMapUrl(null);
+    onChange({ address: '', placeId: '', lat: '', lng: '', name: '' });
+  };
+
+  return (
+    <div className="space-y-2" ref={containerRef}>
+      <div className="relative">
+        <Input
+          placeholder="Search for an address..."
+          value={query}
+          onChange={(e) => handleInput(e.target.value)}
+          onFocus={() => suggestions.length > 0 && setShowDropdown(true)}
+          className="pr-8"
+        />
+        {query && (
+          <button
+            type="button"
+            onClick={handleClear}
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
+        {showDropdown && suggestions.length > 0 && (
+          <div className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-lg max-h-48 overflow-y-auto">
+            {suggestions.map((s) => (
+              <button
+                key={s.place_id}
+                type="button"
+                className="w-full text-left px-3 py-2 text-sm hover:bg-accent hover:text-accent-foreground"
+                onMouseDown={(e) => { e.preventDefault(); handleSelect(s); }}
+              >
+                <div className="font-medium truncate">{s.structured_formatting?.main_text || s.description}</div>
+                {s.structured_formatting?.secondary_text && (
+                  <div className="text-xs text-muted-foreground truncate">{s.structured_formatting.secondary_text}</div>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      {isLoading && <p className="text-xs text-muted-foreground">Searching...</p>}
+      {hasSelection && staticMapUrl && (
+        <div className="rounded-md overflow-hidden border">
+          <img src={staticMapUrl} alt="Destination map" className="w-full h-32 object-cover" />
+        </div>
+      )}
+      {hasSelection && !staticMapUrl && value.address && (
+        <div className="flex items-center gap-1 text-xs text-muted-foreground">
+          <MapPin className="w-3 h-3" />
+          <span>{value.name || value.address}</span>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function OffsiteAllowanceSection() {
   const { toast } = useToast();
@@ -162,6 +325,12 @@ export default function OffsiteAllowanceSection() {
       alertAfterMinutes: rule.alertAfterMinutes || 20,
       alertRecipients: rule.alertRecipients,
       customAlertUserIds: (rule.customAlertUserIds as string[]) || [],
+      destinationAddress: rule.destinationAddress ?? '',
+      destinationPlaceId: rule.destinationPlaceId ?? '',
+      destinationLat: rule.destinationLat ?? '',
+      destinationLng: rule.destinationLng ?? '',
+      destinationName: rule.destinationName ?? '',
+      mileageRateCents: rule.mileageRateCents ?? 0,
     });
     setShowForm(true);
   };
@@ -192,6 +361,12 @@ export default function OffsiteAllowanceSection() {
       alertRecipients: formData.alertRecipients,
       customAlertUserIds: formData.alertRecipients === 'custom' ? formData.customAlertUserIds : null,
       isActive: true,
+      destinationAddress: formData.destinationAddress || null,
+      destinationPlaceId: formData.destinationPlaceId || null,
+      destinationLat: formData.destinationLat || null,
+      destinationLng: formData.destinationLng || null,
+      destinationName: formData.destinationName || null,
+      mileageRateCents: formData.mileageRateCents || 0,
     };
 
     if (editingRule) {
@@ -216,6 +391,11 @@ export default function OffsiteAllowanceSection() {
       case 'specific_employees': return 'Specific employees';
       default: return appliesTo;
     }
+  };
+
+  const formatMileageRate = (cents: number) => {
+    if (!cents) return null;
+    return `$${(cents / 100).toFixed(2)}/mi`;
   };
 
   const activeUsers = users.filter((u: User) => u.isActive !== false);
@@ -293,6 +473,11 @@ export default function OffsiteAllowanceSection() {
                       <Badge variant={rule.isActive ? 'default' : 'secondary'} className="text-xs">
                         {rule.isActive ? 'Active' : 'Inactive'}
                       </Badge>
+                      {(rule.mileageRateCents ?? 0) > 0 && (
+                        <Badge variant="outline" className="text-xs">
+                          {formatMileageRate(rule.mileageRateCents ?? 0)}
+                        </Badge>
+                      )}
                     </div>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                       <span className="flex items-center gap-1">
@@ -313,6 +498,12 @@ export default function OffsiteAllowanceSection() {
                         </span>
                       ) : (
                         <span>All day</span>
+                      )}
+                      {rule.destinationName && (
+                        <span className="flex items-center gap-1 text-primary">
+                          <MapPin className="w-3 h-3" />
+                          {rule.destinationName}
+                        </span>
                       )}
                     </div>
                   </div>
@@ -373,6 +564,35 @@ export default function OffsiteAllowanceSection() {
                 </Select>
               </div>
             )}
+
+            <Separator />
+
+            <div className="space-y-2">
+              <Label className="flex items-center gap-1">
+                <Navigation className="w-3.5 h-3.5" />
+                Destination (optional)
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Set a specific destination address for this trip type. Employees will be expected to travel here.
+              </p>
+              <DestinationSearch
+                value={{
+                  address: formData.destinationAddress,
+                  placeId: formData.destinationPlaceId,
+                  lat: formData.destinationLat,
+                  lng: formData.destinationLng,
+                  name: formData.destinationName,
+                }}
+                onChange={(v) => setFormData(prev => ({
+                  ...prev,
+                  destinationAddress: v.address,
+                  destinationPlaceId: v.placeId,
+                  destinationLat: v.lat,
+                  destinationLng: v.lng,
+                  destinationName: v.name,
+                }))}
+              />
+            </div>
 
             <Separator />
 
@@ -449,6 +669,30 @@ export default function OffsiteAllowanceSection() {
                   />
                 </div>
               )}
+            </div>
+
+            <Separator />
+
+            <div className="space-y-2">
+              <Label>Mileage Reimbursement Rate (¢/mile)</Label>
+              <p className="text-xs text-muted-foreground">
+                Set to 0 for no mileage reimbursement. Example: 25 = $0.25/mile.
+              </p>
+              <div className="flex items-center gap-2">
+                <Input
+                  type="number"
+                  min={0}
+                  max={1000}
+                  value={formData.mileageRateCents}
+                  onChange={(e) => setFormData(prev => ({ ...prev, mileageRateCents: parseInt(e.target.value) || 0 }))}
+                  className="w-24"
+                />
+                <span className="text-sm text-muted-foreground">
+                  {formData.mileageRateCents > 0
+                    ? `= $${(formData.mileageRateCents / 100).toFixed(2)}/mile`
+                    : 'No reimbursement'}
+                </span>
+              </div>
             </div>
 
             <Separator />
