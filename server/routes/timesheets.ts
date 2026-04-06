@@ -40,13 +40,34 @@ function sanitizeCsvField(value: string): string {
   return value;
 }
 
+type DiscrepancyType = "no_show" | "missing_clock_out" | "early_departure" | "short_shift" | "long_shift" | "unapproved";
+
 interface NeedsReviewFlag {
-  type: string;
+  type: DiscrepancyType;
   message: string;
   entryId: string;
+  scheduleId?: string;
+  userId?: string;
+  date?: string;
+  scheduledStart?: string;
+  scheduledEnd?: string;
+  scheduledHours?: number;
 }
 
-function detectNeedsReview(entry: any): NeedsReviewFlag[] {
+interface DiscrepancyAlert {
+  type: DiscrepancyType;
+  message: string;
+  entryId?: string;
+  scheduleId?: string;
+  userId: string;
+  date: string;
+  scheduledStart?: string;
+  scheduledEnd?: string;
+  scheduledHours?: number;
+  actualHours?: number;
+}
+
+function detectNeedsReview(entry: any, schedule?: any): NeedsReviewFlag[] {
   const flags: NeedsReviewFlag[] = [];
   if (!entry.clockOutTime) {
     flags.push({ type: "missing_clock_out", message: "Missing clock-out", entryId: entry.id });
@@ -58,6 +79,21 @@ function detectNeedsReview(entry: any): NeedsReviewFlag[] {
     }
     if (hours > 12) {
       flags.push({ type: "long_shift", message: `Long shift (${hours.toFixed(1)} hrs)`, entryId: entry.id });
+    }
+    if (schedule && entry.clockOutTime) {
+      const scheduledHours = calculateHours(schedule.startTime, schedule.endTime, 0);
+      const deviationHours = scheduledHours - hours;
+      if (deviationHours > 1) {
+        flags.push({
+          type: "early_departure",
+          message: `Early departure (${deviationHours.toFixed(1)} hr${deviationHours !== 1 ? "s" : ""} short)`,
+          entryId: entry.id,
+          scheduleId: schedule.id,
+          scheduledStart: schedule.startTime,
+          scheduledEnd: schedule.endTime,
+          scheduledHours,
+        });
+      }
     }
   }
   if (!entry.isApproved) {
@@ -100,11 +136,29 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
       const otThreshold = settings?.overtimeThresholdHours ?? 40;
       const workWeekStart = (settings as any)?.workWeekStart || "sunday";
 
-      const [allEntries, allUsers, allOffsiteSessions] = await Promise.all([
+      const scheduleStart = startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const scheduleEnd = endDate || new Date(Date.now() + 24 * 60 * 60 * 1000);
+      const startDateStr = (startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)).toISOString().split("T")[0];
+      const endDateStr = (endDate || new Date(Date.now() + 24 * 60 * 60 * 1000)).toISOString().split("T")[0];
+
+      const [allEntries, allUsers, allOffsiteSessions, allSchedules] = await Promise.all([
         storage.getAllTimeEntries(startDate, endDate),
         storage.getAllUsers(),
         storage.getOffsiteSessions({}),
+        storage.getAllSchedules(scheduleStart, scheduleEnd),
       ]);
+
+      // Fetch all resolutions for the date range and index by "userId:date:type"
+      const resolvedKeys = new Set<string>();
+      const activeUsers = allUsers.filter((u: any) => u.isActive !== false);
+      await Promise.all(
+        activeUsers.map(async (user: any) => {
+          const resolutions = await storage.getDiscrepancyResolutions(user.id, startDateStr, endDateStr);
+          for (const r of resolutions) {
+            resolvedKeys.add(`${r.userId}:${r.date}:${r.discrepancyType}`);
+          }
+        })
+      );
 
       const offsiteByTimeEntry = new Map<string, any[]>();
       const offsiteByUser = new Map<string, any[]>();
@@ -133,17 +187,30 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
         }
       }
 
-      const employeeReviews = allUsers
-        .filter((u: any) => u.isActive !== false)
-        .map((user: any) => {
+      // Build schedule lookup: userId -> date -> schedule[]
+      const scheduleByUserDate = new Map<string, Map<string, any[]>>();
+      for (const schedule of allSchedules) {
+        const dateKey = new Date(schedule.startTime).toISOString().split("T")[0];
+        if (!scheduleByUserDate.has(schedule.userId)) {
+          scheduleByUserDate.set(schedule.userId, new Map());
+        }
+        const userMap = scheduleByUserDate.get(schedule.userId)!;
+        const dayList = userMap.get(dateKey) || [];
+        dayList.push(schedule);
+        userMap.set(dateKey, dayList);
+      }
+
+      const employeeReviews = activeUsers.map((user: any) => {
           const entries = entriesByUser.get(user.id) || [];
+          const userScheduleByDate = scheduleByUserDate.get(user.id) || new Map<string, any[]>();
           let totalActual = 0;
           let totalRegular = 0;
           let totalOT = 0;
           let totalOffsiteMinutes = 0;
           const needsReviewFlags: NeedsReviewFlag[] = [];
+          const discrepancyAlerts: DiscrepancyAlert[] = [];
 
-          const dailyMap = new Map<string, { date: string; actual: number; regular: number; ot: number; offsiteMinutes: number; entries: any[] }>();
+          const dailyMap = new Map<string, { date: string; actual: number; regular: number; ot: number; offsiteMinutes: number; scheduledHours: number; schedules: any[]; entries: any[] }>();
 
           const sortedEntries = [...entries].sort(
             (a, b) => new Date(a.clockInTime).getTime() - new Date(b.clockInTime).getTime()
@@ -152,8 +219,44 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
           const weeklyAccumulated = new Map<string, number>();
 
           for (const entry of sortedEntries) {
-            const flags = detectNeedsReview(entry);
-            needsReviewFlags.push(...flags);
+            const dateKey = new Date(entry.clockInTime).toISOString().split("T")[0];
+            const daySchedules = userScheduleByDate.get(dateKey) || [];
+            // Find closest matching schedule for this entry
+            const matchingSchedule = daySchedules.find((s: any) => {
+              const sStart = new Date(s.startTime).getTime();
+              const eClockIn = new Date(entry.clockInTime).getTime();
+              return Math.abs(sStart - eClockIn) < 4 * 60 * 60 * 1000; // within 4 hours
+            }) || daySchedules[0];
+
+            const flags = detectNeedsReview(entry, matchingSchedule);
+            // Only push non-resolved flags to needsReviewFlags
+            for (const f of flags) {
+              const resolvedKey = `${user.id}:${dateKey}:${f.type}`;
+              if (!resolvedKeys.has(resolvedKey)) {
+                needsReviewFlags.push(f);
+              }
+            }
+
+            // Convert flags to discrepancy alerts (skip resolved ones)
+            for (const flag of flags) {
+              if (flag.type !== "unapproved") {
+                const resolvedKey = `${user.id}:${dateKey}:${flag.type}`;
+                if (!resolvedKeys.has(resolvedKey)) {
+                  discrepancyAlerts.push({
+                    type: flag.type,
+                    message: flag.message,
+                    entryId: flag.entryId,
+                    scheduleId: matchingSchedule?.id,
+                    userId: user.id,
+                    date: dateKey,
+                    scheduledStart: matchingSchedule?.startTime,
+                    scheduledEnd: matchingSchedule?.endTime,
+                    scheduledHours: matchingSchedule ? calculateHours(matchingSchedule.startTime, matchingSchedule.endTime, 0) : undefined,
+                    actualHours: calculateHours(entry.clockInTime, entry.clockOutTime, entry.breakMinutes || 0),
+                  });
+                }
+              }
+            }
 
             const hours = calculateHours(entry.clockInTime, entry.clockOutTime, entry.breakMinutes || 0);
             const wk = getWeekKey(entry.clockInTime, workWeekStart);
@@ -169,8 +272,8 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
             const entryOffsiteMinutes = entrySessions.reduce((sum: number, s: any) => sum + (s.durationMinutes || 0), 0);
             totalOffsiteMinutes += entryOffsiteMinutes;
 
-            const dateKey = new Date(entry.clockInTime).toISOString().split("T")[0];
-            const day = dailyMap.get(dateKey) || { date: dateKey, actual: 0, regular: 0, ot: 0, offsiteMinutes: 0, entries: [] };
+            const scheduledHoursForDay = daySchedules.reduce((sum: number, s: any) => sum + calculateHours(s.startTime, s.endTime, 0), 0);
+            const day = dailyMap.get(dateKey) || { date: dateKey, actual: 0, regular: 0, ot: 0, offsiteMinutes: 0, scheduledHours: scheduledHoursForDay, schedules: daySchedules, entries: [] };
             day.actual += hours;
             day.regular += regular;
             day.ot += ot;
@@ -183,6 +286,10 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
               hours,
               isApproved: entry.isApproved,
               notes: entry.notes,
+              scheduledStart: matchingSchedule?.startTime || null,
+              scheduledEnd: matchingSchedule?.endTime || null,
+              scheduledHours: matchingSchedule ? calculateHours(matchingSchedule.startTime, matchingSchedule.endTime, 0) : null,
+              discrepancies: flags.filter(f => f.type !== "unapproved").map(f => f.type),
               offsiteSessions: entrySessions.map((s: any) => ({
                 id: s.id,
                 exitTime: s.exitTime,
@@ -193,6 +300,49 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
               })),
             });
             dailyMap.set(dateKey, day);
+          }
+
+          // Detect no-shows: scheduled days with no time entries (skip resolved)
+          const today = new Date().toISOString().split("T")[0];
+          for (const [dateKey, daySchedules] of userScheduleByDate.entries()) {
+            if (dateKey >= today) continue; // Skip today and future
+            if (dailyMap.has(dateKey)) continue; // Already has entries
+            const noShowResolved = resolvedKeys.has(`${user.id}:${dateKey}:no_show`);
+            for (const schedule of daySchedules) {
+              // Add synthetic daily row so no-show days appear in the breakdown
+              if (!dailyMap.has(dateKey)) {
+                const scheduledHrs = calculateHours(schedule.startTime, schedule.endTime, 0);
+                dailyMap.set(dateKey, {
+                  date: dateKey,
+                  actual: 0,
+                  regular: 0,
+                  ot: 0,
+                  offsiteMinutes: 0,
+                  scheduledHours: scheduledHrs,
+                  schedules: daySchedules,
+                  entries: [],
+                });
+              }
+              if (!noShowResolved) {
+                discrepancyAlerts.push({
+                  type: "no_show",
+                  message: "No show — scheduled but no clock-in",
+                  scheduleId: schedule.id,
+                  userId: user.id,
+                  date: dateKey,
+                  scheduledStart: schedule.startTime,
+                  scheduledEnd: schedule.endTime,
+                  scheduledHours: calculateHours(schedule.startTime, schedule.endTime, 0),
+                });
+                needsReviewFlags.push({
+                  type: "no_show",
+                  message: "No show — scheduled but no clock-in",
+                  entryId: "",
+                  scheduleId: schedule.id,
+                  date: dateKey,
+                });
+              }
+            }
           }
 
           const allApproved = entries.length > 0 && entries.every((e: any) => e.isApproved);
@@ -225,7 +375,8 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
             offsiteMinutes: totalOffsiteMinutes,
             status,
             needsReviewFlags,
-            needsReviewCount: needsReviewFlags.length,
+            needsReviewCount: needsReviewFlags.filter(f => f.type !== "unapproved").length,
+            discrepancyAlerts,
             entryCount: entries.length,
             dailyBreakdown,
             activeOffsite: activeOffsite ? {
@@ -236,10 +387,10 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
               ruleId: activeOffsite.ruleId,
             } : null,
           };
-        })
-        .filter((e: any) => e.entryCount > 0);
+        });
 
       const totalNeedsReview = employeeReviews.reduce((sum: number, e: any) => sum + e.needsReviewCount, 0);
+      const allDiscrepancyAlerts: DiscrepancyAlert[] = employeeReviews.flatMap((e: any) => e.discrepancyAlerts || []);
       const totals = {
         actualHours: Math.round(employeeReviews.reduce((sum: number, e: any) => sum + e.actualHours, 0) * 100) / 100,
         regularHours: Math.round(employeeReviews.reduce((sum: number, e: any) => sum + e.regularHours, 0) * 100) / 100,
@@ -251,6 +402,7 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
         totals,
         totalNeedsReview,
         otThreshold,
+        discrepancyAlerts: allDiscrepancyAlerts,
       });
     } catch (error: any) {
       logger.error({ error: error.message }, "Error fetching timesheet review");
@@ -451,6 +603,142 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
     } catch (error: any) {
       logger.error({ error: error.message }, "Error locking period");
       res.status(500).json({ message: "Failed to lock period" });
+    }
+  });
+
+  app.post("/api/timesheets/resolve-discrepancy", isAuthenticated, async (req: any, res) => {
+    try {
+      const adminId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(adminId);
+      const canManage = userPermissions.some((p: any) => p.name === "time.approve" || p.name === "admin.manage_all");
+      if (!canManage) {
+        return res.status(403).json({ message: "Insufficient permissions to resolve discrepancies" });
+      }
+
+      const {
+        action,
+        employeeId,
+        entryId,
+        date,
+        discrepancyType,
+        reason,
+        clockInTime,
+        clockOutTime,
+        breakMinutes,
+      }: {
+        action: string;
+        employeeId: string;
+        entryId?: string;
+        date: string;
+        discrepancyType?: string;
+        reason: string;
+        clockInTime?: string;
+        clockOutTime?: string;
+        breakMinutes?: number;
+      } = req.body;
+
+      const trimmedReason = reason?.trim() ?? "";
+      if (!action || !employeeId || !date || !trimmedReason) {
+        return res.status(400).json({ message: "action, employeeId, date, and reason (non-empty) are required" });
+      }
+
+      const employee = await storage.getUser(employeeId);
+      if (!employee) {
+        return res.status(404).json({ message: "Employee not found" });
+      }
+
+      if (action === "excuse") {
+        // Record the resolution in the discrepancy_resolutions table
+        await storage.createDiscrepancyResolution({
+          userId: employeeId,
+          date,
+          discrepancyType: discrepancyType || "no_show",
+          action: "excuse",
+          reason: trimmedReason,
+          resolvedBy: adminId,
+          entryId: entryId || null,
+          newEntryId: null,
+        });
+
+        // If there's an existing entry, also add an edit audit record
+        if (entryId) {
+          await storage.createTimeEntryEdit({
+            timeEntryId: entryId,
+            editedBy: adminId,
+            fieldChanged: "discrepancy_resolved",
+            oldValue: "unresolved",
+            newValue: "excused",
+            reason: trimmedReason,
+          });
+        }
+
+        return res.json({ message: "Absence marked as excused" });
+      }
+
+      if (action === "add_time_card") {
+        if (!clockInTime) {
+          return res.status(400).json({ message: "clockInTime is required for add_time_card action" });
+        }
+
+        // Build the full datetime for the time card from the date + time strings (HH:MM format)
+        const buildDateTime = (dateStr: string, timeStr: string): Date => {
+          const [h, m] = timeStr.split(":").map(Number);
+          const d = new Date(dateStr + "T00:00:00");
+          d.setHours(h, m, 0, 0);
+          return d;
+        };
+
+        const clockIn = buildDateTime(date, clockInTime);
+        const clockOut = clockOutTime ? buildDateTime(date, clockOutTime) : undefined;
+
+        const newEntry = await storage.createTimeEntry({
+          userId: employeeId,
+          clockInTime: clockIn,
+          clockOutTime: clockOut,
+          breakMinutes: breakMinutes || 0,
+          notes: trimmedReason,
+          clockInSource: "manual",
+          clockOutSource: clockOut ? "manual" : undefined,
+          isApproved: true,
+        });
+
+        await storage.createDiscrepancyResolution({
+          userId: employeeId,
+          date,
+          discrepancyType: discrepancyType || "no_show",
+          action: "add_time_card",
+          reason: trimmedReason,
+          resolvedBy: adminId,
+          entryId: entryId || null,
+          newEntryId: newEntry.id,
+        });
+
+        await storage.createTimeEntryEdit({
+          timeEntryId: newEntry.id,
+          editedBy: adminId,
+          fieldChanged: "created",
+          oldValue: null,
+          newValue: "Manual time card added to resolve discrepancy",
+          reason: trimmedReason,
+        });
+
+        return res.json({ message: "Time card added", entry: newEntry });
+      }
+
+      return res.status(400).json({ message: "Invalid action. Use 'excuse' or 'add_time_card'" });
+    } catch (error: any) {
+      logger.error({ error: error.message }, "Error resolving discrepancy");
+      res.status(500).json({ message: "Failed to resolve discrepancy" });
+    }
+  });
+
+  app.get("/api/timesheets/pay-period-settings", isAuthenticated, async (req: any, res) => {
+    try {
+      const settings = await storage.getPayPeriodSettings();
+      res.json(settings || null);
+    } catch (error: any) {
+      logger.error({ error: error.message }, "Error fetching pay period settings");
+      res.status(500).json({ message: "Failed to fetch pay period settings" });
     }
   });
 

@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { invalidatePrefix } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -53,6 +53,11 @@ import {
   ShieldAlert,
   Plus,
   MapPin,
+  X,
+  Calendar,
+  UserX,
+  LogOut,
+  TrendingDown,
 } from "lucide-react";
 
 interface OffsiteSessionInfo {
@@ -72,6 +77,10 @@ interface DailyEntry {
   hours: number;
   isApproved: boolean;
   notes: string | null;
+  scheduledStart?: string | null;
+  scheduledEnd?: string | null;
+  scheduledHours?: number | null;
+  discrepancies?: string[];
   offsiteSessions?: OffsiteSessionInfo[];
 }
 
@@ -81,6 +90,8 @@ interface DailyBreakdown {
   regular: number;
   ot: number;
   offsiteMinutes?: number;
+  scheduledHours?: number;
+  schedules?: Array<{ id: string; startTime: string; endTime: string }>;
   entries: DailyEntry[];
 }
 
@@ -88,6 +99,19 @@ interface NeedsReviewFlag {
   type: string;
   message: string;
   entryId: string;
+}
+
+interface DiscrepancyAlert {
+  type: "no_show" | "missing_clock_out" | "early_departure" | "short_shift" | "long_shift" | "unapproved";
+  message: string;
+  entryId?: string;
+  scheduleId?: string;
+  userId: string;
+  date: string;
+  scheduledStart?: string;
+  scheduledEnd?: string;
+  scheduledHours?: number;
+  actualHours?: number;
 }
 
 interface ActiveOffsite {
@@ -111,6 +135,7 @@ interface EmployeeReview {
   status: string;
   needsReviewFlags: NeedsReviewFlag[];
   needsReviewCount: number;
+  discrepancyAlerts?: DiscrepancyAlert[];
   entryCount: number;
   dailyBreakdown: DailyBreakdown[];
   activeOffsite?: ActiveOffsite | null;
@@ -121,6 +146,15 @@ interface TimesheetReviewData {
   totals: { actualHours: number; regularHours: number; otHours: number };
   totalNeedsReview: number;
   otThreshold: number;
+  discrepancyAlerts?: DiscrepancyAlert[];
+}
+
+interface PayPeriodSettings {
+  id: string;
+  intervalType: string | null;
+  firstPayPeriodStart: string | null;
+  firstPayPeriodEnd: string | null;
+  payScheduleFrequency?: string | null;
 }
 
 interface OTRiskEmployee {
@@ -469,15 +503,36 @@ function ExpandableEmployeeRow({
           <TableRow
             key={day.date}
             className={
-              day.entries.some((e) => !e.isApproved)
+              day.entries.length === 0 && (day.scheduledHours ?? 0) > 0
+                ? "bg-red-50 dark:bg-red-950/20"
+                : day.entries.some((e) => e.discrepancies && e.discrepancies.length > 0)
                 ? "bg-amber-50 dark:bg-amber-950/20"
+                : day.entries.some((e) => !e.isApproved)
+                ? "bg-muted/40"
                 : "bg-muted/30"
             }
           >
             <TableCell className="pl-16">
-              <div className="flex flex-col">
-                <span className="text-sm">{formatDate(day.date)}</span>
-                <div className="flex flex-wrap gap-1 mt-1">
+              <div className="flex flex-col gap-1">
+                <span className="text-sm font-medium">{formatDate(day.date)}</span>
+                {day.scheduledHours != null && day.scheduledHours > 0 && (
+                  <span className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Calendar className="h-3 w-3" />
+                    Scheduled: {day.scheduledHours.toFixed(1)}h
+                    {day.schedules && day.schedules[0] && (
+                      <span className="text-muted-foreground/60">
+                        ({formatTime(day.schedules[0].startTime)} – {formatTime(day.schedules[0].endTime)})
+                      </span>
+                    )}
+                  </span>
+                )}
+                <div className="flex flex-wrap gap-1 mt-0.5">
+                  {day.entries.length === 0 && day.scheduledHours != null && day.scheduledHours > 0 && (
+                    <span className="inline-flex items-center gap-1 text-xs text-red-600 dark:text-red-400 font-medium">
+                      <AlertTriangle className="h-3 w-3" />
+                      No show
+                    </span>
+                  )}
                   {day.entries.map((entry) => (
                     <div key={entry.id} className="flex flex-col">
                       <button
@@ -491,6 +546,11 @@ function ExpandableEmployeeRow({
                         {entry.breakMinutes > 0 && (
                           <span className="ml-1 text-muted-foreground/60">
                             ({entry.breakMinutes}m break)
+                          </span>
+                        )}
+                        {entry.discrepancies && entry.discrepancies.length > 0 && (
+                          <span className="ml-1 text-amber-600">
+                            <AlertTriangle className="h-3 w-3 inline" />
                           </span>
                         )}
                       </button>
@@ -573,6 +633,251 @@ function ExpandableEmployeeRow({
   );
 }
 
+function getDiscrepancyIcon(type: string) {
+  switch (type) {
+    case "no_show": return <UserX className="h-4 w-4 text-red-500" />;
+    case "missing_clock_out": return <LogOut className="h-4 w-4 text-amber-500" />;
+    case "early_departure": return <TrendingDown className="h-4 w-4 text-orange-500" />;
+    case "short_shift": return <Clock className="h-4 w-4 text-amber-500" />;
+    case "long_shift": return <Clock className="h-4 w-4 text-blue-500" />;
+    default: return <AlertTriangle className="h-4 w-4 text-amber-500" />;
+  }
+}
+
+function getDiscrepancyLabel(type: string) {
+  switch (type) {
+    case "no_show": return "No show";
+    case "missing_clock_out": return "Missing clock-out";
+    case "early_departure": return "Early departure";
+    case "short_shift": return "Short shift";
+    case "long_shift": return "Long shift";
+    default: return "Review needed";
+  }
+}
+
+function ResolveDiscrepancyDialog({
+  open,
+  onOpenChange,
+  alert,
+  employees,
+  onResolved,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  alert: DiscrepancyAlert | null;
+  employees: EmployeeReview[];
+  onResolved: () => void;
+}) {
+  const { toast } = useToast();
+  const [action, setAction] = useState<"excuse" | "add_time_card">("excuse");
+  const [reason, setReason] = useState("");
+  const [clockInTime, setClockInTime] = useState("09:00");
+  const [clockOutTime, setClockOutTime] = useState("17:00");
+  const [breakMins, setBreakMins] = useState("0");
+
+  const employee = employees.find((e) => e.userId === alert?.userId);
+  const employeeName = employee
+    ? [employee.firstName, employee.lastName].filter(Boolean).join(" ") || employee.email || "Employee"
+    : "Employee";
+
+  const resolveMutation = useMutation({
+    mutationFn: async () => {
+      if (!alert) return;
+
+      const payload: {
+        action: "excuse" | "add_time_card";
+        employeeId: string;
+        date: string;
+        discrepancyType: string;
+        reason: string;
+        entryId?: string;
+        clockInTime?: string;
+        clockOutTime?: string;
+        breakMinutes?: number;
+      } = {
+        action,
+        employeeId: alert.userId,
+        date: alert.date,
+        discrepancyType: alert.type,
+        reason,
+        entryId: alert.entryId || undefined,
+      };
+
+      if (action === "add_time_card") {
+        payload.clockInTime = clockInTime;
+        payload.clockOutTime = clockOutTime || undefined;
+        payload.breakMinutes = parseInt(breakMins) || 0;
+      }
+
+      await apiRequest("POST", "/api/timesheets/resolve-discrepancy", payload);
+    },
+    onSuccess: () => {
+      toast({ title: "Resolved", description: "Discrepancy has been resolved and saved to audit trail." });
+      invalidatePrefix("/api/timesheets/review");
+      onResolved();
+      onOpenChange(false);
+      setReason("");
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  if (!alert) return null;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[480px]">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            {getDiscrepancyIcon(alert.type)}
+            Resolve: {getDiscrepancyLabel(alert.type)}
+          </DialogTitle>
+          <DialogDescription>
+            {employeeName} &bull; {formatDate(alert.date)}
+            {alert.scheduledStart && (
+              <span className="block mt-1 text-xs">
+                Scheduled: {formatTime(alert.scheduledStart)} – {formatTime(alert.scheduledEnd || null)}
+                {alert.scheduledHours != null && ` (${alert.scheduledHours.toFixed(1)} hr)`}
+              </span>
+            )}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4 py-4">
+          <div className="grid gap-2">
+            <Label>Resolution action</Label>
+            <Select value={action} onValueChange={(v) => setAction(v as "excuse" | "add_time_card")}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="excuse">Mark as excused absence</SelectItem>
+                <SelectItem value="add_time_card">Add manual time card</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {action === "add_time_card" && (
+            <>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-2">
+                  <Label>Clock In</Label>
+                  <Input type="time" value={clockInTime} onChange={(e) => setClockInTime(e.target.value)} />
+                </div>
+                <div className="grid gap-2">
+                  <Label>Clock Out</Label>
+                  <Input type="time" value={clockOutTime} onChange={(e) => setClockOutTime(e.target.value)} />
+                </div>
+              </div>
+              <div className="grid gap-2">
+                <Label>Break Minutes</Label>
+                <Input type="number" min="0" value={breakMins} onChange={(e) => setBreakMins(e.target.value)} />
+              </div>
+            </>
+          )}
+
+          <div className="grid gap-2">
+            <Label>
+              Reason <span className="text-red-500">*</span>
+            </Label>
+            <Textarea
+              placeholder={action === "excuse" ? "e.g. Employee called in sick, doctor's note provided" : "e.g. Employee forgot to clock in, verified by manager"}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              className="min-h-[80px]"
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button
+            onClick={() => resolveMutation.mutate()}
+            disabled={resolveMutation.isPending || !reason.trim()}
+          >
+            {resolveMutation.isPending ? "Saving…" : "Resolve & Save"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function NeedsReviewBanner({
+  alerts,
+  employees,
+  onAlertClick,
+}: {
+  alerts: DiscrepancyAlert[];
+  employees: EmployeeReview[];
+  onAlertClick: (alert: DiscrepancyAlert) => void;
+}) {
+  const [dismissed, setDismissed] = useState(false);
+
+  if (alerts.length === 0 || dismissed) return null;
+
+  const employeeMap = new Map(employees.map((e) => [e.userId, e]));
+
+  return (
+    <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/20 p-3">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+          <span className="font-semibold text-sm text-amber-800 dark:text-amber-300">
+            Needs review
+          </span>
+          <Badge variant="destructive" className="bg-amber-500 hover:bg-amber-600 text-xs px-1.5">
+            {alerts.length}
+          </Badge>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6 text-amber-600 hover:text-amber-800"
+          onClick={() => setDismissed(true)}
+        >
+          <X className="h-3 w-3" />
+        </Button>
+      </div>
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        {alerts.map((alert, idx) => {
+          const emp = employeeMap.get(alert.userId);
+          const name = emp
+            ? [emp.firstName, emp.lastName].filter(Boolean).join(" ") || emp.email || "?"
+            : "?";
+          const initials = emp
+            ? ((emp.firstName?.[0] || "") + (emp.lastName?.[0] || "")).toUpperCase() || "?"
+            : "?";
+
+          return (
+            <button
+              key={idx}
+              className="flex-shrink-0 flex items-center gap-2 bg-white dark:bg-amber-950/40 border border-amber-200 dark:border-amber-700 rounded-lg px-3 py-2 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors text-left min-w-[170px]"
+              onClick={() => onAlertClick(alert)}
+            >
+              <Avatar className="h-7 w-7 flex-shrink-0">
+                <AvatarImage src={emp?.profileImageUrl || undefined} />
+                <AvatarFallback className="text-[10px]">{initials}</AvatarFallback>
+              </Avatar>
+              <div className="min-w-0">
+                <p className="text-xs font-medium truncate">{name}</p>
+                <p className="text-[10px] text-muted-foreground truncate">{formatDate(alert.date)}</p>
+                <div className="flex items-center gap-1 mt-0.5">
+                  {getDiscrepancyIcon(alert.type)}
+                  <span className="text-[10px] text-amber-700 dark:text-amber-400 font-medium">
+                    {getDiscrepancyLabel(alert.type)}
+                  </span>
+                </div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function PayPeriodReviewTab({
   data,
   isLoading,
@@ -585,10 +890,17 @@ function PayPeriodReviewTab({
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [addTimeCardOpen, setAddTimeCardOpen] = useState(false);
   const [addTimeCardEmployeeId, setAddTimeCardEmployeeId] = useState<string | undefined>();
+  const [resolveOpen, setResolveOpen] = useState(false);
+  const [resolveAlert, setResolveAlert] = useState<DiscrepancyAlert | null>(null);
 
   const handleAddTimeCard = (employeeId: string) => {
     setAddTimeCardEmployeeId(employeeId);
     setAddTimeCardOpen(true);
+  };
+
+  const handleAlertClick = (alert: DiscrepancyAlert) => {
+    setResolveAlert(alert);
+    setResolveOpen(true);
   };
 
   const toggleRow = (userId: string) => {
@@ -602,6 +914,8 @@ function PayPeriodReviewTab({
       return next;
     });
   };
+
+  const allDiscrepancies = data?.discrepancyAlerts || [];
 
   if (isLoading) {
     return (
@@ -625,7 +939,19 @@ function PayPeriodReviewTab({
   }
 
   return (
-    <>
+    <div className="space-y-4">
+      <NeedsReviewBanner
+        alerts={allDiscrepancies}
+        employees={data.employees}
+        onAlertClick={handleAlertClick}
+      />
+      <ResolveDiscrepancyDialog
+        open={resolveOpen}
+        onOpenChange={setResolveOpen}
+        alert={resolveAlert}
+        employees={data.employees}
+        onResolved={() => setResolveAlert(null)}
+      />
     <Card>
       <CardContent className="p-0">
         <div className="overflow-x-auto">
@@ -690,7 +1016,7 @@ function PayPeriodReviewTab({
         email: e.email,
       }))}
     />
-    </>
+    </div>
   );
 }
 
@@ -860,12 +1186,46 @@ function OvertimeAlertsBanner({ alertCount, onToggle, isExpanded }: { alertCount
 }
 
 
+function computePayPeriods(settings: PayPeriodSettings | null, count: number = 6): Array<{ label: string; startDate: string; endDate: string }> {
+  if (!settings?.firstPayPeriodStart) return [];
+
+  const intervalType = settings.intervalType || "bi-weekly";
+  const intervalDays = intervalType === "weekly" ? 7 : intervalType === "bi-weekly" ? 14 : intervalType === "semi-monthly" ? 15 : 30;
+
+  const start = new Date(settings.firstPayPeriodStart);
+  start.setHours(0, 0, 0, 0);
+
+  const now = new Date();
+  const periods: Array<{ label: string; startDate: string; endDate: string }> = [];
+
+  // Find current period start
+  let periodStart = new Date(start);
+  while (new Date(periodStart.getTime() + intervalDays * 86400000) < now) {
+    periodStart = new Date(periodStart.getTime() + intervalDays * 86400000);
+  }
+
+  // Go back a bit to include recent past periods
+  for (let i = count - 1; i >= 0; i--) {
+    const ps = new Date(periodStart.getTime() - i * intervalDays * 86400000);
+    const pe = new Date(ps.getTime() + (intervalDays - 1) * 86400000);
+    const label = `${ps.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${pe.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
+    periods.push({
+      label,
+      startDate: ps.toISOString().split("T")[0],
+      endDate: pe.toISOString().split("T")[0],
+    });
+  }
+
+  return periods;
+}
+
 export default function Timesheets() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const defaults = getDefaultDateRange();
   const [startDate, setStartDate] = useState(defaults.startDate);
   const [endDate, setEndDate] = useState(defaults.endDate);
+  const [periodInitialized, setPeriodInitialized] = useState(false);
   const [activeTab, setActiveTab] = useState("pay-period");
   const [showOTPanel, setShowOTPanel] = useState(false);
   const [timeCardModalOpen, setTimeCardModalOpen] = useState(false);
@@ -875,6 +1235,23 @@ export default function Timesheets() {
   const [allFlatEntries, setAllFlatEntries] = useState<Array<{ entry: DailyEntry; date: string; employee: EmployeeReview }>>([]);
   const [showAddTimeCard, setShowAddTimeCard] = useState(false);
   const [exportModalOpen, setExportModalOpen] = useState(false);
+
+  const { data: payPeriodSettings } = useQuery<PayPeriodSettings | null>({
+    queryKey: ["/api/timesheets/pay-period-settings"],
+  });
+
+  // Initialize date range from pay period settings when they load
+  const payPeriods = useMemo(() => computePayPeriods(payPeriodSettings || null), [payPeriodSettings]);
+  const currentPeriod = payPeriods.length > 0 ? payPeriods[payPeriods.length - 1] : null;
+
+  // Auto-set to current pay period once loaded (only once)
+  useEffect(() => {
+    if (!periodInitialized && currentPeriod) {
+      setStartDate(currentPeriod.startDate);
+      setEndDate(currentPeriod.endDate);
+      setPeriodInitialized(true);
+    }
+  }, [currentPeriod, periodInitialized]);
 
   const { data, isLoading, refetch } = useQuery<TimesheetReviewData>({
     queryKey: [`/api/timesheets/review?startDate=${startDate}&endDate=${endDate}`],
@@ -963,6 +1340,28 @@ export default function Timesheets() {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          {payPeriods.length > 0 && (
+            <Select
+              value={`${startDate}|${endDate}`}
+              onValueChange={(val) => {
+                const [s, e] = val.split("|");
+                setStartDate(s);
+                setEndDate(e);
+              }}
+            >
+              <SelectTrigger className="w-[220px] text-sm">
+                <Calendar className="h-4 w-4 mr-1 text-muted-foreground" />
+                <SelectValue placeholder="Select pay period" />
+              </SelectTrigger>
+              <SelectContent>
+                {payPeriods.map((p) => (
+                  <SelectItem key={p.startDate} value={`${p.startDate}|${p.endDate}`}>
+                    {p.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           <Input
             type="date"
             value={startDate}

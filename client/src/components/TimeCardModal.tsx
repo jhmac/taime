@@ -23,6 +23,13 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   CheckCircle2,
   Lock,
   ChevronLeft,
@@ -37,7 +44,12 @@ import {
   MessageSquare,
   Phone,
   Mail,
+  AlertTriangle,
+  ShieldCheck,
 } from "lucide-react";
+
+type DiscrepancyType = "no_show" | "missing_clock_out" | "early_departure" | "short_shift" | "long_shift";
+type ResolveAction = "excuse" | "add_time_card";
 
 interface TimeCardEntry {
   id: string;
@@ -52,6 +64,10 @@ interface TimeCardEntry {
   locationId?: string | null;
   clockInSource?: string | null;
   clockOutSource?: string | null;
+  scheduledStart?: string | null;
+  scheduledEnd?: string | null;
+  scheduledHours?: number | null;
+  discrepancies?: string[];
 }
 
 interface EmployeeInfo {
@@ -179,6 +195,12 @@ export default function TimeCardModal({
   const [editReason, setEditReason] = useState("");
   const [managerNote, setManagerNote] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [isResolving, setIsResolving] = useState(false);
+  const [resolveAction, setResolveAction] = useState<ResolveAction>("excuse");
+  const [resolveReason, setResolveReason] = useState("");
+  const [resolveClockIn, setResolveClockIn] = useState("09:00");
+  const [resolveClockOut, setResolveClockOut] = useState("17:00");
+  const [resolveBreakMins, setResolveBreakMins] = useState("0");
 
   const fullName =
     [employee?.firstName, employee?.lastName].filter(Boolean).join(" ") ||
@@ -263,7 +285,15 @@ export default function TimeCardModal({
   const saveMutation = useMutation({
     mutationFn: async () => {
       if (!entry) return;
-      const updates: Record<string, any> = {};
+      if (!editReason.trim()) throw new Error("A reason for the edit is required.");
+
+      const updates: {
+        clockInTime?: string;
+        clockOutTime?: string;
+        breakMinutes?: number;
+        notes?: string;
+        editReason: string;
+      } = { editReason: editReason.trim() };
 
       if (editClockIn) {
         const d = new Date(entry.clockInTime);
@@ -289,8 +319,6 @@ export default function TimeCardModal({
         updates.notes = managerNote;
       }
 
-      updates.editReason = editReason || "Edited via time card detail";
-
       await apiRequest("PATCH", `/api/time-entries/${entry.id}`, updates);
     },
     onSuccess: () => {
@@ -302,6 +330,59 @@ export default function TimeCardModal({
       queryClient.invalidateQueries({
         queryKey: ["/api/time-entries", entry?.id, "history"],
       });
+    },
+    onError: (err: Error) => {
+      toast({
+        title: "Error",
+        description: err.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const resolveMutation = useMutation({
+    mutationFn: async () => {
+      if (!employee) throw new Error("No employee selected.");
+      if (!date) throw new Error("No date selected.");
+      if (!resolveReason.trim()) throw new Error("A reason is required to resolve a discrepancy.");
+
+      const primaryDiscrepancy = entry.discrepancies?.[0] ?? "no_show";
+
+      const payload: {
+        employeeId: string;
+        date: string;
+        action: ResolveAction;
+        reason: string;
+        discrepancyType: string;
+        entryId?: string;
+        clockInTime?: string;
+        clockOutTime?: string;
+        breakMinutes?: number;
+      } = {
+        employeeId: employee.userId,
+        date,
+        action: resolveAction,
+        reason: resolveReason.trim(),
+        discrepancyType: primaryDiscrepancy,
+        entryId: entry.id || undefined,
+      };
+
+      if (resolveAction === "add_time_card") {
+        payload.clockInTime = resolveClockIn;
+        payload.clockOutTime = resolveClockOut;
+        payload.breakMinutes = parseInt(resolveBreakMins, 10) || 0;
+      }
+
+      await apiRequest("POST", "/api/timesheets/resolve-discrepancy", payload);
+    },
+    onSuccess: () => {
+      toast({ title: "Resolved", description: "Discrepancy resolved successfully." });
+      setIsResolving(false);
+      setResolveReason("");
+      setResolveClockIn("09:00");
+      setResolveClockOut("17:00");
+      setResolveBreakMins("0");
+      invalidatePrefix("/api/timesheets/review");
     },
     onError: (err: Error) => {
       toast({
@@ -395,17 +476,24 @@ export default function TimeCardModal({
                 <Clock className="h-4 w-4 text-muted-foreground" />
                 <span className="font-medium text-sm">Worked Time</span>
               </div>
-              {entry.isApproved ? (
-                <Badge
-                  variant="default"
-                  className="bg-green-600 hover:bg-green-700"
-                >
-                  <CheckCircle2 className="h-3 w-3 mr-1" />
-                  Approved
-                </Badge>
-              ) : (
-                <Badge variant="secondary">Pending</Badge>
-              )}
+              <div className="flex items-center gap-2">
+                {entry.discrepancies && entry.discrepancies.length > 0 && entry.discrepancies.map((d) => (
+                  <Badge key={d} variant="outline" className="text-[10px] border-amber-400 text-amber-600 dark:text-amber-400 px-1.5">
+                    {d === "no_show" ? "No show" : d === "missing_clock_out" ? "Missing clock-out" : d === "early_departure" ? "Early departure" : d === "short_shift" ? "Short shift" : d === "long_shift" ? "Long shift" : d}
+                  </Badge>
+                ))}
+                {entry.isApproved ? (
+                  <Badge
+                    variant="default"
+                    className="bg-green-600 hover:bg-green-700"
+                  >
+                    <CheckCircle2 className="h-3 w-3 mr-1" />
+                    Approved
+                  </Badge>
+                ) : (
+                  <Badge variant="secondary">Pending</Badge>
+                )}
+              </div>
             </div>
 
             <div className="bg-muted/50 rounded-lg p-3 space-y-2">
@@ -418,6 +506,16 @@ export default function TimeCardModal({
                   {formatTimeDisplay(entry.clockOutTime)}
                 </span>
               </div>
+
+              {entry.scheduledStart && (
+                <div className="flex items-center justify-between text-xs text-muted-foreground border-t border-border/50 pt-2 mt-2">
+                  <span>Scheduled</span>
+                  <span>
+                    {entry.scheduledHours != null ? `${formatDuration(entry.scheduledHours)} ` : ""}
+                    ({formatTimeDisplay(entry.scheduledStart)} – {formatTimeDisplay(entry.scheduledEnd)})
+                  </span>
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
                 <div>
@@ -526,7 +624,7 @@ export default function TimeCardModal({
 
           <Separator />
 
-          {!isEditing ? (
+          {!isEditing && !isResolving ? (
             <div className="space-y-3">
               {entry.notes && (
                 <div className="space-y-1">
@@ -545,6 +643,17 @@ export default function TimeCardModal({
                   <Edit3 className="h-3.5 w-3.5 mr-1" />
                   Edit
                 </Button>
+                {entry.discrepancies && entry.discrepancies.length > 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="border-amber-400 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950"
+                    onClick={() => setIsResolving(true)}
+                  >
+                    <ShieldCheck className="h-3.5 w-3.5 mr-1" />
+                    Resolve
+                  </Button>
+                )}
                 {!entry.isApproved && (
                   <Button
                     size="sm"
@@ -563,6 +672,84 @@ export default function TimeCardModal({
                 >
                   <Lock className="h-3.5 w-3.5 mr-1" />
                   {lockMutation.isPending ? "Locking…" : "Lock"}
+                </Button>
+              </div>
+            </div>
+          ) : isResolving ? (
+            <div className="space-y-3 border border-amber-300 rounded-lg p-3 bg-amber-50/50 dark:bg-amber-950/20">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-amber-500" />
+                  <span className="font-medium text-sm">Resolve Discrepancy</span>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={() => { setIsResolving(false); setResolveReason(""); }}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+
+              <div>
+                <Label className="text-xs">Action</Label>
+                <Select value={resolveAction} onValueChange={(v: ResolveAction) => setResolveAction(v)}>
+                  <SelectTrigger className="h-8 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="excuse">Excuse absence</SelectItem>
+                    <SelectItem value="add_time_card">Add manual time card</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {resolveAction === "add_time_card" && (
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <Label className="text-xs">Clock In</Label>
+                    <Input type="time" value={resolveClockIn} onChange={(e) => setResolveClockIn(e.target.value)} className="h-8 text-sm" />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Clock Out</Label>
+                    <Input type="time" value={resolveClockOut} onChange={(e) => setResolveClockOut(e.target.value)} className="h-8 text-sm" />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Break (min)</Label>
+                    <Input type="number" min="0" value={resolveBreakMins} onChange={(e) => setResolveBreakMins(e.target.value)} className="h-8 text-sm" />
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <Label className="text-xs">
+                  Reason <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  value={resolveReason}
+                  onChange={(e) => setResolveReason(e.target.value)}
+                  placeholder="e.g. Employee called in sick"
+                  className="h-8 text-sm"
+                  required
+                />
+              </div>
+
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  onClick={() => resolveMutation.mutate()}
+                  disabled={resolveMutation.isPending || !resolveReason.trim()}
+                >
+                  <ShieldCheck className="h-3.5 w-3.5 mr-1" />
+                  {resolveMutation.isPending ? "Saving…" : "Confirm"}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => { setIsResolving(false); setResolveReason(""); }}
+                >
+                  Cancel
                 </Button>
               </div>
             </div>
@@ -625,13 +812,14 @@ export default function TimeCardModal({
               <div>
                 <Label className="text-xs">
                   Reason for edit{" "}
-                  <span className="text-muted-foreground">(optional)</span>
+                  <span className="text-destructive">*</span>
                 </Label>
                 <Input
                   value={editReason}
                   onChange={(e) => setEditReason(e.target.value)}
                   placeholder="e.g. Employee forgot to clock out"
                   className="h-8 text-sm"
+                  required
                 />
               </div>
 
@@ -639,7 +827,7 @@ export default function TimeCardModal({
                 <Button
                   size="sm"
                   onClick={() => saveMutation.mutate()}
-                  disabled={saveMutation.isPending}
+                  disabled={saveMutation.isPending || !editReason.trim()}
                 >
                   <Save className="h-3.5 w-3.5 mr-1" />
                   {saveMutation.isPending ? "Saving…" : "Save Changes"}

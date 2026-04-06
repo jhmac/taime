@@ -839,6 +839,26 @@ export const timeEntryEdits = pgTable("time_entry_edits", {
   index("idx_time_entry_edits_edited_at").on(table.editedAt),
 ]);
 
+// Discrepancy resolutions — tracks when admins excuse/resolve time discrepancies
+export const discrepancyResolutions = pgTable("discrepancy_resolutions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  date: varchar("date").notNull(), // YYYY-MM-DD
+  discrepancyType: varchar("discrepancy_type").notNull(), // no_show, missing_clock_out, etc.
+  action: varchar("action").notNull(), // excuse | add_time_card
+  reason: text("reason").notNull(),
+  resolvedBy: varchar("resolved_by").references(() => users.id).notNull(),
+  resolvedAt: timestamp("resolved_at").defaultNow(),
+  entryId: varchar("entry_id").references(() => timeEntries.id),
+  newEntryId: varchar("new_entry_id").references(() => timeEntries.id),
+}, (table) => [
+  index("idx_discrepancy_resolutions_user_date").on(table.userId, table.date),
+]);
+
+export const insertDiscrepancyResolutionSchema = createInsertSchema(discrepancyResolutions).omit({ id: true, resolvedAt: true });
+export type DiscrepancyResolution = typeof discrepancyResolutions.$inferSelect;
+export type InsertDiscrepancyResolution = z.infer<typeof insertDiscrepancyResolutionSchema>;
+
 // Off-site allowance rules
 export const offsiteAllowanceRules = pgTable("offsite_allowance_rules", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

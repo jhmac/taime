@@ -108,6 +108,9 @@ import {
   overtimeAlerts,
   type TimeEntryEdit,
   type InsertTimeEntryEdit,
+  discrepancyResolutions,
+  type DiscrepancyResolution,
+  type InsertDiscrepancyResolution,
   type OffsiteAllowanceRule,
   type InsertOffsiteAllowanceRule,
   type OffsiteSession,
@@ -315,6 +318,10 @@ export interface IStorage {
   // Time entry edit audit trail
   createTimeEntryEdit(edit: InsertTimeEntryEdit): Promise<TimeEntryEdit>;
   getTimeEntryEdits(timeEntryId: string): Promise<TimeEntryEdit[]>;
+
+  // Discrepancy resolutions
+  createDiscrepancyResolution(resolution: InsertDiscrepancyResolution): Promise<DiscrepancyResolution>;
+  getDiscrepancyResolutions(userId: string, startDate: string, endDate: string): Promise<DiscrepancyResolution[]>;
 
   // Off-site allowance rules
   createOffsiteRule(rule: InsertOffsiteAllowanceRule): Promise<OffsiteAllowanceRule>;
@@ -1709,6 +1716,25 @@ export class DatabaseStorage implements IStorage {
       .from(timeEntryEdits)
       .where(eq(timeEntryEdits.timeEntryId, timeEntryId))
       .orderBy(desc(timeEntryEdits.editedAt));
+  }
+
+  async createDiscrepancyResolution(resolution: InsertDiscrepancyResolution): Promise<DiscrepancyResolution> {
+    const [created] = await db.insert(discrepancyResolutions).values(resolution).returning();
+    return created;
+  }
+
+  async getDiscrepancyResolutions(userId: string, startDate: string, endDate: string): Promise<DiscrepancyResolution[]> {
+    return await db
+      .select()
+      .from(discrepancyResolutions)
+      .where(
+        and(
+          eq(discrepancyResolutions.userId, userId),
+          sql`${discrepancyResolutions.date} >= ${startDate}`,
+          sql`${discrepancyResolutions.date} <= ${endDate}`,
+        )
+      )
+      .orderBy(desc(discrepancyResolutions.resolvedAt));
   }
 
   async createOffsiteRule(rule: InsertOffsiteAllowanceRule): Promise<OffsiteAllowanceRule> {
