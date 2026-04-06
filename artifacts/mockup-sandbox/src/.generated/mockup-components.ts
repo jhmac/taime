@@ -10,6 +10,7 @@ export const modules: ModuleMap = {
   "./components/mockups/taime-mobile/Dashboard.tsx": () => import("../components/mockups/taime-mobile/Dashboard.tsx"),
   "./components/mockups/taime-mobile/Schedule.tsx": () => import("../components/mockups/taime-mobile/Schedule.tsx"),
   "./components/mockups/taime-mobile/Team.tsx": () => import("../components/mockups/taime-mobile/Team.tsx"),
+  "./components/mockups/taime-simple/DashboardV3.tsx": () => import("../components/mockups/taime-simple/DashboardV3.tsx"),
   "./components/mockups/taime-simple/SimplifiedA.tsx": () => import("../components/mockups/taime-simple/SimplifiedA.tsx"),
   "./components/mockups/taime-simple/SimplifiedB.tsx": () => import("../components/mockups/taime-simple/SimplifiedB.tsx")
 };
