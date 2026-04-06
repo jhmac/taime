@@ -31,6 +31,7 @@ const generalNavItems = [
   { path: '/support', icon: 'fas fa-life-ring', label: 'Support' },
   { path: '/requests', icon: 'fas fa-file-alt', label: 'Requests', employeeOnly: true },
   { path: '/team-directory', icon: 'fas fa-users', label: 'Team', employeeOnly: true },
+  { path: '/employee-settings', icon: 'fas fa-user-cog', label: 'Settings' },
 ] as const;
 
 const gtdNavItems = [
