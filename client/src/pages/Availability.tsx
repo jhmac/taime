@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -7,15 +7,27 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
+import { StickyNote } from "lucide-react";
 import type { UserAvailability, TimeOffRequest } from "@shared/schema";
 
 type TimeSlot = 'morning' | 'afternoon' | 'evening' | 'all_day';
+
+interface DayNote {
+  id: string;
+  userId: string | null;
+  date: string;
+  noteText: string;
+  isManagerNote: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
 
 const timeSlots: { value: TimeSlot; label: string; hours: string; icon: string }[] = [
   { value: 'all_day', label: 'All Day', hours: '9 AM - 9 PM', icon: 'fas fa-sun' },
@@ -57,6 +69,113 @@ function formatDateKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+function DayNoteButton({ date, notes, userId, startDate, endDate }: {
+  date: Date;
+  notes: DayNote[];
+  userId: string;
+  startDate: string;
+  endDate: string;
+}) {
+  const { toast } = useToast();
+  const dateKey = formatDateKey(date);
+  const myNote = notes.find(n => n.date === dateKey && n.userId === userId && !n.isManagerNote);
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState(myNote?.noteText || '');
+
+  useEffect(() => {
+    setText(myNote?.noteText || '');
+  }, [myNote]);
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      if (myNote) {
+        return apiRequest('PATCH', `/api/day-notes/${myNote.id}`, { noteText: text });
+      } else {
+        return apiRequest('POST', '/api/day-notes', { date: dateKey, noteText: text, isManagerNote: false });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/day-notes'] });
+      setOpen(false);
+      toast({ title: "Note saved" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to save note.", variant: "destructive" });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async () => {
+      if (!myNote) return;
+      return apiRequest('DELETE', `/api/day-notes/${myNote.id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/day-notes'] });
+      setOpen(false);
+      setText('');
+      toast({ title: "Note deleted" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to delete note.", variant: "destructive" });
+    },
+  });
+
+  const hasNote = !!myNote;
+
+  return (
+    <Popover open={open} onOpenChange={(o) => { setOpen(o); if (o) setText(myNote?.noteText || ''); }}>
+      <PopoverTrigger asChild>
+        <button
+          className={cn(
+            "mx-auto flex items-center justify-center w-6 h-6 rounded transition-all mt-0.5",
+            hasNote
+              ? "text-amber-500 hover:text-amber-600"
+              : "text-muted-foreground/40 hover:text-muted-foreground"
+          )}
+          title={hasNote ? "Edit note" : "Add note"}
+        >
+          <StickyNote className="h-3.5 w-3.5" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-64 p-3" side="bottom" align="center">
+        <div className="space-y-2">
+          <div className="text-xs font-medium text-muted-foreground">
+            Note for {date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+          </div>
+          <Textarea
+            value={text}
+            onChange={e => setText(e.target.value)}
+            placeholder="Add a note for this day..."
+            className="text-xs min-h-[80px] resize-none"
+            autoFocus
+          />
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              className="flex-1 h-7 text-xs"
+              disabled={saveMutation.isPending || !text.trim()}
+              onClick={() => saveMutation.mutate()}
+            >
+              {saveMutation.isPending ? "Saving..." : "Save"}
+            </Button>
+            {hasNote && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 text-xs text-destructive hover:text-destructive"
+                disabled={deleteMutation.isPending}
+                onClick={() => deleteMutation.mutate()}
+              >
+                Delete
+              </Button>
+            )}
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 export default function Availability() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -85,6 +204,15 @@ export default function Availability() {
     queryFn: async () => {
       const res = await fetch(`/api/availability?startDate=${startParam}&endDate=${endParam}`);
       if (!res.ok) throw new Error('Failed to fetch');
+      return res.json();
+    },
+  });
+
+  const { data: dayNotes = [] } = useQuery<DayNote[]>({
+    queryKey: ['/api/day-notes', startParam, endParam],
+    queryFn: async () => {
+      const res = await fetch(`/api/day-notes?startDate=${startParam}&endDate=${endParam}`);
+      if (!res.ok) throw new Error('Failed to fetch notes');
       return res.json();
     },
   });
@@ -358,6 +486,15 @@ export default function Availability() {
                           )}>
                             {date.getDate()}
                           </div>
+                          {user?.id && (
+                            <DayNoteButton
+                              date={date}
+                              notes={dayNotes}
+                              userId={user.id}
+                              startDate={startParam}
+                              endDate={endParam}
+                            />
+                          )}
                         </div>
                       );
                     })}

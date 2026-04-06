@@ -1873,3 +1873,30 @@ export const meetingTaskRecommendations = pgTable("meeting_task_recommendations"
 export const insertMeetingTaskRecommendationSchema = createInsertSchema(meetingTaskRecommendations).omit({ id: true, createdAt: true, updatedAt: true });
 export type MeetingTaskRecommendation = typeof meetingTaskRecommendations.$inferSelect;
 export type InsertMeetingTaskRecommendation = z.infer<typeof insertMeetingTaskRecommendationSchema>;
+
+// Day notes for Availability and Schedule views
+export const dayNotes = pgTable("day_notes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id),
+  date: varchar("date").notNull(),
+  noteText: text("note_text").notNull(),
+  isManagerNote: boolean("is_manager_note").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_day_notes_date").on(table.date),
+  index("idx_day_notes_user_date").on(table.userId, table.date),
+]);
+
+export const insertDayNoteSchema = createInsertSchema(dayNotes).omit({ id: true, createdAt: true, updatedAt: true });
+export const selectDayNoteSchema = z.object({
+  id: z.string(),
+  userId: z.string().nullable(),
+  date: z.string(),
+  noteText: z.string(),
+  isManagerNote: z.boolean().nullable(),
+  createdAt: z.date().nullable(),
+  updatedAt: z.date().nullable(),
+});
+export type InsertDayNote = z.infer<typeof insertDayNoteSchema>;
+export type DayNote = typeof dayNotes.$inferSelect;

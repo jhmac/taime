@@ -33,6 +33,7 @@ import {
   shoutouts,
   meetings,
   meetingTaskRecommendations,
+  dayNotes,
   type Meeting,
   type InsertMeeting,
   type MeetingTaskRecommendation,
@@ -113,6 +114,8 @@ import {
   type InsertOffsiteSession,
   type OvertimeAlert,
   type InsertOvertimeAlert,
+  type DayNote,
+  type InsertDayNote,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, gte, lte, isNull, sql } from "drizzle-orm";
@@ -342,6 +345,14 @@ export interface IStorage {
   getMeetingTaskRecommendation(id: string): Promise<MeetingTaskRecommendation | undefined>;
   updateMeetingTaskRecommendation(id: string, updates: Partial<MeetingTaskRecommendation>): Promise<MeetingTaskRecommendation>;
   deleteMeetingTaskRecommendation(id: string): Promise<void>;
+
+  // Day notes
+  createDayNote(note: InsertDayNote): Promise<DayNote>;
+  getDayNotes(startDate: string, endDate: string): Promise<DayNote[]>;
+  getDayNotesByUser(startDate: string, endDate: string, userId: string): Promise<DayNote[]>;
+  updateDayNote(id: string, noteText: string): Promise<DayNote>;
+  deleteDayNote(id: string): Promise<void>;
+  getDayNote(id: string): Promise<DayNote | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1846,6 +1857,52 @@ export class DatabaseStorage implements IStorage {
 
   async deleteMeetingTaskRecommendation(id: string): Promise<void> {
     await db.delete(meetingTaskRecommendations).where(eq(meetingTaskRecommendations.id, id));
+  }
+
+  // Day notes
+  async createDayNote(note: InsertDayNote): Promise<DayNote> {
+    const [created] = await db.insert(dayNotes).values(note).returning();
+    return created;
+  }
+
+  async getDayNotes(startDate: string, endDate: string): Promise<DayNote[]> {
+    return await db
+      .select()
+      .from(dayNotes)
+      .where(and(gte(dayNotes.date, startDate), lte(dayNotes.date, endDate)))
+      .orderBy(dayNotes.date);
+  }
+
+  async getDayNotesByUser(startDate: string, endDate: string, userId: string): Promise<DayNote[]> {
+    return await db
+      .select()
+      .from(dayNotes)
+      .where(
+        and(
+          gte(dayNotes.date, startDate),
+          lte(dayNotes.date, endDate),
+          eq(dayNotes.userId, userId)
+        )
+      )
+      .orderBy(dayNotes.date);
+  }
+
+  async updateDayNote(id: string, noteText: string): Promise<DayNote> {
+    const [updated] = await db
+      .update(dayNotes)
+      .set({ noteText, updatedAt: new Date() })
+      .where(eq(dayNotes.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteDayNote(id: string): Promise<void> {
+    await db.delete(dayNotes).where(eq(dayNotes.id, id));
+  }
+
+  async getDayNote(id: string): Promise<DayNote | undefined> {
+    const [note] = await db.select().from(dayNotes).where(eq(dayNotes.id, id)).limit(1);
+    return note;
   }
 }
 

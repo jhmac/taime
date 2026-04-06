@@ -1,8 +1,9 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -12,12 +13,22 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { useLocation } from "wouter";
 import { cn } from "@/lib/utils";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient as globalQueryClient } from "@/lib/queryClient";
 import type { User, Schedule, WorkLocation } from "@shared/schema";
 import {
   ChevronLeft, ChevronRight, Plus, Trash2, Sparkles, Loader2,
-  Check, X, Calendar, Clock
+  Check, X, Calendar, Clock, StickyNote
 } from "lucide-react";
+
+interface DayNote {
+  id: string;
+  userId: string | null;
+  date: string;
+  noteText: string;
+  isManagerNote: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
 
 interface ScheduleEntry {
   date: string;
@@ -37,6 +48,142 @@ interface GenerateResult {
   warnings: string[];
   settings: any;
   salesDataAvailable: boolean;
+}
+
+function formatLocalDate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function DayNoteAdminCell({ date, notes, currentUserId, isAdmin }: {
+  date: Date;
+  notes: DayNote[];
+  currentUserId: string;
+  isAdmin: boolean;
+}) {
+  const { toast } = useToast();
+  const dateStr = formatLocalDate(date);
+  const managerNote = notes.find(n => n.date === dateStr && n.isManagerNote);
+  const employeeNotes = notes.filter(n => n.date === dateStr && !n.isManagerNote);
+  const [open, setOpen] = useState(false);
+  const [managerText, setManagerText] = useState(managerNote?.noteText || '');
+
+  useEffect(() => {
+    setManagerText(managerNote?.noteText || '');
+  }, [managerNote]);
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      if (managerNote) {
+        return apiRequest('PATCH', `/api/day-notes/${managerNote.id}`, { noteText: managerText });
+      } else {
+        return apiRequest('POST', '/api/day-notes', { date: dateStr, noteText: managerText, isManagerNote: true });
+      }
+    },
+    onSuccess: () => {
+      globalQueryClient.invalidateQueries({ queryKey: ['/api/day-notes'] });
+      setOpen(false);
+      toast({ title: "Manager note saved" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to save note.", variant: "destructive" });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return apiRequest('DELETE', `/api/day-notes/${id}`);
+    },
+    onSuccess: () => {
+      globalQueryClient.invalidateQueries({ queryKey: ['/api/day-notes'] });
+      toast({ title: "Note deleted" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to delete note.", variant: "destructive" });
+    },
+  });
+
+  const hasAnyNote = !!managerNote || employeeNotes.length > 0;
+
+  return (
+    <Popover open={open} onOpenChange={(o) => { setOpen(o); if (o) setManagerText(managerNote?.noteText || ''); }}>
+      <PopoverTrigger asChild>
+        <button
+          className={cn(
+            "inline-flex items-center justify-center w-5 h-5 rounded transition-all ml-1",
+            hasAnyNote
+              ? "text-amber-500 hover:text-amber-600"
+              : "text-muted-foreground/30 hover:text-muted-foreground"
+          )}
+          title="Day notes"
+        >
+          <StickyNote className="h-3.5 w-3.5" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-72 p-3" side="bottom" align="center">
+        <div className="space-y-3">
+          <div className="text-xs font-medium text-muted-foreground">
+            {date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+          </div>
+
+          {/* Manager Note Section */}
+          <div>
+            <div className="text-xs font-semibold mb-1 flex items-center gap-1">
+              <StickyNote className="h-3 w-3 text-primary" />
+              Manager Note
+            </div>
+            <Textarea
+              value={managerText}
+              onChange={e => setManagerText(e.target.value)}
+              placeholder="Add a team-wide note for this day..."
+              className="text-xs min-h-[70px] resize-none"
+            />
+            <div className="flex gap-2 mt-1.5">
+              <Button
+                size="sm"
+                className="flex-1 h-7 text-xs"
+                disabled={saveMutation.isPending || !managerText.trim()}
+                onClick={() => saveMutation.mutate()}
+              >
+                {saveMutation.isPending ? "Saving..." : "Save Note"}
+              </Button>
+              {managerNote && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 text-xs text-destructive hover:text-destructive"
+                  disabled={deleteMutation.isPending}
+                  onClick={() => deleteMutation.mutate(managerNote.id)}
+                >
+                  Delete
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {/* Employee Notes (read-only list) */}
+          {employeeNotes.length > 0 && (
+            <div>
+              <div className="text-xs font-semibold mb-1 text-muted-foreground">Employee Notes</div>
+              <div className="space-y-1 max-h-32 overflow-y-auto">
+                {employeeNotes.map(note => (
+                  <div key={note.id} className="text-xs bg-muted/50 rounded p-2 relative group">
+                    <p className="text-foreground pr-4">{note.noteText}</p>
+                    <button
+                      onClick={() => deleteMutation.mutate(note.id)}
+                      className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity text-destructive"
+                      title="Delete"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 export default function ScheduleManagement() {
@@ -70,8 +217,8 @@ export default function ScheduleManagement() {
   };
 
   const weekDates = getWeekDates(selectedWeek);
-  const startDateParam = weekDates[0].toISOString().split('T')[0];
-  const endDateParam = new Date(weekDates[6].getTime() + 86400000).toISOString().split('T')[0];
+  const startDateParam = formatLocalDate(weekDates[0]);
+  const endDateParam = formatLocalDate(weekDates[6]);
 
   const { data: schedules = [], isLoading: schedulesLoading } = useQuery<Schedule[]>({
     queryKey: ["/api/schedules", startDateParam, endDateParam],
@@ -92,6 +239,16 @@ export default function ScheduleManagement() {
 
   const { data: connectedShops = [] } = useQuery<any[]>({
     queryKey: ["/api/shopify/shops"],
+  });
+
+  const { data: dayNotes = [] } = useQuery<DayNote[]>({
+    queryKey: ["/api/day-notes", startDateParam, endDateParam],
+    queryFn: async () => {
+      const res = await fetch(`/api/day-notes?startDate=${startDateParam}&endDate=${endDateParam}`);
+      if (!res.ok) throw new Error('Failed to fetch notes');
+      return res.json();
+    },
+    enabled: isAdmin,
   });
 
   const activeShop = connectedShops.find((s: any) => s.isActive) || (connectedShops.length > 0 ? connectedShops[0] : null);
@@ -494,7 +651,15 @@ export default function ScheduleManagement() {
                 const dayNum = date.getDate();
                 return (
                   <th key={i} className={cn("text-center px-1 py-2 min-w-[100px] border-r last:border-r-0", isToday && "bg-primary/5")}>
-                    <div className={cn("text-xs font-medium", isToday ? "text-primary" : "text-foreground")}>{dayName}, {dayNum}</div>
+                    <div className={cn("text-xs font-medium flex items-center justify-center", isToday ? "text-primary" : "text-foreground")}>
+                      {dayName}, {dayNum}
+                      <DayNoteAdminCell
+                        date={date}
+                        notes={dayNotes}
+                        currentUserId={currentUser?.id || ''}
+                        isAdmin={isAdmin}
+                      />
+                    </div>
                   </th>
                 );
               })}
