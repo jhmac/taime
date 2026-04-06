@@ -227,7 +227,7 @@ export default function Team() {
   const filtered = useMemo(() => {
     let list = members;
     if (!showTerminated) {
-      list = list.filter((m) => m.isActive !== false);
+      list = list.filter((m) => m.isActive !== false || !m.inviteAcceptedAt);
     }
     if (search.trim()) {
       const q = search.toLowerCase();

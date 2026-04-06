@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
 import { users, roles, companySettings, employeeDocuments, managerNotes } from "@shared/schema";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, or, isNull } from "drizzle-orm";
 import { db } from "../db";
 import { sendTeamInviteEmail } from "../services/emailService";
 import { randomBytes } from "crypto";
@@ -187,7 +187,9 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
       const includeAll = req.query.includeAll === 'true';
       const allUsers = includeAll
         ? await db.select().from(users)
-        : await db.select().from(users).where(eq(users.isActive, true));
+        : await db.select().from(users).where(
+            or(eq(users.isActive, true), isNull(users.inviteAcceptedAt))
+          );
       res.json(allUsers);
     } catch (error) {
       console.error("Error fetching users:", error);
