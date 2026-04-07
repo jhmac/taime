@@ -122,11 +122,10 @@ export default function DesktopSidebar() {
       )}
     >
       <div className={cn("flex items-center gap-2 p-4 border-b border-sidebar-border", collapsed && "justify-center")}>
-        <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center flex-shrink-0">
-          <i className="fas fa-clock text-primary-foreground text-sm"></i>
-        </div>
-        {!collapsed && (
-          <span className="font-semibold text-sidebar-foreground text-sm">Taime</span>
+        {collapsed ? (
+          <img src="/taime-icon.png" alt="Taime" className="w-8 h-8 object-contain" />
+        ) : (
+          <img src="/TAIME-logo.png" alt="Taime" className="h-8 w-auto" />
         )}
       </div>
 

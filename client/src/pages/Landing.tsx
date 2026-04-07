@@ -1,5 +1,5 @@
 import { SignIn } from '@clerk/clerk-react';
-import { Clock, Brain, BarChart3, Bell, Bot } from 'lucide-react';
+import { Clock, Brain, BarChart3, Bell } from 'lucide-react';
 
 const features = [
   {
@@ -31,13 +31,8 @@ export default function Landing() {
 
         <div className="md:w-1/2 bg-gradient-to-br from-primary to-blue-700 p-6 md:p-12 flex flex-col justify-center text-white">
           <div className="flex items-center gap-3 mb-2 md:mb-6">
-            <div className="w-10 h-10 md:w-12 md:h-12 bg-white/15 backdrop-blur-sm rounded-xl flex items-center justify-center">
-              <Bot className="w-6 h-6 md:w-7 md:h-7 text-white" />
-            </div>
-            <div>
-              <h1 className="text-xl md:text-3xl font-bold tracking-tight">Taime</h1>
-              <p className="text-blue-100 text-xs md:hidden">AI Boutique Manager</p>
-            </div>
+            <img src="/TAIME-logo.png" alt="Taime" className="h-10 md:h-12 w-auto" />
+            <p className="text-blue-100 text-xs md:hidden">AI Boutique Manager</p>
           </div>
 
           <p className="hidden md:block text-blue-100 text-base md:text-lg mb-8 leading-relaxed">

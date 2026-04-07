@@ -197,10 +197,7 @@ export default function StoreSetupWizard({ onComplete }: StoreSetupWizardProps) 
 
           {/* Logo */}
           <div className="flex items-center gap-2 mb-8">
-            <div className="w-9 h-9 rounded-xl bg-[#F47D31] flex items-center justify-center shadow-sm">
-              <Sparkles className="w-5 h-5 text-white" />
-            </div>
-            <span className="text-xl font-extrabold text-[#1A1A2E] tracking-tight">Taime</span>
+            <img src="/TAIME-logo.png" alt="Taime" className="h-9 w-auto" />
           </div>
 
           {/* Progress bar (visible during data-entry steps) */}

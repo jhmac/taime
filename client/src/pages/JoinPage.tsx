@@ -119,10 +119,7 @@ export default function JoinPage() {
 
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-2 bg-white rounded-2xl px-5 py-3 shadow-md shadow-violet-100 mb-3">
-            <span className="text-xl font-extrabold bg-gradient-to-r from-violet-600 to-indigo-500 bg-clip-text text-transparent">
-              Taime
-            </span>
-            <span className="text-xs text-muted-foreground font-medium">AI Boutique Manager</span>
+            <img src="/TAIME-logo.png" alt="Taime" className="h-8 w-auto" />
           </div>
         </div>
 
