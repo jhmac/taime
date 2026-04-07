@@ -1,7 +1,7 @@
 import type { Express, Response } from "express";
 import type { IStorage } from "../storage";
-import { shops, userShops, shopifyDailySales, shopifyOrders, users } from "@shared/schema";
-import { eq, and, or, gte, lte, desc, sql, inArray } from "drizzle-orm";
+import { shops, userShops, shopifyDailySales, shopifyOrders, users, companies } from "@shared/schema";
+import { eq, and, or, gte, lte, desc, sql } from "drizzle-orm";
 import { db } from "../db";
 import crypto from "crypto";
 import { ShopifyService } from "../services/shopifyService";
@@ -329,6 +329,27 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
         .where(eq(shops.shopDomain, shopDomain))
         .limit(1);
 
+      // Resolve the installing user's company so we can scope the shop to the right tenant
+      const userId = stateData.userId;
+      let installingUserCompanyId: string | null = null;
+      if (userId) {
+        const installingUser = await db.select({ companyId: users.companyId })
+          .from(users)
+          .where(eq(users.id, userId))
+          .limit(1);
+        installingUserCompanyId = installingUser[0]?.companyId ?? null;
+
+        // If user has no company yet, seed the default company and link them
+        if (!installingUserCompanyId) {
+          const defaultCompany = await db.select({ id: companies.id }).from(companies).limit(1);
+          if (defaultCompany.length > 0) {
+            installingUserCompanyId = defaultCompany[0].id;
+            await db.update(users).set({ companyId: installingUserCompanyId }).where(eq(users.id, userId));
+            console.warn(`[Shopify OAuth] Auto-assigned user ${userId} to company ${installingUserCompanyId}`);
+          }
+        }
+      }
+
       if (existing.length > 0) {
         await db.update(shops)
           .set({
@@ -339,6 +360,10 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
             currency: shopInfo?.currencyCode || existing[0].currency,
             timezone: shopInfo?.timezoneAbbreviation || existing[0].timezone,
             updatedAt: new Date(),
+            // Set companyId if not already set
+            ...(installingUserCompanyId && !existing[0].companyId
+              ? { companyId: installingUserCompanyId }
+              : {}),
           })
           .where(eq(shops.shopDomain, shopDomain));
       } else {
@@ -350,10 +375,10 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
           shopEmail: shopInfo?.email || null,
           currency: shopInfo?.currencyCode || 'USD',
           timezone: shopInfo?.timezoneAbbreviation || null,
+          companyId: installingUserCompanyId,
         });
       }
 
-      const userId = stateData.userId;
       if (userId) {
         const existingLink = await db.select()
           .from(userShops)
@@ -401,18 +426,61 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
 
   app.get("/api/shopify/shops", isAuthenticated, async (req: any, res) => {
     try {
-      const allShops = await db.select({
-        id: shops.id,
-        shopDomain: shops.shopDomain,
-        shopName: shops.shopName,
-        shopEmail: shops.shopEmail,
-        currency: shops.currency,
-        timezone: shops.timezone,
-        isActive: shops.isActive,
-        lastSyncAt: shops.lastSyncAt,
-      }).from(shops).where(eq(shops.isActive, true));
+      const userId = req.user?.id || req.auth?.userId;
 
-      res.json(allShops);
+      // PRIMARY: return shops explicitly linked to this user via userShops.
+      let userShopRows = await db
+        .select({
+          id: shops.id,
+          shopDomain: shops.shopDomain,
+          shopName: shops.shopName,
+          shopEmail: shops.shopEmail,
+          currency: shops.currency,
+          timezone: shops.timezone,
+          isActive: shops.isActive,
+          lastSyncAt: shops.lastSyncAt,
+        })
+        .from(shops)
+        .innerJoin(userShops, eq(shops.shopDomain, userShops.shopDomain))
+        .where(and(eq(shops.isActive, true), eq(userShops.userId, userId)));
+
+      // FALLBACK (company-scoped): same logic as connection-status — find shops for the
+      // user's company and backfill userShops so both endpoints always agree.
+      if (!userShopRows.length) {
+        const userRow = await db.select({ companyId: users.companyId })
+          .from(users)
+          .where(eq(users.id, userId))
+          .limit(1);
+
+        const userCompanyId = userRow[0]?.companyId;
+        if (userCompanyId) {
+          const companyShops = await db
+            .select({
+              id: shops.id,
+              shopDomain: shops.shopDomain,
+              shopName: shops.shopName,
+              shopEmail: shops.shopEmail,
+              currency: shops.currency,
+              timezone: shops.timezone,
+              isActive: shops.isActive,
+              lastSyncAt: shops.lastSyncAt,
+            })
+            .from(shops)
+            .where(and(eq(shops.isActive, true), eq(shops.companyId, userCompanyId)));
+
+          for (const shop of companyShops) {
+            try {
+              await db.insert(userShops).values({ userId, shopDomain: shop.shopDomain });
+              console.warn(`[Shopify] Backfilled userShops for user ${userId} → ${shop.shopDomain}`);
+            } catch {
+              // Already exists — safe to ignore
+            }
+          }
+          userShopRows = companyShops;
+        }
+      }
+
+      res.json(userShopRows);
     } catch (error) {
       console.error("Error fetching shops:", error);
       res.status(500).json({ message: "Failed to fetch connected shops" });
@@ -423,20 +491,61 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
     try {
       const userId = req.user?.id || req.auth?.userId;
 
-      // Resolve the shop linked to the authenticated user via userShops
-      const userShopLinks = await db.select({ shopDomain: userShops.shopDomain })
-        .from(userShops)
-        .where(eq(userShops.userId, userId));
-
-      const userDomains = userShopLinks.map(r => r.shopDomain);
-      if (!userDomains.length) {
-        return res.json({ connected: false, live: false });
-      }
-
-      // Find the first active shop among the user's linked shops
-      const activeShopRows = await db.select().from(shops)
-        .where(and(eq(shops.isActive, true), inArray(shops.shopDomain, userDomains)))
+      // PRIMARY: Find shop via userShops (explicit authorization, fastest path).
+      let activeShopRows = await db
+        .select({
+          id: shops.id,
+          shopDomain: shops.shopDomain,
+          shopName: shops.shopName,
+          accessToken: shops.accessToken,
+          lastSyncAt: shops.lastSyncAt,
+          isActive: shops.isActive,
+        })
+        .from(shops)
+        .innerJoin(userShops, eq(shops.shopDomain, userShops.shopDomain))
+        .where(and(eq(shops.isActive, true), eq(userShops.userId, userId)))
         .limit(1);
+
+      // FALLBACK (company-scoped): if no userShops entry, find an active shop belonging
+      // to the same company as the requesting user. This safely repairs stale data left
+      // by the multi-tenancy migration without crossing tenant boundaries.
+      if (!activeShopRows.length) {
+        const userRow = await db.select({ companyId: users.companyId })
+          .from(users)
+          .where(eq(users.id, userId))
+          .limit(1);
+
+        const userCompanyId = userRow[0]?.companyId;
+        if (userCompanyId) {
+          const companyShops = await db
+            .select({
+              id: shops.id,
+              shopDomain: shops.shopDomain,
+              shopName: shops.shopName,
+              accessToken: shops.accessToken,
+              lastSyncAt: shops.lastSyncAt,
+              isActive: shops.isActive,
+            })
+            .from(shops)
+            .where(and(eq(shops.isActive, true), eq(shops.companyId, userCompanyId)))
+            .limit(1);
+
+          if (companyShops.length > 0) {
+            const fallbackShop = companyShops[0];
+            console.warn(
+              `[Shopify] user ${userId} has no userShops entry but company ${userCompanyId} owns ` +
+              `shop ${fallbackShop.shopDomain}. Backfilling userShops link.`
+            );
+            // Backfill the missing link so this path is only hit once per user
+            try {
+              await db.insert(userShops).values({ userId, shopDomain: fallbackShop.shopDomain });
+            } catch {
+              // Unique constraint may fire on a concurrent request — not fatal
+            }
+            activeShopRows = companyShops;
+          }
+        }
+      }
 
       if (!activeShopRows.length) {
         return res.json({ connected: false, live: false });
@@ -494,6 +603,58 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
     } catch (error) {
       console.error("Error disconnecting shop:", error);
       res.status(500).json({ message: "Failed to disconnect shop" });
+    }
+  });
+
+  /**
+   * Admin-only: explicitly link a user to a shop by creating a userShops row.
+   * Used to fix stale data (e.g. shops installed before multi-tenancy migration).
+   * Requires admin.manage_all permission. Never auto-runs; always requires explicit admin action.
+   */
+  app.post("/api/shopify/admin/link-user-shop", isAuthenticated, async (req: any, res) => {
+    try {
+      const requesterId = req.user?.id || req.auth?.userId;
+      const userPermissions = await storage.getUserPermissions(requesterId);
+      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
+
+      if (!isAdmin) {
+        return res.status(403).json({ error: "Admin access required" });
+      }
+
+      const { userId, shopDomain } = req.body;
+      if (!userId || !shopDomain) {
+        return res.status(400).json({ error: "userId and shopDomain are required" });
+      }
+
+      const normalizedDomain = shopDomain.trim().toLowerCase();
+
+      // Verify the shop exists and is active before linking
+      const shopRow = await db.select({ shopDomain: shops.shopDomain })
+        .from(shops)
+        .where(and(eq(shops.shopDomain, normalizedDomain), eq(shops.isActive, true)))
+        .limit(1);
+
+      if (!shopRow.length) {
+        return res.status(404).json({ error: "Active shop not found for the given domain" });
+      }
+
+      // Upsert: insert only if the link doesn't already exist
+      const existing = await db.select()
+        .from(userShops)
+        .where(and(eq(userShops.userId, userId), eq(userShops.shopDomain, normalizedDomain)))
+        .limit(1);
+
+      if (existing.length > 0) {
+        return res.json({ success: true, created: false, message: "Link already exists" });
+      }
+
+      await db.insert(userShops).values({ userId, shopDomain: normalizedDomain });
+
+      console.log(`[Shopify Admin] User ${requesterId} linked user ${userId} to shop ${normalizedDomain}`);
+      res.json({ success: true, created: true, userId, shopDomain: normalizedDomain });
+    } catch (error) {
+      console.error("[Shopify Admin] Error linking user to shop:", error);
+      res.status(500).json({ error: "Failed to link user to shop" });
     }
   });
 

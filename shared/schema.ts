@@ -29,6 +29,14 @@ export const sessions = pgTable(
   (table) => [index("IDX_session_expire").on(table.expire)],
 );
 
+// Companies table — the root tenant entity for multi-tenancy.
+// Every user and every Shopify shop belongs to exactly one company.
+export const companies = pgTable("companies", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name").notNull().default("My Company"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Roles table for granular permissions
 export const roles = pgTable("roles", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -100,11 +108,13 @@ export const users = pgTable("users", {
   inviteToken: varchar("invite_token").unique(),
   inviteCount: integer("invite_count").default(0),
   isActive: boolean("is_active").default(true),
+  companyId: varchar("company_id").references(() => companies.id),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
   index("idx_users_role_id").on(table.roleId),
   index("idx_users_is_active").on(table.isActive),
+  index("idx_users_company_id").on(table.companyId),
 ]);
 
 // Work locations for geofencing
@@ -711,15 +721,22 @@ export const shops = pgTable("shops", {
   lastSyncAt: timestamp("last_sync_at"),
   installedAt: timestamp("installed_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-});
+  companyId: varchar("company_id").references(() => companies.id),
+}, (table) => [
+  index("idx_shops_company_id").on(table.companyId),
+]);
 
-// User to Shop junction table
+// User to Shop junction table — this is the authorization boundary for multi-tenancy.
+// Every shop access must be verified through this table. A user can only see/manage
+// shops they have an explicit link to.
 export const userShops = pgTable("user_shops", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").references(() => users.id).notNull(),
   shopDomain: varchar("shop_domain").references(() => shops.shopDomain).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => [
+  uniqueIndex("idx_user_shops_unique").on(table.userId, table.shopDomain),
+]);
 
 // Shopify Daily Sales
 export const shopifyDailySales = pgTable("shopify_daily_sales", {
@@ -1052,6 +1069,7 @@ export const insertSopStepSchema = createInsertSchema(sopSteps).omit({ id: true,
 export const insertSopExecutionSchema = createInsertSchema(sopExecutions).omit({ id: true, createdAt: true, startedAt: true });
 export const insertSopStepCompletionSchema = createInsertSchema(sopStepCompletions).omit({ id: true, createdAt: true });
 
+export const insertCompanySchema = createInsertSchema(companies).omit({ id: true, createdAt: true });
 export const insertShopSchema = createInsertSchema(shops).omit({ id: true, installedAt: true, updatedAt: true });
 export const insertUserShopSchema = createInsertSchema(userShops).omit({ id: true, createdAt: true });
 export const insertShopifyDailySalesSchema = createInsertSchema(shopifyDailySales).omit({ id: true, createdAt: true });
@@ -1348,6 +1366,8 @@ export type SopExecution = typeof sopExecutions.$inferSelect;
 export type InsertSopExecution = z.infer<typeof insertSopExecutionSchema>;
 export type SopStepCompletion = typeof sopStepCompletions.$inferSelect;
 export type InsertSopStepCompletion = z.infer<typeof insertSopStepCompletionSchema>;
+export type Company = typeof companies.$inferSelect;
+export type InsertCompany = z.infer<typeof insertCompanySchema>;
 export type Shop = typeof shops.$inferSelect;
 export type UserShop = typeof userShops.$inferSelect;
 export type ShopifyDailySale = typeof shopifyDailySales.$inferSelect;
