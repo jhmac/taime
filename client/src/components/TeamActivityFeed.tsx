@@ -3,17 +3,18 @@ import { useAuth } from '@/hooks/useAuth';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { useEffect } from 'react';
 
 export default function TeamActivityFeed() {
   const { user } = useAuth();
   const { lastMessage } = useWebSocket();
 
-  const { data: timeEntries, refetch: refetchTimeEntries } = useQuery({
+  const { data: timeEntries = [], refetch: refetchTimeEntries } = useQuery<any[]>({
     queryKey: ['/api/time-entries'],
   });
 
-  const { data: tasks, refetch: refetchTasks } = useQuery({
+  const { data: tasks = [], refetch: refetchTasks } = useQuery<any[]>({
     queryKey: ['/api/tasks'],
   });
 

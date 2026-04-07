@@ -410,7 +410,6 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
         timezone: shops.timezone,
         isActive: shops.isActive,
         lastSyncAt: shops.lastSyncAt,
-        createdAt: shops.createdAt,
       }).from(shops).where(eq(shops.isActive, true));
 
       res.json(allShops);
@@ -642,9 +641,9 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
         totalRevenue += rev;
         totalOrders += orders;
 
-        dayOfWeekAverages[day.dayOfWeek].totalRevenue += rev;
-        dayOfWeekAverages[day.dayOfWeek].totalOrders += orders;
-        dayOfWeekAverages[day.dayOfWeek].count++;
+        dayOfWeekAverages[day.dayOfWeek!].totalRevenue += rev;
+        dayOfWeekAverages[day.dayOfWeek!].totalOrders += orders;
+        dayOfWeekAverages[day.dayOfWeek!].count++;
       }
 
       const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -704,8 +703,8 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
       }
 
       for (const day of salesData) {
-        dayOfWeekStats[day.dayOfWeek].revenues.push(parseFloat(day.totalRevenue || '0'));
-        dayOfWeekStats[day.dayOfWeek].orders.push(day.orderCount || 0);
+        dayOfWeekStats[day.dayOfWeek!].revenues.push(parseFloat(day.totalRevenue || '0'));
+        dayOfWeekStats[day.dayOfWeek!].orders.push(day.orderCount || 0);
       }
 
       const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -1008,13 +1007,13 @@ Keep your response concise, practical, and focused on actionable staffing advice
       const dayOfWeekAvg: Record<number, { revenues: number[]; orders: number[] }> = {};
       for (let i = 0; i < 7; i++) dayOfWeekAvg[i] = { revenues: [], orders: [] };
       for (const day of historicalSales) {
-        dayOfWeekAvg[day.dayOfWeek].revenues.push(parseFloat(day.totalRevenue || '0'));
-        dayOfWeekAvg[day.dayOfWeek].orders.push(day.orderCount || 0);
+        dayOfWeekAvg[day.dayOfWeek!].revenues.push(parseFloat(day.totalRevenue || '0'));
+        dayOfWeekAvg[day.dayOfWeek!].orders.push(day.orderCount || 0);
       }
 
       const prevDayData = previousYearSales.map(d => ({
         date: new Date(d.date).toISOString().split('T')[0],
-        dayName: dayNames[d.dayOfWeek],
+        dayName: dayNames[d.dayOfWeek!],
         dayOfWeek: d.dayOfWeek,
         revenue: parseFloat(d.totalRevenue || '0'),
         orders: d.orderCount || 0,

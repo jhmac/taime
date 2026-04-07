@@ -9,8 +9,8 @@ import { resolveStoreId } from "../lib/storeResolver";
 export function registerMorningWhisperRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
   app.get("/api/whisper/today", isAuthenticated, async (req: any, res) => {
     try {
-      const user = await storage.getUser(req.user.id);
-      if (!user || !["admin", "owner", "manager"].includes(user.role || "")) {
+      const user = await storage.getUserWithRole(req.user.id);
+      if (!user || !["admin", "owner", "manager"].includes(user.role?.name || "")) {
         return res.status(403).json({ message: "Morning Whisper is available for managers and owners." });
       }
 

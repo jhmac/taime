@@ -27,8 +27,8 @@ export function registerLeanBoardRoutes(app: Express, storage: IStorage, isAuthe
 
   app.get("/api/lean-board/history", isAuthenticated, async (req: any, res) => {
     try {
-      const user = await storage.getUser(req.user.id);
-      if (!user || !["admin", "owner", "manager"].includes(user.role || "")) {
+      const user = await storage.getUserWithRole(req.user.id);
+      if (!user || !["admin", "owner", "manager"].includes(user.role?.name || "")) {
         return res.status(403).json({ message: "History is available for managers and owners." });
       }
 
@@ -57,8 +57,8 @@ export function registerLeanBoardRoutes(app: Express, storage: IStorage, isAuthe
 
   app.post("/api/lean-board/generate-snapshot", isAuthenticated, async (req: any, res) => {
     try {
-      const user = await storage.getUser(req.user.id);
-      if (!user || !["admin", "owner", "manager"].includes(user.role || "")) {
+      const user = await storage.getUserWithRole(req.user.id);
+      if (!user || !["admin", "owner", "manager"].includes(user.role?.name || "")) {
         return res.status(403).json({ message: "Only managers and owners can trigger snapshots." });
       }
 
@@ -73,8 +73,8 @@ export function registerLeanBoardRoutes(app: Express, storage: IStorage, isAuthe
 
   app.post("/api/lean-board/generate-summary", isAuthenticated, async (req: any, res) => {
     try {
-      const user = await storage.getUser(req.user.id);
-      if (!user || !["admin", "owner", "manager"].includes(user.role || "")) {
+      const user = await storage.getUserWithRole(req.user.id);
+      if (!user || !["admin", "owner", "manager"].includes(user.role?.name || "")) {
         return res.status(403).json({ message: "Only managers and owners can trigger summaries." });
       }
 

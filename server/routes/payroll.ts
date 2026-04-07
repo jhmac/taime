@@ -201,7 +201,7 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
         const entryDay = clockIn.getDate();
         const matchingHoliday = holidayMap.get(`${entryMonth}-${entryDay}`);
         if (matchingHoliday) {
-          const multiplier = parseFloat(matchingHoliday.payMultiplier);
+          const multiplier = parseFloat(matchingHoliday.payMultiplier || '1');
           const extraMultiplier = multiplier - 1;
           employeeMap[entry.userId].holidayHours += hours;
           employeeMap[entry.userId].holidayPayExtra += hours * employeeMap[entry.userId].hourlyRate * extraMultiplier;
@@ -505,7 +505,7 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
         const entryDay = clockIn.getDate();
         const matchingHoliday = holidayMap.get(`${entryMonth}-${entryDay}`);
         if (matchingHoliday) {
-          const mult = parseFloat(matchingHoliday.payMultiplier);
+          const mult = parseFloat(matchingHoliday.payMultiplier || '1');
           employeeMap[entry.userId].holidayHours += hours;
           employeeMap[entry.userId].holidayPayExtra += hours * employeeMap[entry.userId].hourlyRate * (mult - 1);
         }

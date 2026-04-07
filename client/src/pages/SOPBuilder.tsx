@@ -19,7 +19,7 @@ import { useAuth } from '@/hooks/useAuth';
 import {
   ArrowLeft, Plus, Trash2, GripVertical, Save, Loader2,
   CheckCircle2, Eye, Camera, GitBranch, Timer, ChevronDown, BookOpen, AlertTriangle, Sparkles, RefreshCw,
-  Video, Image, X, Star, Film
+  Video, Image as ImageIcon, X, Star, Film
 } from 'lucide-react';
 import type { WorkLocation } from '@shared/schema';
 
@@ -426,10 +426,13 @@ export default function SOPBuilder() {
         title: s.title,
         description: s.description || '',
         stepType: s.step_type,
-        isCheckpoint: s.is_checkpoint,
-        timerDurationSeconds: s.timer_duration_seconds,
+        isCheckpoint: s.is_checkpoint ?? false,
+        timerDurationSeconds: s.timer_duration_seconds ?? null,
         decisionOptions: null,
         trainingDetail: s.training_detail || '',
+        trainingVideoUrl: null,
+        trainingPhotoUrls: [],
+        trainingVideoThumbnail: null,
       })));
       setAiDialogOpen(false);
       toast({ title: 'SOP Generated', description: `Created "${sop.title}" with ${sop.steps.length} steps. Review and edit before saving.` });
@@ -896,7 +899,7 @@ export default function SOPBuilder() {
                       </div>
                       <div className="space-y-1.5">
                         <Label className="text-xs flex items-center gap-1">
-                          <Image className="h-3 w-3" /> Reference Photos
+                          <ImageIcon className="h-3 w-3" /> Reference Photos
                         </Label>
                         {step.trainingPhotoUrls.length > 0 && (
                           <div className="flex gap-2 flex-wrap">

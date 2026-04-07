@@ -51,10 +51,7 @@ export function registerSopRoutes(app: Express, storage: IStorage, isAuthenticat
         isActive: z.boolean().optional(),
       });
       const validated = updateSchema.parse(req.body);
-      const category = await storage.updateSopCategory(req.params.id, {
-        ...validated,
-        updatedAt: new Date(),
-      });
+      const category = await storage.updateSopCategory(req.params.id, validated);
       res.json(category);
     } catch (error: any) {
       res.status(400).json({ message: error.message });
@@ -132,15 +129,13 @@ export function registerSopRoutes(app: Express, storage: IStorage, isAuthenticat
         summary: z.string().nullable().optional(),
         categoryId: z.string().nullable().optional(),
         tags: z.array(z.string()).optional(),
-        roleRestrictions: z.array(z.string()).optional(),
         isPublished: z.boolean().optional(),
       });
       const validated = updateSchema.parse(req.body);
       const doc = await storage.updateSopDocument(req.params.id, {
         ...validated,
         updatedBy: req.user.id,
-        updatedAt: new Date(),
-      });
+      } as any);
       res.json(doc);
     } catch (error: any) {
       res.status(400).json({ message: error.message });
@@ -213,10 +208,7 @@ export function registerSopRoutes(app: Express, storage: IStorage, isAuthenticat
         isActive: z.boolean().optional(),
       });
       const validated = updateSchema.parse(req.body);
-      const module = await storage.updateTrainingModule(req.params.id, {
-        ...validated,
-        updatedAt: new Date(),
-      });
+      const module = await storage.updateTrainingModule(req.params.id, validated);
       res.json(module);
     } catch (error: any) {
       res.status(400).json({ message: error.message });
@@ -263,7 +255,6 @@ export function registerSopRoutes(app: Express, storage: IStorage, isAuthenticat
       const progress = await storage.upsertEmployeeTrainingProgress({
         ...validated,
         userId: req.user.id,
-        startedAt: validated.status === 'in_progress' ? new Date() : undefined,
         completedAt: validated.status === 'completed' ? new Date() : undefined,
       });
       res.json(progress);

@@ -228,7 +228,7 @@ export function registerAiSchedulingRoutes(app: Express, storage: IStorage, isAu
 
         salesData = salesResult.map(s => ({
           date: new Date(s.date),
-          dayOfWeek: s.dayOfWeek,
+          dayOfWeek: s.dayOfWeek ?? 0,
           totalRevenue: s.totalRevenue || '0',
         }));
       }
@@ -289,7 +289,7 @@ export function registerAiSchedulingRoutes(app: Express, storage: IStorage, isAu
       const workPatternsByUser: Record<string, Record<number, string>> = {};
       for (const wp of allWorkPatterns) {
         if (!workPatternsByUser[wp.userId]) workPatternsByUser[wp.userId] = {};
-        workPatternsByUser[wp.userId][wp.dayOfWeek] = wp.status;
+        workPatternsByUser[wp.userId][(wp as any).dayOfWeek] = (wp as any).status;
       }
 
       const availabilityByUserDate: Record<string, Record<string, { isAvailable: boolean; startTime?: string; endTime?: string; timeSlot: string }[]>> = {};
@@ -745,7 +745,7 @@ Required JSON structure:
         templateId: templateId || null,
       }));
 
-      await db.insert(userWorkPatterns).values(values);
+      await db.insert(userWorkPatterns).values(values as any);
 
       res.json({ success: true });
     } catch (error) {
@@ -783,7 +783,7 @@ Required JSON structure:
         }))
       );
 
-      await db.insert(userWorkPatterns).values(values);
+      await db.insert(userWorkPatterns).values(values as any);
 
       res.json({ success: true, updated: employeeIds.length });
     } catch (error) {

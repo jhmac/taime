@@ -560,6 +560,7 @@ export const sopDocuments = pgTable("sop_documents", {
   title: varchar("title").notNull(),
   content: text("content").notNull(),
   summary: text("summary"),
+  tags: text("tags").array(),
   isPublished: boolean("is_published").default(false),
   version: integer("version").default(1),
   updatedBy: varchar("updated_by").references(() => users.id),
@@ -604,6 +605,8 @@ export const trainingModules = pgTable("training_modules", {
   category: varchar("category"),
   estimatedMinutes: integer("estimated_minutes"),
   isActive: boolean("is_active").default(true),
+  isRequired: boolean("is_required").default(false),
+  sopDocumentIds: text("sop_document_ids").array(),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -766,6 +769,7 @@ export const sopTemplates = pgTable("sop_templates", {
   version: integer("version").notNull().default(1),
   parentTemplateId: varchar("parent_template_id"),
   createdBy: text("created_by").notNull(),
+  tags: text("tags").array(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 }, (table) => [
@@ -1018,7 +1022,7 @@ export const insertTrainingModuleSchema = createInsertSchema(trainingModules).om
 export const insertEmployeeTrainingProgressSchema = createInsertSchema(employeeTrainingProgress).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertCommuteAlertSchema = createInsertSchema(commuteAlerts).omit({ id: true, createdAt: true });
 export const insertShoutoutSchema = createInsertSchema(shoutouts).omit({ id: true, createdAt: true });
-export const insertAiSchedulingSettingsSchema = createInsertSchema(aiSchedulingSettings).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertAiSchedulingSettingsSchema = createInsertSchema(aiSchedulingSettings).omit({ id: true, updatedAt: true });
 export const insertWorkPatternTemplateSchema = createInsertSchema(workPatternTemplates).omit({ id: true, createdAt: true });
 export const insertUserWorkPatternSchema = createInsertSchema(userWorkPatterns).omit({ id: true, createdAt: true });
 export const insertTimeEntryEditSchema = createInsertSchema(timeEntryEdits).omit({ id: true, editedAt: true });
@@ -1035,6 +1039,7 @@ export const choreAssignmentSchema = z.object({
 });
 
 export const choreSignOffSchema = z.object({
+  choreId: z.string(),
   isManager: z.boolean().default(false),
 });
 

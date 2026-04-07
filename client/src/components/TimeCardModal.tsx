@@ -357,6 +357,7 @@ export default function TimeCardModal({
     mutationFn: async () => {
       if (!employee) throw new Error("No employee selected.");
       if (!date) throw new Error("No date selected.");
+      if (!entry) throw new Error("No time entry selected.");
       if (!resolveReason.trim()) throw new Error("A reason is required to resolve a discrepancy.");
 
       const primaryDiscrepancy = entry.discrepancies?.[0] ?? "no_show";
@@ -543,7 +544,7 @@ export default function TimeCardModal({
                   <span>Scheduled</span>
                   <span>
                     {entry.scheduledHours != null ? `${formatDuration(entry.scheduledHours)} ` : ""}
-                    ({formatTimeDisplay(entry.scheduledStart)} – {formatTimeDisplay(entry.scheduledEnd)})
+                    ({formatTimeDisplay(entry.scheduledStart ?? null)} – {formatTimeDisplay(entry.scheduledEnd ?? null)})
                   </span>
                 </div>
               )}

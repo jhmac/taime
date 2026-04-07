@@ -8,10 +8,11 @@ import {
   FileSpreadsheet, UserCog, ShieldCheck, BarChart, Medal,
   Settings, Cog, LogOut, ChevronRight, Banknote, Building2,
   Coffee, Lightbulb, LifeBuoy, History, FileDown, Mic,
+  type LucideIcon,
 } from 'lucide-react';
 
 interface MenuItem {
-  icon: React.ComponentType<{ className?: string; size?: number }>;
+  icon: LucideIcon;
   label: string;
   subtitle?: string;
   path?: string;

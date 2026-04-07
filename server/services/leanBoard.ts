@@ -451,8 +451,8 @@ export async function getLeanBoardData(storeId: string, period: "today" | "week"
     ))
     .orderBy(leanBoardSnapshots.snapshotDate);
 
-  const currentMetrics: LeanMetrics = snapshots.length > 0
-    ? snapshots.reduce((acc, s) => {
+  const currentMetrics: LeanMetrics | null = snapshots.length > 0
+    ? (snapshots.reduce((acc, s) => {
         const m = s.metrics as LeanMetrics;
         acc.improvements_submitted += m.improvements_submitted;
         acc.videos_uploaded += m.videos_uploaded;
@@ -467,9 +467,9 @@ export async function getLeanBoardData(storeId: string, period: "today" | "week"
       }, {
         improvements_submitted: 0, videos_uploaded: 0, kudos_given: 0,
         sop_completion_rate: 0, issues_resolved: 0, issues_opened: 0,
-        avg_sop_completion_time_trend: "stable" as const,
+        avg_sop_completion_time_trend: "stable" as LeanMetrics["avg_sop_completion_time_trend"],
         active_improvement_streaks: 0, team_participation_rate: 0,
-      })
+      }) as LeanMetrics)
     : null;
 
   const eightWeeksAgo = new Date(now);

@@ -621,8 +621,8 @@ export class GamificationService {
 
   async getNextTierInfo(score: number) {
     const settings = await this.getSettings();
-    const thresholds = (settings.tierThresholds as Record<string, number>) || DEFAULT_THRESHOLDS;
-    return getNextTierInfo(score, thresholds);
+    const thresholds = (settings.tierThresholds as unknown as Record<string, number>) || DEFAULT_THRESHOLDS;
+    return getNextTierInfo(score, thresholds as any);
   }
 
   async generateAndSaveNotices(userId: string): Promise<void> {
@@ -763,7 +763,7 @@ export class GamificationService {
         category: String(r.category),
         severity: String(r.severity),
         message: String(r.message),
-        isRead: r.is_read === true || r.is_read === 't' || r.is_read === 'true' || r.is_read === 1,
+        isRead: (r.is_read as any) === true || r.is_read === 't' || r.is_read === 'true' || (r.is_read as any) === 1,
         createdAt: r.created_at ? new Date(String(r.created_at)) : new Date(),
       }));
     } catch (err) {

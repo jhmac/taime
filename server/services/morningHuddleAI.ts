@@ -127,7 +127,7 @@ async function gatherData(storeId: string, date: Date) {
     ...recentKudos.map(k => k.fromEmployeeId),
     ...recentKudos.map(k => k.toEmployeeId),
   ].filter(Boolean);
-  const uniqueUserIds = [...new Set(userIds)];
+  const uniqueUserIds = Array.from(new Set(userIds));
 
   let userMap: Record<string, string> = {};
   if (uniqueUserIds.length > 0) {

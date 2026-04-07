@@ -11,7 +11,7 @@ export default function ScheduleWidget() {
   const { user } = useAuth();
   const [showScheduleModal, setShowScheduleModal] = useState(false);
 
-  const { data: schedules, isLoading } = useQuery({
+  const { data: schedules = [], isLoading } = useQuery<any[]>({
     queryKey: ['/api/schedules'],
   });
 

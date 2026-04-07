@@ -53,7 +53,7 @@ async function gatherContext(storeId: string, employeeId: string, question: stri
   ] = await Promise.all([
     db.select({
       id: users.id, firstName: users.firstName, lastName: users.lastName,
-      role: users.role, email: users.email,
+      email: users.email,
     }).from(users).where(eq(users.id, employeeId)).then(r => r[0]),
 
     db.select({
@@ -132,7 +132,7 @@ async function gatherContext(storeId: string, employeeId: string, question: stri
       ))
       .then(async (rows) => {
         if (rows.length === 0) return [];
-        const activeUserIds = [...new Set(rows.map(r => r.userId))];
+        const activeUserIds = Array.from(new Set(rows.map(r => r.userId)));
         const nameRows = await db.select({
           id: users.id, firstName: users.firstName, lastName: users.lastName,
         }).from(users)
@@ -148,7 +148,7 @@ async function gatherContext(storeId: string, employeeId: string, question: stri
       }),
   ]);
 
-  const userIds = [...new Set(todaySchedules.map(s => s.userId))];
+  const userIds = Array.from(new Set(todaySchedules.map(s => s.userId)));
   let scheduleNames: Record<string, string> = {};
   if (userIds.length > 0) {
     const nameRows = await db.select({
@@ -161,7 +161,7 @@ async function gatherContext(storeId: string, employeeId: string, question: stri
   const employeeName = employee
     ? `${employee.firstName || ""} ${employee.lastName || ""}`.trim() || "Team member"
     : "Team member";
-  const roleName = employee?.role || "employee";
+  const roleName = "employee";
   const storeName = store?.name || "the store";
 
   const shiftStatus = activeTimeEntry
@@ -349,7 +349,7 @@ ${ctx.sopChunks}`;
     const referencedSops = ctx.sopResults
       .filter(r => answer.toLowerCase().includes(r.templateTitle.toLowerCase()))
       .map(r => ({ templateId: r.templateId, title: r.templateTitle }));
-    const uniqueSops = [...new Map(referencedSops.map(s => [s.templateId, s])).values()];
+    const uniqueSops = Array.from(new Map(referencedSops.map(s => [s.templateId, s])).values());
 
     const operationalKeywords = /who.*(clocked|clock|working|on shift|in today)|clocked.*(in|out)|clock.*(in|out)|schedule|who.*(here|work)|on the schedule|time (entry|entries)|currently working/i;
     const isOperationalQuestion = operationalKeywords.test(params.question);

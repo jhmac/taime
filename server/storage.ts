@@ -205,6 +205,10 @@ export interface IStorage {
   getPayrollPeriods(): Promise<PayrollPeriod[]>;
   updatePayrollPeriod(id: string, updates: Partial<PayrollPeriod>): Promise<PayrollPeriod>;
   getNextPayrollPeriod(): Promise<PayrollPeriod | undefined>;
+  getPayrollPeriod(id: string): Promise<any>;
+  getPayrollSettings(): Promise<any>;
+  createPayrollSettings(data: any): Promise<any>;
+  updatePayrollSettings(id: string, updates: any): Promise<any>;
   
   // Pay period automation operations
   getPayPeriodSettings(): Promise<PayPeriodSettings | undefined>;

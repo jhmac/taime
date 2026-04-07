@@ -186,7 +186,7 @@ export default function MorningWhisper() {
             <Coffee className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
             <h2 className="font-semibold text-lg mb-2">Morning Whisper Unavailable</h2>
             <p className="text-sm text-muted-foreground mb-4">
-              {user?.role === "employee"
+              {(user?.role as any)?.name === "employee"
                 ? "Morning Whisper is available for managers and owners."
                 : "We couldn't prepare your briefing right now. Try again shortly."}
             </p>

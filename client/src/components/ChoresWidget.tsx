@@ -219,11 +219,11 @@ export default function ChoresWidget() {
                         <div>
                           <p className="font-medium text-xs">{task.title}</p>
                           <p className="text-xs text-muted-foreground">
-                            {new Date(task.dueDate).toLocaleDateString('en-US', {
-                              weekday: 'short',
-                              month: 'short',
-                              day: 'numeric',
-                            })}
+                            {task.dueDate ? new Date(task.dueDate).toLocaleDateString('en-US', {
+                              weekday: 'short' as const,
+                              month: 'short' as const,
+                              day: 'numeric' as const,
+                            }) : ''}
                           </p>
                         </div>
                         {task.estimatedMinutes && (

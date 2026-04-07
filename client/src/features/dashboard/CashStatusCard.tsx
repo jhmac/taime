@@ -29,7 +29,7 @@ export default function CashStatusCard() {
     retry: 1,
   });
 
-  const { data: settings } = useQuery({ queryKey: ["/api/cash/settings"], retry: 1 });
+  const { data: settings } = useQuery<Record<string, any>>({ queryKey: ["/api/cash/settings"], retry: 1 });
 
   if (sessionsLoading) return <Skeleton className="h-32" />;
   if (sessionsError) return null;

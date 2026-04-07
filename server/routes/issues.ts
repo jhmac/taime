@@ -117,9 +117,9 @@ export function registerIssueRoutes(
       .limit(limit)
       .offset(offset);
 
-    const reporterIds = [...new Set(rows.map(r => r.reportedBy))];
-    const assigneeIds = [...new Set(rows.filter(r => r.assignedTo).map(r => r.assignedTo!))];
-    const allUserIds = [...new Set([...reporterIds, ...assigneeIds])];
+    const reporterIds = Array.from(new Set(rows.map(r => r.reportedBy)));
+    const assigneeIds = Array.from(new Set(rows.filter(r => r.assignedTo).map(r => r.assignedTo!)));
+    const allUserIds = Array.from(new Set([...reporterIds, ...assigneeIds]));
 
     let userMap: Record<string, { firstName: string | null; lastName: string | null; profileImageUrl: string | null }> = {};
     if (allUserIds.length > 0) {
@@ -164,7 +164,7 @@ export function registerIssueRoutes(
       ...(issue.resolvedBy ? [issue.resolvedBy] : []),
       ...comments.map(c => c.authorId),
     ];
-    const uniqueIds = [...new Set(allUserIds)];
+    const uniqueIds = Array.from(new Set(allUserIds));
 
     let userMap: Record<string, { firstName: string | null; lastName: string | null; profileImageUrl: string | null }> = {};
     if (uniqueIds.length > 0) {

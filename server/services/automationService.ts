@@ -191,7 +191,7 @@ class AutomationWorkflowServiceImpl implements AutomationWorkflowService {
         }
       };
 
-      const aiSchedule = await claudeService.createScheduleFromAvailability(scheduleRequest);
+      const aiSchedule = await claudeService.createScheduleFromAvailability(scheduleRequest as any);
       
       // Create schedule entries in database
       for (const scheduleItem of aiSchedule.schedule) {

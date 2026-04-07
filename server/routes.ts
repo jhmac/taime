@@ -73,7 +73,7 @@ let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 function startHeartbeat() {
   heartbeatTimer = setInterval(() => {
     wsConnections.forEach((conns, userId) => {
-      for (const conn of conns) {
+      for (const conn of Array.from(conns)) {
         if (!conn.alive) {
           logger.warn({ userId }, "ws: no pong received, closing connection");
           conn.ws.terminate();
@@ -119,7 +119,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   function broadcastToAll(data: Record<string, unknown>) {
     const payload = JSON.stringify(data);
     wsConnections.forEach((conns) => {
-      for (const conn of conns) {
+      for (const conn of Array.from(conns)) {
         if (conn.ws.readyState === WebSocket.OPEN) {
           conn.ws.send(payload);
         }
@@ -132,7 +132,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     for (const uid of userIds) {
       const conns = wsConnections.get(uid);
       if (!conns) continue;
-      for (const conn of conns) {
+      for (const conn of Array.from(conns)) {
         if (conn.ws.readyState === WebSocket.OPEN) {
           conn.ws.send(payload);
         }
@@ -261,7 +261,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const shutdownPayload = JSON.stringify({ type: "server_restarting" });
     wsConnections.forEach((conns) => {
-      for (const conn of conns) {
+      for (const conn of Array.from(conns)) {
         if (conn.ws.readyState === WebSocket.OPEN) {
           try {
             conn.ws.send(shutdownPayload);

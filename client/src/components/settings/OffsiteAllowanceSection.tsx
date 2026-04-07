@@ -909,16 +909,16 @@ export default function OffsiteAllowanceSection() {
                   type="number"
                   step="0.000001"
                   placeholder="Latitude"
-                  value={formData.destinationLatitude}
-                  onChange={(e) => setFormData(prev => ({ ...prev, destinationLatitude: e.target.value }))}
+                  value={formData.destinationLat}
+                  onChange={(e) => setFormData(prev => ({ ...prev, destinationLat: e.target.value }))}
                   className="w-36"
                 />
                 <Input
                   type="number"
                   step="0.000001"
                   placeholder="Longitude"
-                  value={formData.destinationLongitude}
-                  onChange={(e) => setFormData(prev => ({ ...prev, destinationLongitude: e.target.value }))}
+                  value={formData.destinationLng}
+                  onChange={(e) => setFormData(prev => ({ ...prev, destinationLng: e.target.value }))}
                   className="w-36"
                 />
               </div>

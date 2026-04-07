@@ -16,7 +16,7 @@ export default function ScheduleModal({ isOpen, onClose }: ScheduleModalProps) {
   const { user } = useAuth();
   const [selectedWeek, setSelectedWeek] = useState(0); // 0 = this week, 1 = next week, etc.
 
-  const { data: schedules, isLoading } = useQuery({
+  const { data: schedules = [], isLoading } = useQuery<any[]>({
     queryKey: ['/api/schedules'],
     enabled: isOpen,
   });

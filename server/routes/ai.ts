@@ -26,7 +26,7 @@ export function registerAIRoutes(app: Express, storage: IStorage, isAuthenticate
       const schedules = await storage.getAllSchedules(today, tomorrow);
       const tasks = await storage.getTasksForDate(today);
       
-      const uniqueUserIds = [...new Set(schedules.map(s => s.userId))];
+      const uniqueUserIds = Array.from(new Set(schedules.map(s => s.userId)));
       const userRows = uniqueUserIds.length > 0
         ? await db.select({ id: users.id, firstName: users.firstName, lastName: users.lastName })
             .from(users)

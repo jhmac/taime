@@ -396,7 +396,7 @@ export default function StoreLocationsSection() {
               <div key={loc.id} className="border border-primary/30 rounded-xl p-5 bg-card">
                 <h3 className="font-semibold mb-4">Edit — {loc.name}</h3>
                 <LocationForm
-                  initial={loc}
+                  initial={loc as any}
                   onSave={data => updateMutation.mutate({ id: loc.id, data })}
                   onCancel={() => setEditing(null)}
                   saving={updateMutation.isPending}

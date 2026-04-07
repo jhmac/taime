@@ -77,7 +77,7 @@ Sources can include: lean thinkers (Taiichi Ohno, Paul Akers, W. Edwards Deming)
 
 Return JSON only, no markdown: { "quote_text": "the quote", "quote_author": "attribution" }
 
-${usedHashes.size > 0 ? `Do NOT use any of these previously used quotes (identified by hash):\n${[...usedHashes].join('\n')}` : ''}`;
+${usedHashes.size > 0 ? `Do NOT use any of these previously used quotes (identified by hash):\n${Array.from(usedHashes).join('\n')}` : ''}`;
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000);

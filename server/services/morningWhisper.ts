@@ -96,7 +96,7 @@ async function gatherWhisperData(storeId: string, userId: string) {
 
     db.select({ count: count() }).from(tasks)
       .where(and(
-        eq(tasks.storeId, storeId),
+        eq(tasks.locationId, storeId),
         eq(tasks.status, "completed"),
         gte(tasks.completedAt, yesterdayStart),
         lte(tasks.completedAt, yesterdayEnd),
@@ -104,7 +104,7 @@ async function gatherWhisperData(storeId: string, userId: string) {
 
     db.select({ count: count() }).from(tasks)
       .where(and(
-        eq(tasks.storeId, storeId),
+        eq(tasks.locationId, storeId),
         gte(tasks.createdAt, yesterdayStart),
         lte(tasks.createdAt, yesterdayEnd),
       )).then(r => r[0]?.count || 0).catch(() => 0),
@@ -167,13 +167,13 @@ async function gatherWhisperData(storeId: string, userId: string) {
 
     db.select({ count: count() }).from(tasks)
       .where(and(
-        eq(tasks.storeId, storeId),
+        eq(tasks.locationId, storeId),
         sql`${tasks.status} IN ('pending', 'in_progress')`,
       )).then(r => r[0]?.count || 0).catch(() => 0),
 
     db.select({ count: count() }).from(tasks)
       .where(and(
-        eq(tasks.storeId, storeId),
+        eq(tasks.locationId, storeId),
         sql`${tasks.status} IN ('pending', 'in_progress')`,
         sql`${tasks.dueDate} < CURRENT_DATE`,
       )).then(r => r[0]?.count || 0).catch(() => 0),
@@ -195,7 +195,7 @@ async function gatherWhisperData(storeId: string, userId: string) {
       )).then(r => r[0]?.count || 0).catch(() => 0),
   ]);
 
-  const scheduleUserIds = [...new Set(todaySchedules.map(s => s.userId))];
+  const scheduleUserIds = Array.from(new Set(todaySchedules.map(s => s.userId)));
   let scheduleNames: Record<string, string> = {};
   if (scheduleUserIds.length > 0) {
     const nameRows = await db.select({

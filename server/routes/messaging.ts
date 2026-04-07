@@ -79,7 +79,7 @@ export function registerMessageRoutes(
         .from(threadParticipants)
         .where(inArray(threadParticipants.threadId, threadIdList));
 
-      const participantUserIds = [...new Set(allParticipants.map(p => p.userId))];
+      const participantUserIds = Array.from(new Set(allParticipants.map(p => p.userId)));
       const userRows = participantUserIds.length > 0
         ? await db.select({ id: users.id, firstName: users.firstName, lastName: users.lastName })
             .from(users)
@@ -157,7 +157,7 @@ export function registerMessageRoutes(
       if (!user) return res.status(401).json({ error: "Unauthorized" });
 
       const parsed = createThreadSchema.parse(req.body);
-      const allParticipantIds = [...new Set([user.id, ...parsed.participant_ids])];
+      const allParticipantIds = Array.from(new Set([user.id, ...parsed.participant_ids]));
 
       const validUsers = await db
         .select({ id: users.id })
@@ -261,9 +261,9 @@ export function registerMessageRoutes(
         .from(threadParticipants)
         .where(eq(threadParticipants.threadId, threadId));
 
-      const pUserIds = [...new Set(participants.map(p => p.userId))];
-      const senderIds = [...new Set(messages.map(m => m.senderId))];
-      const allUserIds = [...new Set([...pUserIds, ...senderIds])];
+      const pUserIds = Array.from(new Set(participants.map(p => p.userId)));
+      const senderIds = Array.from(new Set(messages.map(m => m.senderId)));
+      const allUserIds = Array.from(new Set([...pUserIds, ...senderIds]));
 
       const userRows = allUserIds.length > 0
         ? await db.select({ id: users.id, firstName: users.firstName, lastName: users.lastName })

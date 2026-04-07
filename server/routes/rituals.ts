@@ -180,7 +180,7 @@ export function registerRitualRoutes(
         .where(and(eq(dailyDebriefs.employeeId, userId), eq(dailyDebriefs.debriefDate, dateStr)));
     }
 
-    const employeeIds = [...new Set(debriefs.map(d => d.employeeId))];
+    const employeeIds = Array.from(new Set(debriefs.map(d => d.employeeId)));
     let userMap: Record<string, string> = {};
     if (employeeIds.length > 0) {
       const userRows = await db.select({ id: users.id, firstName: users.firstName, lastName: users.lastName })
@@ -265,10 +265,10 @@ export function registerRitualRoutes(
       .limit(limit)
       .offset(offset);
 
-    const userIds = [...new Set([
+    const userIds = Array.from(new Set([
       ...kudosList.map(k => k.fromEmployeeId),
       ...kudosList.map(k => k.toEmployeeId),
-    ])];
+    ]));
 
     let userMap: Record<string, { name: string; image: string | null }> = {};
     if (userIds.length > 0) {

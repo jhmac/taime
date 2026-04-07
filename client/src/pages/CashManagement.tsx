@@ -18,7 +18,8 @@ import { useLocation } from "wouter";
 type ViewMode = "main" | "wizard" | "deposit" | "investigation";
 
 export default function CashManagement() {
-  const { user, isAdmin } = useAuth();
+  const { user } = useAuth();
+  const isAdmin = user?.role?.name === 'owner' || user?.role?.name === 'admin' || user?.role?.name === 'manager';
   const { toast } = useToast();
   const [, navigate] = useLocation();
   const today = new Date().toISOString().split("T")[0];
@@ -27,11 +28,19 @@ export default function CashManagement() {
   const [activeSession, setActiveSession] = useState<{ id: string; type: "opening" | "closing"; registerName: string; startingCash: number } | null>(null);
   const [ownerTab, setOwnerTab] = useState("daily");
 
-  const { data: accessCheck, isLoading: accessLoading } = useQuery({
+  const { data: accessCheck, isLoading: accessLoading } = useQuery<{
+    allowed: boolean;
+    clockedIn: boolean;
+    atStore: boolean;
+  }>({
     queryKey: ["/api/cash/access-check"],
     refetchInterval: 30000,
   });
-  const { data: settings, isLoading: settingsLoading } = useQuery({ queryKey: ["/api/cash/settings"], enabled: accessCheck?.allowed });
+  const { data: settings, isLoading: settingsLoading } = useQuery<{
+    closingTime: string | null;
+    defaultStartingCash: string;
+    [key: string]: unknown;
+  }>({ queryKey: ["/api/cash/settings"], enabled: accessCheck?.allowed });
   const { data: sessions = [], isLoading: sessionsLoading } = useQuery({ queryKey: ["/api/cash/sessions", selectedDate], enabled: accessCheck?.allowed, queryFn: async () => {
     const res = await apiRequest("GET", `/api/cash/sessions?date=${selectedDate}`);
     return res.json();
