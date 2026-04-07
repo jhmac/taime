@@ -77,16 +77,28 @@ export function registerOnboardingRoutes(app: Express, storage: IStorage, isAuth
 
   // POST /api/onboarding/store
   // Creates the first work_location and seeds company_settings.
-  // Open to all authenticated users during initial setup (no store = no owner yet).
+  // Allowed only when no store exists yet AND the calling user is owner/admin OR the first user ever.
   app.post("/api/onboarding/store", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user?.id;
       if (!userId) return res.status(401).json({ message: "Unauthorized" });
 
-      // Ensure no store exists yet (idempotency guard)
+      // Authorization: owner/admin role, OR first-ever user (no store + no roles assigned yet)
+      const userWithRole = await storage.getUserWithRole(userId);
+      const roleName = userWithRole?.role?.name || "";
+      const isOwnerOrAdmin = roleName === "owner" || roleName === "admin";
+
+      // Check if any store exists
       const [existing] = await db.select({ id: workLocations.id }).from(workLocations).limit(1);
       if (existing) {
         return res.status(409).json({ message: "Store already configured" });
+      }
+
+      // If a store doesn't exist but we do have role-bearing users (i.e. it's not truly the first signup),
+      // only owner/admin may proceed.
+      const [anyRoleUser] = await db.select({ id: users.id }).from(users).where(sql`role_id IS NOT NULL`).limit(1);
+      if (anyRoleUser && !isOwnerOrAdmin) {
+        return res.status(403).json({ message: "Only owners or admins can configure the store." });
       }
 
       const body = storeSetupSchema.parse(req.body);
