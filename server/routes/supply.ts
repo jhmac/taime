@@ -9,6 +9,7 @@ import {
   insertSupplyItemSchema,
   insertInventoryCountSessionSchema,
   users,
+  roles,
 } from "@shared/schema";
 import type { IStorage } from "../storage";
 import { resolveStoreId } from "../lib/storeResolver";
@@ -20,12 +21,23 @@ async function isAdminOrManager(storage: IStorage, userId: string): Promise<bool
   return ["owner", "admin", "manager"].includes(user?.role?.name || "");
 }
 
-async function getAdminId(storeId: string): Promise<string | null> {
-  const adminUsers = await db
-    .select({ id: users.id })
-    .from(users)
-    .limit(1);
-  return adminUsers[0]?.id || null;
+async function getAdminId(_storeId: string): Promise<string | null> {
+  try {
+    // Find the first owner/admin/manager in the system to be default reorder task assignee
+    const allUsers = await db
+      .select({ id: users.id, roleId: users.roleId })
+      .from(users)
+      .limit(50);
+    for (const u of allUsers) {
+      if (!u.roleId) continue;
+      const [role] = await db.select({ name: roles.name }).from(roles).where(eq(roles.id, u.roleId)).limit(1);
+      if (role && ["owner", "admin", "manager"].includes(role.name)) return u.id;
+    }
+    return allUsers[0]?.id || null;
+  } catch {
+    const [first] = await db.select({ id: users.id }).from(users).limit(1);
+    return first?.id || null;
+  }
 }
 
 export function registerSupplyRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
@@ -408,26 +420,37 @@ export function registerSupplyRoutes(app: Express, storage: IStorage, isAuthenti
       }
 
       // Auto-generate reorder tasks for low items
+      // Default assignee = admin/manager who initiated the session (or first admin found)
+      const storeId = (await resolveStoreId()) || "default";
+      const defaultAssignee = session.assignedBy || (await getAdminId(storeId));
       const reorderTasks: any[] = [];
       for (const { item, counted, needed } of lowItems) {
         const isUrgent = counted <= item.safetyStock;
+        const isLocalPickup = !!item.isLocalPickup;
+
+        // Build order details for the task description
         const orderLine = item.orderUrl
-          ? `\nOrder link: ${item.orderUrl}`
-          : item.isLocalPickup
-          ? "\nNeeds local pickup."
+          ? `\nOrder online: ${item.orderUrl}`
+          : isLocalPickup
+          ? `\nPickup required: contact ${item.supplierName || "local supplier"} to pick up in-store.`
+          : item.supplierName
+          ? `\nSupplier: ${item.supplierName}`
           : "";
+
+        // Local-pickup items are assigned to the same admin to coordinate the pickup
+        // Online-order items are also assigned to admin by default; they can reassign as needed
+        const taskAssignee = defaultAssignee;
 
         const [task] = await db
           .insert(tasks)
           .values({
-            title: `${isUrgent ? "🔴" : "🟡"} Reorder: ${item.name} (need ${needed} ${item.unit})`,
+            title: `${isUrgent ? "🔴" : "🟡"} Reorder: ${item.name} (need ${needed} ${item.unit})${isLocalPickup ? " — Local Pickup" : ""}`,
             description:
               `Inventory count found ${counted} ${item.unit} of ${item.name}. ` +
               `Par level is ${item.parLevel}. Need to reorder ${needed} ${item.unit}.` +
-              (item.supplierName ? `\nSupplier: ${item.supplierName}` : "") +
               orderLine,
-            createdBy: session.assignedBy || session.assignedTo || req.user.id,
-            assignedTo: item.isLocalPickup ? null : null, // admin decides below
+            createdBy: req.user.id,
+            assignedTo: taskAssignee,
             status: "pending",
             priority: isUrgent ? "high" : "medium",
             estimatedMinutes: 10,
@@ -493,7 +516,7 @@ export function registerSupplyRoutes(app: Express, storage: IStorage, isAuthenti
         .where(and(eq(supplyItems.storeId, storeId), eq(supplyItems.isActive, true)));
 
       let stocked = 0, low = 0, critical = 0, unknown = 0;
-      const reorderNeeded: { id: string; name: string; unit: string; parLevel: number; lastCountedQty: number | null; orderUrl: string | null; supplierName: string | null; isLocalPickup: boolean }[] = [];
+      const reorderNeeded: { id: string; name: string; unit: string; parLevel: number; lastCountedQty: number | null; orderUrl: string | null; supplierName: string | null; isLocalPickup: boolean | null }[] = [];
 
       for (const item of allItems) {
         if (item.lastCountedQty === null) {

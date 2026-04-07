@@ -203,7 +203,7 @@ export default function SupplyCatalog() {
 
   const { data: stats } = useQuery<{
     total: number; stocked: number; low: number; critical: number; unknown: number;
-    reorderNeeded: { id: string; name: string; unit: string; parLevel: number; lastCountedQty: number | null; orderUrl: string | null; supplierName: string | null; isLocalPickup: boolean }[];
+    reorderNeeded: { id: string; name: string; unit: string; parLevel: number; lastCountedQty: number | null; orderUrl: string | null; supplierName: string | null; isLocalPickup: boolean | null }[];
     lastCountedAt: string | null;
   }>({
     queryKey: ["/api/supply/stats"],
@@ -408,7 +408,7 @@ export default function SupplyCatalog() {
                     </a>
                   ) : (
                     <Badge variant="outline" className="text-xs border-orange-300 text-orange-800">
-                      {item.name} {item.isLocalPickup ? "(local)" : ""}
+                      {item.name} {item.isLocalPickup ? " (local pickup)" : ""}
                     </Badge>
                   )}
                 </div>
