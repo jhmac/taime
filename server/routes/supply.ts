@@ -354,6 +354,12 @@ export function registerSupplyRoutes(app: Express, storage: IStorage, isAuthenti
 
       if (!session) return res.status(404).json({ message: "Session not found" });
 
+      // Authz: only the assigned counter or an admin/manager may view session details
+      const viewerId = req.user?.id || req.auth?.userId;
+      if (session.assignedTo !== viewerId && !(await isAdminOrManager(storage, viewerId))) {
+        return res.status(403).json({ message: "Not authorized to view this session" });
+      }
+
       const storeId = session.storeId;
       let itemQuery = db
         .select()
@@ -423,6 +429,10 @@ export function registerSupplyRoutes(app: Express, storage: IStorage, isAuthenti
           .where(eq(supplyItems.id, count.supplyItemId))
           .limit(1);
         if (!item) continue;
+
+        // Reject items that don't belong to this session's store or category scope
+        if (item.storeId !== storeId) continue;
+        if (session.categories && session.categories.length > 0 && !session.categories.includes(item.category)) continue;
 
         // Record the count entry
         await db
