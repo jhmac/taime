@@ -120,6 +120,7 @@ const MeetingsList = lazy(() => import("@/pages/MeetingsList"));
 const MeetingsNew = lazy(() => import("@/pages/MeetingsNew"));
 const MeetingDetail = lazy(() => import("@/pages/MeetingDetail"));
 const AILearningCenter = lazy(() => import("@/pages/AILearningCenter"));
+const StoreQA = lazy(() => import("@/pages/StoreQA"));
 import { WebSocketProvider } from "@/contexts/WebSocketContext";
 import type { Permission } from "@shared/schema";
 
@@ -337,6 +338,8 @@ function AuthenticatedApp() {
           <ProtectedRoute><Performance /></ProtectedRoute>
         </Route>
         <Route path="/learning" component={Learning} />
+        <Route path="/ai-learning-center" component={AILearningCenter} />
+        <Route path="/store-qa" component={StoreQA} />
         <Route path="/more" component={MoreMenu} />
         <Route path="/requests" component={Requests} />
         <Route path="/team-directory" component={TeamDirectory} />

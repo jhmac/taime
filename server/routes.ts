@@ -52,6 +52,7 @@ import { registerGamificationRoutes } from "./routes/gamification";
 import { registerDayNoteRoutes } from "./routes/dayNotes";
 import { registerOnboardingRoutes } from "./routes/onboarding";
 import { registerKnowledgeRoutes } from "./routes/knowledge";
+import { registerAiLearningRoutes } from "./routes/aiLearning";
 import { startBackgroundInsightsCron, stopBackgroundInsightsCron } from "./services/backgroundInsights";
 import { startGamificationCron, stopGamificationCron } from "./services/gamificationCron";
 import { createActionLoggerMiddleware, handleClientErrorReport, getActionSummary } from "./services/actionLogger";
@@ -188,6 +189,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerDayNoteRoutes(app, storage, isAuthenticated);
   registerOnboardingRoutes(app, storage, isAuthenticated);
   registerKnowledgeRoutes(app, storage, isAuthenticated);
+  registerAiLearningRoutes(app, storage, isAuthenticated);
 
   const httpServer = createServer(app);
 

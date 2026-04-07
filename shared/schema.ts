@@ -2038,3 +2038,69 @@ export const selectDayNoteSchema = z.object({
 });
 export type InsertDayNote = z.infer<typeof insertDayNoteSchema>;
 export type DayNote = typeof dayNotes.$inferSelect;
+
+// ── AI Learning Center: Store Context ──────────────────────────────────────
+export const companyAiContext = pgTable("company_ai_context", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeName: varchar("store_name").notNull().default("My Store"),
+  businessType: varchar("business_type").notNull().default("Fashion Boutique"),
+  brandVoice: text("brand_voice"),
+  teamRoles: jsonb("team_roles").$type<string[]>().default(["New Associate", "Lead", "Manager"]),
+  goals: jsonb("goals").$type<string[]>().default([]),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertCompanyAiContextSchema = createInsertSchema(companyAiContext).omit({ id: true, updatedAt: true });
+export type CompanyAiContext = typeof companyAiContext.$inferSelect;
+export type InsertCompanyAiContext = z.infer<typeof insertCompanyAiContextSchema>;
+
+// ── AI Learning Center: Generation Jobs ────────────────────────────────────
+export const generationJobs = pgTable("generation_jobs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  status: varchar("status").notNull().default("pending"),
+  selectedDocumentIds: jsonb("selected_document_ids").$type<string[]>().default([]),
+  outputTypes: jsonb("output_types").$type<string[]>().default([]),
+  targetRoles: jsonb("target_roles").$type<string[]>().default([]),
+  selectedCategories: jsonb("selected_categories").$type<string[]>().default([]),
+  resultsJson: jsonb("results_json"),
+  progressLog: jsonb("progress_log").$type<string[]>().default([]),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_generation_jobs_status").on(table.status),
+  index("idx_generation_jobs_created_by").on(table.createdBy),
+]);
+
+export const insertGenerationJobSchema = createInsertSchema(generationJobs).omit({ id: true, createdAt: true, updatedAt: true });
+export type GenerationJob = typeof generationJobs.$inferSelect;
+export type InsertGenerationJob = z.infer<typeof insertGenerationJobSchema>;
+
+// ── AI Learning Center: Store Q&A Sessions ─────────────────────────────────
+export const aiStoreQASessions = pgTable("ai_store_qa_sessions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  title: varchar("title").notNull().default("Store Q&A"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_ai_store_qa_sessions_user").on(table.userId),
+]);
+
+export const aiStoreQAMessages = pgTable("ai_store_qa_messages", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  sessionId: varchar("session_id").references(() => aiStoreQASessions.id).notNull(),
+  role: varchar("role").notNull(),
+  content: text("content").notNull(),
+  sourceDocumentIds: jsonb("source_document_ids").$type<string[]>().default([]),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_ai_store_qa_messages_session").on(table.sessionId),
+]);
+
+export const insertAiStoreQASessionSchema = createInsertSchema(aiStoreQASessions).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertAiStoreQAMessageSchema = createInsertSchema(aiStoreQAMessages).omit({ id: true, createdAt: true });
+export type AiStoreQASession = typeof aiStoreQASessions.$inferSelect;
+export type InsertAiStoreQASession = z.infer<typeof insertAiStoreQASessionSchema>;
+export type AiStoreQAMessage = typeof aiStoreQAMessages.$inferSelect;
+export type InsertAiStoreQAMessage = z.infer<typeof insertAiStoreQAMessageSchema>;

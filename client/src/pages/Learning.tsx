@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useLocation } from 'wouter';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -10,11 +11,12 @@ import { apiRequest } from '@/lib/queryClient';
 import { useAuth } from '@/hooks/useAuth';
 import {
   BookOpen, CheckCircle, Clock, ChevronRight, ChevronLeft,
-  GraduationCap, Play, Trophy, FileText, Loader2
+  GraduationCap, Play, Trophy, FileText, Loader2, Wand2, MessageCircle
 } from 'lucide-react';
 import type { TrainingModule, EmployeeTrainingProgress, SopDocument } from '@shared/schema';
 
 export default function Learning() {
+  const [, navigate] = useLocation();
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -214,17 +216,40 @@ export default function Learning() {
     );
   }
 
+  const isManager = user?.role?.name === 'owner' || user?.role?.name === 'admin' || user?.role?.name === 'manager';
+
   return (
     <div className="p-4 md:p-6 max-w-3xl mx-auto">
       <div className="mb-6">
-        <div className="flex items-center gap-2 mb-1">
-          <GraduationCap className="w-6 h-6 text-primary" />
-          <h1 className="text-xl font-bold">Learning Path</h1>
+        <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center gap-2">
+            <GraduationCap className="w-6 h-6 text-primary" />
+            <h1 className="text-xl font-bold">Learning Path</h1>
+          </div>
+          {isManager && (
+            <Button size="sm" variant="outline" onClick={() => navigate('/ai-learning-center')}>
+              <Wand2 className="w-4 h-4 mr-1" /> Build with AI
+            </Button>
+          )}
         </div>
         <p className="text-sm text-muted-foreground">
           Complete these training modules to master your role. Your progress is tracked automatically.
         </p>
       </div>
+
+      <button
+        onClick={() => navigate('/store-qa')}
+        className="w-full mb-4 p-4 rounded-xl border bg-gradient-to-br from-primary/5 to-primary/10 hover:from-primary/10 hover:to-primary/15 transition-colors text-left flex items-center gap-3"
+      >
+        <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+          <MessageCircle className="w-5 h-5 text-primary" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-sm">Ask the Store AI</p>
+          <p className="text-xs text-muted-foreground">Get instant answers from your store's knowledge base</p>
+        </div>
+        <ChevronRight className="w-4 h-4 text-muted-foreground" />
+      </button>
 
       <Card className="mb-6">
         <CardContent className="p-4">
