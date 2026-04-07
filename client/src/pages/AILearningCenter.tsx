@@ -11,14 +11,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { queryClient as qc } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
 import {
   Brain, Upload, Camera, FileText, Loader2, Trash2, Tag,
   ChevronDown, ChevronUp, CheckCircle, AlertCircle, Clock, Plus, X,
   Wand2, ChevronLeft, ChevronRight, GraduationCap, CheckCircle2,
-  Sparkles, ArrowLeft, Target,
+  Sparkles, ArrowLeft, Target, Download, Flag, CheckSquare, Users, AlertTriangle,
 } from "lucide-react";
 import type { KnowledgeDocument } from "@shared/schema";
 
@@ -216,6 +218,207 @@ function DocumentCard({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function TrainingMatrixTab() {
+  const { toast } = useToast();
+  const [activeSection, setActiveSection] = useState<'matrix' | 'flags'>('matrix');
+
+  const { data: matrixData, isLoading: matrixLoading } = useQuery<{ success: boolean; data: any[] }>({
+    queryKey: ['/api/training/manager/matrix'],
+  });
+
+  const { data: flagsData, isLoading: flagsLoading, refetch: refetchFlags } = useQuery<{ success: boolean; data: any[] }>({
+    queryKey: ['/api/training/manager/flags'],
+  });
+
+  const resolveFlagMutation = useMutation({
+    mutationFn: async ({ flagId, resolution }: { flagId: string; resolution: string }) => {
+      const res = await apiRequest('PATCH', `/api/training/manager/flags/${flagId}`, { resolution, isResolved: true });
+      return res.json();
+    },
+    onSuccess: () => {
+      refetchFlags();
+      toast({ title: 'Flag resolved' });
+    },
+    onError: () => {
+      toast({ title: 'Failed to resolve flag', variant: 'destructive' });
+    },
+  });
+
+  const handleExportCsv = async () => {
+    try {
+      const resp = await fetch('/api/training/manager/export-csv', { credentials: 'include' });
+      if (!resp.ok) throw new Error('Export failed');
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `training-matrix-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast({ title: 'CSV exported successfully' });
+    } catch {
+      toast({ title: 'Export failed', variant: 'destructive' });
+    }
+  };
+
+  const matrix = matrixData?.data ?? [];
+  const flags = flagsData?.data ?? [];
+  const openFlags = flags.filter((f: any) => !f.isResolved);
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            variant={activeSection === 'matrix' ? 'default' : 'outline'}
+            onClick={() => setActiveSection('matrix')}
+            className="gap-1.5"
+          >
+            <Users className="h-4 w-4" />
+            Team Matrix
+          </Button>
+          <Button
+            size="sm"
+            variant={activeSection === 'flags' ? 'default' : 'outline'}
+            onClick={() => setActiveSection('flags')}
+            className="gap-1.5 relative"
+          >
+            <Flag className="h-4 w-4" />
+            Flags
+            {openFlags.length > 0 && (
+              <Badge className="ml-1 h-4 w-4 p-0 flex items-center justify-center text-[10px] bg-destructive text-white">
+                {openFlags.length}
+              </Badge>
+            )}
+          </Button>
+        </div>
+        <Button size="sm" variant="outline" onClick={handleExportCsv} className="gap-1.5">
+          <Download className="h-4 w-4" />
+          Export CSV
+        </Button>
+      </div>
+
+      {activeSection === 'matrix' && (
+        <div className="overflow-x-auto rounded-xl border">
+          {matrixLoading ? (
+            <div className="p-6 space-y-3">
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-8 w-full" />
+            </div>
+          ) : matrix.length === 0 ? (
+            <div className="p-12 text-center">
+              <GraduationCap className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
+              <p className="font-medium text-muted-foreground">No training data yet</p>
+              <p className="text-sm text-muted-foreground/60 mt-1">
+                Progress will appear here once employees begin training modules.
+              </p>
+            </div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="bg-muted/40 border-b">
+                <tr>
+                  <th className="text-left px-4 py-3 font-semibold whitespace-nowrap">Employee</th>
+                  <th className="text-left px-4 py-3 font-semibold whitespace-nowrap">Module</th>
+                  <th className="text-left px-4 py-3 font-semibold whitespace-nowrap">Status</th>
+                  <th className="text-left px-4 py-3 font-semibold whitespace-nowrap">Score</th>
+                  <th className="text-left px-4 py-3 font-semibold whitespace-nowrap">Completed</th>
+                </tr>
+              </thead>
+              <tbody>
+                {matrix.map((row: any, idx: number) => {
+                  const isComplete = row.status === 'completed';
+                  const isExempt = row.status === 'exempted';
+                  return (
+                    <tr key={idx} className="border-b last:border-0 hover:bg-muted/20">
+                      <td className="px-4 py-3 font-medium whitespace-nowrap">
+                        {row.firstName || ''} {row.lastName || ''}
+                        {(!row.firstName && !row.lastName) ? row.email : ''}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground max-w-[200px] truncate">{row.moduleTitle}</td>
+                      <td className="px-4 py-3">
+                        <Badge
+                          variant="outline"
+                          className={`text-xs ${
+                            isComplete ? 'border-green-500 text-green-700 dark:text-green-400' :
+                            isExempt ? 'border-gray-400 text-gray-500' :
+                            row.status === 'in_progress' ? 'border-blue-500 text-blue-700 dark:text-blue-400' :
+                            'border-amber-500 text-amber-700 dark:text-amber-400'
+                          }`}
+                        >
+                          {isComplete ? 'Completed' : isExempt ? 'Exempt' : row.status === 'in_progress' ? 'In Progress' : 'Not Started'}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {row.score !== null && row.score !== undefined ? `${row.score}%` : '—'}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
+                        {row.completedAt ? new Date(row.completedAt).toLocaleDateString() : '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {activeSection === 'flags' && (
+        <div className="space-y-3">
+          {flagsLoading ? (
+            <div className="space-y-3">
+              <Skeleton className="h-24 w-full rounded-xl" />
+              <Skeleton className="h-24 w-full rounded-xl" />
+            </div>
+          ) : flags.length === 0 ? (
+            <div className="text-center py-12 border rounded-xl">
+              <Flag className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
+              <p className="font-medium text-muted-foreground">No flags yet</p>
+              <p className="text-sm text-muted-foreground/60 mt-1">
+                Employees can flag confusing content while training.
+              </p>
+            </div>
+          ) : (
+            flags.map((flag: any) => (
+              <Card key={flag.id} className={`border ${flag.isResolved ? 'opacity-60' : 'border-amber-200 dark:border-amber-800'}`}>
+                <CardContent className="p-4">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className={`h-5 w-5 shrink-0 mt-0.5 ${flag.isResolved ? 'text-muted-foreground' : 'text-amber-500'}`} />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-sm">{flag.lessonTitle || 'Training Content'}</p>
+                      <p className="text-sm text-muted-foreground mt-0.5">"{flag.flagNote || 'Flagged for review'}"</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        By {flag.firstName || ''} {flag.lastName || ''} • {flag.createdAt ? new Date(flag.createdAt).toLocaleDateString() : ''}
+                      </p>
+                      {flag.isResolved && flag.resolution && (
+                        <p className="text-xs text-green-600 dark:text-green-400 mt-1">Resolved: {flag.resolution}</p>
+                      )}
+                    </div>
+                    {!flag.isResolved && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="shrink-0 gap-1.5 text-green-700 border-green-300 hover:bg-green-50 dark:hover:bg-green-950/30"
+                        onClick={() => resolveFlagMutation.mutate({ flagId: flag.id, resolution: 'Reviewed by manager' })}
+                        disabled={resolveFlagMutation.isPending}
+                      >
+                        <CheckSquare className="h-3.5 w-3.5" />
+                        Resolve
+                      </Button>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            ))
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -513,7 +716,7 @@ export default function AILearningCenter() {
         <div>
           <h1 className="text-xl font-bold">AI Learning Center</h1>
           <p className="text-sm text-muted-foreground">
-            Build your knowledge base and generate AI-powered training content
+            Build your knowledge base, generate AI-powered training, and track team progress
           </p>
         </div>
       </div>
@@ -527,6 +730,10 @@ export default function AILearningCenter() {
           <TabsTrigger value="generate" className="flex items-center gap-1.5">
             <Sparkles className="w-4 h-4" />
             Build with AI
+          </TabsTrigger>
+          <TabsTrigger value="training" className="flex items-center gap-1.5">
+            <GraduationCap className="w-4 h-4" />
+            Training Matrix
           </TabsTrigger>
         </TabsList>
 
@@ -766,6 +973,10 @@ export default function AILearningCenter() {
               </div>
             </>
           )}
+        </TabsContent>
+
+        <TabsContent value="training">
+          <TrainingMatrixTab />
         </TabsContent>
       </Tabs>
     </div>

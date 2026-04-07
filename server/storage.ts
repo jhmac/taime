@@ -35,6 +35,27 @@ import {
   meetingTaskRecommendations,
   dayNotes,
   knowledgeDocuments,
+  trainingLessons,
+  trainingQuestions,
+  trainingPracticeSchedule,
+  trainingLessonProgress,
+  morningLearningMoments,
+  morningMomentAnswers,
+  trainingFlags,
+  type TrainingLesson,
+  type InsertTrainingLesson,
+  type TrainingQuestion,
+  type InsertTrainingQuestion,
+  type TrainingPracticeSchedule,
+  type InsertTrainingPracticeSchedule,
+  type TrainingLessonProgress,
+  type InsertTrainingLessonProgress,
+  type MorningLearningMoment,
+  type InsertMorningLearningMoment,
+  type MorningMomentAnswer,
+  type InsertMorningMomentAnswer,
+  type TrainingFlag,
+  type InsertTrainingFlag,
   type Meeting,
   type InsertMeeting,
   type MeetingTaskRecommendation,
@@ -393,6 +414,37 @@ export interface IStorage {
   getKnowledgeDocument(id: string): Promise<KnowledgeDocument | undefined>;
   updateKnowledgeDocument(id: string, updates: Partial<KnowledgeDocument>): Promise<KnowledgeDocument>;
   deleteKnowledgeDocument(id: string): Promise<void>;
+
+  // Training lessons
+  createTrainingLesson(lesson: InsertTrainingLesson): Promise<TrainingLesson>;
+  getTrainingLessons(moduleId: string): Promise<TrainingLesson[]>;
+  updateTrainingLesson(id: string, updates: Partial<TrainingLesson>): Promise<TrainingLesson>;
+  deleteTrainingLesson(id: string): Promise<void>;
+
+  // Training questions
+  createTrainingQuestion(question: InsertTrainingQuestion): Promise<TrainingQuestion>;
+  getTrainingQuestions(lessonId: string): Promise<TrainingQuestion[]>;
+  getTrainingQuestion(id: string): Promise<TrainingQuestion | undefined>;
+
+  // Training lesson progress
+  upsertTrainingLessonProgress(progress: InsertTrainingLessonProgress): Promise<TrainingLessonProgress>;
+  getTrainingLessonProgress(employeeId: string, moduleId?: string): Promise<TrainingLessonProgress[]>;
+  getLessonProgress(employeeId: string, lessonId: string): Promise<TrainingLessonProgress | undefined>;
+
+  // Practice schedule (spaced repetition)
+  upsertPracticeSchedule(item: InsertTrainingPracticeSchedule): Promise<TrainingPracticeSchedule>;
+  getDuePracticeQuestions(employeeId: string, limit?: number): Promise<(TrainingPracticeSchedule & { question: TrainingQuestion })[]>;
+
+  // Training flags
+  createTrainingFlag(flag: InsertTrainingFlag): Promise<TrainingFlag>;
+  getTrainingFlags(status?: string): Promise<TrainingFlag[]>;
+  updateTrainingFlag(id: string, updates: Partial<TrainingFlag>): Promise<TrainingFlag>;
+
+  // Morning learning moments
+  upsertMorningLearningMoment(moment: InsertMorningLearningMoment): Promise<MorningLearningMoment>;
+  getMorningLearningMoment(storeId: string, date: string): Promise<MorningLearningMoment | undefined>;
+  recordMorningMomentAnswer(answer: InsertMorningMomentAnswer): Promise<MorningMomentAnswer>;
+  getMorningMomentAnswer(momentId: string, employeeId: string): Promise<MorningMomentAnswer | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2059,6 +2111,157 @@ export class DatabaseStorage implements IStorage {
 
   async deleteKnowledgeDocument(id: string): Promise<void> {
     await db.delete(knowledgeDocuments).where(eq(knowledgeDocuments.id, id));
+  }
+
+  // ── Training Lessons ─────────────────────────────────────────────────────────
+
+  async createTrainingLesson(lesson: InsertTrainingLesson): Promise<TrainingLesson> {
+    const [row] = await db.insert(trainingLessons).values(lesson).returning();
+    return row;
+  }
+
+  async getTrainingLessons(moduleId: string): Promise<TrainingLesson[]> {
+    return db
+      .select()
+      .from(trainingLessons)
+      .where(eq(trainingLessons.moduleId, moduleId))
+      .orderBy(trainingLessons.orderIndex);
+  }
+
+  async updateTrainingLesson(id: string, updates: Partial<TrainingLesson>): Promise<TrainingLesson> {
+    const [row] = await db.update(trainingLessons).set(updates).where(eq(trainingLessons.id, id)).returning();
+    return row;
+  }
+
+  async deleteTrainingLesson(id: string): Promise<void> {
+    await db.delete(trainingLessons).where(eq(trainingLessons.id, id));
+  }
+
+  // ── Training Questions ───────────────────────────────────────────────────────
+
+  async createTrainingQuestion(question: InsertTrainingQuestion): Promise<TrainingQuestion> {
+    const [row] = await db.insert(trainingQuestions).values(question).returning();
+    return row;
+  }
+
+  async getTrainingQuestions(lessonId: string): Promise<TrainingQuestion[]> {
+    return db.select().from(trainingQuestions).where(eq(trainingQuestions.lessonId, lessonId));
+  }
+
+  async getTrainingQuestion(id: string): Promise<TrainingQuestion | undefined> {
+    const [row] = await db.select().from(trainingQuestions).where(eq(trainingQuestions.id, id)).limit(1);
+    return row;
+  }
+
+  // ── Training Lesson Progress ─────────────────────────────────────────────────
+
+  async upsertTrainingLessonProgress(progress: InsertTrainingLessonProgress): Promise<TrainingLessonProgress> {
+    const [row] = await db
+      .insert(trainingLessonProgress)
+      .values(progress)
+      .onConflictDoUpdate({
+        target: [trainingLessonProgress.employeeId, trainingLessonProgress.lessonId],
+        set: { ...progress, updatedAt: new Date() },
+      })
+      .returning();
+    return row;
+  }
+
+  async getTrainingLessonProgress(employeeId: string, moduleId?: string): Promise<TrainingLessonProgress[]> {
+    const conditions = [eq(trainingLessonProgress.employeeId, employeeId)];
+    if (moduleId) conditions.push(eq(trainingLessonProgress.moduleId, moduleId));
+    return db.select().from(trainingLessonProgress).where(and(...conditions));
+  }
+
+  async getLessonProgress(employeeId: string, lessonId: string): Promise<TrainingLessonProgress | undefined> {
+    const [row] = await db
+      .select()
+      .from(trainingLessonProgress)
+      .where(and(eq(trainingLessonProgress.employeeId, employeeId), eq(trainingLessonProgress.lessonId, lessonId)))
+      .limit(1);
+    return row;
+  }
+
+  // ── Practice Schedule ────────────────────────────────────────────────────────
+
+  async upsertPracticeSchedule(item: InsertTrainingPracticeSchedule): Promise<TrainingPracticeSchedule> {
+    const [row] = await db
+      .insert(trainingPracticeSchedule)
+      .values(item)
+      .onConflictDoUpdate({
+        target: [trainingPracticeSchedule.employeeId, trainingPracticeSchedule.questionId],
+        set: item,
+      })
+      .returning();
+    return row;
+  }
+
+  async getDuePracticeQuestions(employeeId: string, limit = 5): Promise<(TrainingPracticeSchedule & { question: TrainingQuestion })[]> {
+    const now = new Date();
+    const rows = await db
+      .select()
+      .from(trainingPracticeSchedule)
+      .innerJoin(trainingQuestions, eq(trainingPracticeSchedule.questionId, trainingQuestions.id))
+      .where(and(eq(trainingPracticeSchedule.employeeId, employeeId), lte(trainingPracticeSchedule.nextReviewAt, now)))
+      .orderBy(trainingPracticeSchedule.nextReviewAt)
+      .limit(limit);
+    return rows.map(r => ({ ...r.training_practice_schedule, question: r.training_questions }));
+  }
+
+  // ── Training Flags ───────────────────────────────────────────────────────────
+
+  async createTrainingFlag(flag: InsertTrainingFlag): Promise<TrainingFlag> {
+    const [row] = await db.insert(trainingFlags).values(flag).returning();
+    return row;
+  }
+
+  async getTrainingFlags(status?: string): Promise<TrainingFlag[]> {
+    if (status) {
+      return db.select().from(trainingFlags).where(eq(trainingFlags.status, status)).orderBy(desc(trainingFlags.createdAt));
+    }
+    return db.select().from(trainingFlags).orderBy(desc(trainingFlags.createdAt));
+  }
+
+  async updateTrainingFlag(id: string, updates: Partial<TrainingFlag>): Promise<TrainingFlag> {
+    const [row] = await db.update(trainingFlags).set(updates).where(eq(trainingFlags.id, id)).returning();
+    return row;
+  }
+
+  // ── Morning Learning Moments ─────────────────────────────────────────────────
+
+  async upsertMorningLearningMoment(moment: InsertMorningLearningMoment): Promise<MorningLearningMoment> {
+    const [row] = await db
+      .insert(morningLearningMoments)
+      .values(moment)
+      .onConflictDoUpdate({
+        target: [morningLearningMoments.storeId, morningLearningMoments.momentDate],
+        set: moment,
+      })
+      .returning();
+    return row;
+  }
+
+  async getMorningLearningMoment(storeId: string, date: string): Promise<MorningLearningMoment | undefined> {
+    const [row] = await db
+      .select()
+      .from(morningLearningMoments)
+      .where(and(eq(morningLearningMoments.storeId, storeId), eq(morningLearningMoments.momentDate, date)))
+      .limit(1);
+    return row;
+  }
+
+  async recordMorningMomentAnswer(answer: InsertMorningMomentAnswer): Promise<MorningMomentAnswer> {
+    const [row] = await db.insert(morningMomentAnswers).values(answer).returning();
+    return row;
+  }
+
+  async getMorningMomentAnswer(momentId: string, employeeId: string): Promise<MorningMomentAnswer | undefined> {
+    const [row] = await db
+      .select()
+      .from(morningMomentAnswers)
+      .where(and(eq(morningMomentAnswers.momentId, momentId), eq(morningMomentAnswers.employeeId, employeeId)))
+      .limit(1);
+    return row;
   }
 }
 

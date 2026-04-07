@@ -87,6 +87,7 @@ const SOPDetail = lazy(() => import("@/pages/SOPDetail"));
 const SOPExecution = lazy(() => import("@/pages/SOPExecution"));
 const SOPRevisions = lazy(() => import("@/pages/SOPRevisions"));
 const TrainingHub = lazy(() => import("@/pages/TrainingHub"));
+const TrainingPlayer = lazy(() => import("@/pages/TrainingPlayer"));
 const IssueList = lazy(() => import("@/pages/IssueList"));
 const IssueDetail = lazy(() => import("@/pages/IssueDetail"));
 const MorningHuddle = lazy(() => import("@/pages/MorningHuddle"));
@@ -353,6 +354,8 @@ function AuthenticatedApp() {
         </Route>
         <Route path="/sops/revisions" component={SOPRevisions} />
         <Route path="/sops/training" component={TrainingHub} />
+        <Route path="/training" component={TrainingHub} />
+        <Route path="/training/:moduleId" component={TrainingPlayer} />
         <Route path="/sops/execute/:executionId" component={SOPExecution} />
         <Route path="/sops/:id" component={SOPDetail} />
         <Route path="/issues" component={IssueList} />

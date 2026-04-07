@@ -2012,6 +2012,141 @@ export const insertKnowledgeDocumentSchema = createInsertSchema(knowledgeDocumen
 export type InsertKnowledgeDocument = z.infer<typeof insertKnowledgeDocumentSchema>;
 export type KnowledgeDocument = typeof knowledgeDocuments.$inferSelect;
 
+// ── Phase 3: Interactive Training System ─────────────────────────────────────
+
+// Training lessons (sub-steps within a training module)
+export const trainingLessons = pgTable("training_lessons", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  moduleId: varchar("module_id").references(() => trainingModules.id, { onDelete: "cascade" }).notNull(),
+  type: varchar("type").notNull(), // 'concept' | 'script_practice' | 'scenario' | 'quiz'
+  title: varchar("title").notNull(),
+  contentJson: jsonb("content_json").notNull().$type<Record<string, unknown>>(),
+  orderIndex: integer("order_index").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_training_lessons_module_order").on(table.moduleId, table.orderIndex),
+]);
+
+// Training questions (for scenario/script_practice/quiz lessons)
+export const trainingQuestions = pgTable("training_questions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  lessonId: varchar("lesson_id").references(() => trainingLessons.id, { onDelete: "cascade" }).notNull(),
+  questionText: text("question_text").notNull(),
+  answerChoices: jsonb("answer_choices").notNull().$type<string[]>(),
+  correctAnswerIndex: integer("correct_answer_index").notNull(),
+  coachingText: text("coaching_text"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_training_questions_lesson").on(table.lessonId),
+]);
+
+// Spaced-repetition practice schedule per employee/question
+export const trainingPracticeSchedule = pgTable("training_practice_schedule", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  employeeId: varchar("employee_id").references(() => users.id).notNull(),
+  questionId: varchar("question_id").references(() => trainingQuestions.id).notNull(),
+  nextReviewAt: timestamp("next_review_at").notNull(),
+  intervalDays: integer("interval_days").notNull().default(1),
+  lastResult: varchar("last_result"), // 'correct' | 'incorrect'
+  lastAnsweredAt: timestamp("last_answered_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_practice_schedule_employee_review").on(table.employeeId, table.nextReviewAt),
+  unique("uq_practice_schedule_employee_question").on(table.employeeId, table.questionId),
+]);
+
+// Per-lesson completion tracking
+export const trainingLessonProgress = pgTable("training_lesson_progress", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  employeeId: varchar("employee_id").references(() => users.id).notNull(),
+  lessonId: varchar("lesson_id").references(() => trainingLessons.id).notNull(),
+  moduleId: varchar("module_id").references(() => trainingModules.id).notNull(),
+  status: varchar("status").notNull().default("not_started"), // 'not_started' | 'in_progress' | 'completed'
+  completedAt: timestamp("completed_at"),
+  quizScore: integer("quiz_score"), // percentage 0-100 for quiz lessons
+  isFlagged: boolean("is_flagged").default(false),
+  flagReason: text("flag_reason"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_lesson_progress_employee_module").on(table.employeeId, table.moduleId),
+  unique("uq_lesson_progress_employee_lesson").on(table.employeeId, table.lessonId),
+]);
+
+// Morning learning moment (daily AI-selected tip/question)
+export const morningLearningMoments = pgTable("morning_learning_moments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => workLocations.id),
+  momentDate: varchar("moment_date").notNull(), // YYYY-MM-DD
+  tipText: text("tip_text").notNull(),
+  quizQuestion: text("quiz_question"),
+  quizChoices: jsonb("quiz_choices").$type<string[]>(),
+  quizCorrectIndex: integer("quiz_correct_index"),
+  quizContext: text("quiz_context"), // explanation shown to manager
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("uq_morning_moments_store_date").on(table.storeId, table.momentDate),
+]);
+
+// Employee answers to morning learning moment quizzes
+export const morningMomentAnswers = pgTable("morning_moment_answers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  momentId: varchar("moment_id").references(() => morningLearningMoments.id).notNull(),
+  employeeId: varchar("employee_id").references(() => users.id).notNull(),
+  selectedIndex: integer("selected_index").notNull(),
+  isCorrect: boolean("is_correct").notNull(),
+  pointsAwarded: integer("points_awarded").default(0),
+  answeredAt: timestamp("answered_at").defaultNow(),
+}, (table) => [
+  unique("uq_moment_answer_employee").on(table.momentId, table.employeeId),
+  index("idx_moment_answers_employee").on(table.employeeId),
+]);
+
+// Flagged cards (employees flag confusing content)
+export const trainingFlags = pgTable("training_flags", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  employeeId: varchar("employee_id").references(() => users.id).notNull(),
+  lessonId: varchar("lesson_id").references(() => trainingLessons.id).notNull(),
+  questionId: varchar("question_id").references(() => trainingQuestions.id),
+  reason: text("reason"),
+  status: varchar("status").notNull().default("open"), // 'open' | 'resolved'
+  resolvedBy: varchar("resolved_by").references(() => users.id),
+  resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_training_flags_lesson").on(table.lessonId),
+  index("idx_training_flags_status").on(table.status),
+]);
+
+// Zod schemas + types for new tables
+export const insertTrainingLessonSchema = createInsertSchema(trainingLessons).omit({ id: true, createdAt: true });
+export type TrainingLesson = typeof trainingLessons.$inferSelect;
+export type InsertTrainingLesson = z.infer<typeof insertTrainingLessonSchema>;
+
+export const insertTrainingQuestionSchema = createInsertSchema(trainingQuestions).omit({ id: true, createdAt: true });
+export type TrainingQuestion = typeof trainingQuestions.$inferSelect;
+export type InsertTrainingQuestion = z.infer<typeof insertTrainingQuestionSchema>;
+
+export const insertTrainingPracticeScheduleSchema = createInsertSchema(trainingPracticeSchedule).omit({ id: true, createdAt: true });
+export type TrainingPracticeSchedule = typeof trainingPracticeSchedule.$inferSelect;
+export type InsertTrainingPracticeSchedule = z.infer<typeof insertTrainingPracticeScheduleSchema>;
+
+export const insertTrainingLessonProgressSchema = createInsertSchema(trainingLessonProgress).omit({ id: true, createdAt: true, updatedAt: true });
+export type TrainingLessonProgress = typeof trainingLessonProgress.$inferSelect;
+export type InsertTrainingLessonProgress = z.infer<typeof insertTrainingLessonProgressSchema>;
+
+export const insertMorningLearningMomentSchema = createInsertSchema(morningLearningMoments).omit({ id: true, createdAt: true });
+export type MorningLearningMoment = typeof morningLearningMoments.$inferSelect;
+export type InsertMorningLearningMoment = z.infer<typeof insertMorningLearningMomentSchema>;
+
+export const insertMorningMomentAnswerSchema = createInsertSchema(morningMomentAnswers).omit({ id: true, answeredAt: true });
+export type MorningMomentAnswer = typeof morningMomentAnswers.$inferSelect;
+export type InsertMorningMomentAnswer = z.infer<typeof insertMorningMomentAnswerSchema>;
+
+export const insertTrainingFlagSchema = createInsertSchema(trainingFlags).omit({ id: true, createdAt: true });
+export type TrainingFlag = typeof trainingFlags.$inferSelect;
+export type InsertTrainingFlag = z.infer<typeof insertTrainingFlagSchema>;
+
 // Day notes for Availability and Schedule views
 export const dayNotes = pgTable("day_notes", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

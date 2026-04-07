@@ -6,9 +6,10 @@ import { apiRequest } from '@/lib/queryClient';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useToast } from '@/hooks/use-toast';
 import {
   ChevronLeft, ChevronRight, Pause, Play, Star, Target,
-  AlertTriangle, Heart, Rocket, X
+  AlertTriangle, Heart, Rocket, X, BookOpen, CheckCircle2, XCircle
 } from 'lucide-react';
 
 const SLIDE_AUTO_ADVANCE_MS = 60000;
@@ -33,11 +34,14 @@ interface HuddleData {
 export default function MorningHuddle() {
   const [, navigate] = useLocation();
   const { user } = useAuth();
+  const { toast } = useToast();
   const qc = useQueryClient();
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
   const [checkedAttendees, setCheckedAttendees] = useState<string[]>([]);
   const [huddleStarted, setHuddleStarted] = useState(false);
+  const [momentAnswered, setMomentAnswered] = useState(false);
+  const [momentResult, setMomentResult] = useState<{ isCorrect: boolean; correctAnswerIndex: number; quizContext?: string } | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const touchStartRef = useRef<number>(0);
 
@@ -53,9 +57,36 @@ export default function MorningHuddle() {
     queryKey: ['/api/kudos'],
   });
 
+  const { data: momentData } = useQuery<{ success: boolean; data: any }>({
+    queryKey: ['/api/ai/morning-moment'],
+    retry: 1,
+  });
+
+  const answerMomentMutation = useMutation({
+    mutationFn: async (selectedIndex: number) => {
+      const res = await apiRequest('POST', '/api/ai/morning-moment/answer', { selectedIndex });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      const result = data.data;
+      setMomentResult({ isCorrect: result.isCorrect, correctAnswerIndex: result.correctAnswerIndex, quizContext: result.quizContext });
+      setMomentAnswered(true);
+      if (result.isCorrect && result.pointsAwarded > 0) {
+        toast({ title: `+${result.pointsAwarded} points!`, description: 'Correct answer on the Learning Moment!' });
+      }
+      qc.invalidateQueries({ queryKey: ['/api/gamification/my-score'] });
+    },
+    onError: () => {
+      toast({ title: 'Unable to submit answer', variant: 'destructive' });
+    },
+  });
+
   const huddle = data?.data;
   const team = teamData ?? [];
   const recentKudos = (kudosData?.data ?? []).slice(0, 5);
+  const moment = momentData?.data;
+  const roleName = (user as any)?.role?.name;
+  const isManager = roleName === 'owner' || roleName === 'admin' || roleName === 'manager';
 
   const updateMutation = useMutation({
     mutationFn: async (payload: Record<string, unknown>) => {
@@ -75,6 +106,7 @@ export default function MorningHuddle() {
     'goals',
     ...(hasHeadsUp ? ['headsup'] : []),
     'kudos',
+    ...(moment ? ['learning'] : []),
     'close',
   ];
 
@@ -333,6 +365,64 @@ export default function MorningHuddle() {
                     <p className="text-sm text-muted-foreground mt-1">"{k.message}"</p>
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {slideContent === 'learning' && moment && (
+          <div className="w-full max-w-lg text-center space-y-5 animate-in fade-in slide-in-from-right-8 duration-500 bg-gradient-to-br from-teal-50 to-cyan-50 dark:from-teal-950/30 dark:to-cyan-950/30 fixed inset-0 flex flex-col items-center justify-center px-6 overflow-auto py-8">
+            <div className="w-20 h-20 rounded-full bg-teal-100 dark:bg-teal-900/40 flex items-center justify-center mx-auto shrink-0">
+              <BookOpen className="h-10 w-10 text-teal-600 dark:text-teal-400" />
+            </div>
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-teal-600 dark:text-teal-400">Learning Moment</p>
+            <p className="text-sm font-medium text-muted-foreground px-2">{moment.tip}</p>
+            {moment.quizQuestion && (
+              <div className="w-full max-w-sm text-left space-y-3">
+                <p className="text-base font-semibold text-center">{moment.quizQuestion}</p>
+                {(moment.quizAnswerChoices as string[] || []).map((choice: string, idx: number) => {
+                  let extraClass = "";
+                  if (momentAnswered && momentResult) {
+                    if (idx === momentResult.correctAnswerIndex) extraClass = "border-green-500 bg-green-100/60 dark:bg-green-900/30";
+                    else if (momentAnswered) extraClass = "border-border opacity-60";
+                  }
+                  return (
+                    <button
+                      key={idx}
+                      className={`w-full text-left rounded-xl border-2 px-4 py-3 text-sm font-medium transition-all bg-white/60 dark:bg-white/5 backdrop-blur ${
+                        extraClass || "border-border hover:border-teal-400 hover:bg-teal-50 dark:hover:bg-teal-900/20"
+                      }`}
+                      onClick={() => {
+                        if (!momentAnswered) {
+                          answerMomentMutation.mutate(idx);
+                          setIsPaused(true);
+                        }
+                      }}
+                      disabled={momentAnswered || answerMomentMutation.isPending}
+                    >
+                      <span className="flex items-center gap-2">
+                        {momentAnswered && momentResult && idx === momentResult.correctAnswerIndex && (
+                          <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
+                        )}
+                        {choice}
+                      </span>
+                    </button>
+                  );
+                })}
+                {momentAnswered && momentResult && (
+                  <div className={`rounded-xl p-3 text-sm ${momentResult.isCorrect ? 'bg-green-100/80 dark:bg-green-900/30 text-green-800 dark:text-green-200' : 'bg-rose-100/80 dark:bg-rose-900/30 text-rose-800 dark:text-rose-200'}`}>
+                    <p className="font-semibold mb-1">{momentResult.isCorrect ? 'Correct! +10 pts' : 'Not quite!'}</p>
+                    {momentResult.quizContext && <p className="text-xs">{momentResult.quizContext}</p>}
+                  </div>
+                )}
+                {momentAnswered && (
+                  <Button size="sm" className="w-full mt-1" onClick={() => { setIsPaused(false); goNext(); }}>
+                    Continue <ChevronRight className="h-4 w-4 ml-1" />
+                  </Button>
+                )}
+                {isManager && moment.quizCorrectIndex !== undefined && !momentAnswered && (
+                  <p className="text-xs text-center text-muted-foreground">Manager: answer {moment.quizCorrectIndex + 1} is correct</p>
+                )}
               </div>
             )}
           </div>
