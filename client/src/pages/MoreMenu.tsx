@@ -8,6 +8,7 @@ import {
   FileSpreadsheet, UserCog, ShieldCheck, BarChart, Medal,
   Settings, Cog, LogOut, ChevronRight, Banknote, Building2,
   Coffee, Lightbulb, LifeBuoy, History, FileDown, Mic, Brain,
+  Package,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -102,6 +103,7 @@ export default function MoreMenu() {
       items: [
         { icon: Mic, label: 'Meetings', subtitle: 'Record & review AI meeting notes', path: '/meetings', iconBg: 'bg-violet-100', iconColor: 'text-violet-600' },
         { icon: ClipboardList, label: 'Tasks', subtitle: 'Store task management', path: '/tasks', iconBg: 'bg-blue-100', iconColor: 'text-blue-600' },
+        { icon: Package, label: 'Supply Kanban', subtitle: 'Inventory counts & reorders', path: '/supply', iconBg: 'bg-orange-100', iconColor: 'text-orange-600' },
         { icon: Users, label: 'Team', subtitle: 'Staff roster & HR records', path: '/team', iconBg: 'bg-slate-100', iconColor: 'text-slate-600' },
         { icon: DollarSign, label: 'Payroll', subtitle: 'Pay runs & wage management', path: '/payroll', iconBg: 'bg-green-100', iconColor: 'text-green-600' },
         { icon: FileSpreadsheet, label: 'Timesheets', subtitle: 'Review & approve hours', path: '/timesheets', iconBg: 'bg-teal-100', iconColor: 'text-teal-600' },

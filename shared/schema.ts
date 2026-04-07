@@ -2239,3 +2239,69 @@ export type AiStoreQASession = typeof aiStoreQASessions.$inferSelect;
 export type InsertAiStoreQASession = z.infer<typeof insertAiStoreQASessionSchema>;
 export type AiStoreQAMessage = typeof aiStoreQAMessages.$inferSelect;
 export type InsertAiStoreQAMessage = z.infer<typeof insertAiStoreQAMessageSchema>;
+
+// ── Supply & Inventory Kanban System ────────────────────────────────────────
+
+export const supplyItems = pgTable("supply_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").notNull(),
+  name: varchar("name").notNull(),
+  category: varchar("category").notNull().default("other"), // bags | cleaning | paper | other
+  unit: varchar("unit").notNull().default("each"), // rolls, boxes, each, cases, etc.
+  parLevel: integer("par_level").notNull().default(10),
+  safetyStock: integer("safety_stock").notNull().default(2), // triggers red alert
+  lastCountedQty: integer("last_counted_qty"),
+  lastCountedAt: timestamp("last_counted_at"),
+  orderUrl: text("order_url"),
+  supplierName: varchar("supplier_name"),
+  isLocalPickup: boolean("is_local_pickup").default(false),
+  notes: text("notes"),
+  isActive: boolean("is_active").default(true),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_supply_items_store").on(table.storeId),
+  index("idx_supply_items_category").on(table.category),
+]);
+
+export const insertSupplyItemSchema = createInsertSchema(supplyItems).omit({ id: true, createdAt: true, updatedAt: true });
+export type SupplyItem = typeof supplyItems.$inferSelect;
+export type InsertSupplyItem = z.infer<typeof insertSupplyItemSchema>;
+
+export const inventoryCountSessions = pgTable("inventory_count_sessions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").notNull(),
+  assignedTo: varchar("assigned_to").references(() => users.id),
+  assignedBy: varchar("assigned_by").references(() => users.id),
+  status: varchar("status").notNull().default("pending"), // pending | in_progress | completed
+  categories: jsonb("categories").$type<string[]>(), // null = all
+  taskId: varchar("task_id"), // linked task in tasks table
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_inv_sessions_store").on(table.storeId),
+  index("idx_inv_sessions_assigned").on(table.assignedTo),
+]);
+
+export const insertInventoryCountSessionSchema = createInsertSchema(inventoryCountSessions).omit({ id: true, createdAt: true });
+export type InventoryCountSession = typeof inventoryCountSessions.$inferSelect;
+export type InsertInventoryCountSession = z.infer<typeof insertInventoryCountSessionSchema>;
+
+export const inventoryCountEntries = pgTable("inventory_count_entries", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  sessionId: varchar("session_id").references(() => inventoryCountSessions.id).notNull(),
+  supplyItemId: varchar("supply_item_id").references(() => supplyItems.id).notNull(),
+  countedQty: integer("counted_qty").notNull(),
+  previousQty: integer("previous_qty"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_inv_entries_session").on(table.sessionId),
+]);
+
+export const insertInventoryCountEntrySchema = createInsertSchema(inventoryCountEntries).omit({ id: true, createdAt: true });
+export type InventoryCountEntry = typeof inventoryCountEntries.$inferSelect;
+export type InsertInventoryCountEntry = z.infer<typeof insertInventoryCountEntrySchema>;

@@ -111,6 +111,8 @@ const MessagingPage = lazy(() => import("@/features/messaging/MessagingPage"));
 const KudosWallPage = lazy(() => import("@/features/kudos/KudosWallPage"));
 const LeanBoard = lazy(() => import("@/pages/LeanBoard"));
 const InsightsPage = lazy(() => import("@/pages/InsightsPage"));
+const SupplyCatalog = lazy(() => import("@/pages/SupplyCatalog"));
+const InventoryCount = lazy(() => import("@/pages/InventoryCount"));
 const CashManagement = lazy(() => import("@/pages/CashManagement"));
 const MileageReport = lazy(() => import("@/pages/MileageReport"));
 const Timesheets = lazy(() => import("@/pages/Timesheets"));
@@ -371,6 +373,8 @@ function AuthenticatedApp() {
         <Route path="/gtd/someday" component={GTDSomeday} />
         <Route path="/gtd/review" component={WeeklyReview} />
         <Route path="/lean-board" component={LeanBoard} />
+        <Route path="/supply" component={SupplyCatalog} />
+        <Route path="/supply/count/:sessionId" component={InventoryCount} />
         <Route path="/cash">
           <ProtectedRoute allowAllAuthenticated><CashManagement /></ProtectedRoute>
         </Route>

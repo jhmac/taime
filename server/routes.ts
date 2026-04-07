@@ -55,6 +55,7 @@ import { registerKnowledgeRoutes } from "./routes/knowledge";
 import { registerAiLearningRoutes } from "./routes/aiLearning";
 import { registerTrainingPlayerRoutes } from "./routes/trainingPlayer";
 import { registerMorningMomentRoutes } from "./routes/morningMoment";
+import { registerSupplyRoutes } from "./routes/supply";
 import { startBackgroundInsightsCron, stopBackgroundInsightsCron } from "./services/backgroundInsights";
 import { startGamificationCron, stopGamificationCron } from "./services/gamificationCron";
 import { createActionLoggerMiddleware, handleClientErrorReport, getActionSummary } from "./services/actionLogger";
@@ -194,6 +195,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerAiLearningRoutes(app, storage, isAuthenticated);
   registerTrainingPlayerRoutes(app, storage, isAuthenticated);
   registerMorningMomentRoutes(app, storage, isAuthenticated);
+  registerSupplyRoutes(app, storage, isAuthenticated);
 
   const httpServer = createServer(app);
 
