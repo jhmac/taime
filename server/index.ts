@@ -129,31 +129,24 @@ app.use((req, res, next) => {
     }
   });
 
-  // Inject the Clerk publishable key (and build ID) into index.html at serve time.
-  // This eliminates the /api/clerk-key blocking round-trip by populating the meta
-  // tag synchronously before the browser reads it. Registered BEFORE setupVite /
-  // serveStatic so these routes take precedence over the respective catch-alls.
-  if (clerkPublishableKey) {
+  const isDev = app.get('env') === 'development';
+
+  // In production: inject the Clerk publishable key into index.html at serve time.
+  // This eliminates the /api/clerk-key blocking round-trip.
+  // In development: Vite handles HTML serving and transforms — we must NOT intercept
+  // HTML requests here or we bypass Vite's React Fast Refresh preamble injection.
+  if (!isDev && clerkPublishableKey) {
     const CLERK_META_PLACEHOLDER = `content="" id="clerk-publishable-key"`;
     const CLERK_META_FILLED = `content="${clerkPublishableKey}" data-build="${BUILD_ID}" id="clerk-publishable-key"`;
+    const htmlSourcePath = path.resolve(process.cwd(), 'dist', 'public', 'index.html');
 
-    function injectClerkKey(html: string): string {
-      return html.replace(CLERK_META_PLACEHOLDER, CLERK_META_FILLED);
-    }
-
-    const isDev = app.get('env') === 'development';
-    const htmlSourcePath = isDev
-      ? path.resolve(process.cwd(), 'client', 'index.html')
-      : path.resolve(process.cwd(), 'dist', 'public', 'index.html');
-
-    // Catch-all for all HTML (navigation) requests — must accept text/html
     app.use(async (req: Request, res: Response, next: NextFunction) => {
       if (req.method !== 'GET') return next();
       if (req.path.startsWith('/api') || req.path.startsWith('/uploads') || req.path === '/sw.js') return next();
       if (!req.headers.accept?.includes('text/html') && req.path !== '/') return next();
       try {
         let html = await fs.promises.readFile(htmlSourcePath, 'utf8');
-        html = injectClerkKey(html);
+        html = html.replace(CLERK_META_PLACEHOLDER, CLERK_META_FILLED);
         res.set('Content-Type', 'text/html; charset=utf-8').send(html);
       } catch {
         next();
@@ -164,7 +157,7 @@ app.use((req, res, next) => {
   // importantly only setup vite in development and after
   // setting up all the other routes so the catch-all route
   // doesn't interfere with the other routes
-  if (app.get("env") === "development") {
+  if (isDev) {
     await setupVite(app, server);
   } else {
     serveStatic(app);
