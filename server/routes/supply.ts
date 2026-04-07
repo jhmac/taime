@@ -21,28 +21,19 @@ async function isAdminOrManager(storage: IStorage, userId: string): Promise<bool
   return ["owner", "admin", "manager"].includes(user?.role?.name || "");
 }
 
-/**
- * Resolve the default admin assignee for reorder tasks.
- *
- * Tenant-scoping strategy (single-store app — Libby Story):
- * 1. If the requesting user is admin/manager/owner, use them directly (tightest scope).
- * 2. Otherwise find an active admin/manager/owner who has previously created an inventory
- *    count session for this specific store (store-scoped via subquery on createdBy).
- * 3. Fall back to any active admin/manager/owner in the system.
- * 4. Last resort: the requesting user (never returns null).
- */
+// Returns a non-null admin/manager/owner id to assign reorder tasks to.
+// Prefers: requestUser (if admin) → store-scoped admin → any active admin → requestUser.
 async function resolveAdminAssignee(
   storage: IStorage,
   requestUserId: string,
   storeId: string
 ): Promise<string> {
-  // Step 1 — requesting user is already a management role
   const reqUser = await storage.getUserWithRole(requestUserId);
   if (["owner", "admin", "manager"].includes(reqUser?.role?.name || "")) {
     return requestUserId;
   }
 
-  // Step 2 — admin who has been assigned a count session for this store (store-scoped)
+  // Prefer admins already associated with this store via session history
   const storeSessionAssignees = db
     .select({ userId: inventoryCountSessions.assignedTo })
     .from(inventoryCountSessions)
@@ -62,7 +53,7 @@ async function resolveAdminAssignee(
     .limit(1);
   if (storeAdmin) return storeAdmin.id;
 
-  // Step 3 — any active admin (single-store fallback)
+  // Fallback: any active admin in the system
   const [anyAdmin] = await db
     .select({ id: users.id })
     .from(users)
@@ -415,7 +406,14 @@ export function registerSupplyRoutes(app: Express, storage: IStorage, isAuthenti
 
       const storeId = session.storeId;
 
-      // Upsert entries and update supply items
+      // Authz: submitter must be the assigned counter or an admin/manager for this store
+      const submitterId = req.user?.id || req.auth?.userId;
+      const isAssignee = session.assignedTo === submitterId;
+      const submitterIsAdmin = await isAdminOrManager(storage, submitterId);
+      if (!isAssignee && !submitterIsAdmin) {
+        return res.status(403).json({ message: "Not authorized to submit this session" });
+      }
+
       const lowItems: Array<{ item: any; counted: number; needed: number }> = [];
 
       for (const count of counts) {
@@ -453,11 +451,8 @@ export function registerSupplyRoutes(app: Express, storage: IStorage, isAuthenti
         }
       }
 
-      // Auto-generate reorder tasks for low items.
-      // ALL reorder tasks (including local-pickup) default to the resolved admin assignee.
-      // This ensures no task is ever unassigned. Local-pickup tasks are also returned in a
-      // separate `localPickupTasks` list so the done-screen UI can offer an explicit
-      // reassignment step (the assignment gate) before the admin actions them.
+      // Generate reorder tasks; all default to admin. Local-pickup tasks are returned
+      // separately so admins can reassign them via the done-screen.
       const adminAssignee = await resolveAdminAssignee(storage, req.user.id, storeId);
       const reorderTasks: any[] = [];
       const localPickupTasks: any[] = [];
@@ -466,16 +461,15 @@ export function registerSupplyRoutes(app: Express, storage: IStorage, isAuthenti
         const isUrgent = counted <= item.safetyStock;
         const isLocalPickup = !!item.isLocalPickup;
 
-        const orderLine = item.orderUrl
+        // Always include supplier if known; add URL or pickup note as additional lines.
+        const supplierLine = item.supplierName ? `\nSupplier: ${item.supplierName}` : "";
+        const actionLine = item.orderUrl
           ? `\nOrder online: ${item.orderUrl}`
           : isLocalPickup
-          ? `\nLocal pickup needed — contact ${item.supplierName || "supplier"} to arrange in-store pickup.`
-          : item.supplierName
-          ? `\nSupplier: ${item.supplierName}`
+          ? `\nLocal pickup — arrange in-store with supplier.`
           : "";
+        const orderLine = supplierLine + actionLine;
 
-        // All tasks default to admin; local-pickup task assignment can be overridden by admin
-        // via the done-screen assignment gate (PATCH /api/supply/reorder-tasks/:taskId/assign).
         const taskAssignee = adminAssignee;
 
         const [task] = await db
@@ -519,7 +513,7 @@ export function registerSupplyRoutes(app: Express, storage: IStorage, isAuthenti
         lowItems: lowItems.length,
         reorderTasksCreated: reorderTasks.length + localPickupTasks.length,
         reorderTasks,
-        localPickupTasks, // Unassigned — UI must present assignment gate before actioning
+        localPickupTasks, // Admin-assigned by default; admin may reassign via done-screen
       });
     } catch (err: any) {
       logger.error({ error: err.message }, "[Supply] Failed to submit session");
