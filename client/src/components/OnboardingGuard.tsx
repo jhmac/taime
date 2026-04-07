@@ -28,7 +28,7 @@ export default function OnboardingGuard({ children }: OnboardingGuardProps) {
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const queryClient = useQueryClient();
 
-  const { data: status, isLoading: statusLoading } = useQuery<OnboardingStatus>({
+  const { data: status, isLoading: statusLoading, isError: statusError } = useQuery<OnboardingStatus>({
     queryKey: ["/api/onboarding/status"],
     enabled: isAuthenticated,
     staleTime: 30_000,
@@ -47,8 +47,14 @@ export default function OnboardingGuard({ children }: OnboardingGuardProps) {
 
   // Authenticated but onboarding status still resolving — BLOCK with spinner
   // This prevents the dashboard from flashing before we know if setup is needed
-  if (statusLoading || !status) {
+  if (statusLoading) {
     return <LoadingScreen />;
+  }
+
+  // If the status fetch failed, fall through to render the app rather than
+  // blocking the user indefinitely with an infinite spinner.
+  if (statusError || !status) {
+    return <>{children}</>;
   }
 
   // Owner/admin first login: no store exists yet → block with full-screen wizard

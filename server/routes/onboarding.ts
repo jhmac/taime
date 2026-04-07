@@ -135,22 +135,23 @@ export function registerOnboardingRoutes(app: Express, storage: IStorage, isAuth
         // Non-critical
       }
 
-      // Seed minimal company settings if not already present
+      // Upsert company settings with onboarding-collected data (name, timezone, contact)
+      const settingsPayload = {
+        companyName: body.name,
+        timezone: body.timezone,
+        overtimeThresholdHours: 40,
+        businessStartHour: 9,
+        businessEndHour: 18,
+        ...(body.phone ? { locationPhone: body.phone, companyPhone: body.phone } : {}),
+        updatedAt: new Date(),
+      };
       const [existingSettings] = await db.select().from(companySettings).limit(1);
       if (!existingSettings) {
-        await db.insert(companySettings).values({
-          companyName: body.name,
-          overtimeThresholdHours: 40,
-          businessStartHour: 9,
-          businessEndHour: 18,
-        }).onConflictDoNothing();
+        await db.insert(companySettings).values(settingsPayload).onConflictDoNothing();
       } else {
-        // Update company name if it's blank
-        if (!existingSettings.companyName) {
-          await db.update(companySettings)
-            .set({ companyName: body.name })
-            .where(eq(companySettings.id, existingSettings.id));
-        }
+        await db.update(companySettings)
+          .set(settingsPayload)
+          .where(eq(companySettings.id, existingSettings.id));
       }
 
       // Assign owner role to the creating user if they have no role yet
