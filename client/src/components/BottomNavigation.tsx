@@ -2,12 +2,12 @@ import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
-import { Home, Calendar, Users, MessageCircle, Settings, LayoutDashboard, Sparkles } from 'lucide-react';
+import { Home, Calendar, Users, MessageCircle, Settings, LayoutDashboard, Sparkles, type LucideIcon } from 'lucide-react';
 
 type NavItem = {
   path?: string;
   action?: () => void;
-  icon: React.ComponentType<{ className?: string; size?: number; strokeWidth?: number }>;
+  icon: LucideIcon;
   label: string;
   badge?: boolean;
   key: string;

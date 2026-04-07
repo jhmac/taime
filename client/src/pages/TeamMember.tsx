@@ -1401,7 +1401,7 @@ export default function TeamMember() {
                     {notes.map((note: any) => (
                       <div key={note.id} className="flex justify-between items-start">
                         <div>
-                          <p className="text-sm">{note.content}</p>
+                          <p className="text-sm">{note.note}</p>
                           <p className="text-xs text-muted-foreground mt-1">
                             {new Date(note.createdAt).toLocaleDateString("en-US", {
                               month: "short",
@@ -1412,7 +1412,7 @@ export default function TeamMember() {
                             })}
                           </p>
                         </div>
-                        {(note.authorId === currentUser?.id || isAdminRole) && (
+                        {(note.managerId === currentUser?.id || isAdminRole) && (
                           <Button
                             variant="ghost"
                             size="sm"

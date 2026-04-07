@@ -65,8 +65,8 @@ export function applyShiftOverlap(
   const adjustedShifts: ScheduleShift[] = [];
   const overlapBlocks: OverlapBlock[] = [];
 
-  for (const [date, dayShifts] of byDate) {
-    dayShifts.sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
+  for (const [date, dayShifts] of Array.from(byDate)) {
+    dayShifts.sort((a: ScheduleShift, b: ScheduleShift) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
 
     const uniqueBlocks = getUniqueShiftBlocks(dayShifts);
 

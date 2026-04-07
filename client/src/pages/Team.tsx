@@ -105,6 +105,8 @@ export default function Team() {
     },
   });
 
+  const isAdminRole = currentUser?.role?.name === 'owner' || currentUser?.role?.name === 'admin' || currentUser?.role?.name === 'manager';
+
   const { data: activeOffsiteSessions = [] } = useQuery<any[]>({
     queryKey: ["/api/offsite-sessions"],
     queryFn: async () => {
@@ -131,7 +133,6 @@ export default function Team() {
     enabled: !!currentUser,
   });
 
-  const isAdminRole = currentUser?.role?.name === 'owner' || currentUser?.role?.name === 'admin';
   const can = (perm: string) =>
     permissions?.some?.((p) => p.name === perm || p.name === "admin.manage_all") || isAdminRole || false;
 

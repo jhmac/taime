@@ -481,10 +481,12 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
         return res.status(400).json({ message: "Note content is required" });
       }
 
+      const { category = 'general' } = req.body;
       const [note] = await db.insert(managerNotes).values({
         userId,
-        authorId: currentUserId,
-        content: content.trim(),
+        managerId: currentUserId,
+        note: content.trim(),
+        category,
       }).returning();
 
       res.json(note);
@@ -504,7 +506,7 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
         return res.status(404).json({ message: "Note not found" });
       }
 
-      if (note.authorId !== currentUserId) {
+      if (note.managerId !== currentUserId) {
         const userPermissions = await storage.getUserPermissions(currentUserId);
         const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
         if (!isAdmin) {

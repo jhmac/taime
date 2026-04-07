@@ -1017,7 +1017,7 @@ export const insertAiFeedbackSchema = createInsertSchema(aiFeedback).omit({ id: 
 export const insertTrainingModuleSchema = createInsertSchema(trainingModules).omit({ id: true, createdAt: true });
 export const insertEmployeeTrainingProgressSchema = createInsertSchema(employeeTrainingProgress).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertCommuteAlertSchema = createInsertSchema(commuteAlerts).omit({ id: true, createdAt: true });
-export const insertShoutoutSchema = createInsertSchema(shoutouts).omit({ id: true, createdAt: true, reactions: true });
+export const insertShoutoutSchema = createInsertSchema(shoutouts).omit({ id: true, createdAt: true });
 export const insertAiSchedulingSettingsSchema = createInsertSchema(aiSchedulingSettings).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertWorkPatternTemplateSchema = createInsertSchema(workPatternTemplates).omit({ id: true, createdAt: true });
 export const insertUserWorkPatternSchema = createInsertSchema(userWorkPatterns).omit({ id: true, createdAt: true });
@@ -1030,6 +1030,7 @@ export const insertMileageReimbursementSchema = createInsertSchema(mileageReimbu
 
 // Chore assignment and sign-off schemas
 export const choreAssignmentSchema = z.object({
+  choreId: z.string().uuid(),
   userId: z.string().uuid(),
 });
 

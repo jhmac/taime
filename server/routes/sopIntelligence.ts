@@ -9,9 +9,10 @@ import logger from "../lib/logger";
 import { resolveStoreId } from "../lib/storeResolver";
 
 async function requireManagerOrAbove(storage: IStorage, userId: string): Promise<boolean> {
-  const user = await storage.getUser(userId);
+  const user = await storage.getUserWithRole(userId);
   if (!user) throw new Error("User not found");
-  return user.role === "admin" || user.role === "owner" || user.role === "manager";
+  const roleName = user.role?.name;
+  return roleName === "admin" || roleName === "owner" || roleName === "manager";
 }
 
 export function registerSOPIntelligenceRoutes(app: Express, storage: IStorage, isAuthenticated: any) {

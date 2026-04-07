@@ -210,7 +210,7 @@ class PayrollAutomationService {
     try {
       // Get all users assigned to this period
       const schedules = await storage.getSchedulesByPeriod(periodId);
-      const userIds = [...new Set(schedules.map(s => s.userId))];
+      const userIds = Array.from(new Set(schedules.map(s => s.userId)));
 
       // Send schedule notifications
       for (const userId of userIds) {

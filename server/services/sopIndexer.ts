@@ -189,7 +189,7 @@ export async function searchSOPs(storeId: string, query: string, topK: number = 
     }).from(sopSteps)
       .where(sql`${sopSteps.id} IN (${sql.join(stepIds.map((id: string) => sql`${id}`), sql`, `)})`);
 
-    const tIds = [...new Set(stepRows.map(s => s.templateId))];
+    const tIds = Array.from(new Set(stepRows.map(s => s.templateId)));
     if (tIds.length > 0) {
       const tRows = await db.select({
         id: sopTemplates.id,

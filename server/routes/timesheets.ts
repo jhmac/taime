@@ -326,7 +326,7 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
 
           // Detect no-shows: scheduled days with no time entries (skip resolved)
           const today = new Date().toISOString().split("T")[0];
-          for (const [dateKey, daySchedules] of userScheduleByDate.entries()) {
+          for (const [dateKey, daySchedules] of Array.from(userScheduleByDate.entries())) {
             if (dateKey >= today) continue; // Skip today and future
             if (dailyMap.has(dateKey)) continue; // Already has entries
             const noShowResolved = resolvedKeys.has(`${user.id}:${dateKey}:no_show`);

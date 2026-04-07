@@ -274,6 +274,7 @@ export interface IStorage {
   deleteUser(userId: string): Promise<void>;
   deactivateUser(userId: string): Promise<User>;
   updateUser(userId: string, updates: Partial<User>): Promise<User>;
+  updateUserPayRate(userId: string, hourlyRate: number): Promise<User>;
 
   // Holiday pay rules
   createHolidayPayRule(rule: InsertHolidayPayRule): Promise<HolidayPayRule>;
@@ -1810,11 +1811,6 @@ export class DatabaseStorage implements IStorage {
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(desc(offsiteSessions.exitTime))
       .limit(200);
-  }
-
-  async getOffsiteSession(id: string): Promise<OffsiteSession | undefined> {
-    const [session] = await db.select().from(offsiteSessions).where(eq(offsiteSessions.id, id));
-    return session;
   }
 
   async updateOffsiteSession(id: string, updates: Partial<OffsiteSession>): Promise<OffsiteSession> {

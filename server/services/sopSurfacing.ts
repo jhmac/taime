@@ -217,7 +217,7 @@ export async function getShiftHandoffSOPs(
   );
 
   const allIds = [clockingInUserId, ...otherActive.map(e => e.userId)];
-  const uniqueIds = [...new Set(allIds)];
+  const uniqueIds = Array.from(new Set(allIds));
   const userRows = uniqueIds.length > 0
     ? await db
         .select({ id: users.id, firstName: users.firstName, lastName: users.lastName })

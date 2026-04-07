@@ -241,7 +241,7 @@ export function registerVideoRoutes(
           )
         );
 
-      const authorIds = [...new Set(videos.map((v) => v.employeeId))];
+      const authorIds = Array.from(new Set(videos.map((v) => v.employeeId)));
       const authorRows = await db
         .select({ id: users.id, firstName: users.firstName, lastName: users.lastName, profileImageUrl: users.profileImageUrl })
         .from(users)
@@ -298,9 +298,9 @@ export function registerVideoRoutes(
         .orderBy(desc(videoComments.createdAt))
         .limit(200);
 
-      const commentAuthorIds = [...new Set(comments.map((c) => c.employeeId))];
+      const commentAuthorIds = Array.from(new Set(comments.map((c) => c.employeeId)));
       commentAuthorIds.push(video.employeeId);
-      const uniqueAuthorIds = [...new Set(commentAuthorIds)];
+      const uniqueAuthorIds = Array.from(new Set(commentAuthorIds));
 
       let authorMap = new Map<string, any>();
       if (uniqueAuthorIds.length > 0) {
