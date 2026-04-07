@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { db } from "../db";
-import { eq, and, desc, inArray } from "drizzle-orm";
+import { eq, and, desc, inArray, sql } from "drizzle-orm";
 import {
   supplyItems,
   inventoryCountSessions,
@@ -23,23 +23,53 @@ async function isAdminOrManager(storage: IStorage, userId: string): Promise<bool
 
 /**
  * Resolve the default admin assignee for reorder tasks.
- * Uses a single JOIN query scoped to users with a management role.
- * Falls back to the requesting user if no admin is found.
+ *
+ * Tenant-scoping strategy (single-store app — Libby Story):
+ * 1. If the requesting user is admin/manager/owner, use them directly (tightest scope).
+ * 2. Otherwise find an active admin/manager/owner who has previously created an inventory
+ *    count session for this specific store (store-scoped via subquery on createdBy).
+ * 3. Fall back to any active admin/manager/owner in the system.
+ * 4. Last resort: the requesting user (never returns null).
  */
-async function resolveAdminAssignee(storage: IStorage, requestUserId: string): Promise<string> {
-  // If the requesting user is already admin/manager/owner, use them directly
+async function resolveAdminAssignee(
+  storage: IStorage,
+  requestUserId: string,
+  storeId: string
+): Promise<string> {
+  // Step 1 — requesting user is already a management role
   const reqUser = await storage.getUserWithRole(requestUserId);
   if (["owner", "admin", "manager"].includes(reqUser?.role?.name || "")) {
     return requestUserId;
   }
-  // Find first admin/owner/manager via a single scoped JOIN (no broad user table scan)
-  const [adminUser] = await db
+
+  // Step 2 — admin who has been assigned a count session for this store (store-scoped)
+  const storeSessionAssignees = db
+    .select({ userId: inventoryCountSessions.assignedTo })
+    .from(inventoryCountSessions)
+    .where(eq(inventoryCountSessions.storeId, storeId));
+
+  const [storeAdmin] = await db
     .select({ id: users.id })
     .from(users)
     .innerJoin(roles, eq(users.roleId, roles.id))
-    .where(inArray(roles.name, ["owner", "admin", "manager"]))
+    .where(
+      and(
+        inArray(roles.name, ["owner", "admin", "manager"]),
+        eq(users.isActive, true),
+        sql`${users.id} IN (${storeSessionAssignees})`
+      )
+    )
     .limit(1);
-  return adminUser?.id ?? requestUserId;
+  if (storeAdmin) return storeAdmin.id;
+
+  // Step 3 — any active admin (single-store fallback)
+  const [anyAdmin] = await db
+    .select({ id: users.id })
+    .from(users)
+    .innerJoin(roles, eq(users.roleId, roles.id))
+    .where(and(inArray(roles.name, ["owner", "admin", "manager"]), eq(users.isActive, true)))
+    .limit(1);
+  return anyAdmin?.id ?? requestUserId;
 }
 
 export function registerSupplyRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
@@ -383,6 +413,8 @@ export function registerSupplyRoutes(app: Express, storage: IStorage, isAuthenti
 
       if (!session) return res.status(404).json({ message: "Session not found" });
 
+      const storeId = session.storeId;
+
       // Upsert entries and update supply items
       const lowItems: Array<{ item: any; counted: number; needed: number }> = [];
 
@@ -422,10 +454,11 @@ export function registerSupplyRoutes(app: Express, storage: IStorage, isAuthenti
       }
 
       // Auto-generate reorder tasks for low items.
-      // - Online/unspecified items → assigned to admin (deterministic via resolveAdminAssignee)
-      // - Local-pickup items → created unassigned (assignedTo: null); returned in a separate
-      //   localPickupTasks list so the UI can present an explicit assignment gate before finalization.
-      const adminAssignee = await resolveAdminAssignee(storage, req.user.id);
+      // ALL reorder tasks (including local-pickup) default to the resolved admin assignee.
+      // This ensures no task is ever unassigned. Local-pickup tasks are also returned in a
+      // separate `localPickupTasks` list so the done-screen UI can offer an explicit
+      // reassignment step (the assignment gate) before the admin actions them.
+      const adminAssignee = await resolveAdminAssignee(storage, req.user.id, storeId);
       const reorderTasks: any[] = [];
       const localPickupTasks: any[] = [];
 
@@ -441,9 +474,9 @@ export function registerSupplyRoutes(app: Express, storage: IStorage, isAuthenti
           ? `\nSupplier: ${item.supplierName}`
           : "";
 
-        // Local-pickup reorder tasks are left unassigned so a manager can explicitly assign
-        // before the task is actioned. Online-order tasks are auto-assigned to admin.
-        const taskAssignee = isLocalPickup ? null : adminAssignee;
+        // All tasks default to admin; local-pickup task assignment can be overridden by admin
+        // via the done-screen assignment gate (PATCH /api/supply/reorder-tasks/:taskId/assign).
+        const taskAssignee = adminAssignee;
 
         const [task] = await db
           .insert(tasks)
