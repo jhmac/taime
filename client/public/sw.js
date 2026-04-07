@@ -1,4 +1,10 @@
-const CACHE_NAME = 'taime-v3.1.0';
+// BUILD_ID is injected at serve time by the Express middleware.
+// It is stable for the lifetime of a running server process (set to
+// Date.now() at server startup, not at runtime here). This means every
+// deploy produces a new BUILD_ID, busting old caches on the next install,
+// while a running server always serves the same consistent BUILD_ID.
+const BUILD_ID = '__BUILD_ID__';
+const CACHE_NAME = 'taime-' + BUILD_ID;
 const STATIC_CACHE_URLS = [
   '/manifest.json',
   '/icon-192x192.png',
@@ -69,6 +75,7 @@ const OFFLINE_POST_PATHS = [
 ];
 
 self.addEventListener('install', (event) => {
+  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then((cache) => {

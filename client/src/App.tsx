@@ -138,7 +138,7 @@ function ProtectedRoute({ children, permission, allowAllAuthenticated }: { child
     retry: 2,
     retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
     staleTime: 5 * 60 * 1000,
-    gcTime: 10 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
   });
 
   const [loadingTimedOut, setLoadingTimedOut] = useState(false);
@@ -469,11 +469,24 @@ function PWAUpdateWatcher() {
 
 initGlobalErrorHandlers();
 
+function getClerkKeyFromMeta(): string | null {
+  try {
+    const el = document.getElementById('clerk-publishable-key') as HTMLMetaElement | null;
+    const key = el?.getAttribute('content');
+    return key && key.length > 0 ? key : null;
+  } catch {
+    return null;
+  }
+}
+
 function App() {
-  const [clerkKey, setClerkKey] = useState<string | null>(null);
+  const metaKey = getClerkKeyFromMeta();
+  const [clerkKey, setClerkKey] = useState<string | null>(metaKey);
   const [clerkError, setClerkError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (clerkKey) return;
+
     let cancelled = false;
     const MAX_RETRIES = 3;
     const TIMEOUT_MS = 10000;
@@ -512,7 +525,7 @@ function App() {
 
     fetchClerkKey();
     return () => { cancelled = true; };
-  }, []);
+  }, [clerkKey]);
 
   if (clerkError) {
     return (

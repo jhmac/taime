@@ -4,8 +4,99 @@ import { db } from "../db";
 import { schedules, timeEntries, shopifyDailySales, userShops, users } from "@shared/schema";
 import { eq, and, gte, lte, desc } from "drizzle-orm";
 import { cache } from "../lib/cache";
+import { gamificationService } from "../services/gamificationService";
 
 export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
+
+  /**
+   * GET /api/dashboard/init
+   * Returns all first-render data in a single round-trip to reduce dashboard load waterfall.
+   * Includes: current user with role, active time entry, permissions, company settings,
+   * and (for employees) gamification score, (for managers/owners) today's summary.
+   */
+  app.get('/api/dashboard/init', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId: string = req.user.id;
+
+      const [userWithRole, activeTimeEntry, permissions, companySettings] = await Promise.all([
+        storage.getUserWithRole(userId),
+        storage.getActiveTimeEntry(userId),
+        storage.getUserPermissions(userId),
+        storage.getCompanySettings(),
+      ]);
+
+      const role = userWithRole?.role?.name;
+      const isEmployee = role !== 'owner' && role !== 'admin';
+      const isManagerOrOwner = role === 'owner' || role === 'admin';
+
+      let gamificationScore: { overallScore: number; tier: string } | null = null;
+      let todaySummary: {
+        totalClockedIn: number;
+        totalScheduled: number;
+        activeEntries: any[];
+      } | null = null;
+
+      if (isEmployee) {
+        try {
+          const myScore = await gamificationService.computeUserScore(userId);
+          gamificationScore = {
+            overallScore: myScore.overallScore,
+            tier: myScore.tier,
+          };
+        } catch {
+          // non-fatal — gamification score is optional for first render
+        }
+      }
+
+      if (isManagerOrOwner) {
+        try {
+          const now = new Date();
+          const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+          const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
+          const [todayTimeEntries, todaySchedules] = await Promise.all([
+            db.select({
+              id: timeEntries.id,
+              userId: timeEntries.userId,
+              clockInTime: timeEntries.clockInTime,
+              clockOutTime: timeEntries.clockOutTime,
+            }).from(timeEntries).where(gte(timeEntries.clockInTime, startOfDay)),
+            db.select({ id: schedules.id }).from(schedules).where(and(
+              gte(schedules.startTime, startOfDay),
+              lte(schedules.startTime, endOfDay),
+            )),
+          ]);
+
+          const activeEntries = todayTimeEntries.filter(te => !te.clockOutTime);
+
+          todaySummary = {
+            totalClockedIn: activeEntries.length,
+            totalScheduled: todaySchedules.length,
+            activeEntries: activeEntries.map(te => ({
+              id: te.id,
+              userId: te.userId,
+              clockInTime: te.clockInTime,
+            })),
+          };
+        } catch {
+          // non-fatal — today summary is optional for first render
+        }
+      }
+
+      res.json({
+        user: userWithRole,
+        activeTimeEntry: activeTimeEntry ?? null,
+        permissions,
+        companySettings: companySettings ?? null,
+        gamificationScore,
+        todaySummary,
+      });
+    } catch (error) {
+      console.error("Error fetching dashboard init data:", error);
+      res.status(500).json({ message: "Failed to fetch dashboard init data" });
+    }
+  });
+
   app.get('/api/dashboard/today', isAuthenticated, async (req: any, res) => {
     try {
       const now = new Date();

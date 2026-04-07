@@ -1,5 +1,5 @@
 import { db } from '../db';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, inArray } from 'drizzle-orm';
 import { sopTemplates, sopSteps, workLocations } from '@shared/schema';
 import logger from '../lib/logger';
 
@@ -56,18 +56,23 @@ export async function seedShiftHandoffSOP(): Promise<void> {
 
     if (stores.length === 0) return;
 
-    for (const store of stores) {
-      const existing = await db.select({ id: sopTemplates.id })
-        .from(sopTemplates)
-        .where(and(
-          eq(sopTemplates.storeId, store.id),
-          eq(sopTemplates.category, 'shift_handoff'),
-          eq(sopTemplates.isActive, true)
-        ))
-        .limit(1);
+    const storeIds = stores.map(s => s.id);
 
-      if (existing.length > 0) continue;
+    // Single batch query: find all stores that already have a shift_handoff SOP template
+    const existing = await db.select({ storeId: sopTemplates.storeId })
+      .from(sopTemplates)
+      .where(and(
+        inArray(sopTemplates.storeId, storeIds),
+        eq(sopTemplates.category, 'shift_handoff'),
+        eq(sopTemplates.isActive, true)
+      ));
 
+    const storesWithSOP = new Set(existing.map(r => r.storeId));
+    const storesMissingSOP = stores.filter(s => !storesWithSOP.has(s.id));
+
+    if (storesMissingSOP.length === 0) return;
+
+    for (const store of storesMissingSOP) {
       const [template] = await db.insert(sopTemplates).values({
         storeId: store.id,
         title: "Shift Handoff Protocol",

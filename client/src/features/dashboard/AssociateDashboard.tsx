@@ -44,14 +44,34 @@ export default function AssociateDashboard() {
 
   const dateStr = currentTime.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
 
+  // Critical: pre-hydrated by DashboardRouter from /api/dashboard/init
   const { data: activeTimeEntry } = useQuery<TimeEntry | null>({
     queryKey: ['/api/time-entries/active'],
     refetchInterval: 30000,
   });
   const isClockedIn = !!activeTimeEntry;
 
+  // Gamification score — pre-hydrated from init, staleTime 5 minutes
+  const { data: scoreData } = useQuery<{ overallScore: number; tier: string }>({
+    queryKey: ['/api/gamification/my-score'],
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // Defer non-critical list queries until after first paint
+  const [deferredEnabled, setDeferredEnabled] = useState(false);
+  useEffect(() => {
+    const enable = () => setDeferredEnabled(true);
+    if (typeof (window as Window & typeof globalThis).requestIdleCallback === 'function') {
+      const id = (window as Window & typeof globalThis).requestIdleCallback(enable);
+      return () => (window as Window & typeof globalThis).cancelIdleCallback(id);
+    }
+    const id = setTimeout(enable, 200);
+    return () => clearTimeout(id);
+  }, []);
+
   const { data: tasks = [], isLoading: tasksLoading } = useQuery<Task[]>({
     queryKey: ['/api/tasks'],
+    enabled: deferredEnabled,
   });
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const todayEnd = new Date(today); todayEnd.setHours(23, 59, 59, 999);
@@ -66,14 +86,9 @@ export default function AssociateDashboard() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['/api/tasks'] }),
   });
 
-  const { data: sopExecutionsRaw = [] } = useQuery<any>({ queryKey: ['/api/sops/executions'] });
+  const { data: sopExecutionsRaw = [] } = useQuery<any>({ queryKey: ['/api/sops/executions'], enabled: deferredEnabled });
   const sopExecutions = Array.isArray(sopExecutionsRaw) ? sopExecutionsRaw : (sopExecutionsRaw?.data || []);
   const inProgressExecutions = sopExecutions.filter((e: any) => e.status === 'in_progress' && e.employeeId === user?.id);
-
-  const { data: scoreData } = useQuery<{ overallScore: number; tier: string }>({
-    queryKey: ['/api/gamification/my-score'],
-    staleTime: 5 * 60 * 1000,
-  });
 
   const { data: unreadData } = useQuery<{ success: boolean; data: { count: number } }>({
     queryKey: ['/api/messages/unread-count'],

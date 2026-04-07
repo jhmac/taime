@@ -37,34 +37,60 @@ export default function OwnerDashboard() {
     return () => clearInterval(timer);
   }, []);
 
+  // Pre-hydrated by DashboardRouter from /api/dashboard/init — no network request on first render
+  const { data: todaySummary } = useQuery<{ totalClockedIn: number; totalScheduled: number; activeEntries: any[] } | null>({
+    queryKey: ['/api/dashboard/today-summary'],
+    staleTime: 60 * 1000,
+    enabled: false,
+  });
+
+  // Defer non-critical list queries until after first paint
+  const [deferredEnabled, setDeferredEnabled] = useState(false);
+  useEffect(() => {
+    const enable = () => setDeferredEnabled(true);
+    if (typeof (window as Window & typeof globalThis).requestIdleCallback === 'function') {
+      const id = (window as Window & typeof globalThis).requestIdleCallback(enable);
+      return () => (window as Window & typeof globalThis).cancelIdleCallback(id);
+    }
+    const id = setTimeout(enable, 200);
+    return () => clearTimeout(id);
+  }, []);
+
   const { data: analyticsData, isLoading: analyticsLoading } = useQuery<any>({
     queryKey: ['/api/analytics/dashboard'],
+    enabled: deferredEnabled,
   });
 
   const { data: shopifyData, isLoading: shopifyLoading } = useQuery<any>({
     queryKey: ['/api/shopify/sales-data'],
+    enabled: deferredEnabled,
   });
 
   const { data: dashboardToday, isLoading: dashboardLoading } = useQuery<any>({
     queryKey: ['/api/dashboard/today'],
+    enabled: deferredEnabled,
   });
 
   const { data: sopExecutionsRaw, isLoading: sopsLoading } = useQuery<any>({
     queryKey: ['/api/sops/executions'],
+    enabled: deferredEnabled,
   });
   const sopExecutions = Array.isArray(sopExecutionsRaw) ? sopExecutionsRaw : (sopExecutionsRaw?.data || []);
 
   const { data: issuesRaw, isLoading: issuesLoading } = useQuery<any>({
     queryKey: ['/api/issues'],
+    enabled: deferredEnabled,
   });
   const issues = Array.isArray(issuesRaw) ? issuesRaw : (issuesRaw?.data || []);
 
   const { data: tasks, isLoading: tasksLoading } = useQuery<any[]>({
     queryKey: ['/api/tasks'],
+    enabled: deferredEnabled,
   });
 
   const { data: improvementVideos } = useQuery<any[]>({
     queryKey: ['/api/improvement-videos'],
+    enabled: deferredEnabled,
   });
 
   const getGreeting = () => {

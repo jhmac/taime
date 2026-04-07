@@ -201,6 +201,7 @@ export const tasks = pgTable("tasks", {
 }, (table) => [
   index("idx_tasks_assigned_to").on(table.assignedTo),
   index("idx_tasks_due_date").on(table.dueDate),
+  index("idx_tasks_assigned_created").on(table.assignedTo, table.createdAt),
 ]);
 
 // Chat groups for group messaging

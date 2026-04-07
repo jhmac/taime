@@ -1,6 +1,7 @@
 import express, { type Request, Response, NextFunction } from "express";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
+import fs from "fs";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { config } from "./lib/config";
@@ -64,13 +65,6 @@ app.use('/uploads/videos', express.static(path.resolve(process.cwd(), 'uploads',
 }));
 
 app.use((req, res, next) => {
-  if (!req.path.startsWith('/api') && req.method === 'GET') {
-    res.setHeader('Clear-Site-Data', '"cache"');
-  }
-  next();
-});
-
-app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
   let capturedJsonResponse: Record<string, any> | undefined = undefined;
@@ -109,6 +103,64 @@ app.use((req, res, next) => {
 
   app.use(globalErrorHandler);
 
+  // Stable build identifier used for SW cache versioning.
+  // Derived from server start time: constant for the lifetime of this process,
+  // changes on each deploy/restart so the SW cache name rotates per deploy.
+  const BUILD_ID = String(Date.now());
+  const clerkPublishableKey = config.clerk.publishableKey || '';
+
+  // Serve sw.js via a dedicated route so we can do deterministic string
+  // replacement. We CANNOT rely on res.send/res.end monkey-patching because
+  // express.static and sendFile bypass those via res.write streaming.
+  const swSourcePath = path.resolve(process.cwd(), 'client', 'public', 'sw.js');
+  app.get('/sw.js', async (_req: Request, res: Response) => {
+    try {
+      let swContent = await fs.promises.readFile(swSourcePath, 'utf8');
+      swContent = swContent.replace(`'__BUILD_ID__'`, `'${BUILD_ID}'`);
+      res.set({
+        'Content-Type': 'application/javascript; charset=utf-8',
+        'Service-Worker-Allowed': '/',
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+      });
+      res.send(swContent);
+    } catch (err) {
+      console.error('[sw.js] Failed to read service worker source:', err);
+      res.status(500).send('// Service worker unavailable');
+    }
+  });
+
+  // Inject the Clerk publishable key (and build ID) into index.html at serve time.
+  // This eliminates the /api/clerk-key blocking round-trip by populating the meta
+  // tag synchronously before the browser reads it. Registered BEFORE setupVite /
+  // serveStatic so these routes take precedence over the respective catch-alls.
+  if (clerkPublishableKey) {
+    const CLERK_META_PLACEHOLDER = `content="" id="clerk-publishable-key"`;
+    const CLERK_META_FILLED = `content="${clerkPublishableKey}" data-build="${BUILD_ID}" id="clerk-publishable-key"`;
+
+    function injectClerkKey(html: string): string {
+      return html.replace(CLERK_META_PLACEHOLDER, CLERK_META_FILLED);
+    }
+
+    const isDev = app.get('env') === 'development';
+    const htmlSourcePath = isDev
+      ? path.resolve(process.cwd(), 'client', 'index.html')
+      : path.resolve(process.cwd(), 'dist', 'public', 'index.html');
+
+    // Catch-all for all HTML (navigation) requests — must accept text/html
+    app.use(async (req: Request, res: Response, next: NextFunction) => {
+      if (req.method !== 'GET') return next();
+      if (req.path.startsWith('/api') || req.path.startsWith('/uploads') || req.path === '/sw.js') return next();
+      if (!req.headers.accept?.includes('text/html') && req.path !== '/') return next();
+      try {
+        let html = await fs.promises.readFile(htmlSourcePath, 'utf8');
+        html = injectClerkKey(html);
+        res.set('Content-Type', 'text/html; charset=utf-8').send(html);
+      } catch {
+        next();
+      }
+    });
+  }
+
   // importantly only setup vite in development and after
   // setting up all the other routes so the catch-all route
   // doesn't interfere with the other routes
@@ -129,6 +181,9 @@ app.use((req, res, next) => {
     reusePort: true,
   }, () => {
     log(`serving on port ${port}`);
+
+    // Stagger background job startup so they don't all hit the DB and AI APIs
+    // simultaneously when the server is also handling the first user requests.
     startRitualScheduler();
     backfillLegacyUserRoles();
     backfillInactiveAuthenticatedUsers();

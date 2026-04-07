@@ -48,20 +48,44 @@ export default function ManagerDashboard() {
     return () => clearInterval(timer);
   }, []);
 
-  const { data: timeEntries } = useQuery<any[]>({ queryKey: ['/api/time-entries'] });
-  const { data: users } = useQuery<any[]>({ queryKey: ['/api/users'] });
-  const { data: schedules } = useQuery<any[]>({ queryKey: ['/api/schedules'] });
-  const { data: tasks, isLoading: tasksLoading } = useQuery<any[]>({ queryKey: ['/api/tasks'] });
-  const { data: issuesRaw, isLoading: issuesLoading } = useQuery<any>({ queryKey: ['/api/issues'] });
+  // Pre-hydrated by DashboardRouter from /api/dashboard/init — no network request on first render
+  const { data: todaySummary } = useQuery<{ totalClockedIn: number; totalScheduled: number; activeEntries: any[] } | null>({
+    queryKey: ['/api/dashboard/today-summary'],
+    staleTime: 60 * 1000,
+    enabled: false,
+  });
+
+  // Defer non-critical list queries until after first paint so the initial
+  // render uses only the pre-hydrated /api/dashboard/init data (1-2 requests).
+  const [deferredEnabled, setDeferredEnabled] = useState(false);
+  useEffect(() => {
+    const enable = () => setDeferredEnabled(true);
+    if (typeof (window as Window & typeof globalThis).requestIdleCallback === 'function') {
+      const id = (window as Window & typeof globalThis).requestIdleCallback(enable);
+      return () => (window as Window & typeof globalThis).cancelIdleCallback(id);
+    }
+    const id = setTimeout(enable, 200);
+    return () => clearTimeout(id);
+  }, []);
+
+  const { data: timeEntries } = useQuery<any[]>({ queryKey: ['/api/time-entries'], enabled: deferredEnabled });
+  const { data: users } = useQuery<any[]>({ queryKey: ['/api/users'], enabled: deferredEnabled });
+  const { data: schedules } = useQuery<any[]>({ queryKey: ['/api/schedules'], enabled: deferredEnabled });
+  const { data: tasks, isLoading: tasksLoading } = useQuery<any[]>({ queryKey: ['/api/tasks'], enabled: deferredEnabled });
+  const { data: issuesRaw, isLoading: issuesLoading } = useQuery<any>({ queryKey: ['/api/issues'], enabled: deferredEnabled });
   const issues = Array.isArray(issuesRaw) ? issuesRaw : (issuesRaw?.data || []);
-  const { data: sopExecutionsRaw, isLoading: sopsLoading } = useQuery<any>({ queryKey: ['/api/sops/executions'] });
+  const { data: sopExecutionsRaw, isLoading: sopsLoading } = useQuery<any>({ queryKey: ['/api/sops/executions'], enabled: deferredEnabled });
   const sopExecutions = Array.isArray(sopExecutionsRaw) ? sopExecutionsRaw : (sopExecutionsRaw?.data || []);
-  const { data: huddleData } = useQuery<any>({ queryKey: ['/api/rituals/huddle/today'] });
+  const { data: huddleData } = useQuery<any>({ queryKey: ['/api/rituals/huddle/today'], enabled: deferredEnabled });
 
   const today = new Date();
   const todayStr = today.toDateString();
 
-  const activeEntries = (timeEntries || []).filter((e: any) => !e.clockOutTime);
+  // Prefer pre-hydrated summary stats (from /api/dashboard/init), fall back to
+  // computed values once the full list queries arrive.
+  const activeEntries = todaySummary?.activeEntries ?? (timeEntries || []).filter((e: any) => !e.clockOutTime);
+  const totalClockedIn = todaySummary?.totalClockedIn ?? activeEntries.length;
+  const totalScheduled = todaySummary?.totalScheduled ?? (schedules || []).filter((s: any) => new Date(s.startTime).toDateString() === todayStr).length;
   const totalEmployees = (users || []).length;
   const todaySchedules = (schedules || []).filter((s: any) => new Date(s.startTime).toDateString() === todayStr);
   const todayTasks = (tasks || []).filter((t: any) => new Date(t.createdAt).toDateString() === todayStr);
@@ -150,7 +174,7 @@ export default function ManagerDashboard() {
                     <UserCheck className="h-5 w-5 text-green-600 dark:text-green-400" />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-2xl font-bold">{activeEntries.length}</p>
+                    <p className="text-2xl font-bold">{totalClockedIn}</p>
                     <p className="text-xs text-muted-foreground truncate">Clocked In</p>
                   </div>
                 </div>
@@ -176,7 +200,7 @@ export default function ManagerDashboard() {
                     <CalendarDays className="h-5 w-5 text-amber-600 dark:text-amber-400" />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-2xl font-bold">{todaySchedules.length}</p>
+                    <p className="text-2xl font-bold">{totalScheduled}</p>
                     <p className="text-xs text-muted-foreground truncate">Shifts Today</p>
                   </div>
                 </div>

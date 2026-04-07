@@ -1,9 +1,11 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
-import { insertOffsiteAllowanceRuleSchema, type InsertOffsiteAllowanceRule } from "@shared/schema";
+import { insertOffsiteAllowanceRuleSchema, type InsertOffsiteAllowanceRule, offsiteAllowanceRules } from "@shared/schema";
 import { config } from "../lib/config";
 import { processOffsiteBreadcrumb } from "../services/routeTrackingService";
 import { postMileageReimbursement } from "../services/mileageReimbursementService";
+import { db } from "../db";
+import { inArray, eq } from "drizzle-orm";
 
 export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
   app.get('/api/offsite-rules', isAuthenticated, async (req: any, res) => {
@@ -431,12 +433,19 @@ export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAu
       const allUsers = await storage.getAllUsers();
       const userMap = new Map(allUsers.map(u => [u.id, u]));
 
-      const enriched = await Promise.all(sessions.map(async (session) => {
-        const employee = userMap.get(session.userId);
-        let rule = null;
-        if (session.ruleId) {
-          rule = await storage.getOffsiteRule(session.ruleId);
+      // Batch-fetch all needed offsite rules in a single query (fixes N+1)
+      const ruleIds = [...new Set(sessions.map(s => s.ruleId).filter((id): id is string => !!id))];
+      const rulesMap = new Map<string, any>();
+      if (ruleIds.length > 0) {
+        const rules = await db.select().from(offsiteAllowanceRules).where(inArray(offsiteAllowanceRules.id, ruleIds));
+        for (const rule of rules) {
+          rulesMap.set(rule.id, rule);
         }
+      }
+
+      const enriched = sessions.map((session) => {
+        const employee = userMap.get(session.userId);
+        const rule = session.ruleId ? rulesMap.get(session.ruleId) ?? null : null;
         const mileageRateCents = rule?.mileageRateCents ?? 0;
         const totalDistanceMiles = session.totalDistanceMiles ? parseFloat(String(session.totalDistanceMiles)) : 0;
         const computedReimbursementCents = mileageRateCents > 0 && totalDistanceMiles > 0
@@ -453,7 +462,7 @@ export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAu
           computedReimbursementCents,
           mileageRateCents,
         };
-      }));
+      });
 
       res.json(enriched);
     } catch (error) {

@@ -239,15 +239,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   startHeartbeat();
-  startSurfacingCron(broadcastToAll);
-  startMiddayPulseCron(broadcastToAll);
-  startWeeklyReviewCron();
-  startLeanBoardCron();
-  startSOPInsightsCron();
-  startSOPEvolutionCron();
-  startBackgroundInsightsCron();
-  startGamificationCron();
-  seedShiftHandoffSOP().catch(err => logger.error({ error: err.message }, 'Handoff SOP seed failed'));
+
+  // Stagger cron job startup to avoid DB and AI API spikes during initial user requests.
+  const staggered = [
+    { fn: () => startSurfacingCron(broadcastToAll), label: 'SOP Surfacing', delay: 5_000 },
+    { fn: () => startMiddayPulseCron(broadcastToAll), label: 'Midday Pulse', delay: 15_000 },
+    { fn: () => startWeeklyReviewCron(), label: 'Weekly Review', delay: 25_000 },
+    { fn: () => startLeanBoardCron(), label: 'Lean Board', delay: 35_000 },
+    { fn: () => startSOPInsightsCron(), label: 'SOP Insights', delay: 45_000 },
+    { fn: () => startSOPEvolutionCron(), label: 'SOP Evolution', delay: 55_000 },
+    { fn: () => startBackgroundInsightsCron(), label: 'Background Insights', delay: 65_000 },
+    { fn: () => startGamificationCron(), label: 'Gamification', delay: 75_000 },
+    {
+      fn: () => seedShiftHandoffSOP().catch(err => logger.error({ error: err.message }, 'Handoff SOP seed failed')),
+      label: 'Shift Handoff Seed',
+      delay: 10_000,
+    },
+  ];
+
+  for (const { fn, label, delay } of staggered) {
+    setTimeout(() => {
+      try {
+        fn();
+        logger.info({ service: label }, 'background service started');
+      } catch (err: any) {
+        logger.error({ service: label, error: err.message }, 'background service failed to start');
+      }
+    }, delay);
+  }
 
   function gracefulShutdown() {
     logger.info("ws: graceful shutdown initiated");
