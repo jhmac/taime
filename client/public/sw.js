@@ -1,10 +1,8 @@
-const CACHE_NAME = 'taime-v3.0.0';
+const CACHE_NAME = 'taime-v3.1.0';
 const STATIC_CACHE_URLS = [
   '/manifest.json',
   '/icon-192x192.png',
-  '/icon-512x512.png',
-  'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap',
-  'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css'
+  '/icon-512x512.png'
 ];
 
 const DB_NAME = 'taime-offline';
@@ -73,8 +71,18 @@ const OFFLINE_POST_PATHS = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then((cache) => cache.addAll(STATIC_CACHE_URLS))
-      .then(() => self.skipWaiting())
+      .then((cache) => {
+        return Promise.allSettled(
+          STATIC_CACHE_URLS.map(url => cache.add(url).catch(() => {}))
+        );
+      })
+      .then(() => {
+        return fetch('/').then((resp) => {
+          if (resp.ok) {
+            return caches.open(CACHE_NAME).then((cache) => cache.put('/', resp));
+          }
+        }).catch(() => {});
+      })
   );
 });
 
@@ -91,11 +99,6 @@ self.addEventListener('activate', (event) => {
         );
       })
       .then(() => self.clients.claim())
-      .then(() => {
-        return self.clients.matchAll({ type: 'window' }).then((clients) => {
-          clients.forEach((client) => client.navigate(client.url));
-        });
-      })
   );
 });
 
@@ -128,6 +131,7 @@ self.addEventListener('fetch', (event) => {
   }
 
   if (request.method !== 'GET') return;
+
   if (url.origin !== location.origin) return;
 
   if (url.pathname.startsWith('/api/')) {
@@ -166,6 +170,23 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  if (request.headers.get('accept')?.includes('text/html')) {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (!response || response.status !== 200) return response;
+          const responseToCache = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, responseToCache));
+          return response;
+        })
+        .catch(() => {
+          return caches.match(request)
+            .then((r) => r || caches.match('/'));
+        })
+    );
+    return;
+  }
+
   event.respondWith(
     caches.match(request)
       .then((response) => {
@@ -177,11 +198,7 @@ self.addEventListener('fetch', (event) => {
             caches.open(CACHE_NAME).then((cache) => cache.put(request, responseToCache));
             return response;
           })
-          .catch(() => {
-            if (request.headers.get('accept')?.includes('text/html')) {
-              return caches.match('/');
-            }
-          });
+          .catch(() => {});
       })
   );
 });
@@ -194,7 +211,7 @@ self.addEventListener('push', (event) => {
     const options = {
       body: data.body,
       icon: data.icon || '/icon-192x192.png',
-      badge: data.badge || '/badge-72x72.png',
+      badge: data.badge || '/icon-72x72.png',
       data: data.data || {},
       actions: data.actions || [],
       tag: data.data?.type || 'general',
@@ -209,7 +226,7 @@ self.addEventListener('push', (event) => {
       self.registration.showNotification('Taime', {
         body: 'You have a new notification',
         icon: '/icon-192x192.png',
-        badge: '/badge-72x72.png'
+        badge: '/icon-72x72.png'
       })
     );
   }

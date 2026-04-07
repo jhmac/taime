@@ -1,4 +1,4 @@
-import { useState, useEffect, Component, type ReactNode, type ErrorInfo } from "react";
+import { useState, useEffect, lazy, Suspense, Component, type ReactNode, type ErrorInfo } from "react";
 import { Switch, Route, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
@@ -8,6 +8,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
 import { initGlobalErrorHandlers } from "./lib/errorReporter";
 import Layout from "@/components/Layout";
+import { usePWAUpdate } from "@/hooks/usePWAUpdate";
+import PWAInstallPrompt from "@/components/PWAInstallPrompt";
 
 class AppErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: Error | null }> {
   constructor(props: { children: ReactNode }) {
@@ -52,71 +54,80 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { hasError: bo
     return this.props.children;
   }
 }
-import Landing from "@/pages/Landing";
-import DashboardRouter from "@/features/dashboard/DashboardRouter";
-import Operations from "@/pages/Operations";
-import Communication from "@/pages/Communication";
-import HR from "@/pages/HR";
-import RoleManagement from "@/pages/RoleManagement";
-import ScheduleManagement from "@/pages/ScheduleManagement";
-import Team from "@/pages/Team";
-import TeamMember from "@/pages/TeamMember";
-import Availability from "@/pages/Availability";
-import PayPeriodManagement from "@/pages/PayPeriodManagement";
-import PayrollSetupModal from "@/components/PayrollSetupModal";
+
+const Landing = lazy(() => import("@/pages/Landing"));
+const DashboardRouter = lazy(() => import("@/features/dashboard/DashboardRouter"));
+const Operations = lazy(() => import("@/pages/Operations"));
+const Communication = lazy(() => import("@/pages/Communication"));
+const HR = lazy(() => import("@/pages/HR"));
+const RoleManagement = lazy(() => import("@/pages/RoleManagement"));
+const ScheduleManagement = lazy(() => import("@/pages/ScheduleManagement"));
+const Team = lazy(() => import("@/pages/Team"));
+const TeamMember = lazy(() => import("@/pages/TeamMember"));
+const Availability = lazy(() => import("@/pages/Availability"));
+const PayPeriodManagement = lazy(() => import("@/pages/PayPeriodManagement"));
+const PayrollSetupModal = lazy(() => import("@/components/PayrollSetupModal"));
 import { usePayrollSetup } from "@/hooks/usePayrollSetup";
-import AdminSettings from "@/pages/AdminSettings";
-import TaskManagement from "@/pages/TaskManagement";
-import Analytics from "@/pages/Analytics";
-import Performance from "@/pages/Performance";
-import Learning from "@/pages/Learning";
-import MoreMenu from "@/pages/MoreMenu";
-import Requests from "@/pages/Requests";
-import TeamDirectory from "@/pages/TeamDirectory";
-import EmployeeSettings from "@/pages/EmployeeSettings";
-import SupportPage from "@/pages/Support";
-import TermsOfService from "@/pages/TermsOfService";
-import PrivacyPolicy from "@/pages/PrivacyPolicy";
-import SOPLibrary from "@/pages/SOPLibrary";
-import SOPBuilder from "@/pages/SOPBuilder";
-import SOPDetail from "@/pages/SOPDetail";
-import SOPExecution from "@/pages/SOPExecution";
-import SOPRevisions from "@/pages/SOPRevisions";
-import TrainingHub from "@/pages/TrainingHub";
-import IssueList from "@/pages/IssueList";
-import IssueDetail from "@/pages/IssueDetail";
-import MorningHuddle from "@/pages/MorningHuddle";
-import MorningWhisper from "@/pages/MorningWhisper";
-import ImprovementFeed from "@/pages/ImprovementFeed";
-import NotFound from "@/pages/not-found";
-import ShopifyCallbackSuccess from "@/pages/ShopifyCallbackSuccess";
+const AdminSettings = lazy(() => import("@/pages/AdminSettings"));
+const TaskManagement = lazy(() => import("@/pages/TaskManagement"));
+const Analytics = lazy(() => import("@/pages/Analytics"));
+const Performance = lazy(() => import("@/pages/Performance"));
+const Learning = lazy(() => import("@/pages/Learning"));
+const MoreMenu = lazy(() => import("@/pages/MoreMenu"));
+const Requests = lazy(() => import("@/pages/Requests"));
+const TeamDirectory = lazy(() => import("@/pages/TeamDirectory"));
+const EmployeeSettings = lazy(() => import("@/pages/EmployeeSettings"));
+const SupportPage = lazy(() => import("@/pages/Support"));
+const TermsOfService = lazy(() => import("@/pages/TermsOfService"));
+const PrivacyPolicy = lazy(() => import("@/pages/PrivacyPolicy"));
+const SOPLibrary = lazy(() => import("@/pages/SOPLibrary"));
+const SOPBuilder = lazy(() => import("@/pages/SOPBuilder"));
+const SOPDetail = lazy(() => import("@/pages/SOPDetail"));
+const SOPExecution = lazy(() => import("@/pages/SOPExecution"));
+const SOPRevisions = lazy(() => import("@/pages/SOPRevisions"));
+const TrainingHub = lazy(() => import("@/pages/TrainingHub"));
+const IssueList = lazy(() => import("@/pages/IssueList"));
+const IssueDetail = lazy(() => import("@/pages/IssueDetail"));
+const MorningHuddle = lazy(() => import("@/pages/MorningHuddle"));
+const MorningWhisper = lazy(() => import("@/pages/MorningWhisper"));
+const ImprovementFeed = lazy(() => import("@/pages/ImprovementFeed"));
+const NotFound = lazy(() => import("@/pages/not-found"));
+const ShopifyCallbackSuccess = lazy(() => import("@/pages/ShopifyCallbackSuccess"));
 import OfflineIndicator from "@/components/OfflineIndicator";
-import SmartClockPrompt from "@/components/SmartClockPrompt";
-import FocusClockOut from "@/components/FocusClockOut";
-import AskMAinagerSheet from "@/features/ai-copilot/AskMAinagerSheet";
-import QuickCaptureButton from "@/features/gtd/QuickCaptureButton";
-import GTDInbox from "@/features/gtd/GTDInbox";
-import GTDActions from "@/features/gtd/GTDActions";
-import GTDProjects from "@/features/gtd/GTDProjects";
-import GTDProjectDetail from "@/features/gtd/GTDProjectDetail";
-import GTDWaiting from "@/features/gtd/GTDWaiting";
-import GTDSomeday from "@/features/gtd/GTDSomeday";
-import WeeklyReview from "@/features/gtd/WeeklyReview";
-import MessagingPage from "@/features/messaging/MessagingPage";
-import KudosWallPage from "@/features/kudos/KudosWallPage";
-import LeanBoard from "@/pages/LeanBoard";
-import InsightsPage from "@/pages/InsightsPage";
-import CashManagement from "@/pages/CashManagement";
-import MileageReport from "@/pages/MileageReport";
-import Timesheets from "@/pages/Timesheets";
-import PayrollExport from "@/pages/PayrollExport";
-import MyScore from "@/pages/MyScore";
-import JoinPage from "@/pages/JoinPage";
-import MeetingsList from "@/pages/MeetingsList";
-import MeetingsNew from "@/pages/MeetingsNew";
-import MeetingDetail from "@/pages/MeetingDetail";
+const SmartClockPrompt = lazy(() => import("@/components/SmartClockPrompt"));
+const FocusClockOut = lazy(() => import("@/components/FocusClockOut"));
+const AskMAinagerSheet = lazy(() => import("@/features/ai-copilot/AskMAinagerSheet"));
+const QuickCaptureButton = lazy(() => import("@/features/gtd/QuickCaptureButton"));
+const GTDInbox = lazy(() => import("@/features/gtd/GTDInbox"));
+const GTDActions = lazy(() => import("@/features/gtd/GTDActions"));
+const GTDProjects = lazy(() => import("@/features/gtd/GTDProjects"));
+const GTDProjectDetail = lazy(() => import("@/features/gtd/GTDProjectDetail"));
+const GTDWaiting = lazy(() => import("@/features/gtd/GTDWaiting"));
+const GTDSomeday = lazy(() => import("@/features/gtd/GTDSomeday"));
+const WeeklyReview = lazy(() => import("@/features/gtd/WeeklyReview"));
+const MessagingPage = lazy(() => import("@/features/messaging/MessagingPage"));
+const KudosWallPage = lazy(() => import("@/features/kudos/KudosWallPage"));
+const LeanBoard = lazy(() => import("@/pages/LeanBoard"));
+const InsightsPage = lazy(() => import("@/pages/InsightsPage"));
+const CashManagement = lazy(() => import("@/pages/CashManagement"));
+const MileageReport = lazy(() => import("@/pages/MileageReport"));
+const Timesheets = lazy(() => import("@/pages/Timesheets"));
+const PayrollExport = lazy(() => import("@/pages/PayrollExport"));
+const MyScore = lazy(() => import("@/pages/MyScore"));
+const JoinPage = lazy(() => import("@/pages/JoinPage"));
+const MeetingsList = lazy(() => import("@/pages/MeetingsList"));
+const MeetingsNew = lazy(() => import("@/pages/MeetingsNew"));
+const MeetingDetail = lazy(() => import("@/pages/MeetingDetail"));
 import { WebSocketProvider } from "@/contexts/WebSocketContext";
 import type { Permission } from "@shared/schema";
+
+function PageLoader() {
+  return (
+    <div className="min-h-screen flex items-center justify-center">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+    </div>
+  );
+}
 
 function ProtectedRoute({ children, permission, allowAllAuthenticated }: { children: React.ReactNode; permission?: string; allowAllAuthenticated?: boolean }) {
   const { user, isLoading } = useAuth();
@@ -282,103 +293,109 @@ function AuthenticatedApp() {
   return (
     <>
     <OfflineIndicator />
-    <SmartClockPrompt />
-    <FocusClockOut />
-    <AskMAinagerSheet />
-    <QuickCaptureButton />
-    <Switch>
-      <Route path="/" component={DashboardRouter} />
-      <Route path="/operations">
-        <ProtectedRoute permission="admin.manage_all"><Operations /></ProtectedRoute>
-      </Route>
-      <Route path="/communication" component={Communication} />
-      <Route path="/messages" component={MessagingPage} />
-      <Route path="/kudos" component={KudosWallPage} />
-      <Route path="/hr">
-        <ProtectedRoute permission="hr.view_team"><HR /></ProtectedRoute>
-      </Route>
-      <Route path="/hr/roles">
-        <ProtectedRoute permission="admin.role_management"><RoleManagement /></ProtectedRoute>
-      </Route>
-      <Route path="/team">
-        <ProtectedRoute permission="hr.view_team"><Team /></ProtectedRoute>
-      </Route>
-      <Route path="/team/:id">
-        <ProtectedRoute permission="hr.view_team"><TeamMember /></ProtectedRoute>
-      </Route>
-      <Route path="/tasks">
-        <ProtectedRoute><TaskManagement /></ProtectedRoute>
-      </Route>
-      <Route path="/schedules" component={ScheduleManagement} />
-      <Route path="/availability" component={Availability} />
-      <Route path="/payroll">
-        <ProtectedRoute permission="hr.payroll_view"><PayPeriodManagement /></ProtectedRoute>
-      </Route>
-      <Route path="/analytics">
-        <ProtectedRoute permission="admin.manage_all"><Analytics /></ProtectedRoute>
-      </Route>
-      <Route path="/performance">
-        <ProtectedRoute><Performance /></ProtectedRoute>
-      </Route>
-      <Route path="/learning" component={Learning} />
-      <Route path="/more" component={MoreMenu} />
-      <Route path="/requests" component={Requests} />
-      <Route path="/team-directory" component={TeamDirectory} />
-      <Route path="/employee-settings" component={EmployeeSettings} />
-      <Route path="/sops" component={SOPLibrary} />
-      <Route path="/sops/new">
-        <ProtectedRoute permission="admin.manage_all"><SOPBuilder /></ProtectedRoute>
-      </Route>
-      <Route path="/sops/:id/edit">
-        <ProtectedRoute permission="admin.manage_all"><SOPBuilder /></ProtectedRoute>
-      </Route>
-      <Route path="/sops/revisions" component={SOPRevisions} />
-      <Route path="/sops/training" component={TrainingHub} />
-      <Route path="/sops/execute/:executionId" component={SOPExecution} />
-      <Route path="/sops/:id" component={SOPDetail} />
-      <Route path="/issues" component={IssueList} />
-      <Route path="/issues/:id" component={IssueDetail} />
-      <Route path="/huddle" component={MorningHuddle} />
-      <Route path="/whisper" component={MorningWhisper} />
-      <Route path="/improvements" component={ImprovementFeed} />
-      <Route path="/gtd/inbox" component={GTDInbox} />
-      <Route path="/gtd/actions" component={GTDActions} />
-      <Route path="/gtd/projects/:id" component={GTDProjectDetail} />
-      <Route path="/gtd/projects" component={GTDProjects} />
-      <Route path="/gtd/waiting" component={GTDWaiting} />
-      <Route path="/gtd/someday" component={GTDSomeday} />
-      <Route path="/gtd/review" component={WeeklyReview} />
-      <Route path="/lean-board" component={LeanBoard} />
-      <Route path="/cash">
-        <ProtectedRoute allowAllAuthenticated><CashManagement /></ProtectedRoute>
-      </Route>
-      <Route path="/timesheets">
-        <ProtectedRoute permission="hr.payroll_view"><Timesheets /></ProtectedRoute>
-      </Route>
-      <Route path="/mileage-report">
-        <ProtectedRoute permission="hr.payroll_view"><MileageReport /></ProtectedRoute>
-      </Route>
-      <Route path="/payroll-export">
-        <ProtectedRoute permission="hr.payroll_view"><PayrollExport /></ProtectedRoute>
-      </Route>
-      <Route path="/meetings/new">
-        <ProtectedRoute permission="admin.manage_all"><MeetingsNew /></ProtectedRoute>
-      </Route>
-      <Route path="/meetings/:id">
-        <ProtectedRoute permission="admin.manage_all"><MeetingDetail /></ProtectedRoute>
-      </Route>
-      <Route path="/meetings">
-        <ProtectedRoute permission="admin.manage_all"><MeetingsList /></ProtectedRoute>
-      </Route>
-      <Route path="/my-score" component={MyScore} />
-      <Route path="/insights" component={InsightsPage} />
-      <Route path="/support" component={SupportPage} />
-      <Route path="/admin">
-        <ProtectedRoute permission="admin.manage_all"><AdminSettings /></ProtectedRoute>
-      </Route>
-      <Route component={NotFound} />
+    <Suspense fallback={null}>
+      <SmartClockPrompt />
+      <FocusClockOut />
+      <AskMAinagerSheet />
+      <QuickCaptureButton />
+    </Suspense>
+    <Suspense fallback={<PageLoader />}>
+      <Switch>
+        <Route path="/" component={DashboardRouter} />
+        <Route path="/operations">
+          <ProtectedRoute permission="admin.manage_all"><Operations /></ProtectedRoute>
+        </Route>
+        <Route path="/communication" component={Communication} />
+        <Route path="/messages" component={MessagingPage} />
+        <Route path="/kudos" component={KudosWallPage} />
+        <Route path="/hr">
+          <ProtectedRoute permission="hr.view_team"><HR /></ProtectedRoute>
+        </Route>
+        <Route path="/hr/roles">
+          <ProtectedRoute permission="admin.role_management"><RoleManagement /></ProtectedRoute>
+        </Route>
+        <Route path="/team">
+          <ProtectedRoute permission="hr.view_team"><Team /></ProtectedRoute>
+        </Route>
+        <Route path="/team/:id">
+          <ProtectedRoute permission="hr.view_team"><TeamMember /></ProtectedRoute>
+        </Route>
+        <Route path="/tasks">
+          <ProtectedRoute><TaskManagement /></ProtectedRoute>
+        </Route>
+        <Route path="/schedules" component={ScheduleManagement} />
+        <Route path="/availability" component={Availability} />
+        <Route path="/payroll">
+          <ProtectedRoute permission="hr.payroll_view"><PayPeriodManagement /></ProtectedRoute>
+        </Route>
+        <Route path="/analytics">
+          <ProtectedRoute permission="admin.manage_all"><Analytics /></ProtectedRoute>
+        </Route>
+        <Route path="/performance">
+          <ProtectedRoute><Performance /></ProtectedRoute>
+        </Route>
+        <Route path="/learning" component={Learning} />
+        <Route path="/more" component={MoreMenu} />
+        <Route path="/requests" component={Requests} />
+        <Route path="/team-directory" component={TeamDirectory} />
+        <Route path="/employee-settings" component={EmployeeSettings} />
+        <Route path="/sops" component={SOPLibrary} />
+        <Route path="/sops/new">
+          <ProtectedRoute permission="admin.manage_all"><SOPBuilder /></ProtectedRoute>
+        </Route>
+        <Route path="/sops/:id/edit">
+          <ProtectedRoute permission="admin.manage_all"><SOPBuilder /></ProtectedRoute>
+        </Route>
+        <Route path="/sops/revisions" component={SOPRevisions} />
+        <Route path="/sops/training" component={TrainingHub} />
+        <Route path="/sops/execute/:executionId" component={SOPExecution} />
+        <Route path="/sops/:id" component={SOPDetail} />
+        <Route path="/issues" component={IssueList} />
+        <Route path="/issues/:id" component={IssueDetail} />
+        <Route path="/huddle" component={MorningHuddle} />
+        <Route path="/whisper" component={MorningWhisper} />
+        <Route path="/improvements" component={ImprovementFeed} />
+        <Route path="/gtd/inbox" component={GTDInbox} />
+        <Route path="/gtd/actions" component={GTDActions} />
+        <Route path="/gtd/projects/:id" component={GTDProjectDetail} />
+        <Route path="/gtd/projects" component={GTDProjects} />
+        <Route path="/gtd/waiting" component={GTDWaiting} />
+        <Route path="/gtd/someday" component={GTDSomeday} />
+        <Route path="/gtd/review" component={WeeklyReview} />
+        <Route path="/lean-board" component={LeanBoard} />
+        <Route path="/cash">
+          <ProtectedRoute allowAllAuthenticated><CashManagement /></ProtectedRoute>
+        </Route>
+        <Route path="/timesheets">
+          <ProtectedRoute permission="hr.payroll_view"><Timesheets /></ProtectedRoute>
+        </Route>
+        <Route path="/mileage-report">
+          <ProtectedRoute permission="hr.payroll_view"><MileageReport /></ProtectedRoute>
+        </Route>
+        <Route path="/payroll-export">
+          <ProtectedRoute permission="hr.payroll_view"><PayrollExport /></ProtectedRoute>
+        </Route>
+        <Route path="/meetings/new">
+          <ProtectedRoute permission="admin.manage_all"><MeetingsNew /></ProtectedRoute>
+        </Route>
+        <Route path="/meetings/:id">
+          <ProtectedRoute permission="admin.manage_all"><MeetingDetail /></ProtectedRoute>
+        </Route>
+        <Route path="/meetings">
+          <ProtectedRoute permission="admin.manage_all"><MeetingsList /></ProtectedRoute>
+        </Route>
+        <Route path="/my-score" component={MyScore} />
+        <Route path="/insights" component={InsightsPage} />
+        <Route path="/support" component={SupportPage} />
+        <Route path="/admin">
+          <ProtectedRoute permission="admin.manage_all"><AdminSettings /></ProtectedRoute>
+        </Route>
+        <Route component={NotFound} />
+      </Switch>
+    </Suspense>
+    <Suspense fallback={null}>
       <PayrollSetupModal isOpen={showSetupModal} onClose={closeSetupModal} />
-    </Switch>
+    </Suspense>
     </>
   );
 }
@@ -388,38 +405,57 @@ function Router() {
 
   if (location.startsWith("/join/")) {
     return (
-      <Switch>
-        <Route path="/join/:token" component={JoinPage} />
-      </Switch>
+      <Suspense fallback={<PageLoader />}>
+        <Switch>
+          <Route path="/join/:token" component={JoinPage} />
+        </Switch>
+      </Suspense>
     );
   }
 
   if (location === "/terms") {
-    return <TermsOfService />;
+    return (
+      <Suspense fallback={<PageLoader />}>
+        <TermsOfService />
+      </Suspense>
+    );
   }
 
   if (location === "/privacy") {
-    return <PrivacyPolicy />;
+    return (
+      <Suspense fallback={<PageLoader />}>
+        <PrivacyPolicy />
+      </Suspense>
+    );
   }
 
   if (location.startsWith("/shopify-callback-success")) {
     return (
-      <Switch>
-        <Route path="/shopify-callback-success" component={ShopifyCallbackSuccess} />
-      </Switch>
+      <Suspense fallback={<PageLoader />}>
+        <Switch>
+          <Route path="/shopify-callback-success" component={ShopifyCallbackSuccess} />
+        </Switch>
+      </Suspense>
     );
   }
 
   return (
     <>
       <SignedOut>
-        <Landing />
+        <Suspense fallback={<PageLoader />}>
+          <Landing />
+        </Suspense>
       </SignedOut>
       <SignedIn>
         <AuthenticatedApp />
       </SignedIn>
     </>
   );
+}
+
+function PWAUpdateWatcher() {
+  usePWAUpdate();
+  return null;
 }
 
 initGlobalErrorHandlers();
@@ -499,6 +535,8 @@ function App() {
               <Layout>
                 <Toaster />
                 <Router />
+                <PWAInstallPrompt />
+                <PWAUpdateWatcher />
               </Layout>
             </TooltipProvider>
           </WebSocketProvider>
