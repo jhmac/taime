@@ -122,6 +122,9 @@ import {
   type InsertOvertimeAlert,
   type DayNote,
   type InsertDayNote,
+  mileageReimbursements,
+  type MileageReimbursement,
+  type InsertMileageReimbursement,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, gte, lte, isNull, sql } from "drizzle-orm";
@@ -347,6 +350,13 @@ export interface IStorage {
   createOvertimeAlert(alert: InsertOvertimeAlert): Promise<OvertimeAlert>;
   getOvertimeAlerts(filters?: { status?: string; weekStartDate?: Date }): Promise<OvertimeAlert[]>;
   updateOvertimeAlert(id: string, updates: Partial<OvertimeAlert>): Promise<OvertimeAlert>;
+
+  // Mileage reimbursements
+  createMileageReimbursement(data: InsertMileageReimbursement): Promise<MileageReimbursement>;
+  getMileageReimbursement(id: string): Promise<MileageReimbursement | undefined>;
+  getMileageReimbursementBySession(sessionId: string): Promise<MileageReimbursement | undefined>;
+  getMileageReimbursements(filters?: { userId?: string; startDate?: Date; endDate?: Date }): Promise<MileageReimbursement[]>;
+  updateMileageReimbursement(id: string, updates: Partial<MileageReimbursement>): Promise<MileageReimbursement>;
 
   // Meeting intelligence
   createMeeting(meeting: InsertMeeting): Promise<Meeting>;
@@ -1851,6 +1861,44 @@ export class DatabaseStorage implements IStorage {
       .update(overtimeAlerts)
       .set(updates)
       .where(eq(overtimeAlerts.id, id))
+      .returning();
+    return updated;
+  }
+
+  // Mileage reimbursements
+  async createMileageReimbursement(data: InsertMileageReimbursement): Promise<MileageReimbursement> {
+    const [created] = await db.insert(mileageReimbursements).values(data).returning();
+    return created;
+  }
+
+  async getMileageReimbursement(id: string): Promise<MileageReimbursement | undefined> {
+    const [rec] = await db.select().from(mileageReimbursements).where(eq(mileageReimbursements.id, id)).limit(1);
+    return rec;
+  }
+
+  async getMileageReimbursementBySession(sessionId: string): Promise<MileageReimbursement | undefined> {
+    const [rec] = await db.select().from(mileageReimbursements).where(eq(mileageReimbursements.sessionId, sessionId)).limit(1);
+    return rec;
+  }
+
+  async getMileageReimbursements(filters?: { userId?: string; startDate?: Date; endDate?: Date }): Promise<MileageReimbursement[]> {
+    const conditions: any[] = [];
+    if (filters?.userId) conditions.push(eq(mileageReimbursements.userId, filters.userId));
+    if (filters?.startDate) conditions.push(gte(mileageReimbursements.appliedAt, filters.startDate));
+    if (filters?.endDate) conditions.push(lte(mileageReimbursements.appliedAt, filters.endDate));
+
+    const query = conditions.length > 0
+      ? db.select().from(mileageReimbursements).where(and(...conditions))
+      : db.select().from(mileageReimbursements);
+
+    return await query.orderBy(desc(mileageReimbursements.appliedAt)).limit(10000);
+  }
+
+  async updateMileageReimbursement(id: string, updates: Partial<MileageReimbursement>): Promise<MileageReimbursement> {
+    const [updated] = await db
+      .update(mileageReimbursements)
+      .set(updates)
+      .where(eq(mileageReimbursements.id, id))
       .returning();
     return updated;
   }

@@ -4,6 +4,7 @@ import { db } from '../db';
 import { geofenceEvents, timeEntries, workLocations, offsiteAllowanceRules, offsiteSessions } from '@shared/schema';
 import { eq, and, isNull, isNotNull, desc } from 'drizzle-orm';
 import { fetchAndStoreRoute, clearWatchdogs } from './routeTrackingService';
+import { postMileageReimbursement } from './mileageReimbursementService';
 
 export interface GeofenceEvent {
   userId: string;
@@ -383,6 +384,9 @@ export class GeofencingService {
           });
           clearWatchdogs(session.id);
           console.log(`[Geofence] Closed offsite session ${session.id} for user ${userId} (${durationMinutes} min)`);
+          postMileageReimbursement(session.id).catch(err =>
+            console.error(`[Mileage] Failed to post reimbursement for session ${session.id}:`, err)
+          );
         }
 
         if (!activeTimeEntry) {

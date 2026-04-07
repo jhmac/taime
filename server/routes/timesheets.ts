@@ -141,12 +141,32 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
       const startDateStr = (startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)).toISOString().split("T")[0];
       const endDateStr = (endDate || new Date(Date.now() + 24 * 60 * 60 * 1000)).toISOString().split("T")[0];
 
-      const [allEntries, allUsers, allOffsiteSessions, allSchedules] = await Promise.all([
+      const [allEntries, allUsers, allOffsiteSessions, allSchedules, allMileageReimbs] = await Promise.all([
         storage.getAllTimeEntries(startDate, endDate),
         storage.getAllUsers(),
         storage.getOffsiteSessions({}),
         storage.getAllSchedules(scheduleStart, scheduleEnd),
+        storage.getMileageReimbursements({
+          startDate: startDate,
+          endDate: endDate,
+        }),
       ]);
+
+      const mileageReimbByEntry = new Map<string, { milesDecimal: number; rateCents: number; totalCents: number; equivalentMinutes: number; id: string; adjustedMilesDecimal: string | null }[]>();
+      for (const reimb of allMileageReimbs) {
+        if (reimb.timeEntryId) {
+          const list = mileageReimbByEntry.get(reimb.timeEntryId) || [];
+          list.push({
+            id: reimb.id,
+            milesDecimal: parseFloat(String(reimb.milesDecimal)),
+            rateCents: reimb.rateCents,
+            totalCents: reimb.totalCents,
+            equivalentMinutes: reimb.equivalentMinutes,
+            adjustedMilesDecimal: reimb.adjustedMilesDecimal,
+          });
+          mileageReimbByEntry.set(reimb.timeEntryId, list);
+        }
+      }
 
       // Fetch all resolutions for the date range and index by "userId:date:type"
       const resolvedKeys = new Set<string>();
@@ -278,6 +298,7 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
             day.regular += regular;
             day.ot += ot;
             day.offsiteMinutes += entryOffsiteMinutes;
+            const entryMileageReimbs = mileageReimbByEntry.get(entry.id) || [];
             day.entries.push({
               id: entry.id,
               clockInTime: entry.clockInTime,
@@ -298,6 +319,7 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
                 status: s.status,
                 ruleId: s.ruleId,
               })),
+              mileageReimbursements: entryMileageReimbs,
             });
             dailyMap.set(dateKey, day);
           }
@@ -806,13 +828,13 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
       const allFields = [
         "employeeName", "employeeEmail", "date", "clockIn", "clockOut",
         "regularHours", "otHours", "holidayHours", "breakMinutes", "offsiteMinutes", "hourlyRate",
-        "regularPay", "otPay", "holidayPay", "totalPay", "location", "notes",
+        "regularPay", "otPay", "holidayPay", "mileageMiles", "mileagePay", "totalPay", "location", "notes",
       ];
 
       const presetFields: Record<string, string[]> = {
-        quickbooks: ["employeeName", "date", "regularHours", "otHours", "hourlyRate", "regularPay", "otPay", "totalPay"],
-        gusto: ["employeeName", "employeeEmail", "date", "regularHours", "otHours", "holidayHours", "breakMinutes", "totalPay"],
-        adp: ["employeeName", "employeeEmail", "date", "clockIn", "clockOut", "regularHours", "otHours", "breakMinutes", "hourlyRate", "regularPay", "otPay", "totalPay"],
+        quickbooks: ["employeeName", "date", "regularHours", "otHours", "hourlyRate", "regularPay", "otPay", "mileageMiles", "mileagePay", "totalPay"],
+        gusto: ["employeeName", "employeeEmail", "date", "regularHours", "otHours", "holidayHours", "breakMinutes", "mileageMiles", "mileagePay", "totalPay"],
+        adp: ["employeeName", "employeeEmail", "date", "clockIn", "clockOut", "regularHours", "otHours", "breakMinutes", "hourlyRate", "regularPay", "otPay", "mileageMiles", "mileagePay", "totalPay"],
       };
 
       let selectedFields: string[];
@@ -827,10 +849,11 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
       const settings = await storage.getCompanySettings();
       const otThreshold = settings?.overtimeThresholdHours ?? 40;
 
-      const [allEntries, allUsers, exportOffsiteSessions] = await Promise.all([
+      const [allEntries, allUsers, exportOffsiteSessions, allMileageReimbursements] = await Promise.all([
         storage.getAllTimeEntries(startDate, endDate),
         storage.getAllUsers(),
         storage.getOffsiteSessions({}),
+        storage.getMileageReimbursements({}),
       ]);
 
       const exportOffsiteByEntry = new Map<string, number>();
@@ -838,6 +861,18 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
         if (session.timeEntryId) {
           const current = exportOffsiteByEntry.get(session.timeEntryId) || 0;
           exportOffsiteByEntry.set(session.timeEntryId, current + (session.durationMinutes || 0));
+        }
+      }
+
+      const mileageByEntry = new Map<string, { miles: number; cents: number }>();
+      for (const reimb of allMileageReimbursements) {
+        if (reimb.timeEntryId) {
+          const existing = mileageByEntry.get(reimb.timeEntryId) || { miles: 0, cents: 0 };
+          const miles = parseFloat(String(reimb.adjustedMilesDecimal || reimb.milesDecimal || '0'));
+          mileageByEntry.set(reimb.timeEntryId, {
+            miles: existing.miles + miles,
+            cents: existing.cents + reimb.totalCents,
+          });
         }
       }
 
@@ -870,6 +905,8 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
         regularPay: "Regular Pay",
         otPay: "OT Pay",
         holidayPay: "Holiday Pay",
+        mileageMiles: "Mileage Miles",
+        mileagePay: "Mileage Pay",
         totalPay: "Total Pay",
         location: "Location",
         notes: "Notes",
@@ -899,6 +936,9 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
         const employeeName = ((user.firstName || "") + " " + (user.lastName || "")).trim();
         const notesText = (entry.notes || "").replace(/"/g, '""');
 
+        const entryMileage = mileageByEntry.get(entry.id) || { miles: 0, cents: 0 };
+        const mileagePay = entryMileage.cents / 100;
+
         const fieldValues: Record<string, string> = {
           employeeName: `"${sanitizeCsvField(employeeName)}"`,
           employeeEmail: sanitizeCsvField(user.email || ""),
@@ -914,13 +954,40 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
           regularPay: (regular * rate).toFixed(2),
           otPay: (ot * rate * otMultiplier).toFixed(2),
           holidayPay: holidayPay.toFixed(2),
-          totalPay: (regular * rate + ot * rate * otMultiplier + holidayPay).toFixed(2),
+          mileageMiles: entryMileage.miles.toFixed(2),
+          mileagePay: mileagePay.toFixed(2),
+          // For preset exports that emit a separate mileage line, exclude mileage from base row to avoid double-counting
+          totalPay: preset && ["quickbooks", "gusto", "adp"].includes(preset)
+            ? (regular * rate + ot * rate * otMultiplier + holidayPay).toFixed(2)
+            : (regular * rate + ot * rate * otMultiplier + holidayPay + mileagePay).toFixed(2),
           location: sanitizeCsvField(user.locationName || ""),
           notes: `"${sanitizeCsvField(notesText)}"`,
         };
 
         const row = selectedFields.map((f: string) => fieldValues[f] || "");
         rows.push(row.join(","));
+
+        // Emit a separate mileage pay-code line for QuickBooks, Gusto, and ADP presets
+        if (preset && ["quickbooks", "gusto", "adp"].includes(preset) && entryMileage.cents > 0) {
+          const mileagePayCode = "MILEAGE";
+          const mileageRowValues: Record<string, string> = {
+            ...fieldValues,
+            regularHours: "0.00",
+            otHours: "0.00",
+            holidayHours: "0.00",
+            breakMinutes: "0",
+            offsiteMinutes: "0",
+            regularPay: "0.00",
+            otPay: "0.00",
+            holidayPay: "0.00",
+            mileageMiles: entryMileage.miles.toFixed(2),
+            mileagePay: mileagePay.toFixed(2),
+            totalPay: mileagePay.toFixed(2),
+            notes: `"${mileagePayCode}: ${entryMileage.miles.toFixed(2)} mi @ $${(entryMileage.cents / entryMileage.miles / 100).toFixed(2)}/mi"`,
+          };
+          const mileageRow = selectedFields.map((f: string) => mileageRowValues[f] || "");
+          rows.push(mileageRow.join(","));
+        }
       }
 
       const csv = rows.join("\n");

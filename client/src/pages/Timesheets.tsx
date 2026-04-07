@@ -82,6 +82,14 @@ interface DailyEntry {
   scheduledHours?: number | null;
   discrepancies?: string[];
   offsiteSessions?: OffsiteSessionInfo[];
+  mileageReimbursements?: Array<{
+    id: string;
+    milesDecimal: number;
+    rateCents: number;
+    totalCents: number;
+    equivalentMinutes: number;
+    adjustedMilesDecimal: string | null;
+  }>;
 }
 
 interface DailyBreakdown {
@@ -574,6 +582,29 @@ function ExpandableEmployeeRow({
                                 {session.returnTime ? ` – ${formatTime(session.returnTime)}` : " (still out)"}
                                 {session.durationMinutes != null && ` (${session.durationMinutes}m)`}
                               </span>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {entry.mileageReimbursements && entry.mileageReimbursements.length > 0 && (
+                        <div className="mt-1 flex flex-col gap-0.5">
+                          {entry.mileageReimbursements.map((reimb) => {
+                            const miles = reimb.adjustedMilesDecimal != null
+                              ? parseFloat(reimb.adjustedMilesDecimal)
+                              : reimb.milesDecimal;
+                            const ratePerMile = (reimb.rateCents / 100).toFixed(2);
+                            const total = (reimb.totalCents / 100).toFixed(2);
+                            return (
+                              <div
+                                key={reimb.id}
+                                className="pl-2 border-l-2 border-dashed border-muted-foreground/30 text-[10px] text-muted-foreground"
+                              >
+                                🚗 Mileage: {miles.toFixed(2)} mi × ${ratePerMile}/mi = ${total}
+                                {reimb.equivalentMinutes > 0 && ` (+${reimb.equivalentMinutes}min)`}
+                                {reimb.adjustedMilesDecimal != null && (
+                                  <span className="ml-1 text-amber-600">(adjusted)</span>
+                                )}
+                              </div>
                             );
                           })}
                         </div>

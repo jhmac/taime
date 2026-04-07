@@ -46,10 +46,20 @@ import {
   Mail,
   AlertTriangle,
   ShieldCheck,
+  Car,
 } from "lucide-react";
 
 type DiscrepancyType = "no_show" | "missing_clock_out" | "early_departure" | "short_shift" | "long_shift";
 type ResolveAction = "excuse" | "add_time_card";
+
+interface MileageReimbursementData {
+  id: string;
+  milesDecimal: number;
+  rateCents: number;
+  totalCents: number;
+  equivalentMinutes: number;
+  adjustedMilesDecimal: string | null;
+}
 
 interface TimeCardEntry {
   id: string;
@@ -68,6 +78,7 @@ interface TimeCardEntry {
   scheduledEnd?: string | null;
   scheduledHours?: number | null;
   discrepancies?: string[];
+  mileageReimbursements?: MileageReimbursementData[];
 }
 
 interface EmployeeInfo {
@@ -201,6 +212,8 @@ export default function TimeCardModal({
   const [resolveClockIn, setResolveClockIn] = useState("09:00");
   const [resolveClockOut, setResolveClockOut] = useState("17:00");
   const [resolveBreakMins, setResolveBreakMins] = useState("0");
+  const [editingMileageId, setEditingMileageId] = useState<string | null>(null);
+  const [editMileageValue, setEditMileageValue] = useState("");
 
   const fullName =
     [employee?.firstName, employee?.lastName].filter(Boolean).join(" ") ||
@@ -390,6 +403,24 @@ export default function TimeCardModal({
         description: err.message,
         variant: "destructive",
       });
+    },
+  });
+
+  const adjustMileageMutation = useMutation({
+    mutationFn: async ({ id, adjustedMiles }: { id: string; adjustedMiles: number }) => {
+      await apiRequest("PATCH", `/api/mileage-reimbursements/${id}`, {
+        adjustedMilesDecimal: adjustedMiles,
+      });
+    },
+    onSuccess: () => {
+      toast({ title: "Mileage adjusted", description: "Mileage reimbursement has been updated." });
+      setEditingMileageId(null);
+      setEditMileageValue("");
+      invalidatePrefix("/api/timesheets/review");
+      queryClient.invalidateQueries({ queryKey: ["/api/offsite-sessions/employee", employee?.userId] });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
     },
   });
 
@@ -594,6 +625,104 @@ export default function TimeCardModal({
                             ? `${session.durationMinutes} min off-site`
                             : "Duration pending"}
                         </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
+
+          {entry.mileageReimbursements && entry.mileageReimbursements.length > 0 && (
+            <>
+              <Separator />
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Car className="h-4 w-4 text-muted-foreground" />
+                  <span className="font-medium text-sm">Mileage Reimbursement</span>
+                  <Badge variant="secondary" className="text-[10px] px-1.5">
+                    {entry.mileageReimbursements.length}
+                  </Badge>
+                </div>
+                <div className="space-y-2">
+                  {entry.mileageReimbursements.map((reimb) => {
+                    const miles = reimb.adjustedMilesDecimal != null
+                      ? parseFloat(reimb.adjustedMilesDecimal)
+                      : reimb.milesDecimal;
+                    const ratePerMile = (reimb.rateCents / 100).toFixed(2);
+                    const total = (reimb.totalCents / 100).toFixed(2);
+                    const isEditingThis = editingMileageId === reimb.id;
+                    return (
+                      <div key={reimb.id} className="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/30 p-3">
+                        {isEditingThis ? (
+                          <div className="space-y-2">
+                            <div className="flex items-center gap-2">
+                              <Label className="text-xs text-muted-foreground whitespace-nowrap">Miles (adjusted):</Label>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={editMileageValue}
+                                onChange={(e) => setEditMileageValue(e.target.value)}
+                                className="h-7 text-sm"
+                              />
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-7 w-7 text-green-600"
+                                disabled={adjustMileageMutation.isPending}
+                                onClick={() => {
+                                  const val = parseFloat(editMileageValue);
+                                  if (!isNaN(val) && val >= 0) {
+                                    adjustMileageMutation.mutate({ id: reimb.id, adjustedMiles: val });
+                                  }
+                                }}
+                              >
+                                <Save className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-7 w-7 text-muted-foreground"
+                                onClick={() => { setEditingMileageId(null); setEditMileageValue(""); }}
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              Original: {reimb.milesDecimal.toFixed(2)} mi — Rate: ${ratePerMile}/mi
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium">
+                              {miles.toFixed(2)} mi × ${ratePerMile}/mi = ${total}
+                            </span>
+                            <div className="flex items-center gap-1">
+                              {reimb.adjustedMilesDecimal != null && (
+                                <Badge variant="outline" className="text-[10px] text-amber-600 border-amber-400">
+                                  Adjusted
+                                </Badge>
+                              )}
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                                onClick={() => {
+                                  setEditingMileageId(reimb.id);
+                                  setEditMileageValue(miles.toFixed(2));
+                                }}
+                              >
+                                <Edit3 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+                        {!isEditingThis && reimb.equivalentMinutes > 0 && (
+                          <div className="text-xs text-muted-foreground mt-1">
+                            +{reimb.equivalentMinutes} equivalent pay minutes
+                          </div>
+                        )}
                       </div>
                     );
                   })}

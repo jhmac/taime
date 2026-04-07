@@ -50,6 +50,7 @@ const managementNavItems = [
   { path: '/team', icon: 'fas fa-users', label: 'Team', permission: 'hr.view_team' },
   { path: '/payroll', icon: 'fas fa-dollar-sign', label: 'Payroll', permission: 'hr.payroll_view' },
   { path: '/timesheets', icon: 'fas fa-file-invoice', label: 'Timesheets', permission: 'hr.payroll_view' },
+  { path: '/mileage-report', icon: 'fas fa-car', label: 'Mileage Report', permission: 'hr.payroll_view' },
   { path: '/payroll-export', icon: 'fas fa-file-export', label: 'Payroll Export', permission: 'hr.payroll_view' },
   { path: '/cash', icon: 'fas fa-cash-register', label: 'Cash' },
   { path: '/hr', icon: 'fas fa-user-tie', label: 'HR', permission: 'hr.view_team' },

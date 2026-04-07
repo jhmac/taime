@@ -107,6 +107,7 @@ import KudosWallPage from "@/features/kudos/KudosWallPage";
 import LeanBoard from "@/pages/LeanBoard";
 import InsightsPage from "@/pages/InsightsPage";
 import CashManagement from "@/pages/CashManagement";
+import MileageReport from "@/pages/MileageReport";
 import Timesheets from "@/pages/Timesheets";
 import PayrollExport from "@/pages/PayrollExport";
 import MyScore from "@/pages/MyScore";
@@ -353,6 +354,9 @@ function AuthenticatedApp() {
       </Route>
       <Route path="/timesheets">
         <ProtectedRoute permission="hr.payroll_view"><Timesheets /></ProtectedRoute>
+      </Route>
+      <Route path="/mileage-report">
+        <ProtectedRoute permission="hr.payroll_view"><MileageReport /></ProtectedRoute>
       </Route>
       <Route path="/payroll-export">
         <ProtectedRoute permission="hr.payroll_view"><PayrollExport /></ProtectedRoute>

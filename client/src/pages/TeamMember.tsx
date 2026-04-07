@@ -674,6 +674,37 @@ export default function TeamMember() {
                   )}
                   <p className="text-muted-foreground">Contractor Type:</p>
                   <p className="font-medium">{member.employmentType || "--"}</p>
+                  <p className="text-muted-foreground">Mileage Rate Override:</p>
+                  {editingPayroll ? (
+                    <div className="flex items-center gap-1">
+                      <span className="text-sm">$</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        className="border rounded px-2 py-1 text-sm w-24"
+                        defaultValue={member.mileageRateCentsOverride != null
+                          ? (member.mileageRateCentsOverride / 100).toFixed(2)
+                          : ""}
+                        placeholder="e.g. 0.67"
+                        onBlur={(e) => {
+                          const val = parseFloat(e.target.value);
+                          if (!isNaN(val) && val >= 0) {
+                            updateUserMutation.mutate({ mileageRateCentsOverride: Math.round(val * 100) });
+                          } else if (e.target.value === "") {
+                            updateUserMutation.mutate({ mileageRateCentsOverride: null });
+                          }
+                        }}
+                      />
+                      <span className="text-sm text-muted-foreground">/mi</span>
+                    </div>
+                  ) : (
+                    <p className="font-medium">
+                      {member.mileageRateCentsOverride != null
+                        ? `$${(member.mileageRateCentsOverride / 100).toFixed(2)}/mi`
+                        : "—"}
+                    </p>
+                  )}
                 </div>
                 {canEdit && (
                   <Button

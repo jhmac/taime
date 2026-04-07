@@ -3,6 +3,7 @@ import type { IStorage } from "../storage";
 import { insertOffsiteAllowanceRuleSchema, type InsertOffsiteAllowanceRule } from "@shared/schema";
 import { config } from "../lib/config";
 import { processOffsiteBreadcrumb } from "../services/routeTrackingService";
+import { postMileageReimbursement } from "../services/mileageReimbursementService";
 
 export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
   app.get('/api/offsite-rules', isAuthenticated, async (req: any, res) => {
@@ -522,6 +523,144 @@ export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAu
     } catch (error) {
       console.error("Error calling Google Geocode:", error);
       res.status(500).json({ message: "Failed to geocode address" });
+    }
+  });
+
+  // Helper for checking payroll access
+  async function requirePayrollAccess(storage: IStorage, userId: string): Promise<boolean> {
+    const perms = await storage.getUserPermissions(userId);
+    return perms.some((p: any) =>
+      p.name === 'admin.manage_all' || p.name === 'hr.payroll_view' || p.name === 'time.view_all'
+    );
+  }
+
+  async function requirePayrollEdit(storage: IStorage, userId: string): Promise<boolean> {
+    const perms = await storage.getUserPermissions(userId);
+    return perms.some((p: any) =>
+      p.name === 'admin.manage_all' ||
+      p.name === 'admin.manage_locations' ||
+      p.name === 'hr.payroll_view'
+    );
+  }
+
+  // Mileage reimbursement routes
+  app.get('/api/mileage-reimbursements', isAuthenticated, async (req: any, res) => {
+    try {
+      const requestingUserId = req.user.id;
+      if (!(await requirePayrollAccess(storage, requestingUserId))) {
+        return res.status(403).json({ message: "Payroll access required" });
+      }
+      const { userId, startDate, endDate } = req.query;
+      const filters: { userId?: string; startDate?: Date; endDate?: Date } = {};
+      if (userId) filters.userId = userId as string;
+      if (startDate) filters.startDate = new Date(startDate as string);
+      if (endDate) filters.endDate = new Date(endDate as string);
+      const reimbursements = await storage.getMileageReimbursements(filters);
+
+      const enriched = await Promise.all(reimbursements.map(async (r) => {
+        const session = await storage.getOffsiteSession(r.sessionId);
+        const rule = session?.ruleId ? await storage.getOffsiteRule(session.ruleId) : null;
+        return {
+          ...r,
+          ruleName: rule?.name || null,
+          sessionStatus: session?.status || null,
+          routeDistanceMeters: session?.routeDistanceMeters || null,
+        };
+      }));
+
+      res.json(enriched);
+    } catch (error) {
+      console.error("Error fetching mileage reimbursements:", error);
+      res.status(500).json({ message: "Failed to fetch mileage reimbursements" });
+    }
+  });
+
+  app.get('/api/mileage-reimbursements/session/:sessionId', isAuthenticated, async (req: any, res) => {
+    try {
+      const requestingUserId = req.user.id;
+      if (!(await requirePayrollAccess(storage, requestingUserId))) {
+        return res.status(403).json({ message: "Payroll access required" });
+      }
+      const { sessionId } = req.params;
+      const reimbursement = await storage.getMileageReimbursementBySession(sessionId);
+      if (!reimbursement) {
+        return res.status(404).json({ message: "Mileage reimbursement not found" });
+      }
+      res.json(reimbursement);
+    } catch (error) {
+      console.error("Error fetching mileage reimbursement:", error);
+      res.status(500).json({ message: "Failed to fetch mileage reimbursement" });
+    }
+  });
+
+  app.patch('/api/mileage-reimbursements/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const requestingUserId = req.user.id;
+      if (!(await requirePayrollEdit(storage, requestingUserId))) {
+        return res.status(403).json({ message: "Admin access required to adjust mileage reimbursements" });
+      }
+
+      const { id } = req.params;
+      const { adjustedMilesDecimal } = req.body;
+
+      const existing = await storage.getMileageReimbursement(id);
+      if (!existing) {
+        return res.status(404).json({ message: "Mileage reimbursement not found" });
+      }
+
+      const updatedMiles = parseFloat(String(adjustedMilesDecimal));
+      if (isNaN(updatedMiles) || updatedMiles < 0) {
+        return res.status(400).json({ message: "adjustedMilesDecimal must be a non-negative number" });
+      }
+
+      const newTotalCents = Math.round(updatedMiles * existing.rateCents);
+      const employeeUser = await storage.getUser(existing.userId);
+      const hourlyRate = employeeUser ? parseFloat(String(employeeUser.hourlyRate || '0')) : 0;
+      const newEquivalentMinutes = hourlyRate > 0
+        ? Math.round(((newTotalCents / 100) / hourlyRate) * 60)
+        : 0;
+
+      const updated = await storage.updateMileageReimbursement(id, {
+        adjustedMilesDecimal: String(updatedMiles),
+        adjustedBy: requestingUserId,
+        adjustedAt: new Date(),
+        totalCents: newTotalCents,
+        equivalentMinutes: newEquivalentMinutes,
+      });
+
+      if (existing.timeEntryId) {
+        const entry = await storage.getTimeEntry(existing.timeEntryId);
+        if (entry) {
+          const oldCents = Number(entry.mileageTotalCents) || 0;
+          const oldMinutes = Number(entry.mileageMinutes) || 0;
+          const deltaCents = newTotalCents - existing.totalCents;
+          const deltaMinutes = newEquivalentMinutes - existing.equivalentMinutes;
+          await storage.updateTimeEntry(existing.timeEntryId, {
+            mileageTotalCents: Math.max(0, oldCents + deltaCents),
+            mileageMinutes: Math.max(0, oldMinutes + deltaMinutes),
+          });
+        }
+      }
+
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating mileage reimbursement:", error);
+      res.status(500).json({ message: "Failed to update mileage reimbursement" });
+    }
+  });
+
+  app.post('/api/mileage-reimbursements/reprocess/:sessionId', isAuthenticated, async (req: any, res) => {
+    try {
+      const requestingUserId = req.user.id;
+      if (!(await requirePayrollEdit(storage, requestingUserId))) {
+        return res.status(403).json({ message: "Admin access required to reprocess mileage reimbursements" });
+      }
+      const { sessionId } = req.params;
+      const result = await postMileageReimbursement(sessionId);
+      res.json(result);
+    } catch (error) {
+      console.error("Error reprocessing mileage reimbursement:", error);
+      res.status(500).json({ message: "Failed to reprocess mileage reimbursement" });
     }
   });
 

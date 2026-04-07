@@ -94,6 +94,7 @@ export const users = pgTable("users", {
   preferredName: varchar("preferred_name"),
   personalEmail: varchar("personal_email"),
   scoreNotificationsEnabled: boolean("score_notifications_enabled").default(true),
+  mileageRateCentsOverride: integer("mileage_rate_cents_override"),
   invitedAt: timestamp("invited_at"),
   inviteAcceptedAt: timestamp("invite_accepted_at"),
   inviteToken: varchar("invite_token").unique(),
@@ -142,6 +143,8 @@ export const timeEntries = pgTable("time_entries", {
   isApproved: boolean("is_approved").default(false),
   approvedBy: varchar("approved_by").references(() => users.id),
   approvedAt: timestamp("approved_at"),
+  mileageMinutes: integer("mileage_minutes").default(0),
+  mileageTotalCents: integer("mileage_total_cents").default(0),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
   index("idx_time_entries_user_clockin").on(table.userId, table.clockInTime),
@@ -938,6 +941,26 @@ export const offsiteBreadcrumbs = pgTable("offsite_breadcrumbs", {
   index("idx_offsite_breadcrumbs_session").on(table.sessionId),
 ]);
 
+// Mileage reimbursements — auto-posted when a trip closes with a mileage rate > 0
+export const mileageReimbursements = pgTable("mileage_reimbursements", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  sessionId: varchar("session_id").references(() => offsiteSessions.id).notNull(),
+  timeEntryId: varchar("time_entry_id").references(() => timeEntries.id),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  milesDecimal: decimal("miles_decimal", { precision: 10, scale: 4 }).notNull(),
+  rateCents: integer("rate_cents").notNull(),
+  totalCents: integer("total_cents").notNull(),
+  equivalentMinutes: integer("equivalent_minutes").notNull(),
+  appliedAt: timestamp("applied_at").defaultNow(),
+  adjustedBy: varchar("adjusted_by").references(() => users.id),
+  adjustedAt: timestamp("adjusted_at"),
+  adjustedMilesDecimal: decimal("adjusted_miles_decimal", { precision: 10, scale: 4 }),
+}, (table) => [
+  index("idx_mileage_reimbursements_session").on(table.sessionId),
+  index("idx_mileage_reimbursements_user").on(table.userId),
+  index("idx_mileage_reimbursements_applied").on(table.appliedAt),
+]);
+
 // Overtime alerts (AI-generated swap suggestions)
 export const overtimeAlerts = pgTable("overtime_alerts", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -1003,6 +1026,7 @@ export const insertOffsiteAllowanceRuleSchema = createInsertSchema(offsiteAllowa
 export const insertOffsiteSessionSchema = createInsertSchema(offsiteSessions).omit({ id: true });
 export const insertOffsiteBreadcrumbSchema = createInsertSchema(offsiteBreadcrumbs).omit({ id: true });
 export const insertOvertimeAlertSchema = createInsertSchema(overtimeAlerts).omit({ id: true, createdAt: true });
+export const insertMileageReimbursementSchema = createInsertSchema(mileageReimbursements).omit({ id: true, appliedAt: true });
 
 // Chore assignment and sign-off schemas
 export const choreAssignmentSchema = z.object({
@@ -1058,6 +1082,8 @@ export type PushSubscription = typeof pushSubscriptions.$inferSelect;
 export type InsertPushSubscription = z.infer<typeof insertPushSubscriptionSchema>;
 export type Role = typeof roles.$inferSelect;
 export type InsertRole = z.infer<typeof insertRoleSchema>;
+export type MileageReimbursement = typeof mileageReimbursements.$inferSelect;
+export type InsertMileageReimbursement = z.infer<typeof insertMileageReimbursementSchema>;
 // Issue Tracker
 export const issues = pgTable("issues", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
