@@ -10,6 +10,7 @@ import { initGlobalErrorHandlers } from "./lib/errorReporter";
 import Layout from "@/components/Layout";
 import { usePWAUpdate } from "@/hooks/usePWAUpdate";
 import PWAInstallPrompt from "@/components/PWAInstallPrompt";
+import OnboardingGuard from "@/components/OnboardingGuard";
 
 class AppErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: Error | null }> {
   constructor(props: { children: ReactNode }) {
@@ -447,7 +448,9 @@ function Router() {
         </Suspense>
       </SignedOut>
       <SignedIn>
-        <AuthenticatedApp />
+        <OnboardingGuard>
+          <AuthenticatedApp />
+        </OnboardingGuard>
       </SignedIn>
     </>
   );
