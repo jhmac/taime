@@ -1970,6 +1970,48 @@ export const insertMeetingTaskRecommendationSchema = createInsertSchema(meetingT
 export type MeetingTaskRecommendation = typeof meetingTaskRecommendations.$inferSelect;
 export type InsertMeetingTaskRecommendation = z.infer<typeof insertMeetingTaskRecommendationSchema>;
 
+// ── AI Learning Center ────────────────────────────────────────────
+
+export const knowledgeDocumentTypeEnum = pgEnum("knowledge_document_type", [
+  "policy_manual",
+  "sales_script",
+  "sales_training",
+  "style_guide",
+  "operations_reference",
+  "other",
+]);
+
+export const knowledgeProcessingStatusEnum = pgEnum("knowledge_processing_status", [
+  "pending",
+  "processing",
+  "ready",
+  "failed",
+]);
+
+export const knowledgeDocuments = pgTable("knowledge_documents", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => workLocations.id),
+  uploadedByUserId: varchar("uploaded_by_user_id").references(() => users.id).notNull(),
+  originalFileName: varchar("original_file_name").notNull(),
+  fileType: varchar("file_type").notNull(),
+  rawContent: text("raw_content"),
+  extractedText: text("extracted_text"),
+  summaryFromClaude: text("summary_from_claude"),
+  documentType: knowledgeDocumentTypeEnum("document_type").default("other"),
+  autoTags: text("auto_tags").array().default([]),
+  processingStatus: knowledgeProcessingStatusEnum("processing_status").default("pending"),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_knowledge_docs_store_status").on(table.storeId, table.processingStatus),
+  index("idx_knowledge_docs_store_created").on(table.storeId, table.createdAt),
+]);
+
+export const insertKnowledgeDocumentSchema = createInsertSchema(knowledgeDocuments).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertKnowledgeDocument = z.infer<typeof insertKnowledgeDocumentSchema>;
+export type KnowledgeDocument = typeof knowledgeDocuments.$inferSelect;
+
 // Day notes for Availability and Schedule views
 export const dayNotes = pgTable("day_notes", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

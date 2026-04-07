@@ -34,6 +34,7 @@ import {
   meetings,
   meetingTaskRecommendations,
   dayNotes,
+  knowledgeDocuments,
   type Meeting,
   type InsertMeeting,
   type MeetingTaskRecommendation,
@@ -125,6 +126,8 @@ import {
   mileageReimbursements,
   type MileageReimbursement,
   type InsertMileageReimbursement,
+  type KnowledgeDocument,
+  type InsertKnowledgeDocument,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, gte, lte, isNull, sql } from "drizzle-orm";
@@ -383,6 +386,13 @@ export interface IStorage {
   updateDayNote(id: string, noteText: string): Promise<DayNote>;
   deleteDayNote(id: string): Promise<void>;
   getDayNote(id: string): Promise<DayNote | undefined>;
+
+  // Knowledge documents
+  createKnowledgeDocument(doc: InsertKnowledgeDocument): Promise<KnowledgeDocument>;
+  getKnowledgeDocuments(storeId?: string): Promise<KnowledgeDocument[]>;
+  getKnowledgeDocument(id: string): Promise<KnowledgeDocument | undefined>;
+  updateKnowledgeDocument(id: string, updates: Partial<KnowledgeDocument>): Promise<KnowledgeDocument>;
+  deleteKnowledgeDocument(id: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2011,6 +2021,44 @@ export class DatabaseStorage implements IStorage {
   async getDayNote(id: string): Promise<DayNote | undefined> {
     const [note] = await db.select().from(dayNotes).where(eq(dayNotes.id, id)).limit(1);
     return note;
+  }
+
+  // Knowledge documents
+  async createKnowledgeDocument(doc: InsertKnowledgeDocument): Promise<KnowledgeDocument> {
+    const [created] = await db.insert(knowledgeDocuments).values(doc).returning();
+    return created;
+  }
+
+  async getKnowledgeDocuments(storeId?: string): Promise<KnowledgeDocument[]> {
+    if (storeId) {
+      return await db
+        .select()
+        .from(knowledgeDocuments)
+        .where(eq(knowledgeDocuments.storeId, storeId))
+        .orderBy(desc(knowledgeDocuments.createdAt));
+    }
+    return await db
+      .select()
+      .from(knowledgeDocuments)
+      .orderBy(desc(knowledgeDocuments.createdAt));
+  }
+
+  async getKnowledgeDocument(id: string): Promise<KnowledgeDocument | undefined> {
+    const [doc] = await db.select().from(knowledgeDocuments).where(eq(knowledgeDocuments.id, id)).limit(1);
+    return doc;
+  }
+
+  async updateKnowledgeDocument(id: string, updates: Partial<KnowledgeDocument>): Promise<KnowledgeDocument> {
+    const [updated] = await db
+      .update(knowledgeDocuments)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(knowledgeDocuments.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteKnowledgeDocument(id: string): Promise<void> {
+    await db.delete(knowledgeDocuments).where(eq(knowledgeDocuments.id, id));
   }
 }
 
