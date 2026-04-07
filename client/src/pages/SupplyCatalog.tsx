@@ -26,7 +26,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Package, Plus, ExternalLink, Edit2, Trash2, ClipboardList,
   Users, Calendar, AlertTriangle, CheckCircle2, RefreshCw, Layers,
-  RotateCcw,
+  RotateCcw, Search, X as XIcon,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
@@ -177,6 +177,7 @@ export default function SupplyCatalog() {
   const isAdmin = ["owner", "admin", "manager"].includes(user?.role?.name || "");
 
   const [activeCategory, setActiveCategory] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
   const [editItem, setEditItem] = useState<SupplyItem | null>(null);
   const [showAddItem, setShowAddItem] = useState(false);
   const [showCountDialog, setShowCountDialog] = useState(false);
@@ -259,9 +260,12 @@ export default function SupplyCatalog() {
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
-  const filtered = activeCategory === "all"
-    ? items
-    : items.filter((i) => i.category === activeCategory);
+  const filtered = items.filter((i) => {
+    if (activeCategory !== "all" && i.category !== activeCategory) return false;
+    if (searchQuery && !i.name.toLowerCase().includes(searchQuery.toLowerCase()) &&
+        !(i.supplierName || "").toLowerCase().includes(searchQuery.toLowerCase())) return false;
+    return true;
+  });
 
   const categoryCounts: Record<string, { low: number; critical: number }> = {};
   for (const item of items) {
@@ -389,6 +393,25 @@ export default function SupplyCatalog() {
           </div>
         )}
 
+        {/* Search */}
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search items or supplier..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9 pr-9"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery("")}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <XIcon className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+
         {/* Category tabs */}
         <Tabs value={activeCategory} onValueChange={setActiveCategory}>
           <TabsList className="flex-wrap h-auto gap-1 bg-transparent p-0">
@@ -423,14 +446,25 @@ export default function SupplyCatalog() {
         ) : filtered.length === 0 ? (
           <div className="text-center py-16 text-muted-foreground">
             <Package className="h-12 w-12 mx-auto mb-3 opacity-20" />
-            <p className="font-medium">No supply items yet</p>
-            {isAdmin && (
-              <Button
-                className="mt-4 bg-[#F47D31] hover:bg-[#e06b20]"
-                onClick={() => { setEditItem(null); form.reset(); setShowAddItem(true); }}
-              >
-                <Plus className="h-4 w-4 mr-1.5" /> Add First Item
-              </Button>
+            {searchQuery ? (
+              <>
+                <p className="font-medium">No items match "{searchQuery}"</p>
+                <Button variant="ghost" className="mt-3 text-sm" onClick={() => setSearchQuery("")}>
+                  Clear search
+                </Button>
+              </>
+            ) : (
+              <>
+                <p className="font-medium">No supply items yet</p>
+                {isAdmin && (
+                  <Button
+                    className="mt-4 bg-[#F47D31] hover:bg-[#e06b20]"
+                    onClick={() => { setEditItem(null); form.reset(); setShowAddItem(true); }}
+                  >
+                    <Plus className="h-4 w-4 mr-1.5" /> Add First Item
+                  </Button>
+                )}
+              </>
             )}
           </div>
         ) : (
