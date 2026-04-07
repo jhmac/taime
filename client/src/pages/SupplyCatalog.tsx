@@ -201,6 +201,15 @@ export default function SupplyCatalog() {
     enabled: isAdmin,
   });
 
+  const { data: stats } = useQuery<{
+    total: number; stocked: number; low: number; critical: number; unknown: number;
+    reorderNeeded: { id: string; name: string; unit: string; parLevel: number; lastCountedQty: number | null; orderUrl: string | null; supplierName: string | null; isLocalPickup: boolean }[];
+    lastCountedAt: string | null;
+  }>({
+    queryKey: ["/api/supply/stats"],
+    staleTime: 60_000,
+  });
+
   const form = useForm<z.infer<typeof itemSchema>>({
     resolver: zodResolver(itemSchema),
     defaultValues: {
@@ -371,6 +380,47 @@ export default function SupplyCatalog() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Last count date */}
+        {stats?.lastCountedAt && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+            Last full count: {new Date(stats.lastCountedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+          </div>
+        )}
+
+        {/* Reorder needed alert */}
+        {(stats?.reorderNeeded?.length ?? 0) > 0 && (
+          <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 space-y-2">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-orange-600 flex-shrink-0" />
+              <p className="text-sm font-semibold text-orange-900">{stats!.reorderNeeded.length} item{stats!.reorderNeeded.length !== 1 ? "s" : ""} need reordering</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {stats!.reorderNeeded.slice(0, 5).map((item) => (
+                <div key={item.id} className="flex items-center gap-1.5">
+                  {item.orderUrl ? (
+                    <a href={item.orderUrl} target="_blank" rel="noopener noreferrer">
+                      <Badge variant="outline" className="text-xs gap-1 cursor-pointer hover:bg-orange-100 border-orange-300 text-orange-800">
+                        <ExternalLink className="h-2.5 w-2.5" />
+                        {item.name}
+                      </Badge>
+                    </a>
+                  ) : (
+                    <Badge variant="outline" className="text-xs border-orange-300 text-orange-800">
+                      {item.name} {item.isLocalPickup ? "(local)" : ""}
+                    </Badge>
+                  )}
+                </div>
+              ))}
+              {stats!.reorderNeeded.length > 5 && (
+                <Badge variant="outline" className="text-xs border-orange-300 text-orange-700">
+                  +{stats!.reorderNeeded.length - 5} more
+                </Badge>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Weekly schedule status */}
         {isAdmin && weeklySchedule && (

@@ -479,4 +479,55 @@ export function registerSupplyRoutes(app: Express, storage: IStorage, isAuthenti
       res.status(400).json({ message: err.message });
     }
   });
+
+  // ── Supply Dashboard Stats ───────────────────────────────────────────────
+  // Returns aggregated stock status counts and recent session info for the dashboard summary.
+
+  app.get("/api/supply/stats", isAuthenticated, async (req: any, res) => {
+    try {
+      const storeId = (await resolveStoreId()) || "default";
+
+      const allItems = await db
+        .select()
+        .from(supplyItems)
+        .where(and(eq(supplyItems.storeId, storeId), eq(supplyItems.isActive, true)));
+
+      let stocked = 0, low = 0, critical = 0, unknown = 0;
+      const reorderNeeded: { id: string; name: string; unit: string; parLevel: number; lastCountedQty: number | null; orderUrl: string | null; supplierName: string | null; isLocalPickup: boolean }[] = [];
+
+      for (const item of allItems) {
+        if (item.lastCountedQty === null) {
+          unknown++;
+        } else if (item.lastCountedQty <= item.safetyStock) {
+          critical++;
+          reorderNeeded.push({ id: item.id, name: item.name, unit: item.unit, parLevel: item.parLevel, lastCountedQty: item.lastCountedQty, orderUrl: item.orderUrl, supplierName: item.supplierName, isLocalPickup: item.isLocalPickup });
+        } else if (item.lastCountedQty < item.parLevel) {
+          low++;
+          reorderNeeded.push({ id: item.id, name: item.name, unit: item.unit, parLevel: item.parLevel, lastCountedQty: item.lastCountedQty, orderUrl: item.orderUrl, supplierName: item.supplierName, isLocalPickup: item.isLocalPickup });
+        } else {
+          stocked++;
+        }
+      }
+
+      const [lastSession] = await db
+        .select({ id: inventoryCountSessions.id, completedAt: inventoryCountSessions.completedAt, status: inventoryCountSessions.status })
+        .from(inventoryCountSessions)
+        .where(and(eq(inventoryCountSessions.storeId, storeId), eq(inventoryCountSessions.status, "completed")))
+        .orderBy(desc(inventoryCountSessions.completedAt))
+        .limit(1);
+
+      res.json({
+        total: allItems.length,
+        stocked,
+        low,
+        critical,
+        unknown,
+        reorderNeeded,
+        lastCountedAt: lastSession?.completedAt || null,
+      });
+    } catch (err: any) {
+      logger.error({ error: err.message }, "[Supply] Failed to fetch stats");
+      res.status(500).json({ message: err.message });
+    }
+  });
 }

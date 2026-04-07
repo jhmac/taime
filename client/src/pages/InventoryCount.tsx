@@ -325,6 +325,7 @@ export default function InventoryCount() {
                     <Input
                       type="number"
                       min={0}
+                      autoFocus
                       className="h-14 text-center text-2xl font-bold flex-1"
                       value={currentCount !== null ? currentCount : ""}
                       onChange={e => {
@@ -333,6 +334,12 @@ export default function InventoryCount() {
                           setCounts(p => ({ ...p, [currentItem.id]: v }));
                         } else if (e.target.value === "") {
                           setCounts(p => { const n = { ...p }; delete n[currentItem.id]; return n; });
+                        }
+                      }}
+                      onKeyDown={e => {
+                        if (e.key === "Enter" && hasCount) {
+                          if (!isLastItem) setStep(step + 1);
+                          else if (allCounted) submitMutation.mutate();
                         }
                       }}
                       placeholder="0"
