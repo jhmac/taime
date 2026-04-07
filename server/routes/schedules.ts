@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { db } from "../db";
 import { notificationService } from "../services/notificationService";
 import { claudeService } from "../services/claudeService";
+import { tryResolveStoreIdForUser } from "../lib/storeResolver";
 
 export function registerScheduleRoutes(app: Express, storage: IStorage, isAuthenticated: any, broadcastToAll: (data: any) => void) {
   app.post('/api/schedules', isAuthenticated, async (req: any, res) => {
@@ -53,7 +54,8 @@ export function registerScheduleRoutes(app: Express, storage: IStorage, isAuthen
       const canViewAll = userPermissions.some(p => p.name === 'schedule.view_all');
       
       if (canViewAll) {
-        schedules = await storage.getAllSchedules(startDate, endDate);
+        const locationId = await tryResolveStoreIdForUser(userId);
+        schedules = await storage.getAllSchedules(startDate, endDate, locationId || undefined);
       } else {
         schedules = await storage.getUserSchedules(userId, startDate, endDate);
       }

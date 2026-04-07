@@ -4,6 +4,7 @@ import { db } from "../db";
 import { eq, and, desc, asc, sql, ilike, or, gte, lte, count } from "drizzle-orm";
 import { sopTemplates, sopSteps, sopExecutions, sopStepCompletions, gtdInboxItems, workLocations } from "@shared/schema";
 import { asyncHandler, AppError } from "../lib/routeWrapper";
+import { tryResolveStoreIdForUser } from "../lib/storeResolver";
 import type { IStorage } from "../storage";
 import { generateSOPFromDescription } from "../services/sopAI";
 import { getSurfacedSOPsForEmployee } from "../services/sopSurfacing";
@@ -160,7 +161,10 @@ export function registerSopLibraryRoutes(
     const isActive = req.query.is_active !== "false";
     const search = req.query.search as string | undefined;
 
+    const storeId = await tryResolveStoreIdForUser(req.user.id);
+
     const conditions = [eq(sopTemplates.isActive, isActive)];
+    if (storeId) conditions.push(eq(sopTemplates.storeId, storeId));
     if (category) conditions.push(eq(sopTemplates.category, category));
     if (search) {
       conditions.push(
@@ -205,6 +209,14 @@ export function registerSopLibraryRoutes(
   }));
 
   app.get("/api/sops/templates/training-priority", isAuthenticated, asyncHandler(async (req: any, res) => {
+    const storeId = await tryResolveStoreIdForUser(req.user.id);
+
+    const trainingPriorityConditions = [
+      eq(sopTemplates.isActive, true),
+      eq(sopTemplates.isTrainingPriority, true),
+    ];
+    if (storeId) trainingPriorityConditions.push(eq(sopTemplates.storeId, storeId));
+
     const templates = await db.select({
       id: sopTemplates.id,
       storeId: sopTemplates.storeId,
@@ -220,10 +232,7 @@ export function registerSopLibraryRoutes(
       stepCount: sql<number>`(SELECT count(*) FROM sop_steps WHERE template_id = ${sopTemplates.id})::int`,
     })
       .from(sopTemplates)
-      .where(and(
-        eq(sopTemplates.isActive, true),
-        eq(sopTemplates.isTrainingPriority, true),
-      ))
+      .where(and(...trainingPriorityConditions))
       .orderBy(desc(sopTemplates.createdAt));
 
     const employeeId = req.user.id;

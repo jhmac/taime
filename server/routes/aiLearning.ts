@@ -8,8 +8,9 @@ import {
   aiStoreQAMessages,
   sopDocuments,
 } from "@shared/schema";
-import { eq, desc, sql } from "drizzle-orm";
+import { eq, desc, sql, and } from "drizzle-orm";
 import { asyncHandler, AppError } from "../lib/routeWrapper";
+import { resolveStoreIdForUser, tryResolveStoreIdForUser } from "../lib/storeResolver";
 import type { IStorage } from "../storage";
 import { runGenerationJob } from "../services/aiLearningGeneration";
 import Anthropic from "@anthropic-ai/sdk";
@@ -34,13 +35,17 @@ async function requireManager(storage: IStorage, userId: string): Promise<void> 
 export function registerAiLearningRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
   // ── Store Context ────────────────────────────────────────────────────────
 
-  app.get("/api/company/ai-context", isAuthenticated, asyncHandler(async (_req, res) => {
-    const [ctx] = await db.select().from(companyAiContext).limit(1);
+  app.get("/api/company/ai-context", isAuthenticated, asyncHandler(async (req: any, res) => {
+    const storeId = await tryResolveStoreIdForUser(req.user.id);
+    const conditions = storeId ? [eq(companyAiContext.storeId, storeId)] : [];
+    const [ctx] = await db.select().from(companyAiContext).where(conditions.length > 0 ? and(...conditions) : undefined).limit(1);
     res.json(ctx || null);
   }));
 
   app.put("/api/company/ai-context", isAuthenticated, asyncHandler(async (req: any, res) => {
     await requireManager(storage, req.user.id);
+
+    const storeId = await resolveStoreIdForUser(req.user.id);
 
     const bodySchema = z.object({
       storeName: z.string().min(1).max(200),
@@ -51,7 +56,7 @@ export function registerAiLearningRoutes(app: Express, storage: IStorage, isAuth
     });
 
     const body = bodySchema.parse(req.body);
-    const [existing] = await db.select().from(companyAiContext).limit(1);
+    const [existing] = await db.select().from(companyAiContext).where(eq(companyAiContext.storeId, storeId)).limit(1);
 
     let result;
     if (existing) {
@@ -60,7 +65,7 @@ export function registerAiLearningRoutes(app: Express, storage: IStorage, isAuth
         .where(eq(companyAiContext.id, existing.id))
         .returning();
     } else {
-      [result] = await db.insert(companyAiContext).values(body).returning();
+      [result] = await db.insert(companyAiContext).values({ ...body, storeId }).returning();
     }
 
     res.json(result);
@@ -70,6 +75,8 @@ export function registerAiLearningRoutes(app: Express, storage: IStorage, isAuth
 
   app.post("/api/ai/generate", isAuthenticated, asyncHandler(async (req: any, res) => {
     await requireManager(storage, req.user.id);
+
+    const storeId = await resolveStoreIdForUser(req.user.id);
 
     const bodySchema = z.object({
       selectedDocumentIds: z.array(z.string()).min(1, "Select at least one document"),
@@ -81,6 +88,7 @@ export function registerAiLearningRoutes(app: Express, storage: IStorage, isAuth
     const body = bodySchema.parse(req.body);
 
     const [job] = await db.insert(generationJobs).values({
+      storeId,
       status: "pending",
       selectedDocumentIds: body.selectedDocumentIds,
       outputTypes: body.outputTypes,
@@ -100,7 +108,11 @@ export function registerAiLearningRoutes(app: Express, storage: IStorage, isAuth
   }));
 
   app.get("/api/ai/generate/:jobId/status", isAuthenticated, asyncHandler(async (req: any, res) => {
-    const [job] = await db.select().from(generationJobs).where(eq(generationJobs.id, req.params.jobId));
+    const storeId = await tryResolveStoreIdForUser(req.user.id);
+    const whereClause = storeId
+      ? and(eq(generationJobs.id, req.params.jobId), eq(generationJobs.storeId, storeId))
+      : eq(generationJobs.id, req.params.jobId);
+    const [job] = await db.select().from(generationJobs).where(whereClause);
     if (!job) throw new AppError(404, "Job not found", "NOT_FOUND");
 
     res.json({
@@ -116,13 +128,18 @@ export function registerAiLearningRoutes(app: Express, storage: IStorage, isAuth
   app.post("/api/ai/generate/:jobId/publish-sop", isAuthenticated, asyncHandler(async (req: any, res) => {
     await requireManager(storage, req.user.id);
 
+    const storeId = await tryResolveStoreIdForUser(req.user.id);
+
     const bodySchema = z.object({
       sopIndex: z.number().int().min(0),
       categoryId: z.string().min(1),
     });
 
     const { sopIndex, categoryId } = bodySchema.parse(req.body);
-    const [job] = await db.select().from(generationJobs).where(eq(generationJobs.id, req.params.jobId));
+    const whereClause = storeId
+      ? and(eq(generationJobs.id, req.params.jobId), eq(generationJobs.storeId, storeId))
+      : eq(generationJobs.id, req.params.jobId);
+    const [job] = await db.select().from(generationJobs).where(whereClause);
     if (!job || job.status !== "complete") throw new AppError(400, "Job not complete", "BAD_REQUEST");
 
     const results = job.resultsJson as any;
@@ -153,12 +170,17 @@ export function registerAiLearningRoutes(app: Express, storage: IStorage, isAuth
   app.post("/api/ai/generate/:jobId/publish-training", isAuthenticated, asyncHandler(async (req: any, res) => {
     await requireManager(storage, req.user.id);
 
+    const storeId = await tryResolveStoreIdForUser(req.user.id);
+
     const bodySchema = z.object({
       moduleIndex: z.number().int().min(0),
     });
 
     const { moduleIndex } = bodySchema.parse(req.body);
-    const [job] = await db.select().from(generationJobs).where(eq(generationJobs.id, req.params.jobId));
+    const whereClause = storeId
+      ? and(eq(generationJobs.id, req.params.jobId), eq(generationJobs.storeId, storeId))
+      : eq(generationJobs.id, req.params.jobId);
+    const [job] = await db.select().from(generationJobs).where(whereClause);
     if (!job || job.status !== "complete") throw new AppError(400, "Job not complete", "BAD_REQUEST");
 
     const results = job.resultsJson as any;
@@ -176,6 +198,7 @@ export function registerAiLearningRoutes(app: Express, storage: IStorage, isAuth
       : "";
 
     const module = await storage.createTrainingModule({
+      ...(storeId ? { storeId } : {}),
       title: mod.title,
       description: `Training for ${mod.role}. Source: ${mod.sourceDocumentTitle || "Knowledge base"}`,
       content: `# ${mod.title}${objectivesText}\n\n${mod.content}${exerciseText}`,

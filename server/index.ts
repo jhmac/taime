@@ -9,6 +9,7 @@ import logger from "./lib/logger";
 import { globalErrorHandler } from "./lib/routeWrapper";
 import { startRitualScheduler } from "./services/ritualScheduler";
 import { backfillLegacyUserRoles, backfillInactiveAuthenticatedUsers } from "./lib/backfill";
+import { runSchemaMigrations } from "./lib/migrations";
 
 process.on('uncaughtException', (err) => {
   if (err.message?.includes('Cannot set property message') ||
@@ -178,6 +179,7 @@ app.use((req, res, next) => {
     // Stagger background job startup so they don't all hit the DB and AI APIs
     // simultaneously when the server is also handling the first user requests.
     startRitualScheduler();
+    runSchemaMigrations();
     backfillLegacyUserRoles();
     backfillInactiveAuthenticatedUsers();
   });

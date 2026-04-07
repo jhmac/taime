@@ -58,7 +58,10 @@ export async function runGenerationJob(jobId: string): Promise<void> {
     const [job] = await db.select().from(generationJobs).where(eq(generationJobs.id, jobId));
     if (!job) throw new Error("Job not found");
 
-    const [context] = await db.select().from(companyAiContext).limit(1);
+    const contextQuery = job.storeId
+      ? db.select().from(companyAiContext).where(eq(companyAiContext.storeId, job.storeId)).limit(1)
+      : db.select().from(companyAiContext).limit(1);
+    const [context] = await contextQuery;
     const storeName = context?.storeName || "Our Store";
     const businessType = context?.businessType || "Fashion Boutique";
     const brandVoice = context?.brandVoice || "professional and warm";

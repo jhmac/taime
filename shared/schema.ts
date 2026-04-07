@@ -376,6 +376,7 @@ export const aiInsights = pgTable("ai_insights", {
 // Company settings
 export const companySettings = pgTable("company_settings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => workLocations.id),
   companyName: varchar("company_name").default("My Company"),
   timezone: varchar("timezone").default("America/New_York"),
   businessStartHour: integer("business_start_hour").default(8),
@@ -547,6 +548,7 @@ export const holidayPayRules = pgTable("holiday_pay_rules", {
 // SOP categories
 export const sopCategories = pgTable("sop_categories", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => workLocations.id),
   name: varchar("name").notNull(),
   description: text("description"),
   icon: varchar("icon"),
@@ -600,6 +602,7 @@ export const aiFeedback = pgTable("ai_feedback", {
 // Training modules
 export const trainingModules = pgTable("training_modules", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => workLocations.id),
   title: varchar("title").notNull(),
   description: text("description"),
   content: text("content").notNull(),
@@ -2177,6 +2180,7 @@ export type DayNote = typeof dayNotes.$inferSelect;
 // ── AI Learning Center: Store Context ──────────────────────────────────────
 export const companyAiContext = pgTable("company_ai_context", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => workLocations.id),
   storeName: varchar("store_name").notNull().default("My Store"),
   businessType: varchar("business_type").notNull().default("Fashion Boutique"),
   brandVoice: text("brand_voice"),
@@ -2192,6 +2196,7 @@ export type InsertCompanyAiContext = z.infer<typeof insertCompanyAiContextSchema
 // ── AI Learning Center: Generation Jobs ────────────────────────────────────
 export const generationJobs = pgTable("generation_jobs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => workLocations.id),
   status: varchar("status").notNull().default("pending"),
   selectedDocumentIds: jsonb("selected_document_ids").$type<string[]>().default([]),
   outputTypes: jsonb("output_types").$type<string[]>().default([]),
@@ -2205,6 +2210,7 @@ export const generationJobs = pgTable("generation_jobs", {
 }, (table) => [
   index("idx_generation_jobs_status").on(table.status),
   index("idx_generation_jobs_created_by").on(table.createdBy),
+  index("idx_generation_jobs_store_id").on(table.storeId),
 ]);
 
 export const insertGenerationJobSchema = createInsertSchema(generationJobs).omit({ id: true, createdAt: true, updatedAt: true });

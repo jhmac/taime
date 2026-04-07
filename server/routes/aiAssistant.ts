@@ -9,7 +9,7 @@ import { generateTaskSuggestions } from "../services/smartTaskSuggestions";
 import { db } from "../db";
 import { aiFeedback, aiChatConversations, aiChatMessages } from "@shared/schema";
 import { eq, and, desc } from "drizzle-orm";
-import { resolveStoreId } from "../lib/storeResolver";
+import { tryResolveStoreIdForUser } from "../lib/storeResolver";
 
 const DEFAULT_MODEL_STR = "claude-sonnet-4-20250514";
 
@@ -119,7 +119,8 @@ export function registerAiAssistantRoutes(app: Express, storage: IStorage, isAut
         ? publishedSops.map(s => `## ${s.title}\n${s.content}\n${s.summary ? `Summary: ${s.summary}` : ''}`).join('\n\n---\n\n')
         : 'No SOPs have been published yet. Let the employee know that their admin is still setting up the knowledge base.';
 
-      const categories = await storage.getSopCategories();
+      const storeIdForContext = await tryResolveStoreIdForUser(req.user.id);
+      const categories = await storage.getSopCategories(storeIdForContext ?? undefined);
       const categoryList = categories.map(c => c.name).join(', ');
 
       const user = await storage.getUser(req.user.id);
@@ -382,7 +383,7 @@ Available SOPs: ${publishedSops.length > 0 ? publishedSops.map(s => s.title).joi
         }
       }
 
-      const storeId = await resolveStoreId() || "default";
+      const storeId = await tryResolveStoreIdForUser(req.user.id) || "default";
 
       const taskPatterns = /what should i (be doing|do|focus|work on)|what.s next|what now|priorit|where (do i|should i) start/i;
       let enrichedQuestion = question;

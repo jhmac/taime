@@ -15,6 +15,7 @@ import {
 } from "@shared/schema";
 import { eq, and, lte, desc, sql, count } from "drizzle-orm";
 import { z } from "zod";
+import { tryResolveStoreIdForUser } from "../lib/storeResolver";
 
 const TRAINING_SCORE_SETTINGS = [
   { eventType: "training-module-complete", pointValue: 50 },
@@ -240,8 +241,12 @@ export function registerTrainingPlayerRoutes(app: Express, storage: IStorage, is
       const isManager = perms.some(p => p.name === "admin.manage_all" || p.name === "hr.view_team");
       if (!isManager) return res.status(403).json({ message: "Access denied" });
 
-      const allModules = await storage.getTrainingModules();
-      const allUsers = (await storage.getAllUsers()).filter(u => u.isActive);
+      const storeId = await tryResolveStoreIdForUser(requesterId);
+      const allModules = await storage.getTrainingModules(storeId ?? undefined);
+      const managerUser = await storage.getUser(requesterId);
+      const managerLocation = managerUser?.locationName;
+      const rawUsers = await storage.getAllUsers();
+      const allUsers = rawUsers.filter(u => u.isActive && (managerLocation ? u.locationName === managerLocation : true));
       const allProgress = await db.select().from(employeeTrainingProgress);
 
       const matrix = allUsers.map(u => ({
@@ -319,8 +324,12 @@ export function registerTrainingPlayerRoutes(app: Express, storage: IStorage, is
       const isManager = perms.some(p => p.name === "admin.manage_all" || p.name === "hr.view_team");
       if (!isManager) return res.status(403).json({ message: "Access denied" });
 
-      const allModules = await storage.getTrainingModules();
-      const allUsers = (await storage.getAllUsers()).filter(u => u.isActive);
+      const storeId = await tryResolveStoreIdForUser(requesterId);
+      const managerUser = await storage.getUser(requesterId);
+      const managerLocation = managerUser?.locationName;
+      const rawUsersForExport = await storage.getAllUsers();
+      const allModules = await storage.getTrainingModules(storeId ?? undefined);
+      const allUsers = rawUsersForExport.filter(u => u.isActive && (managerLocation ? u.locationName === managerLocation : true));
       const allProgress = await db.select().from(employeeTrainingProgress);
 
       const headers = ["Employee", "Email", ...allModules.map(m => m.title), "Overall %"];
@@ -384,7 +393,8 @@ export function registerTrainingPlayerRoutes(app: Express, storage: IStorage, is
   app.get("/api/training/dashboard", isAuthenticated, async (req: any, res: Response) => {
     try {
       const userId = req.user.id;
-      const allModules = await storage.getTrainingModules();
+      const storeId = await tryResolveStoreIdForUser(userId);
+      const allModules = await storage.getTrainingModules(storeId ?? undefined);
       const allProgress = await storage.getEmployeeTrainingProgress(userId);
       const due = await storage.getDuePracticeQuestions(userId, 5);
 

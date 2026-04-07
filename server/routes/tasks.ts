@@ -2,6 +2,7 @@ import type { Express } from "express";
 import type { IStorage } from "../storage";
 import { insertTaskSchema } from "@shared/schema";
 import { notificationService } from "../services/notificationService";
+import { tryResolveStoreIdForUser } from "../lib/storeResolver";
 
 export function registerTaskRoutes(app: Express, storage: IStorage, isAuthenticated: any, broadcastToAll: (data: any) => void) {
   app.post('/api/tasks', isAuthenticated, async (req: any, res) => {
@@ -31,14 +32,14 @@ export function registerTaskRoutes(app: Express, storage: IStorage, isAuthentica
   app.get('/api/tasks', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const user = await storage.getUser(userId);
 
       let tasks;
       const userPermissions = await storage.getUserPermissions(userId);
       const canViewAll = userPermissions.some(p => p.name === 'tasks.view_all');
       
       if (canViewAll) {
-        tasks = await storage.getAllTasks();
+        const locationId = await tryResolveStoreIdForUser(userId);
+        tasks = await storage.getAllTasks(locationId || undefined);
       } else {
         tasks = await storage.getUserTasks(userId);
       }

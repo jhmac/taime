@@ -1,17 +1,52 @@
 import { db } from "../db";
-import { workLocations } from "@shared/schema";
+import { workLocations, users } from "@shared/schema";
+import { eq, and } from "drizzle-orm";
+import { AppError } from "./routeWrapper";
 
-let cachedStoreId: string | null = null;
-let cacheTime = 0;
-const CACHE_TTL = 60 * 1000;
+export async function resolveStoreIdForUser(userId: string): Promise<string> {
+  const [user] = await db
+    .select({ locationName: users.locationName })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
 
-export async function resolveStoreId(): Promise<string | null> {
-  const now = Date.now();
-  if (cachedStoreId && now - cacheTime < CACHE_TTL) {
-    return cachedStoreId;
+  if (!user?.locationName) {
+    throw new AppError(400, "Your account has no store location assigned. Contact your administrator.", "NO_STORE");
   }
-  const [store] = await db.select({ id: workLocations.id }).from(workLocations).limit(1);
-  cachedStoreId = store?.id || null;
-  cacheTime = now;
-  return cachedStoreId;
+
+  const matchingLocs = await db
+    .select({ id: workLocations.id })
+    .from(workLocations)
+    .where(and(eq(workLocations.name, user.locationName), eq(workLocations.isActive, true)));
+
+  if (matchingLocs.length === 0) {
+    throw new AppError(400, "No active store found matching your location. Contact your administrator.", "NO_STORE");
+  }
+  if (matchingLocs.length > 1) {
+    throw new AppError(400, "Ambiguous store assignment: multiple locations share the same name. Contact your administrator.", "AMBIGUOUS_STORE");
+  }
+
+  return matchingLocs[0].id;
+}
+
+export async function tryResolveStoreIdForUser(userId: string): Promise<string | null> {
+  try {
+    return await resolveStoreIdForUser(userId);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Legacy compat: resolves the first active store (global fallback).
+ * Used by routes that haven't been migrated to per-user store resolution yet.
+ * @deprecated Prefer resolveStoreIdForUser(userId) for proper multi-tenancy.
+ */
+export async function resolveStoreId(): Promise<string | null> {
+  const [loc] = await db
+    .select({ id: workLocations.id })
+    .from(workLocations)
+    .where(eq(workLocations.isActive, true))
+    .limit(1);
+  return loc?.id ?? null;
 }

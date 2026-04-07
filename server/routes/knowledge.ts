@@ -3,10 +3,8 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import { z } from "zod";
-import { db } from "../db";
-import { workLocations, users } from "@shared/schema";
-import { eq, and } from "drizzle-orm";
 import { asyncHandler, AppError } from "../lib/routeWrapper";
+import { resolveStoreIdForUser } from "../lib/storeResolver";
 import type { IStorage } from "../storage";
 import { processKnowledgeDocument } from "../services/knowledgeExtractor";
 import logger from "../lib/logger";
@@ -91,32 +89,6 @@ async function requireManagerOrOwner(storage: IStorage, userId: string): Promise
   if (!hasAccess) {
     throw new AppError(403, "Manager or Owner access required", "FORBIDDEN");
   }
-}
-
-async function resolveStoreIdForUser(userId: string): Promise<string> {
-  const [user] = await db
-    .select({ locationName: users.locationName })
-    .from(users)
-    .where(eq(users.id, userId))
-    .limit(1);
-
-  if (!user?.locationName) {
-    throw new AppError(400, "Your account has no store location assigned. Contact your administrator.", "NO_STORE");
-  }
-
-  const matchingLocs = await db
-    .select({ id: workLocations.id })
-    .from(workLocations)
-    .where(and(eq(workLocations.name, user.locationName), eq(workLocations.isActive, true)));
-
-  if (matchingLocs.length === 0) {
-    throw new AppError(400, "No active store found matching your location. Contact your administrator.", "NO_STORE");
-  }
-  if (matchingLocs.length > 1) {
-    throw new AppError(400, "Ambiguous store assignment: multiple locations share the same name. Contact your administrator.", "AMBIGUOUS_STORE");
-  }
-
-  return matchingLocs[0].id;
 }
 
 const updateTagsSchema = z.object({

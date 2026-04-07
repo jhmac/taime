@@ -1,10 +1,11 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
-import { users, roles, companySettings, employeeDocuments, managerNotes } from "@shared/schema";
-import { eq, desc, or, isNull } from "drizzle-orm";
+import { users, roles, companySettings, employeeDocuments, managerNotes, workLocations } from "@shared/schema";
+import { eq, desc, or, isNull, and } from "drizzle-orm";
 import { db } from "../db";
 import { sendTeamInviteEmail } from "../services/emailService";
 import { randomBytes } from "crypto";
+import { tryResolveStoreIdForUser } from "../lib/storeResolver";
 
 function generateInviteToken(): string {
   return randomBytes(32).toString("hex");
@@ -185,12 +186,27 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
       }
       
       const includeAll = req.query.includeAll === 'true';
-      const allUsers = includeAll
-        ? await db.select().from(users)
-        : await db.select().from(users).where(
-            or(eq(users.isActive, true), isNull(users.inviteAcceptedAt))
-          );
-      res.json(allUsers);
+
+      const requestingUser = await storage.getUser(userId);
+      const requestingLocationName = requestingUser?.locationName;
+
+      if (requestingLocationName) {
+        const locationFilter = or(
+          eq(users.locationName, requestingLocationName),
+          isNull(users.locationName)
+        );
+        const activeFilter = includeAll ? undefined : or(eq(users.isActive, true), isNull(users.inviteAcceptedAt));
+        const whereClause = activeFilter ? and(locationFilter, activeFilter) : locationFilter;
+        const filteredUsers = await db.select().from(users).where(whereClause);
+        res.json(filteredUsers);
+      } else {
+        const allUsers = includeAll
+          ? await db.select().from(users)
+          : await db.select().from(users).where(
+              or(eq(users.isActive, true), isNull(users.inviteAcceptedAt))
+            );
+        res.json(allUsers);
+      }
     } catch (error) {
       console.error("Error fetching users:", error);
       res.status(500).json({ message: "Failed to fetch users" });

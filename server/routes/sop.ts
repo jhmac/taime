@@ -6,6 +6,7 @@ import {
   insertSopDocumentSchema,
   insertTrainingModuleSchema,
 } from "@shared/schema";
+import { tryResolveStoreIdForUser } from "../lib/storeResolver";
 
 async function requireAdmin(storage: IStorage, userId: string): Promise<boolean> {
   const permissions = await storage.getUserPermissions(userId);
@@ -15,7 +16,8 @@ async function requireAdmin(storage: IStorage, userId: string): Promise<boolean>
 export function registerSopRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
   app.get('/api/sop/categories', isAuthenticated, async (req: any, res) => {
     try {
-      const categories = await storage.getSopCategories();
+      const storeId = await tryResolveStoreIdForUser(req.user.id);
+      const categories = await storage.getSopCategories(storeId ?? undefined);
       res.json(categories);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -27,9 +29,11 @@ export function registerSopRoutes(app: Express, storage: IStorage, isAuthenticat
       if (!(await requireAdmin(storage, req.user.id))) {
         return res.status(403).json({ message: "Admin access required" });
       }
+      const storeId = await tryResolveStoreIdForUser(req.user.id);
       const data = insertSopCategorySchema.parse({
         ...req.body,
         createdBy: req.user.id,
+        ...(storeId ? { storeId } : {}),
       });
       const category = await storage.createSopCategory(data);
       res.json(category);
@@ -169,7 +173,8 @@ export function registerSopRoutes(app: Express, storage: IStorage, isAuthenticat
 
   app.get('/api/training/modules', isAuthenticated, async (req: any, res) => {
     try {
-      const modules = await storage.getTrainingModules();
+      const storeId = await tryResolveStoreIdForUser(req.user.id);
+      const modules = await storage.getTrainingModules(storeId ?? undefined);
       res.json(modules.filter(m => m.isActive));
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -181,9 +186,11 @@ export function registerSopRoutes(app: Express, storage: IStorage, isAuthenticat
       if (!(await requireAdmin(storage, req.user.id))) {
         return res.status(403).json({ message: "Admin access required" });
       }
+      const storeId = await tryResolveStoreIdForUser(req.user.id);
       const data = insertTrainingModuleSchema.parse({
         ...req.body,
         createdBy: req.user.id,
+        ...(storeId ? { storeId } : {}),
       });
       const module = await storage.createTrainingModule(data);
       res.json(module);

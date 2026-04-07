@@ -3,6 +3,7 @@ import type { IStorage } from "../storage";
 import { z } from "zod";
 import { cache } from "../lib/cache";
 import { asyncHandler, AppError } from "../lib/routeWrapper";
+import { tryResolveStoreIdForUser } from "../lib/storeResolver";
 
 const companySettingsUpdateSchema = z.object({
   companyName: z.string().max(200).optional(),
@@ -123,18 +124,22 @@ const DEFAULT_SETTINGS = {
 };
 
 export function registerAdminRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
-  app.get('/api/company-settings', isAuthenticated, asyncHandler(async (_req: any, res) => {
-    const cached = cache.get('company:settings');
+  app.get('/api/company-settings', isAuthenticated, asyncHandler(async (req: any, res) => {
+    const storeId = await tryResolveStoreIdForUser(req.user.id);
+    const cacheKey = storeId ? `company:settings:${storeId}` : 'company:settings';
+    const cached = cache.get(cacheKey);
     if (cached) return res.json(cached);
-    const settings = await storage.getCompanySettings();
+    const settings = await storage.getCompanySettings(storeId || undefined);
     const result = settings || DEFAULT_SETTINGS;
-    cache.set('company:settings', result);
+    cache.set(cacheKey, result);
     res.json(result);
   }));
 
   app.put('/api/company-settings', isAuthenticated, asyncHandler(async (req: any, res) => {
     const userId = req.user.id;
     await requireAdmin(storage, userId);
+
+    const storeId = await tryResolveStoreIdForUser(userId);
 
     const { expectedVersion, ...bodyWithoutVersion } = req.body;
     const validated = companySettingsUpdateSchema.parse(bodyWithoutVersion);
@@ -153,8 +158,9 @@ export function registerAdminRoutes(app: Express, storage: IStorage, isAuthentic
       }
     }
 
-    const settings = await storage.updateCompanySettings(settingsUpdates);
-    cache.invalidate('company:settings');
+    const settings = await storage.updateCompanySettings(settingsUpdates, storeId || undefined);
+    const cacheKey = storeId ? `company:settings:${storeId}` : 'company:settings';
+    cache.invalidate(cacheKey);
     await storage.createActivityLog({ userId, action: 'update', targetType: 'company_settings', details: 'Updated company settings' });
     res.json(settings);
   }));

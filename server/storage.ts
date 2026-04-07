@@ -172,7 +172,7 @@ export interface IStorage {
   createSchedule(schedule: InsertSchedule): Promise<Schedule>;
   createSchedulesBatch(scheduleList: InsertSchedule[]): Promise<Schedule[]>;
   getUserSchedules(userId: string, startDate?: Date, endDate?: Date): Promise<Schedule[]>;
-  getAllSchedules(startDate?: Date, endDate?: Date): Promise<Schedule[]>;
+  getAllSchedules(startDate?: Date, endDate?: Date, locationId?: string): Promise<Schedule[]>;
   updateSchedule(id: string, updates: Partial<Schedule>): Promise<Schedule>;
   deleteSchedule(id: string): Promise<void>;
   
@@ -180,7 +180,7 @@ export interface IStorage {
   createTask(task: InsertTask): Promise<Task>;
   getTask(id: string): Promise<Task | undefined>;
   getUserTasks(userId: string): Promise<Task[]>;
-  getAllTasks(): Promise<Task[]>;
+  getAllTasks(locationId?: string): Promise<Task[]>;
   updateTask(id: string, updates: Partial<Task>): Promise<Task>;
   deleteTask(id: string): Promise<void>;
   getTasksForDate(date: Date): Promise<Task[]>;
@@ -275,8 +275,8 @@ export interface IStorage {
   getUserPermissions(userId: string): Promise<Permission[]>;
   
   // Company settings operations
-  getCompanySettings(): Promise<CompanySettings | undefined>;
-  updateCompanySettings(settings: InsertCompanySettings): Promise<CompanySettings>;
+  getCompanySettings(storeId?: string): Promise<CompanySettings | undefined>;
+  updateCompanySettings(settings: InsertCompanySettings, storeId?: string): Promise<CompanySettings>;
   
   // Work location update/delete
   updateWorkLocation(id: string, updates: Partial<WorkLocation>): Promise<WorkLocation>;
@@ -312,7 +312,7 @@ export interface IStorage {
 
   // SOP operations
   createSopCategory(category: InsertSopCategory): Promise<SopCategory>;
-  getSopCategories(): Promise<SopCategory[]>;
+  getSopCategories(storeId?: string): Promise<SopCategory[]>;
   updateSopCategory(id: string, updates: Partial<SopCategory>): Promise<SopCategory>;
   deleteSopCategory(id: string): Promise<void>;
   
@@ -334,7 +334,7 @@ export interface IStorage {
   
   // Training operations
   createTrainingModule(module: InsertTrainingModule): Promise<TrainingModule>;
-  getTrainingModules(): Promise<TrainingModule[]>;
+  getTrainingModules(storeId?: string): Promise<TrainingModule[]>;
   updateTrainingModule(id: string, updates: Partial<TrainingModule>): Promise<TrainingModule>;
   deleteTrainingModule(id: string): Promise<void>;
   
@@ -571,8 +571,9 @@ export class DatabaseStorage implements IStorage {
       .orderBy(schedules.startTime);
   }
 
-  async getAllSchedules(startDate?: Date, endDate?: Date): Promise<Schedule[]> {
+  async getAllSchedules(startDate?: Date, endDate?: Date, locationId?: string): Promise<Schedule[]> {
     const conditions = [];
+    if (locationId) conditions.push(eq(schedules.locationId, locationId));
     if (startDate) conditions.push(gte(schedules.startTime, startDate));
     if (endDate) conditions.push(lte(schedules.startTime, endDate));
 
@@ -620,7 +621,10 @@ export class DatabaseStorage implements IStorage {
       .limit(200);
   }
 
-  async getAllTasks(): Promise<Task[]> {
+  async getAllTasks(locationId?: string): Promise<Task[]> {
+    if (locationId) {
+      return await db.select().from(tasks).where(eq(tasks.locationId, locationId)).orderBy(desc(tasks.createdAt)).limit(500);
+    }
     return await db.select().from(tasks).orderBy(desc(tasks.createdAt)).limit(500);
   }
 
@@ -1390,24 +1394,28 @@ export class DatabaseStorage implements IStorage {
     return updatedUser;
   }
 
-  async getCompanySettings(): Promise<CompanySettings | undefined> {
-    const cached = cache.get<CompanySettings>('company:settings');
+  async getCompanySettings(storeId?: string): Promise<CompanySettings | undefined> {
+    const cacheKey = storeId ? `company:settings:${storeId}` : 'company:settings';
+    const cached = cache.get<CompanySettings>(cacheKey);
     if (cached) return cached;
-    const [settings] = await db.select().from(companySettings).limit(1);
-    if (settings) cache.set('company:settings', settings, 2 * 60 * 1000);
+    const query = storeId
+      ? db.select().from(companySettings).where(eq(companySettings.storeId, storeId)).limit(1)
+      : db.select().from(companySettings).limit(1);
+    const [settings] = await query;
+    if (settings) cache.set(cacheKey, settings, 2 * 60 * 1000);
     return settings;
   }
 
-  async updateCompanySettings(updates: Partial<CompanySettings> & { expectedVersion?: number }): Promise<CompanySettings> {
-    const existing = await this.getCompanySettings();
+  async updateCompanySettings(updates: Partial<CompanySettings> & { expectedVersion?: number }, storeId?: string): Promise<CompanySettings> {
+    const existing = await this.getCompanySettings(storeId);
     const { expectedVersion, ...settingsData } = updates;
+    const cacheKey = storeId ? `company:settings:${storeId}` : 'company:settings';
 
     if (existing) {
       if (expectedVersion !== undefined && expectedVersion !== (existing.version || 1)) {
         throw new Error("Settings were modified by another user. Please refresh and try again.");
       }
 
-      // Ensure decimal values are stored as strings for the text column
       const updatePayload: any = { 
         ...settingsData, 
         updatedAt: new Date(), 
@@ -1423,11 +1431,12 @@ export class DatabaseStorage implements IStorage {
         .set(updatePayload)
         .where(eq(companySettings.id, existing.id))
         .returning();
-      cache.invalidate('company:settings');
+      cache.invalidate(cacheKey);
       return updated;
     }
     
     const insertData: any = { ...settingsData, version: 1 };
+    if (storeId) insertData.storeId = storeId;
     if (settingsData.autoClockOutAfterMinutes !== undefined) {
       insertData.autoClockOutAfterMinutes = settingsData.autoClockOutAfterMinutes !== null ? settingsData.autoClockOutAfterMinutes.toString() : null;
     }
@@ -1436,7 +1445,7 @@ export class DatabaseStorage implements IStorage {
       .insert(companySettings)
       .values(insertData)
       .returning();
-    cache.invalidate('company:settings');
+    cache.invalidate(cacheKey);
     return created;
   }
 
@@ -1578,7 +1587,10 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async getSopCategories(): Promise<SopCategory[]> {
+  async getSopCategories(storeId?: string): Promise<SopCategory[]> {
+    if (storeId) {
+      return await db.select().from(sopCategories).where(eq(sopCategories.storeId, storeId)).orderBy(sopCategories.sortOrder);
+    }
     return await db.select().from(sopCategories).orderBy(sopCategories.sortOrder);
   }
 
@@ -1693,7 +1705,10 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async getTrainingModules(): Promise<TrainingModule[]> {
+  async getTrainingModules(storeId?: string): Promise<TrainingModule[]> {
+    if (storeId) {
+      return await db.select().from(trainingModules).where(eq(trainingModules.storeId, storeId)).orderBy(trainingModules.createdAt);
+    }
     return await db.select().from(trainingModules).orderBy(trainingModules.createdAt);
   }
 
