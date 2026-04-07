@@ -21,23 +21,25 @@ async function isAdminOrManager(storage: IStorage, userId: string): Promise<bool
   return ["owner", "admin", "manager"].includes(user?.role?.name || "");
 }
 
-async function getAdminId(_storeId: string): Promise<string | null> {
-  try {
-    // Find the first owner/admin/manager in the system to be default reorder task assignee
-    const allUsers = await db
-      .select({ id: users.id, roleId: users.roleId })
-      .from(users)
-      .limit(50);
-    for (const u of allUsers) {
-      if (!u.roleId) continue;
-      const [role] = await db.select({ name: roles.name }).from(roles).where(eq(roles.id, u.roleId)).limit(1);
-      if (role && ["owner", "admin", "manager"].includes(role.name)) return u.id;
-    }
-    return allUsers[0]?.id || null;
-  } catch {
-    const [first] = await db.select({ id: users.id }).from(users).limit(1);
-    return first?.id || null;
+/**
+ * Resolve the default admin assignee for reorder tasks.
+ * Uses a single JOIN query scoped to users with a management role.
+ * Falls back to the requesting user if no admin is found.
+ */
+async function resolveAdminAssignee(storage: IStorage, requestUserId: string): Promise<string> {
+  // If the requesting user is already admin/manager/owner, use them directly
+  const reqUser = await storage.getUserWithRole(requestUserId);
+  if (["owner", "admin", "manager"].includes(reqUser?.role?.name || "")) {
+    return requestUserId;
   }
+  // Find first admin/owner/manager via a single scoped JOIN (no broad user table scan)
+  const [adminUser] = await db
+    .select({ id: users.id })
+    .from(users)
+    .innerJoin(roles, eq(users.roleId, roles.id))
+    .where(inArray(roles.name, ["owner", "admin", "manager"]))
+    .limit(1);
+  return adminUser?.id ?? requestUserId;
 }
 
 export function registerSupplyRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
@@ -419,36 +421,37 @@ export function registerSupplyRoutes(app: Express, storage: IStorage, isAuthenti
         }
       }
 
-      // Auto-generate reorder tasks for low items
-      // Default assignee = admin/manager who initiated the session (or first admin found)
-      const storeId = (await resolveStoreId()) || "default";
-      const defaultAssignee = session.assignedBy || (await getAdminId(storeId));
+      // Auto-generate reorder tasks for low items.
+      // - Online/unspecified items → assigned to admin (deterministic via resolveAdminAssignee)
+      // - Local-pickup items → created unassigned (assignedTo: null); returned in a separate
+      //   localPickupTasks list so the UI can present an explicit assignment gate before finalization.
+      const adminAssignee = await resolveAdminAssignee(storage, req.user.id);
       const reorderTasks: any[] = [];
+      const localPickupTasks: any[] = [];
+
       for (const { item, counted, needed } of lowItems) {
         const isUrgent = counted <= item.safetyStock;
         const isLocalPickup = !!item.isLocalPickup;
 
-        // Build order details for the task description
         const orderLine = item.orderUrl
           ? `\nOrder online: ${item.orderUrl}`
           : isLocalPickup
-          ? `\nPickup required: contact ${item.supplierName || "local supplier"} to pick up in-store.`
+          ? `\nLocal pickup needed — contact ${item.supplierName || "supplier"} to arrange in-store pickup.`
           : item.supplierName
           ? `\nSupplier: ${item.supplierName}`
           : "";
 
-        // Local-pickup items are assigned to the same admin to coordinate the pickup
-        // Online-order items are also assigned to admin by default; they can reassign as needed
-        const taskAssignee = defaultAssignee;
+        // Local-pickup reorder tasks are left unassigned so a manager can explicitly assign
+        // before the task is actioned. Online-order tasks are auto-assigned to admin.
+        const taskAssignee = isLocalPickup ? null : adminAssignee;
 
         const [task] = await db
           .insert(tasks)
           .values({
-            title: `${isUrgent ? "🔴" : "🟡"} Reorder: ${item.name} (need ${needed} ${item.unit})${isLocalPickup ? " — Local Pickup" : ""}`,
+            title: `${isUrgent ? "🔴" : "🟡"} Reorder: ${item.name} (need ${needed} ${item.unit})${isLocalPickup ? " — Pickup" : ""}`,
             description:
-              `Inventory count found ${counted} ${item.unit} of ${item.name}. ` +
-              `Par level is ${item.parLevel}. Need to reorder ${needed} ${item.unit}.` +
-              orderLine,
+              `Inventory count: ${counted} ${item.unit} on hand, par ${item.parLevel}. ` +
+              `Need to reorder ${needed} ${item.unit}.` + orderLine,
             createdBy: req.user.id,
             assignedTo: taskAssignee,
             status: "pending",
@@ -456,7 +459,12 @@ export function registerSupplyRoutes(app: Express, storage: IStorage, isAuthenti
             estimatedMinutes: 10,
           })
           .returning();
-        reorderTasks.push({ task, item });
+
+        if (isLocalPickup) {
+          localPickupTasks.push({ task, item });
+        } else {
+          reorderTasks.push({ task, item });
+        }
       }
 
       // Mark session complete
@@ -476,8 +484,9 @@ export function registerSupplyRoutes(app: Express, storage: IStorage, isAuthenti
       res.json({
         message: "Inventory count submitted",
         lowItems: lowItems.length,
-        reorderTasksCreated: reorderTasks.length,
+        reorderTasksCreated: reorderTasks.length + localPickupTasks.length,
         reorderTasks,
+        localPickupTasks, // Unassigned — UI must present assignment gate before actioning
       });
     } catch (err: any) {
       logger.error({ error: err.message }, "[Supply] Failed to submit session");

@@ -5,12 +5,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   ArrowLeft, ArrowRight, CheckCircle2, Package,
-  AlertTriangle, ExternalLink, Loader2, ChevronLeft,
+  AlertTriangle, ExternalLink, Loader2, ChevronLeft, Users,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import { useAuth } from "@/hooks/useAuth";
 
 type SupplyItem = {
   id: string;
@@ -53,18 +55,33 @@ function stockColor(counted: number, item: SupplyItem) {
   return "text-emerald-600 bg-emerald-50 border-emerald-200";
 }
 
+type TeamMember = { id: string; firstName: string; lastName: string };
+
 export default function InventoryCount() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const qc = useQueryClient();
+  const { user } = useAuth();
+
+  const isAdmin = ["owner", "admin", "manager"].includes(user?.role?.name || "");
+
+  const { data: teamMembers = [] } = useQuery<TeamMember[]>({
+    queryKey: ["/api/users"],
+    enabled: isAdmin,
+  });
 
   const isNew = sessionId === "new";
   const [realSessionId, setRealSessionId] = useState<string | null>(isNew ? null : sessionId);
   const [step, setStep] = useState(0); // 0 = intro, 1..N = item cards, N+1 = done
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [submitted, setSubmitted] = useState(false);
-  const [summary, setSummary] = useState<{ lowItems: number; reorderTasksCreated: number } | null>(null);
+  const [summary, setSummary] = useState<{
+    lowItems: number;
+    reorderTasksCreated: number;
+    localPickupTasks: Array<{ task: { id: string; title: string }; item: { name: string; supplierName: string | null } }>;
+  } | null>(null);
+  const [pickupAssignees, setPickupAssignees] = useState<Record<string, string>>({});
 
   // Quick-start for "new" sessions (from recurring task link)
   const quickStartMutation = useMutation({
@@ -112,10 +129,26 @@ export default function InventoryCount() {
       }),
     onSuccess: (res: any) => {
       setSubmitted(true);
-      setSummary({ lowItems: res.lowItems, reorderTasksCreated: res.reorderTasksCreated });
+      setSummary({
+        lowItems: res.lowItems,
+        reorderTasksCreated: res.reorderTasksCreated,
+        localPickupTasks: res.localPickupTasks || [],
+      });
       qc.invalidateQueries({ queryKey: ["/api/supply/items"] });
+      qc.invalidateQueries({ queryKey: ["/api/supply/stats"] });
     },
     onError: (e: any) => toast({ title: "Submit failed", description: e.message, variant: "destructive" }),
+  });
+
+  const assignPickupMutation = useMutation({
+    mutationFn: ({ taskId, assignedTo }: { taskId: string; assignedTo: string }) =>
+      apiRequest("PATCH", `/api/supply/reorder-tasks/${taskId}/assign`, { assignedTo }),
+    onSuccess: (_, { taskId, assignedTo }) => {
+      setPickupAssignees(prev => ({ ...prev, [taskId]: assignedTo }));
+      toast({ title: "Pickup task assigned" });
+      qc.invalidateQueries({ queryKey: ["/api/tasks"] });
+    },
+    onError: (e: any) => toast({ title: "Assignment failed", description: e.message, variant: "destructive" }),
   });
 
   if (isLoading || (isNew && !realSessionId)) {
@@ -175,15 +208,60 @@ export default function InventoryCount() {
           </Card>
         </div>
         {summary.reorderTasksCreated > 0 && (
-          <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 max-w-sm w-full">
-            <div className="flex items-center gap-2 mb-1">
-              <AlertTriangle className="h-4 w-4 text-orange-600" />
-              <p className="font-semibold text-sm text-orange-900">Reorder Tasks Created</p>
+          <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 max-w-sm w-full text-left">
+            <div className="flex items-center gap-2 mb-1.5">
+              <AlertTriangle className="h-4 w-4 text-orange-600 flex-shrink-0" />
+              <p className="font-semibold text-sm text-orange-900">
+                {summary.reorderTasksCreated} reorder task{summary.reorderTasksCreated !== 1 ? "s" : ""} created
+              </p>
             </div>
             <p className="text-sm text-orange-800">
-              {summary.reorderTasksCreated} reorder task{summary.reorderTasksCreated !== 1 ? "s" : ""} were automatically
-              added to your task list. Check <strong>Task Management</strong> to review and assign them.
+              Online reorder tasks were assigned automatically. Check <strong>Task Management</strong> to review them.
             </p>
+          </div>
+        )}
+
+        {/* Local-pickup assignment gate */}
+        {summary.localPickupTasks && summary.localPickupTasks.length > 0 && isAdmin && (
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 max-w-sm w-full text-left space-y-3">
+            <div className="flex items-center gap-2">
+              <Users className="h-4 w-4 text-blue-600 flex-shrink-0" />
+              <p className="font-semibold text-sm text-blue-900">
+                Assign local pickup tasks ({summary.localPickupTasks.length})
+              </p>
+            </div>
+            <p className="text-xs text-blue-700">These items need someone to arrange in-store pickup with the supplier. Assign each to a team member:</p>
+            {summary.localPickupTasks.map(({ task, item }) => {
+              const assigned = pickupAssignees[task.id];
+              return (
+                <div key={task.id} className="space-y-1">
+                  <p className="text-xs font-medium text-blue-900">{item.name}{item.supplierName ? ` — ${item.supplierName}` : ""}</p>
+                  {assigned ? (
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                      <span className="text-xs text-emerald-700">
+                        Assigned to {teamMembers.find(m => m.id === assigned)?.firstName || "team member"}
+                      </span>
+                    </div>
+                  ) : (
+                    <Select
+                      onValueChange={(userId) => {
+                        assignPickupMutation.mutate({ taskId: task.id, assignedTo: userId });
+                      }}
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue placeholder="Select team member" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {teamMembers.map((m) => (
+                          <SelectItem key={m.id} value={m.id}>{m.firstName} {m.lastName}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
         <div className="flex gap-3">
