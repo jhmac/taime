@@ -85,7 +85,10 @@ export default function InventoryCount() {
 
   // Quick-start for "new" sessions (from recurring task link)
   const quickStartMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/supply/sessions/quick-start"),
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/supply/sessions/quick-start");
+      return res.json();
+    },
     onSuccess: (data: any) => {
       setRealSessionId(data.session.id);
     },
@@ -120,13 +123,15 @@ export default function InventoryCount() {
   }, [data]);
 
   const submitMutation = useMutation({
-    mutationFn: () =>
-      apiRequest("POST", `/api/supply/sessions/${realSessionId}/submit`, {
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/supply/sessions/${realSessionId}/submit`, {
         counts: Object.entries(counts).map(([supplyItemId, countedQty]) => ({
           supplyItemId,
           countedQty,
         })),
-      }),
+      });
+      return res.json();
+    },
     onSuccess: (res: any) => {
       setSubmitted(true);
       setSummary({

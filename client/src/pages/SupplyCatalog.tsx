@@ -249,7 +249,10 @@ export default function SupplyCatalog() {
   });
 
   const createSessionMutation = useMutation({
-    mutationFn: (data: any) => apiRequest("POST", "/api/supply/sessions", data),
+    mutationFn: async (data: any) => {
+      const res = await apiRequest("POST", "/api/supply/sessions", data);
+      return res.json();
+    },
     onSuccess: (data: any) => {
       qc.invalidateQueries({ queryKey: ["/api/supply/items"] });
       setShowCountDialog(false);

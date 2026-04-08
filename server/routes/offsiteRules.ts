@@ -434,7 +434,7 @@ export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAu
       const userMap = new Map(allUsers.map(u => [u.id, u]));
 
       // Batch-fetch all needed offsite rules in a single query (fixes N+1)
-      const ruleIds = [...new Set(sessions.map(s => s.ruleId).filter((id): id is string => !!id))];
+      const ruleIds = Array.from(new Set(sessions.map(s => s.ruleId).filter((id): id is string => !!id)));
       const rulesMap = new Map<string, any>();
       if (ruleIds.length > 0) {
         const rules = await db.select().from(offsiteAllowanceRules).where(inArray(offsiteAllowanceRules.id, ruleIds));

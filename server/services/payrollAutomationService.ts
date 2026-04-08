@@ -121,7 +121,7 @@ class PayrollAutomationService {
         payrollPeriodId: periodId,
         workflowStep: 'automation_error',
         status: 'failed',
-        details: error.message,
+        details: (error as Error).message,
       });
     }
   }
@@ -136,7 +136,11 @@ class PayrollAutomationService {
       
       // Send availability notifications
       for (const user of users) {
-        await notificationService.sendAvailabilityRequest(user.id, periodId);
+        await notificationService.sendToUser(user.id, {
+          title: "Availability Request",
+          body: "Please submit your availability for the upcoming pay period.",
+          data: { type: "availability_request", periodId },
+        });
       }
 
       // Update period state
@@ -169,7 +173,7 @@ class PayrollAutomationService {
       // Call Claude AI to generate schedule
       const scheduleResult = await claudeService.createScheduleFromAvailability({
         payrollPeriodId: periodId,
-        availabilityData,
+        availabilityData: availabilityData as any,
         businessHours: {
           dailyHours: 8,
           peakHours: ['afternoon', 'evening'],
@@ -186,7 +190,7 @@ class PayrollAutomationService {
       await storage.updatePayrollPeriod(periodId, {
         workflowState: 'schedule_generated',
         scheduleGeneratedAt: new Date(),
-        aiAnalysis: scheduleResult.analysis,
+        aiAnalysis: scheduleResult.staffingAnalysis,
       });
 
       await storage.createWorkflowLog({
@@ -194,7 +198,7 @@ class PayrollAutomationService {
         workflowStep: 'schedule_generated',
         status: 'success',
         details: 'AI-generated schedule created successfully',
-        metadata: scheduleResult.analysis,
+        metadata: scheduleResult.staffingAnalysis,
       });
 
     } catch (error) {
@@ -214,7 +218,7 @@ class PayrollAutomationService {
 
       // Send schedule notifications
       for (const userId of userIds) {
-        await notificationService.sendScheduleConfirmationRequest(userId, periodId);
+        await notificationService.sendScheduleUpdate(userId, "Your schedule for the upcoming pay period is ready for review.");
       }
 
       // Update period state
@@ -246,10 +250,13 @@ class PayrollAutomationService {
       const schedules = await storage.getSchedulesByPeriod(periodId);
 
       // Generate payroll summary using AI
-      const payrollSummary = await claudeService.generatePayrollSummary({
-        periodId,
-        timeEntries,
-        schedules,
+      const payrollSummary = await claudeService.analyzePayroll({
+        timeEntries: timeEntries as any,
+        payrollRules: {
+          overtimeThreshold: 40,
+          maxDailyHours: 10,
+          requiredBreaks: "30 minutes after 6 hours",
+        },
       });
 
       // Update period state
@@ -261,10 +268,9 @@ class PayrollAutomationService {
 
       // Send verification notification to designated user
       if (settings.notificationUserId) {
-        await notificationService.sendPayrollVerificationRequest(
-          settings.notificationUserId, 
-          periodId, 
-          payrollSummary
+        await notificationService.sendPayrollReady(
+          settings.notificationUserId,
+          `Pay period ${periodId} has been finalized and is ready for review.`
         );
       }
 

@@ -62,7 +62,7 @@ export function usePWAUpdate() {
       title: "Update available",
       description: "A new version of Taime is ready.",
       duration: Infinity,
-      action: createElement(ToastAction, { altText: "Reload to update", onClick: applyUpdate }, "Reload"),
+      action: createElement(ToastAction, { altText: "Reload to update", onClick: applyUpdate }, "Reload") as any,
     });
 
     return () => {
