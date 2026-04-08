@@ -10,12 +10,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
-import { Plus, Edit2, Trash2, FolderOpen, FileText, Search, Eye, EyeOff } from 'lucide-react';
+import { Plus, Edit2, Trash2, FolderOpen, FileText, Search, Eye, EyeOff, Sparkles, Wand2 } from 'lucide-react';
+import { useLocation } from 'wouter';
 import type { SopCategory, SopDocument } from '@shared/schema';
 
 export default function SOPManagementSection() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [, navigate] = useLocation();
   const [activeTab, setActiveTab] = useState<'documents' | 'categories'>('documents');
   const [editingDoc, setEditingDoc] = useState<SopDocument | null>(null);
   const [editingCategory, setEditingCategory] = useState<SopCategory | null>(null);
@@ -183,6 +185,20 @@ export default function SOPManagementSection() {
 
   return (
     <div className="space-y-6">
+      <div
+        className="flex items-center gap-3 p-4 bg-violet-50 dark:bg-violet-950/30 border border-violet-200 dark:border-violet-800 rounded-xl cursor-pointer hover:bg-violet-100 dark:hover:bg-violet-950/50 transition-colors"
+        onClick={() => navigate('/ai-studio')}
+      >
+        <div className="w-9 h-9 rounded-xl bg-violet-100 dark:bg-violet-900/50 flex items-center justify-center flex-shrink-0">
+          <Wand2 className="w-5 h-5 text-violet-600" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-violet-900 dark:text-violet-200">Generate SOPs with AI Studio</p>
+          <p className="text-xs text-violet-700 dark:text-violet-400">Upload documents and let Claude generate structured SOPs automatically.</p>
+        </div>
+        <Sparkles className="w-4 h-4 text-violet-500 shrink-0" />
+      </div>
+
       <div className="flex gap-2">
         <Button
           variant={activeTab === 'documents' ? 'default' : 'outline'}
@@ -311,7 +327,7 @@ export default function SOPManagementSection() {
                   <CardContent className="p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
                           <h3 className="font-medium truncate">{doc.title}</h3>
                           {doc.isPublished ? (
                             <Badge variant="default" className="text-xs shrink-0">
@@ -322,6 +338,12 @@ export default function SOPManagementSection() {
                             <Badge variant="secondary" className="text-xs shrink-0">
                               <EyeOff className="w-3 h-3 mr-1" />
                               Draft
+                            </Badge>
+                          )}
+                          {doc.source === 'ai_generated' && (
+                            <Badge className="text-xs shrink-0 bg-violet-100 text-violet-800 dark:bg-violet-900 dark:text-violet-200">
+                              <Sparkles className="w-3 h-3 mr-1" />
+                              AI Generated
                             </Badge>
                           )}
                         </div>

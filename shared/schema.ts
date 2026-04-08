@@ -576,6 +576,7 @@ export const sopDocuments = pgTable("sop_documents", {
   tags: text("tags").array(),
   isPublished: boolean("is_published").default(false),
   version: integer("version").default(1),
+  source: varchar("source").default("manual"),
   updatedBy: varchar("updated_by").references(() => users.id),
   updatedAt: timestamp("updated_at").defaultNow(),
   createdAt: timestamp("created_at").defaultNow(),
@@ -2265,6 +2266,31 @@ export type AiStoreQASession = typeof aiStoreQASessions.$inferSelect;
 export type InsertAiStoreQASession = z.infer<typeof insertAiStoreQASessionSchema>;
 export type AiStoreQAMessage = typeof aiStoreQAMessages.$inferSelect;
 export type InsertAiStoreQAMessage = z.infer<typeof insertAiStoreQAMessageSchema>;
+
+// ── AI Content Studio ─────────────────────────────────────────────────────
+
+export const aiGeneratedItems = pgTable("ai_generated_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => workLocations.id),
+  jobId: varchar("job_id").references(() => generationJobs.id),
+  type: varchar("type").notNull(),
+  title: varchar("title").notNull(),
+  content: jsonb("content").notNull(),
+  sourceDocumentIds: jsonb("source_document_ids").$type<string[]>().default([]),
+  status: varchar("status").notNull().default("in_review"),
+  feedbackNotes: text("feedback_notes"),
+  createdBy: varchar("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_ai_gen_items_store_type").on(table.storeId, table.type),
+  index("idx_ai_gen_items_job").on(table.jobId),
+  index("idx_ai_gen_items_status").on(table.status),
+]);
+
+export const insertAiGeneratedItemSchema = createInsertSchema(aiGeneratedItems).omit({ id: true, createdAt: true, updatedAt: true });
+export type AiGeneratedItem = typeof aiGeneratedItems.$inferSelect;
+export type InsertAiGeneratedItem = z.infer<typeof insertAiGeneratedItemSchema>;
 
 // ── Supply & Inventory Kanban System ────────────────────────────────────────
 

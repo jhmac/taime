@@ -8,7 +8,7 @@ import {
   FileSpreadsheet, UserCog, ShieldCheck, BarChart, Medal,
   Settings, Cog, LogOut, ChevronRight, Banknote, Building2,
   Coffee, Lightbulb, LifeBuoy, History, FileDown, Mic, Brain,
-  Package,
+  Package, Wand2,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -114,6 +114,7 @@ export default function MoreMenu() {
         { icon: BarChart, label: 'Analytics', subtitle: 'Reports & insights', path: '/analytics', iconBg: 'bg-purple-100', iconColor: 'text-purple-600' },
         { icon: Medal, label: 'Performance', subtitle: 'Team scorecards', path: '/performance', iconBg: 'bg-yellow-100', iconColor: 'text-yellow-600' },
         { icon: Brain, label: 'AI Learning Center', subtitle: 'Upload & build your knowledge base', path: '/ai-learning', iconBg: 'bg-violet-100', iconColor: 'text-violet-600' },
+        { icon: Wand2, label: 'AI Studio', subtitle: 'Generate SOPs, training & more from documents', path: '/ai-studio', iconBg: 'bg-pink-100', iconColor: 'text-pink-600' },
         { icon: Cog, label: 'Operations', subtitle: 'Store ops & SOPs', path: '/operations', iconBg: 'bg-orange-100', iconColor: 'text-orange-500' },
         { icon: Settings, label: 'Settings', subtitle: 'Store & app configuration', path: '/admin', iconBg: 'bg-slate-100', iconColor: 'text-slate-600' },
       ],
