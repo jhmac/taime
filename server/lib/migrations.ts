@@ -72,6 +72,20 @@ export async function runSchemaMigrations(): Promise<void> {
       table: "knowledge_documents",
       sql: `ALTER TABLE knowledge_documents ADD COLUMN IF NOT EXISTS auto_tags text[] DEFAULT '{}'`,
     },
+    // sop_templates.tags: array column used by SOPIndexer and SOP creation
+    {
+      table: "sop_templates",
+      sql: `ALTER TABLE sop_templates ADD COLUMN IF NOT EXISTS tags text[]`,
+    },
+    // users.company_id and shops.company_id: Shopify multi-tenant support
+    {
+      table: "users",
+      sql: `ALTER TABLE users ADD COLUMN IF NOT EXISTS company_id varchar`,
+    },
+    {
+      table: "shops",
+      sql: `ALTER TABLE shops ADD COLUMN IF NOT EXISTS company_id varchar`,
+    },
   ];
 
   let altered = 0;
@@ -109,8 +123,21 @@ export async function runSchemaMigrations(): Promise<void> {
     console.warn("[Migration] key_processes rename check failed (non-fatal):", pgErr?.message ?? err);
   }
 
-  // AI Content Studio table creation — all columns must match shared/schema.ts definitions
+  // Core and AI Content Studio table creation — idempotent CREATE TABLE IF NOT EXISTS
   const tableCreations: Array<{ name: string; ddl: string; indexes: string[] }> = [
+    {
+      name: "companies",
+      ddl: `CREATE TABLE IF NOT EXISTS companies (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        name varchar NOT NULL,
+        slug varchar UNIQUE,
+        domain varchar,
+        plan varchar DEFAULT 'free',
+        is_active boolean DEFAULT true,
+        created_at timestamp DEFAULT now()
+      )`,
+      indexes: [],
+    },
     {
       name: "knowledge_documents",
       ddl: `CREATE TABLE IF NOT EXISTS knowledge_documents (

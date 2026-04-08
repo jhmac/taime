@@ -22,21 +22,22 @@ export default function PayrollModal({ isOpen, onClose }: PayrollModalProps) {
   const [aiMessage, setAiMessage] = useState('');
   const [showAIForm, setShowAIForm] = useState(false);
 
-  const { data: timeEntries, isLoading: timeEntriesLoading } = useQuery({
+  const { data: timeEntries, isLoading: timeEntriesLoading } = useQuery<any[]>({
     queryKey: ['/api/time-entries'],
     enabled: isOpen,
   });
 
-  const analyzePayrollMutation = useMutation({
+  const analyzePayrollMutation = useMutation<{ errors?: any[]; recommendations?: string[] }>({
     mutationFn: async () => {
       const endDate = new Date();
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - 7); // Last 7 days
 
-      return await apiRequest('POST', '/api/payroll/analyze', {
+      const res = await apiRequest('POST', '/api/payroll/analyze', {
         startDate: startDate.toISOString(),
         endDate: endDate.toISOString(),
       });
+      return await res.json();
     },
     onError: (error: Error) => {
       if (isUnauthorizedError(error)) {
@@ -193,7 +194,7 @@ export default function PayrollModal({ isOpen, onClose }: PayrollModalProps) {
           </Card>
 
           {/* AI Analysis Results */}
-          {analyzePayrollMutation.isLoading ? (
+          {analyzePayrollMutation.isPending ? (
             <Card>
               <CardContent className="p-4">
                 <div className="flex items-center space-x-2">
@@ -210,9 +211,9 @@ export default function PayrollModal({ isOpen, onClose }: PayrollModalProps) {
                   <span className="text-sm font-medium">AI Analysis Complete</span>
                 </div>
                 
-                {analyzePayrollMutation.data.errors?.length > 0 ? (
+                {(analyzePayrollMutation.data.errors?.length ?? 0) > 0 ? (
                   <div className="space-y-2">
-                    {analyzePayrollMutation.data.errors.map((error: any, index: number) => (
+                    {(analyzePayrollMutation.data.errors ?? []).map((error: any, index: number) => (
                       <div key={index} className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
                         <div className="flex items-center space-x-2 mb-1">
                           <i className="fas fa-exclamation-triangle text-yellow-600"></i>
@@ -239,11 +240,11 @@ export default function PayrollModal({ isOpen, onClose }: PayrollModalProps) {
                   </div>
                 )}
 
-                {analyzePayrollMutation.data.recommendations?.length > 0 && (
+                {(analyzePayrollMutation.data.recommendations?.length ?? 0) > 0 && (
                   <div className="mt-3">
                     <h4 className="text-sm font-medium mb-2">Recommendations:</h4>
                     <ul className="space-y-1">
-                      {analyzePayrollMutation.data.recommendations.map((rec: string, index: number) => (
+                      {(analyzePayrollMutation.data.recommendations ?? []).map((rec: string, index: number) => (
                         <li key={index} className="text-xs text-muted-foreground">
                           • {rec}
                         </li>

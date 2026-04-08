@@ -582,6 +582,17 @@ function InlineTextField({
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
+  const [saving, setSaving] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
+
+  const handleSave = () => {
+    onSave(draft);
+    setEditing(false);
+    setSaving(true);
+    setJustSaved(false);
+    setTimeout(() => { setSaving(false); setJustSaved(true); }, 600);
+    setTimeout(() => setJustSaved(false), 2200);
+  };
 
   if (!editable) {
     return <span className={className}>{value}</span>;
@@ -597,6 +608,7 @@ function InlineTextField({
             className="text-sm min-h-[60px]"
             autoFocus
             rows={3}
+            onKeyDown={(e) => { if (e.key === "Escape") { setDraft(value); setEditing(false); } }}
           />
         ) : (
           <input
@@ -604,10 +616,13 @@ function InlineTextField({
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             autoFocus
+            onKeyDown={(e) => { if (e.key === "Enter") handleSave(); if (e.key === "Escape") { setDraft(value); setEditing(false); } }}
           />
         )}
-        <div className="flex gap-1.5">
-          <Button size="sm" className="h-6 text-xs" onClick={() => { onSave(draft); setEditing(false); }}>Save</Button>
+        <div className="flex gap-1.5 items-center">
+          <Button size="sm" className="h-6 text-xs" onClick={handleSave} disabled={saving}>
+            {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : "Save"}
+          </Button>
           <Button size="sm" variant="ghost" className="h-6 text-xs" onClick={() => { setDraft(value); setEditing(false); }}>Cancel</Button>
         </div>
       </div>
@@ -621,7 +636,11 @@ function InlineTextField({
       onClick={() => { setDraft(value); setEditing(true); }}
     >
       {value}
-      <Pencil className="w-2.5 h-2.5 inline ml-1 opacity-0 group-hover:opacity-50 shrink-0" />
+      {justSaved ? (
+        <Check className="w-2.5 h-2.5 inline ml-1 text-emerald-500 shrink-0" />
+      ) : (
+        <Pencil className="w-2.5 h-2.5 inline ml-1 opacity-0 group-hover:opacity-50 shrink-0" />
+      )}
     </span>
   );
 }
