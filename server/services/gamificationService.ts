@@ -728,11 +728,11 @@ export class GamificationService {
     const allCategories = ['attendance', 'tasks', 'sops', 'engagement'];
     const categoriesNoLongerActive = allCategories.filter(c => !freshCategories.has(c));
 
-    if (categoriesNoLongerActive.length > 0) {
+    for (const cat of categoriesNoLongerActive) {
       await db.execute(sql`
         DELETE FROM score_notices
         WHERE user_id = ${userId}
-        AND category = ANY(${categoriesNoLongerActive})
+        AND category = ${cat}
       `);
     }
 

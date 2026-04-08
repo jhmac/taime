@@ -16,7 +16,7 @@ import {
 } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
 import { asyncHandler, AppError } from "../lib/routeWrapper";
-import { resolveStoreIdForUser, tryResolveStoreIdForUser } from "../lib/storeResolver";
+import { resolveStoreId } from "../lib/storeResolver";
 import type { IStorage } from "../storage";
 import type { InsertSopDocument, InsertTask } from "@shared/schema";
 import { processKnowledgeDocument } from "../services/knowledgeExtractor";
@@ -280,7 +280,7 @@ export function registerAiStudioRoutes(
         throw new AppError(400, "No file uploaded", "NO_FILE");
       }
 
-      const storeId = await resolveStoreIdForUser(req.user.id);
+      const storeId = await resolveStoreId() as string;
       const file = req.file;
       let extracted: { rawText: string; imageBase64?: string; imageMimeType?: ImageMediaType };
       try {
@@ -318,7 +318,7 @@ export function registerAiStudioRoutes(
     isAuthenticated,
     asyncHandler(async (req: any, res) => {
       await requireManager(storage, req.user.id);
-      const storeId = await resolveStoreIdForUser(req.user.id);
+      const storeId = await resolveStoreId() as string;
       const docs = await storage.getKnowledgeDocuments(storeId);
       res.json({ success: true, data: docs });
     })
@@ -332,7 +332,7 @@ export function registerAiStudioRoutes(
       const { id } = req.params;
       const existing = await storage.getKnowledgeDocument(id);
       if (!existing) throw new AppError(404, "Document not found", "NOT_FOUND");
-      const storeId = await resolveStoreIdForUser(req.user.id);
+      const storeId = await resolveStoreId() as string;
       if (existing.storeId !== storeId) throw new AppError(404, "Document not found", "NOT_FOUND");
       await storage.deleteKnowledgeDocument(id);
       res.json({ success: true });
@@ -344,7 +344,7 @@ export function registerAiStudioRoutes(
     isAuthenticated,
     asyncHandler(async (req: any, res) => {
       await requireManager(storage, req.user.id);
-      const storeId = await resolveStoreIdForUser(req.user.id);
+      const storeId = await resolveStoreId() as string;
 
       const bodySchema = z.object({
         selectedDocumentIds: z.array(z.string()).min(1, "Select at least one document"),
@@ -385,7 +385,7 @@ export function registerAiStudioRoutes(
     isAuthenticated,
     asyncHandler(async (req: any, res) => {
       await requireManager(storage, req.user.id);
-      const storeId = await resolveStoreIdForUser(req.user.id);
+      const storeId = await resolveStoreId() as string;
       const [job] = await db
         .select()
         .from(generationJobs)
@@ -405,7 +405,7 @@ export function registerAiStudioRoutes(
     isAuthenticated,
     asyncHandler(async (req: any, res) => {
       await requireManager(storage, req.user.id);
-      const storeId = await resolveStoreIdForUser(req.user.id);
+      const storeId = await resolveStoreId() as string;
 
       const type = req.query.type as string | undefined;
       const status = req.query.status as string | undefined;
@@ -429,7 +429,7 @@ export function registerAiStudioRoutes(
     isAuthenticated,
     asyncHandler(async (req: any, res) => {
       await requireManager(storage, req.user.id);
-      const storeId = await resolveStoreIdForUser(req.user.id);
+      const storeId = await resolveStoreId() as string;
       const item = await getAiItem(req.params.id, storeId);
 
       const bodySchema = z.object({
@@ -456,7 +456,7 @@ export function registerAiStudioRoutes(
     isAuthenticated,
     asyncHandler(async (req: any, res) => {
       await requireManager(storage, req.user.id);
-      const storeId = await resolveStoreIdForUser(req.user.id);
+      const storeId = await resolveStoreId() as string;
       const item = await getAiItem(req.params.id, storeId);
 
       const bodySchema = z.object({
@@ -519,7 +519,7 @@ INSTRUCTIONS:
     isAuthenticated,
     asyncHandler(async (req: any, res) => {
       await requireManager(storage, req.user.id);
-      const storeId = await resolveStoreIdForUser(req.user.id);
+      const storeId = await resolveStoreId() as string;
       const item = await getAiItem(req.params.id, storeId);
 
       if (item.status !== "approved") {
@@ -559,7 +559,7 @@ INSTRUCTIONS:
     isAuthenticated,
     asyncHandler(async (req: any, res) => {
       await requireManager(storage, req.user.id);
-      const storeId = await resolveStoreIdForUser(req.user.id);
+      const storeId = await resolveStoreId() as string;
 
       const bodySchema = z.object({
         itemIds: z.array(z.string()).min(1),

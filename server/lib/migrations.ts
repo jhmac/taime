@@ -86,6 +86,16 @@ export async function runSchemaMigrations(): Promise<void> {
       table: "shops",
       sql: `ALTER TABLE shops ADD COLUMN IF NOT EXISTS company_id varchar`,
     },
+    // company_settings: mobile clock-in enforcement flag
+    {
+      table: "company_settings",
+      sql: `ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS require_mobile_clock_in boolean DEFAULT false`,
+    },
+    // cash_management_settings: store closing time for end-of-day prompts
+    {
+      table: "cash_management_settings",
+      sql: `ALTER TABLE cash_management_settings ADD COLUMN IF NOT EXISTS closing_time varchar`,
+    },
   ];
 
   let altered = 0;
