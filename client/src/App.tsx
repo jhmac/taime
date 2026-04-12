@@ -10,6 +10,10 @@ import { initGlobalErrorHandlers } from "./lib/errorReporter";
 import Layout from "@/components/Layout";
 import { usePWAUpdate } from "@/hooks/usePWAUpdate";
 import PWAInstallPrompt from "@/components/PWAInstallPrompt";
+import { usePayrollSetup } from "@/hooks/usePayrollSetup";
+import OfflineIndicator from "@/components/OfflineIndicator";
+import { WebSocketProvider } from "@/contexts/WebSocketContext";
+import type { Permission } from "@shared/schema";
 const OnboardingGuard = lazy(() => import("@/components/OnboardingGuard"));
 
 class AppErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: Error | null }> {
@@ -68,7 +72,6 @@ const TeamMember = lazy(() => import("@/pages/TeamMember"));
 const Availability = lazy(() => import("@/pages/Availability"));
 const PayPeriodManagement = lazy(() => import("@/pages/PayPeriodManagement"));
 const PayrollSetupModal = lazy(() => import("@/components/PayrollSetupModal"));
-import { usePayrollSetup } from "@/hooks/usePayrollSetup";
 const AdminSettings = lazy(() => import("@/pages/AdminSettings"));
 const TaskManagement = lazy(() => import("@/pages/TaskManagement"));
 const Analytics = lazy(() => import("@/pages/Analytics"));
@@ -95,7 +98,6 @@ const MorningWhisper = lazy(() => import("@/pages/MorningWhisper"));
 const ImprovementFeed = lazy(() => import("@/pages/ImprovementFeed"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 const ShopifyCallbackSuccess = lazy(() => import("@/pages/ShopifyCallbackSuccess"));
-import OfflineIndicator from "@/components/OfflineIndicator";
 const SmartClockPrompt = lazy(() => import("@/components/SmartClockPrompt"));
 const FocusClockOut = lazy(() => import("@/components/FocusClockOut"));
 const AskMAinagerSheet = lazy(() => import("@/features/ai-copilot/AskMAinagerSheet"));
@@ -125,8 +127,6 @@ const MeetingDetail = lazy(() => import("@/pages/MeetingDetail"));
 const AILearningCenter = lazy(() => import("@/pages/AILearningCenter"));
 const AIContentStudio = lazy(() => import("@/pages/AIContentStudio"));
 const StoreQA = lazy(() => import("@/pages/StoreQA"));
-import { WebSocketProvider } from "@/contexts/WebSocketContext";
-import type { Permission } from "@shared/schema";
 
 function PageLoader() {
   return (
