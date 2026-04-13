@@ -7,39 +7,119 @@
     <meta name="clerk-publishable-key" content="" id="clerk-publishable-key" />
     <meta name="theme-color" content="#F47D31" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#1a1a1a" media="(prefers-color-scheme: dark)" />
-    
+
     <!-- PWA Meta Tags -->
     <link rel="manifest" href="/manifest.json" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Taime" />
-    
+
     <!-- Favicon and App Icons -->
     <link rel="icon" type="image/png" href="/taime-icon.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/taime-circle.png" />
-    
-    <!-- Fonts: preload to avoid render-blocking -->
+
+    <!-- Fonts: preconnect first, then async load -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Inter:wght@300;400;500;600;700&display=swap" onload="this.onload=null;this.rel='stylesheet'" />
-    <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Inter:wght@300;400;500;600;700&display=swap" /></noscript>
-    
-    <!-- Font Awesome: deferred to avoid render-blocking -->
-    <link rel="preload" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" onload="this.onload=null;this.rel='stylesheet'" />
-    <noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" /></noscript>
-    
+    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" onload="this.onload=null;this.rel='stylesheet'" />
+    <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" /></noscript>
+
     <title>Taime - AI Boutique Manager</title>
+
+    <!--
+      CANVA-STYLE INLINE SHELL
+      Renders IMMEDIATELY — before any JS downloads, parses, or runs.
+      Eliminates the blank cream screen users see during:
+        - JS bundle download (~50-200ms on fast connections)
+        - JS parse + eval (~100-300ms)
+        - Clerk SDK initialization (~100-400ms)
+        - Auth state resolution (~100-200ms)
+      React replaces #root content on first mount. The shell fades out.
+    -->
+    <style>
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body { height: 100%; background: #FFFBF5; font-family: 'Nunito', system-ui, -apple-system, sans-serif; }
+      #root { min-height: 100vh; }
+
+      #taime-shell {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: #FFFBF5;
+        gap: 24px;
+        opacity: 1;
+        transition: opacity 0.25s ease;
+      }
+      #taime-shell.fade-out {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #taime-shell-logo {
+        width: 72px;
+        height: 72px;
+        object-fit: contain;
+        border-radius: 16px;
+      }
+      #taime-shell-ring {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        border: 3px solid #F4E9DF;
+        border-top-color: #F47D31;
+        animation: taime-spin 0.75s linear infinite;
+      }
+      @keyframes taime-spin {
+        to { transform: rotate(360deg); }
+      }
+    </style>
   </head>
   <body>
+    <!-- Instant loading shell — visible before any JS loads -->
+    <div id="taime-shell" aria-hidden="true" role="presentation">
+      <img id="taime-shell-logo" src="/taime-icon.png" alt="" />
+      <div id="taime-shell-ring"></div>
+    </div>
+
+    <!-- React mounts here -->
     <div id="root"></div>
+
+    <!-- Vite entry point — replaced by compiled bundle in production -->
     <script type="module" src="/src/main.tsx"></script>
+
+    <!--
+      Hide the shell the moment React adds any child to #root.
+      Uses MutationObserver — zero polling, zero delay.
+    -->
+    <script>
+      (function () {
+        var shell = document.getElementById('taime-shell');
+        var root = document.getElementById('root');
+        if (!shell || !root) return;
+        var obs = new MutationObserver(function () {
+          if (root.children.length > 0) {
+            obs.disconnect();
+            shell.classList.add('fade-out');
+            setTimeout(function () { shell.remove(); }, 300);
+          }
+        });
+        obs.observe(root, { childList: true });
+      })();
+    </script>
+
     <script>
       if ('serviceWorker' in navigator) {
-        window.addEventListener('load', function() {
+        window.addEventListener('load', function () {
           navigator.serviceWorker.register('/sw.js')
-            .then(function(reg) { console.log('[SW] Registered:', reg.scope); })
-            .catch(function(err) { console.warn('[SW] Registration failed:', err); });
+            .then(function (reg) {
+              console.log('[SW] Registered:', reg.scope);
+              reg.update(); // check for new SW on every page load
+            })
+            .catch(function (err) { console.warn('[SW] Registration failed:', err); });
         });
       }
     </script>

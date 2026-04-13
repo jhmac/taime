@@ -141,6 +141,7 @@ self.addEventListener('fetch', (event) => {
 
   if (url.origin !== location.origin) return;
 
+  // ── STRATEGY 1: API calls — network-first, offline fallback ──────────────
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(
       fetch(request)
@@ -165,35 +166,48 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  if (url.pathname.endsWith('.js') || url.pathname.endsWith('.ts') ||
-      url.pathname.endsWith('.tsx') || url.pathname.endsWith('.jsx') ||
-      url.pathname.endsWith('.css') || url.pathname === '/' ||
-      url.pathname.startsWith('/src/') || url.pathname.startsWith('/@') ||
-      url.pathname.startsWith('/node_modules/')) {
+  // ── STRATEGY 2: HTML navigation — ALWAYS network, NEVER serve stale HTML ─
+  // This is the Canva approach: HTML always reflects the current deployment.
+  // Cached HTML = stale chunk references = blank page.
+  if (request.mode === 'navigate' || request.headers.get('accept')?.includes('text/html')) {
     event.respondWith(
       fetch(request)
-        .catch(() => caches.match(request).then((r) => r || fetch(request)))
-    );
-    return;
-  }
-
-  if (request.headers.get('accept')?.includes('text/html')) {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          if (!response || response.status !== 200) return response;
-          const responseToCache = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, responseToCache));
-          return response;
-        })
         .catch(() => {
-          return caches.match(request)
-            .then((r) => r || caches.match('/'));
+          // Offline fallback: serve a minimal offline page
+          return caches.match('/') || new Response(
+            '<!DOCTYPE html><html><head><title>Taime - Offline</title><style>body{font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#FFFBF5;}</style></head><body><p style="color:#F47D31;font-size:18px;">You\'re offline. Please check your connection.</p></body></html>',
+            { headers: { 'Content-Type': 'text/html' } }
+          );
         })
     );
     return;
   }
 
+  // ── STRATEGY 3: Hashed assets (JS/CSS bundles) — cache-first ─────────────
+  // Content-hashed URLs are immutable. Cache aggressively; no stale risk.
+  if (url.pathname.startsWith('/assets/')) {
+    event.respondWith(
+      caches.match(request).then((cached) => {
+        if (cached) return cached;
+        return fetch(request).then((response) => {
+          if (response && response.status === 200) {
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, response.clone()));
+          }
+          return response;
+        });
+      })
+    );
+    return;
+  }
+
+  // ── STRATEGY 4: Dev-mode paths — always network (Vite HMR etc.) ──────────
+  if (url.pathname.startsWith('/src/') || url.pathname.startsWith('/@') ||
+      url.pathname.startsWith('/node_modules/')) {
+    event.respondWith(fetch(request));
+    return;
+  }
+
+  // ── STRATEGY 5: Static assets (icons, fonts, manifest) — cache-first ─────
   event.respondWith(
     caches.match(request)
       .then((response) => {

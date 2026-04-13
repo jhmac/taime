@@ -2,7 +2,7 @@ import { useState, useEffect, lazy, Suspense, Component, type ReactNode, type Er
 import { Switch, Route, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
-import { ClerkProvider, SignedIn, SignedOut } from "@clerk/clerk-react";
+import { ClerkProvider, SignedIn, SignedOut, ClerkLoading, ClerkLoaded } from "@clerk/clerk-react";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
@@ -460,22 +460,26 @@ function Router() {
 
   return (
     <>
-      <SignedOut>
-        <Suspense fallback={<PageLoader />}>
-          <Landing />
-        </Suspense>
-      </SignedOut>
-      <SignedIn>
-        <Suspense fallback={
-          <div className="min-h-screen flex items-center justify-center bg-[#FFFBF5]">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#F47D31]" />
-          </div>
-        }>
-          <OnboardingGuard>
-            <AuthenticatedApp />
-          </OnboardingGuard>
-        </Suspense>
-      </SignedIn>
+      {/* Visible spinner while Clerk SDK initializes (eliminates blank screen) */}
+      <ClerkLoading>
+        <PageLoader />
+      </ClerkLoading>
+
+      {/* Once Clerk is ready, show the correct authenticated/unauthenticated view */}
+      <ClerkLoaded>
+        <SignedOut>
+          <Suspense fallback={<PageLoader />}>
+            <Landing />
+          </Suspense>
+        </SignedOut>
+        <SignedIn>
+          <Suspense fallback={<PageLoader />}>
+            <OnboardingGuard>
+              <AuthenticatedApp />
+            </OnboardingGuard>
+          </Suspense>
+        </SignedIn>
+      </ClerkLoaded>
     </>
   );
 }
