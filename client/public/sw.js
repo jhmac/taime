@@ -76,20 +76,15 @@ const OFFLINE_POST_PATHS = [
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
+  // Only cache truly static, immutable assets.
+  // HTML is intentionally NOT cached here — we always fetch fresh HTML from
+  // the network so chunk hashes in the HTML always match what the server has.
   event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then((cache) => {
-        return Promise.allSettled(
-          STATIC_CACHE_URLS.map(url => cache.add(url).catch(() => {}))
-        );
-      })
-      .then(() => {
-        return fetch('/').then((resp) => {
-          if (resp.ok) {
-            return caches.open(CACHE_NAME).then((cache) => cache.put('/', resp));
-          }
-        }).catch(() => {});
-      })
+    caches.open(CACHE_NAME).then((cache) => {
+      return Promise.allSettled(
+        STATIC_CACHE_URLS.map(url => cache.add(url).catch(() => {}))
+      );
+    })
   );
 });
 
@@ -168,17 +163,17 @@ self.addEventListener('fetch', (event) => {
 
   // ── STRATEGY 2: HTML navigation — ALWAYS network, NEVER serve stale HTML ─
   // This is the Canva approach: HTML always reflects the current deployment.
-  // Cached HTML = stale chunk references = blank page.
+  // Cached HTML = stale chunk references = blank page after a deploy.
+  // We intentionally do NOT fall back to caches.match('/') here because we
+  // never cache HTML — doing so would serve stale chunk hashes.
   if (request.mode === 'navigate' || request.headers.get('accept')?.includes('text/html')) {
     event.respondWith(
-      fetch(request)
-        .catch(() => {
-          // Offline fallback: serve a minimal offline page
-          return caches.match('/') || new Response(
-            '<!DOCTYPE html><html><head><title>Taime - Offline</title><style>body{font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#FFFBF5;}</style></head><body><p style="color:#F47D31;font-size:18px;">You\'re offline. Please check your connection.</p></body></html>',
-            { headers: { 'Content-Type': 'text/html' } }
-          );
-        })
+      fetch(request).catch(() =>
+        new Response(
+          '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Taime - Offline</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Nunito,system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;background:#FFFBF5;gap:16px;padding:24px;text-align:center}img{width:64px;height:64px;border-radius:14px}p{color:#78716c;font-size:15px}strong{color:#F47D31;display:block;font-size:18px;margin-bottom:4px}</style></head><body><img src="/taime-icon.png" alt="Taime"><div><strong>You\'re offline</strong><p>Check your connection and refresh to continue.</p></div></body></html>',
+          { headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+        )
+      )
     );
     return;
   }

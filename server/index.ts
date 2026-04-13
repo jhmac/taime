@@ -1,3 +1,4 @@
+import path from "path";
 import express, { type Request, Response, NextFunction } from "express";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
@@ -59,7 +60,6 @@ const globalApiRateLimiter = rateLimit({
 });
 app.use('/api', globalApiRateLimiter);
 
-import path from "path";
 app.use('/uploads/videos', express.static(path.resolve(process.cwd(), 'uploads', 'videos'), {
   maxAge: '7d',
   immutable: true,
@@ -148,7 +148,12 @@ app.use((req, res, next) => {
       try {
         let html = await fs.promises.readFile(htmlSourcePath, 'utf8');
         html = html.replace(CLERK_META_PLACEHOLDER, CLERK_META_FILLED);
-        res.set('Content-Type', 'text/html; charset=utf-8').send(html);
+        res.set({
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0',
+        }).send(html);
       } catch {
         next();
       }

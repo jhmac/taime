@@ -136,6 +136,32 @@ function PageLoader() {
   );
 }
 
+function LoadingCard({ title, message }: { title: string; message: string }) {
+  return (
+    <div className="min-h-screen bg-background p-4">
+      <div className="space-y-4 max-w-sm mx-auto mt-20">
+        <div className="rounded-lg border bg-card p-6">
+          <h3 className="text-lg font-semibold">{title}</h3>
+          <p className="text-sm text-muted-foreground mt-2">{message}</p>
+          <button onClick={() => window.location.reload()} className="text-sm text-primary underline mt-3">
+            Refresh
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function useLoadingTimeout(isActive: boolean, ms = 10000) {
+  const [timedOut, setTimedOut] = useState(false);
+  useEffect(() => {
+    if (!isActive) { setTimedOut(false); return; }
+    const timer = setTimeout(() => setTimedOut(true), ms);
+    return () => clearTimeout(timer);
+  }, [isActive, ms]);
+  return timedOut;
+}
+
 function ProtectedRoute({ children, permission, allowAllAuthenticated }: { children: React.ReactNode; permission?: string; allowAllAuthenticated?: boolean }) {
   const { user, isLoading } = useAuth();
   const { data: permissions = [], isError: permissionsError, isLoading: permissionsLoading } = useQuery<Permission[]>({
@@ -147,107 +173,36 @@ function ProtectedRoute({ children, permission, allowAllAuthenticated }: { child
     gcTime: 30 * 60 * 1000,
   });
 
-  const [loadingTimedOut, setLoadingTimedOut] = useState(false);
-  useEffect(() => {
-    if (isLoading || permissionsLoading) {
-      setLoadingTimedOut(false);
-      const timer = setTimeout(() => setLoadingTimedOut(true), 10000);
-      return () => clearTimeout(timer);
-    }
-  }, [isLoading, permissionsLoading]);
+  const authTimedOut = useLoadingTimeout(isLoading);
+  const permsTimedOut = useLoadingTimeout(permissionsLoading);
 
   if (isLoading) {
-    if (loadingTimedOut) {
-      return (
-        <div className="min-h-screen bg-background p-4">
-          <div className="space-y-4 max-w-sm mx-auto mt-20">
-            <div className="rounded-lg border bg-card p-6">
-              <h3 className="text-lg font-semibold">Loading is taking too long</h3>
-              <p className="text-sm text-muted-foreground mt-2">
-                We're having trouble loading this page. Please try refreshing.
-              </p>
-              <button onClick={() => window.location.reload()} className="text-sm text-primary underline mt-3">
-                Refresh
-              </button>
-            </div>
-          </div>
-        </div>
-      );
-    }
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-      </div>
-    );
+    return authTimedOut
+      ? <LoadingCard title="Loading is taking too long" message="We're having trouble loading this page. Please try refreshing." />
+      : <PageLoader />;
   }
 
-  if (!user) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-      </div>
-    );
-  }
+  if (!user) return <PageLoader />;
 
-  if (allowAllAuthenticated) {
-    return <>{children}</>;
-  }
+  if (allowAllAuthenticated) return <>{children}</>;
 
   if (permissionsLoading) {
-    if (loadingTimedOut) {
-      return (
-        <div className="min-h-screen bg-background p-4">
-          <div className="space-y-4 max-w-sm mx-auto mt-20">
-            <div className="rounded-lg border bg-card p-6">
-              <h3 className="text-lg font-semibold">Loading is taking too long</h3>
-              <p className="text-sm text-muted-foreground mt-2">
-                We're having trouble loading this page. Please try refreshing.
-              </p>
-              <button onClick={() => window.location.reload()} className="text-sm text-primary underline mt-3">
-                Refresh
-              </button>
-            </div>
-          </div>
-        </div>
-      );
-    }
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-      </div>
-    );
+    return permsTimedOut
+      ? <LoadingCard title="Loading is taking too long" message="We're having trouble loading this page. Please try refreshing." />
+      : <PageLoader />;
   }
 
   if (permissionsError) {
-    return (
-      <div className="min-h-screen bg-background p-4">
-        <div className="space-y-4 max-w-sm mx-auto mt-20">
-          <div className="rounded-lg border bg-card p-6">
-            <h3 className="text-lg font-semibold">Unable to Verify Permissions</h3>
-            <p className="text-sm text-muted-foreground mt-2">
-              We couldn't verify your access. Please try refreshing the page.
-            </p>
-            <button onClick={() => window.location.reload()} className="text-sm text-primary underline mt-3">
-              Refresh
-            </button>
-          </div>
-        </div>
-      </div>
-    );
+    return <LoadingCard title="Unable to Verify Permissions" message="We couldn't verify your access. Please try refreshing the page." />;
   }
 
   const roleName = user?.role?.name;
   const isAdminOrOwner = roleName === 'owner' || roleName === 'admin';
 
-  if (isAdminOrOwner) {
-    return <>{children}</>;
-  }
+  if (isAdminOrOwner) return <>{children}</>;
 
-  if (permission) {
-    const hasPermission = permissions.some(p => p.name === permission || p.name === 'admin.manage_all');
-    if (hasPermission) {
-      return <>{children}</>;
-    }
+  if (permission && permissions.some(p => p.name === permission || p.name === 'admin.manage_all')) {
+    return <>{children}</>;
   }
 
   return (
@@ -265,36 +220,15 @@ function ProtectedRoute({ children, permission, allowAllAuthenticated }: { child
 }
 
 function AuthenticatedApp() {
-  const { isAuthenticated, isLoading, user } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
   const { showSetupModal, closeSetupModal } = usePayrollSetup();
-  const [authTimedOut, setAuthTimedOut] = useState(false);
+  const waiting = isLoading || !isAuthenticated;
+  const authTimedOut = useLoadingTimeout(waiting);
 
-  useEffect(() => {
-    if (isLoading || !isAuthenticated) {
-      setAuthTimedOut(false);
-      const timer = setTimeout(() => setAuthTimedOut(true), 10000);
-      return () => clearTimeout(timer);
-    }
-  }, [isLoading, isAuthenticated]);
-
-  if (isLoading || !isAuthenticated) {
-    if (authTimedOut) {
-      return (
-        <div className="min-h-screen flex items-center justify-center">
-          <div className="text-center space-y-3">
-            <p className="text-sm text-muted-foreground">Authentication is taking longer than expected.</p>
-            <button onClick={() => window.location.reload()} className="text-sm text-primary underline">
-              Refresh
-            </button>
-          </div>
-        </div>
-      );
-    }
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-      </div>
-    );
+  if (waiting) {
+    return authTimedOut
+      ? <LoadingCard title="Authentication is taking too long" message="We're having trouble verifying your session. Please try refreshing." />
+      : <PageLoader />;
   }
 
   return (
