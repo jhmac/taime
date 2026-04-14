@@ -13,6 +13,43 @@ import logger from "../lib/logger";
 const anthropic = new Anthropic({ apiKey: config.anthropic.apiKey });
 const DEFAULT_MODEL = "claude-sonnet-4-20250514";
 
+/** Asks Claude to decide which output types fit a given document.
+ *  Returns a subset of ["sops","training","tasks","knowledge_base"]. */
+async function classifyDocument(
+  fileName: string,
+  summary: string,
+  contentSnippet: string
+): Promise<string[]> {
+  const prompt = `You are a retail operations expert. Given this document, decide which content types would be most valuable to generate from it.
+
+DOCUMENT: "${fileName}"
+${summary ? `SUMMARY: ${summary}` : ""}
+CONTENT SNIPPET:
+${contentSnippet.slice(0, 2000)}
+
+Choose from these types (select ALL that apply — you may pick 1 to 4):
+- "sops" → Step-by-step procedures (good for: customer interactions, workflows, processes, scripts)
+- "training" → Learning modules with exercises (good for: skills training, sales techniques, product knowledge)
+- "tasks" → Daily/weekly checklists (good for: recurring duties, opening/closing procedures, operational routines)
+- "knowledge_base" → Reference articles (good for: facts, policies, product info, quick reference guides)
+
+Return ONLY a JSON array like: ["sops","training"]`;
+
+  try {
+    const response = await claudeCall({ model: DEFAULT_MODEL, max_tokens: 100, messages: [{ role: "user", content: prompt }] }, 30_000);
+    const text = response.content[0].type === "text" ? response.content[0].text : "[]";
+    const match = text.match(/\[[\s\S]*?\]/);
+    if (match) {
+      const parsed: string[] = JSON.parse(match[0]);
+      const valid = parsed.filter((t) => ["sops", "training", "tasks", "knowledge_base"].includes(t));
+      if (valid.length > 0) return valid;
+    }
+  } catch (err: unknown) {
+    logger.warn({ err: err instanceof Error ? err.message : String(err), fileName }, "classifyDocument failed — defaulting to sops+training");
+  }
+  return ["sops", "training"];
+}
+
 /** Wraps an Anthropic API call with an explicit timeout so a hung response
  *  can never freeze the entire generation job. */
 async function claudeCall(
@@ -84,9 +121,13 @@ export async function runAiStudioGenerationJob(
       return;
     }
 
+    const aiDecideMode = outputTypes.includes("ai_decide");
+
     await appendProgress(
       jobId,
-      `Analyzing ${documents.length} document(s) from your source library...`
+      aiDecideMode
+        ? `Asking Claude to analyze and categorize ${documents.length} document(s)...`
+        : `Analyzing ${documents.length} document(s) from your source library...`
     );
 
     const generatedItemIds: string[] = [];
@@ -96,7 +137,18 @@ export async function runAiStudioGenerationJob(
         doc.extractedText || doc.rawContent || "";
       const docSummary = doc.summaryFromClaude || "";
 
-      if (outputTypes.includes("sops")) {
+      // In AI-decide mode, classify each document before generating
+      let docOutputTypes = outputTypes;
+      if (aiDecideMode) {
+        const classified = await classifyDocument(doc.originalFileName, docSummary, docContent);
+        docOutputTypes = classified;
+        await appendProgress(
+          jobId,
+          `"${doc.originalFileName}" → ${classified.map((t) => ({ sops: "SOPs", training: "Training", tasks: "Tasks", knowledge_base: "Knowledge Base" }[t] || t)).join(", ")}`
+        );
+      }
+
+      if (docOutputTypes.includes("sops")) {
         await appendProgress(jobId, `Generating SOPs from "${doc.originalFileName}"...`);
 
         const sopPrompt = `You are an expert retail operations consultant. Generate structured SOPs for "${storeName}" (${businessType}).
@@ -180,7 +232,7 @@ Return ONLY the JSON array, no other text.`;
         }
       }
 
-      if (outputTypes.includes("training")) {
+      if (docOutputTypes.includes("training")) {
         await appendProgress(
           jobId,
           `Generating training modules from "${doc.originalFileName}"...`
@@ -257,7 +309,7 @@ Return ONLY the JSON array, no other text.`;
         }
       }
 
-      if (outputTypes.includes("tasks")) {
+      if (docOutputTypes.includes("tasks")) {
         await appendProgress(jobId, `Generating task lists from "${doc.originalFileName}"...`);
 
         const taskPrompt = `You are a retail operations expert. Generate actionable task checklists for "${storeName}" (${businessType}).
@@ -328,7 +380,7 @@ Return ONLY the JSON array, no other text.`;
         }
       }
 
-      if (outputTypes.includes("knowledge_base")) {
+      if (docOutputTypes.includes("knowledge_base")) {
         await appendProgress(
           jobId,
           `Generating knowledge base articles from "${doc.originalFileName}"...`

@@ -401,12 +401,14 @@ export function registerAiStudioRoutes(
       const bodySchema = z.object({
         selectedDocumentIds: z.array(z.string()).min(1, "Select at least one document"),
         outputTypes: z
-          .array(z.enum(["sops", "training", "tasks", "knowledge_base"]))
+          .array(z.enum(["sops", "training", "tasks", "knowledge_base", "ai_decide"]))
           .min(1, "Select at least one output type"),
         targetRoles: z.array(z.string()).min(1, "Select at least one role"),
+        aiDecide: z.boolean().optional(),
       });
 
       const body = bodySchema.parse(req.body);
+      const outputTypes = body.aiDecide ? ["ai_decide"] : body.outputTypes;
 
       const [job] = await db
         .insert(generationJobs)
@@ -414,7 +416,7 @@ export function registerAiStudioRoutes(
           storeId,
           status: "pending",
           selectedDocumentIds: body.selectedDocumentIds,
-          outputTypes: body.outputTypes,
+          outputTypes,
           targetRoles: body.targetRoles,
           selectedCategories: [],
           progressLog: ["Starting AI Studio generation..."],

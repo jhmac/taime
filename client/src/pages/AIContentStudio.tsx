@@ -95,6 +95,7 @@ interface GeneratePayload {
   selectedDocumentIds: string[];
   outputTypes: string[];
   targetRoles: string[];
+  aiDecide?: boolean;
 }
 
 type SopStep = { title: string; description: string; decisionOptions?: Array<{ condition: string; action: string }> };
@@ -319,11 +320,12 @@ function GenerationWizard({ onComplete }: { onComplete: () => void }) {
     setRoleInput("");
   };
 
-  const handleGenerate = () => {
+  const handleGenerate = (aiDecide = false) => {
     generateMutation.mutate({
       selectedDocumentIds: selectedDocIds,
-      outputTypes: selectedOutputTypes,
+      outputTypes: aiDecide ? ["sops"] : selectedOutputTypes,
       targetRoles,
+      aiDecide,
     });
   };
 
@@ -376,6 +378,34 @@ function GenerationWizard({ onComplete }: { onComplete: () => void }) {
   if (step === 1) {
     return (
       <div className="space-y-6">
+        {/* Let AI Decide */}
+        <button
+          onClick={() => handleGenerate(true)}
+          disabled={generateMutation.isPending}
+          className="w-full flex items-start gap-4 p-4 rounded-xl border-2 border-primary bg-primary/5 hover:bg-primary/10 transition-colors text-left group"
+        >
+          <div className="w-10 h-10 rounded-full bg-primary/15 flex items-center justify-center shrink-0 mt-0.5 group-hover:bg-primary/25 transition-colors">
+            <Sparkles className="w-5 h-5 text-primary" />
+          </div>
+          <div>
+            <p className="font-semibold text-sm text-primary">Let AI Decide</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Claude reads each document and automatically picks the best format — SOPs for scripts and processes, Training for skills content, Tasks for operational checklists, Knowledge Base for reference material.
+            </p>
+          </div>
+          {generateMutation.isPending ? (
+            <Loader2 className="w-4 h-4 animate-spin text-primary shrink-0 ml-auto mt-1" />
+          ) : (
+            <ChevronRight className="w-4 h-4 text-primary shrink-0 ml-auto mt-1 opacity-60 group-hover:opacity-100 transition-opacity" />
+          )}
+        </button>
+
+        <div className="relative flex items-center">
+          <div className="flex-1 border-t border-border" />
+          <span className="px-3 text-xs text-muted-foreground">or choose manually</span>
+          <div className="flex-1 border-t border-border" />
+        </div>
+
         <div>
           <p className="text-sm font-medium mb-3">What would you like Claude to generate?</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -437,7 +467,7 @@ function GenerationWizard({ onComplete }: { onComplete: () => void }) {
             Back
           </Button>
           <Button
-            onClick={handleGenerate}
+            onClick={() => handleGenerate(false)}
             disabled={selectedOutputTypes.length === 0 || generateMutation.isPending}
           >
             {generateMutation.isPending ? (
