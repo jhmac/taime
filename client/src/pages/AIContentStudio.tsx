@@ -47,7 +47,7 @@ import {
   EyeOff,
   Pencil,
 } from "lucide-react";
-import type { KnowledgeDocument, AiGeneratedItem } from "@shared/schema";
+import type { KnowledgeDocument, AiGeneratedItem, QuizQuestion } from "@shared/schema";
 
 const STATUS_CONFIG = {
   pending: { icon: Clock, label: "Pending", class: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200" },
@@ -1322,6 +1322,288 @@ function ItemsTab({ type }: { type: string }) {
   );
 }
 
+// ── Question Bank Tab ──────────────────────────────────────────────────────
+
+function QuestionBankTab() {
+  const [topicFilter, setTopicFilter] = useState("");
+  const [difficultyFilter, setDifficultyFilter] = useState("");
+
+  const { data: qbResponse, isLoading } = useQuery<{ success: boolean; data: { questions: QuizQuestion[]; topics: string[] } }>({
+    queryKey: ["/api/quiz/question-bank", topicFilter, difficultyFilter],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (topicFilter) params.set("topic", topicFilter);
+      if (difficultyFilter) params.set("difficulty", difficultyFilter);
+      const url = `/api/quiz/question-bank${params.toString() ? `?${params}` : ""}`;
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) throw new Error(`${res.status}: ${res.statusText}`);
+      return res.json();
+    },
+  });
+
+  const questions = qbResponse?.data?.questions ?? [];
+  const topics = qbResponse?.data?.topics ?? [];
+
+  if (isLoading) {
+    return (
+      <div className="space-y-3">
+        {[1, 2, 3].map(i => <Skeleton key={i} className="h-16 w-full rounded-lg" />)}
+      </div>
+    );
+  }
+
+  if (questions.length === 0 && !topicFilter && !difficultyFilter) {
+    return (
+      <div className="text-center py-12 border border-dashed rounded-xl">
+        <GraduationCap className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />
+        <p className="font-medium text-muted-foreground">No quiz questions yet</p>
+        <p className="text-sm text-muted-foreground/60 mt-1">
+          Questions are automatically generated when you run the content generator on your uploaded documents.
+        </p>
+      </div>
+    );
+  }
+
+  const DIFF_COLORS: Record<string, string> = {
+    easy: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
+    medium: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
+    hard: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200",
+    scenario: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200",
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-2 flex-wrap">
+        <select
+          className="border rounded-md px-2 py-1 text-sm bg-background"
+          value={topicFilter}
+          onChange={(e) => setTopicFilter(e.target.value)}
+        >
+          <option value="">All Topics</option>
+          {topics.map(t => (
+            <option key={t} value={t}>{t.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>
+          ))}
+        </select>
+        <select
+          className="border rounded-md px-2 py-1 text-sm bg-background"
+          value={difficultyFilter}
+          onChange={(e) => setDifficultyFilter(e.target.value)}
+        >
+          <option value="">All Difficulties</option>
+          {["easy", "medium", "hard", "scenario"].map(d => (
+            <option key={d} value={d}>{d.charAt(0).toUpperCase() + d.slice(1)}</option>
+          ))}
+        </select>
+        <span className="text-sm text-muted-foreground self-center">{questions.length} question{questions.length !== 1 ? "s" : ""}</span>
+      </div>
+
+      <div className="space-y-3">
+        {questions.map((q) => {
+          const wrongRate = (q.totalAnswerCount ?? 0) > 0
+            ? Math.round(((q.wrongAnswerCount ?? 0) / (q.totalAnswerCount ?? 1)) * 100)
+            : null;
+          return (
+            <Card key={q.id} className="border border-border">
+              <CardContent className="pt-4 pb-3 px-4">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-sm font-medium flex-1">{q.questionText}</p>
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <Badge className={DIFF_COLORS[q.difficulty] ?? ""}>{q.difficulty}</Badge>
+                    {wrongRate !== null && (
+                      <Badge variant="outline" className={wrongRate > 60 ? "border-red-300 text-red-600" : wrongRate > 30 ? "border-yellow-300 text-yellow-600" : "border-green-300 text-green-600"}>
+                        {wrongRate}% wrong
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {q.topicTag.replace(/_/g, ' ')}
+                  {q.totalAnswerCount ? ` · ${q.totalAnswerCount} answers` : ''}
+                </p>
+                <div className="mt-2 grid grid-cols-2 gap-1.5">
+                  {(q.answerChoices as string[]).map((choice, i) => (
+                    <div
+                      key={i}
+                      className={`text-xs px-2.5 py-1.5 rounded-md ${i === q.correctAnswerIndex ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 font-medium" : "bg-muted text-muted-foreground"}`}
+                    >
+                      {String.fromCharCode(65 + i)}. {choice}
+                    </div>
+                  ))}
+                </div>
+                {q.coachingText && (
+                  <p className="text-xs text-muted-foreground mt-2 italic">{q.coachingText}</p>
+                )}
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Learning Analytics Tab ─────────────────────────────────────────────────
+
+interface AnalyticsData {
+  participation: Array<{ id: string; first_name: string; last_name: string; quizzes_done: number; streak: number; season_points: number; accuracy: number }>;
+  topicStats: Array<{ topic_tag: string; total_questions: number; total_answers: number; total_wrong: number; wrong_rate: number }>;
+  coverageGaps: string[];
+  highMissQuestions: Array<{ id: string; question_text: string; topic_tag: string; difficulty: string; total_answer_count: number; wrong_answer_count: number; wrong_rate: number }>;
+}
+
+function LearningAnalyticsTab() {
+  const { data: analyticsResponse, isLoading } = useQuery<{ success: boolean; data: AnalyticsData }>({
+    queryKey: ["/api/quiz/analytics"],
+  });
+
+  const analytics = analyticsResponse?.data;
+
+  if (isLoading) {
+    return (
+      <div className="space-y-3">
+        {[1, 2, 3].map(i => <Skeleton key={i} className="h-20 w-full rounded-xl" />)}
+      </div>
+    );
+  }
+
+  if (!analytics) {
+    return <p className="text-muted-foreground text-sm">No analytics data available yet.</p>;
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Coverage Gaps */}
+      {analytics.coverageGaps.length > 0 && (
+        <Card className="border-orange-200 dark:border-orange-800">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2 text-orange-700 dark:text-orange-300">
+              <AlertCircle className="w-4 h-4" />
+              Coverage Gaps — Last 30 Days
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-2">
+              {analytics.coverageGaps.map(t => (
+                <Badge key={t} variant="outline" className="border-orange-300 text-orange-700">
+                  {t.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+                </Badge>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">These topics haven't been covered in any quiz session in the last 30 days.</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Topic Difficulty Heatmap */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Topic Difficulty Heatmap</CardTitle>
+          <p className="text-xs text-muted-foreground">Wrong answer rate per topic — red = needs attention, green = strong</p>
+        </CardHeader>
+        <CardContent>
+          {analytics.topicStats.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No quiz data yet. Generate content and have team members complete daily quizzes.</p>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {analytics.topicStats.slice(0, 12).map(t => {
+                const rate = Number(t.wrong_rate);
+                const hue = rate > 60 ? 0 : rate > 40 ? 25 : rate > 20 ? 50 : 142;
+                const saturation = rate > 10 ? 70 : 30;
+                const answers = Number(t.total_answers);
+                return (
+                  <div
+                    key={t.topic_tag}
+                    className="rounded-xl p-3 flex flex-col gap-1"
+                    style={{
+                      background: `hsl(${hue} ${saturation}% 50% / ${Math.max(0.08, rate / 100 * 0.35)})`,
+                      border: `1px solid hsl(${hue} ${saturation}% 50% / 0.25)`,
+                    }}
+                    title={`${answers} answers`}
+                  >
+                    <p className="text-xs font-semibold text-foreground leading-tight truncate">
+                      {String(t.topic_tag).replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+                    </p>
+                    <p
+                      className="text-base font-extrabold"
+                      style={{ color: `hsl(${hue} ${saturation}% ${rate > 40 ? 40 : 35}%)` }}
+                    >
+                      {rate}%
+                    </p>
+                    <p className="text-xs text-muted-foreground">{answers} answers</p>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* High-Miss Questions */}
+      {(analytics.highMissQuestions?.length ?? 0) > 0 && (
+        <Card className="border-red-200 dark:border-red-800">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2 text-red-700 dark:text-red-300">
+              <AlertCircle className="w-4 h-4" />
+              Most Missed Questions
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {analytics.highMissQuestions.map((q, i) => {
+                const rate = Number(q.wrong_rate);
+                return (
+                  <div key={q.id} className="flex gap-3">
+                    <span className="w-5 flex-shrink-0 text-xs font-bold text-muted-foreground pt-0.5">{i + 1}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-foreground line-clamp-2">{String(q.question_text)}</p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <Badge variant="outline" className="text-xs px-1 py-0">{String(q.topic_tag).replace(/_/g, ' ')}</Badge>
+                        <span className="text-xs font-bold text-red-600">{rate}% wrong</span>
+                        <span className="text-xs text-muted-foreground">({Number(q.total_answer_count)} answers)</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="text-xs text-muted-foreground mt-3">Questions with at least 5 answers, ranked by wrong answer rate.</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Team Participation */}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Team Participation — Season Standings</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {analytics.participation.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No participation data yet.</p>
+          ) : (
+            <div className="space-y-2">
+              {analytics.participation.slice(0, 15).map((p, i) => (
+                <div key={p.id} className="flex items-center gap-3 py-1.5">
+                  <span className="w-5 text-xs font-bold text-muted-foreground">{i + 1}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{p.first_name} {p.last_name}</p>
+                    <p className="text-xs text-muted-foreground">{Number(p.quizzes_done)} quizzes · {Number(p.accuracy)}% accuracy</p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {Number(p.streak) > 0 && (
+                      <span className="text-xs text-orange-500 font-bold">🔥{p.streak}</span>
+                    )}
+                    <Badge variant="outline" className="text-xs">{Number(p.season_points)} pts</Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 export default function AIContentStudio() {
   const { user } = useAuth();
   const [showWizard, setShowWizard] = useState(false);
@@ -1377,11 +1659,13 @@ export default function AIContentStudio() {
 
       <div>
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="mb-4">
+          <TabsList className="mb-4 flex-wrap h-auto gap-1">
             <TabsTrigger value="sop">SOPs</TabsTrigger>
             <TabsTrigger value="training">Training</TabsTrigger>
             <TabsTrigger value="task">Tasks</TabsTrigger>
             <TabsTrigger value="knowledge_base">Knowledge Base</TabsTrigger>
+            <TabsTrigger value="question_bank">Question Bank</TabsTrigger>
+            <TabsTrigger value="analytics">Learning Analytics</TabsTrigger>
           </TabsList>
           <TabsContent value="sop">
             <ItemsTab type="sop" />
@@ -1394,6 +1678,12 @@ export default function AIContentStudio() {
           </TabsContent>
           <TabsContent value="knowledge_base">
             <ItemsTab type="knowledge_base" />
+          </TabsContent>
+          <TabsContent value="question_bank">
+            <QuestionBankTab />
+          </TabsContent>
+          <TabsContent value="analytics">
+            <LearningAnalyticsTab />
           </TabsContent>
         </Tabs>
       </div>

@@ -2357,3 +2357,99 @@ export const inventoryCountEntries = pgTable("inventory_count_entries", {
 export const insertInventoryCountEntrySchema = createInsertSchema(inventoryCountEntries).omit({ id: true, createdAt: true });
 export type InventoryCountEntry = typeof inventoryCountEntries.$inferSelect;
 export type InsertInventoryCountEntry = z.infer<typeof insertInventoryCountEntrySchema>;
+
+// ── Unified AI Learning Platform ─────────────────────────────────────────────
+
+export const quizQuestions = pgTable("quiz_questions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => workLocations.id),
+  sourceDocumentId: varchar("source_document_id").references(() => knowledgeDocuments.id),
+  jobId: varchar("job_id").references(() => generationJobs.id),
+  topicTag: varchar("topic_tag").notNull(),
+  difficulty: varchar("difficulty").notNull().default("medium"),
+  questionText: text("question_text").notNull(),
+  answerChoices: jsonb("answer_choices").$type<string[]>().notNull(),
+  correctAnswerIndex: integer("correct_answer_index").notNull(),
+  coachingText: text("coaching_text"),
+  isActive: boolean("is_active").default(true),
+  wrongAnswerCount: integer("wrong_answer_count").default(0),
+  totalAnswerCount: integer("total_answer_count").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_quiz_questions_store").on(table.storeId),
+  index("idx_quiz_questions_topic").on(table.storeId, table.topicTag),
+]);
+
+export const insertQuizQuestionSchema = createInsertSchema(quizQuestions).omit({ id: true, createdAt: true });
+export type QuizQuestion = typeof quizQuestions.$inferSelect;
+export type InsertQuizQuestion = z.infer<typeof insertQuizQuestionSchema>;
+
+export const userQuizProgress = pgTable("user_quiz_progress", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  storeId: varchar("store_id").references(() => workLocations.id),
+  currentRotationTopics: jsonb("current_rotation_topics").$type<string[]>().default([]),
+  coveredTopicsThisRotation: jsonb("covered_topics_this_rotation").$type<string[]>().default([]),
+  totalQuizzesCompleted: integer("total_quizzes_completed").default(0),
+  totalQuestionsAnswered: integer("total_questions_answered").default(0),
+  totalCorrectAnswers: integer("total_correct_answers").default(0),
+  currentStreakDays: integer("current_streak_days").default(0),
+  longestStreakDays: integer("longest_streak_days").default(0),
+  lastQuizDate: date("last_quiz_date"),
+  seasonPoints: integer("season_points").default(0),
+  currentSeason: varchar("current_season"),
+  allTopicsCoveredCount: integer("all_topics_covered_count").default(0),
+  pendingBossBattle: boolean("pending_boss_battle").default(false),
+  scenarioParticipationCount: integer("scenario_participation_count").default(0),
+  scenarioLastAwardedDate: date("scenario_last_awarded_date"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("uq_user_quiz_progress").on(table.userId),
+  index("idx_user_quiz_progress_store").on(table.storeId),
+]);
+
+export const insertUserQuizProgressSchema = createInsertSchema(userQuizProgress).omit({ id: true, updatedAt: true });
+export type UserQuizProgress = typeof userQuizProgress.$inferSelect;
+export type InsertUserQuizProgress = z.infer<typeof insertUserQuizProgressSchema>;
+
+export const quizSessions = pgTable("quiz_sessions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  storeId: varchar("store_id").references(() => workLocations.id),
+  sessionDate: date("session_date").notNull(),
+  topicTag: varchar("topic_tag").notNull(),
+  sessionType: varchar("session_type").notNull().default("daily"),
+  questionIds: jsonb("question_ids").$type<string[]>().default([]),
+  status: varchar("status").notNull().default("in_progress"),
+  score: integer("score"),
+  totalQuestions: integer("total_questions").default(0),
+  correctAnswers: integer("correct_answers").default(0),
+  streakMultiplier: integer("streak_multiplier").default(1),
+  basePoints: integer("base_points").default(0),
+  totalPoints: integer("total_points").default(0),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_quiz_sessions_user_date").on(table.userId, table.sessionDate),
+  uniqueIndex("uq_quiz_session_user_date_type").on(table.userId, table.sessionDate, table.sessionType),
+]);
+
+export const insertQuizSessionSchema = createInsertSchema(quizSessions).omit({ id: true, createdAt: true });
+export type QuizSession = typeof quizSessions.$inferSelect;
+export type InsertQuizSession = z.infer<typeof insertQuizSessionSchema>;
+
+export const quizAnswers = pgTable("quiz_answers", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  sessionId: varchar("session_id").references(() => quizSessions.id).notNull(),
+  questionId: varchar("question_id").references(() => quizQuestions.id).notNull(),
+  selectedIndex: integer("selected_index").notNull(),
+  isCorrect: boolean("is_correct").notNull(),
+  answeredAt: timestamp("answered_at").defaultNow(),
+}, (table) => [
+  index("idx_quiz_answers_session").on(table.sessionId),
+  uniqueIndex("uq_quiz_answer_session_question").on(table.sessionId, table.questionId),
+]);
+
+export const insertQuizAnswerSchema = createInsertSchema(quizAnswers).omit({ id: true, answeredAt: true });
+export type QuizAnswer = typeof quizAnswers.$inferSelect;
+export type InsertQuizAnswer = z.infer<typeof insertQuizAnswerSchema>;

@@ -18,8 +18,419 @@ import type { UserWithRole, Task, TimeEntry } from '@shared/schema';
 import {
   Bot, AlertTriangle, Video, Heart, ChevronRight, CheckCircle2,
   GraduationCap, Building2, Circle, Trophy, MessageCircle,
-  ClipboardList,
+  ClipboardList, Brain, Flame, Zap, CheckCircle, XCircle,
 } from 'lucide-react';
+
+// ── Brain Boost Card ────────────────────────────────────────────────────────
+
+interface QuizQuestion {
+  id: string;
+  questionText: string;
+  answerChoices: string[];
+  correctAnswerIndex: number;
+  coachingText?: string;
+  topicTag: string;
+  difficulty: string;
+}
+
+interface QuizAnswerResponse {
+  success: boolean;
+  data: {
+    isCorrect: boolean;
+    coachingText?: string;
+    correctAnswerIndex: number;
+    sessionCompleted?: boolean;
+    alreadyCompleted?: boolean;
+    alreadyAnswered?: boolean;
+    session?: {
+      id: string;
+      score?: number;
+      totalPoints?: number;
+      correctAnswers?: number;
+      totalQuestions?: number;
+      streakMultiplier?: number;
+    };
+  };
+}
+
+interface DailyQuizData {
+  session: { id: string; status: string; topicTag: string; streakMultiplier: number; totalPoints?: number; score?: number; correctAnswers?: number; totalQuestions: number } | null;
+  topic?: string;
+  questions?: QuizQuestion[];
+  answeredCount?: number;
+  totalCount?: number;
+  completed: boolean;
+  noQuestions?: boolean;
+  isBossBattle?: boolean;
+  streakMultiplier?: number;
+}
+
+function BrainBoostCard() {
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [qIndex, setQIndex] = useState(0);
+  const [selected, setSelected] = useState<number | null>(null);
+  const [answerResult, setAnswerResult] = useState<{ isCorrect: boolean; coachingText?: string; correctAnswerIndex: number } | null>(null);
+  const [sessionDone, setSessionDone] = useState(false);
+  const [finalData, setFinalData] = useState<{ score: number; totalPoints: number; correctAnswers: number; totalQuestions: number; multiplier: number } | null>(null);
+
+  const { data: quizData, isLoading } = useQuery<{ success: boolean; data: DailyQuizData }>({
+    queryKey: ['/api/quiz/daily'],
+    staleTime: 60_000,
+  });
+
+  const { data: statsData } = useQuery<{ success: boolean; data: { currentStreak: number; streakMultiplier: number; seasonPoints: number } }>({
+    queryKey: ['/api/quiz/stats'],
+    staleTime: 60_000,
+  });
+
+  const { data: leaderboardData } = useQuery<{ success: boolean; data: { season: string; leaders: Array<{ userId: string; firstName: string; lastName: string; seasonPoints: number; currentStreakDays: number }> } }>({
+    queryKey: ['/api/quiz/leaderboard/season'],
+    staleTime: 120_000,
+    enabled: open,
+  });
+
+  const answerMutation = useMutation<QuizAnswerResponse, Error, { sessionId: string; questionId: string; selectedIndex: number }>({
+    mutationFn: async ({ sessionId, questionId, selectedIndex }) => {
+      const res = await apiRequest('POST', '/api/quiz/answer', { sessionId, questionId, selectedIndex });
+      return res.json() as Promise<QuizAnswerResponse>;
+    },
+    onSuccess: (response) => {
+      const d = response?.data;
+      if (!d || d.alreadyCompleted || d.alreadyAnswered) return;
+      setAnswerResult({
+        isCorrect: d.isCorrect,
+        coachingText: d.coachingText,
+        correctAnswerIndex: d.correctAnswerIndex,
+      });
+      if (d.sessionCompleted && d.session) {
+        setSessionDone(true);
+        setFinalData({
+          score: d.session.score ?? 0,
+          totalPoints: d.session.totalPoints ?? 0,
+          correctAnswers: d.session.correctAnswers ?? 0,
+          totalQuestions: d.session.totalQuestions ?? 0,
+          multiplier: d.session.streakMultiplier ?? 1,
+        });
+        queryClient.invalidateQueries({ queryKey: ['/api/quiz/daily'] });
+        queryClient.invalidateQueries({ queryKey: ['/api/quiz/stats'] });
+        queryClient.invalidateQueries({ queryKey: ['/api/gamification/my-score'] });
+      }
+    },
+  });
+
+  const quiz = quizData?.data;
+  const streak = statsData?.data?.currentStreak ?? 0;
+  const multiplier = statsData?.data?.streakMultiplier ?? 1;
+  const seasonPoints = statsData?.data?.seasonPoints ?? 0;
+
+  const questions: QuizQuestion[] = quiz?.questions ?? [];
+  const currentQ = questions[qIndex];
+  const sessionId = quiz?.session?.id ?? '';
+
+  function handleOpen() {
+    setOpen(true);
+    setQIndex(quiz?.answeredCount ?? 0);
+    setSelected(null);
+    setAnswerResult(null);
+    setSessionDone(quiz?.completed ?? false);
+  }
+
+  function handleSelect(idx: number) {
+    if (selected !== null || !currentQ || !sessionId) return;
+    setSelected(idx);
+    answerMutation.mutate({ sessionId, questionId: currentQ.id, selectedIndex: idx });
+  }
+
+  function handleNext() {
+    setSelected(null);
+    setAnswerResult(null);
+    setQIndex(i => i + 1);
+  }
+
+  if (isLoading) return <Skeleton className="h-24 w-full rounded-3xl" />;
+  if (quiz?.noQuestions) return null;
+
+  const isCompleted = quiz?.completed || sessionDone;
+  const isBossBattle = quiz?.isBossBattle;
+  const topicLabel = (quiz?.topic ?? quiz?.session?.topicTag ?? 'Daily Quiz')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c: string) => c.toUpperCase());
+
+  return (
+    <>
+      <button
+        onClick={handleOpen}
+        className="w-full rounded-3xl p-4 text-left transition-all active:scale-[0.98]"
+        style={{
+          background: isCompleted
+            ? 'linear-gradient(135deg, hsl(142 60% 50% / 0.08), hsl(142 60% 50% / 0.04))'
+            : isBossBattle
+              ? 'linear-gradient(135deg, hsl(0 90% 60% / 0.12), hsl(280 90% 60% / 0.08))'
+              : 'linear-gradient(135deg, hsl(260 80% 60% / 0.1), hsl(200 80% 60% / 0.06))',
+          border: `1px solid ${isCompleted ? 'hsl(142 60% 50% / 0.25)' : isBossBattle ? 'hsl(0 90% 60% / 0.3)' : 'hsl(260 80% 60% / 0.25)'}`,
+        }}
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-11 h-11 rounded-2xl flex items-center justify-center flex-shrink-0"
+            style={{ background: isCompleted ? 'hsl(142 60% 50% / 0.15)' : isBossBattle ? 'hsl(0 90% 60% / 0.15)' : 'hsl(260 80% 60% / 0.15)' }}>
+            {isCompleted ? <CheckCircle className="h-5 w-5 text-green-500" /> :
+             isBossBattle ? <Zap className="h-5 w-5" style={{ color: 'hsl(0 90% 60%)' }} /> :
+             <Brain className="h-5 w-5" style={{ color: 'hsl(260 80% 60%)' }} />}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-base font-extrabold text-foreground">
+              {isCompleted ? 'Brain Boost Complete!' : isBossBattle ? 'Boss Battle!' : 'Brain Boost'}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {isCompleted ? `Score: ${finalData?.score ?? quiz?.session?.score ?? 0}%` :
+               isBossBattle ? '10-question challenge — all topics!' :
+               `Topic: ${topicLabel}`}
+            </p>
+          </div>
+          <div className="flex flex-col items-end gap-1">
+            {streak > 0 && (
+              <span className="flex items-center gap-0.5 text-orange-500 font-bold text-sm">
+                <Flame className="h-3.5 w-3.5" />{streak}
+              </span>
+            )}
+            {multiplier > 1 && !isCompleted && (
+              <span className="text-xs font-bold text-yellow-600 bg-yellow-100 dark:bg-yellow-900/30 px-2 py-0.5 rounded-full">
+                {multiplier}× pts
+              </span>
+            )}
+            {!isCompleted && <ChevronRight className="h-4 w-4 text-muted-foreground/50" />}
+          </div>
+        </div>
+      </button>
+
+      {open && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-end justify-center sm:items-center" onClick={() => setOpen(false)}>
+          <div className="bg-background w-full max-w-lg rounded-t-3xl sm:rounded-3xl max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="p-5">
+              {/* Header */}
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    {isBossBattle ? 'Boss Battle' : 'Brain Boost'} · {topicLabel}
+                  </p>
+                  <p className="text-lg font-extrabold text-foreground">
+                    {isCompleted || sessionDone ? 'Session Complete!' :
+                     `Question ${qIndex + 1} of ${questions.length}`}
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  {streak > 0 && <span className="flex items-center gap-0.5 text-orange-500 font-bold"><Flame className="h-4 w-4" />{streak}-day streak</span>}
+                  {multiplier > 1 && <span className="text-xs font-bold text-yellow-600 bg-yellow-100 dark:bg-yellow-900/30 px-2.5 py-1 rounded-full">{multiplier}× pts</span>}
+                </div>
+              </div>
+
+              {/* Completed state */}
+              {(isCompleted || sessionDone) && finalData && (
+                <div className="py-4 space-y-4">
+                  <div className="text-center space-y-2">
+                    <div className="text-5xl">{finalData.score >= 80 ? '🏆' : finalData.score >= 60 ? '🎯' : '📚'}</div>
+                    <p className="text-3xl font-extrabold text-foreground">{finalData.score}%</p>
+                    <p className="text-muted-foreground">{finalData.correctAnswers} / {finalData.totalQuestions} correct</p>
+                  </div>
+                  <div className="rounded-2xl p-4" style={{ background: 'hsl(var(--muted))' }}>
+                    <p className="text-sm font-bold text-foreground">+{finalData.totalPoints} points earned</p>
+                    {finalData.multiplier > 1 && (
+                      <p className="text-xs text-muted-foreground mt-0.5">{finalData.multiplier}× streak bonus applied!</p>
+                    )}
+                  </div>
+                  {/* Seasonal leaderboard mini-view */}
+                  {leaderboardData?.data?.leaders && leaderboardData.data.leaders.length > 0 && (
+                    <div className="rounded-2xl overflow-hidden" style={{ background: 'hsl(var(--muted))' }}>
+                      <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground px-4 pt-3 pb-1">
+                        Season Standings · {leaderboardData.data.season}
+                      </p>
+                      <div className="px-4 pb-3 space-y-1.5">
+                        {leaderboardData.data.leaders.slice(0, 5).map((leader, i) => (
+                          <div key={leader.userId} className="flex items-center gap-3">
+                            <span className="w-5 text-xs font-bold text-muted-foreground">{i + 1}</span>
+                            <span className="flex-1 text-sm font-medium truncate">{leader.firstName} {leader.lastName}</span>
+                            {Number(leader.currentStreakDays) > 0 && (
+                              <span className="text-xs text-orange-500">🔥{leader.currentStreakDays}</span>
+                            )}
+                            <span className="text-xs font-bold text-foreground">{Number(leader.seasonPoints)} pts</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <button onClick={() => setOpen(false)} className="w-full py-3 rounded-2xl bg-primary text-primary-foreground font-bold">Done</button>
+                </div>
+              )}
+
+              {/* Already completed, no finalData */}
+              {(isCompleted || sessionDone) && !finalData && quiz?.session && (
+                <div className="text-center py-6 space-y-4">
+                  <div className="text-5xl">✅</div>
+                  <p className="text-xl font-extrabold">Already completed today!</p>
+                  <p className="text-muted-foreground">Score: {quiz.session.score ?? 0}%</p>
+                  <button onClick={() => setOpen(false)} className="w-full py-3 rounded-2xl bg-primary text-primary-foreground font-bold">Close</button>
+                </div>
+              )}
+
+              {/* Active question */}
+              {!isCompleted && !sessionDone && currentQ && (
+                <div className="space-y-4">
+                  <div className="rounded-2xl p-4" style={{ background: 'hsl(var(--muted))' }}>
+                    <p className="text-base font-bold text-foreground leading-snug">{currentQ.questionText}</p>
+                    <p className="text-xs font-semibold text-muted-foreground mt-1.5 capitalize">{currentQ.difficulty} · {currentQ.topicTag.replace(/_/g, ' ')}</p>
+                  </div>
+
+                  <div className="space-y-2.5">
+                    {currentQ.answerChoices.map((choice, i) => {
+                      const isSelected = selected === i;
+                      const isCorrectAnswer = answerResult && i === answerResult.correctAnswerIndex;
+                      const isWrongSelected = answerResult && isSelected && !answerResult.isCorrect;
+                      return (
+                        <button
+                          key={i}
+                          onClick={() => handleSelect(i)}
+                          disabled={selected !== null}
+                          className="w-full text-left px-4 py-3.5 rounded-2xl font-semibold text-sm transition-all"
+                          style={{
+                            background: isCorrectAnswer ? 'hsl(142 60% 50% / 0.15)' :
+                                        isWrongSelected ? 'hsl(0 90% 60% / 0.15)' :
+                                        isSelected ? 'hsl(var(--primary) / 0.1)' : 'hsl(var(--muted))',
+                            border: `2px solid ${isCorrectAnswer ? 'hsl(142 60% 50%)' :
+                                                  isWrongSelected ? 'hsl(0 90% 60%)' :
+                                                  isSelected ? 'hsl(var(--primary))' : 'transparent'}`,
+                            color: isCorrectAnswer ? 'hsl(142 60% 30%)' : 'inherit',
+                          }}
+                        >
+                          <span className="flex items-center gap-2">
+                            {answerResult && isCorrectAnswer && <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0" />}
+                            {answerResult && isWrongSelected && <XCircle className="h-4 w-4 text-red-500 flex-shrink-0" />}
+                            {choice}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {answerResult && (
+                    <div className="rounded-2xl p-4 space-y-2" style={{ background: answerResult.isCorrect ? 'hsl(142 60% 50% / 0.08)' : 'hsl(0 90% 60% / 0.08)' }}>
+                      <p className="font-bold" style={{ color: answerResult.isCorrect ? 'hsl(142 60% 35%)' : 'hsl(0 90% 45%)' }}>
+                        {answerResult.isCorrect ? '✓ Correct!' : '✗ Not quite'}
+                      </p>
+                      {answerResult.coachingText && <p className="text-sm text-muted-foreground">{answerResult.coachingText}</p>}
+                      {qIndex < questions.length - 1 ? (
+                        <button onClick={handleNext} className="mt-2 w-full py-2.5 rounded-xl bg-primary text-primary-foreground font-bold text-sm">
+                          Next Question →
+                        </button>
+                      ) : (
+                        <p className="text-sm text-muted-foreground mt-1">Finishing session...</p>
+                      )}
+                    </div>
+                  )}
+
+                  {answerMutation.isPending && (
+                    <div className="flex justify-center py-2">
+                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary" />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Progress bar */}
+              {!isCompleted && !sessionDone && questions.length > 0 && (
+                <div className="mt-4">
+                  <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                    <div className="h-full bg-primary rounded-full transition-all" style={{ width: `${((qIndex) / questions.length) * 100}%` }} />
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── What Would You Do? Scenario Card ────────────────────────────────────────
+
+interface ScenarioQuestion {
+  id: string;
+  questionText: string;
+  answerChoices: string[];
+  coachingText?: string;
+  topicTag: string;
+}
+
+function ScenarioCard() {
+  const [selected, setSelected] = useState<number | null>(null);
+  const [serverCoaching, setServerCoaching] = useState<string | null>(null);
+
+  const { data: scenarioData, isLoading } = useQuery<{ success: boolean; data: { scenario: ScenarioQuestion | null } }>({
+    queryKey: ['/api/quiz/scenario-card'],
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const scenario = scenarioData?.data?.scenario;
+
+  const answerScenarioMutation = useMutation<{ success: boolean; data: { coachingText: string | null } }, Error, { questionId: string; selectedIndex: number }>({
+    mutationFn: async ({ questionId, selectedIndex }) => {
+      const res = await apiRequest('POST', '/api/quiz/scenario-answer', { questionId, selectedIndex });
+      return res.json();
+    },
+    onSuccess: (data) => {
+      if (data?.data?.coachingText) setServerCoaching(data.data.coachingText);
+    },
+  });
+
+  const handleSelect = (i: number) => {
+    setSelected(i);
+    if (scenario?.id) {
+      answerScenarioMutation.mutate({ questionId: scenario.id, selectedIndex: i });
+    }
+  };
+
+  if (isLoading || !scenario) return null;
+
+  const coaching = serverCoaching ?? scenario.coachingText;
+
+  return (
+    <div className="rounded-3xl p-4"
+      style={{
+        background: 'linear-gradient(135deg, hsl(210 80% 60% / 0.08), hsl(240 80% 60% / 0.05))',
+        border: '1px solid hsl(210 80% 60% / 0.2)',
+      }}
+    >
+      <p className="text-xs font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 mb-1">
+        What Would You Do?
+      </p>
+      <p className="text-sm font-semibold text-foreground mb-3 leading-snug">{scenario.questionText}</p>
+
+      {selected === null ? (
+        <div className="space-y-2">
+          {scenario.answerChoices.map((choice, i) => (
+            <button
+              key={i}
+              onClick={() => handleSelect(i)}
+              className="w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium transition-all"
+              style={{ background: 'hsl(var(--muted))', border: '1.5px solid transparent' }}
+            >
+              {choice}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-xl p-3 space-y-2"
+          style={{ background: 'hsl(210 80% 60% / 0.08)', border: '1.5px solid hsl(210 80% 60% / 0.2)' }}>
+          <p className="text-xs font-semibold text-blue-700 dark:text-blue-300">You chose: "{scenario.answerChoices[selected]}"</p>
+          {coaching && (
+            <p className="text-xs text-muted-foreground leading-relaxed">{coaching}</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 const TASK_COLORS = ['#F47D31', '#4ECDC4', '#9B59B6', '#F9C846', '#6BCB77', '#FF6B6B'];
 
@@ -214,6 +625,8 @@ export default function AssociateDashboard() {
             </DashboardErrorBoundary>
           )}
 
+          <DashboardErrorBoundary fallback=""><BrainBoostCard /></DashboardErrorBoundary>
+          <DashboardErrorBoundary fallback=""><ScenarioCard /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><ScoreWidget /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><DailyQuoteCard /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><SurfacedSOPBanner /></DashboardErrorBoundary>
@@ -354,6 +767,8 @@ export default function AssociateDashboard() {
             <TimeClockWidget />
           </DashboardErrorBoundary>
 
+          <DashboardErrorBoundary fallback=""><BrainBoostCard /></DashboardErrorBoundary>
+          <DashboardErrorBoundary fallback=""><ScenarioCard /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><SurfacedSOPBanner /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><DailyQuoteCard /></DashboardErrorBoundary>
           <QuickActions navigate={navigate} />

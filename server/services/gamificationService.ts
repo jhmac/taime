@@ -18,6 +18,7 @@ interface ScoreBreakdown {
   tasks: CategoryScore;
   sops: CategoryScore;
   engagement: CategoryScore;
+  learning: CategoryScore;
 }
 
 interface TierThresholds {
@@ -33,6 +34,7 @@ interface CategoryWeights {
   tasks: number;
   sops: number;
   engagement: number;
+  learning?: number;
 }
 
 interface PrizeDescriptions {
@@ -81,7 +83,7 @@ interface DbRow {
   [key: string]: string | number | null;
 }
 
-const DEFAULT_WEIGHTS = { attendance: 30, tasks: 30, sops: 20, engagement: 20 };
+const DEFAULT_WEIGHTS = { attendance: 25, tasks: 25, sops: 15, engagement: 15, learning: 20 };
 const DEFAULT_THRESHOLDS = { bronze: 0, silver: 40, gold: 60, platinum: 80, diamond: 95 };
 
 const ACHIEVEMENT_DEFINITIONS = [
@@ -229,12 +231,45 @@ export class GamificationService {
     const attendanceNorm = normalizeScore(attendancePoints, maxAttendancePoints || 1);
     const taskNorm = normalizeScore(taskPoints, maxTaskPoints || 1);
 
-    const totalWeight = weights.attendance + weights.tasks + weights.sops + weights.engagement;
+    // Learning score from quiz performance (last 30 days)
+    let learningScore = 0;
+    try {
+      const quizResult = await db.execute(sql`
+        SELECT 
+          COALESCE(total_questions_answered, 0) AS questions,
+          COALESCE(total_correct_answers, 0) AS correct,
+          COALESCE(current_streak_days, 0) AS streak,
+          COALESCE(total_quizzes_completed, 0) AS quizzes,
+          COALESCE(scenario_participation_count, 0) AS scenarios
+        FROM user_quiz_progress
+        WHERE user_id = ${userId}
+        LIMIT 1
+      `);
+      const qr = ((quizResult as { rows: DbRow[] }).rows || [])[0];
+      if (qr) {
+        const questions = parseInt(String(qr.questions || '0'));
+        const correct = parseInt(String(qr.correct || '0'));
+        const streak = parseInt(String(qr.streak || '0'));
+        const quizzes = parseInt(String(qr.quizzes || '0'));
+        const scenarios = parseInt(String(qr.scenarios || '0'));
+        const accuracy = questions > 0 ? (correct / questions) * 100 : 0;
+        const participationBonus = Math.min(quizzes * 5, 35);
+        const streakBonus = Math.min(streak * 2, 20);
+        const scenarioBonus = Math.min(scenarios * 3, 10); // up to 10pts for scenario engagement
+        learningScore = Math.min(Math.round(accuracy * 0.35 + participationBonus + streakBonus + scenarioBonus), 100);
+      }
+    } catch (err) {
+      console.warn('[Gamification] Learning score fallback for', userId, err);
+    }
+
+    const learningWeight = weights.learning ?? 20;
+    const totalWeight = weights.attendance + weights.tasks + weights.sops + weights.engagement + learningWeight;
     const overallScore = Math.round(
       (attendanceNorm * weights.attendance +
        taskNorm * weights.tasks +
        sopScore * weights.sops +
-       engagementScore * weights.engagement) / totalWeight
+       engagementScore * weights.engagement +
+       learningScore * learningWeight) / totalWeight
     );
 
     const breakdown: ScoreBreakdown = {
@@ -242,6 +277,7 @@ export class GamificationService {
       tasks: { raw: taskPoints, normalized: taskNorm, weight: weights.tasks, weighted: Math.round(taskNorm * weights.tasks / totalWeight) },
       sops: { raw: sopScore, normalized: sopScore, weight: weights.sops, weighted: Math.round(sopScore * weights.sops / totalWeight) },
       engagement: { raw: engagementScore, normalized: engagementScore, weight: weights.engagement, weighted: Math.round(engagementScore * weights.engagement / totalWeight) },
+      learning: { raw: learningScore, normalized: learningScore, weight: learningWeight, weighted: Math.round(learningScore * learningWeight / totalWeight) },
     };
 
     const tier = getTier(overallScore, thresholds);

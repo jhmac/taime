@@ -58,7 +58,6 @@ const managementNavItems = [
   { path: '/hr/roles', icon: 'fas fa-shield-alt', label: 'Roles', permission: 'admin.role_management' },
   { path: '/analytics', icon: 'fas fa-chart-bar', label: 'Analytics', permission: 'admin.manage_all' },
   { path: '/performance', icon: 'fas fa-trophy', label: 'Performance' },
-  { path: '/ai-learning', icon: 'fas fa-brain', label: 'AI Learning', permission: 'hr.edit_team' },
   { path: '/ai-studio', icon: 'fas fa-wand-magic-sparkles', label: 'AI Studio', permission: 'hr.edit_team' },
   { path: '/operations', icon: 'fas fa-cogs', label: 'Operations', permission: 'admin.manage_all' },
   { path: '/admin', icon: 'fas fa-sliders-h', label: 'Settings', permission: 'admin.manage_all' },

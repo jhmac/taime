@@ -116,6 +116,21 @@ export async function runSchemaMigrations(): Promise<void> {
       table: "shops",
       sql: `ALTER TABLE shops ADD COLUMN IF NOT EXISTS installed_at TIMESTAMP DEFAULT NOW()`,
     },
+    // user_quiz_progress: pending_boss_battle flag — set after full topic rotation completes
+    {
+      table: "user_quiz_progress",
+      sql: `ALTER TABLE user_quiz_progress ADD COLUMN IF NOT EXISTS pending_boss_battle boolean DEFAULT false`,
+    },
+    // user_quiz_progress: scenario_participation_count — tracks "What Would You Do?" engagements
+    {
+      table: "user_quiz_progress",
+      sql: `ALTER TABLE user_quiz_progress ADD COLUMN IF NOT EXISTS scenario_participation_count integer DEFAULT 0`,
+    },
+    // user_quiz_progress: scenario_last_awarded_date — weekly lock to prevent point farming
+    {
+      table: "user_quiz_progress",
+      sql: `ALTER TABLE user_quiz_progress ADD COLUMN IF NOT EXISTS scenario_last_awarded_date date`,
+    },
   ];
 
   let altered = 0;
@@ -278,6 +293,97 @@ export async function runSchemaMigrations(): Promise<void> {
         `CREATE INDEX IF NOT EXISTS idx_ai_store_qa_messages_session ON ai_store_qa_messages (session_id)`,
       ],
     },
+    // ── Unified AI Learning Platform ─────────────────────────────────────────
+    {
+      name: "quiz_questions",
+      ddl: `CREATE TABLE IF NOT EXISTS quiz_questions (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        store_id varchar REFERENCES work_locations(id) ON DELETE CASCADE,
+        source_document_id varchar REFERENCES knowledge_documents(id) ON DELETE SET NULL,
+        job_id varchar REFERENCES generation_jobs(id) ON DELETE SET NULL,
+        topic_tag varchar NOT NULL,
+        difficulty varchar NOT NULL DEFAULT 'medium',
+        question_text text NOT NULL,
+        answer_choices jsonb NOT NULL DEFAULT '[]',
+        correct_answer_index integer NOT NULL,
+        coaching_text text,
+        is_active boolean NOT NULL DEFAULT true,
+        wrong_answer_count integer NOT NULL DEFAULT 0,
+        total_answer_count integer NOT NULL DEFAULT 0,
+        created_at timestamp DEFAULT now()
+      )`,
+      indexes: [
+        `CREATE INDEX IF NOT EXISTS idx_quiz_questions_store ON quiz_questions (store_id)`,
+        `CREATE INDEX IF NOT EXISTS idx_quiz_questions_topic ON quiz_questions (store_id, topic_tag)`,
+      ],
+    },
+    {
+      name: "user_quiz_progress",
+      ddl: `CREATE TABLE IF NOT EXISTS user_quiz_progress (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id varchar REFERENCES users(id) ON DELETE CASCADE NOT NULL,
+        store_id varchar REFERENCES work_locations(id) ON DELETE SET NULL,
+        current_rotation_topics jsonb DEFAULT '[]',
+        covered_topics_this_rotation jsonb DEFAULT '[]',
+        total_quizzes_completed integer NOT NULL DEFAULT 0,
+        total_questions_answered integer NOT NULL DEFAULT 0,
+        total_correct_answers integer NOT NULL DEFAULT 0,
+        current_streak_days integer NOT NULL DEFAULT 0,
+        longest_streak_days integer NOT NULL DEFAULT 0,
+        last_quiz_date date,
+        season_points integer NOT NULL DEFAULT 0,
+        current_season varchar,
+        all_topics_covered_count integer NOT NULL DEFAULT 0,
+        pending_boss_battle boolean DEFAULT false,
+        scenario_participation_count integer DEFAULT 0,
+        scenario_last_awarded_date date,
+        updated_at timestamp DEFAULT now()
+      )`,
+      indexes: [
+        `CREATE UNIQUE INDEX IF NOT EXISTS uq_user_quiz_progress ON user_quiz_progress (user_id)`,
+        `CREATE INDEX IF NOT EXISTS idx_user_quiz_progress_store ON user_quiz_progress (store_id)`,
+      ],
+    },
+    {
+      name: "quiz_sessions",
+      ddl: `CREATE TABLE IF NOT EXISTS quiz_sessions (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id varchar REFERENCES users(id) ON DELETE CASCADE NOT NULL,
+        store_id varchar REFERENCES work_locations(id) ON DELETE SET NULL,
+        session_date date NOT NULL,
+        topic_tag varchar NOT NULL,
+        session_type varchar NOT NULL DEFAULT 'daily',
+        question_ids jsonb NOT NULL DEFAULT '[]',
+        status varchar NOT NULL DEFAULT 'in_progress',
+        score integer,
+        total_questions integer NOT NULL DEFAULT 0,
+        correct_answers integer NOT NULL DEFAULT 0,
+        streak_multiplier integer NOT NULL DEFAULT 1,
+        base_points integer NOT NULL DEFAULT 0,
+        total_points integer NOT NULL DEFAULT 0,
+        completed_at timestamp,
+        created_at timestamp DEFAULT now()
+      )`,
+      indexes: [
+        `CREATE INDEX IF NOT EXISTS idx_quiz_sessions_user_date ON quiz_sessions (user_id, session_date)`,
+        `CREATE UNIQUE INDEX IF NOT EXISTS uq_quiz_session_user_date_type ON quiz_sessions (user_id, session_date, session_type)`,
+      ],
+    },
+    {
+      name: "quiz_answers",
+      ddl: `CREATE TABLE IF NOT EXISTS quiz_answers (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        session_id varchar REFERENCES quiz_sessions(id) ON DELETE CASCADE NOT NULL,
+        question_id varchar REFERENCES quiz_questions(id) ON DELETE CASCADE NOT NULL,
+        selected_index integer NOT NULL,
+        is_correct boolean NOT NULL,
+        answered_at timestamp DEFAULT now()
+      )`,
+      indexes: [
+        `CREATE INDEX IF NOT EXISTS idx_quiz_answers_session ON quiz_answers (session_id)`,
+        `CREATE UNIQUE INDEX IF NOT EXISTS uq_quiz_answer_session_question ON quiz_answers (session_id, question_id)`,
+      ],
+    },
   ];
 
   for (const { name, ddl, indexes } of tableCreations) {
@@ -327,6 +433,31 @@ export async function runSchemaMigrations(): Promise<void> {
     }
   } catch (err) {
     console.warn("[Migration] Backfill step failed (non-fatal):", err);
+  }
+
+  // Normalize gamification_settings to 5-pillar model (attendance/tasks/sops/engagement/learning)
+  // Existing rows with 4-pillar weights (no "learning" key) are updated to include learning=20
+  // and all other weights are scaled so the total remains 100.
+  try {
+    const gsRows = await db.execute(sql.raw(`SELECT id, category_weights FROM gamification_settings LIMIT 10`));
+    const gsData = (gsRows as any).rows ?? [];
+    for (const row of gsData) {
+      let weights: Record<string, number> = {};
+      try { weights = typeof row.category_weights === 'string' ? JSON.parse(row.category_weights) : (row.category_weights ?? {}); } catch { continue; }
+      if ('learning' in weights) continue; // Already migrated
+      // Scale existing 4 pillars to 80% of total, add learning=20
+      const total4 = (weights.attendance ?? 0) + (weights.tasks ?? 0) + (weights.sops ?? 0) + (weights.engagement ?? 0);
+      const factor = total4 > 0 ? 80 / total4 : 1;
+      weights.attendance = Math.round((weights.attendance ?? 0) * factor);
+      weights.tasks = Math.round((weights.tasks ?? 0) * factor);
+      weights.sops = Math.round((weights.sops ?? 0) * factor);
+      weights.engagement = 80 - weights.attendance - weights.tasks - weights.sops; // Ensure sum=80
+      weights.learning = 20;
+      await db.execute(sql.raw(`UPDATE gamification_settings SET category_weights = '${JSON.stringify(weights)}' WHERE id = ${row.id}`));
+      console.log(`[Migration] Normalized gamification_settings id=${row.id} to 5-pillar weights: ${JSON.stringify(weights)}`);
+    }
+  } catch {
+    // Non-fatal — table may not exist yet on first boot
   }
 
   console.log(`[Migration] Schema migrations complete (${altered} column alteration(s))`);

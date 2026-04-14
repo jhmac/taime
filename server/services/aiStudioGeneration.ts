@@ -6,6 +6,7 @@ import {
   knowledgeDocuments,
   companyAiContext,
   aiGeneratedItems,
+  quizQuestions,
 } from "@shared/schema";
 import { eq, inArray, and } from "drizzle-orm";
 import logger from "../lib/logger";
@@ -451,6 +452,74 @@ Return ONLY the JSON array, no other text.`;
             `Skipped KB for "${doc.originalFileName}" — could not parse`
           );
         }
+      }
+    }
+
+    // ── Always generate quiz questions for the question bank ────────────────
+    for (const doc of documents) {
+      const docContent = doc.extractedText || doc.rawContent || "";
+      if (!docContent.trim()) continue;
+      await appendProgress(jobId, `Generating quiz questions from "${doc.originalFileName}"...`);
+
+      const quizPrompt = `You are a retail training expert creating a quiz question bank for "${storeName}" (${businessType}).
+
+SOURCE DOCUMENT: ${doc.originalFileName}
+CONTENT:
+${docContent.slice(0, 12000)}
+
+Generate 10-20 multiple-choice quiz questions to test employee knowledge of this document.
+Each question must have exactly 4 answer choices and one correct answer.
+Include a mix of:
+- "easy" questions (direct knowledge recall)
+- "medium" questions (application and understanding)
+- "hard" questions (analysis and edge cases)
+- "scenario" questions ("What Would You Do?" situations, starting with "You are working a shift and...")
+
+Extract a short topic tag (2-4 words, snake_case) that groups these questions.
+
+Return ONLY a valid JSON array:
+[
+  {
+    "topicTag": "customer_returns",
+    "difficulty": "easy",
+    "questionText": "What is the store's return window?",
+    "answerChoices": ["7 days", "14 days", "30 days", "60 days"],
+    "correctAnswerIndex": 2,
+    "coachingText": "Our return policy allows 30 days with receipt. Always verify this with a receipt check first."
+  }
+]`;
+
+      try {
+        const response = await claudeCall({
+          model: DEFAULT_MODEL,
+          max_tokens: 5000,
+          messages: [{ role: "user", content: quizPrompt }],
+        }, 90_000);
+
+        const raw = response.content?.[0]?.type === "text" ? response.content[0].text : "";
+        const jsonMatch = raw.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          const questions = JSON.parse(jsonMatch[0]);
+          for (const q of questions) {
+            if (!q.questionText || !Array.isArray(q.answerChoices) || q.answerChoices.length !== 4) continue;
+            await db.insert(quizQuestions).values({
+              storeId,
+              sourceDocumentId: doc.id,
+              jobId,
+              topicTag: q.topicTag || "general",
+              difficulty: q.difficulty || "medium",
+              questionText: q.questionText,
+              answerChoices: q.answerChoices,
+              correctAnswerIndex: q.correctAnswerIndex ?? 0,
+              coachingText: q.coachingText || null,
+              isActive: true,
+            });
+          }
+          await appendProgress(jobId, `Added ${questions.length} quiz questions from "${doc.originalFileName}"`);
+        }
+      } catch (err: unknown) {
+        logger.warn({ err: err instanceof Error ? err.message : String(err), docId: doc.id }, "Failed to generate quiz questions");
+        await appendProgress(jobId, `Skipped quiz questions for "${doc.originalFileName}"`);
       }
     }
 

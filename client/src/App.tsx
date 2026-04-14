@@ -124,7 +124,6 @@ const JoinPage = lazy(() => import("@/pages/JoinPage"));
 const MeetingsList = lazy(() => import("@/pages/MeetingsList"));
 const MeetingsNew = lazy(() => import("@/pages/MeetingsNew"));
 const MeetingDetail = lazy(() => import("@/pages/MeetingDetail"));
-const AILearningCenter = lazy(() => import("@/pages/AILearningCenter"));
 const AIContentStudio = lazy(() => import("@/pages/AIContentStudio"));
 const StoreQA = lazy(() => import("@/pages/StoreQA"));
 
@@ -276,7 +275,12 @@ function AuthenticatedApp() {
           <ProtectedRoute><Performance /></ProtectedRoute>
         </Route>
         <Route path="/learning" component={Learning} />
-        <Route path="/ai-learning-center" component={AILearningCenter} />
+        <Route path="/ai-learning-center">
+          <ProtectedRoute permission="hr.edit_team"><AIContentStudio /></ProtectedRoute>
+        </Route>
+        <Route path="/ai-learning">
+          <ProtectedRoute permission="hr.edit_team"><AIContentStudio /></ProtectedRoute>
+        </Route>
         <Route path="/store-qa" component={StoreQA} />
         <Route path="/more" component={MoreMenu} />
         <Route path="/requests" component={Requests} />
@@ -330,9 +334,6 @@ function AuthenticatedApp() {
         </Route>
         <Route path="/meetings">
           <ProtectedRoute permission="admin.manage_all"><MeetingsList /></ProtectedRoute>
-        </Route>
-        <Route path="/ai-learning">
-          <ProtectedRoute permission="hr.edit_team"><AILearningCenter /></ProtectedRoute>
         </Route>
         <Route path="/ai-studio">
           <ProtectedRoute permission="hr.edit_team"><AIContentStudio /></ProtectedRoute>
