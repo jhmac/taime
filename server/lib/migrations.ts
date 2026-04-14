@@ -330,4 +330,25 @@ export async function runSchemaMigrations(): Promise<void> {
   }
 
   console.log(`[Migration] Schema migrations complete (${altered} column alteration(s))`);
+
+  // Mark any generation jobs that were still "running" when the server last shut down.
+  // These are orphaned — the setImmediate background task was lost on restart — so
+  // they will never complete. Reset them to "failed" so users can retry.
+  try {
+    const orphanResult = await db.execute(
+      sql.raw(`UPDATE generation_jobs SET status = 'failed', updated_at = NOW(), progress_log = (
+        SELECT to_jsonb(array_agg(elem)) FROM (
+          SELECT jsonb_array_elements_text(progress_log) AS elem
+          UNION ALL
+          SELECT 'Server restarted during generation — please click Generate again to retry.'
+        ) t
+      ) WHERE status = 'running'`)
+    );
+    const affected = (orphanResult as any).rowCount ?? 0;
+    if (affected > 0) {
+      console.log(`[Migration] Cleaned up ${affected} orphaned generation job(s) → marked as failed`);
+    }
+  } catch {
+    // Non-fatal — table may not exist yet on first boot
+  }
 }

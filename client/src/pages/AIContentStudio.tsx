@@ -486,9 +486,20 @@ function GenerationWizard({ onComplete }: { onComplete: () => void }) {
       )}
 
       {jobStatus?.status === "failed" && (
-        <div className="flex items-center gap-2 text-destructive font-medium text-sm">
-          <AlertCircle className="w-5 h-5" />
-          Generation failed. Please try again.
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 text-destructive font-medium text-sm">
+            <AlertCircle className="w-5 h-5" />
+            Generation was interrupted (the server may have restarted). Your previous selections are saved.
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-2"
+            onClick={() => { setStep(0); setJobId(null); setProgressLog([]); }}
+          >
+            <RefreshCw className="w-4 h-4" />
+            Try Again
+          </Button>
         </div>
       )}
     </div>
