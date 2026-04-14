@@ -17,7 +17,7 @@ import { apiRequest, queryClient as globalQueryClient } from "@/lib/queryClient"
 import type { User, Schedule, WorkLocation } from "@shared/schema";
 import {
   ChevronLeft, ChevronRight, Plus, Trash2, Sparkles, Loader2,
-  Check, X, Calendar, Clock, StickyNote
+  Check, X, Calendar, Clock, StickyNote, Bell, Pencil
 } from "lucide-react";
 
 interface DayNote {
@@ -197,6 +197,7 @@ export default function ScheduleManagement() {
   const [shiftFilter, setShiftFilter] = useState<'my' | 'all' | 'open'>('my');
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   const [showAIPanel, setShowAIPanel] = useState(false);
+  const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null);
   const [aiResult, setAiResult] = useState<GenerateResult | null>(null);
   const [removedEntries, setRemovedEntries] = useState<Set<number>>(new Set());
 
@@ -287,6 +288,37 @@ export default function ScheduleManagement() {
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to delete shift.", variant: "destructive" });
+    },
+  });
+
+  const updateScheduleMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: any }) => {
+      const res = await apiRequest('PATCH', `/api/schedules/${id}`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/schedules"] });
+      setEditingSchedule(null);
+      toast({ title: "Shift updated", description: "Changes saved." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to update shift.", variant: "destructive" });
+    },
+  });
+
+  const notifyTeamMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest('POST', '/api/schedules/notify-week', {
+        startDate: weekDates[0].toISOString(),
+        endDate: weekDates[6].toISOString(),
+      });
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      toast({ title: "Team notified!", description: data.message });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to send notifications.", variant: "destructive" });
     },
   });
 
@@ -583,6 +615,21 @@ export default function ScheduleManagement() {
               <Sparkles className="h-3.5 w-3.5" />
               AI Auto-Schedule
             </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 text-xs"
+              onClick={() => notifyTeamMutation.mutate()}
+              disabled={notifyTeamMutation.isPending || schedules.length === 0}
+              title="Send push notifications to all employees with shifts this week"
+            >
+              {notifyTeamMutation.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Bell className="h-3.5 w-3.5" />
+              )}
+              Notify Team
+            </Button>
             <Button size="sm" className="gap-1.5 text-xs" onClick={() => openCreateShift()}>
               <Plus className="h-3.5 w-3.5" />
               Add Shift
@@ -721,7 +768,8 @@ export default function ScheduleManagement() {
                           {daySchedules.map(schedule => (
                             <div
                               key={schedule.id}
-                              className="group/shift bg-indigo-100 dark:bg-indigo-900/40 border border-indigo-200 dark:border-indigo-800 rounded px-1.5 py-1 text-xs relative cursor-default"
+                              onClick={() => setEditingSchedule(schedule)}
+                              className="group/shift bg-indigo-100 dark:bg-indigo-900/40 border border-indigo-200 dark:border-indigo-800 rounded px-1.5 py-1 text-xs relative cursor-pointer hover:bg-indigo-200 dark:hover:bg-indigo-900/60 transition-colors"
                             >
                               <div className="font-medium text-indigo-800 dark:text-indigo-200 leading-tight">
                                 {formatTime(schedule.startTime)}–{formatTime(schedule.endTime)}
@@ -730,7 +778,7 @@ export default function ScheduleManagement() {
                                 <div className="text-[10px] text-indigo-600 dark:text-indigo-400 truncate">{schedule.title}</div>
                               )}
                               <button
-                                onClick={() => deleteScheduleMutation.mutate(schedule.id)}
+                                onClick={e => { e.stopPropagation(); deleteScheduleMutation.mutate(schedule.id); }}
                                 className="absolute top-0.5 right-0.5 opacity-0 group-hover/shift:opacity-100 transition-opacity bg-red-100 dark:bg-red-900/40 rounded p-0.5"
                                 title="Delete shift"
                               >
@@ -917,6 +965,98 @@ export default function ScheduleManagement() {
               </Button>
             </div>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Shift Dialog */}
+      <Dialog open={!!editingSchedule} onOpenChange={open => { if (!open) setEditingSchedule(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-sm flex items-center gap-2">
+              <Pencil className="h-4 w-4" />Edit Shift
+            </DialogTitle>
+          </DialogHeader>
+          {editingSchedule && (() => {
+            const empName = (() => {
+              const u = activeEmployees.find(e => e.id === editingSchedule.userId);
+              return u ? `${u.firstName} ${u.lastName}` : 'Employee';
+            })();
+            const toLocalDateTimeStr = (d: Date | string) => {
+              const dt = new Date(d);
+              const pad = (n: number) => String(n).padStart(2, '0');
+              return `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+            };
+            return (
+              <form
+                onSubmit={e => {
+                  e.preventDefault();
+                  const fd = new FormData(e.currentTarget);
+                  updateScheduleMutation.mutate({
+                    id: editingSchedule.id,
+                    data: {
+                      startTime: new Date(fd.get('startTime') as string),
+                      endTime: new Date(fd.get('endTime') as string),
+                      title: (fd.get('title') as string) || null,
+                      description: (fd.get('description') as string) || null,
+                      locationId: (fd.get('locationId') as string) || null,
+                    },
+                  });
+                }}
+                className="space-y-3"
+              >
+                <div className="text-sm font-medium text-muted-foreground">{empName}</div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label className="text-xs">Start</Label>
+                    <Input type="datetime-local" name="startTime" className="h-8 text-xs" defaultValue={toLocalDateTimeStr(editingSchedule.startTime)} required />
+                  </div>
+                  <div>
+                    <Label className="text-xs">End</Label>
+                    <Input type="datetime-local" name="endTime" className="h-8 text-xs" defaultValue={toLocalDateTimeStr(editingSchedule.endTime)} required />
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-xs">Title (optional)</Label>
+                  <Input name="title" className="h-8 text-sm" placeholder="e.g. Opening, Closing..." defaultValue={editingSchedule.title ?? ''} />
+                </div>
+                {locations.length > 0 && (
+                  <div>
+                    <Label className="text-xs">Location</Label>
+                    <Select name="locationId" defaultValue={editingSchedule.locationId ?? ''}>
+                      <SelectTrigger className="h-8">
+                        <SelectValue placeholder="No location" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {locations.map(loc => (
+                          <SelectItem key={loc.id} value={loc.id}>{loc.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                <div>
+                  <Label className="text-xs">Notes</Label>
+                  <Textarea name="description" className="text-sm" placeholder="Optional notes..." rows={2} defaultValue={editingSchedule.description ?? ''} />
+                </div>
+                <div className="flex justify-between gap-2 pt-2">
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => { deleteScheduleMutation.mutate(editingSchedule.id); setEditingSchedule(null); }}
+                  >
+                    <Trash2 className="h-3.5 w-3.5 mr-1" />Delete
+                  </Button>
+                  <div className="flex gap-2">
+                    <Button type="button" variant="outline" size="sm" onClick={() => setEditingSchedule(null)}>Cancel</Button>
+                    <Button type="submit" size="sm" disabled={updateScheduleMutation.isPending}>
+                      {updateScheduleMutation.isPending ? "Saving..." : "Save Changes"}
+                    </Button>
+                  </div>
+                </div>
+              </form>
+            );
+          })()}
         </DialogContent>
       </Dialog>
     </div>

@@ -67,6 +67,79 @@ export function registerScheduleRoutes(app: Express, storage: IStorage, isAuthen
     }
   });
 
+  app.patch('/api/schedules/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canManage = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'schedule.manage');
+      if (!canManage) return res.status(403).json({ message: "Permission denied" });
+
+      const body = { ...req.body };
+      if (body.startTime && typeof body.startTime === 'string') body.startTime = new Date(body.startTime);
+      if (body.endTime && typeof body.endTime === 'string') body.endTime = new Date(body.endTime);
+
+      const updated = await storage.updateSchedule(req.params.id, body);
+      broadcastToAll({ type: 'schedule_updated', data: { schedule: updated } });
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating schedule:", error);
+      res.status(400).json({ message: (error as Error).message });
+    }
+  });
+
+  app.post('/api/schedules/notify-week', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canManage = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'schedule.manage');
+      if (!canManage) return res.status(403).json({ message: "Permission denied" });
+
+      const { startDate, endDate } = req.body;
+      if (!startDate || !endDate) return res.status(400).json({ message: "startDate and endDate required" });
+
+      const locationId = await tryResolveStoreIdForUser(userId);
+      const schedules = await storage.getAllSchedules(
+        new Date(startDate),
+        new Date(endDate),
+        locationId || undefined
+      );
+
+      if (schedules.length === 0) return res.json({ sent: 0, message: "No shifts found for that week" });
+
+      const byUser: Record<string, typeof schedules> = {};
+      for (const s of schedules) {
+        if (s.userId === userId) continue;
+        if (!byUser[s.userId]) byUser[s.userId] = [];
+        byUser[s.userId].push(s);
+      }
+
+      const formatShift = (s: any) => {
+        const day = new Date(s.startTime).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+        const start = new Date(s.startTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+        const end = new Date(s.endTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+        return `${day}: ${start}–${end}`;
+      };
+
+      let sent = 0;
+      await Promise.all(Object.entries(byUser).map(async ([empUserId, empShifts]) => {
+        const lines = empShifts
+          .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
+          .map(formatShift)
+          .join(', ');
+        await notificationService.sendScheduleUpdate(
+          empUserId,
+          `Your schedule: ${lines}`
+        );
+        sent++;
+      }));
+
+      res.json({ sent, message: `Notified ${sent} team member${sent !== 1 ? 's' : ''}.` });
+    } catch (error) {
+      console.error("Error notifying team:", error);
+      res.status(500).json({ message: "Failed to notify team" });
+    }
+  });
+
   app.delete('/api/schedules/:id', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
