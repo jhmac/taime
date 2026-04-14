@@ -981,21 +981,25 @@ export default function ScheduleManagement() {
               const u = activeEmployees.find(e => e.id === editingSchedule.userId);
               return u ? `${u.firstName} ${u.lastName}` : 'Employee';
             })();
-            const toLocalDateTimeStr = (d: Date | string) => {
-              const dt = new Date(d);
-              const pad = (n: number) => String(n).padStart(2, '0');
-              return `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
-            };
+            const pad = (n: number) => String(n).padStart(2, '0');
+            const dt = new Date(editingSchedule.startTime);
+            const dtEnd = new Date(editingSchedule.endTime);
+            const defaultDate = `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())}`;
+            const defaultStartTime = `${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+            const defaultEndTime = `${pad(dtEnd.getHours())}:${pad(dtEnd.getMinutes())}`;
             return (
               <form
                 onSubmit={e => {
                   e.preventDefault();
                   const fd = new FormData(e.currentTarget);
+                  const date = fd.get('startDate') as string;
+                  const startTime = fd.get('startTime') as string;
+                  const endTime = fd.get('endTime') as string;
                   updateScheduleMutation.mutate({
                     id: editingSchedule.id,
                     data: {
-                      startTime: new Date(fd.get('startTime') as string),
-                      endTime: new Date(fd.get('endTime') as string),
+                      startTime: new Date(`${date}T${startTime}`),
+                      endTime: new Date(`${date}T${endTime}`),
                       title: (fd.get('title') as string) || null,
                       description: (fd.get('description') as string) || null,
                       locationId: (fd.get('locationId') as string) || null,
@@ -1005,14 +1009,18 @@ export default function ScheduleManagement() {
                 className="space-y-3"
               >
                 <div className="text-sm font-medium text-muted-foreground">{empName}</div>
+                <div>
+                  <Label className="text-xs">Date</Label>
+                  <Input name="startDate" type="date" className="h-8 text-sm" required defaultValue={defaultDate} />
+                </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <Label className="text-xs">Start</Label>
-                    <Input type="datetime-local" name="startTime" className="h-8 text-xs" defaultValue={toLocalDateTimeStr(editingSchedule.startTime)} required />
+                    <Label className="text-xs">Start Time</Label>
+                    <Input name="startTime" type="time" className="h-8 text-sm" required defaultValue={defaultStartTime} />
                   </div>
                   <div>
-                    <Label className="text-xs">End</Label>
-                    <Input type="datetime-local" name="endTime" className="h-8 text-xs" defaultValue={toLocalDateTimeStr(editingSchedule.endTime)} required />
+                    <Label className="text-xs">End Time</Label>
+                    <Input name="endTime" type="time" className="h-8 text-sm" required defaultValue={defaultEndTime} />
                   </div>
                 </div>
                 <div>
