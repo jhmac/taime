@@ -13,6 +13,18 @@ import logger from "../lib/logger";
 const anthropic = new Anthropic({ apiKey: config.anthropic.apiKey });
 const DEFAULT_MODEL = "claude-sonnet-4-20250514";
 
+/** Wraps an Anthropic API call with an explicit timeout so a hung response
+ *  can never freeze the entire generation job. */
+async function claudeCall(
+  params: Parameters<typeof anthropic.messages.create>[0],
+  timeoutMs = 90_000
+): Promise<Anthropic.Message> {
+  const timeout = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error(`Claude call timed out after ${timeoutMs / 1000}s`)), timeoutMs)
+  );
+  return Promise.race([anthropic.messages.create(params), timeout]);
+}
+
 async function appendProgress(jobId: string, message: string) {
   try {
     const [job] = await db.select().from(generationJobs).where(eq(generationJobs.id, jobId));
@@ -131,9 +143,9 @@ Return a JSON array of SOP objects:
 Return ONLY the JSON array, no other text.`;
 
         try {
-          const response = await anthropic.messages.create({
+          const response = await claudeCall({
             model: DEFAULT_MODEL,
-            max_tokens: 4096,
+            max_tokens: 2048,
             messages: [{ role: "user", content: sopPrompt }],
           });
 
@@ -182,9 +194,9 @@ SOURCE DOCUMENT: ${doc.originalFileName}
 ${docSummary ? `Summary: ${docSummary}` : ""}
 
 CONTENT:
-${docContent.slice(0, 15000)}
+${docContent.slice(0, 10000)}
 
-Create 1-2 training modules from this document.
+Create 1 training module from this document.
 
 Return a JSON array:
 [
@@ -208,11 +220,11 @@ Return a JSON array:
 Return ONLY the JSON array, no other text.`;
 
         try {
-          const response = await anthropic.messages.create({
+          const response = await claudeCall({
             model: DEFAULT_MODEL,
-            max_tokens: 4096,
+            max_tokens: 2048,
             messages: [{ role: "user", content: trainingPrompt }],
-          });
+          }, 120_000);
 
           const text = response.content[0].type === "text" ? response.content[0].text : "";
           const jsonMatch = text.match(/\[[\s\S]*\]/);
@@ -279,9 +291,9 @@ Return a JSON array:
 Return ONLY the JSON array, no other text.`;
 
         try {
-          const response = await anthropic.messages.create({
+          const response = await claudeCall({
             model: DEFAULT_MODEL,
-            max_tokens: 3000,
+            max_tokens: 1500,
             messages: [{ role: "user", content: taskPrompt }],
           });
 
@@ -352,9 +364,9 @@ Return a JSON array:
 Return ONLY the JSON array, no other text.`;
 
         try {
-          const response = await anthropic.messages.create({
+          const response = await claudeCall({
             model: DEFAULT_MODEL,
-            max_tokens: 3000,
+            max_tokens: 1500,
             messages: [{ role: "user", content: kbPrompt }],
           });
 
