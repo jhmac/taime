@@ -111,6 +111,11 @@ export async function runSchemaMigrations(): Promise<void> {
       table: "manager_notes",
       sql: `ALTER TABLE manager_notes ADD COLUMN IF NOT EXISTS manager_id varchar`,
     },
+    // shops.installed_at: Shopify OAuth callback requires this column
+    {
+      table: "shops",
+      sql: `ALTER TABLE shops ADD COLUMN IF NOT EXISTS installed_at TIMESTAMP DEFAULT NOW()`,
+    },
   ];
 
   let altered = 0;
