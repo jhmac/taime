@@ -18,33 +18,72 @@ const aiRateLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// Dedup Shopify's occasional double-callback (in-memory is fine; worst case
+// is a harmless second token-exchange attempt that Shopify will reject).
 const processedAuthCodes = new Map<string, { timestamp: number; status: string }>();
-const oauthStates = new Map<string, { userId: string; timestamp: number }>();
 setInterval(() => {
   const now = Date.now();
-  const entries = Array.from(processedAuthCodes.entries());
-  entries.forEach(([code, data]) => {
+  Array.from(processedAuthCodes.entries()).forEach(([code, data]) => {
     if (now - data.timestamp > 600000) processedAuthCodes.delete(code);
-  });
-  const stateEntries = Array.from(oauthStates.entries());
-  stateEntries.forEach(([state, data]) => {
-    if (now - data.timestamp > 600000) oauthStates.delete(state);
   });
 }, 300000);
 
-function getAppUrl(requestHostname?: string): string {
+// ── OAuth state: HMAC-signed, stateless — survives server restarts ────────────
+// Previously we stored state in an in-memory Map. Any server restart (common
+// in Replit's production environment) between auth-init and callback caused
+// "session expired" errors. Signed state encodes userId + timestamp in the
+// state parameter itself; no server memory required.
+const STATE_SECRET =
+  config.encryption.sessionSecret ||
+  config.shopify.apiSecret ||
+  'taime-shopify-state-fallback';
+const STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+function signOAuthState(userId: string): string {
+  const payload = Buffer.from(JSON.stringify({ u: userId, t: Date.now() })).toString('base64url');
+  const sig = crypto.createHmac('sha256', STATE_SECRET).update(payload).digest('hex').slice(0, 32);
+  return `${payload}.${sig}`;
+}
+
+function verifyOAuthState(state: string): { userId: string } | null {
+  const dotIdx = state.lastIndexOf('.');
+  if (dotIdx === -1) return null;
+  const payload = state.slice(0, dotIdx);
+  const sig = state.slice(dotIdx + 1);
+  const expected = crypto.createHmac('sha256', STATE_SECRET).update(payload).digest('hex').slice(0, 32);
+  try {
+    // Timing-safe comparison prevents timing attacks on state tokens
+    if (sig.length !== expected.length) return null;
+    if (!crypto.timingSafeEqual(Buffer.from(sig, 'ascii'), Buffer.from(expected, 'ascii'))) return null;
+  } catch {
+    return null;
+  }
+  try {
+    const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    if (!data.u || !data.t || typeof data.t !== 'number') return null;
+    if (Date.now() - data.t > STATE_TTL_MS) return null; // expired
+    return { userId: data.u };
+  } catch {
+    return null;
+  }
+}
+
+// ── Callback URL resolution ───────────────────────────────────────────────────
+// Priority: (1) explicit APP_URL env var, (2) actual request host header —
+// the most reliable signal for the domain the user is actually on —
+// (3) REPLIT_DOMAINS fallback (can be an internal domain, not the custom one).
+function getAppUrl(req: any): string {
   if (config.server.appUrl) {
-    return config.server.appUrl.replace(/\/$/, "");
+    return config.server.appUrl.replace(/\/$/, '');
+  }
+  const host = req?.get?.('host') as string | undefined;
+  if (host && !host.startsWith('localhost')) {
+    const proto = (req.get('x-forwarded-proto') as string) || (req.secure ? 'https' : 'http');
+    return `${proto}://${host}`;
   }
   const replitDomains = process.env.REPLIT_DOMAINS;
   if (replitDomains) {
-    const primaryDomain = replitDomains.split(",")[0].trim();
-    return `https://${primaryDomain}`;
-  }
-  if (requestHostname) {
-    const protocol = requestHostname.includes('replit.dev')
-      || requestHostname.includes('.replit.app') ? 'https' : 'http';
-    return `${protocol}://${requestHostname}`;
+    return `https://${replitDomains.split(',')[0].trim()}`;
   }
   return 'http://localhost:5000';
 }
@@ -207,11 +246,12 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
         return res.status(500).json({ error: "Shopify API key not configured" });
       }
 
-      const state = crypto.randomBytes(16).toString('hex');
-      oauthStates.set(state, { userId: req.user.id, timestamp: Date.now() });
+      // Signed state — no server memory required; survives restarts
+      const state = signOAuthState(req.user.id);
 
-      const baseUrl = getAppUrl(req.get('host'));
+      const baseUrl = getAppUrl(req);
       const redirectUri = `${baseUrl}/api/shopify/auth/callback`;
+      console.log(`[Shopify OAuth] Initiating for shop=${shopDomain} redirectUri=${redirectUri}`);
       const scopes = 'read_orders,read_products';
 
       const authUrl = `https://${shopDomain}/admin/oauth/authorize?` +
@@ -230,6 +270,7 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
   app.get("/api/shopify/auth/callback", async (req: any, res) => {
     try {
       const { code, hmac, shop, state } = req.query;
+      console.log(`[Shopify OAuth] Callback received — shop=${shop}, hasCode=${!!code}, hasState=${!!state}, hasHmac=${!!hmac}, host=${req.get('host')}`);
 
       if (code && typeof code === 'string') {
         const existingCode = processedAuthCodes.get(code);
@@ -251,15 +292,15 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
         processedAuthCodes.set(code, { timestamp: Date.now(), status: 'processing' });
       }
 
-      const stateData = state && typeof state === 'string' ? oauthStates.get(state) : null;
+      // Verify signed state — no in-memory map required; survives server restarts
+      const stateData = state && typeof state === 'string' ? verifyOAuthState(state) : null;
       if (!stateData) {
-        console.error('[Shopify OAuth] State mismatch or expired');
+        console.error('[Shopify OAuth] State verification failed (invalid signature, expired, or missing)');
         if (code && typeof code === 'string') {
           processedAuthCodes.set(code, { timestamp: Date.now(), status: 'failed' });
         }
         return res.redirect(`/shopify-callback-success?error=1&message=${encodeURIComponent('Session expired. Please try again.')}`);
       }
-      oauthStates.delete(state as string);
 
       if (!shop || !code || typeof shop !== 'string' || typeof code !== 'string') {
         return res.redirect(`/shopify-callback-success?error=1&message=${encodeURIComponent('Missing OAuth parameters')}`);
