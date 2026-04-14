@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
-import { insertScheduleSchema, users } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { insertScheduleSchema, users, messageThreads, threadParticipants, threadMessages } from "@shared/schema";
+import { eq, and, inArray } from "drizzle-orm";
 import { db } from "../db";
 import { notificationService } from "../services/notificationService";
 import { claudeService } from "../services/claudeService";
@@ -89,26 +89,28 @@ export function registerScheduleRoutes(app: Express, storage: IStorage, isAuthen
 
   app.post('/api/schedules/notify-week', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
+      const adminId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(adminId);
       const canManage = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'schedule.manage');
       if (!canManage) return res.status(403).json({ message: "Permission denied" });
 
       const { startDate, endDate } = req.body;
       if (!startDate || !endDate) return res.status(400).json({ message: "startDate and endDate required" });
 
-      const locationId = await tryResolveStoreIdForUser(userId);
-      const schedules = await storage.getAllSchedules(
+      const locationId = await tryResolveStoreIdForUser(adminId);
+      const storeId = locationId || 'default';
+
+      const weekSchedules = await storage.getAllSchedules(
         new Date(startDate),
         new Date(endDate),
         locationId || undefined
       );
 
-      if (schedules.length === 0) return res.json({ sent: 0, message: "No shifts found for that week" });
+      if (weekSchedules.length === 0) return res.json({ sent: 0, message: "No shifts found for that week" });
 
-      const byUser: Record<string, typeof schedules> = {};
-      for (const s of schedules) {
-        if (s.userId === userId) continue;
+      // Group shifts by employee (include everyone, including the admin)
+      const byUser: Record<string, typeof weekSchedules> = {};
+      for (const s of weekSchedules) {
         if (!byUser[s.userId]) byUser[s.userId] = [];
         byUser[s.userId].push(s);
       }
@@ -120,17 +122,101 @@ export function registerScheduleRoutes(app: Express, storage: IStorage, isAuthen
         return `${day}: ${start}–${end}`;
       };
 
+      // Helper: find or create a DM thread between admin and employee
+      const findOrCreateDmThread = async (empUserId: string): Promise<string> => {
+        // Find existing DM thread between these two users
+        const existingThreads = await db
+          .select({ threadId: threadParticipants.threadId })
+          .from(threadParticipants)
+          .where(eq(threadParticipants.userId, adminId));
+
+        const adminThreadIds = existingThreads.map(t => t.threadId);
+
+        if (adminThreadIds.length > 0) {
+          const empThreads = await db
+            .select({ threadId: threadParticipants.threadId })
+            .from(threadParticipants)
+            .where(
+              and(
+                eq(threadParticipants.userId, empUserId),
+                inArray(threadParticipants.threadId, adminThreadIds)
+              )
+            );
+
+          // Find a direct (non-group) thread shared by both
+          const sharedIds = empThreads.map(t => t.threadId);
+          if (sharedIds.length > 0) {
+            const directThread = await db
+              .select()
+              .from(messageThreads)
+              .where(
+                and(
+                  inArray(messageThreads.id, sharedIds),
+                  eq(messageThreads.threadType, 'direct')
+                )
+              )
+              .limit(1);
+
+            if (directThread.length > 0) return directThread[0].id;
+          }
+        }
+
+        // Create new DM thread
+        const [thread] = await db.insert(messageThreads).values({
+          storeId,
+          threadType: 'direct',
+          createdBy: adminId,
+        }).returning();
+
+        await db.insert(threadParticipants).values([
+          { threadId: thread.id, userId: adminId },
+          { threadId: thread.id, userId: empUserId },
+        ]);
+
+        return thread.id;
+      };
+
       let sent = 0;
       await Promise.all(Object.entries(byUser).map(async ([empUserId, empShifts]) => {
-        const lines = empShifts
+        const shiftLines = empShifts
           .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
-          .map(formatShift)
-          .join(', ');
-        await notificationService.sendScheduleUpdate(
-          empUserId,
-          `Your schedule: ${lines}`
-        );
-        sent++;
+          .map(formatShift);
+
+        const messageBody = `📅 Your schedule for the week:\n${shiftLines.map(l => `• ${l}`).join('\n')}`;
+
+        try {
+          // 1. Send in-app DM (guaranteed delivery)
+          const threadId = await findOrCreateDmThread(empUserId);
+          const [msg] = await db.insert(threadMessages).values({
+            threadId,
+            senderId: adminId,
+            content: messageBody,
+            messageType: 'text',
+          }).returning();
+
+          // Update thread updatedAt
+          await db
+            .update(messageThreads)
+            .set({ updatedAt: new Date() })
+            .where(eq(messageThreads.id, threadId));
+
+          // Broadcast via WebSocket so the recipient sees it in real-time
+          broadcastToAll({
+            type: 'new_message',
+            data: {
+              threadId,
+              message: msg,
+              targetUserId: empUserId,
+            },
+          });
+
+          // 2. Also attempt push notification (bonus — silent if no subscription)
+          notificationService.sendScheduleUpdate(empUserId, shiftLines.join(', ')).catch(() => {});
+
+          sent++;
+        } catch (err) {
+          console.error(`Failed to notify user ${empUserId}:`, err);
+        }
       }));
 
       res.json({ sent, message: `Notified ${sent} team member${sent !== 1 ? 's' : ''}.` });
