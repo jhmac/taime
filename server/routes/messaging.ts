@@ -90,7 +90,7 @@ export function registerMessageRoutes(
       const lastMessages = await db.execute(sql`
         SELECT DISTINCT ON (thread_id) thread_id, id, sender_id, content, message_type, deleted_at, created_at
         FROM thread_messages
-        WHERE thread_id = ANY(${threadIdList})
+        WHERE thread_id IN (${sql.join(threadIdList.map(id => sql`${id}`), sql`, `)})
         ORDER BY thread_id, created_at DESC
       `);
 
@@ -109,7 +109,7 @@ export function registerMessageRoutes(
         SELECT m.thread_id, COUNT(*) as count
         FROM thread_messages m
         JOIN thread_participants p ON p.thread_id = m.thread_id AND p.user_id = ${user.id}
-        WHERE m.thread_id = ANY(${threadIdList})
+        WHERE m.thread_id IN (${sql.join(threadIdList.map(id => sql`${id}`), sql`, `)})
           AND m.sender_id != ${user.id}
           AND (p.last_read_at IS NULL OR m.created_at > p.last_read_at)
         GROUP BY m.thread_id
