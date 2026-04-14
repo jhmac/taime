@@ -78,10 +78,62 @@ async function extractFromFile(
   }
 
   if (mimeType === "application/pdf" || ext === ".pdf") {
-    const pdfParse = require("pdf-parse") as (buffer: Buffer) => Promise<{ text: string }>;
     const buffer = fs.readFileSync(filePath);
-    const data = await pdfParse(buffer);
-    return { rawText: data.text };
+    let textFromPdfParse = "";
+
+    // Try pdf-parse first (fast, works for text-based PDFs)
+    try {
+      const pdfParse = require("pdf-parse") as (buffer: Buffer) => Promise<{ text: string }>;
+      const data = await pdfParse(buffer);
+      textFromPdfParse = (data.text || "").trim();
+    } catch (pdfErr: unknown) {
+      const msg = pdfErr instanceof Error ? pdfErr.message : String(pdfErr);
+      console.warn(`[aiStudio] pdf-parse failed for "${originalName}", falling back to Claude: ${msg}`);
+    }
+
+    // If we got meaningful text, use it
+    if (textFromPdfParse.length > 50) {
+      return { rawText: textFromPdfParse };
+    }
+
+    // Fallback: send PDF to Claude's document API (handles scanned/image PDFs, bad XRef, etc.)
+    try {
+      const base64Pdf = buffer.toString("base64");
+      const response = await anthropic.messages.create({
+        model: DEFAULT_MODEL,
+        max_tokens: 4096,
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "document",
+                source: {
+                  type: "base64",
+                  media_type: "application/pdf",
+                  data: base64Pdf,
+                },
+              } as any,
+              {
+                type: "text",
+                text: "Extract and return ALL text content from this document. Output only the extracted text, preserving structure and formatting. Do not add any commentary.",
+              },
+            ],
+          },
+        ],
+      });
+      const extracted = response.content
+        .filter((c) => c.type === "text")
+        .map((c) => (c as any).text)
+        .join("\n");
+      return { rawText: extracted };
+    } catch (claudeErr: unknown) {
+      const msg = claudeErr instanceof Error ? claudeErr.message : String(claudeErr);
+      console.error(`[aiStudio] Claude PDF fallback failed for "${originalName}": ${msg}`);
+      // If we got at least some text from pdf-parse, use it
+      if (textFromPdfParse.length > 0) return { rawText: textFromPdfParse };
+      throw new AppError(422, "Could not extract text from this PDF. It may be scanned or corrupted.", "EXTRACTION_FAILED");
+    }
   }
 
   if ([".jpg", ".jpeg", ".png"].includes(ext) || mimeType.startsWith("image/")) {
