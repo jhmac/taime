@@ -96,6 +96,21 @@ export async function runSchemaMigrations(): Promise<void> {
       table: "cash_management_settings",
       sql: `ALTER TABLE cash_management_settings ADD COLUMN IF NOT EXISTS closing_time varchar`,
     },
+    // company_settings: default mileage rate (cents) — missing column crashes resend invite endpoint
+    {
+      table: "company_settings",
+      sql: `ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS default_mileage_rate_cents integer DEFAULT 0`,
+    },
+    // offsite_sessions: route polyline for map rendering
+    {
+      table: "offsite_sessions",
+      sql: `ALTER TABLE offsite_sessions ADD COLUMN IF NOT EXISTS route_polyline text`,
+    },
+    // manager_notes: manager_id foreign key
+    {
+      table: "manager_notes",
+      sql: `ALTER TABLE manager_notes ADD COLUMN IF NOT EXISTS manager_id varchar`,
+    },
   ];
 
   let altered = 0;
