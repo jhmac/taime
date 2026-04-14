@@ -252,13 +252,26 @@ function SourceLibrary() {
 
 function GenerationWizard({ onComplete }: { onComplete: () => void }) {
   const { toast } = useToast();
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState(() => {
+    try { return parseInt(localStorage.getItem("aiStudio.step") || "0", 10) || 0; } catch { return 0; }
+  });
   const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
   const [selectedOutputTypes, setSelectedOutputTypes] = useState<string[]>(["sops"]);
   const [targetRoles, setTargetRoles] = useState(["New Associate", "Lead", "Manager"]);
   const [roleInput, setRoleInput] = useState("");
-  const [jobId, setJobId] = useState<string | null>(null);
+  const [jobId, setJobId] = useState<string | null>(() => {
+    try { return localStorage.getItem("aiStudio.jobId") || null; } catch { return null; }
+  });
   const [progressLog, setProgressLog] = useState<string[]>([]);
+
+  const persistStep = (s: number) => {
+    setStep(s);
+    try { if (s === 0) { localStorage.removeItem("aiStudio.step"); localStorage.removeItem("aiStudio.jobId"); } else { localStorage.setItem("aiStudio.step", String(s)); } } catch {}
+  };
+  const persistJobId = (id: string | null) => {
+    setJobId(id);
+    try { if (id) { localStorage.setItem("aiStudio.jobId", id); } else { localStorage.removeItem("aiStudio.jobId"); } } catch {}
+  };
   const logEndRef = useRef<HTMLDivElement>(null);
 
   const { data: docsResponse } = useQuery<{ success: boolean; data: KnowledgeDocument[] }>({
@@ -266,19 +279,42 @@ function GenerationWizard({ onComplete }: { onComplete: () => void }) {
   });
   const docs = (docsResponse?.data ?? []).filter((d) => d.processingStatus === "ready");
 
+  const { data: recentJobsData } = useQuery<{ success: boolean; jobs: Array<{ jobId: string; status: string; itemsGenerated: number; totalDocuments: number; updatedAt: string }> }>({
+    queryKey: ["/api/ai-studio/jobs/recent"],
+    enabled: step === 0,
+  });
+  const resumableJob = recentJobsData?.jobs?.find((j) => j.status === "failed" && j.itemsGenerated > 0);
+
   const generateMutation = useMutation({
     mutationFn: (data: GeneratePayload) => apiRequest("POST", "/api/ai-studio/generate", data),
     onSuccess: async (res) => {
       const data = await res.json();
-      setJobId(data.jobId);
-      setStep(2);
+      persistJobId(data.jobId);
+      persistStep(2);
     },
     onError: () => {
       toast({ title: "Generation failed", variant: "destructive" });
     },
   });
 
-  const { data: jobStatus } = useQuery<{ jobId: string; status: string; progressLog: string[] }>({
+  const resumeMutation = useMutation({
+    mutationFn: (failedJobId: string) => apiRequest("POST", `/api/ai-studio/jobs/${failedJobId}/resume`, {}),
+    onSuccess: async (res) => {
+      const data = await res.json();
+      if (data.jobId) {
+        persistJobId(data.jobId);
+        setProgressLog([]);
+      } else {
+        toast({ title: "All documents already processed", description: "Nothing left to resume." });
+        onComplete();
+      }
+    },
+    onError: () => {
+      toast({ title: "Resume failed", variant: "destructive" });
+    },
+  });
+
+  const { data: jobStatus } = useQuery<{ jobId: string; status: string; progressLog: string[]; itemsGenerated: number; totalDocuments: number }>({
     queryKey: ["/api/ai-studio/jobs", jobId, "status"],
     enabled: !!jobId && step === 2,
     refetchInterval: (query) => {
@@ -300,6 +336,7 @@ function GenerationWizard({ onComplete }: { onComplete: () => void }) {
   useEffect(() => {
     if (jobStatus?.status === "complete") {
       qc.invalidateQueries({ queryKey: ["/api/ai-studio/items"] });
+      try { localStorage.removeItem("aiStudio.step"); localStorage.removeItem("aiStudio.jobId"); } catch {}
       setTimeout(() => onComplete(), 1500);
     }
   }, [jobStatus?.status]);
@@ -336,6 +373,31 @@ function GenerationWizard({ onComplete }: { onComplete: () => void }) {
           Select the documents Claude will analyze to generate content.
           Only <strong>Ready</strong> documents are available.
         </p>
+
+        {resumableJob && (
+          <div className="flex items-start gap-3 p-3 rounded-xl border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30">
+            <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-amber-800 dark:text-amber-300">Previous generation was interrupted</p>
+              <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+                {resumableJob.itemsGenerated} items saved — {resumableJob.totalDocuments - resumableJob.itemsGenerated < 1 ? "a few" : ""} documents still need processing.
+              </p>
+            </div>
+            <Button
+              size="sm"
+              className="shrink-0 bg-amber-600 hover:bg-amber-700 text-white text-xs"
+              onClick={() => {
+                persistStep(2);
+                persistJobId(resumableJob.jobId);
+                resumeMutation.mutate(resumableJob.jobId);
+              }}
+              disabled={resumeMutation.isPending}
+            >
+              {resumeMutation.isPending ? <RefreshCw className="w-3 h-3 animate-spin" /> : "Continue"}
+            </Button>
+          </div>
+        )}
+
         {docs.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground text-sm border border-dashed rounded-xl">
             No ready documents available. Upload and wait for processing to complete.
@@ -364,7 +426,7 @@ function GenerationWizard({ onComplete }: { onComplete: () => void }) {
         )}
         <div className="flex justify-end pt-2">
           <Button
-            onClick={() => setStep(1)}
+            onClick={() => persistStep(1)}
             disabled={selectedDocIds.length === 0}
           >
             Next: Choose Outputs
@@ -462,7 +524,7 @@ function GenerationWizard({ onComplete }: { onComplete: () => void }) {
         </div>
 
         <div className="flex justify-between pt-2">
-          <Button variant="outline" onClick={() => setStep(0)}>
+          <Button variant="outline" onClick={() => persistStep(0)}>
             <ChevronLeft className="w-4 h-4 mr-1" />
             Back
           </Button>
@@ -519,17 +581,34 @@ function GenerationWizard({ onComplete }: { onComplete: () => void }) {
         <div className="space-y-3">
           <div className="flex items-center gap-2 text-destructive font-medium text-sm">
             <AlertCircle className="w-5 h-5" />
-            Generation was interrupted (the server may have restarted). Your previous selections are saved.
+            Generation was interrupted (the server restarted mid-job).
+            {(jobStatus.itemsGenerated ?? 0) > 0 && (
+              <span className="text-muted-foreground font-normal ml-1">
+                {jobStatus.itemsGenerated} item{jobStatus.itemsGenerated !== 1 ? "s" : ""} already saved — click Continue to process the remaining documents.
+              </span>
+            )}
           </div>
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-2"
-            onClick={() => { setStep(0); setJobId(null); setProgressLog([]); }}
-          >
-            <RefreshCw className="w-4 h-4" />
-            Try Again
-          </Button>
+          <div className="flex gap-2 flex-wrap">
+            {(jobStatus.itemsGenerated ?? 0) > 0 && jobId && (
+              <Button
+                size="sm"
+                className="gap-2 bg-[#F47D31] hover:bg-[#E06A20] text-white"
+                onClick={() => resumeMutation.mutate(jobId)}
+                disabled={resumeMutation.isPending}
+              >
+                <RefreshCw className={`w-4 h-4 ${resumeMutation.isPending ? "animate-spin" : ""}`} />
+                Continue Generation
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-2"
+              onClick={() => { persistStep(0); persistJobId(null); setProgressLog([]); }}
+            >
+              Start Over
+            </Button>
+          </div>
         </div>
       )}
     </div>

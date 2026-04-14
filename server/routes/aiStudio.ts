@@ -14,7 +14,7 @@ import {
   companyAiContext,
   tasks,
 } from "@shared/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray, sql } from "drizzle-orm";
 import { asyncHandler, AppError } from "../lib/routeWrapper";
 import { resolveStoreId } from "../lib/storeResolver";
 import type { IStorage } from "../storage";
@@ -435,6 +435,40 @@ export function registerAiStudioRoutes(
   );
 
   app.get(
+    "/api/ai-studio/jobs/recent",
+    isAuthenticated,
+    asyncHandler(async (req: any, res) => {
+      await requireManager(storage, req.user.id);
+      const storeId = await resolveStoreId() as string;
+
+      const recentJobs = await db
+        .select()
+        .from(generationJobs)
+        .where(eq(generationJobs.storeId, storeId))
+        .orderBy(sql`${generationJobs.updatedAt} DESC`)
+        .limit(5);
+
+      const jobsWithCounts = await Promise.all(
+        recentJobs.map(async (j) => {
+          const [{ count }] = await db
+            .select({ count: sql<number>`count(*)::int` })
+            .from(aiGeneratedItems)
+            .where(eq(aiGeneratedItems.jobId, j.id));
+          return {
+            jobId: j.id,
+            status: j.status,
+            itemsGenerated: count ?? 0,
+            totalDocuments: ((j.selectedDocumentIds as string[]) || []).length,
+            updatedAt: j.updatedAt,
+          };
+        })
+      );
+
+      res.json({ success: true, jobs: jobsWithCounts });
+    })
+  );
+
+  app.get(
     "/api/ai-studio/jobs/:jobId/status",
     isAuthenticated,
     asyncHandler(async (req: any, res) => {
@@ -446,10 +480,84 @@ export function registerAiStudioRoutes(
         .where(and(eq(generationJobs.id, req.params.jobId), eq(generationJobs.storeId, storeId)));
       if (!job) throw new AppError(404, "Job not found", "NOT_FOUND");
 
+      const [{ count }] = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(aiGeneratedItems)
+        .where(eq(aiGeneratedItems.jobId, job.id));
+
       res.json({
         jobId: job.id,
         status: job.status,
         progressLog: (job.progressLog as string[]) || [],
+        itemsGenerated: count ?? 0,
+        totalDocuments: ((job.selectedDocumentIds as string[]) || []).length,
+      });
+    })
+  );
+
+  app.post(
+    "/api/ai-studio/jobs/:jobId/resume",
+    isAuthenticated,
+    asyncHandler(async (req: any, res) => {
+      await requireManager(storage, req.user.id);
+      const storeId = await resolveStoreId() as string;
+
+      const [failedJob] = await db
+        .select()
+        .from(generationJobs)
+        .where(and(eq(generationJobs.id, req.params.jobId), eq(generationJobs.storeId, storeId)));
+      if (!failedJob) throw new AppError(404, "Job not found", "NOT_FOUND");
+      if (failedJob.status !== "failed") throw new AppError(400, "Job is not in a failed state", "INVALID_STATE");
+
+      const allDocIds = (failedJob.selectedDocumentIds as string[]) || [];
+
+      const processedItems = await db
+        .select({ sourceDocumentIds: aiGeneratedItems.sourceDocumentIds })
+        .from(aiGeneratedItems)
+        .where(eq(aiGeneratedItems.jobId, failedJob.id));
+
+      const processedDocIds = new Set<string>();
+      for (const item of processedItems) {
+        const ids = item.sourceDocumentIds as string[];
+        if (Array.isArray(ids)) ids.forEach((id) => processedDocIds.add(id));
+      }
+
+      const remainingDocIds = allDocIds.filter((id) => !processedDocIds.has(id));
+
+      if (remainingDocIds.length === 0) {
+        res.json({ message: "All documents were already processed", jobId: null, remainingDocuments: 0 });
+        return;
+      }
+
+      const [newJob] = await db
+        .insert(generationJobs)
+        .values({
+          storeId,
+          status: "pending",
+          selectedDocumentIds: remainingDocIds,
+          outputTypes: failedJob.outputTypes as string[],
+          targetRoles: failedJob.targetRoles as string[],
+          selectedCategories: [],
+          progressLog: [
+            `Resuming generation — ${processedDocIds.size} of ${allDocIds.length} documents were already processed.`,
+            `Continuing with ${remainingDocIds.length} remaining document(s)...`,
+          ],
+          createdBy: req.user.id,
+        })
+        .returning();
+
+      setImmediate(() => {
+        runAiStudioGenerationJob(newJob.id, storeId, req.user.id).catch((err: Error) => {
+          logger.error({ err: err.message, jobId: newJob.id }, "Resumed AI Studio generation job crashed");
+        });
+      });
+
+      res.json({
+        jobId: newJob.id,
+        status: "pending",
+        resumedFrom: failedJob.id,
+        processedDocuments: processedDocIds.size,
+        remainingDocuments: remainingDocIds.length,
       });
     })
   );
