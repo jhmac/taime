@@ -114,6 +114,14 @@ export default function MessagingPage() {
     refetchInterval: 60000,
   });
 
+  const threads = threadsData?.data || [];
+
+  useEffect(() => {
+    if (threadsLoading || selectedThreadId || threads.length === 0) return;
+    const firstUnread = threads.find(t => (t.unreadCount ?? 0) > 0) ?? threads[0];
+    if (firstUnread) handleSelectThread(firstUnread.id);
+  }, [threads, threadsLoading]);
+
   useEffect(() => {
     if (threadData?.data?.messages) {
       setLocalMessages(threadData.data.messages);
@@ -301,7 +309,6 @@ export default function MessagingPage() {
     return others.map(p => p.firstName || "Unknown").join(", ");
   }, [user]);
 
-  const threads = threadsData?.data || [];
   const typingList = Object.values(typingUsers).filter(Boolean);
 
   const showConversation = selectedThreadId && (!isMobileView || selectedThreadId);

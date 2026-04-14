@@ -251,6 +251,16 @@ export default function ScheduleManagement() {
     enabled: isAdmin,
   });
 
+  const { data: allAvailability = [] } = useQuery<any[]>({
+    queryKey: ["/api/availability/all", startDateParam, endDateParam],
+    queryFn: async () => {
+      const res = await fetch(`/api/availability/all?startDate=${startDateParam}&endDate=${endDateParam}`);
+      if (!res.ok) throw new Error('Failed to fetch availability');
+      return res.json();
+    },
+    enabled: isAdmin,
+  });
+
   const activeShop = connectedShops.find((s: any) => s.isActive) || (connectedShops.length > 0 ? connectedShops[0] : null);
 
   const createScheduleMutation = useMutation({
@@ -367,6 +377,11 @@ export default function ScheduleManagement() {
       return { hours: Math.round(hours * 100) / 100, wages: Math.round(wages * 100) / 100, staffCount };
     });
   }, [weekDates, schedules, activeEmployees]);
+
+  const getAvailabilityForDay = (userId: string, date: Date) => {
+    const dateStr = date.toDateString();
+    return allAvailability.filter((a: any) => a.userId === userId && new Date(a.date).toDateString() === dateStr);
+  };
 
   const getInitials = (user: User) => {
     return ((user.firstName?.[0] || '') + (user.lastName?.[0] || '')).toUpperCase();
@@ -696,6 +711,10 @@ export default function ScheduleManagement() {
                       .map((e, i) => ({ ...e, idx: i }))
                       .filter(e => e.employeeId === emp.id && e.date === date.toISOString().split('T')[0]) || [];
 
+                    const dayAvailability = getAvailabilityForDay(emp.id, date);
+                    const availBySlot: Record<string, any> = {};
+                    dayAvailability.forEach((a: any) => { availBySlot[a.timeSlot] = a; });
+
                     return (
                       <td key={dayIdx} className={cn("px-1 py-1 border-r last:border-r-0 align-top min-h-[60px] relative", isToday && "bg-primary/5")}>
                         <div className="space-y-0.5 min-h-[48px]">
@@ -759,6 +778,31 @@ export default function ScheduleManagement() {
                               </div>
                             );
                           })}
+
+                          {/* Availability indicators */}
+                          {dayAvailability.length > 0 && (
+                            <div className="flex gap-0.5 flex-wrap mt-1">
+                              {(['morning', 'afternoon', 'evening'] as const).map(slot => {
+                                const entry = availBySlot[slot];
+                                if (!entry) return null;
+                                const label = slot === 'morning' ? 'AM' : slot === 'afternoon' ? 'PM' : 'Eve';
+                                return (
+                                  <span
+                                    key={slot}
+                                    title={`${slot}: ${entry.isAvailable ? 'available' : 'unavailable'}${entry.startTime ? ` ${entry.startTime}–${entry.endTime}` : ''}`}
+                                    className={cn(
+                                      "text-[9px] px-1 rounded font-medium leading-[14px]",
+                                      entry.isAvailable
+                                        ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300"
+                                        : "bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-300 line-through opacity-70"
+                                    )}
+                                  >
+                                    {label}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          )}
 
                           {/* Add Shift Button */}
                           {daySchedules.length === 0 && aiEntries.length === 0 && (

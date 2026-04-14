@@ -277,7 +277,7 @@ export default function OwnerDashboard() {
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm flex items-center gap-2">
-                <Users className="h-4 w-4 text-blue-600" />
+                <Users className="h-4 w-4 text-[#F47D31]" />
                 Team Health
               </CardTitle>
             </CardHeader>
@@ -286,42 +286,83 @@ export default function OwnerDashboard() {
                 <div className="space-y-2">
                   <Skeleton className="h-4 w-full" />
                   <Skeleton className="h-4 w-2/3" />
+                  <Skeleton className="h-4 w-3/4" />
                 </div>
-              ) : (
-                <div className="space-y-3">
-                  <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse" />
-                      <span className="text-sm font-medium">
-                        {dashboardToday?.clockedIn ?? 0} on shift
-                      </span>
+              ) : (() => {
+                const totalIn = dashboardToday?.summary?.totalClockedIn ?? 0;
+                const totalSched = dashboardToday?.summary?.totalScheduled ?? 0;
+                const notArrived = dashboardToday?.summary?.totalNotArrived ?? 0;
+                const onShift: any[] = dashboardToday?.clockedIn ?? [];
+                const upcoming: any[] = (dashboardToday?.schedules ?? []).filter((s: any) => !s.isClockedIn && !s.shiftPassed);
+                return (
+                  <div className="space-y-3">
+                    {/* Summary */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                        <span className="text-sm font-semibold">{totalIn}</span>
+                        <span className="text-sm text-muted-foreground">on shift</span>
+                      </div>
+                      <span className="text-xs text-muted-foreground">{totalSched} scheduled today</span>
                     </div>
-                    <div className="text-sm text-muted-foreground">
-                      / {dashboardToday?.totalScheduled ?? 0} scheduled
-                    </div>
+
+                    {/* Not-arrived alert */}
+                    {notArrived > 0 && (
+                      <div className="flex items-center gap-1.5 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800/40 rounded-md px-2.5 py-1.5">
+                        <AlertCircle className="h-3 w-3 text-red-600 dark:text-red-400 shrink-0" />
+                        <span className="text-xs font-medium text-red-700 dark:text-red-400">
+                          {notArrived} not clocked in yet
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Currently on shift */}
+                    {onShift.length > 0 && (
+                      <div className="space-y-1.5">
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">On Shift Now</p>
+                        {onShift.slice(0, 5).map((emp: any) => (
+                          <div key={emp.userId} className="flex items-center justify-between">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <div className="w-1.5 h-1.5 bg-green-500 rounded-full shrink-0" />
+                              <span className="text-xs font-medium truncate">{emp.userName}</span>
+                              {emp.isLate && (
+                                <span className="text-[10px] text-red-500 shrink-0">({emp.minutesLate}m late)</span>
+                              )}
+                            </div>
+                            <span className="text-xs text-muted-foreground shrink-0 ml-2">
+                              in {new Date(emp.clockInTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Coming up */}
+                    {upcoming.length > 0 && (
+                      <div className="space-y-1.5">
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Scheduled Today</p>
+                        {upcoming.slice(0, 4).map((s: any) => (
+                          <div key={s.scheduleId} className="flex items-center justify-between">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <div className="w-1.5 h-1.5 bg-blue-400 rounded-full shrink-0" />
+                              <span className="text-xs truncate">{s.userName}</span>
+                            </div>
+                            <span className="text-xs text-muted-foreground shrink-0 ml-2">
+                              {new Date(s.startTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
+                              {' – '}
+                              {new Date(s.endTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {totalSched === 0 && totalIn === 0 && (
+                      <p className="text-xs text-muted-foreground text-center py-1">No shifts scheduled today</p>
+                    )}
                   </div>
-                  {dashboardToday?.absentees && dashboardToday.absentees.length > 0 && (
-                    <div className="bg-red-50 dark:bg-red-950/20 rounded-lg p-3 border border-red-200 dark:border-red-800/50">
-                      <p className="text-xs font-medium text-red-700 dark:text-red-400 flex items-center gap-1">
-                        <AlertCircle className="h-3 w-3" />
-                        {dashboardToday.absentees.length} absent today
-                      </p>
-                    </div>
-                  )}
-                  {dashboardToday?.activeEmployees && dashboardToday.activeEmployees.length > 0 && (
-                    <div className="space-y-1">
-                      {dashboardToday.activeEmployees.slice(0, 5).map((emp: any) => (
-                        <div key={emp.id || emp.userId} className="flex items-center justify-between text-sm">
-                          <span>{emp.firstName || emp.name || `Employee`}</span>
-                          <span className="text-xs text-muted-foreground">
-                            {emp.clockInTime ? new Date(emp.clockInTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : 'Active'}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
+                );
+              })()}
             </CardContent>
           </Card>
         </DashboardErrorBoundary>
