@@ -131,6 +131,21 @@ export async function runSchemaMigrations(): Promise<void> {
       table: "user_quiz_progress",
       sql: `ALTER TABLE user_quiz_progress ADD COLUMN IF NOT EXISTS scenario_last_awarded_date date`,
     },
+    // user_shops.created_at: OAuth callback writes to this column; missing on older installs
+    {
+      table: "user_shops",
+      sql: `ALTER TABLE user_shops ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()`,
+    },
+    // work_pattern_templates.is_active: queried by aiScheduling routes
+    {
+      table: "work_pattern_templates",
+      sql: `ALTER TABLE work_pattern_templates ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT true`,
+    },
+    // user_work_patterns.custom_pattern: queried by aiScheduling routes
+    {
+      table: "user_work_patterns",
+      sql: `ALTER TABLE user_work_patterns ADD COLUMN IF NOT EXISTS custom_pattern jsonb`,
+    },
   ];
 
   let altered = 0;
@@ -382,6 +397,80 @@ export async function runSchemaMigrations(): Promise<void> {
       indexes: [
         `CREATE INDEX IF NOT EXISTS idx_quiz_answers_session ON quiz_answers (session_id)`,
         `CREATE UNIQUE INDEX IF NOT EXISTS uq_quiz_answer_session_question ON quiz_answers (session_id, question_id)`,
+      ],
+    },
+    // ── Shopify Integration ────────────────────────────────────────────────────
+    {
+      name: "shops",
+      ddl: `CREATE TABLE IF NOT EXISTS shops (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        shop_domain varchar NOT NULL UNIQUE,
+        shop_name varchar,
+        shop_email varchar,
+        access_token varchar,
+        scope varchar,
+        currency varchar DEFAULT 'USD',
+        timezone varchar,
+        is_active boolean DEFAULT true,
+        last_sync_at timestamp,
+        installed_at timestamp DEFAULT now(),
+        updated_at timestamp DEFAULT now(),
+        company_id varchar REFERENCES companies(id)
+      )`,
+      indexes: [
+        `CREATE INDEX IF NOT EXISTS idx_shops_company_id ON shops (company_id)`,
+      ],
+    },
+    {
+      name: "user_shops",
+      ddl: `CREATE TABLE IF NOT EXISTS user_shops (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id varchar REFERENCES users(id) NOT NULL,
+        shop_domain varchar REFERENCES shops(shop_domain) NOT NULL,
+        created_at timestamp DEFAULT now()
+      )`,
+      indexes: [
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_user_shops_unique ON user_shops (user_id, shop_domain)`,
+      ],
+    },
+    {
+      name: "shopify_daily_sales",
+      ddl: `CREATE TABLE IF NOT EXISTS shopify_daily_sales (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        shop_domain varchar NOT NULL,
+        date timestamp NOT NULL,
+        day_of_week integer,
+        order_count integer DEFAULT 0,
+        total_revenue decimal(12,2) DEFAULT 0.00,
+        item_count integer DEFAULT 0,
+        average_order_value decimal(10,2) DEFAULT 0.00,
+        created_at timestamp DEFAULT now()
+      )`,
+      indexes: [],
+    },
+    {
+      name: "shopify_orders",
+      ddl: `CREATE TABLE IF NOT EXISTS shopify_orders (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        shop_domain varchar NOT NULL,
+        order_id varchar NOT NULL,
+        order_number varchar,
+        email varchar,
+        total_price decimal(12,2),
+        currency varchar,
+        financial_status varchar,
+        fulfillment_status varchar,
+        line_items jsonb,
+        customer_data jsonb,
+        order_created_at timestamp,
+        processed_at timestamp,
+        synced_at timestamp DEFAULT now(),
+        created_at timestamp DEFAULT now(),
+        updated_at timestamp DEFAULT now()
+      )`,
+      indexes: [
+        `CREATE INDEX IF NOT EXISTS "IDX_shopify_orders_shop_date" ON shopify_orders (shop_domain, order_created_at)`,
+        `CREATE INDEX IF NOT EXISTS "IDX_shopify_orders_order_id" ON shopify_orders (order_id)`,
       ],
     },
   ];
