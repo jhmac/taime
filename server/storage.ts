@@ -151,7 +151,7 @@ import {
   type InsertKnowledgeDocument,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, desc, gte, lte, isNull, sql } from "drizzle-orm";
+import { eq, and, desc, gte, lte, isNull, sql, or } from "drizzle-orm";
 import { cache } from "./lib/cache";
 
 export interface IStorage {
@@ -1348,7 +1348,9 @@ export class DatabaseStorage implements IStorage {
 
 
   async getAllUsers(): Promise<User[]> {
-    return await db.select().from(users).where(eq(users.isActive, true));
+    return await db.select().from(users).where(
+      or(eq(users.isActive, true), isNull(users.isActive))
+    );
   }
 
   async updateUserPayRate(userId: string, hourlyRate: number): Promise<User> {

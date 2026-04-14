@@ -4,6 +4,12 @@ import { insertTimeEntrySchema } from "@shared/schema";
 import logger from "../lib/logger";
 import { OvertimePreventionService } from "../services/overtimePreventionService";
 
+function toEndOfDay(date: Date): Date {
+  const d = new Date(date);
+  d.setUTCHours(23, 59, 59, 999);
+  return d;
+}
+
 function calculateHours(clockIn: Date, clockOut: Date | null, breakMinutes: number = 0): number {
   if (!clockOut) return 0;
   const diffMs = new Date(clockOut).getTime() - new Date(clockIn).getTime();
@@ -123,7 +129,7 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
       }
 
       const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
-      const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
+      const endDate = req.query.endDate ? toEndOfDay(new Date(req.query.endDate as string)) : undefined;
 
       if (startDate && isNaN(startDate.getTime())) {
         return res.status(400).json({ message: "Invalid startDate" });
@@ -445,7 +451,7 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
       }
 
       const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
-      const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
+      const endDate = req.query.endDate ? toEndOfDay(new Date(req.query.endDate as string)) : undefined;
 
       const [entries, user] = await Promise.all([
         storage.getUserTimeEntries(targetUserId, startDate, endDate),
@@ -557,7 +563,7 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
         return res.status(400).json({ message: "startDate and endDate are required" });
       }
 
-      const entries = await storage.getAllTimeEntries(new Date(startDate), new Date(endDate));
+      const entries = await storage.getAllTimeEntries(new Date(startDate), toEndOfDay(new Date(endDate)));
       const unapproved = entries.filter((e: any) => !e.isApproved && e.clockOutTime);
 
       let approvedCount = 0;
@@ -599,7 +605,7 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
         return res.status(400).json({ message: "startDate and endDate are required" });
       }
 
-      const entries = await storage.getAllTimeEntries(new Date(startDate), new Date(endDate));
+      const entries = await storage.getAllTimeEntries(new Date(startDate), toEndOfDay(new Date(endDate)));
       let lockedCount = 0;
 
       for (const entry of entries) {
@@ -819,7 +825,7 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
       }
 
       const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
-      const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
+      const endDate = req.query.endDate ? toEndOfDay(new Date(req.query.endDate as string)) : undefined;
       const fieldsParam = (req.query.fields as string) || "";
       const hourFormat = (req.query.hourFormat as string) || "decimal";
 
