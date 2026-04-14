@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "aMEaVT8CXk9n4gUHgeh3i"
+uri = "file://.local/shopify-intelligence-agent-spec.md"
+type = "text"
+title = "Shopify Intelligence Agent — Full Spec"
