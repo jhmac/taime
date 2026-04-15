@@ -631,7 +631,12 @@ export function registerAiStudioRoutes(
       const currentContent = asRecord(item.content);
       const sectionContent = sectionKey ? currentContent[sectionKey] : currentContent;
 
-      const prompt = `You are refining AI-generated content for a store management system.
+      const isTaskItem = item.type === "task";
+      const taskOpsContext = isTaskItem
+        ? `\n\nSTORE CONTEXT: This is a task checklist for a women's fashion boutique. Real daily task lists always include BOTH operational/maintenance tasks (vacuuming dressing rooms, washing windows, inventorying supplies like bags/tissue/hangers, steaming garments, dusting fixtures, straightening merchandise, restocking POS area, cleaning mirrors) AND sales/service tasks. Make sure any task list reflects this balance.`
+        : "";
+
+      const prompt = `You are refining AI-generated content for a store management system.${taskOpsContext}
 
 CURRENT CONTENT:
 ${JSON.stringify(sectionContent, null, 2)}

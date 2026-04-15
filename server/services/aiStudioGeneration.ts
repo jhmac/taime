@@ -313,27 +313,47 @@ Return ONLY the JSON array, no other text.`;
       if (docOutputTypes.includes("tasks")) {
         await appendProgress(jobId, `Generating task lists from "${doc.originalFileName}"...`);
 
-        const taskPrompt = `You are a retail operations expert. Generate actionable task checklists for "${storeName}" (${businessType}).
+        const taskPrompt = `You are a retail operations expert creating daily task checklists for "${storeName}", a ${businessType} in Ridgeland, MS.
 Target roles: ${targetRoles.join(", ")}
 
 SOURCE DOCUMENT: ${doc.originalFileName}
 CONTENT:
 ${docContent.slice(0, 10000)}
 
-Create 1-2 task lists (e.g., opening checklist, closing checklist, daily tasks).
+Generate 1-2 COMPLETE daily task checklists that blend TWO categories of tasks:
+
+CATEGORY 1 — STORE OPERATIONS (always include physical/maintenance tasks):
+These are the real, hands-on daily duties that keep a boutique running. Include tasks like:
+- Vacuum dressing rooms and fitting room floors
+- Clean and wipe fitting room mirrors and hooks
+- Wash or wipe front windows/glass doors
+- Inventory and restock supplies (bags, tissue paper, hangers, receipt paper)
+- Straighten, fold, and size-sort all floor displays
+- Steam or iron wrinkled garments on the floor
+- Dust display fixtures, shelves, and counters
+- Check and restock the POS area (bags, wrapping supplies, pens)
+- Take out trash and sanitize checkout counter
+- Sweep/mop entryway and any tiled areas
+- Walk the floor to check lighting and all displays look full and intentional
+
+CATEGORY 2 — SALES & SERVICE (from the source document):
+Extract actionable daily tasks from the document above that improve customer service and sales performance.
+
+Create realistic, timed checklists a boutique associate or lead would actually use on the floor.
+Mix both categories naturally — a real daily checklist for a boutique has both operational AND sales tasks.
 
 Return a JSON array:
 [
   {
-    "title": "Task list title (e.g., Opening Checklist)",
-    "role": "target role",
-    "description": "Brief description",
-    "frequency": "daily|weekly|monthly|as-needed",
+    "title": "Task list title (e.g., Daily Opening Checklist — New Associate)",
+    "role": "target role from: ${targetRoles.join(", ")}",
+    "description": "Brief description of what this checklist accomplishes",
+    "frequency": "daily|weekly|opening|closing",
     "tasks": [
       {
         "order": 1,
-        "title": "Task title",
-        "description": "What to do",
+        "title": "Concise task name",
+        "description": "Clear, specific instruction of what to do and how to verify it's done",
         "isRequired": true,
         "estimatedMinutes": 5
       }
