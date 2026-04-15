@@ -2516,3 +2516,27 @@ export const userBadges = pgTable("user_badges", {
 export const insertUserBadgeSchema = createInsertSchema(userBadges).omit({ id: true, earnedAt: true });
 export type UserBadge = typeof userBadges.$inferSelect;
 export type InsertUserBadge = z.infer<typeof insertUserBadgeSchema>;
+
+// Unanswered questions escalation queue — questions MAinager couldn't confidently answer
+export const unansweredQuestions = pgTable("unanswered_questions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => workLocations.id).notNull(),
+  askedByUserId: varchar("asked_by_user_id").references(() => users.id).notNull(),
+  question: text("question").notNull(),
+  aiAnswer: text("ai_answer"),
+  status: varchar("status").notNull().default("pending"), // 'pending' | 'answered' | 'dismissed'
+  answer: text("answer"),
+  answeredByUserId: varchar("answered_by_user_id").references(() => users.id),
+  answeredAt: timestamp("answered_at"),
+  conversationId: varchar("conversation_id"),
+  askedAt: timestamp("asked_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_unanswered_questions_store").on(table.storeId),
+  index("idx_unanswered_questions_status").on(table.status),
+  index("idx_unanswered_questions_asked_by").on(table.askedByUserId),
+]);
+
+export const insertUnansweredQuestionSchema = createInsertSchema(unansweredQuestions).omit({ id: true, createdAt: true, askedAt: true });
+export type UnansweredQuestion = typeof unansweredQuestions.$inferSelect;
+export type InsertUnansweredQuestion = z.infer<typeof insertUnansweredQuestionSchema>;

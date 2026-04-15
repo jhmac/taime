@@ -19,6 +19,7 @@ interface MAinagerResponse {
   referencedSops: { templateId: string; title: string }[];
   suggestedActions: { type: string; id?: string; label: string }[];
   conversationId: string;
+  flagged?: boolean;
 }
 
 interface ChatMessage {
@@ -30,6 +31,7 @@ interface ChatMessage {
   referencedSops?: { templateId: string; title: string }[];
   suggestedActions?: { type: string; id?: string; label: string }[];
   feedbackGiven?: "up" | "down" | null;
+  flagged?: boolean;
 }
 
 function getTimeGreeting(name: string): string {
@@ -132,6 +134,7 @@ export default function AskMAinagerSheet() {
         referencedSops: data.referencedSops,
         suggestedActions: data.suggestedActions,
         feedbackGiven: null,
+        flagged: data.flagged,
       };
       setMessages(prev => [...prev, aiMsg]);
     },
@@ -338,6 +341,15 @@ export default function AskMAinagerSheet() {
                         {msg.confidence === "medium"
                           ? "I'm fairly sure about this, but you may want to double-check."
                           : "I'm not sure about this — the answer may not be in our procedures yet."}
+                      </p>
+                    </div>
+                  )}
+
+                  {msg.role === "assistant" && msg.flagged && (
+                    <div className="ml-9 mt-1.5 flex items-start gap-1.5 p-2 rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/40">
+                      <AlertTriangle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+                      <p className="text-[11px] text-amber-700 dark:text-amber-300 leading-snug">
+                        This question has been flagged for a manager to answer. Check back soon for an official response!
                       </p>
                     </div>
                   )}

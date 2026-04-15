@@ -59,6 +59,7 @@ const managementNavItems = [
   { path: '/analytics', icon: 'fas fa-chart-bar', label: 'Analytics', permission: 'admin.manage_all' },
   { path: '/performance', icon: 'fas fa-trophy', label: 'Performance' },
   { path: '/ai-studio', icon: 'fas fa-wand-magic-sparkles', label: 'AI Studio', permission: 'hr.edit_team' },
+  { path: '/ai-questions', icon: 'fas fa-question-circle', label: 'AI Questions', permission: 'hr.edit_team' },
   { path: '/operations', icon: 'fas fa-cogs', label: 'Operations', permission: 'admin.manage_all' },
   { path: '/admin', icon: 'fas fa-sliders-h', label: 'Settings', permission: 'admin.manage_all' },
 ];
@@ -81,6 +82,14 @@ export default function DesktopSidebar() {
     enabled: !!user,
     staleTime: 5 * 60 * 1000,
   });
+
+  const { data: unansweredCountData } = useQuery<{ success: boolean; data: { count: number } }>({
+    queryKey: ['/api/ai/questions/count'],
+    enabled: isAdmin,
+    refetchInterval: 60000,
+    staleTime: 30000,
+  });
+  const unansweredCount = unansweredCountData?.data?.count || 0;
 
   function NavButton({ path, icon, label, badge }: { path: string; icon: string; label: string; badge?: number }) {
     const isActive = location === path || (path !== '/' && location.startsWith(path));
@@ -141,8 +150,20 @@ export default function DesktopSidebar() {
           )}
           title={collapsed ? 'Ask AI' : undefined}
         >
-          <Sparkles className="w-5 h-5 flex-shrink-0" />
+          <div className="relative flex-shrink-0">
+            <Sparkles className="w-5 h-5" />
+            {unansweredCount > 0 && (
+              <span className="absolute -top-1.5 -right-2 bg-amber-500 text-white text-[9px] font-bold rounded-full h-4 min-w-[16px] flex items-center justify-center px-0.5">
+                {unansweredCount > 99 ? "99+" : unansweredCount}
+              </span>
+            )}
+          </div>
           {!collapsed && <span className="flex-1 text-left">Ask AI</span>}
+          {!collapsed && unansweredCount > 0 && (
+            <span className="bg-amber-500 text-white text-[10px] font-bold rounded-full h-5 min-w-[20px] flex items-center justify-center px-1">
+              {unansweredCount > 99 ? "99+" : unansweredCount}
+            </span>
+          )}
         </button>
 
         {generalNavItems

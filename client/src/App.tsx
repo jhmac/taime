@@ -125,6 +125,7 @@ const MeetingsList = lazy(() => import("@/pages/MeetingsList"));
 const MeetingsNew = lazy(() => import("@/pages/MeetingsNew"));
 const MeetingDetail = lazy(() => import("@/pages/MeetingDetail"));
 const AIContentStudio = lazy(() => import("@/pages/AIContentStudio"));
+const AIQuestionsPage = lazy(() => import("@/pages/AIQuestionsPage"));
 const StoreQA = lazy(() => import("@/pages/StoreQA"));
 
 function PageLoader() {
@@ -337,6 +338,9 @@ function AuthenticatedApp() {
         </Route>
         <Route path="/ai-studio">
           <ProtectedRoute permission="hr.edit_team"><AIContentStudio /></ProtectedRoute>
+        </Route>
+        <Route path="/ai-questions">
+          <ProtectedRoute permission="hr.edit_team"><AIQuestionsPage /></ProtectedRoute>
         </Route>
         <Route path="/my-score" component={MyScore} />
         <Route path="/insights" component={InsightsPage} />

@@ -36,6 +36,7 @@ import {
   CircleAlert,
   ListTodo,
   Bot,
+  MessageSquareQuestion,
 } from 'lucide-react';
 
 export default function ManagerDashboard() {
@@ -78,6 +79,13 @@ export default function ManagerDashboard() {
   const { data: sopExecutionsRaw, isLoading: sopsLoading } = useQuery<any>({ queryKey: ['/api/sops/executions'], enabled: deferredEnabled });
   const sopExecutions = Array.isArray(sopExecutionsRaw) ? sopExecutionsRaw : (sopExecutionsRaw?.data || []);
   const { data: huddleData } = useQuery<any>({ queryKey: ['/api/rituals/huddle/today'], enabled: deferredEnabled });
+
+  const { data: unansweredCountData } = useQuery<{ success: boolean; data: { count: number } }>({
+    queryKey: ['/api/ai/questions/count'],
+    refetchInterval: 60000,
+    staleTime: 30000,
+  });
+  const unansweredCount = unansweredCountData?.data?.count || 0;
 
   const today = new Date();
   const todayStr = today.toDateString();
@@ -238,6 +246,30 @@ export default function ManagerDashboard() {
 
       <div className={isMobile ? "px-4 pb-4 space-y-4" : "px-6 pb-6"}>
         <div className={isMobile ? "space-y-4" : "grid grid-cols-2 gap-6"}>
+          {unansweredCount > 0 && (
+            <DashboardErrorBoundary fallback="AI questions card failed to load">
+              <Card
+                className="cursor-pointer hover:shadow-md transition-shadow border-amber-200 dark:border-amber-800/50 bg-amber-50/50 dark:bg-amber-950/10"
+                onClick={() => navigate('/ai-questions')}
+              >
+                <CardContent className="p-4 flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0">
+                    <MessageSquareQuestion className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-sm text-amber-800 dark:text-amber-300">
+                      {unansweredCount} Unanswered {unansweredCount === 1 ? "Question" : "Questions"}
+                    </p>
+                    <p className="text-xs text-amber-600 dark:text-amber-400/80">
+                      MAinager needs your help — tap to review and answer
+                    </p>
+                  </div>
+                  <ChevronRight className="h-4 w-4 text-amber-500 shrink-0" />
+                </CardContent>
+              </Card>
+            </DashboardErrorBoundary>
+          )}
+
           <DashboardErrorBoundary fallback="Could not load morning huddle">
             <Card
               className={`cursor-pointer hover:shadow-md transition-shadow ${

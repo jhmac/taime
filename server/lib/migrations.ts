@@ -593,6 +593,28 @@ export async function runSchemaMigrations(): Promise<void> {
         `CREATE INDEX IF NOT EXISTS "IDX_user_badges_store" ON user_badges (store_id)`,
       ],
     },
+    {
+      name: "unanswered_questions",
+      ddl: `CREATE TABLE IF NOT EXISTS unanswered_questions (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        store_id varchar NOT NULL REFERENCES work_locations(id),
+        asked_by_user_id varchar NOT NULL REFERENCES users(id),
+        question text NOT NULL,
+        ai_answer text,
+        status varchar NOT NULL DEFAULT 'pending',
+        answer text,
+        answered_by_user_id varchar REFERENCES users(id),
+        answered_at timestamp,
+        conversation_id varchar,
+        asked_at timestamp DEFAULT now(),
+        created_at timestamp DEFAULT now()
+      )`,
+      indexes: [
+        `CREATE INDEX IF NOT EXISTS "IDX_unanswered_questions_store" ON unanswered_questions (store_id)`,
+        `CREATE INDEX IF NOT EXISTS "IDX_unanswered_questions_status" ON unanswered_questions (status)`,
+        `CREATE INDEX IF NOT EXISTS "IDX_unanswered_questions_asked_by" ON unanswered_questions (asked_by_user_id)`,
+      ],
+    },
   ];
 
   for (const { name, ddl, indexes } of tableCreations) {

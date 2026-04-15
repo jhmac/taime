@@ -5,6 +5,7 @@ import { eq, and, gte, lte, isNull, desc, sql, count } from "drizzle-orm";
 import {
   users, schedules, tasks, issues, timeEntries, workLocations,
   sopExecutions, dailyDebriefs, aiChatConversations, aiChatMessages,
+  unansweredQuestions,
 } from "@shared/schema";
 import { searchSOPs } from "./sopIndexer";
 import logger from "../lib/logger";
@@ -18,6 +19,7 @@ export interface MAinagerResponse {
   referencedSops: { templateId: string; title: string }[];
   suggestedActions: { type: string; id?: string; label: string }[];
   conversationId: string;
+  flagged?: boolean;
 }
 
 interface AskParams {
@@ -376,12 +378,48 @@ ${ctx.sopChunks}`;
       .set({ lastMessageAt: new Date() })
       .where(eq(aiChatConversations.id, convId));
 
+    let flagged = false;
+    if (confidence === "low" && !isOperationalQuestion) {
+      try {
+        const sevenDaysAgo = new Date(now);
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+        const existing = await db
+          .select({ id: unansweredQuestions.id })
+          .from(unansweredQuestions)
+          .where(
+            and(
+              eq(unansweredQuestions.storeId, storeId),
+              eq(unansweredQuestions.question, question),
+              eq(unansweredQuestions.status, "pending"),
+              gte(unansweredQuestions.askedAt, sevenDaysAgo),
+            )
+          )
+          .limit(1);
+
+        if (existing.length === 0) {
+          await db.insert(unansweredQuestions).values({
+            storeId,
+            askedByUserId: employeeId,
+            question,
+            aiAnswer: answer,
+            status: "pending",
+            conversationId: convId,
+          });
+          flagged = true;
+          logger.info({ storeId, question: question.slice(0, 80) }, "[AskMAinager] Flagged unanswered question");
+        }
+      } catch (flagErr: any) {
+        logger.warn({ error: flagErr.message }, "[AskMAinager] Failed to save unanswered question (non-fatal)");
+      }
+    }
+
     return {
       answer,
       confidence,
       referencedSops: uniqueSops,
       suggestedActions,
       conversationId: convId,
+      flagged,
     };
   } catch (err: any) {
     logger.error({ error: err.message }, "[AskMAinager] AI call failed");

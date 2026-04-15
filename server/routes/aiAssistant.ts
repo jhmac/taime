@@ -7,8 +7,8 @@ import { config } from "../lib/config";
 import { askMAinager } from "../services/askMAinager";
 import { generateTaskSuggestions } from "../services/smartTaskSuggestions";
 import { db } from "../db";
-import { aiFeedback, aiChatConversations, aiChatMessages } from "@shared/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { aiFeedback, aiChatConversations, aiChatMessages, unansweredQuestions, aiGeneratedItems, users } from "@shared/schema";
+import { eq, and, desc, gte, count } from "drizzle-orm";
 import { tryResolveStoreIdForUser } from "../lib/storeResolver";
 
 const DEFAULT_MODEL_STR = "claude-sonnet-4-20250514";
@@ -468,6 +468,138 @@ Available SOPs: ${publishedSops.length > 0 ? publishedSops.map(s => s.title).joi
         .limit(10);
 
       res.json(conversations);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Unanswered question escalation queue routes (admin/manager only)
+  app.get('/api/ai/questions', isAuthenticated, async (req: any, res) => {
+    try {
+      const role = req.user?.role?.name;
+      if (role !== 'admin' && role !== 'owner' && role !== 'manager') {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      const storeId = await tryResolveStoreIdForUser(req.user.id);
+      if (!storeId) return res.status(400).json({ message: "Store not found" });
+
+      const status = (req.query.status as string) || 'pending';
+      const rows = await db
+        .select({
+          id: unansweredQuestions.id,
+          question: unansweredQuestions.question,
+          aiAnswer: unansweredQuestions.aiAnswer,
+          status: unansweredQuestions.status,
+          answer: unansweredQuestions.answer,
+          conversationId: unansweredQuestions.conversationId,
+          askedAt: unansweredQuestions.askedAt,
+          answeredAt: unansweredQuestions.answeredAt,
+          askedByUser: {
+            id: users.id,
+            firstName: users.firstName,
+            lastName: users.lastName,
+          },
+        })
+        .from(unansweredQuestions)
+        .leftJoin(users, eq(unansweredQuestions.askedByUserId, users.id))
+        .where(
+          and(
+            eq(unansweredQuestions.storeId, storeId),
+            eq(unansweredQuestions.status, status),
+          )
+        )
+        .orderBy(desc(unansweredQuestions.askedAt))
+        .limit(50);
+
+      res.json({ success: true, data: rows });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get('/api/ai/questions/count', isAuthenticated, async (req: any, res) => {
+    try {
+      const role = req.user?.role?.name;
+      if (role !== 'admin' && role !== 'owner' && role !== 'manager') {
+        return res.json({ success: true, data: { count: 0 } });
+      }
+      const storeId = await tryResolveStoreIdForUser(req.user.id);
+      if (!storeId) return res.json({ success: true, data: { count: 0 } });
+
+      const [{ value }] = await db
+        .select({ value: count() })
+        .from(unansweredQuestions)
+        .where(
+          and(
+            eq(unansweredQuestions.storeId, storeId),
+            eq(unansweredQuestions.status, "pending"),
+          )
+        );
+
+      res.json({ success: true, data: { count: Number(value) } });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post('/api/ai/questions/:id/answer', isAuthenticated, async (req: any, res) => {
+    try {
+      const role = req.user?.role?.name;
+      if (role !== 'admin' && role !== 'owner' && role !== 'manager') {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      const { answer } = z.object({ answer: z.string().min(1) }).parse(req.body);
+
+      const [row] = await db
+        .select()
+        .from(unansweredQuestions)
+        .where(eq(unansweredQuestions.id, req.params.id))
+        .limit(1);
+
+      if (!row) return res.status(404).json({ message: "Question not found" });
+
+      await db
+        .update(unansweredQuestions)
+        .set({
+          status: "answered",
+          answer,
+          answeredByUserId: req.user.id,
+          answeredAt: new Date(),
+        })
+        .where(eq(unansweredQuestions.id, req.params.id));
+
+      // Create KB entry so future AI searches can find this answer
+      try {
+        await db.insert(aiGeneratedItems).values({
+          storeId: row.storeId,
+          type: "qa_answer",
+          title: row.question.slice(0, 120),
+          content: { question: row.question, answer },
+          status: "published",
+          createdBy: req.user.id,
+        });
+      } catch {
+        // Non-fatal if KB entry fails
+      }
+
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.post('/api/ai/questions/:id/dismiss', isAuthenticated, async (req: any, res) => {
+    try {
+      const role = req.user?.role?.name;
+      if (role !== 'admin' && role !== 'owner' && role !== 'manager') {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      await db
+        .update(unansweredQuestions)
+        .set({ status: "dismissed" })
+        .where(eq(unansweredQuestions.id, req.params.id));
+
+      res.json({ success: true });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }

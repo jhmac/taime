@@ -23,7 +23,7 @@ import {
   Briefcase, Users, ShieldCheck, AlertTriangle, TrendingUp,
   Calendar, DollarSign, ClipboardList, BarChart3, Settings,
   Bot, Clock, Video, ShoppingBag, ExternalLink,
-  AlertCircle, CheckCircle2
+  AlertCircle, CheckCircle2, MessageSquareQuestion,
 } from 'lucide-react';
 
 export default function OwnerDashboard() {
@@ -55,6 +55,13 @@ export default function OwnerDashboard() {
     const id = setTimeout(enable, 200);
     return () => clearTimeout(id);
   }, []);
+
+  const { data: unansweredCountData } = useQuery<{ success: boolean; data: { count: number } }>({
+    queryKey: ['/api/ai/questions/count'],
+    refetchInterval: 60000,
+    staleTime: 30000,
+  });
+  const unansweredCount = unansweredCountData?.data?.count || 0;
 
   const { data: analyticsData, isLoading: analyticsLoading } = useQuery<any>({
     queryKey: ['/api/analytics/dashboard'],
@@ -463,6 +470,32 @@ export default function OwnerDashboard() {
             </Card>
           )}
         </DashboardErrorBoundary>
+
+        {unansweredCount > 0 && (
+          <DashboardErrorBoundary fallback="AI questions card failed to load">
+            <Card
+              className="cursor-pointer hover:shadow-md transition-shadow border-amber-200 dark:border-amber-800/50 bg-amber-50/50 dark:bg-amber-950/10"
+              onClick={() => navigate('/ai-questions')}
+            >
+              <CardContent className="p-4 flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0">
+                  <MessageSquareQuestion className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-sm text-amber-800 dark:text-amber-300">
+                    {unansweredCount} Unanswered {unansweredCount === 1 ? "Question" : "Questions"}
+                  </p>
+                  <p className="text-xs text-amber-600 dark:text-amber-400/80">
+                    MAinager needs your help — tap to review and answer
+                  </p>
+                </div>
+                <Badge className="bg-amber-500 text-white border-0 shrink-0">
+                  {unansweredCount}
+                </Badge>
+              </CardContent>
+            </Card>
+          </DashboardErrorBoundary>
+        )}
 
         <DashboardErrorBoundary fallback="GTD widget failed to load">
           <GTDDashboardWidget />
