@@ -73,7 +73,8 @@ export default function AISchedulingSection() {
       setMinimumStaffing(settings.minimumStaffing ?? 2);
       setStoreHours(settings.storeHours?.length === 7 ? settings.storeHours : DEFAULT_STORE_HOURS);
       setShiftOverlapMinutes(settings.shift_overlap_minutes ?? settings.shiftOverlapMinutes ?? 60);
-      setOverlapBudgetLimit(settings.overlap_budget_limit ? parseFloat(settings.overlap_budget_limit) : null);
+      const rawBudgetLimit = settings.overlapBudgetLimit ?? settings.overlap_budget_limit;
+      setOverlapBudgetLimit(rawBudgetLimit ? parseFloat(rawBudgetLimit) : null);
     }
   }, [settings]);
 
