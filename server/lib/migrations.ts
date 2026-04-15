@@ -216,6 +216,27 @@ export async function runSchemaMigrations(): Promise<void> {
       table: "offsite_sessions",
       sql: `ALTER TABLE offsite_sessions ADD COLUMN IF NOT EXISTS admin_note text`,
     },
+    // --- unanswered_questions column guards (idempotent for partial-schema environments) ---
+    {
+      table: "unanswered_questions",
+      sql: `ALTER TABLE unanswered_questions ADD COLUMN IF NOT EXISTS ai_answer text`,
+    },
+    {
+      table: "unanswered_questions",
+      sql: `ALTER TABLE unanswered_questions ADD COLUMN IF NOT EXISTS answer text`,
+    },
+    {
+      table: "unanswered_questions",
+      sql: `ALTER TABLE unanswered_questions ADD COLUMN IF NOT EXISTS answered_by_user_id varchar REFERENCES users(id)`,
+    },
+    {
+      table: "unanswered_questions",
+      sql: `ALTER TABLE unanswered_questions ADD COLUMN IF NOT EXISTS answered_at timestamp`,
+    },
+    {
+      table: "unanswered_questions",
+      sql: `ALTER TABLE unanswered_questions ADD COLUMN IF NOT EXISTS conversation_id varchar REFERENCES ai_chat_conversations(id)`,
+    },
   ];
 
   let altered = 0;

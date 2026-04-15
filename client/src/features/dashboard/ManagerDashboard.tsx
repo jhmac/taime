@@ -246,29 +246,34 @@ export default function ManagerDashboard() {
 
       <div className={isMobile ? "px-4 pb-4 space-y-4" : "px-6 pb-6"}>
         <div className={isMobile ? "space-y-4" : "grid grid-cols-2 gap-6"}>
-          {unansweredCount > 0 && (
-            <DashboardErrorBoundary fallback="AI questions card failed to load">
-              <Card
-                className="cursor-pointer hover:shadow-md transition-shadow border-amber-200 dark:border-amber-800/50 bg-amber-50/50 dark:bg-amber-950/10"
-                onClick={() => navigate('/ai-questions')}
-              >
-                <CardContent className="p-4 flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0">
-                    <MessageSquareQuestion className="h-5 w-5 text-amber-600 dark:text-amber-400" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-sm text-amber-800 dark:text-amber-300">
-                      {unansweredCount} Unanswered {unansweredCount === 1 ? "Question" : "Questions"}
-                    </p>
-                    <p className="text-xs text-amber-600 dark:text-amber-400/80">
-                      MAinager needs your help — tap to review and answer
-                    </p>
-                  </div>
-                  <ChevronRight className="h-4 w-4 text-amber-500 shrink-0" />
-                </CardContent>
-              </Card>
-            </DashboardErrorBoundary>
-          )}
+          <DashboardErrorBoundary fallback="AI questions card failed to load">
+            <Card
+              className={`cursor-pointer hover:shadow-md transition-shadow ${unansweredCount > 0 ? "border-amber-200 dark:border-amber-800/50 bg-amber-50/50 dark:bg-amber-950/10" : "border-border"}`}
+              onClick={() => navigate('/ai-questions')}
+            >
+              <CardContent className="p-4 flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${unansweredCount > 0 ? "bg-amber-100 dark:bg-amber-900/30" : "bg-muted"}`}>
+                  <MessageSquareQuestion className={`h-5 w-5 ${unansweredCount > 0 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}`} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className={`font-semibold text-sm ${unansweredCount > 0 ? "text-amber-800 dark:text-amber-300" : "text-foreground"}`}>
+                    {unansweredCount > 0
+                      ? `${unansweredCount} Unanswered ${unansweredCount === 1 ? "Question" : "Questions"}`
+                      : "AI Questions Queue"}
+                  </p>
+                  <p className={`text-xs ${unansweredCount > 0 ? "text-amber-600 dark:text-amber-400/80" : "text-muted-foreground"}`}>
+                    {unansweredCount > 0 ? "MAinager needs your help — review and answer" : "No pending questions"}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {unansweredCount > 0 && (
+                    <Badge className="bg-amber-500 text-white border-0">{unansweredCount}</Badge>
+                  )}
+                  <span className="text-xs text-muted-foreground">View all →</span>
+                </div>
+              </CardContent>
+            </Card>
+          </DashboardErrorBoundary>
 
           <DashboardErrorBoundary fallback="Could not load morning huddle">
             <Card
