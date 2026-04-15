@@ -892,11 +892,7 @@ export class GeofencingService {
         for (const entry of activeEntries) {
           const lastReport = this.getLastLocationReport(entry.userId);
           if (lastReport && Date.now() - lastReport > STALE_THRESHOLD) {
-            const alreadyHandled = activeExitTimers.has(entry.userId);
-            if (!alreadyHandled) {
-              console.log(`[Geofence] User ${entry.userId} hasn't reported location in ${Math.round((Date.now() - lastReport) / 1000)}s, triggering location-lost`);
-              await this.handleLocationLost(entry.userId);
-            }
+            console.warn(`[Geofence] User ${entry.userId} hasn't reported location in ${Math.round((Date.now() - lastReport) / 1000)}s — location ping is stale (screen lock or background). No auto clock-out triggered.`);
           }
         }
       } catch (error) {

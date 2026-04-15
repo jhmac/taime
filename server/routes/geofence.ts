@@ -124,8 +124,22 @@ export function registerGeofenceRoutes(app: Express, storage: IStorage, isAuthen
   app.post('/api/geofence/location-lost', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const result = await geofencingService.handleLocationLost(userId);
-      res.json({ handled: result });
+      // Location permission errors are NOT confirmed geofence exits.
+      // We log the event for auditing but do NOT schedule any auto clock-out.
+      // Auto clock-outs are only triggered by confirmed geofence boundary exits.
+      console.warn(`[Geofence] Location permission lost reported for user ${userId} — logging only, no auto clock-out scheduled.`);
+      const activeEntry = await storage.getActiveTimeEntry(userId);
+      if (activeEntry) {
+        await db.insert(geofenceEvents).values({
+          userId,
+          locationId: activeEntry.locationId || 'unknown',
+          eventType: 'location_lost',
+          latitude: null,
+          longitude: null,
+          timeEntryId: activeEntry.id,
+        });
+      }
+      res.json({ handled: false, message: 'Location loss logged; no auto clock-out scheduled' });
     } catch (error) {
       console.error("Error handling location lost:", error);
       res.status(500).json({ message: "Failed to handle location loss" });

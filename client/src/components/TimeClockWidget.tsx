@@ -345,7 +345,7 @@ export default function TimeClockWidget() {
       triggerHaptic([300, 100, 300, 100, 600]);
       toast({
         title: "Location Access Lost",
-        description: "Your location permission was revoked. You may be auto-clocked out if you don't re-enable location services.",
+        description: "Your location permission was revoked. Re-enable location services to allow geofence tracking.",
         variant: "destructive",
         duration: 15000,
       });

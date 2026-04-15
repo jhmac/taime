@@ -5,9 +5,9 @@ import { useCompanySettings } from '@/hooks/useCompanySettings';
 import { apiRequest } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
-import type { TimeEntry } from '@shared/schema';
+import type { TimeEntry, Permission } from '@shared/schema';
 
-const EXEMPT_ROLES = ['admin', 'owner'];
+const FOCUS_CLOCKOUT_PERMISSION = 'enable_clock_out_on_focus_loss';
 
 export default function FocusClockOut() {
   const { user } = useAuth();
@@ -15,10 +15,8 @@ export default function FocusClockOut() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
-  const wakeLockReleasedByScreenLockRef = useRef(false);
-  const clockedOutAtRef = useRef<Date | null>(null);
-  const clockedOutEntryRef = useRef<string | null>(null);
+  const leftAtRef = useRef<Date | null>(null);
+  const leftEntryIdRef = useRef<string | null>(null);
   const activeEntryRef = useRef<TimeEntry | null>(null);
   const [showResumePrompt, setShowResumePrompt] = useState(false);
 
@@ -26,6 +24,15 @@ export default function FocusClockOut() {
     queryKey: ['/api/time-entries/active'],
     refetchInterval: 30000,
   });
+
+  const { data: userPermissions = [] } = useQuery<Permission[]>({
+    queryKey: ['/api/auth/permissions'],
+    enabled: !!user,
+  });
+
+  const hasFocusClockOutPermission = userPermissions.some(
+    (p) => p.name === FOCUS_CLOCKOUT_PERMISSION
+  );
 
   useEffect(() => {
     activeEntryRef.current = activeTimeEntry ?? null;
@@ -44,46 +51,6 @@ export default function FocusClockOut() {
     },
   });
 
-  const autoResumeMutation = useMutation({
-    mutationFn: async (data: { originalEntryId: string; clockOutTime: Date }) => {
-      await apiRequest('PATCH', `/api/time-entries/${data.originalEntryId}`, {
-        clockOutTime: null,
-        clockOutSource: null,
-      });
-      return { resumed: true };
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/time-entries'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/time-entries/active'] });
-      toast({
-        title: "Welcome Back",
-        description: "Your shift has been resumed automatically.",
-      });
-    },
-  });
-
-  const promptResumeMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest('POST', '/api/time-entries', {
-        clockInTime: new Date(),
-        clockInSource: 'prompted-resume',
-      });
-      return res.json();
-    },
-    onSuccess: (data: any) => {
-      queryClient.invalidateQueries({ queryKey: ['/api/time-entries'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/time-entries/active'] });
-      logClockEvent('prompted-resume', data?.id);
-      setShowResumePrompt(false);
-      clockedOutAtRef.current = null;
-      clockedOutEntryRef.current = null;
-      toast({
-        title: "Clocked Back In",
-        description: "You've been clocked back in. Stay focused!",
-      });
-    },
-  });
-
   const logClockEvent = useCallback(async (eventType: string, timeEntryId?: string, metadata?: any) => {
     try {
       await apiRequest('POST', '/api/clock-events', {
@@ -95,72 +62,39 @@ export default function FocusClockOut() {
     }
   }, []);
 
-  const requestWakeLock = useCallback(async () => {
-    if (!('wakeLock' in navigator)) return;
-    try {
-      wakeLockRef.current = await navigator.wakeLock.request('screen');
-      wakeLockReleasedByScreenLockRef.current = false;
-
-      wakeLockRef.current.addEventListener('release', () => {
-        wakeLockReleasedByScreenLockRef.current = true;
-        wakeLockRef.current = null;
-      });
-    } catch (e) {
-    }
-  }, []);
-
   useEffect(() => {
-    const userRole = user?.role?.name;
-    if (!settings?.enableClockOutOnFocusLoss || (userRole && EXEMPT_ROLES.includes(userRole)) || !activeTimeEntry) {
+    if (!settings?.enableClockOutOnFocusLoss || !hasFocusClockOutPermission || !activeTimeEntry) {
       setShowResumePrompt(false);
       return;
     }
 
-    requestWakeLock();
+    const autoResumeWindowMs = (settings.autoResumeWindowSeconds || 600) * 1000;
 
-    const autoResumeWindowMs = (settings.autoResumeWindowSeconds || 120) * 1000;
-
-    const handleVisibilityChange = async () => {
+    const handleVisibilityChange = () => {
       if (document.hidden) {
-        const wasScreenLock = wakeLockReleasedByScreenLockRef.current;
-
-        if (wasScreenLock) {
-          return;
-        }
-
         const currentEntry = activeEntryRef.current;
         if (currentEntry) {
-          clockedOutAtRef.current = new Date();
-          clockedOutEntryRef.current = currentEntry.id;
-          clockOutMutation.mutate(currentEntry.id);
+          leftAtRef.current = new Date();
+          leftEntryIdRef.current = currentEntry.id;
           logClockEvent('app-switch-out', currentEntry.id);
         }
       } else {
-        await requestWakeLock();
+        if (leftAtRef.current && leftEntryIdRef.current) {
+          const elapsedMs = Date.now() - leftAtRef.current.getTime();
 
-        if (clockedOutAtRef.current && clockedOutEntryRef.current) {
-          const elapsedMs = Date.now() - clockedOutAtRef.current.getTime();
-
-          if (elapsedMs <= autoResumeWindowMs) {
-            autoResumeMutation.mutate({
-              originalEntryId: clockedOutEntryRef.current,
-              clockOutTime: clockedOutAtRef.current,
-            });
-            logClockEvent('auto-resume', clockedOutEntryRef.current, {
-              awaySeconds: Math.round(elapsedMs / 1000),
-            });
-            clockedOutAtRef.current = null;
-            clockedOutEntryRef.current = null;
-          } else {
+          if (elapsedMs > autoResumeWindowMs) {
             setShowResumePrompt(true);
-            logClockEvent('app-switch-return-late', clockedOutEntryRef.current, {
+            logClockEvent('app-switch-return-late', leftEntryIdRef.current, {
               awaySeconds: Math.round(elapsedMs / 1000),
             });
             toast({
-              title: "You Were Clocked Out",
-              description: `You were away for ${Math.round(elapsedMs / 60000)} minutes. Tap "Clock Back In" to resume your shift.`,
+              title: "You Stepped Away",
+              description: `You were away for ${Math.round(elapsedMs / 60000)} minute${Math.round(elapsedMs / 60000) !== 1 ? 's' : ''}. Would you like to clock out?`,
               variant: "destructive",
             });
+          } else {
+            leftAtRef.current = null;
+            leftEntryIdRef.current = null;
           }
         }
       }
@@ -169,36 +103,33 @@ export default function FocusClockOut() {
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      if (wakeLockRef.current) {
-        wakeLockRef.current.release().catch(() => {});
-      }
     };
-  }, [settings?.enableClockOutOnFocusLoss, settings?.autoResumeWindowSeconds, clockOutMutation, autoResumeMutation, toast, user?.role?.name, requestWakeLock, logClockEvent]);
+  }, [settings?.enableClockOutOnFocusLoss, settings?.autoResumeWindowSeconds, hasFocusClockOutPermission, activeTimeEntry, toast, logClockEvent]);
 
   useEffect(() => {
     if (!activeTimeEntry) {
       setShowResumePrompt(false);
-      clockedOutAtRef.current = null;
-      clockedOutEntryRef.current = null;
+      leftAtRef.current = null;
+      leftEntryIdRef.current = null;
     }
   }, [activeTimeEntry]);
 
   if (!showResumePrompt || !activeTimeEntry) return null;
 
   return (
-    <div className="fixed top-4 left-4 right-4 z-[60] animate-in slide- shore-from-top-5 duration-300">
+    <div className="fixed top-4 left-4 right-4 z-[60] animate-in slide-in-from-top-5 duration-300">
       <div className="bg-white dark:bg-card border border-border rounded-xl p-4 shadow-xl flex items-start gap-3">
         <div className="flex-shrink-0 w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-primary">
           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-bell"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between mb-1">
-            <h3 className="font-bold text-base text-foreground">Don't forget to clock out!</h3>
+            <h3 className="font-bold text-base text-foreground">You stepped away from the app</h3>
             <button 
               onClick={() => {
                 setShowResumePrompt(false);
-                clockedOutAtRef.current = null;
-                clockedOutEntryRef.current = null;
+                leftAtRef.current = null;
+                leftEntryIdRef.current = null;
               }}
               className="text-muted-foreground hover:text-foreground p-1"
             >
@@ -206,18 +137,20 @@ export default function FocusClockOut() {
             </button>
           </div>
           <p className="text-sm text-muted-foreground mb-4">
-            We noticed you left the work location. Tap here to clock out now.
+            You stepped away from the app for a while. Would you like to clock out now?
           </p>
           <div className="flex gap-3">
             <Button
               variant="default"
               className="flex-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg h-10 font-semibold"
               onClick={() => {
-                const currentEntryId = clockedOutEntryRef.current;
+                const currentEntryId = leftEntryIdRef.current;
                 if (currentEntryId) {
                   clockOutMutation.mutate(currentEntryId);
                 }
                 setShowResumePrompt(false);
+                leftAtRef.current = null;
+                leftEntryIdRef.current = null;
               }}
               disabled={clockOutMutation.isPending}
             >
@@ -228,8 +161,8 @@ export default function FocusClockOut() {
               className="flex-1 border-border text-foreground rounded-lg h-10 font-semibold"
               onClick={() => {
                 setShowResumePrompt(false);
-                clockedOutAtRef.current = null;
-                clockedOutEntryRef.current = null;
+                leftAtRef.current = null;
+                leftEntryIdRef.current = null;
               }}
             >
               Dismiss

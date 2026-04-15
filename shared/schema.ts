@@ -474,7 +474,7 @@ export const companySettings = pgTable("company_settings", {
   enableSmartClockPrompt: boolean("enable_smart_clock_prompt").default(false),
   enableClockOutOnFocusLoss: boolean("enable_clock_out_on_focus_loss").default(false),
   focusLossGraceSeconds: integer("focus_loss_grace_seconds").default(30),
-  autoResumeWindowSeconds: integer("auto_resume_window_seconds").default(120),
+  autoResumeWindowSeconds: integer("auto_resume_window_seconds").default(600),
   requireMobileClockIn: boolean("require_mobile_clock_in").default(false),
   defaultMileageRateCents: integer("default_mileage_rate_cents").default(0),
   version: integer("version").default(1).notNull(),

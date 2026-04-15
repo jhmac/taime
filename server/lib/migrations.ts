@@ -671,6 +671,43 @@ export async function runSchemaMigrations(): Promise<void> {
 
   console.log(`[Migration] Schema migrations complete (${altered} column alteration(s))`);
 
+  // Seed the "enable_clock_out_on_focus_loss" permission and grant it to admin/owner roles.
+  // This is idempotent — safe to run on every boot.
+  try {
+    const permName = 'enable_clock_out_on_focus_loss';
+    // Insert the permission if it doesn't already exist
+    await db.execute(sql.raw(`
+      INSERT INTO permissions (id, name, display_name, description, category)
+      VALUES (gen_random_uuid(), '${permName}', 'Enable clock-out on focus loss',
+              'Allow this role to be subject to automatic clock-out when the app loses focus', 'time_tracking')
+      ON CONFLICT (name) DO NOTHING
+    `));
+
+    // Get the permission id
+    const permRows = await db.execute(sql.raw(`SELECT id FROM permissions WHERE name = '${permName}' LIMIT 1`));
+    const permId = ((permRows as any).rows ?? [])[0]?.id as string | undefined;
+
+    if (permId) {
+      // Grant to admin and owner roles
+      const roleRows = await db.execute(sql.raw(`SELECT id FROM roles WHERE name IN ('admin', 'owner')`));
+      const roleIds: string[] = ((roleRows as any).rows ?? []).map((r: any) => r.id as string);
+
+      for (const roleId of roleIds) {
+        await db.execute(sql.raw(`
+          INSERT INTO role_permissions (id, role_id, permission_id)
+          SELECT gen_random_uuid(), '${roleId}', '${permId}'
+          WHERE NOT EXISTS (
+            SELECT 1 FROM role_permissions WHERE role_id = '${roleId}' AND permission_id = '${permId}'
+          )
+        `));
+      }
+      console.log(`[Migration] Seeded permission '${permName}' and granted to admin/owner roles`);
+    }
+  } catch (err: unknown) {
+    const pgErr = err as { message?: string };
+    console.warn('[Migration] focus-clockout permission seed failed (non-fatal):', pgErr?.message ?? err);
+  }
+
   // Mark any generation jobs that were still "running" when the server last shut down.
   // These are orphaned — the setImmediate background task was lost on restart — so
   // they will never complete. Reset them to "failed" so users can retry.
