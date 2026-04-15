@@ -124,7 +124,6 @@ export default function AskMAinagerSheet() {
     },
     onSuccess: (data) => {
       setConversationId(data.conversationId);
-      setRetryCount(0);
       const aiMsg: ChatMessage = {
         id: `ai-${Date.now()}`,
         role: "assistant",
@@ -137,25 +136,11 @@ export default function AskMAinagerSheet() {
       };
       setMessages(prev => [...prev, aiMsg]);
     },
-    onError: (error: Error, question: string) => {
-      if (retryCount < 1) {
-        setRetryCount(prev => prev + 1);
-        const retryMsg: ChatMessage = {
-          id: `retry-${Date.now()}`,
-          role: "assistant",
-          content: "Taking a moment... Let me try that again.",
-          timestamp: new Date(),
-          confidence: "low",
-        };
-        setMessages(prev => [...prev, retryMsg]);
-        setTimeout(() => askMutation.mutate(question), 1500);
-        return;
-      }
-      setRetryCount(0);
+    onError: () => {
       const errorMsg: ChatMessage = {
         id: `err-${Date.now()}`,
         role: "assistant",
-        content: "I'm having a little trouble right now. Try again in a moment, or check the SOP Library directly.",
+        content: "I'm having a little trouble right now. Please try again in a moment.",
         timestamp: new Date(),
         confidence: "low",
       };

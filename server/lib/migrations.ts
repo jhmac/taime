@@ -146,6 +146,76 @@ export async function runSchemaMigrations(): Promise<void> {
       table: "user_work_patterns",
       sql: `ALTER TABLE user_work_patterns ADD COLUMN IF NOT EXISTS custom_pattern jsonb`,
     },
+    // ── ai_chat_conversations.context: CRITICAL — missing column breaks every /api/ai/ask call ──
+    {
+      table: "ai_chat_conversations",
+      sql: `ALTER TABLE ai_chat_conversations ADD COLUMN IF NOT EXISTS context jsonb`,
+    },
+    // ── offsite_sessions: trip tracking columns added in later schema versions ──
+    {
+      table: "offsite_sessions",
+      sql: `ALTER TABLE offsite_sessions ADD COLUMN IF NOT EXISTS route_distance_meters integer`,
+    },
+    {
+      table: "offsite_sessions",
+      sql: `ALTER TABLE offsite_sessions ADD COLUMN IF NOT EXISTS route_duration_seconds integer`,
+    },
+    {
+      table: "offsite_sessions",
+      sql: `ALTER TABLE offsite_sessions ADD COLUMN IF NOT EXISTS estimated_return_time timestamp`,
+    },
+    {
+      table: "offsite_sessions",
+      sql: `ALTER TABLE offsite_sessions ADD COLUMN IF NOT EXISTS destination_arrived_at timestamp`,
+    },
+    {
+      table: "offsite_sessions",
+      sql: `ALTER TABLE offsite_sessions ADD COLUMN IF NOT EXISTS deviation_alerts_sent integer DEFAULT 0`,
+    },
+    {
+      table: "offsite_sessions",
+      sql: `ALTER TABLE offsite_sessions ADD COLUMN IF NOT EXISTS destination_not_reached_alert_sent boolean DEFAULT false`,
+    },
+    {
+      table: "offsite_sessions",
+      sql: `ALTER TABLE offsite_sessions ADD COLUMN IF NOT EXISTS overdue_return_alert_sent boolean DEFAULT false`,
+    },
+    {
+      table: "offsite_sessions",
+      sql: `ALTER TABLE offsite_sessions ADD COLUMN IF NOT EXISTS total_distance_miles decimal(8,2)`,
+    },
+    {
+      table: "offsite_sessions",
+      sql: `ALTER TABLE offsite_sessions ADD COLUMN IF NOT EXISTS deviation_event_count integer DEFAULT 0`,
+    },
+    {
+      table: "offsite_sessions",
+      sql: `ALTER TABLE offsite_sessions ADD COLUMN IF NOT EXISTS max_deviation_miles decimal(8,2)`,
+    },
+    {
+      table: "offsite_sessions",
+      sql: `ALTER TABLE offsite_sessions ADD COLUMN IF NOT EXISTS destination_reached boolean`,
+    },
+    {
+      table: "offsite_sessions",
+      sql: `ALTER TABLE offsite_sessions ADD COLUMN IF NOT EXISTS reimbursement_cents integer`,
+    },
+    {
+      table: "offsite_sessions",
+      sql: `ALTER TABLE offsite_sessions ADD COLUMN IF NOT EXISTS breadcrumbs jsonb`,
+    },
+    {
+      table: "offsite_sessions",
+      sql: `ALTER TABLE offsite_sessions ADD COLUMN IF NOT EXISTS reviewed_by varchar REFERENCES users(id)`,
+    },
+    {
+      table: "offsite_sessions",
+      sql: `ALTER TABLE offsite_sessions ADD COLUMN IF NOT EXISTS reviewed_at timestamp`,
+    },
+    {
+      table: "offsite_sessions",
+      sql: `ALTER TABLE offsite_sessions ADD COLUMN IF NOT EXISTS admin_note text`,
+    },
   ];
 
   let altered = 0;
