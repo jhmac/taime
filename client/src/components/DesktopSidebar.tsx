@@ -59,7 +59,7 @@ const managementNavItems = [
   { path: '/analytics', icon: 'fas fa-chart-bar', label: 'Analytics', permission: 'admin.manage_all' },
   { path: '/performance', icon: 'fas fa-trophy', label: 'Performance' },
   { path: '/ai-studio', icon: 'fas fa-wand-magic-sparkles', label: 'AI Studio', permission: 'hr.edit_team' },
-  { path: '/ai-questions', icon: 'fas fa-question-circle', label: 'AI Questions', permission: 'hr.edit_team' },
+  { path: '/ai-questions', icon: 'fas fa-question-circle', label: 'AI Questions', permission: 'hr.view_team' },
   { path: '/operations', icon: 'fas fa-cogs', label: 'Operations', permission: 'admin.manage_all' },
   { path: '/admin', icon: 'fas fa-sliders-h', label: 'Settings', permission: 'admin.manage_all' },
 ];
@@ -150,20 +150,8 @@ export default function DesktopSidebar() {
           )}
           title={collapsed ? 'Ask AI' : undefined}
         >
-          <div className="relative flex-shrink-0">
-            <Sparkles className="w-5 h-5" />
-            {unansweredCount > 0 && (
-              <span className="absolute -top-1.5 -right-2 bg-amber-500 text-white text-[9px] font-bold rounded-full h-4 min-w-[16px] flex items-center justify-center px-0.5">
-                {unansweredCount > 99 ? "99+" : unansweredCount}
-              </span>
-            )}
-          </div>
+          <Sparkles className="w-5 h-5 flex-shrink-0" />
           {!collapsed && <span className="flex-1 text-left">Ask AI</span>}
-          {!collapsed && unansweredCount > 0 && (
-            <span className="bg-amber-500 text-white text-[10px] font-bold rounded-full h-5 min-w-[20px] flex items-center justify-center px-1">
-              {unansweredCount > 99 ? "99+" : unansweredCount}
-            </span>
-          )}
         </button>
 
         {generalNavItems
@@ -201,7 +189,11 @@ export default function DesktopSidebar() {
               {collapsed && <div className="border-t border-sidebar-border mx-2"></div>}
             </div>
             {managementNavItems.map(item => (
-              <NavButton key={item.path} {...item} />
+              <NavButton
+                key={item.path}
+                {...item}
+                badge={item.path === '/ai-questions' ? unansweredCount : undefined}
+              />
             ))}
           </>
         )}
