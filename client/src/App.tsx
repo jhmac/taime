@@ -2,7 +2,7 @@ import { useState, useEffect, lazy, Suspense, Component, type ReactNode, type Er
 import { Switch, Route, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
-import { ClerkProvider, SignedIn, SignedOut, ClerkLoading, ClerkLoaded } from "@clerk/clerk-react";
+import { ClerkProvider, SignedIn, SignedOut, ClerkLoading, ClerkLoaded, AuthenticateWithRedirectCallback } from "@clerk/clerk-react";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
@@ -391,6 +391,10 @@ function Router() {
         </Switch>
       </Suspense>
     );
+  }
+
+  if (location.startsWith("/sso-callback")) {
+    return <AuthenticateWithRedirectCallback />;
   }
 
   return (
