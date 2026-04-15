@@ -340,7 +340,7 @@ function AuthenticatedApp() {
           <ProtectedRoute permission="hr.edit_team"><AIContentStudio /></ProtectedRoute>
         </Route>
         <Route path="/ai-questions">
-          <ProtectedRoute permission="hr.edit_team"><AIQuestionsPage /></ProtectedRoute>
+          <ProtectedRoute permission="hr.view_team"><AIQuestionsPage /></ProtectedRoute>
         </Route>
         <Route path="/my-score" component={MyScore} />
         <Route path="/insights" component={InsightsPage} />
