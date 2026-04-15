@@ -24,6 +24,7 @@ export interface MAinagerResponse {
 
 interface AskParams {
   question: string;
+  originalQuestion?: string; // Raw user text before any enrichment; used for queue storage & dedupe
   employeeId: string;
   storeId: string;
   conversationId?: string;
@@ -223,7 +224,8 @@ async function gatherContext(storeId: string, employeeId: string, question: stri
 }
 
 export async function askMAinager(params: AskParams): Promise<MAinagerResponse> {
-  const { question, employeeId, storeId } = params;
+  const { question, originalQuestion, employeeId, storeId } = params;
+  const queueQuestion = originalQuestion ?? question; // Always store raw user text in the queue
 
   const ctx = await gatherContext(storeId, employeeId, question);
 
@@ -390,7 +392,7 @@ ${ctx.sopChunks}`;
           .where(
             and(
               eq(unansweredQuestions.storeId, storeId),
-              eq(unansweredQuestions.question, question),
+              eq(unansweredQuestions.question, queueQuestion),
               eq(unansweredQuestions.status, "pending"),
               gte(unansweredQuestions.askedAt, sevenDaysAgo),
             )
@@ -402,7 +404,7 @@ ${ctx.sopChunks}`;
           await db.insert(unansweredQuestions).values({
             storeId,
             askedByUserId: employeeId,
-            question,
+            question: queueQuestion,
             aiAnswer: answer,
             status: "pending",
             conversationId: convId,

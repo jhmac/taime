@@ -403,6 +403,7 @@ Available SOPs: ${publishedSops.length > 0 ? publishedSops.map(s => s.title).joi
 
       const result = await askMAinager({
         question: enrichedQuestion,
+        originalQuestion: question, // raw user text — stored in queue, not the enriched prompt
         employeeId: req.user.id,
         storeId,
         conversationId,
@@ -574,6 +575,7 @@ Available SOPs: ${publishedSops.length > 0 ? publishedSops.map(s => s.title).joi
         .limit(1);
 
       if (!row) return res.status(404).json({ message: "Question not found" });
+      if (row.status !== "pending") return res.status(409).json({ message: "Question already answered" });
 
       // Atomic: update question status AND create KB entry together; roll back if either fails
       let newItemId: string | undefined;
