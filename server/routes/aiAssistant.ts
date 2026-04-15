@@ -486,7 +486,8 @@ Available SOPs: ${publishedSops.length > 0 ? publishedSops.map(s => s.title).joi
       const storeId = await tryResolveStoreIdForUser(req.user.id);
       if (!storeId) return res.status(400).json({ message: "Store not found" });
 
-      const status = (req.query.status as string) || 'pending';
+      const rawStatus = req.query.status as string;
+      const status = rawStatus === "answered" ? "answered" : "pending";
       const rows = await db
         .select({
           id: unansweredQuestions.id,

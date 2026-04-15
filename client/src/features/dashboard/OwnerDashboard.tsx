@@ -483,8 +483,8 @@ export default function OwnerDashboard() {
               <div className="flex-1 min-w-0">
                 <p className={`font-semibold text-sm ${unansweredCount > 0 ? "text-amber-800 dark:text-amber-300" : "text-foreground"}`}>
                   {unansweredCount > 0
-                    ? `${unansweredCount} Unanswered ${unansweredCount === 1 ? "Question" : "Questions"}`
-                    : "AI Questions Queue"}
+                    ? `${unansweredCount} Pending ${unansweredCount === 1 ? "Question" : "Questions"}`
+                    : "Questions for You"}
                 </p>
                 <p className={`text-xs ${unansweredCount > 0 ? "text-amber-600 dark:text-amber-400/80" : "text-muted-foreground"}`}>
                   {unansweredCount > 0 ? "MAinager needs your help — review and answer" : "No pending questions"}
