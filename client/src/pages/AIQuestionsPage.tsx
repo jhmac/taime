@@ -8,7 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import {
-  MessageSquareQuestion,
+  MessageCircleQuestion,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
@@ -76,7 +76,7 @@ function QuestionCard({ q, onAnswered }: { q: UnansweredQuestion; onAnswered: ()
       <CardContent className="p-4">
         <div className="flex items-start gap-3">
           <div className="w-8 h-8 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0 mt-0.5">
-            <MessageSquareQuestion className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+            <MessageCircleQuestion className="h-4 w-4 text-amber-600 dark:text-amber-400" />
           </div>
           <div className="flex-1 min-w-0">
             <p className="font-medium text-sm leading-snug">{q.question}</p>
@@ -182,7 +182,7 @@ export default function AIQuestionsPage() {
     return (
       <div className="min-h-full bg-background flex items-center justify-center p-8">
         <div className="text-center">
-          <MessageSquareQuestion className="h-12 w-12 text-muted-foreground/30 mx-auto mb-3" />
+          <MessageCircleQuestion className="h-12 w-12 text-muted-foreground/30 mx-auto mb-3" />
           <p className="text-sm text-muted-foreground">You don't have access to this page.</p>
         </div>
       </div>
@@ -194,7 +194,7 @@ export default function AIQuestionsPage() {
       <div className="bg-gradient-to-br from-amber-500 to-orange-500 text-white p-5 md:p-6 md:rounded-xl md:m-6 md:mt-4">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
-            <MessageSquareQuestion className="h-5 w-5" />
+            <MessageCircleQuestion className="h-5 w-5" />
           </div>
           <div>
             <h1 className="text-lg font-bold">AI Questions Queue</h1>

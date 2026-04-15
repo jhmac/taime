@@ -23,7 +23,7 @@ import {
   Briefcase, Users, ShieldCheck, AlertTriangle, TrendingUp,
   Calendar, DollarSign, ClipboardList, BarChart3, Settings,
   Bot, Clock, Video, ShoppingBag, ExternalLink,
-  AlertCircle, CheckCircle2, MessageSquareQuestion,
+  AlertCircle, CheckCircle2, MessageCircleQuestion,
 } from 'lucide-react';
 
 export default function OwnerDashboard() {
