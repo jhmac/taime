@@ -369,18 +369,9 @@ ${ctx.sopChunks}`;
             ? "low"
             : "medium";
 
-    await db.insert(aiChatMessages).values({
-      conversationId: convId,
-      role: "assistant",
-      content: answer,
-      sopReferences: uniqueSops.map(s => s.templateId),
-    });
-
-    await db.update(aiChatConversations)
-      .set({ lastMessageAt: new Date() })
-      .where(eq(aiChatConversations.id, convId));
-
+    // Determine flagging BEFORE inserting the chat message so stored history matches displayed response
     let flagged = false;
+    const rawAiAnswer = answer; // preserve original AI text for queue storage
     const isOffTopic = /outside my expertise|not a work.related|can't help with that|outside of my/i.test(answer);
     if (confidence === "low" && ctx.sopResults.length === 0 && !isOperationalQuestion && !isOffTopic) {
       try {
@@ -405,7 +396,7 @@ ${ctx.sopChunks}`;
             storeId,
             askedByUserId: employeeId,
             question: queueQuestion,
-            aiAnswer: answer,
+            aiAnswer: rawAiAnswer, // original AI text, not the substituted fallback
             status: "pending",
             conversationId: convId,
           });
@@ -418,6 +409,18 @@ ${ctx.sopChunks}`;
         logger.warn({ error: flagErr.message }, "[AskMAinager] Failed to save unanswered question (non-fatal)");
       }
     }
+
+    // Insert assistant message AFTER flagging so stored history matches displayed response
+    await db.insert(aiChatMessages).values({
+      conversationId: convId,
+      role: "assistant",
+      content: answer,
+      sopReferences: uniqueSops.map(s => s.templateId),
+    });
+
+    await db.update(aiChatConversations)
+      .set({ lastMessageAt: new Date() })
+      .where(eq(aiChatConversations.id, convId));
 
     return {
       answer,
