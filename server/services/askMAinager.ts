@@ -115,7 +115,7 @@ async function gatherContext(storeId: string, employeeId: string, question: stri
       ))
       .then(rows => rows.map(r => r.whatBuggedYou).filter(Boolean).slice(0, 5)),
 
-    searchSOPs(storeId, question, 5).catch((err) => {
+    searchSOPs(storeId, question, 10).catch((err) => {
       logger.warn({ error: err.message }, "[AskMAinager] SOP search failed, continuing without RAG");
       return [] as Awaited<ReturnType<typeof searchSOPs>>;
     }),
@@ -263,15 +263,15 @@ PERSONALITY:
 - If you're not sure about something, say so honestly rather than guessing
 
 CAPABILITIES:
-- Answer questions about store procedures (SOPs) — you have the store's procedure library
+- Answer questions about store procedures, training modules, and knowledge base articles — you have access to the full store knowledge base including SOPs, training content, and uploaded reference documents
 - Tell employees about schedules, tasks, and who's working
-- Help troubleshoot issues and surface relevant SOPs
+- Help troubleshoot issues and surface relevant procedures
 - Suggest what an employee should be doing right now based on their role, time, and open tasks
 - Explain WHY procedures exist (pull from training notes)
 
 IMPORTANT RULES:
-- Only answer based on the context provided. Never make up procedures that aren't in the SOP library.
-- If asked about a procedure that doesn't exist in the SOPs, say: "I don't see a procedure for that yet. Want me to flag it so a manager can create one?"
+- Only answer based on the context provided. Never make up procedures that aren't in the store knowledge base.
+- If asked about a procedure that doesn't exist in the knowledge base, say: "I don't see a procedure for that yet. Want me to flag it so a manager can create one?"
 - If the question is about something outside your knowledge (personal advice, non-work topics), gently redirect: "That's outside my expertise! I'm best at helping with store operations."
 - When referencing an SOP, include the SOP title so the employee can find it.
 - If an employee reports a problem, suggest logging it as an issue.
@@ -307,7 +307,7 @@ ${ctx.issuesSummary}
 
 ${ctx.bugThemes}
 
-Relevant Procedures (from SOP library):
+Relevant Knowledge Base Content (SOPs, training modules, knowledge base articles):
 ${ctx.sopChunks}`;
 
   const messages: Anthropic.MessageParam[] = [
@@ -354,13 +354,16 @@ ${ctx.sopChunks}`;
     const operationalKeywords = /who.*(clocked|clock|working|on shift|in today)|clocked.*(in|out)|clock.*(in|out)|schedule|who.*(here|work)|on the schedule|time (entry|entries)|currently working/i;
     const isOperationalQuestion = operationalKeywords.test(params.question);
 
+    const topScore = ctx.sopResults.length > 0 ? ctx.sopResults[0].similarityScore : 0;
     const confidence: "high" | "medium" | "low" = isOperationalQuestion
       ? "high"
-      : ctx.sopResults.length > 0 && ctx.sopResults[0].similarityScore > 0.5
+      : topScore > 0.4
         ? "high"
-        : ctx.sopResults.length > 0 && ctx.sopResults[0].similarityScore > 0.25
+        : topScore > 0.15
           ? "medium"
-          : "low";
+          : ctx.sopResults.length === 0
+            ? "low"
+            : "medium";
 
     await db.insert(aiChatMessages).values({
       conversationId: convId,

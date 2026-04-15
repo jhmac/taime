@@ -21,6 +21,7 @@ import type { IStorage } from "../storage";
 import type { InsertSopDocument, InsertTask } from "@shared/schema";
 import { processKnowledgeDocument } from "../services/knowledgeExtractor";
 import { runAiStudioGenerationJob } from "../services/aiStudioGeneration";
+import { indexAiGeneratedItem } from "../services/sopIndexer";
 import Anthropic from "@anthropic-ai/sdk";
 import { config } from "../lib/config";
 import logger from "../lib/logger";
@@ -609,6 +610,12 @@ export function registerAiStudioRoutes(
         .where(eq(aiGeneratedItems.id, item.id))
         .returning();
 
+      if (body.status === "approved") {
+        indexAiGeneratedItem(item.id).catch((err: Error) =>
+          logger.warn({ itemId: item.id, error: err.message }, "[AI Studio] Background index after approve failed")
+        );
+      }
+
       res.json({ success: true, data: updated });
     })
   );
@@ -717,6 +724,10 @@ INSTRUCTIONS:
         .set({ status: "published", updatedAt: new Date() })
         .where(eq(aiGeneratedItems.id, item.id));
 
+      indexAiGeneratedItem(item.id).catch((err: Error) =>
+        logger.warn({ itemId: item.id, error: err.message }, "[AI Studio] Background index after publish failed")
+      );
+
       res.json({ success: true, result });
     })
   );
@@ -765,6 +776,10 @@ INSTRUCTIONS:
             .update(aiGeneratedItems)
             .set({ status: "published", updatedAt: new Date() })
             .where(eq(aiGeneratedItems.id, itemId));
+
+          indexAiGeneratedItem(itemId).catch((err: Error) =>
+            logger.warn({ itemId, error: err.message }, "[AI Studio] Background index after batch-publish failed")
+          );
 
           results.push({ id: itemId, ...result });
         } catch (err: unknown) {

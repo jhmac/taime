@@ -11,6 +11,7 @@ import { globalErrorHandler } from "./lib/routeWrapper";
 import { startRitualScheduler } from "./services/ritualScheduler";
 import { backfillLegacyUserRoles, backfillInactiveAuthenticatedUsers } from "./lib/backfill";
 import { runSchemaMigrations } from "./lib/migrations";
+import { runStartupAiContentBackfill } from "./services/sopIndexer";
 
 process.on('uncaughtException', (err) => {
   if (err.message?.includes('Cannot set property message') ||
@@ -187,5 +188,6 @@ app.use((req, res, next) => {
     runSchemaMigrations();
     backfillLegacyUserRoles();
     backfillInactiveAuthenticatedUsers();
+    setTimeout(() => runStartupAiContentBackfill(), 5000);
   });
 })();
