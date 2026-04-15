@@ -80,12 +80,12 @@ export default function ManagerDashboard() {
   const sopExecutions = Array.isArray(sopExecutionsRaw) ? sopExecutionsRaw : (sopExecutionsRaw?.data || []);
   const { data: huddleData } = useQuery<any>({ queryKey: ['/api/rituals/huddle/today'], enabled: deferredEnabled });
 
-  const { data: unansweredCountData } = useQuery<{ success: boolean; data: { count: number } }>({
+  const { data: unansweredCountData } = useQuery<{ pending: number }>({
     queryKey: ['/api/ai/questions/count'],
     refetchInterval: 60000,
     staleTime: 30000,
   });
-  const unansweredCount = unansweredCountData?.data?.count || 0;
+  const unansweredCount = unansweredCountData?.pending || 0;
 
   const today = new Date();
   const todayStr = today.toDateString();

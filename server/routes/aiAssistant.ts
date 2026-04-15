@@ -11,6 +11,7 @@ import { db } from "../db";
 import { aiFeedback, aiChatConversations, aiChatMessages, unansweredQuestions, aiGeneratedItems, users } from "@shared/schema";
 import { eq, and, desc, gte, count } from "drizzle-orm";
 import { tryResolveStoreIdForUser } from "../lib/storeResolver";
+import logger from "../lib/logger";
 
 const DEFAULT_MODEL_STR = "claude-sonnet-4-20250514";
 
@@ -512,7 +513,16 @@ Available SOPs: ${publishedSops.length > 0 ? publishedSops.map(s => s.title).joi
         .orderBy(desc(unansweredQuestions.askedAt))
         .limit(50);
 
-      res.json({ success: true, data: rows });
+      // Also include pending count in every list response so UI can use one endpoint
+      const [{ pending }] = await db
+        .select({ pending: count() })
+        .from(unansweredQuestions)
+        .where(and(
+          eq(unansweredQuestions.storeId, storeId),
+          eq(unansweredQuestions.status, "pending"),
+        ));
+
+      res.json({ success: true, data: rows, pending: Number(pending) });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -522,10 +532,10 @@ Available SOPs: ${publishedSops.length > 0 ? publishedSops.map(s => s.title).joi
     try {
       const role = req.user?.role?.name;
       if (role !== 'admin' && role !== 'owner' && role !== 'manager') {
-        return res.json({ success: true, data: { count: 0 } });
+        return res.json({ pending: 0 });
       }
       const storeId = await tryResolveStoreIdForUser(req.user.id);
-      if (!storeId) return res.json({ success: true, data: { count: 0 } });
+      if (!storeId) return res.json({ pending: 0 });
 
       const [{ value }] = await db
         .select({ value: count() })
@@ -537,7 +547,7 @@ Available SOPs: ${publishedSops.length > 0 ? publishedSops.map(s => s.title).joi
           )
         );
 
-      res.json({ success: true, data: { count: Number(value) } });
+      res.json({ pending: Number(value) });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -565,22 +575,23 @@ Available SOPs: ${publishedSops.length > 0 ? publishedSops.map(s => s.title).joi
 
       if (!row) return res.status(404).json({ message: "Question not found" });
 
-      await db
-        .update(unansweredQuestions)
-        .set({
-          status: "answered",
-          answer,
-          answeredByUserId: req.user.id,
-          answeredAt: new Date(),
-        })
-        .where(and(
-          eq(unansweredQuestions.id, req.params.id),
-          eq(unansweredQuestions.storeId, storeId),
-        ));
+      // Atomic: update question status AND create KB entry together; roll back if either fails
+      let newItemId: string | undefined;
+      await db.transaction(async (tx) => {
+        await tx
+          .update(unansweredQuestions)
+          .set({
+            status: "answered",
+            answer,
+            answeredByUserId: req.user.id,
+            answeredAt: new Date(),
+          })
+          .where(and(
+            eq(unansweredQuestions.id, req.params.id),
+            eq(unansweredQuestions.storeId, storeId),
+          ));
 
-      // Create KB entry compatible with indexer "knowledge_base" content shape
-      try {
-        const [newItem] = await db.insert(aiGeneratedItems).values({
+        const [newItem] = await tx.insert(aiGeneratedItems).values({
           storeId: row.storeId,
           type: "knowledge_base",
           title: row.question.slice(0, 120),
@@ -590,14 +601,17 @@ Available SOPs: ${publishedSops.length > 0 ? publishedSops.map(s => s.title).joi
           },
           status: "published",
           createdBy: req.user.id,
-        }).returning();
+        }).returning({ id: aiGeneratedItems.id });
 
-        // Index immediately so MAinager can use this answer in future searches
-        if (newItem?.id) {
-          indexAiGeneratedItem(newItem.id).catch(() => {});
+        newItemId = newItem?.id;
+      });
+
+      // Index immediately after commit so MAinager can use this answer for future searches
+      if (newItemId) {
+        const indexResult = await indexAiGeneratedItem(newItemId).catch((err: any) => ({ error: err?.message }));
+        if (indexResult && "error" in indexResult) {
+          logger.warn({ itemId: newItemId, error: indexResult.error }, "[AIQuestions] KB entry saved but indexing failed");
         }
-      } catch {
-        // Non-fatal if KB entry fails
       }
 
       res.json({ success: true });

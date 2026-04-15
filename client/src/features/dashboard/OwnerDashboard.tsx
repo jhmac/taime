@@ -56,12 +56,12 @@ export default function OwnerDashboard() {
     return () => clearTimeout(id);
   }, []);
 
-  const { data: unansweredCountData } = useQuery<{ success: boolean; data: { count: number } }>({
+  const { data: unansweredCountData } = useQuery<{ pending: number }>({
     queryKey: ['/api/ai/questions/count'],
     refetchInterval: 60000,
     staleTime: 30000,
   });
-  const unansweredCount = unansweredCountData?.data?.count || 0;
+  const unansweredCount = unansweredCountData?.pending || 0;
 
   const { data: analyticsData, isLoading: analyticsLoading } = useQuery<any>({
     queryKey: ['/api/analytics/dashboard'],

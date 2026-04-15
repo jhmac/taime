@@ -83,13 +83,13 @@ export default function DesktopSidebar() {
     staleTime: 5 * 60 * 1000,
   });
 
-  const { data: unansweredCountData } = useQuery<{ success: boolean; data: { count: number } }>({
+  const { data: unansweredCountData } = useQuery<{ pending: number }>({
     queryKey: ['/api/ai/questions/count'],
     enabled: isAdmin,
     refetchInterval: 60000,
     staleTime: 30000,
   });
-  const unansweredCount = unansweredCountData?.data?.count || 0;
+  const unansweredCount = unansweredCountData?.pending || 0;
 
   function NavButton({ path, icon, label, badge }: { path: string; icon: string; label: string; badge?: number }) {
     const isActive = location === path || (path !== '/' && location.startsWith(path));
