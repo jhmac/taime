@@ -4,6 +4,7 @@ import { db } from "../db";
 import { knowledgeDocuments } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import logger from "../lib/logger";
+import { indexKnowledgeDocument } from "./sopIndexer";
 
 const MODEL = "claude-sonnet-4-20250514";
 
@@ -225,6 +226,10 @@ export async function processKnowledgeDocument(
       .where(eq(knowledgeDocuments.id, documentId));
 
     logger.info({ documentId, documentType, tags: uniqueTags }, "knowledge: extraction complete");
+
+    indexKnowledgeDocument(documentId).catch((err: Error) =>
+      logger.warn({ documentId, error: err.message }, "knowledge: background index after extraction failed")
+    );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
     logger.error({ documentId, error: message }, "knowledge: extraction failed");
