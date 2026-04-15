@@ -597,7 +597,8 @@ Available SOPs: ${publishedSops.length > 0 ? publishedSops.map(s => s.title).joi
           .returning({ id: unansweredQuestions.id });
 
         // Only create KB entry if this request actually transitioned the status
-        if (updated.length === 0) return;
+        // (updated.length === 0 means a concurrent request already answered it)
+        if (updated.length === 0) throw new Error("ALREADY_ANSWERED");
 
         const [newItem] = await tx.insert(aiGeneratedItems).values({
           storeId: row.storeId,
@@ -624,6 +625,9 @@ Available SOPs: ${publishedSops.length > 0 ? publishedSops.map(s => s.title).joi
 
       res.json({ success: true });
     } catch (error: any) {
+      if (error.message === "ALREADY_ANSWERED") {
+        return res.status(409).json({ message: "Question already answered by another request" });
+      }
       res.status(400).json({ message: error.message });
     }
   });
