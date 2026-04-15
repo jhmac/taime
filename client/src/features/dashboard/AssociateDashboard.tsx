@@ -15,6 +15,7 @@ import ScoreWidget from '@/features/dashboard/ScoreWidget';
 import TimeClockWidget from '@/components/TimeClockWidget';
 import DailyQuestionnaireCard from '@/features/dashboard/DailyQuestionnaireCard';
 import DailyQuoteCard from '@/components/DailyQuoteCard';
+import TeamStatusWidget from '@/features/dashboard/TeamStatusWidget';
 import type { UserWithRole, Task, TimeEntry } from '@shared/schema';
 import {
   Bot, AlertTriangle, Video, Heart, ChevronRight, CheckCircle2,
@@ -634,6 +635,7 @@ export default function AssociateDashboard() {
           <DashboardErrorBoundary fallback=""><SurfacedSOPBanner /></DashboardErrorBoundary>
           <QuickActions navigate={navigate} />
           <DashboardErrorBoundary fallback=""><TrainingProgressCard /></DashboardErrorBoundary>
+          <DashboardErrorBoundary fallback=""><TeamStatusWidget /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><LeanBoardCard /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><GTDDashboardWidget /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><ImprovementFeedWidget /></DashboardErrorBoundary>
@@ -776,6 +778,7 @@ export default function AssociateDashboard() {
           <DashboardErrorBoundary fallback=""><DailyQuoteCard /></DashboardErrorBoundary>
           <QuickActions navigate={navigate} />
           <DashboardErrorBoundary fallback=""><TrainingProgressCard /></DashboardErrorBoundary>
+          <DashboardErrorBoundary fallback=""><TeamStatusWidget /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><ScoreWidget /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><LeanBoardCard /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><GTDDashboardWidget /></DashboardErrorBoundary>

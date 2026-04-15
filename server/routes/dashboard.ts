@@ -2,7 +2,7 @@ import type { Express } from "express";
 import type { IStorage } from "../storage";
 import { db } from "../db";
 import { schedules, timeEntries, shopifyDailySales, userShops, users } from "@shared/schema";
-import { eq, and, gte, lte, desc } from "drizzle-orm";
+import { eq, and, gte, lte, desc, isNull, ne } from "drizzle-orm";
 import { cache } from "../lib/cache";
 import { gamificationService } from "../services/gamificationService";
 
@@ -309,6 +309,179 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
     } catch (error) {
       console.error("Error fetching daily goal:", error);
       res.status(500).json({ message: "Failed to fetch daily goal" });
+    }
+  });
+
+  /**
+   * GET /api/team-status/clocked-in
+   * Returns teammates currently clocked in at the same location as the requesting user.
+   * Excludes the requesting user themselves.
+   */
+  app.get('/api/team-status/clocked-in', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId: string = req.user.id;
+
+      const [currentUser] = await db.select({
+        locationName: users.locationName,
+        companyId: users.companyId,
+      })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+
+      if (!currentUser) {
+        return res.json({ clockedIn: [] });
+      }
+
+      const { locationName, companyId } = currentUser;
+
+      // Require both location and company context — never leak cross-location or cross-tenant data
+      if (!locationName || !companyId) {
+        return res.json({ clockedIn: [] });
+      }
+
+      const now = new Date();
+
+      // "Currently clocked in" = clockOutTime IS NULL, regardless of when they clocked in
+      // All filters pushed to SQL: tenant (companyId), location (locationName), active user, exclude self
+      const activeEntries = await db.select({
+        entryUserId: timeEntries.userId,
+        clockInTime: timeEntries.clockInTime,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        profileImageUrl: users.profileImageUrl,
+      })
+        .from(timeEntries)
+        .innerJoin(users, eq(timeEntries.userId, users.id))
+        .where(and(
+          isNull(timeEntries.clockOutTime),
+          ne(timeEntries.userId, userId),
+          eq(users.isActive, true),
+          eq(users.companyId, companyId),
+          eq(users.locationName, locationName),
+        ));
+
+      // Deduplicate by userId — keep the earliest clock-in per person
+      const seenUsers = new Map<string, typeof activeEntries[number]>();
+      for (const e of activeEntries) {
+        const existing = seenUsers.get(e.entryUserId);
+        if (!existing || new Date(e.clockInTime) < new Date(existing.clockInTime)) {
+          seenUsers.set(e.entryUserId, e);
+        }
+      }
+
+      const clockedIn = Array.from(seenUsers.values()).map(e => ({
+        userId: e.entryUserId,
+        firstName: e.firstName,
+        lastName: e.lastName,
+        profileImageUrl: e.profileImageUrl,
+        clockInTime: e.clockInTime,
+        minutesOnShift: Math.floor((now.getTime() - new Date(e.clockInTime).getTime()) / 60000),
+      }));
+
+      clockedIn.sort((a, b) => new Date(a.clockInTime).getTime() - new Date(b.clockInTime).getTime());
+
+      res.json({ clockedIn });
+    } catch (error) {
+      console.error("Error fetching clocked-in team status:", error);
+      res.status(500).json({ message: "Failed to fetch team status" });
+    }
+  });
+
+  /**
+   * GET /api/team-status/upcoming-shifts
+   * Returns upcoming scheduled shifts for today at the same location,
+   * for teammates not yet clocked in.
+   */
+  app.get('/api/team-status/upcoming-shifts', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId: string = req.user.id;
+
+      const [currentUser] = await db.select({
+        locationName: users.locationName,
+        companyId: users.companyId,
+      })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+
+      if (!currentUser) {
+        return res.json({ upcomingShifts: [] });
+      }
+
+      const { locationName, companyId } = currentUser;
+
+      // Require both location and company context — never leak cross-location or cross-tenant data
+      if (!locationName || !companyId) {
+        return res.json({ upcomingShifts: [] });
+      }
+
+      const now = new Date();
+      const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
+      const [upcomingSchedules, activeEntries] = await Promise.all([
+        // Upcoming shifts scoped to same tenant + location at SQL level
+        db.select({
+          scheduleId: schedules.id,
+          scheduleUserId: schedules.userId,
+          startTime: schedules.startTime,
+          endTime: schedules.endTime,
+          firstName: users.firstName,
+          lastName: users.lastName,
+          profileImageUrl: users.profileImageUrl,
+        })
+          .from(schedules)
+          .innerJoin(users, eq(schedules.userId, users.id))
+          .where(and(
+            gte(schedules.startTime, now),
+            lte(schedules.startTime, endOfDay),
+            ne(schedules.userId, userId),
+            eq(users.isActive, true),
+            eq(users.companyId, companyId),
+            eq(users.locationName, locationName),
+          )),
+
+        // Exclude anyone currently clocked in (clockOutTime IS NULL = actively on shift)
+        // Scoped to same tenant + location — avoids suppressing shifts due to cross-location clock-in
+        db.select({ entryUserId: timeEntries.userId })
+          .from(timeEntries)
+          .innerJoin(users, eq(timeEntries.userId, users.id))
+          .where(and(
+            isNull(timeEntries.clockOutTime),
+            eq(users.companyId, companyId),
+            eq(users.locationName, locationName),
+          )),
+      ]);
+
+      const clockedInUserIds = new Set(activeEntries.map(e => e.entryUserId));
+
+      // Deduplicate by userId — keep the earliest upcoming shift per person
+      const seenShiftUsers = new Map<string, typeof upcomingSchedules[number]>();
+      for (const s of upcomingSchedules) {
+        if (clockedInUserIds.has(s.scheduleUserId)) continue;
+        const existing = seenShiftUsers.get(s.scheduleUserId);
+        if (!existing || new Date(s.startTime) < new Date(existing.startTime)) {
+          seenShiftUsers.set(s.scheduleUserId, s);
+        }
+      }
+
+      const upcomingShifts = Array.from(seenShiftUsers.values()).map(s => ({
+        scheduleId: s.scheduleId,
+        userId: s.scheduleUserId,
+        firstName: s.firstName,
+        lastName: s.lastName,
+        profileImageUrl: s.profileImageUrl,
+        startTime: s.startTime,
+        endTime: s.endTime,
+        minutesUntilShift: Math.floor((new Date(s.startTime).getTime() - now.getTime()) / 60000),
+      }));
+
+      upcomingShifts.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+
+      res.json({ upcomingShifts });
+    } catch (error) {
+      console.error("Error fetching upcoming shifts team status:", error);
+      res.status(500).json({ message: "Failed to fetch upcoming shifts" });
     }
   });
 }
