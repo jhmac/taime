@@ -10,6 +10,7 @@ import {
 } from "@shared/schema";
 import { eq, inArray, and } from "drizzle-orm";
 import logger from "../lib/logger";
+import { indexAiGeneratedItem } from "./sopIndexer";
 
 const anthropic = new Anthropic({ apiKey: config.anthropic.apiKey });
 const DEFAULT_MODEL = "claude-sonnet-4-20250514";
@@ -556,6 +557,12 @@ Return ONLY a valid JSON array:
         updatedAt: new Date(),
       })
       .where(eq(generationJobs.id, jobId));
+
+    for (const itemId of generatedItemIds) {
+      indexAiGeneratedItem(itemId).catch((err: Error) =>
+        logger.warn({ itemId, error: err.message }, "[AI Studio] Background index after generation failed")
+      );
+    }
   } catch (err: unknown) {
     logger.error({ err: err instanceof Error ? err.message : String(err), jobId }, "AI Studio generation job failed");
     try {
