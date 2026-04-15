@@ -219,6 +219,18 @@ export async function runSchemaMigrations(): Promise<void> {
     // --- unanswered_questions column guards (idempotent for partial-schema environments) ---
     {
       table: "unanswered_questions",
+      sql: `ALTER TABLE unanswered_questions ADD COLUMN IF NOT EXISTS status varchar NOT NULL DEFAULT 'pending'`,
+    },
+    {
+      table: "unanswered_questions",
+      sql: `ALTER TABLE unanswered_questions ADD COLUMN IF NOT EXISTS asked_at timestamp DEFAULT now()`,
+    },
+    {
+      table: "unanswered_questions",
+      sql: `ALTER TABLE unanswered_questions ADD COLUMN IF NOT EXISTS created_at timestamp DEFAULT now()`,
+    },
+    {
+      table: "unanswered_questions",
       sql: `ALTER TABLE unanswered_questions ADD COLUMN IF NOT EXISTS ai_answer text`,
     },
     {

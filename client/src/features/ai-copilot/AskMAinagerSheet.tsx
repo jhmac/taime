@@ -349,7 +349,7 @@ export default function AskMAinagerSheet() {
                     <div className="ml-9 mt-1.5 flex items-start gap-1.5 p-2 rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/40">
                       <AlertTriangle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
                       <p className="text-[11px] text-amber-700 dark:text-amber-300 leading-snug">
-                        This question has been flagged for a manager to answer. Check back soon for an official response!
+                        I've flagged this for your manager to answer — they'll add it to our knowledge base soon!
                       </p>
                     </div>
                   )}
