@@ -2453,3 +2453,66 @@ export const quizAnswers = pgTable("quiz_answers", {
 export const insertQuizAnswerSchema = createInsertSchema(quizAnswers).omit({ id: true, answeredAt: true });
 export type QuizAnswer = typeof quizAnswers.$inferSelect;
 export type InsertQuizAnswer = z.infer<typeof insertQuizAnswerSchema>;
+
+// ── Daily Training Questionnaire ─────────────────────────────────────────────
+
+export const dailyQuestionnaires = pgTable("daily_questionnaires", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => workLocations.id).notNull(),
+  quizDate: date("quiz_date").notNull(),
+  topic: varchar("topic").notNull(),
+  questions: jsonb("questions").$type<Array<{
+    id: string;
+    questionText: string;
+    questionType: "multiple_choice" | "true_false" | "scenario";
+    contextParagraph?: string;
+    answerChoices: string[];
+    correctAnswerIndex: number;
+    coachingText: string;
+  }>>().notNull(),
+  xpReward: integer("xp_reward").default(50),
+  generatedBy: varchar("generated_by").references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("uq_daily_questionnaire_store_date").on(table.storeId, table.quizDate),
+  index("idx_daily_questionnaire_store").on(table.storeId),
+]);
+
+export const insertDailyQuestionnaireSchema = createInsertSchema(dailyQuestionnaires).omit({ id: true, createdAt: true });
+export type DailyQuestionnaire = typeof dailyQuestionnaires.$inferSelect;
+export type InsertDailyQuestionnaire = z.infer<typeof insertDailyQuestionnaireSchema>;
+
+export const questionnaireResponses = pgTable("questionnaire_responses", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  questionnaireId: varchar("questionnaire_id").references(() => dailyQuestionnaires.id).notNull(),
+  answers: jsonb("answers").$type<Array<{ questionIndex: number; selectedIndex: number; isCorrect: boolean }>>().notNull(),
+  score: integer("score").notNull(),
+  xpEarned: integer("xp_earned").notNull(),
+  completedAt: timestamp("completed_at").defaultNow(),
+  durationSeconds: integer("duration_seconds"),
+}, (table) => [
+  uniqueIndex("uq_questionnaire_response_user").on(table.userId, table.questionnaireId),
+  index("idx_questionnaire_responses_user").on(table.userId),
+  index("idx_questionnaire_responses_questionnaire").on(table.questionnaireId),
+]);
+
+export const insertQuestionnaireResponseSchema = createInsertSchema(questionnaireResponses).omit({ id: true, completedAt: true });
+export type QuestionnaireResponse = typeof questionnaireResponses.$inferSelect;
+export type InsertQuestionnaireResponse = z.infer<typeof insertQuestionnaireResponseSchema>;
+
+export const userBadges = pgTable("user_badges", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  storeId: varchar("store_id").references(() => workLocations.id).notNull(),
+  badgeType: varchar("badge_type").notNull(),
+  topic: varchar("topic"),
+  earnedAt: timestamp("earned_at").defaultNow(),
+}, (table) => [
+  index("idx_user_badges_user").on(table.userId),
+  index("idx_user_badges_store").on(table.storeId),
+]);
+
+export const insertUserBadgeSchema = createInsertSchema(userBadges).omit({ id: true, earnedAt: true });
+export type UserBadge = typeof userBadges.$inferSelect;
+export type InsertUserBadge = z.infer<typeof insertUserBadgeSchema>;

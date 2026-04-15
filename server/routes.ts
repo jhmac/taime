@@ -55,6 +55,7 @@ import { registerKnowledgeRoutes } from "./routes/knowledge";
 import { registerAiLearningRoutes } from "./routes/aiLearning";
 import { registerAiStudioRoutes } from "./routes/aiStudio";
 import { registerQuizRoutes } from "./routes/quiz";
+import { registerDailyQuestionnaireRoutes } from "./routes/dailyQuestionnaire";
 import { registerTrainingPlayerRoutes } from "./routes/trainingPlayer";
 import { registerMorningMomentRoutes } from "./routes/morningMoment";
 import { registerSupplyRoutes } from "./routes/supply";
@@ -200,6 +201,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerMorningMomentRoutes(app, storage, isAuthenticated);
   registerSupplyRoutes(app, storage, isAuthenticated);
   registerQuizRoutes(app, storage, isAuthenticated);
+  registerDailyQuestionnaireRoutes(app, storage, isAuthenticated);
 
   const httpServer = createServer(app);
 

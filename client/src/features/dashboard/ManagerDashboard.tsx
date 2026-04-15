@@ -21,6 +21,7 @@ import SmartSuggestionsCard from '@/features/dashboard/SmartSuggestionsCard';
 import SOPRevisionCard from '@/features/dashboard/SOPRevisionCard';
 import CashStatusCard from '@/features/dashboard/CashStatusCard';
 import SurfacedSOPBanner from '@/components/SurfacedSOPBanner';
+import DailyTrainingManagerWidget from '@/features/dashboard/DailyTrainingManagerWidget';
 import TimeClockWidget from '@/components/TimeClockWidget';
 import {
   Users,
@@ -354,6 +355,10 @@ export default function ManagerDashboard() {
                 )}
               </CardContent>
             </Card>
+          </DashboardErrorBoundary>
+
+          <DashboardErrorBoundary fallback="Daily training widget failed to load">
+            <DailyTrainingManagerWidget />
           </DashboardErrorBoundary>
 
           <DashboardErrorBoundary fallback="Could not load SOP completion">

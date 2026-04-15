@@ -13,6 +13,7 @@ import { DashboardErrorBoundary } from '@/features/dashboard/DashboardErrorBound
 import GTDDashboardWidget from '@/features/gtd/GTDDashboardWidget';
 import ScoreWidget from '@/features/dashboard/ScoreWidget';
 import TimeClockWidget from '@/components/TimeClockWidget';
+import DailyQuestionnaireCard from '@/features/dashboard/DailyQuestionnaireCard';
 import DailyQuoteCard from '@/components/DailyQuoteCard';
 import type { UserWithRole, Task, TimeEntry } from '@shared/schema';
 import {
@@ -625,6 +626,7 @@ export default function AssociateDashboard() {
             </DashboardErrorBoundary>
           )}
 
+          <DashboardErrorBoundary fallback=""><DailyQuestionnaireCard /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><BrainBoostCard /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><ScenarioCard /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><ScoreWidget /></DashboardErrorBoundary>
@@ -767,6 +769,7 @@ export default function AssociateDashboard() {
             <TimeClockWidget />
           </DashboardErrorBoundary>
 
+          <DashboardErrorBoundary fallback=""><DailyQuestionnaireCard /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><BrainBoostCard /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><ScenarioCard /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><SurfacedSOPBanner /></DashboardErrorBoundary>

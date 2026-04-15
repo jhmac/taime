@@ -42,6 +42,9 @@ import {
   morningLearningMoments,
   morningMomentAnswers,
   trainingFlags,
+  dailyQuestionnaires,
+  questionnaireResponses,
+  userBadges,
   type TrainingLesson,
   type InsertTrainingLesson,
   type TrainingQuestion,
@@ -56,6 +59,12 @@ import {
   type InsertMorningMomentAnswer,
   type TrainingFlag,
   type InsertTrainingFlag,
+  type DailyQuestionnaire,
+  type InsertDailyQuestionnaire,
+  type QuestionnaireResponse,
+  type InsertQuestionnaireResponse,
+  type UserBadge,
+  type InsertUserBadge,
   type Meeting,
   type InsertMeeting,
   type MeetingTaskRecommendation,
@@ -445,6 +454,17 @@ export interface IStorage {
   getMorningLearningMoment(storeId: string, date: string): Promise<MorningLearningMoment | undefined>;
   recordMorningMomentAnswer(answer: InsertMorningMomentAnswer): Promise<MorningMomentAnswer>;
   getMorningMomentAnswer(momentId: string, employeeId: string): Promise<MorningMomentAnswer | undefined>;
+
+  // Daily questionnaire
+  getDailyQuestionnaire(storeId: string, date: string): Promise<DailyQuestionnaire | undefined>;
+  getDailyQuestionnaireById(id: string): Promise<DailyQuestionnaire | undefined>;
+  createDailyQuestionnaire(data: InsertDailyQuestionnaire): Promise<DailyQuestionnaire>;
+  updateDailyQuestionnaire(id: string, updates: Partial<DailyQuestionnaire>): Promise<DailyQuestionnaire>;
+  getQuestionnaireResponse(userId: string, questionnaireId: string): Promise<QuestionnaireResponse | undefined>;
+  createQuestionnaireResponse(data: InsertQuestionnaireResponse): Promise<QuestionnaireResponse>;
+  getUserBadges(userId: string): Promise<UserBadge[]>;
+  getStoreBadges(storeId: string): Promise<UserBadge[]>;
+  createUserBadge(data: InsertUserBadge): Promise<UserBadge>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2278,6 +2298,61 @@ export class DatabaseStorage implements IStorage {
       .from(morningMomentAnswers)
       .where(and(eq(morningMomentAnswers.momentId, momentId), eq(morningMomentAnswers.employeeId, employeeId)))
       .limit(1);
+    return row;
+  }
+
+  async getDailyQuestionnaire(storeId: string, date: string): Promise<DailyQuestionnaire | undefined> {
+    const [row] = await db
+      .select()
+      .from(dailyQuestionnaires)
+      .where(and(eq(dailyQuestionnaires.storeId, storeId), eq(dailyQuestionnaires.quizDate, date)))
+      .limit(1);
+    return row;
+  }
+
+  async getDailyQuestionnaireById(id: string): Promise<DailyQuestionnaire | undefined> {
+    const [row] = await db.select().from(dailyQuestionnaires).where(eq(dailyQuestionnaires.id, id)).limit(1);
+    return row;
+  }
+
+  async createDailyQuestionnaire(data: InsertDailyQuestionnaire): Promise<DailyQuestionnaire> {
+    const [row] = await db.insert(dailyQuestionnaires).values(data).returning();
+    return row;
+  }
+
+  async updateDailyQuestionnaire(id: string, updates: Partial<DailyQuestionnaire>): Promise<DailyQuestionnaire> {
+    const [row] = await db
+      .update(dailyQuestionnaires)
+      .set(updates)
+      .where(eq(dailyQuestionnaires.id, id))
+      .returning();
+    return row;
+  }
+
+  async getQuestionnaireResponse(userId: string, questionnaireId: string): Promise<QuestionnaireResponse | undefined> {
+    const [row] = await db
+      .select()
+      .from(questionnaireResponses)
+      .where(and(eq(questionnaireResponses.userId, userId), eq(questionnaireResponses.questionnaireId, questionnaireId)))
+      .limit(1);
+    return row;
+  }
+
+  async createQuestionnaireResponse(data: InsertQuestionnaireResponse): Promise<QuestionnaireResponse> {
+    const [row] = await db.insert(questionnaireResponses).values(data).returning();
+    return row;
+  }
+
+  async getUserBadges(userId: string): Promise<UserBadge[]> {
+    return db.select().from(userBadges).where(eq(userBadges.userId, userId));
+  }
+
+  async getStoreBadges(storeId: string): Promise<UserBadge[]> {
+    return db.select().from(userBadges).where(eq(userBadges.storeId, storeId));
+  }
+
+  async createUserBadge(data: InsertUserBadge): Promise<UserBadge> {
+    const [row] = await db.insert(userBadges).values(data).returning();
     return row;
   }
 }

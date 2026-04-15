@@ -473,6 +473,56 @@ export async function runSchemaMigrations(): Promise<void> {
         `CREATE INDEX IF NOT EXISTS "IDX_shopify_orders_order_id" ON shopify_orders (order_id)`,
       ],
     },
+    {
+      name: "daily_questionnaires",
+      ddl: `CREATE TABLE IF NOT EXISTS daily_questionnaires (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        store_id varchar NOT NULL REFERENCES work_locations(id),
+        quiz_date date NOT NULL,
+        topic varchar NOT NULL,
+        questions jsonb NOT NULL,
+        xp_reward integer DEFAULT 50,
+        generated_by varchar REFERENCES users(id),
+        created_at timestamp DEFAULT now(),
+        UNIQUE(store_id, quiz_date)
+      )`,
+      indexes: [
+        `CREATE INDEX IF NOT EXISTS "IDX_daily_questionnaires_store" ON daily_questionnaires (store_id)`,
+      ],
+    },
+    {
+      name: "questionnaire_responses",
+      ddl: `CREATE TABLE IF NOT EXISTS questionnaire_responses (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id varchar NOT NULL REFERENCES users(id),
+        questionnaire_id varchar NOT NULL REFERENCES daily_questionnaires(id),
+        answers jsonb NOT NULL,
+        score integer NOT NULL,
+        xp_earned integer NOT NULL,
+        completed_at timestamp DEFAULT now(),
+        duration_seconds integer,
+        UNIQUE(user_id, questionnaire_id)
+      )`,
+      indexes: [
+        `CREATE INDEX IF NOT EXISTS "IDX_questionnaire_responses_user" ON questionnaire_responses (user_id)`,
+        `CREATE INDEX IF NOT EXISTS "IDX_questionnaire_responses_questionnaire" ON questionnaire_responses (questionnaire_id)`,
+      ],
+    },
+    {
+      name: "user_badges",
+      ddl: `CREATE TABLE IF NOT EXISTS user_badges (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id varchar NOT NULL REFERENCES users(id),
+        store_id varchar NOT NULL REFERENCES work_locations(id),
+        badge_type varchar NOT NULL,
+        topic varchar,
+        earned_at timestamp DEFAULT now()
+      )`,
+      indexes: [
+        `CREATE INDEX IF NOT EXISTS "IDX_user_badges_user" ON user_badges (user_id)`,
+        `CREATE INDEX IF NOT EXISTS "IDX_user_badges_store" ON user_badges (store_id)`,
+      ],
+    },
   ];
 
   for (const { name, ddl, indexes } of tableCreations) {
