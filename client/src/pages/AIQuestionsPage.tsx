@@ -204,8 +204,8 @@ export default function AIQuestionsPage() {
   const [tab, setTab] = useState<"pending" | "answered">("pending");
   const [refreshKey, setRefreshKey] = useState(0);
 
-  const role = (user as any)?.role?.name;
-  const isAdmin = role === "admin" || role === "owner" || role === "manager";
+  const roleName = user?.role?.name;
+  const isAdmin = roleName === "admin" || roleName === "owner" || roleName === "manager";
 
   const { data, isLoading } = useQuery<{ success: boolean; data: UnansweredQuestion[] }>({
     queryKey: ["/api/ai/questions", tab, refreshKey],

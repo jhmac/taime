@@ -2528,7 +2528,7 @@ export const unansweredQuestions = pgTable("unanswered_questions", {
   answer: text("answer"),
   answeredByUserId: varchar("answered_by_user_id").references(() => users.id),
   answeredAt: timestamp("answered_at"),
-  conversationId: varchar("conversation_id"),
+  conversationId: varchar("conversation_id").references(() => aiChatConversations.id),
   askedAt: timestamp("asked_at").defaultNow(),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [

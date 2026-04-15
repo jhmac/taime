@@ -6,6 +6,7 @@ import { z } from "zod";
 import { config } from "../lib/config";
 import { askMAinager } from "../services/askMAinager";
 import { generateTaskSuggestions } from "../services/smartTaskSuggestions";
+import { indexAiGeneratedItem } from "../services/sopIndexer";
 import { db } from "../db";
 import { aiFeedback, aiChatConversations, aiChatMessages, unansweredQuestions, aiGeneratedItems, users } from "@shared/schema";
 import { eq, and, desc, gte, count } from "drizzle-orm";
@@ -550,10 +551,16 @@ Available SOPs: ${publishedSops.length > 0 ? publishedSops.map(s => s.title).joi
       }
       const { answer } = z.object({ answer: z.string().min(1) }).parse(req.body);
 
+      const storeId = await tryResolveStoreIdForUser(req.user.id);
+      if (!storeId) return res.status(400).json({ message: "Store not found" });
+
       const [row] = await db
         .select()
         .from(unansweredQuestions)
-        .where(eq(unansweredQuestions.id, req.params.id))
+        .where(and(
+          eq(unansweredQuestions.id, req.params.id),
+          eq(unansweredQuestions.storeId, storeId),
+        ))
         .limit(1);
 
       if (!row) return res.status(404).json({ message: "Question not found" });
@@ -566,18 +573,29 @@ Available SOPs: ${publishedSops.length > 0 ? publishedSops.map(s => s.title).joi
           answeredByUserId: req.user.id,
           answeredAt: new Date(),
         })
-        .where(eq(unansweredQuestions.id, req.params.id));
+        .where(and(
+          eq(unansweredQuestions.id, req.params.id),
+          eq(unansweredQuestions.storeId, storeId),
+        ));
 
-      // Create KB entry so future AI searches can find this answer
+      // Create KB entry compatible with indexer "knowledge_base" content shape
       try {
-        await db.insert(aiGeneratedItems).values({
+        const [newItem] = await db.insert(aiGeneratedItems).values({
           storeId: row.storeId,
-          type: "qa_answer",
+          type: "knowledge_base",
           title: row.question.slice(0, 120),
-          content: { question: row.question, answer },
+          content: {
+            summary: `Q: ${row.question}\nA: ${answer}`,
+            paragraphs: [{ heading: row.question, body: answer }],
+          },
           status: "published",
           createdBy: req.user.id,
-        });
+        }).returning();
+
+        // Index immediately so MAinager can use this answer in future searches
+        if (newItem?.id) {
+          indexAiGeneratedItem(newItem.id).catch(() => {});
+        }
       } catch {
         // Non-fatal if KB entry fails
       }
@@ -594,10 +612,27 @@ Available SOPs: ${publishedSops.length > 0 ? publishedSops.map(s => s.title).joi
       if (role !== 'admin' && role !== 'owner' && role !== 'manager') {
         return res.status(403).json({ message: "Access denied" });
       }
+      const storeId = await tryResolveStoreIdForUser(req.user.id);
+      if (!storeId) return res.status(400).json({ message: "Store not found" });
+
+      const [row] = await db
+        .select({ id: unansweredQuestions.id })
+        .from(unansweredQuestions)
+        .where(and(
+          eq(unansweredQuestions.id, req.params.id),
+          eq(unansweredQuestions.storeId, storeId),
+        ))
+        .limit(1);
+
+      if (!row) return res.status(404).json({ message: "Question not found" });
+
       await db
         .update(unansweredQuestions)
         .set({ status: "dismissed" })
-        .where(eq(unansweredQuestions.id, req.params.id));
+        .where(and(
+          eq(unansweredQuestions.id, req.params.id),
+          eq(unansweredQuestions.storeId, storeId),
+        ));
 
       res.json({ success: true });
     } catch (error: any) {

@@ -605,7 +605,7 @@ export async function runSchemaMigrations(): Promise<void> {
         answer text,
         answered_by_user_id varchar REFERENCES users(id),
         answered_at timestamp,
-        conversation_id varchar,
+        conversation_id varchar REFERENCES ai_chat_conversations(id),
         asked_at timestamp DEFAULT now(),
         created_at timestamp DEFAULT now()
       )`,
