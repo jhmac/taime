@@ -36,7 +36,6 @@ import {
   CircleAlert,
   ListTodo,
   Bot,
-  MessageCircleQuestion,
 } from 'lucide-react';
 
 export default function ManagerDashboard() {
