@@ -375,7 +375,7 @@ ${ctx.sopChunks}`;
     const isOffTopic = /outside my expertise|not a work.related|can't help with that|outside of my/i.test(answer);
     if (confidence === "low" && ctx.sopResults.length === 0 && !isOperationalQuestion && !isOffTopic) {
       try {
-        const sevenDaysAgo = new Date(now);
+        const sevenDaysAgo = new Date();
         sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
         const existing = await db
           .select({ id: unansweredQuestions.id })
