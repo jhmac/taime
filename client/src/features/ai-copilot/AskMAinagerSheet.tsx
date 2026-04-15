@@ -78,7 +78,6 @@ export default function AskMAinagerSheet() {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [feedbackText, setFeedbackText] = useState("");
   const [feedbackMsgId, setFeedbackMsgId] = useState<string | null>(null);
-  const [retryCount, setRetryCount] = useState(0);
   const [pulseVisible, setPulseVisible] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -167,7 +166,6 @@ export default function AskMAinagerSheet() {
     };
     setMessages(prev => [...prev, userMsg]);
     setInput("");
-    setRetryCount(0);
     askMutation.mutate(q);
   };
 
@@ -182,7 +180,6 @@ export default function AskMAinagerSheet() {
     setMessages([]);
     setConversationId(null);
     setInput("");
-    setRetryCount(0);
   };
 
   const handleFeedback = (msgId: string, helpful: boolean) => {
@@ -246,7 +243,6 @@ export default function AskMAinagerSheet() {
     };
     setMessages(prev => [...prev, userMsg]);
     setInput("");
-    setRetryCount(0);
     askMutation.mutate(text);
   };
 
