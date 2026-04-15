@@ -253,7 +253,7 @@ export default function ManagerDashboard() {
             >
               <CardContent className="p-4 flex items-center gap-3">
                 <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${unansweredCount > 0 ? "bg-amber-100 dark:bg-amber-900/30" : "bg-muted"}`}>
-                  <MessageSquareQuestion className={`h-5 w-5 ${unansweredCount > 0 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}`} />
+                  <AlertTriangle className={`h-5 w-5 ${unansweredCount > 0 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}`} />
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className={`font-semibold text-sm ${unansweredCount > 0 ? "text-amber-800 dark:text-amber-300" : "text-foreground"}`}>

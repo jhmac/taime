@@ -592,6 +592,7 @@ Available SOPs: ${publishedSops.length > 0 ? publishedSops.map(s => s.title).joi
           .where(and(
             eq(unansweredQuestions.id, req.params.id),
             eq(unansweredQuestions.storeId, storeId),
+            eq(unansweredQuestions.status, "pending"), // race-safe: no-op if already answered
           ));
 
         const [newItem] = await tx.insert(aiGeneratedItems).values({
