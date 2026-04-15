@@ -404,7 +404,7 @@ ${ctx.sopChunks}`;
         }
         // flagged=true whenever a pending row exists (new or existing duplicate)
         flagged = true;
-        answer = "I don't see a procedure for that in our knowledge base yet — I've flagged your question so a manager can add an official answer. Check back soon!";
+        answer = "I don't have a procedure for that in our knowledge base yet. I've flagged this for your manager — in the meantime, check with a team lead directly.";
       } catch (flagErr: any) {
         logger.warn({ error: flagErr.message }, "[AskMAinager] Failed to save unanswered question (non-fatal)");
       }
