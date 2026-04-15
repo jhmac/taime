@@ -397,6 +397,7 @@ ${ctx.sopChunks}`;
           )
           .limit(1);
 
+        // Insert new pending row only on first occurrence; on repeat within 7 days, still flag=true
         if (existing.length === 0) {
           await db.insert(unansweredQuestions).values({
             storeId,
@@ -406,9 +407,11 @@ ${ctx.sopChunks}`;
             status: "pending",
             conversationId: convId,
           });
-          flagged = true;
           logger.info({ storeId, question: question.slice(0, 80) }, "[AskMAinager] Flagged unanswered question");
         }
+        // flagged=true whenever a pending row exists (new or existing duplicate)
+        flagged = true;
+        answer = "I don't see a procedure for that in our knowledge base yet — I've flagged your question so a manager can add an official answer. Check back soon!";
       } catch (flagErr: any) {
         logger.warn({ error: flagErr.message }, "[AskMAinager] Failed to save unanswered question (non-fatal)");
       }

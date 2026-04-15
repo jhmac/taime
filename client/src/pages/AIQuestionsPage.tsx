@@ -1,18 +1,15 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
-import { useLocation } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import {
   MessageSquareQuestion,
   CheckCircle2,
-  XCircle,
   ChevronDown,
   ChevronUp,
   Send,
@@ -51,26 +48,13 @@ function QuestionCard({ q, onAnswered }: { q: UnansweredQuestion; onAnswered: ()
       return res.json();
     },
     onSuccess: () => {
-      toast({ title: "Answer submitted", description: "The answer has been saved and added to the knowledge base." });
+      toast({ title: "Answer submitted", description: "Saved to the knowledge base — MAinager will use it for future questions." });
       queryClient.invalidateQueries({ queryKey: ["/api/ai/questions"] });
       queryClient.invalidateQueries({ queryKey: ["/api/ai/questions/count"] });
       onAnswered();
     },
     onError: () => {
       toast({ title: "Failed to submit answer", variant: "destructive" });
-    },
-  });
-
-  const dismissMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/ai/questions/${q.id}/dismiss`, {});
-      return res.json();
-    },
-    onSuccess: () => {
-      toast({ title: "Question dismissed" });
-      queryClient.invalidateQueries({ queryKey: ["/api/ai/questions"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/ai/questions/count"] });
-      onAnswered();
     },
   });
 
@@ -111,7 +95,7 @@ function QuestionCard({ q, onAnswered }: { q: UnansweredQuestion; onAnswered: ()
                 className="mt-2 text-[11px] text-violet-600 dark:text-violet-400 flex items-center gap-1 hover:underline"
               >
                 {showAiAnswer ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-                {showAiAnswer ? "Hide AI response" : "See what MAinager said"}
+                {showAiAnswer ? "Hide what MAinager said" : "See what MAinager said"}
               </button>
             )}
 
@@ -136,7 +120,7 @@ function QuestionCard({ q, onAnswered }: { q: UnansweredQuestion; onAnswered: ()
             ) : (
               <div className="mt-3 space-y-2">
                 <Textarea
-                  placeholder="Type your official answer here — this will be added to the knowledge base so MAinager can answer similar questions in the future."
+                  placeholder="Type your official answer here — it will be added to the knowledge base so MAinager can use it for future questions."
                   value={answerText}
                   onChange={(e) => setAnswerText(e.target.value)}
                   className="text-sm min-h-[80px] resize-none"
@@ -165,31 +149,8 @@ function QuestionCard({ q, onAnswered }: { q: UnansweredQuestion; onAnswered: ()
                   >
                     Cancel
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 text-xs text-muted-foreground ml-auto"
-                    onClick={() => dismissMutation.mutate()}
-                    disabled={dismissMutation.isPending}
-                  >
-                    <XCircle className="h-3 w-3 mr-1" />
-                    Dismiss
-                  </Button>
                 </div>
               </div>
-            )}
-
-            {!expanded && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="mt-1 h-7 text-xs text-muted-foreground"
-                onClick={() => dismissMutation.mutate()}
-                disabled={dismissMutation.isPending}
-              >
-                <XCircle className="h-3 w-3 mr-1" />
-                Dismiss
-              </Button>
             )}
           </div>
         </div>
@@ -200,7 +161,6 @@ function QuestionCard({ q, onAnswered }: { q: UnansweredQuestion; onAnswered: ()
 
 export default function AIQuestionsPage() {
   const { user } = useAuth();
-  const [, navigate] = useLocation();
   const [tab, setTab] = useState<"pending" | "answered">("pending");
   const [refreshKey, setRefreshKey] = useState(0);
 

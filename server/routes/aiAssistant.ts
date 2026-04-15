@@ -606,39 +606,6 @@ Available SOPs: ${publishedSops.length > 0 ? publishedSops.map(s => s.title).joi
     }
   });
 
-  app.post('/api/ai/questions/:id/dismiss', isAuthenticated, async (req: any, res) => {
-    try {
-      const role = req.user?.role?.name;
-      if (role !== 'admin' && role !== 'owner' && role !== 'manager') {
-        return res.status(403).json({ message: "Access denied" });
-      }
-      const storeId = await tryResolveStoreIdForUser(req.user.id);
-      if (!storeId) return res.status(400).json({ message: "Store not found" });
-
-      const [row] = await db
-        .select({ id: unansweredQuestions.id })
-        .from(unansweredQuestions)
-        .where(and(
-          eq(unansweredQuestions.id, req.params.id),
-          eq(unansweredQuestions.storeId, storeId),
-        ))
-        .limit(1);
-
-      if (!row) return res.status(404).json({ message: "Question not found" });
-
-      await db
-        .update(unansweredQuestions)
-        .set({ status: "dismissed" })
-        .where(and(
-          eq(unansweredQuestions.id, req.params.id),
-          eq(unansweredQuestions.storeId, storeId),
-        ));
-
-      res.json({ success: true });
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
 }
 
 function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
