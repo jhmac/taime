@@ -581,7 +581,7 @@ Available SOPs: ${publishedSops.length > 0 ? publishedSops.map(s => s.title).joi
       // Atomic: update question status AND create KB entry together; roll back if either fails
       let newItemId: string | undefined;
       await db.transaction(async (tx) => {
-        await tx
+        const updated = await tx
           .update(unansweredQuestions)
           .set({
             status: "answered",
@@ -593,7 +593,11 @@ Available SOPs: ${publishedSops.length > 0 ? publishedSops.map(s => s.title).joi
             eq(unansweredQuestions.id, req.params.id),
             eq(unansweredQuestions.storeId, storeId),
             eq(unansweredQuestions.status, "pending"), // race-safe: no-op if already answered
-          ));
+          ))
+          .returning({ id: unansweredQuestions.id });
+
+        // Only create KB entry if this request actually transitioned the status
+        if (updated.length === 0) return;
 
         const [newItem] = await tx.insert(aiGeneratedItems).values({
           storeId: row.storeId,
