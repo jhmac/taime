@@ -232,7 +232,7 @@ self.addEventListener('push', (event) => {
       actions: data.actions || [],
       tag: data.data?.type || 'general',
       renotify: true,
-      requireInteraction: data.data?.type === 'overtime_warning' || data.data?.type === 'location_reminder',
+      requireInteraction: data.data?.type === 'clock_in_reminder' || data.data?.type === 'overtime_warning' || data.data?.type === 'location_reminder',
       silent: false,
       vibrate: [200, 100, 200]
     };
@@ -253,15 +253,16 @@ self.addEventListener('notificationclick', (event) => {
   const data = event.notification.data || {};
   const action = event.action;
   let url = '/';
-  if (action === 'clock_in' || action === 'clock_out') url = '/?action=clock';
+  if (data.type === 'clock_in_reminder' || action === 'clock_in') url = '/?action=clock';
+  else if (action === 'clock_out') url = '/?action=clock';
   else if (action === 'view_task') url = '/?action=tasks';
   else if (action === 'view_schedule') url = '/?action=schedule';
   else if (action === 'review_payroll') url = '/?action=payroll';
   else if (data.type === 'task_assignment') url = '/?action=tasks';
   else if (data.type === 'schedule_update') url = '/?action=schedule';
   else if (data.type === 'payroll_ready') url = '/?action=payroll';
-  else if (data.type === 'anomaly_alert') url = data.url || '/dashboard';
-  else if (action === 'view_details' && data.type === 'anomaly_alert') url = '/dashboard';
+  else if (data.type === 'anomaly_alert') url = data.url || '/';
+  else if (action === 'view_details' && data.type === 'anomaly_alert') url = '/';
   else if (data.type === 'achievement_unlocked') url = data.url || '/my-score';
   else if (data.type === 'tier_change') url = data.url || '/my-score';
   else if (data.type === 'top_rank') url = data.url || '/my-score';

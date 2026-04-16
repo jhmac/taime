@@ -129,21 +129,6 @@ export default function TimeClockOptionsSection({ settingsForm, updateForm }: Se
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Smart Clock-In Prompt</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <Label className="text-sm">Enable smart clock-in prompt</Label>
-              <p className="text-xs text-muted-foreground">When an employee opens the app inside a geofenced work location, prompt them to clock in with one tap</p>
-            </div>
-            <Switch checked={settingsForm.enableSmartClockPrompt || false} onCheckedChange={val => updateForm('enableSmartClockPrompt', val)} />
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
           <CardTitle className="text-base">Clock Out on Focus Loss</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">

@@ -4,7 +4,6 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import TopNavigation from './TopNavigation';
 import DesktopSidebar from './DesktopSidebar';
 import BottomNavigation from './BottomNavigation';
-import PushNotification from './PushNotification';
 
 interface LayoutProps {
   children: ReactNode;
@@ -26,7 +25,6 @@ export default function Layout({ children }: LayoutProps) {
           {children}
         </main>
         <BottomNavigation />
-        <PushNotification />
       </div>
     );
   }
@@ -40,7 +38,6 @@ export default function Layout({ children }: LayoutProps) {
           {children}
         </main>
       </div>
-      <PushNotification />
     </div>
   );
 }

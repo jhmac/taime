@@ -98,7 +98,6 @@ const MorningWhisper = lazy(() => import("@/pages/MorningWhisper"));
 const ImprovementFeed = lazy(() => import("@/pages/ImprovementFeed"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 const ShopifyCallbackSuccess = lazy(() => import("@/pages/ShopifyCallbackSuccess"));
-const SmartClockPrompt = lazy(() => import("@/components/SmartClockPrompt"));
 const FocusClockOut = lazy(() => import("@/components/FocusClockOut"));
 const AskMAinagerSheet = lazy(() => import("@/features/ai-copilot/AskMAinagerSheet"));
 const QuickCaptureButton = lazy(() => import("@/features/gtd/QuickCaptureButton"));
@@ -235,7 +234,6 @@ function AuthenticatedApp() {
     <>
     <OfflineIndicator />
     <Suspense fallback={null}>
-      <SmartClockPrompt />
       <FocusClockOut />
       <AskMAinagerSheet />
       <QuickCaptureButton />
