@@ -10,7 +10,7 @@ import { Video, Camera, Square, RotateCcw, Check, Upload } from "lucide-react";
 import { Capacitor } from "@capacitor/core";
 
 const MAX_DURATION = 60;
-const IS_NATIVE_IOS = Capacitor.isNativePlatform() && Capacitor.getPlatform() === "ios";
+const IS_NATIVE = Capacitor.isNativePlatform();
 
 const CATEGORIES = [
   { value: "process", label: "Process", icon: "fas fa-cogs", color: "bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400" },
@@ -38,6 +38,7 @@ export default function VideoRecordDialog({ open, onOpenChange, onSuccess }: Pro
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [thumbnailDataUrl, setThumbnailDataUrl] = useState<string | null>(null);
 
+  const [isNativeCapturing, setIsNativeCapturing] = useState(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState("process");
@@ -57,7 +58,7 @@ export default function VideoRecordDialog({ open, onOpenChange, onSuccess }: Pro
   }, []);
 
   const startCamera = useCallback(async () => {
-    if (IS_NATIVE_IOS) {
+    if (IS_NATIVE) {
       setCameraSupported(false);
       return;
     }
@@ -76,6 +77,54 @@ export default function VideoRecordDialog({ open, onOpenChange, onSuccess }: Pro
       setCameraSupported(false);
     }
   }, []);
+
+  const captureNativeVideo = useCallback(async () => {
+    setIsNativeCapturing(true);
+    try {
+      const { Camera } = await import("@capacitor/camera");
+      const result = await Camera.recordVideo({ saveToGallery: false });
+      const url = result.webPath ?? result.uri ?? "";
+      if (!url) throw new Error("No video path returned");
+      const response = await fetch(url);
+      const blob = await response.blob();
+      setRecordedBlob(blob);
+      setPreviewUrl(url);
+      generateThumbnail(url);
+      setStep("details");
+    } catch (err: any) {
+      const msg: string = err?.message ?? "";
+      if (!msg.toLowerCase().includes("cancel") && !msg.toLowerCase().includes("dismiss")) {
+        toast({ title: "Camera error", description: "Could not record video. Please try again.", variant: "destructive" });
+      }
+    } finally {
+      setIsNativeCapturing(false);
+    }
+  }, [toast]);
+
+  const pickNativeGalleryVideo = useCallback(async () => {
+    setIsNativeCapturing(true);
+    try {
+      const { Camera } = await import("@capacitor/camera");
+      const gallery = await Camera.chooseFromGallery({ limit: 1 });
+      const media = gallery.results?.[0];
+      if (!media) return;
+      const url = media.webPath ?? media.uri ?? "";
+      if (!url) throw new Error("No video path returned");
+      const response = await fetch(url);
+      const blob = await response.blob();
+      setRecordedBlob(blob);
+      setPreviewUrl(url);
+      generateThumbnail(url);
+      setStep("details");
+    } catch (err: any) {
+      const msg: string = err?.message ?? "";
+      if (!msg.toLowerCase().includes("cancel") && !msg.toLowerCase().includes("dismiss")) {
+        toast({ title: "Gallery error", description: "Could not select video.", variant: "destructive" });
+      }
+    } finally {
+      setIsNativeCapturing(false);
+    }
+  }, [toast]);
 
   useEffect(() => {
     if (open && step === "camera" && cameraSupported) {
@@ -330,23 +379,47 @@ export default function VideoRecordDialog({ open, onOpenChange, onSuccess }: Pro
                 <div className="space-y-4">
                   <div className="text-center py-8 bg-muted/30 rounded-xl border-2 border-dashed border-muted-foreground/20">
                     <Camera className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
-                    <p className="text-sm text-muted-foreground mb-3">
-                      {Capacitor.isNativePlatform()
-                        ? "Use your device camera to record a video, then select it below."
-                        : "Camera not available. Upload a video file instead."}
-                    </p>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="video/mp4,video/quicktime,video/webm"
-                      capture={Capacitor.isNativePlatform() ? "environment" : undefined}
-                      onChange={handleFileSelect}
-                      className="hidden"
-                    />
-                    <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
-                      <Upload className="h-4 w-4 mr-1" />
-                      {Capacitor.isNativePlatform() ? "Record or Choose Video" : "Choose Video File"}
-                    </Button>
+                    {IS_NATIVE ? (
+                      <>
+                        <p className="text-sm text-muted-foreground mb-4">
+                          Record a video or pick one from your gallery.
+                        </p>
+                        <div className="flex flex-col gap-2">
+                          <Button
+                            onClick={captureNativeVideo}
+                            disabled={isNativeCapturing}
+                            className="bg-gradient-to-r from-orange-500 to-pink-500 text-white"
+                          >
+                            <Video className="h-4 w-4 mr-1.5" />
+                            {isNativeCapturing ? "Opening camera…" : "Record Video"}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            onClick={pickNativeGalleryVideo}
+                            disabled={isNativeCapturing}
+                          >
+                            <Upload className="h-4 w-4 mr-1.5" />
+                            Choose from Gallery
+                          </Button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-sm text-muted-foreground mb-3">
+                          Camera not available. Upload a video file instead.
+                        </p>
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          accept="video/mp4,video/quicktime,video/webm"
+                          onChange={handleFileSelect}
+                          className="hidden"
+                        />
+                        <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
+                          <Upload className="h-4 w-4 mr-1" /> Choose Video File
+                        </Button>
+                      </>
+                    )}
                   </div>
                   {recordedBlob && previewUrl && (
                     <>
