@@ -91,9 +91,9 @@ export default function VideoRecordDialog({ open, onOpenChange, onSuccess }: Pro
       setPreviewUrl(url);
       generateThumbnail(url);
       setStep("details");
-    } catch (err: any) {
-      const msg: string = err?.message ?? "";
-      if (!msg.toLowerCase().includes("cancel") && !msg.toLowerCase().includes("dismiss")) {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message.toLowerCase() : "";
+      if (!msg.includes("cancel") && !msg.includes("dismiss")) {
         toast({ title: "Camera error", description: "Could not record video. Please try again.", variant: "destructive" });
       }
     } finally {
@@ -116,9 +116,9 @@ export default function VideoRecordDialog({ open, onOpenChange, onSuccess }: Pro
       setPreviewUrl(url);
       generateThumbnail(url);
       setStep("details");
-    } catch (err: any) {
-      const msg: string = err?.message ?? "";
-      if (!msg.toLowerCase().includes("cancel") && !msg.toLowerCase().includes("dismiss")) {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message.toLowerCase() : "";
+      if (!msg.includes("cancel") && !msg.includes("dismiss")) {
         toast({ title: "Gallery error", description: "Could not select video.", variant: "destructive" });
       }
     } finally {

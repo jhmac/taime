@@ -25,7 +25,7 @@ export function useNativePushNotifications() {
       const tokenListener = await PushNotifications.addListener('registration', async (token) => {
         if (!mounted) return;
         try {
-          await fetch('/api/push/native-token', {
+          const resp = await fetch('/api/push/native-token', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
@@ -34,6 +34,12 @@ export function useNativePushNotifications() {
               platform: Capacitor.getPlatform(),
             }),
           });
+          const body = (await resp.json()) as { success: boolean; deliveryReady: boolean };
+          if (body.deliveryReady) {
+            console.log('[NativePush] Token registered — APNs/FCM delivery is active.');
+          } else {
+            console.log('[NativePush] Token registered — APNs/FCM server credentials not yet configured (follow-up #88). Web push still active.');
+          }
         } catch (err) {
           console.warn('[NativePush] Failed to register token:', err);
         }

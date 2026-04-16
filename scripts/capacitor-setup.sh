@@ -131,8 +131,9 @@ if [ -f "android/app/src/main/AndroidManifest.xml" ]; then
   add_permission() {
     local perm="$1"
     if ! grep -q "$perm" "$MANIFEST"; then
-      sed -i '' "s|<manifest|<uses-permission android:name=\"$perm\" />\n<manifest|" "$MANIFEST" 2>/dev/null \
-        || sed -i "s|<manifest|<uses-permission android:name=\"$perm\" />\n<manifest|" "$MANIFEST"
+      # Insert <uses-permission> before the <application> tag so it stays inside <manifest>
+      sed -i '' "s|    <application|    <uses-permission android:name=\"$perm\" />\n    <application|" "$MANIFEST" 2>/dev/null \
+        || sed -i "s|    <application|    <uses-permission android:name=\"$perm\" />\n    <application|" "$MANIFEST"
       echo "  ✅  Added $perm"
     fi
   }

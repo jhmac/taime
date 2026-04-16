@@ -14,6 +14,14 @@ export interface GeolocationError {
   message: string;
 }
 
+function capacitorErrCode(err: unknown): number {
+  if (typeof err === 'object' && err !== null && 'code' in err) {
+    const code = (err as { code: unknown }).code;
+    if (typeof code === 'number') return code;
+  }
+  return 2;
+}
+
 export function useGeolocation() {
   const [position, setPosition] = useState<GeolocationPosition | null>(null);
   const [error, setError] = useState<GeolocationError | null>(null);
@@ -57,14 +65,12 @@ export function useGeolocation() {
           setError(null);
           setPermissionState('granted');
           return result;
-        } catch (err: any) {
-          const geoError: GeolocationError = {
-            code: err.code ?? 2,
-            message: getErrorMessage(err.code ?? 2),
-          };
+        } catch (err) {
+          const code = capacitorErrCode(err);
+          const geoError: GeolocationError = { code, message: getErrorMessage(code) };
           setError(geoError);
           setLoading(false);
-          if (err.code === 1) setPermissionState('denied');
+          if (code === 1) setPermissionState('denied');
           throw geoError;
         }
       })();
@@ -126,12 +132,10 @@ export function useGeolocation() {
         { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 },
         (pos, err) => {
           if (err) {
-            const geoError: GeolocationError = {
-              code: (err as any).code ?? 2,
-              message: getErrorMessage((err as any).code ?? 2),
-            };
+            const code = capacitorErrCode(err);
+            const geoError: GeolocationError = { code, message: getErrorMessage(code) };
             setError(geoError);
-            if ((err as any).code === 1) setPermissionState('denied');
+            if (code === 1) setPermissionState('denied');
             return;
           }
           if (pos) {

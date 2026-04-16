@@ -1,5 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { apiRequest } from '@/lib/queryClient';
+import { Capacitor } from '@capacitor/core';
+import { Geolocation } from '@capacitor/geolocation';
 
 const BREADCRUMB_INTERVAL_MS = 30000;
 
@@ -12,6 +14,24 @@ export function useOffsiteBreadcrumbReporter(sessionId: string | null | undefine
   }, [sessionId]);
 
   const sendBreadcrumb = useCallback(async (sid: string) => {
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const pos = await Geolocation.getCurrentPosition({
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 5000,
+        });
+        await apiRequest('POST', `/api/offsite-sessions/${sid}/breadcrumb`, {
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+          accuracy: pos.coords.accuracy,
+        });
+      } catch (err) {
+        console.warn('[BreadcrumbReporter] Native geolocation error:', err);
+      }
+      return;
+    }
+
     if (!navigator.geolocation) return;
 
     navigator.geolocation.getCurrentPosition(
