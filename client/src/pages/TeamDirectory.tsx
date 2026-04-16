@@ -4,6 +4,7 @@ import { useLocation } from 'wouter';
 import { useAuth } from '@/hooks/useAuth';
 import { Input } from '@/components/ui/input';
 import type { User } from '@shared/schema';
+import { ChevronRight } from 'lucide-react';
 
 export default function TeamDirectory() {
   const { user: currentUser } = useAuth();
@@ -67,7 +68,11 @@ export default function TeamDirectory() {
             return (
               <div
                 key={member.id}
-                className="flex items-center gap-3 py-3.5 border-b border-border"
+                className="flex items-center gap-3 py-3.5 border-b border-border cursor-pointer active:bg-muted/50 transition-colors"
+                onClick={() => navigate(`/team/${member.id}`)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') navigate(`/team/${member.id}`); }}
               >
                 <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold text-sm flex-shrink-0">
                   {member.profileImageUrl ? (
@@ -87,15 +92,7 @@ export default function TeamDirectory() {
                     </div>
                   )}
                 </div>
-                {!isYou && (
-                  <button
-                    onClick={() => navigate('/communication')}
-                    className="text-primary p-2"
-                    title="Message"
-                  >
-                    <i className="fas fa-comment-dots text-lg"></i>
-                  </button>
-                )}
+                <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />
               </div>
             );
           })

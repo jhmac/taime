@@ -310,7 +310,7 @@ export default function TeamMember() {
       <div className="flex flex-col items-center justify-center py-24 gap-3">
         <AlertTriangle className="h-10 w-10 text-destructive" />
         <p className="text-muted-foreground">Team member not found.</p>
-        <Button variant="outline" onClick={() => navigate("/team")}>
+        <Button variant="outline" onClick={() => history.length > 1 ? window.history.back() : navigate("/team")}>
           Back to Team
         </Button>
       </div>
@@ -359,7 +359,7 @@ export default function TeamMember() {
   return (
     <div className="max-w-4xl mx-auto p-4 lg:p-6 space-y-6">
       <button
-        onClick={() => navigate("/team")}
+        onClick={() => history.length > 1 ? window.history.back() : navigate("/team")}
         className="flex items-center gap-1 text-sm text-purple-600 hover:text-purple-800 font-medium"
       >
         <ArrowLeft className="h-4 w-4" />
