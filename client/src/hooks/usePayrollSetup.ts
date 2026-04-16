@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -10,22 +10,24 @@ interface SetupStatus {
 export function usePayrollSetup() {
   const { user } = useAuth();
   const [showSetupModal, setShowSetupModal] = useState(false);
+  // Track dismissal with a ref so closing the modal doesn't re-trigger the effect
+  const dismissedRef = useRef(false);
 
-  // Check if user needs to set up payroll
   const { data: setupStatus, isLoading } = useQuery<SetupStatus>({
     queryKey: ["/api/payroll/setup-status"],
     enabled: !!user,
     retry: false,
   });
 
-  // Show setup modal for first-time users
+  // Open modal once when needsSetup becomes true; respect dismissal for the session
   useEffect(() => {
-    if (setupStatus?.needsSetup && !showSetupModal) {
+    if (setupStatus?.needsSetup && !dismissedRef.current) {
       setShowSetupModal(true);
     }
-  }, [setupStatus?.needsSetup, showSetupModal]);
+  }, [setupStatus?.needsSetup]);
 
   const closeSetupModal = () => {
+    dismissedRef.current = true;
     setShowSetupModal(false);
   };
 
