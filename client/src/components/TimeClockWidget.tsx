@@ -96,7 +96,7 @@ export default function TimeClockWidget() {
   useOffsiteBreadcrumbReporter(offsiteSessionWithRoute?.id ?? null);
 
   useEffect(() => {
-    if (workLocations.length > 0 && !hasRequestedLocation.current && permissionState !== 'denied') {
+    if (workLocations.length > 0 && !hasRequestedLocation.current && permissionState !== 'denied' && permissionState !== 'prompt') {
       hasRequestedLocation.current = true;
       getCurrentPosition().catch(() => {});
     }
@@ -692,6 +692,29 @@ export default function TimeClockWidget() {
             </div>
           )}
 
+          {/* Location permission prompt nudge (pre-clock-in only, prompt state) */}
+          {workLocations.length > 0 && permissionState === 'prompt' && !activeTimeEntry && (
+            <div className="flex flex-col gap-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-2xl p-4 text-left">
+              <div className="flex items-start gap-3">
+                <MapPin className="h-5 w-5 text-blue-500 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-bold text-blue-800 dark:text-blue-200">Location permission needed</p>
+                  <p className="text-xs text-blue-700 dark:text-blue-300 mt-0.5 leading-relaxed">
+                    Smart Clock-In verifies you're at a work site before clocking in. Tap the button below to allow location access.
+                  </p>
+                </div>
+              </div>
+              <Button
+                onClick={() => getCurrentPosition().catch(() => {})}
+                disabled={locationLoading}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold py-2 rounded-xl"
+                data-testid="allow-location-button"
+              >
+                {locationLoading ? 'Requesting…' : 'Allow Location Access'}
+              </Button>
+            </div>
+          )}
+
           {/* Location permission error (pre-clock-in only) */}
           {workLocations.length > 0 && (permissionState === 'denied' || (locationError && !position)) && !activeTimeEntry && (() => {
             const isDenied = permissionState === 'denied' || locationError?.code === 1;
@@ -747,8 +770,8 @@ export default function TimeClockWidget() {
             </div>
           )}
 
-          {/* Location loading hint */}
-          {!activeTimeEntry && !geofenceStatus && workLocations.length > 0 && (
+          {/* Location loading hint — hidden in prompt state since the nudge banner covers it */}
+          {!activeTimeEntry && !geofenceStatus && workLocations.length > 0 && permissionState !== 'prompt' && (
             <p className="text-sm text-muted-foreground" data-testid="location-status">
               {locationLoading ? 'Getting location…' : !position ? 'Location needed to clock in' : 'Checking location…'}
             </p>
@@ -761,7 +784,7 @@ export default function TimeClockWidget() {
               <p className="text-sm font-semibold text-foreground">Mobile clock-in only</p>
               <p className="text-xs text-muted-foreground">Use your phone to clock in</p>
             </div>
-          ) : (
+          ) : permissionState === 'prompt' && !activeTimeEntry && workLocations.length > 0 ? null : (
             <Button
               onClick={handleClockAction}
               disabled={clockInMutation.isPending || clockOutMutation.isPending || activeEntryLoading || (permissionState === 'denied' && workLocations.length > 0 && !activeTimeEntry)}
