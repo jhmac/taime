@@ -10,3 +10,11 @@ vite.config.ts.*
 .logs/
 .logs/action-log.jsonl
 .logs/error-log.jsonl
+
+# Signing keystores — NEVER commit these; loss or exposure cannot be undone
+*.keystore
+taime-release.keystore
+
+# Firebase credential files — contain sensitive server keys
+android/app/google-services.json
+ios/App/GoogleService-Info.plist
