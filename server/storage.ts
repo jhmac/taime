@@ -105,6 +105,7 @@ import {
   type NativePushToken,
   type InsertNativePushToken,
   type NotificationDeliveryLog,
+  type NotificationDeliveryLogWithUser,
   type InsertNotificationDeliveryLog,
   notificationDeliveryLogs,
   type Role,
@@ -286,7 +287,7 @@ export interface IStorage {
 
   // Notification delivery log operations
   createNotificationDeliveryLog(log: InsertNotificationDeliveryLog): Promise<NotificationDeliveryLog>;
-  getNotificationDeliveryLogs(options?: { channel?: string; since?: Date; limit?: number }): Promise<NotificationDeliveryLog[]>;
+  getNotificationDeliveryLogs(options?: { channel?: string; userId?: string; notificationType?: string; since?: Date; limit?: number }): Promise<NotificationDeliveryLogWithUser[]>;
   deleteOldNotificationDeliveryLogs(olderThanDays: number): Promise<number>;
 
   // Role management operations
@@ -1253,21 +1254,47 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async getNotificationDeliveryLogs(options?: { channel?: string; since?: Date; limit?: number }): Promise<NotificationDeliveryLog[]> {
+  async getNotificationDeliveryLogs(options?: { channel?: string; userId?: string; notificationType?: string; since?: Date; limit?: number }): Promise<NotificationDeliveryLogWithUser[]> {
     const conditions: any[] = [];
     if (options?.channel) {
       conditions.push(eq(notificationDeliveryLogs.channel, options.channel));
     }
+    if (options?.userId) {
+      conditions.push(eq(notificationDeliveryLogs.userId, options.userId));
+    }
+    if (options?.notificationType) {
+      conditions.push(eq(notificationDeliveryLogs.notificationType, options.notificationType));
+    }
     if (options?.since) {
       conditions.push(sql`${notificationDeliveryLogs.sentAt} >= ${options.since}`);
     }
-    const query = db
-      .select()
+    const rows = await db
+      .select({
+        id: notificationDeliveryLogs.id,
+        userId: notificationDeliveryLogs.userId,
+        notificationType: notificationDeliveryLogs.notificationType,
+        channel: notificationDeliveryLogs.channel,
+        status: notificationDeliveryLogs.status,
+        errorMessage: notificationDeliveryLogs.errorMessage,
+        sentAt: notificationDeliveryLogs.sentAt,
+        firstName: users.firstName,
+        lastName: users.lastName,
+      })
       .from(notificationDeliveryLogs)
+      .leftJoin(users, eq(notificationDeliveryLogs.userId, users.id))
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(sql`${notificationDeliveryLogs.sentAt} DESC`)
       .limit(options?.limit ?? 200);
-    return query;
+    return rows.map((r) => ({
+      id: r.id,
+      userId: r.userId,
+      notificationType: r.notificationType,
+      channel: r.channel,
+      status: r.status,
+      errorMessage: r.errorMessage,
+      sentAt: r.sentAt,
+      recipientName: r.firstName && r.lastName ? `${r.firstName} ${r.lastName}` : r.firstName || r.lastName || null,
+    }));
   }
 
   async deleteOldNotificationDeliveryLogs(olderThanDays: number): Promise<number> {

@@ -209,7 +209,7 @@ export function registerPushRoutes(app: Express, storage: IStorage, isAuthentica
     try {
       await requireAdmin(storage, req.user.id);
 
-      const { channel, since, limit } = req.query;
+      const { channel, since, limit, userId, notificationType } = req.query;
 
       const sinceDate = since ? new Date(since as string) : undefined;
       const limitNum = limit ? Math.min(parseInt(limit as string, 10) || 100, 500) : 100;
@@ -220,6 +220,8 @@ export function registerPushRoutes(app: Express, storage: IStorage, isAuthentica
 
       const logs = await storage.getNotificationDeliveryLogs({
         channel: channel as string | undefined,
+        userId: userId as string | undefined,
+        notificationType: notificationType as string | undefined,
         since: sinceDate,
         limit: limitNum,
       });

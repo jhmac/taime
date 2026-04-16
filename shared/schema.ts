@@ -1152,6 +1152,7 @@ export type InsertNativePushToken = z.infer<typeof insertNativePushTokenSchema>;
 export type PushCredential = typeof pushCredentials.$inferSelect;
 export type NotificationDeliveryLog = typeof notificationDeliveryLogs.$inferSelect;
 export type InsertNotificationDeliveryLog = z.infer<typeof insertNotificationDeliveryLogSchema>;
+export type NotificationDeliveryLogWithUser = NotificationDeliveryLog & { recipientName: string | null };
 export type Role = typeof roles.$inferSelect;
 export type InsertRole = z.infer<typeof insertRoleSchema>;
 export type MileageReimbursement = typeof mileageReimbursements.$inferSelect;

@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/hooks/useAuth';
-import type { NotificationDeliveryLog } from '@shared/schema';
+import type { NotificationDeliveryLogWithUser, User } from '@shared/schema';
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -139,13 +139,21 @@ export default function NotificationSettings() {
 
   const [logChannelFilter, setLogChannelFilter] = useState<string>('all');
   const [logSinceFilter, setLogSinceFilter] = useState<string>('');
+  const [logUserFilter, setLogUserFilter] = useState<string>('all');
+  const [logTypeFilter, setLogTypeFilter] = useState<string>('all');
 
-  const deliveryLogsQuery = useQuery<NotificationDeliveryLog[]>({
-    queryKey: ['/api/push/delivery-logs', logChannelFilter, logSinceFilter],
+  const usersQuery = useQuery<User[]>({
+    queryKey: ['/api/users'],
+  });
+
+  const deliveryLogsQuery = useQuery<NotificationDeliveryLogWithUser[]>({
+    queryKey: ['/api/push/delivery-logs', logChannelFilter, logSinceFilter, logUserFilter, logTypeFilter],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (logChannelFilter && logChannelFilter !== 'all') params.set('channel', logChannelFilter);
       if (logSinceFilter) params.set('since', new Date(logSinceFilter).toISOString());
+      if (logUserFilter && logUserFilter !== 'all') params.set('userId', logUserFilter);
+      if (logTypeFilter && logTypeFilter !== 'all') params.set('notificationType', logTypeFilter);
       params.set('limit', '100');
       const res = await fetch(`/api/push/delivery-logs?${params.toString()}`, { credentials: 'include' });
       if (!res.ok) return [];
@@ -800,6 +808,34 @@ export default function NotificationSettings() {
               Delivery Log
             </CardTitle>
             <div className="flex items-center gap-2 flex-wrap">
+              <Select value={logUserFilter} onValueChange={setLogUserFilter}>
+                <SelectTrigger className="h-7 text-xs w-36">
+                  <SelectValue placeholder="All employees" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All employees</SelectItem>
+                  {(usersQuery.data ?? []).map((u) => (
+                    <SelectItem key={u.id} value={u.id}>
+                      {u.firstName && u.lastName ? `${u.firstName} ${u.lastName}` : u.firstName || u.lastName || u.email || u.id}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={logTypeFilter} onValueChange={setLogTypeFilter}>
+                <SelectTrigger className="h-7 text-xs w-40">
+                  <SelectValue placeholder="All types" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All types</SelectItem>
+                  <SelectItem value="clock_in_reminder">Clock-in reminder</SelectItem>
+                  <SelectItem value="clock_out_reminder">Clock-out reminder</SelectItem>
+                  <SelectItem value="overtime_warning">Overtime warning</SelectItem>
+                  <SelectItem value="schedule_published">Schedule published</SelectItem>
+                  <SelectItem value="task_assignment">Task assignment</SelectItem>
+                  <SelectItem value="shift_starting">Shift starting</SelectItem>
+                  <SelectItem value="test">Test</SelectItem>
+                </SelectContent>
+              </Select>
               <Select value={logChannelFilter} onValueChange={setLogChannelFilter}>
                 <SelectTrigger className="h-7 text-xs w-28">
                   <SelectValue placeholder="All channels" />
@@ -844,7 +880,10 @@ export default function NotificationSettings() {
                     {entry.channel === 'ios' && <i className="fab fa-apple text-gray-700 dark:text-gray-300 w-4 text-center shrink-0"></i>}
                     {entry.channel === 'android' && <i className="fab fa-android text-green-600 w-4 text-center shrink-0"></i>}
                     <div className="min-w-0">
-                      <span className="font-medium capitalize">{entry.notificationType}</span>
+                      {entry.recipientName && (
+                        <span className="font-semibold text-foreground mr-1">{entry.recipientName}</span>
+                      )}
+                      <span className="font-medium capitalize">{entry.notificationType.replace(/_/g, ' ')}</span>
                       <span className="text-muted-foreground ml-1">via {entry.channel}</span>
                       {entry.errorMessage && (
                         <p className="text-destructive truncate">{entry.errorMessage}</p>
