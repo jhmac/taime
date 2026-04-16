@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Store, ExternalLink, RefreshCw, Unlink, TrendingUp, ShoppingCart, Wifi, WifiOff } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
 import type { PosConnectionSectionProps } from '@/components/settings/types';
 
 function formatTimeAgo(date: string | Date | null): string {
@@ -32,6 +33,7 @@ export default function PosConnectionSection({
   syncSalesMutation,
   salesData,
 }: PosConnectionSectionProps) {
+  const { toast } = useToast();
   const [storeName, setStoreName] = useState('');
   const [testingConnection, setTestingConnection] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<{
@@ -41,14 +43,32 @@ export default function PosConnectionSection({
     error?: string;
   } | null>(null);
 
-  async function runConnectionTest() {
+  async function runConnectionTest(showToast = false) {
     setTestingConnection(true);
     try {
       const res = await apiRequest('GET', '/api/shopify/connection-status');
       const data = await res.json();
       setConnectionStatus(data);
+      if (showToast) {
+        if (data.live) {
+          toast({
+            title: 'Connection confirmed',
+            description: `${data.shopName || data.shopDomain || 'Your Shopify store'} is live and reachable.`,
+          });
+        } else {
+          toast({
+            title: 'Connection issue',
+            description: data.error || 'Could not reach Shopify. The token may have expired — try reconnecting.',
+            variant: 'destructive',
+          });
+        }
+      }
     } catch (err: any) {
-      setConnectionStatus({ live: false, error: err?.message || 'Failed to reach server' });
+      const errMsg = err?.message || 'Failed to reach server';
+      setConnectionStatus({ live: false, error: errMsg });
+      if (showToast) {
+        toast({ title: 'Connection failed', description: errMsg, variant: 'destructive' });
+      }
     } finally {
       setTestingConnection(false);
     }
@@ -132,7 +152,7 @@ export default function PosConnectionSection({
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={runConnectionTest}
+                      onClick={() => runConnectionTest(true)}
                       disabled={testingConnection}
                       className="gap-1.5"
                     >
@@ -168,14 +188,18 @@ export default function PosConnectionSection({
                   <div className="p-4 border rounded-lg flex items-center gap-3">
                     <ShoppingCart className="w-5 h-5 text-muted-foreground flex-shrink-0" />
                     <div>
-                      <p className="text-2xl font-bold">{(salesData.totalOrders || 0).toLocaleString()}</p>
+                      <p className="text-2xl font-bold">
+                        {((salesData.summary?.totalOrders ?? salesData.totalOrders) || 0).toLocaleString()}
+                      </p>
                       <p className="text-xs text-muted-foreground">Total Orders Synced</p>
                     </div>
                   </div>
                   <div className="p-4 border rounded-lg flex items-center gap-3">
                     <TrendingUp className="w-5 h-5 text-muted-foreground flex-shrink-0" />
                     <div>
-                      <p className="text-2xl font-bold">${(salesData.totalRevenue || 0).toLocaleString()}</p>
+                      <p className="text-2xl font-bold">
+                        ${((salesData.summary?.totalRevenue ?? salesData.totalRevenue) || 0).toLocaleString()}
+                      </p>
                       <p className="text-xs text-muted-foreground">Total Revenue</p>
                     </div>
                   </div>

@@ -813,9 +813,45 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
 
   app.get("/api/shopify/sales-data", isAuthenticated, async (req: any, res) => {
     try {
-      const shopDomain = req.query.shop as string;
-      if (!shopDomain) {
-        return res.status(400).json({ error: "Shop domain required" });
+      const userId = req.user?.id || req.auth?.userId;
+
+      // Resolve shop domain: use explicit param first, then auto-resolve from the user
+      let resolvedDomain = (req.query.shop as string)?.trim().toLowerCase() || '';
+
+      if (!resolvedDomain) {
+        // Look up the shop linked to this user
+        const linked = await db
+          .select({ shopDomain: shops.shopDomain })
+          .from(shops)
+          .innerJoin(userShops, eq(shops.shopDomain, userShops.shopDomain))
+          .where(and(eq(shops.isActive, true), eq(userShops.userId, userId)))
+          .limit(1);
+
+        if (!linked.length) {
+          // Company-scoped fallback
+          const userRow = await db.select({ companyId: users.companyId }).from(users).where(eq(users.id, userId)).limit(1);
+          const companyId = userRow[0]?.companyId;
+          if (companyId) {
+            const companyShop = await db
+              .select({ shopDomain: shops.shopDomain })
+              .from(shops)
+              .where(and(eq(shops.isActive, true), eq(shops.companyId, companyId)))
+              .limit(1);
+            resolvedDomain = companyShop[0]?.shopDomain || '';
+          }
+        } else {
+          resolvedDomain = linked[0].shopDomain;
+        }
+      }
+
+      if (!resolvedDomain) {
+        return res.json({
+          connected: false,
+          dailySales: [],
+          weekdayAnalysis: [],
+          summary: { totalDays: 0, totalRevenue: 0, totalOrders: 0, avgDailyRevenue: 0, avgDailyOrders: 0 },
+          todayRevenue: 0, lastWeekRevenue: 0, orderCount: 0,
+        });
       }
 
       const daysBack = parseInt(req.query.daysBack as string || '365');
@@ -824,7 +860,7 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
       const salesData = await db.select()
         .from(shopifyDailySales)
         .where(and(
-          eq(shopifyDailySales.shopDomain, shopDomain.toLowerCase().trim()),
+          eq(shopifyDailySales.shopDomain, resolvedDomain),
           gte(shopifyDailySales.date, startDate)
         ))
         .orderBy(desc(shopifyDailySales.date));
@@ -837,15 +873,36 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
       let totalRevenue = 0;
       let totalOrders = 0;
 
+      const todayKey = new Date().toISOString().split('T')[0];
+      const lastWeekStart = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const prevWeekStart = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+      let todayRevenue = 0;
+      let todayOrderCount = 0;
+      let lastWeekRevenue = 0;
+
       for (const day of salesData) {
         const rev = parseFloat(day.totalRevenue || '0');
         const orders = day.orderCount || 0;
         totalRevenue += rev;
         totalOrders += orders;
 
-        dayOfWeekAverages[day.dayOfWeek!].totalRevenue += rev;
-        dayOfWeekAverages[day.dayOfWeek!].totalOrders += orders;
-        dayOfWeekAverages[day.dayOfWeek!].count++;
+        const dow = day.dayOfWeek ?? 0;
+        dayOfWeekAverages[dow].totalRevenue += rev;
+        dayOfWeekAverages[dow].totalOrders += orders;
+        dayOfWeekAverages[dow].count++;
+
+        // Dashboard quick-stats
+        const dayKey = day.date instanceof Date
+          ? day.date.toISOString().split('T')[0]
+          : String(day.date).split('T')[0];
+        if (dayKey === todayKey) {
+          todayRevenue += rev;
+          todayOrderCount += orders;
+        }
+        const dayTime = new Date(dayKey).getTime();
+        if (dayTime >= lastWeekStart.getTime() && dayTime < prevWeekStart.getTime() + 7 * 24 * 60 * 60 * 1000) {
+          lastWeekRevenue += rev;
+        }
       }
 
       const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -858,6 +915,8 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
       }));
 
       res.json({
+        connected: true,
+        shopDomain: resolvedDomain,
         dailySales: salesData,
         weekdayAnalysis,
         summary: {
@@ -867,6 +926,10 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
           avgDailyRevenue: salesData.length > 0 ? Math.round((totalRevenue / salesData.length) * 100) / 100 : 0,
           avgDailyOrders: salesData.length > 0 ? Math.round((totalOrders / salesData.length) * 100) / 100 : 0,
         },
+        // Convenience fields for the owner dashboard quick-stats
+        todayRevenue: Math.round(todayRevenue * 100) / 100,
+        lastWeekRevenue: Math.round(lastWeekRevenue * 100) / 100,
+        orderCount: todayOrderCount,
       });
     } catch (error) {
       console.error("Error fetching sales data:", error);
