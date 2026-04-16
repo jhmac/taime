@@ -302,15 +302,18 @@ As of 2024, **iPhone 6.9"** and **iPad Pro 13"** screenshots are required for ev
 
 ### 3.13 App Review Information
 
+> Fields marked **⚠ replace** must be filled in with real values before submitting.
+> All other fields can be copied verbatim.
+
 | Field | Value |
 |-------|-------|
 | Sign-in required | Yes |
-| Demo username | Create a manager account at https://taime.replit.app using Sign Up, then note the email here: `reviewer@taime-demo.com` (create this account before submitting) |
-| Demo password | Set a memorable password and note it here before submitting |
-| Contact first name | *Your first name* |
-| Contact last name | *Your last name* |
-| Contact phone | *+1 (area code) number — must be reachable during review* |
-| Contact email | *Your email address — Apple will contact you here if rejected* |
+| Demo username | `reviewer@taime-demo.com` *(create this account at https://taime.replit.app before submitting; verify it can sign in)* |
+| Demo password | **⚠ replace** — e.g. `TaimeReview2026!` *(set a memorable password when creating the account above)* |
+| Contact first name | **⚠ replace** — e.g. `Libby` |
+| Contact last name | **⚠ replace** — e.g. `Story` |
+| Contact phone | **⚠ replace** — e.g. `+1 601 555 0100` *(must be reachable Mon–Fri 9–5 during Apple's review)* |
+| Contact email | **⚠ replace** — e.g. `owner@libbystory.com` *(Apple sends rejection notices here)* |
 | Notes for reviewer | See note below |
 
 **Notes for reviewer (paste into App Store Connect):**
@@ -392,9 +395,14 @@ Choose one:
 
    > ⚠️ Do **not** commit `google-services.json` to git — add it to `.gitignore`.
 
-5. In Firebase Console → **Project Settings → Service Accounts**:
-   - Click **Generate new private key** → download the JSON
-6. In the Taime admin panel → **Settings → Push Notifications**, paste the FCM service account JSON.
+5. In Firebase Console → **Project Settings → Cloud Messaging** tab:
+   - **Sender ID** (numeric) — shown under "Cloud Messaging API"; note it for reference
+   - **Server Key** — the legacy API key (shown if the legacy API is enabled);
+     Taime uses the modern service-account JSON method, so the Server Key is **not** required
+6. In Firebase Console → **Project Settings → Service Accounts** tab:
+   - Click **Generate new private key** → download the JSON file
+   - This is the FCM service account credential used by Taime's push notification backend
+7. In the Taime admin panel → **Settings → Push Notifications**, paste the full FCM service account JSON.
 
 ### 4.2 Generate a Signing Keystore
 
