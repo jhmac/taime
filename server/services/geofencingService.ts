@@ -351,15 +351,19 @@ export class GeofencingService {
 
       const locationId = locationCheck.location?.id || event.locationId || '';
 
-      await db.insert(geofenceEvents).values({
-        userId,
-        locationId: locationId || 'unknown',
-        eventType,
-        latitude: String(latitude),
-        longitude: String(longitude),
-        distanceFromCenter: locationCheck.distance ? String(Math.round(locationCheck.distance)) : null,
-        timeEntryId: activeTimeEntry?.id || null,
-      });
+      // Only persist the event when we have a valid location FK — inserting a placeholder
+      // like 'unknown' violates the geofence_events_location_id_fkey constraint.
+      if (locationId && locationId !== 'unknown') {
+        await db.insert(geofenceEvents).values({
+          userId,
+          locationId,
+          eventType,
+          latitude: String(latitude),
+          longitude: String(longitude),
+          distanceFromCenter: locationCheck.distance ? String(Math.round(locationCheck.distance)) : null,
+          timeEntryId: activeTimeEntry?.id || null,
+        });
+      }
 
       if (eventType === 'enter' && locationCheck.isInWorkLocation) {
         if (activeExitTimers.has(userId)) {
@@ -542,14 +546,16 @@ export class GeofencingService {
     const activeTimeEntry = await storage.getActiveTimeEntry(userId);
     if (!activeTimeEntry) return false;
 
-    await db.insert(geofenceEvents).values({
-      userId,
-      locationId: activeTimeEntry.locationId || 'unknown',
-      eventType: 'location_lost',
-      latitude: null,
-      longitude: null,
-      timeEntryId: activeTimeEntry.id,
-    });
+    if (activeTimeEntry.locationId) {
+      await db.insert(geofenceEvents).values({
+        userId,
+        locationId: activeTimeEntry.locationId,
+        eventType: 'location_lost',
+        latitude: null,
+        longitude: null,
+        timeEntryId: activeTimeEntry.id,
+      });
+    }
 
     console.log(`[Geofence] Location permission lost for user ${userId}, scheduling auto clock-out`);
 
@@ -571,14 +577,16 @@ export class GeofencingService {
             clockOutSource: 'auto-geofence',
             notes: `${entry.notes ? entry.notes + ' | ' : ''}Auto clocked out: location permission revoked`,
           });
-          await db.insert(geofenceEvents).values({
-            userId,
-            locationId: entry.locationId || 'unknown',
-            eventType: 'auto_clock_out',
-            latitude: null,
-            longitude: null,
-            timeEntryId: entry.id,
-          });
+          if (entry.locationId) {
+            await db.insert(geofenceEvents).values({
+              userId,
+              locationId: entry.locationId,
+              eventType: 'auto_clock_out',
+              latitude: null,
+              longitude: null,
+              timeEntryId: entry.id,
+            });
+          }
           console.log(`[Geofence] Auto clocked out user ${userId} due to location permission loss`);
         }
       }, graceMs);
@@ -637,14 +645,16 @@ export class GeofencingService {
         notes: `${activeTimeEntry.notes ? activeTimeEntry.notes + ' | ' : ''}Auto clocked out: left geofence boundary`,
       });
 
-      await db.insert(geofenceEvents).values({
-        userId,
-        locationId: activeTimeEntry.locationId || 'unknown',
-        eventType: 'auto_clock_out',
-        latitude: latitude != null ? String(latitude) : null,
-        longitude: longitude != null ? String(longitude) : null,
-        timeEntryId: activeTimeEntry.id,
-      });
+      if (activeTimeEntry.locationId) {
+        await db.insert(geofenceEvents).values({
+          userId,
+          locationId: activeTimeEntry.locationId,
+          eventType: 'auto_clock_out',
+          latitude: latitude != null ? String(latitude) : null,
+          longitude: longitude != null ? String(longitude) : null,
+          timeEntryId: activeTimeEntry.id,
+        });
+      }
 
       console.log(`[Geofence] Auto clocked out user ${userId} (entry ${activeTimeEntry.id})`);
       return true;
@@ -731,7 +741,11 @@ export class GeofencingService {
 
     if (recentExitEvents.length === 0) {
       console.log(`[Geofence] No exit event found for user ${userId}, creating one now`);
-      const locationId = exitLocation?.id || activeTimeEntry.locationId || 'unknown';
+      const locationId = exitLocation?.id || activeTimeEntry.locationId || '';
+      if (!locationId) {
+        console.warn(`[Geofence] Skipping exit event insert for user ${userId} — no valid locationId`);
+        return recentExitEvents;
+      }
       const [newEvent] = await db.insert(geofenceEvents).values({
         userId,
         locationId,

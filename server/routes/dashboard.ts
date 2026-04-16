@@ -2,7 +2,7 @@ import type { Express } from "express";
 import type { IStorage } from "../storage";
 import { db } from "../db";
 import { schedules, timeEntries, shopifyDailySales, userShops, users, locationPermissions } from "@shared/schema";
-import { eq, and, gte, lte, desc, isNull, ne, inArray } from "drizzle-orm";
+import { eq, and, gte, lte, lt, desc, isNull, ne, inArray } from "drizzle-orm";
 import { cache } from "../lib/cache";
 import { gamificationService } from "../services/gamificationService";
 import { setLocationPermission } from "../lib/locationPermissionStore";
@@ -162,10 +162,37 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
           gte(timeEntries.clockInTime, startOfDay)
         );
 
-      const activeEntries = todayTimeEntries.filter(te => !te.clockOutTime);
+      // Also fetch entries that started BEFORE today but are still active (clocked in overnight).
+      // These are "currently on shift" and must appear in the clocked-in list even though
+      // their clockInTime predates today's midnight boundary.
+      const overnightActiveEntries = await db.select({
+          id: timeEntries.id,
+          userId: timeEntries.userId,
+          clockInTime: timeEntries.clockInTime,
+          clockOutTime: timeEntries.clockOutTime,
+          locationId: timeEntries.locationId,
+        })
+        .from(timeEntries)
+        .where(
+          and(
+            isNull(timeEntries.clockOutTime),
+            lt(timeEntries.clockInTime, startOfDay),
+          )
+        );
 
-      const entriesByUser = new Map<string, typeof todayTimeEntries>();
-      for (const te of todayTimeEntries) {
+      // Merge: start with today entries, then append overnight active entries whose
+      // user doesn't already have a today entry (avoids double-counting people who
+      // clocked out and back in today after an overnight shift).
+      const todayUserIds = new Set(todayTimeEntries.map(te => te.userId));
+      const allTimeEntries = [
+        ...todayTimeEntries,
+        ...overnightActiveEntries.filter(te => !todayUserIds.has(te.userId)),
+      ];
+
+      const activeEntries = allTimeEntries.filter(te => !te.clockOutTime);
+
+      const entriesByUser = new Map<string, typeof allTimeEntries>();
+      for (const te of allTimeEntries) {
         const arr = entriesByUser.get(te.userId) ?? [];
         arr.push(te);
         entriesByUser.set(te.userId, arr);

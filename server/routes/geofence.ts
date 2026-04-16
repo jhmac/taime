@@ -129,10 +129,10 @@ export function registerGeofenceRoutes(app: Express, storage: IStorage, isAuthen
       // Auto clock-outs are only triggered by confirmed geofence boundary exits.
       console.warn(`[Geofence] Location permission lost reported for user ${userId} — logging only, no auto clock-out scheduled.`);
       const activeEntry = await storage.getActiveTimeEntry(userId);
-      if (activeEntry) {
+      if (activeEntry && activeEntry.locationId) {
         await db.insert(geofenceEvents).values({
           userId,
-          locationId: activeEntry.locationId || 'unknown',
+          locationId: activeEntry.locationId,
           eventType: 'location_lost',
           latitude: null,
           longitude: null,
