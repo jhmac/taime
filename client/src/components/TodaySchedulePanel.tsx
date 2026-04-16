@@ -40,6 +40,7 @@ interface DashboardData {
     totalClockedIn: number;
     totalLate: number;
     totalNotArrived: number;
+    totalLocationBlocked: number;
   };
 }
 
@@ -138,6 +139,12 @@ export default function TodaySchedulePanel() {
                 <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
                   <AlertTriangle className="h-3.5 w-3.5" />
                   <span>{summary.totalLate} late</span>
+                </div>
+              )}
+              {summary.totalLocationBlocked > 0 && (
+                <div className="flex items-center gap-1.5 text-xs text-orange-500 dark:text-orange-400">
+                  <MapPinOff className="h-3.5 w-3.5" />
+                  <span>{summary.totalLocationBlocked} location blocked</span>
                 </div>
               )}
             </div>

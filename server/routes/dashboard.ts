@@ -272,6 +272,7 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
           totalClockedIn: activeEntries.length,
           totalLate: scheduleData.filter(s => s.isLate).length,
           totalNotArrived: scheduleData.filter(s => !s.isClockedIn && s.shiftPassed).length,
+          totalLocationBlocked: new Set(scheduleData.filter(s => s.locationBlocked && !s.isClockedIn).map(s => s.userId)).size,
         },
       });
     } catch (error) {
