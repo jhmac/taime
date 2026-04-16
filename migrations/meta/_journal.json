@@ -15,6 +15,13 @@
       "when": 1775530200000,
       "tag": "0001_add_offsite_destination_mileage",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1776211200000,
+      "tag": "0009_drop_smart_clock_prompt",
+      "breakpoints": true
     }
   ]
 }

@@ -1886,13 +1886,6 @@
           "notNull": false,
           "default": 100
         },
-        "enable_smart_clock_prompt": {
-          "name": "enable_smart_clock_prompt",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": false,
-          "default": false
-        },
         "enable_clock_out_on_focus_loss": {
           "name": "enable_clock_out_on_focus_loss",
           "type": "boolean",
