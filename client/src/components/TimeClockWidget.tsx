@@ -62,6 +62,8 @@ export default function TimeClockWidget() {
   const lastMonitorTimeRef = useRef<number>(0);
   const prevActiveEntryRef = useRef<any>(null);
   const prevPermissionStateRef = useRef<string | null>(null);
+  const [showDeniedBanner, setShowDeniedBanner] = useState(false);
+  const [deniedBannerFading, setDeniedBannerFading] = useState(false);
 
   const { data: activeTimeEntry, isLoading: activeEntryLoading } = useQuery<TimeEntry | null>({
     queryKey: ['/api/time-entries/active'],
@@ -361,6 +363,25 @@ export default function TimeClockWidget() {
       getCurrentPosition().catch(() => {});
     }
   }, [permissionState]);
+
+  useEffect(() => {
+    const isDenied =
+      workLocations.length > 0 &&
+      (permissionState === 'denied' || (locationError && !position)) &&
+      !activeTimeEntry;
+
+    if (isDenied) {
+      setShowDeniedBanner(true);
+      setDeniedBannerFading(false);
+    } else if (showDeniedBanner) {
+      setDeniedBannerFading(true);
+      const timer = setTimeout(() => {
+        setShowDeniedBanner(false);
+        setDeniedBannerFading(false);
+      }, 350);
+      return () => clearTimeout(timer);
+    }
+  }, [permissionState, locationError, position, activeTimeEntry, workLocations.length]);
 
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
@@ -755,7 +776,7 @@ export default function TimeClockWidget() {
           )}
 
           {/* Location permission error (pre-clock-in only) */}
-          {workLocations.length > 0 && (permissionState === 'denied' || (locationError && !position)) && !activeTimeEntry && (() => {
+          {showDeniedBanner && (() => {
             const isDenied = permissionState === 'denied' || locationError?.code === 1;
             const isTimeout = locationError?.code === 3;
             const heading = isDenied
@@ -769,28 +790,38 @@ export default function TimeClockWidget() {
                 ? 'Your location could not be determined in time. Tap "Try again" or check that GPS is enabled.'
                 : 'Your device could not determine your location. Check that GPS or location services are enabled.';
             return (
-              <div className="flex flex-col gap-1.5 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-2xl p-3 text-left">
-                <div className="flex items-center gap-2">
-                  <XCircle className="h-5 w-5 text-red-500 shrink-0" />
-                  <p className="text-sm font-bold text-red-700 dark:text-red-300">{heading}</p>
+              <div
+                className="grid transition-[grid-template-rows,opacity] duration-300 ease-in-out"
+                style={{
+                  gridTemplateRows: deniedBannerFading ? '0fr' : '1fr',
+                  opacity: deniedBannerFading ? 0 : 1,
+                }}
+              >
+                <div className="overflow-hidden">
+                  <div className="flex flex-col gap-1.5 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-2xl p-3 text-left">
+                    <div className="flex items-center gap-2">
+                      <XCircle className="h-5 w-5 text-red-500 shrink-0" />
+                      <p className="text-sm font-bold text-red-700 dark:text-red-300">{heading}</p>
+                    </div>
+                    <p className="text-xs text-red-600 dark:text-red-400 leading-relaxed">{detail}</p>
+                    {isDenied ? (
+                      <button
+                        className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-red-700 dark:text-red-300 underline underline-offset-2 text-left"
+                        onClick={() => setShowLocationHelp(true)}
+                        data-testid="how-to-enable-location-button"
+                      >
+                        How to enable location →
+                      </button>
+                    ) : (
+                      <button
+                        className="mt-1 text-xs font-semibold text-red-700 dark:text-red-300 underline underline-offset-2 text-left"
+                        onClick={() => getCurrentPosition().catch(() => {})}
+                      >
+                        Try again
+                      </button>
+                    )}
+                  </div>
                 </div>
-                <p className="text-xs text-red-600 dark:text-red-400 leading-relaxed">{detail}</p>
-                {isDenied ? (
-                  <button
-                    className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-red-700 dark:text-red-300 underline underline-offset-2 text-left"
-                    onClick={() => setShowLocationHelp(true)}
-                    data-testid="how-to-enable-location-button"
-                  >
-                    How to enable location →
-                  </button>
-                ) : (
-                  <button
-                    className="mt-1 text-xs font-semibold text-red-700 dark:text-red-300 underline underline-offset-2 text-left"
-                    onClick={() => getCurrentPosition().catch(() => {})}
-                  >
-                    Try again
-                  </button>
-                )}
               </div>
             );
           })()}
@@ -825,13 +856,14 @@ export default function TimeClockWidget() {
             </div>
           ) : permissionState === 'prompt' && !activeTimeEntry && workLocations.length > 0 ? null : (
             <Button
+              key={showDeniedBanner ? 'denied' : 'enabled'}
               onClick={handleClockAction}
-              disabled={clockInMutation.isPending || clockOutMutation.isPending || activeEntryLoading || (permissionState === 'denied' && workLocations.length > 0 && !activeTimeEntry)}
-              className={`w-full text-base font-bold py-4 rounded-2xl ${
+              disabled={clockInMutation.isPending || clockOutMutation.isPending || activeEntryLoading || ((permissionState === 'denied' || showDeniedBanner) && workLocations.length > 0 && !activeTimeEntry)}
+              className={`w-full text-base font-bold py-4 rounded-2xl transition-opacity duration-300 ${
                 activeTimeEntry
                   ? 'bg-destructive hover:bg-destructive/90 text-destructive-foreground'
                   : 'bg-primary hover:bg-primary/90 text-primary-foreground'
-              }`}
+              } ${!showDeniedBanner && !activeTimeEntry && workLocations.length > 0 ? 'animate-fade-in' : ''}`}
               data-testid="clock-action-button"
             >
               {clockInMutation.isPending || clockOutMutation.isPending
