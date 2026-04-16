@@ -659,6 +659,17 @@ export const pushSubscriptions = pgTable("push_subscriptions", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Native push tokens (APNs / FCM)
+export const nativePushTokens = pgTable("native_push_tokens", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  token: text("token").notNull(),
+  platform: varchar("platform", { length: 10 }).notNull(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => ({
+  uniqueUserToken: unique("uq_native_push_tokens_user_token").on(t.userId, t.token),
+}));
+
 // Geofence events
 export const geofenceEvents = pgTable("geofence_events", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -1024,6 +1035,7 @@ export const insertPayPeriodSettingsSchema = createInsertSchema(payPeriodSetting
 export const insertScheduleConfirmationSchema = createInsertSchema(scheduleConfirmations).omit({ id: true, createdAt: true });
 export const insertWorkflowLogSchema = createInsertSchema(workflowLogs).omit({ id: true, createdAt: true });
 export const insertPushSubscriptionSchema = createInsertSchema(pushSubscriptions).omit({ id: true, createdAt: true });
+export const insertNativePushTokenSchema = createInsertSchema(nativePushTokens).omit({ id: true, updatedAt: true });
 export const insertRoleSchema = createInsertSchema(roles).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertPermissionSchema = createInsertSchema(permissions).omit({ id: true, createdAt: true });
 export const insertRolePermissionSchema = createInsertSchema(rolePermissions).omit({ id: true, createdAt: true });
@@ -1108,6 +1120,8 @@ export type InsertWorkflowLog = z.infer<typeof insertWorkflowLogSchema>;
 export type AIInsight = typeof aiInsights.$inferSelect;
 export type PushSubscription = typeof pushSubscriptions.$inferSelect;
 export type InsertPushSubscription = z.infer<typeof insertPushSubscriptionSchema>;
+export type NativePushToken = typeof nativePushTokens.$inferSelect;
+export type InsertNativePushToken = z.infer<typeof insertNativePushTokenSchema>;
 export type Role = typeof roles.$inferSelect;
 export type InsertRole = z.infer<typeof insertRoleSchema>;
 export type MileageReimbursement = typeof mileageReimbursements.$inferSelect;

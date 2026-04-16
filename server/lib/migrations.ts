@@ -648,6 +648,20 @@ export async function runSchemaMigrations(): Promise<void> {
         `CREATE INDEX IF NOT EXISTS "IDX_unanswered_questions_asked_by" ON unanswered_questions (asked_by_user_id)`,
       ],
     },
+    {
+      name: "native_push_tokens",
+      ddl: `CREATE TABLE IF NOT EXISTS native_push_tokens (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id varchar NOT NULL REFERENCES users(id),
+        token text NOT NULL,
+        platform varchar(10) NOT NULL,
+        updated_at timestamp DEFAULT now()
+      )`,
+      indexes: [
+        `CREATE INDEX IF NOT EXISTS "IDX_native_push_tokens_user" ON native_push_tokens (user_id)`,
+        `ALTER TABLE native_push_tokens ADD CONSTRAINT IF NOT EXISTS uq_native_push_tokens_user_token UNIQUE (user_id, token)`,
+      ],
+    },
   ];
 
   for (const { name, ddl, indexes } of tableCreations) {

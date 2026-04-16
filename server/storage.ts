@@ -14,6 +14,7 @@ import {
   workflowLogs,
   aiInsights,
   pushSubscriptions,
+  nativePushTokens,
   roles,
   permissions,
   rolePermissions,
@@ -100,6 +101,8 @@ import {
   type AIInsight,
   type PushSubscription,
   type InsertPushSubscription,
+  type NativePushToken,
+  type InsertNativePushToken,
   type Role,
   type InsertRole,
   type Permission,
@@ -266,6 +269,11 @@ export interface IStorage {
   createPushSubscription(subscription: InsertPushSubscription): Promise<PushSubscription>;
   getUserPushSubscriptions(userId: string): Promise<PushSubscription[]>;
   deletePushSubscription(id: string): Promise<void>;
+
+  // Native push token operations
+  upsertNativePushToken(userId: string, token: string, platform: string): Promise<NativePushToken>;
+  getUserNativePushTokens(userId: string): Promise<NativePushToken[]>;
+  deleteNativePushToken(userId: string, token: string): Promise<void>;
   
   // Role management operations
   getUserWithRole(id: string): Promise<UserWithRole | undefined>;
@@ -1165,6 +1173,37 @@ export class DatabaseStorage implements IStorage {
 
   async deletePushSubscription(id: string): Promise<void> {
     await db.delete(pushSubscriptions).where(eq(pushSubscriptions.id, id));
+  }
+
+  // Native push token operations
+  async upsertNativePushToken(userId: string, token: string, platform: string): Promise<NativePushToken> {
+    const [row] = await db
+      .insert(nativePushTokens)
+      .values({ userId, token, platform })
+      .onConflictDoUpdate({
+        target: [nativePushTokens.userId, nativePushTokens.token],
+        set: { platform, updatedAt: new Date() },
+      })
+      .returning();
+    return row;
+  }
+
+  async getUserNativePushTokens(userId: string): Promise<NativePushToken[]> {
+    return await db
+      .select()
+      .from(nativePushTokens)
+      .where(eq(nativePushTokens.userId, userId));
+  }
+
+  async deleteNativePushToken(userId: string, token: string): Promise<void> {
+    await db
+      .delete(nativePushTokens)
+      .where(
+        and(
+          eq(nativePushTokens.userId, userId),
+          eq(nativePushTokens.token, token)
+        )
+      );
   }
 
   // Role management operations

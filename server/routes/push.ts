@@ -4,16 +4,30 @@ import { insertPushSubscriptionSchema } from "@shared/schema";
 import { notificationService } from "../services/notificationService";
 import { config } from "../lib/config";
 
-// Native device tokens (APNs / FCM).
-// Tokens are collected here and stored in-memory per server process.
-// Server-side delivery to APNs / FCM requires additional credentials
-// (APNS_KEY_ID, APNS_TEAM_ID, APNS_KEY_PATH for iOS; FCM_SERVER_KEY for Android)
-// that are not yet configured — wiring server-side dispatch is deferred to follow-up #88.
-const nativeTokens = new Map<string, { token: string; platform: string; updatedAt: Date }>();
+const APNS_READY = !!(
+  process.env.APNS_KEY_ID &&
+  process.env.APNS_TEAM_ID &&
+  process.env.APNS_KEY_P8
+);
 
-const NATIVE_PUSH_READY =
-  !!(process.env.APNS_KEY_ID && process.env.APNS_TEAM_ID && process.env.APNS_KEY_PATH) ||
-  !!process.env.FCM_SERVER_KEY;
+function isFcmServiceAccountConfigured(): boolean {
+  const raw = process.env.FCM_SERVICE_ACCOUNT_JSON || process.env.FCM_SERVER_KEY;
+  if (!raw) return false;
+  try {
+    const parsed = JSON.parse(raw);
+    return !!(parsed.project_id && parsed.private_key && parsed.client_email);
+  } catch {
+    return false;
+  }
+}
+
+const FCM_READY = isFcmServiceAccountConfigured();
+
+function platformReady(platform: string): boolean {
+  if (platform === 'ios') return APNS_READY;
+  if (platform === 'android') return FCM_READY;
+  return false;
+}
 
 export function registerPushRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
   app.get('/api/push/vapid-key', (_req, res) => {
@@ -44,10 +58,16 @@ export function registerPushRoutes(app: Express, storage: IStorage, isAuthentica
       if (!token || !platform) {
         return res.status(400).json({ message: 'token and platform are required' });
       }
-      nativeTokens.set(userId, { token, platform, updatedAt: new Date() });
-      // Explicitly signal delivery status so callers know whether the token
-      // will actually be used for APNs/FCM dispatch (requires follow-up #88).
-      res.json({ success: true, deliveryReady: NATIVE_PUSH_READY });
+      if (platform !== 'ios' && platform !== 'android') {
+        return res.status(400).json({ message: 'platform must be "ios" or "android"' });
+      }
+      await storage.upsertNativePushToken(userId, token, platform);
+      res.json({
+        success: true,
+        deliveryReady: platformReady(platform),
+        apnsReady: APNS_READY,
+        fcmReady: FCM_READY,
+      });
     } catch (error) {
       console.error('Error saving native push token:', error);
       res.status(500).json({ message: 'Failed to save native push token' });
@@ -57,7 +77,7 @@ export function registerPushRoutes(app: Express, storage: IStorage, isAuthentica
   app.post('/api/push/test', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const nativeEntry = nativeTokens.get(userId);
+      const nativeTokens = await storage.getUserNativePushTokens(userId);
 
       const result = await notificationService.sendToUserWithResult(userId, {
         title: '🔔 Test Notification',
@@ -65,14 +85,16 @@ export function registerPushRoutes(app: Express, storage: IStorage, isAuthentica
         data: { type: 'test' },
       });
 
-      // Build a response that is explicit about web vs. native push status.
-      const nativeStatus = nativeEntry
-        ? NATIVE_PUSH_READY
+      const totalSucceeded = result.succeeded + result.nativeSucceeded;
+      const totalAttempted = result.total + result.nativeTotal;
+
+      const nativeStatus = nativeTokens.length > 0
+        ? nativeTokens.every(t => platformReady(t.platform))
           ? 'native_token_dispatched'
           : 'native_token_registered_delivery_pending'
         : 'no_native_token';
 
-      if (result.total === 0 && !nativeEntry) {
+      if (totalAttempted === 0) {
         return res.status(400).json({
           success: false,
           message: 'No push subscriptions found. Please enable notifications first.',
@@ -80,18 +102,10 @@ export function registerPushRoutes(app: Express, storage: IStorage, isAuthentica
         });
       }
 
-      if (result.total === 0 && nativeEntry && !NATIVE_PUSH_READY) {
-        return res.status(400).json({
-          success: false,
-          message: 'Native push token registered but APNs/FCM server credentials are not yet configured. Web push subscriptions not found either. See follow-up #88.',
-          nativeStatus,
-        });
-      }
-
-      if (result.succeeded === 0 && result.total > 0) {
+      if (totalSucceeded === 0) {
         return res.status(502).json({
           success: false,
-          message: `Delivery failed for all ${result.total} web subscription(s). Subscriptions may be expired.`,
+          message: `Delivery failed for all ${totalAttempted} subscription(s). Check credentials and token validity.`,
           telemetry: result,
           nativeStatus,
         });
@@ -99,8 +113,8 @@ export function registerPushRoutes(app: Express, storage: IStorage, isAuthentica
 
       res.json({
         success: true,
-        message: result.failed > 0
-          ? `Test notification sent to ${result.succeeded}/${result.total} subscription(s). ${result.failed} failed.`
+        message: (result.failed > 0 || result.nativeFailed > 0)
+          ? `Test notification sent to ${result.succeeded}/${result.total} web and ${result.nativeSucceeded}/${result.nativeTotal} native subscription(s).`
           : 'Test notification sent',
         telemetry: result,
         nativeStatus,

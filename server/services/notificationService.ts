@@ -1,4 +1,7 @@
 import webpush from 'web-push';
+import crypto from 'node:crypto';
+import http2 from 'node:http2';
+import https from 'node:https';
 import { storage } from '../storage';
 import { config } from '../lib/config';
 
@@ -27,19 +30,260 @@ export interface SendResult {
   total: number;
   succeeded: number;
   failed: number;
+  nativeTotal: number;
+  nativeSucceeded: number;
+  nativeFailed: number;
 }
+
+// ─── Utilities ───────────────────────────────────────────────────────────────
+
+function base64url(buf: Buffer): string {
+  return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+// ─── APNs JWT helpers ────────────────────────────────────────────────────────
+
+let _apnsJwt: { token: string; issuedAt: number } | null = null;
+
+function getApnsJwt(): string {
+  const now = Math.floor(Date.now() / 1000);
+  if (_apnsJwt && now - _apnsJwt.issuedAt < 3000) {
+    return _apnsJwt.token;
+  }
+
+  const keyId = process.env.APNS_KEY_ID!;
+  const teamId = process.env.APNS_TEAM_ID!;
+  const keyP8 = process.env.APNS_KEY_P8!.replace(/\\n/g, '\n');
+
+  const header = base64url(Buffer.from(JSON.stringify({ alg: 'ES256', kid: keyId })));
+  const payload = base64url(Buffer.from(JSON.stringify({ iss: teamId, iat: now })));
+  const signingInput = `${header}.${payload}`;
+
+  const sign = crypto.createSign('SHA256');
+  sign.update(signingInput);
+  const signature = base64url(sign.sign({ key: keyP8, dsaEncoding: 'ieee-p1363' }));
+
+  const token = `${signingInput}.${signature}`;
+  _apnsJwt = { token, issuedAt: now };
+  return token;
+}
+
+async function sendApns(
+  deviceToken: string,
+  payload: NotificationPayload,
+  bundleId: string = process.env.APNS_BUNDLE_ID || 'com.taime.app'
+): Promise<void> {
+  const jwt = getApnsJwt();
+  const host = process.env.APNS_ENV === 'production'
+    ? 'api.push.apple.com'
+    : 'api.sandbox.push.apple.com';
+
+  const body = JSON.stringify({
+    aps: {
+      alert: { title: payload.title, body: payload.body },
+      badge: 1,
+      sound: 'default',
+    },
+    data: payload.data || {},
+  });
+
+  return new Promise((resolve, reject) => {
+    const client = http2.connect(`https://${host}`);
+    client.on('error', reject);
+
+    const req = client.request({
+      ':method': 'POST',
+      ':path': `/3/device/${deviceToken}`,
+      ':scheme': 'https',
+      ':authority': host,
+      'authorization': `bearer ${jwt}`,
+      'apns-topic': bundleId,
+      'apns-push-type': 'alert',
+      'content-type': 'application/json',
+      'content-length': Buffer.byteLength(body).toString(),
+    });
+
+    let status = 0;
+    let responseBody = '';
+
+    req.on('response', (headers) => {
+      status = headers[':status'] as number;
+    });
+
+    req.on('data', (chunk) => { responseBody += chunk; });
+
+    req.on('end', () => {
+      client.close();
+      if (status === 200) {
+        resolve();
+      } else {
+        reject(new Error(`APNs error ${status}: ${responseBody}`));
+      }
+    });
+
+    req.on('error', (err) => { client.close(); reject(err); });
+
+    req.write(body);
+    req.end();
+  });
+}
+
+// ─── FCM HTTP v1 API helpers ─────────────────────────────────────────────────
+
+interface ServiceAccount {
+  type: string;
+  project_id: string;
+  private_key_id: string;
+  private_key: string;
+  client_email: string;
+  token_uri: string;
+}
+
+let _fcmAccessToken: { token: string; expiresAt: number } | null = null;
+
+async function getFcmAccessToken(serviceAccount: ServiceAccount): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  if (_fcmAccessToken && now < _fcmAccessToken.expiresAt - 60) {
+    return _fcmAccessToken.token;
+  }
+
+  const iat = now;
+  const exp = iat + 3600;
+  const scope = 'https://www.googleapis.com/auth/firebase.messaging';
+
+  const header = base64url(Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })));
+  const claimSet = base64url(Buffer.from(JSON.stringify({
+    iss: serviceAccount.client_email,
+    sub: serviceAccount.client_email,
+    aud: serviceAccount.token_uri,
+    iat,
+    exp,
+    scope,
+  })));
+
+  const signingInput = `${header}.${claimSet}`;
+  const sign = crypto.createSign('SHA256');
+  sign.update(signingInput);
+  const sig = base64url(sign.sign(serviceAccount.private_key));
+  const jwtToken = `${signingInput}.${sig}`;
+
+  const tokenUri = serviceAccount.token_uri || 'https://oauth2.googleapis.com/token';
+  const postBody = `grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=${jwtToken}`;
+
+  const accessToken = await new Promise<string>((resolve, reject) => {
+    const url = new URL(tokenUri);
+    const options = {
+      hostname: url.hostname,
+      path: url.pathname + url.search,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Length': Buffer.byteLength(postBody),
+      },
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        if (res.statusCode === 200) {
+          const parsed = JSON.parse(data);
+          resolve(parsed.access_token);
+        } else {
+          reject(new Error(`OAuth2 token error ${res.statusCode}: ${data}`));
+        }
+      });
+    });
+
+    req.on('error', reject);
+    req.write(postBody);
+    req.end();
+  });
+
+  _fcmAccessToken = { token: accessToken, expiresAt: exp };
+  return accessToken;
+}
+
+async function sendFcmV1(
+  deviceToken: string,
+  payload: NotificationPayload,
+  serviceAccount: ServiceAccount
+): Promise<void> {
+  const accessToken = await getFcmAccessToken(serviceAccount);
+  const projectId = serviceAccount.project_id;
+
+  const body = JSON.stringify({
+    message: {
+      token: deviceToken,
+      notification: {
+        title: payload.title,
+        body: payload.body,
+      },
+      android: {
+        priority: 'high',
+        notification: { sound: 'default' },
+        data: Object.fromEntries(
+          Object.entries(payload.data || {}).map(([k, v]) => [k, String(v)])
+        ),
+      },
+    },
+  });
+
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname: 'fcm.googleapis.com',
+      path: `/v1/projects/${projectId}/messages:send`,
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+      },
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        if (res.statusCode === 200) {
+          resolve();
+        } else {
+          reject(new Error(`FCM v1 error ${res.statusCode}: ${data}`));
+        }
+      });
+    });
+
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
+function parseFcmServiceAccount(): ServiceAccount | null {
+  const raw = process.env.FCM_SERVICE_ACCOUNT_JSON || process.env.FCM_SERVER_KEY;
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed.project_id && parsed.private_key && parsed.client_email) {
+      return parsed as ServiceAccount;
+    }
+  } catch {
+    // Not a JSON service account key
+  }
+  return null;
+}
+
+// ─── Notification Service ────────────────────────────────────────────────────
 
 export class NotificationService {
   /**
    * Send push notification to a specific user, returning delivery telemetry
    */
   async sendToUserWithResult(userId: string, payload: NotificationPayload): Promise<SendResult> {
-    const subscriptions = await storage.getUserPushSubscriptions(userId);
-
-    if (subscriptions.length === 0) {
-      console.log(`No push subscriptions found for user ${userId}`);
-      return { total: 0, succeeded: 0, failed: 0 };
-    }
+    const [subscriptions, nativeTokens] = await Promise.all([
+      storage.getUserPushSubscriptions(userId),
+      storage.getUserNativePushTokens(userId),
+    ]);
 
     const notificationPayload = JSON.stringify({
       title: payload.title,
@@ -50,38 +294,101 @@ export class NotificationService {
       actions: payload.actions || [],
     });
 
-    const results = await Promise.allSettled(
-      subscriptions.map(async (subscription) => {
-        await webpush.sendNotification(
-          {
-            endpoint: subscription.endpoint,
-            keys: {
-              p256dh: subscription.p256dh,
-              auth: subscription.auth,
-            },
-          },
-          notificationPayload
-        );
-      })
-    );
-
+    // ── Web Push ──
     let succeeded = 0;
     let failed = 0;
-    for (let i = 0; i < results.length; i++) {
-      const result = results[i];
-      if (result.status === 'fulfilled') {
-        succeeded++;
-      } else {
-        failed++;
-        const error = result.reason;
-        console.error(`Failed to send notification to subscription ${subscriptions[i].id}:`, error);
-        if (error?.statusCode === 410) {
-          await storage.deletePushSubscription(subscriptions[i].id);
+
+    if (subscriptions.length > 0) {
+      const webResults = await Promise.allSettled(
+        subscriptions.map(async (subscription) => {
+          await webpush.sendNotification(
+            {
+              endpoint: subscription.endpoint,
+              keys: {
+                p256dh: subscription.p256dh,
+                auth: subscription.auth,
+              },
+            },
+            notificationPayload
+          );
+        })
+      );
+
+      for (let i = 0; i < webResults.length; i++) {
+        const result = webResults[i];
+        if (result.status === 'fulfilled') {
+          succeeded++;
+        } else {
+          failed++;
+          const error = result.reason;
+          console.error(`Failed to send notification to subscription ${subscriptions[i].id}:`, error);
+          if (error?.statusCode === 410) {
+            await storage.deletePushSubscription(subscriptions[i].id);
+          }
         }
       }
     }
 
-    return { total: subscriptions.length, succeeded, failed };
+    // ── Native Push ──
+    let nativeSucceeded = 0;
+    let nativeFailed = 0;
+
+    if (nativeTokens.length > 0) {
+      const fcmServiceAccount = parseFcmServiceAccount();
+
+      const nativeResults = await Promise.allSettled(
+        nativeTokens.map(async (entry) => {
+          if (entry.platform === 'ios') {
+            if (!process.env.APNS_KEY_ID || !process.env.APNS_TEAM_ID || !process.env.APNS_KEY_P8) {
+              throw new Error('APNs credentials not configured');
+            }
+            await sendApns(entry.token, payload);
+          } else if (entry.platform === 'android') {
+            if (!fcmServiceAccount) {
+              throw new Error('FCM service account credentials not configured. Set FCM_SERVICE_ACCOUNT_JSON or FCM_SERVER_KEY with a valid service account JSON.');
+            }
+            await sendFcmV1(entry.token, payload, fcmServiceAccount);
+          } else {
+            throw new Error(`Unknown platform: ${entry.platform}`);
+          }
+        })
+      );
+
+      for (let i = 0; i < nativeResults.length; i++) {
+        const result = nativeResults[i];
+        if (result.status === 'fulfilled') {
+          nativeSucceeded++;
+        } else {
+          nativeFailed++;
+          console.error(
+            `Failed to send native notification for user ${userId} (${nativeTokens[i].platform}):`,
+            result.reason
+          );
+          const errMsg = (result.reason as Error)?.message || '';
+          if (
+            errMsg.includes('BadDeviceToken') ||
+            errMsg.includes('Unregistered') ||
+            errMsg.includes('InvalidRegistration') ||
+            errMsg.includes('NotRegistered')
+          ) {
+            await storage.deleteNativePushToken(userId, nativeTokens[i].token);
+          }
+        }
+      }
+    }
+
+    if (subscriptions.length === 0 && nativeTokens.length === 0) {
+      console.log(`No push subscriptions found for user ${userId}`);
+    }
+
+    return {
+      total: subscriptions.length,
+      succeeded,
+      failed,
+      nativeTotal: nativeTokens.length,
+      nativeSucceeded,
+      nativeFailed,
+    };
   }
 
   /**
@@ -96,255 +403,128 @@ export class NotificationService {
     }
   }
 
-  /**
-   * Send clock-in reminder when user arrives at work location
-   */
   async sendClockInReminder(userId: string, locationName: string): Promise<void> {
     await this.sendToUser(userId, {
       title: '🕐 Clock In Reminder',
       body: `You've arrived at ${locationName}. Don't forget to clock in!`,
-      data: {
-        type: 'clock_in_reminder',
-        locationName,
-      },
+      data: { type: 'clock_in_reminder', locationName },
       actions: [
-        {
-          action: 'clock_in',
-          title: 'Clock In Now',
-        },
-        {
-          action: 'dismiss',
-          title: 'Dismiss',
-        },
+        { action: 'clock_in', title: 'Clock In Now' },
+        { action: 'dismiss', title: 'Dismiss' },
       ],
     });
   }
 
-  /**
-   * Send clock-out reminder when user leaves work location
-   */
   async sendClockOutReminder(userId: string, locationName: string): Promise<void> {
     await this.sendToUser(userId, {
       title: '🕐 Clock Out Reminder',
       body: `You've left ${locationName}. Don't forget to clock out!`,
-      data: {
-        type: 'clock_out_reminder',
-        locationName,
-      },
+      data: { type: 'clock_out_reminder', locationName },
       actions: [
-        {
-          action: 'clock_out',
-          title: 'Clock Out Now',
-        },
-        {
-          action: 'dismiss',
-          title: 'Dismiss',
-        },
+        { action: 'clock_out', title: 'Clock Out Now' },
+        { action: 'dismiss', title: 'Dismiss' },
       ],
     });
   }
 
-  /**
-   * Send task assignment notification
-   */
   async sendTaskAssignment(userId: string, taskTitle: string, dueTime: string): Promise<void> {
     await this.sendToUser(userId, {
       title: '📋 New Task Assigned',
       body: `You have a new task: ${taskTitle}. Due: ${dueTime}`,
-      data: {
-        type: 'task_assignment',
-        taskTitle,
-        dueTime,
-      },
+      data: { type: 'task_assignment', taskTitle, dueTime },
       actions: [
-        {
-          action: 'view_task',
-          title: 'View Task',
-        },
-        {
-          action: 'dismiss',
-          title: 'Dismiss',
-        },
+        { action: 'view_task', title: 'View Task' },
+        { action: 'dismiss', title: 'Dismiss' },
       ],
     });
   }
 
-  /**
-   * Send task reminder notification
-   */
   async sendTaskReminder(userId: string, taskTitle: string, minutesUntilDue: number): Promise<void> {
     await this.sendToUser(userId, {
       title: '⏰ Task Reminder',
       body: `Task "${taskTitle}" is due in ${minutesUntilDue} minutes!`,
-      data: {
-        type: 'task_reminder',
-        taskTitle,
-        minutesUntilDue,
-      },
+      data: { type: 'task_reminder', taskTitle, minutesUntilDue },
       actions: [
-        {
-          action: 'mark_complete',
-          title: 'Mark Complete',
-        },
-        {
-          action: 'view_task',
-          title: 'View Task',
-        },
+        { action: 'mark_complete', title: 'Mark Complete' },
+        { action: 'view_task', title: 'View Task' },
       ],
     });
   }
 
-  /**
-   * Send overtime warning notification
-   */
   async sendOvertimeWarning(userId: string, currentHours: number, overtimeThreshold: number): Promise<void> {
     const hoursUntilOvertime = overtimeThreshold - currentHours;
-    
     await this.sendToUser(userId, {
       title: '⚠️ Overtime Warning',
       body: `You'll reach overtime in ${hoursUntilOvertime.toFixed(1)} hours. Consider taking a break or clocking out early.`,
-      data: {
-        type: 'overtime_warning',
-        currentHours,
-        overtimeThreshold,
-      },
+      data: { type: 'overtime_warning', currentHours, overtimeThreshold },
       actions: [
-        {
-          action: 'clock_out',
-          title: 'Clock Out Now',
-        },
-        {
-          action: 'dismiss',
-          title: 'Acknowledge',
-        },
+        { action: 'clock_out', title: 'Clock Out Now' },
+        { action: 'dismiss', title: 'Acknowledge' },
       ],
     });
   }
 
-  /**
-   * Send schedule update notification
-   */
   async sendScheduleUpdate(userId: string, changeDescription: string): Promise<void> {
     await this.sendToUser(userId, {
       title: '📅 Schedule Updated',
       body: changeDescription,
-      data: {
-        type: 'schedule_update',
-        changeDescription,
-      },
+      data: { type: 'schedule_update', changeDescription },
       actions: [
-        {
-          action: 'view_schedule',
-          title: 'View Schedule',
-        },
-        {
-          action: 'dismiss',
-          title: 'Dismiss',
-        },
+        { action: 'view_schedule', title: 'View Schedule' },
+        { action: 'dismiss', title: 'Dismiss' },
       ],
     });
   }
 
-  /**
-   * Send payroll ready notification
-   */
   async sendPayrollReady(userId: string, periodDescription: string): Promise<void> {
     await this.sendToUser(userId, {
       title: '💰 Payroll Ready for Review',
       body: `Your timesheet for ${periodDescription} is ready for approval.`,
-      data: {
-        type: 'payroll_ready',
-        periodDescription,
-      },
+      data: { type: 'payroll_ready', periodDescription },
       actions: [
-        {
-          action: 'review_payroll',
-          title: 'Review Now',
-        },
-        {
-          action: 'dismiss',
-          title: 'Later',
-        },
+        { action: 'review_payroll', title: 'Review Now' },
+        { action: 'dismiss', title: 'Later' },
       ],
     });
   }
 
-  /**
-   * Send team announcement notification
-   */
   async sendTeamAnnouncement(userIds: string[], title: string, message: string): Promise<void> {
     const payload: NotificationPayload = {
       title,
       body: message,
-      data: {
-        type: 'team_announcement',
-      },
+      data: { type: 'team_announcement' },
       actions: [
-        {
-          action: 'view_announcement',
-          title: 'View Details',
-        },
-        {
-          action: 'dismiss',
-          title: 'Dismiss',
-        },
+        { action: 'view_announcement', title: 'View Details' },
+        { action: 'dismiss', title: 'Dismiss' },
       ],
     };
-
     const promises = userIds.map(userId => this.sendToUser(userId, payload));
     await Promise.allSettled(promises);
   }
 
-  /**
-   * Send AI insight notification
-   */
   async sendAnomalyAlert(userId: string, headline: string, detail: string, severity: string, insightType: string): Promise<void> {
     const emoji = severity === 'action_needed' ? '🚨' : '⚠️';
     const typeLabel = insightType === 'clock_in_anomaly' ? 'Clock-In Anomaly' : 'Payroll Alert';
-
     await this.sendToUser(userId, {
       title: `${emoji} ${typeLabel}`,
       body: headline,
-      data: {
-        type: 'anomaly_alert',
-        insightType,
-        severity,
-        url: '/dashboard',
-      },
+      data: { type: 'anomaly_alert', insightType, severity, url: '/dashboard' },
       actions: [
-        {
-          action: 'view_details',
-          title: 'View Details',
-        },
-        {
-          action: 'dismiss',
-          title: 'Dismiss',
-        },
+        { action: 'view_details', title: 'View Details' },
+        { action: 'dismiss', title: 'Dismiss' },
       ],
     });
   }
 
   async sendAIInsight(userId: string, insightTitle: string, insightDescription: string, severity: string): Promise<void> {
     const emoji = severity === 'high' ? '🚨' : severity === 'medium' ? '⚠️' : 'ℹ️';
-    
     await this.sendToUser(userId, {
       title: `${emoji} AI Insight`,
       body: `${insightTitle}: ${insightDescription}`,
-      data: {
-        type: 'ai_insight',
-        insightTitle,
-        insightDescription,
-        severity,
-      },
+      data: { type: 'ai_insight', insightTitle, insightDescription, severity },
       actions: [
-        {
-          action: 'view_insight',
-          title: 'View Details',
-        },
-        {
-          action: 'dismiss',
-          title: 'Dismiss',
-        },
+        { action: 'view_insight', title: 'View Details' },
+        { action: 'dismiss', title: 'Dismiss' },
       ],
     });
   }
