@@ -10,7 +10,6 @@ import ImprovementFeedWidget from '@/components/ImprovementFeedWidget';
 import LeanBoardCard from '@/features/dashboard/LeanBoardCard';
 import SmartSuggestionsCard from '@/features/dashboard/SmartSuggestionsCard';
 import { DashboardErrorBoundary } from '@/features/dashboard/DashboardErrorBoundary';
-import GTDDashboardWidget from '@/features/gtd/GTDDashboardWidget';
 import ScoreWidget from '@/features/dashboard/ScoreWidget';
 import TimeClockWidget from '@/components/TimeClockWidget';
 import DailyQuestionnaireCard from '@/features/dashboard/DailyQuestionnaireCard';
@@ -637,7 +636,6 @@ export default function AssociateDashboard() {
           <DashboardErrorBoundary fallback=""><TrainingProgressCard /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><TeamStatusWidget /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><LeanBoardCard /></DashboardErrorBoundary>
-          <DashboardErrorBoundary fallback=""><GTDDashboardWidget /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><ImprovementFeedWidget /></DashboardErrorBoundary>
 
         </div>
@@ -781,7 +779,6 @@ export default function AssociateDashboard() {
           <DashboardErrorBoundary fallback=""><TeamStatusWidget /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><ScoreWidget /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><LeanBoardCard /></DashboardErrorBoundary>
-          <DashboardErrorBoundary fallback=""><GTDDashboardWidget /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><ImprovementFeedWidget /></DashboardErrorBoundary>
 
         </div>

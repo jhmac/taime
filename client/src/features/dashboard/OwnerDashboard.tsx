@@ -11,7 +11,6 @@ import SurfacedSOPBanner from '@/components/SurfacedSOPBanner';
 import MiddayPulseCard from '@/components/MiddayPulseCard';
 import ImprovementFeedWidget from '@/components/ImprovementFeedWidget';
 import { DashboardErrorBoundary } from '@/features/dashboard/DashboardErrorBoundary';
-import GTDDashboardWidget from '@/features/gtd/GTDDashboardWidget';
 import WeeklyReviewCard from '@/features/gtd/WeeklyReviewCard';
 import LeanBoardCard from '@/features/dashboard/LeanBoardCard';
 import SOPInsightsCard from '@/features/dashboard/SOPInsightsCard';
@@ -20,10 +19,10 @@ import SOPRevisionCard from '@/features/dashboard/SOPRevisionCard';
 import CashStatusCard from '@/features/dashboard/CashStatusCard';
 import TimeClockWidget from '@/components/TimeClockWidget';
 import {
-  Briefcase, Users, ShieldCheck, AlertTriangle, TrendingUp,
+  Briefcase, ShieldCheck, AlertTriangle, TrendingUp,
   Calendar, DollarSign, ClipboardList, BarChart3, Settings,
   Bot, Clock, Video, ShoppingBag, ExternalLink,
-  AlertCircle, CheckCircle2,
+  AlertCircle, CheckCircle2, CalendarDays, Inbox, CalendarCheck, Zap, ArrowRight,
 } from 'lucide-react';
 
 export default function OwnerDashboard() {
@@ -100,6 +99,12 @@ export default function OwnerDashboard() {
     enabled: deferredEnabled,
   });
 
+  const { data: gtdData, isLoading: gtdLoading } = useQuery<{ success: boolean; data: { inbox_count: number; actions_today_count: number; actions_overdue_count: number; waiting_overdue_count: number; two_minute_actions_count: number } }>({
+    queryKey: ['/api/gtd/dashboard'],
+    enabled: deferredEnabled,
+    staleTime: 60_000,
+  });
+
   const getGreeting = () => {
     const hour = currentTime.getHours();
     if (hour < 12) return 'Good morning';
@@ -138,6 +143,9 @@ export default function OwnerDashboard() {
   const weeklyVideos = (improvementVideos || []).filter(
     (v: any) => new Date(v.createdAt) >= startOfWeek
   );
+
+  const overdueGtdTotal = (gtdData?.data?.actions_overdue_count || 0) + (gtdData?.data?.waiting_overdue_count || 0);
+  const quickWins = gtdData?.data?.two_minute_actions_count || 0;
 
   const urgentIssues = (issues || []).filter(
     (i: any) => (i.priority === 'urgent' || i.priority === 'high') && i.status !== 'resolved' && i.status !== 'closed'
@@ -231,22 +239,23 @@ export default function OwnerDashboard() {
           </Card>
         </DashboardErrorBoundary>
 
-        <DashboardErrorBoundary fallback="Sales data failed to load">
+        <DashboardErrorBoundary fallback="Today card failed to load">
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm flex items-center gap-2">
-                <ShoppingBag className="h-4 w-4 text-green-600" />
-                Sales Snapshot
+                <CalendarDays className="h-4 w-4 text-[#F47D31]" />
+                Today
               </CardTitle>
             </CardHeader>
             <CardContent>
+              {/* Sales snapshot at top */}
               {shopifyLoading ? (
-                <div className="space-y-2">
+                <div className="space-y-2 mb-4 pb-4 border-b border-border">
                   <Skeleton className="h-8 w-1/3" />
                   <Skeleton className="h-4 w-2/3" />
                 </div>
               ) : shopifyData?.todayRevenue !== undefined ? (
-                <div className="space-y-3">
+                <div className="mb-4 pb-4 border-b border-border">
                   <div className="flex items-end gap-3">
                     <div>
                       <p className="text-3xl font-bold text-green-600">${Number(shopifyData.todayRevenue || 0).toFixed(0)}</p>
@@ -262,13 +271,13 @@ export default function OwnerDashboard() {
                     )}
                   </div>
                   {shopifyData.orderCount !== undefined && (
-                    <p className="text-sm text-muted-foreground">
+                    <p className="text-sm text-muted-foreground mt-1">
                       {shopifyData.orderCount} orders today
                     </p>
                   )}
                 </div>
               ) : (
-                <div className="text-center py-4">
+                <div className="text-center py-3 mb-4 pb-4 border-b border-border">
                   <ShoppingBag className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
                   <p className="text-sm text-muted-foreground mb-2">Connect Shopify to see sales data</p>
                   <Button variant="outline" size="sm" onClick={() => navigate('/admin?section=pos-connection')}>
@@ -276,19 +285,8 @@ export default function OwnerDashboard() {
                   </Button>
                 </div>
               )}
-            </CardContent>
-          </Card>
-        </DashboardErrorBoundary>
 
-        <DashboardErrorBoundary fallback="Team health failed to load">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <Users className="h-4 w-4 text-[#F47D31]" />
-                Team Health
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
+              {/* Staff list — flat, sorted by shift start time */}
               {dashboardLoading ? (
                 <div className="space-y-2">
                   <Skeleton className="h-4 w-full" />
@@ -296,77 +294,76 @@ export default function OwnerDashboard() {
                   <Skeleton className="h-4 w-3/4" />
                 </div>
               ) : (() => {
-                const totalIn = dashboardToday?.summary?.totalClockedIn ?? 0;
-                const totalSched = dashboardToday?.summary?.totalScheduled ?? 0;
-                const notArrived = dashboardToday?.summary?.totalNotArrived ?? 0;
-                const onShift: any[] = dashboardToday?.clockedIn ?? [];
-                const upcoming: any[] = (dashboardToday?.schedules ?? []).filter((s: any) => !s.isClockedIn && !s.shiftPassed);
-                return (
-                  <div className="space-y-3">
-                    {/* Summary */}
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5">
-                        <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                        <span className="text-sm font-semibold">{totalIn}</span>
-                        <span className="text-sm text-muted-foreground">on shift</span>
-                      </div>
-                      <span className="text-xs text-muted-foreground">{totalSched} scheduled today</span>
-                    </div>
+                const allSchedules: any[] = dashboardToday?.schedules ?? [];
+                const clockedInArr: any[] = dashboardToday?.clockedIn ?? [];
+                const clockedInMap = new Map(clockedInArr.map((e: any) => [e.userName, e]));
 
-                    {/* Not-arrived alert */}
-                    {notArrived > 0 && (
-                      <div className="flex items-center gap-1.5 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800/40 rounded-md px-2.5 py-1.5">
-                        <AlertCircle className="h-3 w-3 text-red-600 dark:text-red-400 shrink-0" />
-                        <span className="text-xs font-medium text-red-700 dark:text-red-400">
-                          {notArrived} not clocked in yet
+                const sorted = [...allSchedules]
+                  .filter((s: any) => !s.shiftPassed || s.isClockedIn)
+                  .sort((a: any, b: any) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+
+                const scheduledNames = new Set(sorted.map((s: any) => s.userName));
+                const unscheduledOnShift = clockedInArr.filter((e: any) => !scheduledNames.has(e.userName));
+
+                if (sorted.length === 0 && unscheduledOnShift.length === 0) {
+                  return <p className="text-xs text-muted-foreground text-center py-1">No shifts scheduled today</p>;
+                }
+
+                return (
+                  <div className="space-y-2">
+                    {sorted.map((s: any, i: number) => {
+                      const clockedEntry = clockedInMap.get(s.userName);
+                      const isOnShift = s.isClockedIn || !!clockedEntry;
+                      return (
+                        <div key={s.scheduleId || i} className="flex items-center justify-between min-h-[28px]">
+                          <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                            <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isOnShift ? 'bg-green-500' : 'bg-blue-400'}`} />
+                            <span className="text-xs font-medium truncate">{s.userName}</span>
+                            {isOnShift && clockedEntry?.isLate && (
+                              <span className="text-[10px] bg-red-100 dark:bg-red-950/30 text-red-600 dark:text-red-400 px-1.5 py-0.5 rounded-full shrink-0 font-semibold">
+                                {clockedEntry.minutesLate}m late
+                              </span>
+                            )}
+                          </div>
+                          <div className="shrink-0 ml-2 text-right">
+                            {isOnShift ? (
+                              <>
+                                <span className="text-[10px] text-muted-foreground block">
+                                  sched {new Date(s.startTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
+                                </span>
+                                {clockedEntry && (
+                                  <span className="text-[10px] text-green-600 dark:text-green-400 block">
+                                    in {new Date(clockedEntry.clockInTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
+                                  </span>
+                                )}
+                              </>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">
+                                {new Date(s.startTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
+                                {' – '}
+                                {new Date(s.endTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {unscheduledOnShift.map((emp: any) => (
+                      <div key={emp.userId} className="flex items-center justify-between min-h-[28px]">
+                        <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                          <div className="w-1.5 h-1.5 bg-green-500 rounded-full shrink-0" />
+                          <span className="text-xs font-medium truncate">{emp.userName}</span>
+                          {emp.isLate && (
+                            <span className="text-[10px] bg-red-100 dark:bg-red-950/30 text-red-600 dark:text-red-400 px-1.5 py-0.5 rounded-full shrink-0 font-semibold">
+                              {emp.minutesLate}m late
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[10px] text-green-600 dark:text-green-400 shrink-0 ml-2">
+                          in {new Date(emp.clockInTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
                         </span>
                       </div>
-                    )}
-
-                    {/* Currently on shift */}
-                    {onShift.length > 0 && (
-                      <div className="space-y-1.5">
-                        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">On Shift Now</p>
-                        {onShift.slice(0, 5).map((emp: any) => (
-                          <div key={emp.userId} className="flex items-center justify-between">
-                            <div className="flex items-center gap-1.5 min-w-0">
-                              <div className="w-1.5 h-1.5 bg-green-500 rounded-full shrink-0" />
-                              <span className="text-xs font-medium truncate">{emp.userName}</span>
-                              {emp.isLate && (
-                                <span className="text-[10px] text-red-500 shrink-0">({emp.minutesLate}m late)</span>
-                              )}
-                            </div>
-                            <span className="text-xs text-muted-foreground shrink-0 ml-2">
-                              in {new Date(emp.clockInTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Coming up */}
-                    {upcoming.length > 0 && (
-                      <div className="space-y-1.5">
-                        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Scheduled Today</p>
-                        {upcoming.slice(0, 4).map((s: any) => (
-                          <div key={s.scheduleId} className="flex items-center justify-between">
-                            <div className="flex items-center gap-1.5 min-w-0">
-                              <div className="w-1.5 h-1.5 bg-blue-400 rounded-full shrink-0" />
-                              <span className="text-xs truncate">{s.userName}</span>
-                            </div>
-                            <span className="text-xs text-muted-foreground shrink-0 ml-2">
-                              {new Date(s.startTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
-                              {' – '}
-                              {new Date(s.endTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {totalSched === 0 && totalIn === 0 && (
-                      <p className="text-xs text-muted-foreground text-center py-1">No shifts scheduled today</p>
-                    )}
+                    ))}
                   </div>
                 );
               })()}
@@ -374,58 +371,136 @@ export default function OwnerDashboard() {
           </Card>
         </DashboardErrorBoundary>
 
-        <DashboardErrorBoundary fallback="Scorecard failed to load">
-          <div>
-            <h3 className="text-sm font-semibold text-muted-foreground mb-3 px-1">Operational Scorecard</h3>
-            <div className={isMobile ? 'grid grid-cols-2 gap-3' : 'grid grid-cols-4 gap-4'}>
-              <Card>
-                <CardContent className="p-4 text-center">
-                  <ShieldCheck className="h-5 w-5 mx-auto mb-2 text-emerald-600" />
+        <DashboardErrorBoundary fallback="Tasks & Operations failed to load">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4 text-purple-600" />
+                Tasks & Operations
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {/* 3×2 grid of action tiles */}
+              <div className="grid grid-cols-3 gap-2 mb-3">
+                {/* SOP Completion % */}
+                <button
+                  onClick={() => navigate('/sops')}
+                  className="bg-emerald-500 dark:bg-emerald-600 rounded-2xl p-3 text-center transition-transform active:scale-95 hover:brightness-110 cursor-pointer"
+                >
+                  <ShieldCheck className="h-4 w-4 mx-auto mb-1 text-white" />
                   {sopsLoading ? (
-                    <Skeleton className="h-8 w-12 mx-auto" />
+                    <Skeleton className="h-6 w-10 mx-auto bg-white/30" />
                   ) : (
-                    <p className="text-2xl font-bold">{sopCompletionRate}%</p>
+                    <p className="text-xl font-bold text-white">{sopCompletionRate}%</p>
                   )}
-                  <p className="text-xs text-muted-foreground mt-1">SOP Completion</p>
-                  <p className="text-[10px] text-muted-foreground">This week</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-4 text-center">
-                  <Clock className="h-5 w-5 mx-auto mb-2 text-blue-600" />
-                  {issuesLoading ? (
-                    <Skeleton className="h-8 w-12 mx-auto" />
-                  ) : (
-                    <p className="text-2xl font-bold">
-                      {avgResolutionTime > 0 ? `${avgResolutionTime.toFixed(1)}h` : '—'}
-                    </p>
-                  )}
-                  <p className="text-xs text-muted-foreground mt-1">Avg Resolution</p>
-                  <p className="text-[10px] text-muted-foreground">Issue response</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-4 text-center">
-                  <CheckCircle2 className="h-5 w-5 mx-auto mb-2 text-purple-600" />
+                  <p className="text-[10px] text-white/80 mt-0.5">SOP</p>
+                </button>
+
+                {/* Task Completion % */}
+                <button
+                  onClick={() => navigate('/tasks')}
+                  className="bg-purple-500 dark:bg-purple-600 rounded-2xl p-3 text-center transition-transform active:scale-95 hover:brightness-110 cursor-pointer"
+                >
+                  <CheckCircle2 className="h-4 w-4 mx-auto mb-1 text-white" />
                   {tasksLoading ? (
-                    <Skeleton className="h-8 w-12 mx-auto" />
+                    <Skeleton className="h-6 w-10 mx-auto bg-white/30" />
                   ) : (
-                    <p className="text-2xl font-bold">{taskCompletionRate}%</p>
+                    <p className="text-xl font-bold text-white">{taskCompletionRate}%</p>
                   )}
-                  <p className="text-xs text-muted-foreground mt-1">Task Completion</p>
-                  <p className="text-[10px] text-muted-foreground">All time</p>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="p-4 text-center">
-                  <Video className="h-5 w-5 mx-auto mb-2 text-amber-600" />
-                  <p className="text-2xl font-bold">{weeklyVideos.length}</p>
-                  <p className="text-xs text-muted-foreground mt-1">Videos</p>
-                  <p className="text-[10px] text-muted-foreground">This week</p>
-                </CardContent>
-              </Card>
-            </div>
-          </div>
+                  <p className="text-[10px] text-white/80 mt-0.5">Tasks</p>
+                </button>
+
+                {/* Inbox */}
+                <button
+                  onClick={() => navigate('/gtd/inbox')}
+                  className="bg-blue-500 dark:bg-blue-600 rounded-2xl p-3 text-center transition-transform active:scale-95 hover:brightness-110 cursor-pointer"
+                >
+                  <Inbox className="h-4 w-4 mx-auto mb-1 text-white" />
+                  {gtdLoading ? (
+                    <Skeleton className="h-6 w-10 mx-auto bg-white/30" />
+                  ) : (
+                    <p className="text-xl font-bold text-white">{gtdData?.data?.inbox_count ?? 0}</p>
+                  )}
+                  <p className="text-[10px] text-white/80 mt-0.5">Inbox</p>
+                </button>
+
+                {/* Due Today */}
+                <button
+                  onClick={() => navigate('/gtd/actions')}
+                  className="bg-teal-500 dark:bg-teal-600 rounded-2xl p-3 text-center transition-transform active:scale-95 hover:brightness-110 cursor-pointer"
+                >
+                  <CalendarCheck className="h-4 w-4 mx-auto mb-1 text-white" />
+                  {gtdLoading ? (
+                    <Skeleton className="h-6 w-10 mx-auto bg-white/30" />
+                  ) : (
+                    <p className="text-xl font-bold text-white">{gtdData?.data?.actions_today_count ?? 0}</p>
+                  )}
+                  <p className="text-[10px] text-white/80 mt-0.5">Due Today</p>
+                </button>
+
+                {/* Overdue */}
+                <button
+                  onClick={() => navigate('/gtd/actions')}
+                  className={`${overdueGtdTotal > 0 ? 'bg-red-500 dark:bg-red-600' : 'bg-slate-400 dark:bg-slate-600'} rounded-2xl p-3 text-center transition-transform active:scale-95 hover:brightness-110 cursor-pointer`}
+                >
+                  <AlertTriangle className="h-4 w-4 mx-auto mb-1 text-white" />
+                  {gtdLoading ? (
+                    <Skeleton className="h-6 w-10 mx-auto bg-white/30" />
+                  ) : (
+                    <p className="text-xl font-bold text-white">{overdueGtdTotal}</p>
+                  )}
+                  <p className="text-[10px] text-white/80 mt-0.5">Overdue</p>
+                </button>
+
+                {/* Quick Wins */}
+                <button
+                  onClick={() => navigate('/gtd/actions')}
+                  className={`${quickWins > 0 ? 'bg-amber-500 dark:bg-amber-600' : 'bg-slate-400 dark:bg-slate-600'} rounded-2xl p-3 text-center transition-transform active:scale-95 hover:brightness-110 cursor-pointer`}
+                >
+                  <Zap className="h-4 w-4 mx-auto mb-1 text-white" />
+                  {gtdLoading ? (
+                    <Skeleton className="h-6 w-10 mx-auto bg-white/30" />
+                  ) : (
+                    <p className="text-xl font-bold text-white">{quickWins}</p>
+                  )}
+                  <p className="text-[10px] text-white/80 mt-0.5">Quick Wins</p>
+                </button>
+              </div>
+
+              {/* Slim 2-stat row */}
+              <div className="flex gap-2 mb-3">
+                <div className="flex-1 bg-muted/50 rounded-xl p-2.5 flex items-center gap-2">
+                  <Clock className="h-3.5 w-3.5 text-blue-500 shrink-0" />
+                  <div>
+                    {issuesLoading ? (
+                      <Skeleton className="h-4 w-10" />
+                    ) : (
+                      <p className="text-sm font-bold">{avgResolutionTime > 0 ? `${avgResolutionTime.toFixed(1)}h` : '—'}</p>
+                    )}
+                    <p className="text-[10px] text-muted-foreground leading-none">Avg Resolution</p>
+                  </div>
+                </div>
+                <div className="flex-1 bg-muted/50 rounded-xl p-2.5 flex items-center gap-2">
+                  <Video className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+                  <div>
+                    <p className="text-sm font-bold">{weeklyVideos.length}</p>
+                    <p className="text-[10px] text-muted-foreground leading-none">Videos this week</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* CTA */}
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={() => navigate('/gtd/actions')}
+              >
+                What should I do next?
+                <ArrowRight className="h-4 w-4 ml-2" />
+              </Button>
+            </CardContent>
+          </Card>
         </DashboardErrorBoundary>
 
         <DashboardErrorBoundary fallback="Flagged items failed to load">
@@ -498,10 +573,6 @@ export default function OwnerDashboard() {
               </div>
             </CardContent>
           </Card>
-        </DashboardErrorBoundary>
-
-        <DashboardErrorBoundary fallback="GTD widget failed to load">
-          <GTDDashboardWidget />
         </DashboardErrorBoundary>
 
         <DashboardErrorBoundary fallback="Weekly review card failed to load">

@@ -6,13 +6,11 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { DashboardErrorBoundary } from '@/features/dashboard/DashboardErrorBoundary';
 import MiddayPulseCard from '@/components/MiddayPulseCard';
 import ImprovementFeedWidget from '@/components/ImprovementFeedWidget';
 import KudosWidget from '@/components/KudosWidget';
-import GTDDashboardWidget from '@/features/gtd/GTDDashboardWidget';
 import WeeklyReviewCard from '@/features/gtd/WeeklyReviewCard';
 import LeanBoardCard from '@/features/dashboard/LeanBoardCard';
 import SOPInsightsCard from '@/features/dashboard/SOPInsightsCard';
@@ -23,6 +21,7 @@ import CashStatusCard from '@/features/dashboard/CashStatusCard';
 import SurfacedSOPBanner from '@/components/SurfacedSOPBanner';
 import DailyTrainingManagerWidget from '@/features/dashboard/DailyTrainingManagerWidget';
 import TimeClockWidget from '@/components/TimeClockWidget';
+import TeamStatusWidget from '@/features/dashboard/TeamStatusWidget';
 import {
   Users,
   UserCheck,
@@ -34,8 +33,15 @@ import {
   Clock,
   ChevronRight,
   CircleAlert,
-  ListTodo,
   Bot,
+  ShieldCheck,
+  CheckCircle2,
+  Inbox,
+  CalendarCheck,
+  Zap,
+  ArrowRight,
+  Video,
+  Timer,
 } from 'lucide-react';
 
 export default function ManagerDashboard() {
@@ -78,6 +84,18 @@ export default function ManagerDashboard() {
   const { data: sopExecutionsRaw, isLoading: sopsLoading } = useQuery<any>({ queryKey: ['/api/sops/executions'], enabled: deferredEnabled });
   const sopExecutions = Array.isArray(sopExecutionsRaw) ? sopExecutionsRaw : (sopExecutionsRaw?.data || []);
   const { data: huddleData } = useQuery<any>({ queryKey: ['/api/rituals/huddle/today'], enabled: deferredEnabled });
+
+  const { data: gtdData, isLoading: gtdLoading } = useQuery<{ success: boolean; data: { inbox_count: number; actions_today_count: number; actions_overdue_count: number; waiting_overdue_count: number; two_minute_actions_count: number } }>({
+    queryKey: ['/api/gtd/dashboard'],
+    enabled: deferredEnabled,
+    staleTime: 60_000,
+  });
+
+  const { data: improvementVideos } = useQuery<any[]>({
+    queryKey: ['/api/improvement-videos'],
+    enabled: deferredEnabled,
+    staleTime: 60_000,
+  });
 
   const { data: unansweredCountData } = useQuery<{ pending: number }>({
     queryKey: ['/api/ai/questions/count'],
@@ -143,6 +161,24 @@ export default function ManagerDashboard() {
   );
 
   const huddleDone = huddleData?.data?.completedAt || huddleData?.completedAt;
+
+  const overdueGtdTotal = (gtdData?.data?.actions_overdue_count || 0) + (gtdData?.data?.waiting_overdue_count || 0);
+  const quickWins = gtdData?.data?.two_minute_actions_count || 0;
+
+  const closedIssues = (issues || []).filter((i: any) => i.status === 'resolved' && i.resolvedAt && i.createdAt);
+  const avgResolutionHours = closedIssues.length > 0
+    ? Math.round(closedIssues.reduce((sum: number, i: any) => {
+        const hrs = (new Date(i.resolvedAt).getTime() - new Date(i.createdAt).getTime()) / (1000 * 60 * 60);
+        return sum + hrs;
+      }, 0) / closedIssues.length)
+    : 0;
+
+  const startOfThisWeek = new Date();
+  startOfThisWeek.setDate(startOfThisWeek.getDate() - startOfThisWeek.getDay());
+  startOfThisWeek.setHours(0, 0, 0, 0);
+  const weeklyVideos = (improvementVideos || []).filter(
+    (v: any) => new Date(v.createdAt) >= startOfThisWeek
+  ).length;
 
   return (
     <div className="min-h-full bg-background">
@@ -308,43 +344,8 @@ export default function ManagerDashboard() {
             </Card>
           </DashboardErrorBoundary>
 
-          <DashboardErrorBoundary fallback="Could not load team on shift">
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <Clock className="h-4 w-4 text-green-600" />
-                  Team On Shift ({activeEntries.length})
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pt-0">
-                {activeEntries.length === 0 ? (
-                  <div className="text-center py-6">
-                    <Clock className="h-8 w-8 text-muted-foreground/30 mx-auto mb-2" />
-                    <p className="text-sm text-muted-foreground">No one clocked in right now</p>
-                  </div>
-                ) : (
-                  <div className="space-y-2 max-h-[200px] overflow-auto">
-                    {activeEntries.map((entry: any) => {
-                      const hoursWorked = ((Date.now() - new Date(entry.clockInTime).getTime()) / 3600000).toFixed(1);
-                      return (
-                        <div key={entry.id} className="flex items-center justify-between p-2.5 bg-green-50 dark:bg-green-900/10 rounded-lg border border-green-200/50 dark:border-green-800/30">
-                          <div className="flex items-center gap-2">
-                            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                            <div>
-                              <p className="font-medium text-sm">{getUserName(entry.userId)}</p>
-                              <p className="text-xs text-muted-foreground">
-                                In at {new Date(entry.clockInTime).toLocaleTimeString('en-US', { hour12: true, hour: 'numeric', minute: '2-digit' })}
-                              </p>
-                            </div>
-                          </div>
-                          <span className="text-sm font-medium">{hoursWorked}h</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+          <DashboardErrorBoundary fallback="Could not load team status">
+            <TeamStatusWidget />
           </DashboardErrorBoundary>
 
           <DashboardErrorBoundary fallback="Could not load open issues">
@@ -397,97 +398,138 @@ export default function ManagerDashboard() {
             <DailyTrainingManagerWidget />
           </DashboardErrorBoundary>
 
-          <DashboardErrorBoundary fallback="Could not load SOP completion">
-            <Card>
-              <CardHeader className="pb-3">
+          <DashboardErrorBoundary fallback="Tasks & Operations failed to load">
+            <Card className="col-span-full">
+              <CardHeader className="pb-2">
                 <CardTitle className="text-sm flex items-center gap-2">
-                  <CheckSquare className="h-4 w-4 text-primary" />
-                  SOP Completion Today
+                  <CheckCircle2 className="h-4 w-4 text-purple-600" />
+                  Tasks & Operations
                 </CardTitle>
               </CardHeader>
-              <CardContent className="pt-0">
-                {sopsLoading ? (
-                  <Skeleton className="h-10 w-full" />
-                ) : totalSops === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-4">No SOP executions today</p>
-                ) : (
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">{completedSops} of {totalSops} completed</span>
-                      <span className="font-bold">{sopProgress}%</span>
-                    </div>
-                    <Progress value={sopProgress} className="h-2" />
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </DashboardErrorBoundary>
-
-          <DashboardErrorBoundary fallback="Could not load tasks overview">
-            <Card>
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <ListTodo className="h-4 w-4 text-primary" />
-                    Tasks Overview
-                  </CardTitle>
-                  <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => navigate('/tasks')}>
-                    View All <ChevronRight className="h-3 w-3 ml-1" />
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent className="pt-0">
-                {tasksLoading ? (
-                  <div className="space-y-2">
-                    {[1,2,3].map(i => <Skeleton key={i} className="h-8 w-full" />)}
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-3">
-                      <div className="flex items-center gap-2 flex-1">
-                        <div className="w-3 h-3 rounded-full bg-red-500" />
-                        <span className="text-sm">Overdue</span>
-                      </div>
-                      <Badge variant="outline" className="text-red-600 border-red-200 dark:text-red-400 dark:border-red-800">
-                        {overdueTasks.length}
-                      </Badge>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <div className="flex items-center gap-2 flex-1">
-                        <div className="w-3 h-3 rounded-full bg-yellow-500" />
-                        <span className="text-sm">Due Today</span>
-                      </div>
-                      <Badge variant="outline" className="text-yellow-600 border-yellow-200 dark:text-yellow-400 dark:border-yellow-800">
-                        {dueTodayTasks.length}
-                      </Badge>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <div className="flex items-center gap-2 flex-1">
-                        <div className="w-3 h-3 rounded-full bg-blue-500" />
-                        <span className="text-sm">Upcoming</span>
-                      </div>
-                      <Badge variant="outline" className="text-blue-600 border-blue-200 dark:text-blue-400 dark:border-blue-800">
-                        {upcomingTasks.length}
-                      </Badge>
-                    </div>
-                    {overdueTasks.length > 0 && (
-                      <div className="border-t pt-2 mt-2 space-y-1.5">
-                        {overdueTasks.slice(0, 3).map((t: any) => (
-                          <div key={t.id} className="flex items-center gap-2 text-xs p-2 bg-red-50 dark:bg-red-950/10 rounded-lg">
-                            <AlertTriangle className="h-3 w-3 text-red-500 shrink-0" />
-                            <span className="truncate">{t.title}</span>
-                          </div>
-                        ))}
-                      </div>
+              <CardContent>
+                {/* 3×2 grid of tiles */}
+                <div className="grid grid-cols-3 gap-2 mb-3">
+                  {/* SOP Completion */}
+                  <button
+                    onClick={() => navigate('/sops')}
+                    className="bg-emerald-500 dark:bg-emerald-600 rounded-2xl p-3 text-center transition-transform active:scale-95 hover:brightness-110 cursor-pointer"
+                  >
+                    <ShieldCheck className="h-4 w-4 mx-auto mb-1 text-white" />
+                    {sopsLoading ? (
+                      <Skeleton className="h-6 w-10 mx-auto bg-white/30" />
+                    ) : (
+                      <p className="text-xl font-bold text-white">{sopProgress}%</p>
                     )}
+                    <p className="text-[10px] text-white/80 mt-0.5">SOP</p>
+                  </button>
+
+                  {/* Task Completion */}
+                  <button
+                    onClick={() => navigate('/tasks')}
+                    className="bg-purple-500 dark:bg-purple-600 rounded-2xl p-3 text-center transition-transform active:scale-95 hover:brightness-110 cursor-pointer"
+                  >
+                    <CheckCircle2 className="h-4 w-4 mx-auto mb-1 text-white" />
+                    {tasksLoading ? (
+                      <Skeleton className="h-6 w-10 mx-auto bg-white/30" />
+                    ) : (
+                      <p className="text-xl font-bold text-white">
+                        {(tasks || []).length > 0
+                          ? Math.round(((tasks || []).filter((t: any) => t.status === 'completed').length / (tasks || []).length) * 100)
+                          : 0}%
+                      </p>
+                    )}
+                    <p className="text-[10px] text-white/80 mt-0.5">Tasks</p>
+                  </button>
+
+                  {/* Inbox */}
+                  <button
+                    onClick={() => navigate('/gtd/inbox')}
+                    className="bg-blue-500 dark:bg-blue-600 rounded-2xl p-3 text-center transition-transform active:scale-95 hover:brightness-110 cursor-pointer"
+                  >
+                    <Inbox className="h-4 w-4 mx-auto mb-1 text-white" />
+                    {gtdLoading ? (
+                      <Skeleton className="h-6 w-10 mx-auto bg-white/30" />
+                    ) : (
+                      <p className="text-xl font-bold text-white">{gtdData?.data?.inbox_count ?? 0}</p>
+                    )}
+                    <p className="text-[10px] text-white/80 mt-0.5">Inbox</p>
+                  </button>
+
+                  {/* Due Today */}
+                  <button
+                    onClick={() => navigate('/gtd/actions')}
+                    className="bg-teal-500 dark:bg-teal-600 rounded-2xl p-3 text-center transition-transform active:scale-95 hover:brightness-110 cursor-pointer"
+                  >
+                    <CalendarCheck className="h-4 w-4 mx-auto mb-1 text-white" />
+                    {gtdLoading ? (
+                      <Skeleton className="h-6 w-10 mx-auto bg-white/30" />
+                    ) : (
+                      <p className="text-xl font-bold text-white">{gtdData?.data?.actions_today_count ?? 0}</p>
+                    )}
+                    <p className="text-[10px] text-white/80 mt-0.5">Due Today</p>
+                  </button>
+
+                  {/* Overdue */}
+                  <button
+                    onClick={() => navigate('/gtd/actions')}
+                    className={`${overdueGtdTotal > 0 ? 'bg-red-500 dark:bg-red-600' : 'bg-slate-400 dark:bg-slate-600'} rounded-2xl p-3 text-center transition-transform active:scale-95 hover:brightness-110 cursor-pointer`}
+                  >
+                    <AlertTriangle className="h-4 w-4 mx-auto mb-1 text-white" />
+                    {gtdLoading ? (
+                      <Skeleton className="h-6 w-10 mx-auto bg-white/30" />
+                    ) : (
+                      <p className="text-xl font-bold text-white">{overdueGtdTotal}</p>
+                    )}
+                    <p className="text-[10px] text-white/80 mt-0.5">Overdue</p>
+                  </button>
+
+                  {/* Quick Wins */}
+                  <button
+                    onClick={() => navigate('/gtd/actions')}
+                    className={`${quickWins > 0 ? 'bg-amber-500 dark:bg-amber-600' : 'bg-slate-400 dark:bg-slate-600'} rounded-2xl p-3 text-center transition-transform active:scale-95 hover:brightness-110 cursor-pointer`}
+                  >
+                    <Zap className="h-4 w-4 mx-auto mb-1 text-white" />
+                    {gtdLoading ? (
+                      <Skeleton className="h-6 w-10 mx-auto bg-white/30" />
+                    ) : (
+                      <p className="text-xl font-bold text-white">{quickWins}</p>
+                    )}
+                    <p className="text-[10px] text-white/80 mt-0.5">Quick Wins</p>
+                  </button>
+                </div>
+
+                {/* Slim 2-stat row */}
+                <div className="grid grid-cols-2 gap-2 mb-3">
+                  <div className="flex items-center gap-2 rounded-xl border border-border bg-muted/40 px-3 py-2">
+                    <Timer className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-foreground truncate">
+                        {avgResolutionHours > 0 ? `${avgResolutionHours}h` : '—'}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">Avg Resolution</p>
+                    </div>
                   </div>
-                )}
+                  <div className="flex items-center gap-2 rounded-xl border border-border bg-muted/40 px-3 py-2">
+                    <Video className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-foreground truncate">{weeklyVideos}</p>
+                      <p className="text-[10px] text-muted-foreground">Videos this week</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* CTA */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  onClick={() => navigate('/gtd/actions')}
+                >
+                  What should I do next?
+                  <ArrowRight className="h-4 w-4 ml-2" />
+                </Button>
               </CardContent>
             </Card>
-          </DashboardErrorBoundary>
-
-          <DashboardErrorBoundary fallback="GTD widget failed to load">
-            <GTDDashboardWidget />
           </DashboardErrorBoundary>
 
           <DashboardErrorBoundary fallback="Weekly review card failed to load">
