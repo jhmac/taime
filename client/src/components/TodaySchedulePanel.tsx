@@ -1,8 +1,9 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Clock, UserCheck, AlertTriangle, Timer, Users, ChevronRight, MapPinOff } from 'lucide-react';
+import { Clock, UserCheck, AlertTriangle, Timer, Users, ChevronRight, MapPinOff, X } from 'lucide-react';
 import { useLocation } from 'wouter';
 
 interface ScheduleEntry {
@@ -76,6 +77,7 @@ function UserAvatar({ name, imageUrl, size = 'md' }: { name: string; imageUrl: s
 
 export default function TodaySchedulePanel() {
   const [, navigate] = useLocation();
+  const [filterLocationBlocked, setFilterLocationBlocked] = useState(false);
 
   const { data, isLoading } = useQuery<DashboardData>({
     queryKey: ['/api/dashboard/today'],
@@ -106,7 +108,10 @@ export default function TodaySchedulePanel() {
   }
 
   const summary = data?.summary;
-  const schedules = data?.schedules || [];
+  const allSchedules = data?.schedules || [];
+  const schedules = filterLocationBlocked
+    ? allSchedules.filter(e => e.locationBlocked && !e.isClockedIn)
+    : allSchedules;
   const clockedIn = data?.clockedIn || [];
 
   return (
@@ -142,20 +147,53 @@ export default function TodaySchedulePanel() {
                 </div>
               )}
               {summary.totalLocationBlocked > 0 && (
-                <div className="flex items-center gap-1.5 text-xs text-orange-500 dark:text-orange-400">
+                <button
+                  onClick={() => setFilterLocationBlocked(f => !f)}
+                  className={`flex items-center gap-1.5 text-xs rounded-md px-1.5 py-0.5 transition-colors ${
+                    filterLocationBlocked
+                      ? 'bg-orange-100 dark:bg-orange-950/40 text-orange-700 dark:text-orange-300 ring-1 ring-orange-300 dark:ring-orange-700'
+                      : 'text-orange-500 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-950/20'
+                  }`}
+                  title={filterLocationBlocked ? 'Clear filter' : 'Filter to location-blocked employees'}
+                >
                   <MapPinOff className="h-3.5 w-3.5" />
                   <span>{summary.totalLocationBlocked} location blocked</span>
-                </div>
+                  {filterLocationBlocked && <X className="h-3 w-3 ml-0.5" />}
+                </button>
               )}
             </div>
           )}
         </CardHeader>
         <CardContent className="pt-0 px-4 pb-4">
+          {filterLocationBlocked && (
+            <div className="flex items-center justify-between mb-3 px-3 py-2 rounded-lg bg-orange-50 dark:bg-orange-950/20 border border-orange-200 dark:border-orange-800/40 text-xs text-orange-700 dark:text-orange-300">
+              <div className="flex items-center gap-1.5">
+                <MapPinOff className="h-3.5 w-3.5" />
+                <span>Showing location-blocked employees only</span>
+              </div>
+              <button
+                onClick={() => setFilterLocationBlocked(false)}
+                className="flex items-center gap-1 hover:text-orange-900 dark:hover:text-orange-100 transition-colors"
+              >
+                <X className="h-3.5 w-3.5" />
+                Clear
+              </button>
+            </div>
+          )}
           {schedules.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               <Clock className="h-10 w-10 mx-auto mb-2 opacity-30" />
-              <p className="text-sm font-medium">No shifts scheduled today</p>
-              <p className="text-xs mt-1">Head to Schedules to add shifts</p>
+              {filterLocationBlocked ? (
+                <>
+                  <p className="text-sm font-medium">No location-blocked employees</p>
+                  <p className="text-xs mt-1">All employees have location access enabled</p>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm font-medium">No shifts scheduled today</p>
+                  <p className="text-xs mt-1">Head to Schedules to add shifts</p>
+                </>
+              )}
             </div>
           ) : (
             <div className="space-y-1">
