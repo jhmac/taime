@@ -22,11 +22,34 @@ function capacitorErrCode(err: unknown): number {
   return 2;
 }
 
+function readCachedPermission(): PermissionState | 'unknown' {
+  try {
+    const v = localStorage.getItem('taime_geo_perm');
+    if (v === 'granted' || v === 'denied') return v;
+  } catch {}
+  return 'unknown';
+}
+
+function cachePermission(state: PermissionState | 'unsupported' | 'unknown') {
+  try {
+    if (state === 'granted' || state === 'denied') {
+      localStorage.setItem('taime_geo_perm', state);
+    }
+  } catch {}
+}
+
 export function useGeolocation() {
   const [position, setPosition] = useState<GeolocationPosition | null>(null);
   const [error, setError] = useState<GeolocationError | null>(null);
   const [loading, setLoading] = useState(false);
-  const [permissionState, setPermissionState] = useState<PermissionState | 'unsupported' | 'unknown'>('unknown');
+  const [permissionState, setPermissionStateRaw] = useState<PermissionState | 'unsupported' | 'unknown'>(
+    readCachedPermission
+  );
+
+  const setPermissionState = (state: PermissionState | 'unsupported' | 'unknown') => {
+    cachePermission(state);
+    setPermissionStateRaw(state);
+  };
 
   const capacitorWatchIdRef = useRef<string | null>(null);
 

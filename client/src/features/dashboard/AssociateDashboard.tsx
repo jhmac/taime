@@ -631,10 +631,10 @@ export default function AssociateDashboard() {
           <DashboardErrorBoundary fallback=""><ScenarioCard /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><ScoreWidget /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><DailyQuoteCard /></DashboardErrorBoundary>
+          <DashboardErrorBoundary fallback=""><TeamStatusWidget /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><SurfacedSOPBanner /></DashboardErrorBoundary>
           <QuickActions navigate={navigate} />
           <DashboardErrorBoundary fallback=""><TrainingProgressCard /></DashboardErrorBoundary>
-          <DashboardErrorBoundary fallback=""><TeamStatusWidget /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><LeanBoardCard /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><ImprovementFeedWidget /></DashboardErrorBoundary>
 
@@ -774,9 +774,9 @@ export default function AssociateDashboard() {
           <DashboardErrorBoundary fallback=""><ScenarioCard /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><SurfacedSOPBanner /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><DailyQuoteCard /></DashboardErrorBoundary>
+          <DashboardErrorBoundary fallback=""><TeamStatusWidget /></DashboardErrorBoundary>
           <QuickActions navigate={navigate} />
           <DashboardErrorBoundary fallback=""><TrainingProgressCard /></DashboardErrorBoundary>
-          <DashboardErrorBoundary fallback=""><TeamStatusWidget /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><ScoreWidget /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><LeanBoardCard /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><ImprovementFeedWidget /></DashboardErrorBoundary>

@@ -381,15 +381,14 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
 
       const { locationName, companyId } = currentUser;
 
-      // Require both location and company context — never leak cross-location or cross-tenant data
-      if (!locationName || !companyId) {
+      if (!companyId) {
         return res.json({ clockedIn: [] });
       }
 
       const now = new Date();
 
       // "Currently clocked in" = clockOutTime IS NULL, regardless of when they clocked in
-      // All filters pushed to SQL: tenant (companyId), location (locationName), active user, exclude self
+      // Filter by company always; also filter by location when both requester and others have one set.
       const activeEntries = await db.select({
         entryUserId: timeEntries.userId,
         clockInTime: timeEntries.clockInTime,
@@ -404,7 +403,7 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
           ne(timeEntries.userId, userId),
           eq(users.isActive, true),
           eq(users.companyId, companyId),
-          eq(users.locationName, locationName),
+          ...(locationName ? [eq(users.locationName, locationName)] : []),
         ));
 
       // Deduplicate by userId — keep the earliest clock-in per person
@@ -457,8 +456,7 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
 
       const { locationName, companyId } = currentUser;
 
-      // Require both location and company context — never leak cross-location or cross-tenant data
-      if (!locationName || !companyId) {
+      if (!companyId) {
         return res.json({ upcomingShifts: [] });
       }
 
@@ -466,7 +464,7 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
       const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
       const [upcomingSchedules, activeEntries] = await Promise.all([
-        // Upcoming shifts scoped to same tenant + location at SQL level
+        // Upcoming shifts scoped to same tenant (+ location when set) at SQL level
         db.select({
           scheduleId: schedules.id,
           scheduleUserId: schedules.userId,
@@ -484,18 +482,17 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
             ne(schedules.userId, userId),
             eq(users.isActive, true),
             eq(users.companyId, companyId),
-            eq(users.locationName, locationName),
+            ...(locationName ? [eq(users.locationName, locationName)] : []),
           )),
 
         // Exclude anyone currently clocked in (clockOutTime IS NULL = actively on shift)
-        // Scoped to same tenant + location — avoids suppressing shifts due to cross-location clock-in
         db.select({ entryUserId: timeEntries.userId })
           .from(timeEntries)
           .innerJoin(users, eq(timeEntries.userId, users.id))
           .where(and(
             isNull(timeEntries.clockOutTime),
             eq(users.companyId, companyId),
-            eq(users.locationName, locationName),
+            ...(locationName ? [eq(users.locationName, locationName)] : []),
           )),
       ]);
 
