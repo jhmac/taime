@@ -663,6 +663,15 @@ export async function runSchemaMigrations(): Promise<void> {
         `CREATE UNIQUE INDEX IF NOT EXISTS "uq_native_push_tokens_token" ON native_push_tokens (token)`,
       ],
     },
+    {
+      name: "push_credentials",
+      ddl: `CREATE TABLE IF NOT EXISTS push_credentials (
+        key varchar PRIMARY KEY,
+        value text NOT NULL,
+        updated_at timestamp DEFAULT now()
+      )`,
+      indexes: [],
+    },
   ];
 
   for (const { name, ddl, indexes } of tableCreations) {

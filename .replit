@@ -7,9 +7,9 @@ channel = "stable-24_05"
 packages = ["glib", "nss", "nspr", "at-spi2-atk", "cups", "dbus", "expat", "libdrm", "xorg.libxcb", "xorg.libXcomposite", "xorg.libXdamage", "xorg.libXext", "xorg.libXfixes", "xorg.libXrandr", "xorg.libX11", "mesa", "pango", "cairo", "alsa-lib", "libxkbcommon", "gtk3", "xorg.libXi", "xorg.libXtst"]
 
 [deployment]
-deploymentTarget = "autoscale"
+deploymentTarget = "vm"
 build = ["npm", "run", "build"]
-run = ["npm", "run", "start"]
+run = ["node", "dist/index.js"]
 
 [env]
 PORT = "5000"
