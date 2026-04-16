@@ -24,11 +24,10 @@ function triggerHaptic(pattern: number | number[] = 200) {
 export default function TimeClockWidget() {
   const { user } = useAuth();
   const isMobile = useIsMobile();
-  const { position, getCurrentPosition, watchPosition, clearWatch, loading: locationLoading, error: locationError } = useGeolocation();
+  const { position, getCurrentPosition, watchPosition, clearWatch, loading: locationLoading, error: locationError, permissionState } = useGeolocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [locationPermission, setLocationPermission] = useState<string>('unknown');
   const [geofenceStatus, setGeofenceStatus] = useState<{
     isInWorkLocation: boolean;
     location: { id: string; name: string; radius?: number; geofenceType?: string } | null;
@@ -91,33 +90,11 @@ export default function TimeClockWidget() {
   useOffsiteBreadcrumbReporter(offsiteSessionWithRoute?.id ?? null);
 
   useEffect(() => {
-    if (workLocations.length > 0 && !hasRequestedLocation.current) {
+    if (workLocations.length > 0 && !hasRequestedLocation.current && permissionState !== 'denied') {
       hasRequestedLocation.current = true;
-      const requestLocation = () => {
-        getCurrentPosition()
-          .then(() => setLocationPermission('granted'))
-          .catch(() => {});
-      };
-      if (navigator.permissions) {
-        navigator.permissions.query({ name: 'geolocation' }).then(result => {
-          setLocationPermission(result.state);
-          result.onchange = () => {
-            setLocationPermission(result.state);
-            if (result.state === 'granted' && !position) {
-              requestLocation();
-            }
-          };
-          if (result.state === 'granted' || result.state === 'prompt') {
-            requestLocation();
-          }
-        }).catch(() => {
-          requestLocation();
-        });
-      } else {
-        requestLocation();
-      }
+      getCurrentPosition().catch(() => {});
     }
-  }, [workLocations]);
+  }, [workLocations, permissionState]);
 
   const logClockEvent = useCallback(async (eventType: string, timeEntryId?: string, metadata?: any) => {
     try {
@@ -710,35 +687,45 @@ export default function TimeClockWidget() {
           )}
 
           {/* Location permission error (pre-clock-in only) */}
-          {workLocations.length > 0 && (locationPermission === 'denied' || (locationError && !position)) && !activeTimeEntry && (
-            <div
-              className="flex items-center gap-2 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-2xl p-3 cursor-pointer text-left"
-              onClick={() => {
-                getCurrentPosition()
-                  .then(() => {
-                    setLocationPermission('granted');
-                    toast({ title: 'Location enabled', description: 'Location access has been granted.' });
-                  })
-                  .catch(() => {
-                    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-                    const isAndroid = /Android/.test(navigator.userAgent);
-                    let instructions = isIOS
-                      ? 'Settings → Privacy & Security → Location Services → Safari → "While Using"'
-                      : isAndroid
-                        ? 'Settings → Apps → Browser → Permissions → Location → Allow'
-                        : 'Click the lock icon in the address bar → Location → Allow';
-                    toast({ title: 'Enable Location', description: instructions, duration: 12000 });
-                  });
-              }}
-            >
-              <XCircle className="h-5 w-5 text-red-500 shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-bold text-red-700 dark:text-red-300">Location required</p>
-                <p className="text-xs text-red-600 dark:text-red-400">Tap to enable location services</p>
+          {workLocations.length > 0 && (permissionState === 'denied' || (locationError && !position)) && !activeTimeEntry && (() => {
+            const isDenied = permissionState === 'denied' || locationError?.code === 1;
+            const isTimeout = locationError?.code === 3;
+            const heading = isDenied
+              ? 'Location access is blocked'
+              : isTimeout
+                ? 'Location request timed out'
+                : 'Location unavailable';
+            const detail = isDenied
+              ? (() => {
+                  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+                  const isAndroid = /Android/.test(navigator.userAgent);
+                  return isIOS
+                    ? 'Smart Clock-In needs your location to verify you\'re at a work site. To enable: Settings → Privacy & Security → Location Services → your browser → "While Using".'
+                    : isAndroid
+                      ? 'Smart Clock-In needs your location to verify you\'re at a work site. To enable: Settings → Apps → your browser → Permissions → Location → Allow.'
+                      : 'Smart Clock-In needs your location to verify you\'re at a work site. To enable: click the lock icon in the address bar and set Location to "Allow".';
+                })()
+              : isTimeout
+                ? 'Your location could not be determined in time. Tap "Try again" or check that GPS is enabled.'
+                : 'Your device could not determine your location. Check that GPS or location services are enabled.';
+            return (
+              <div className="flex flex-col gap-1.5 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-2xl p-3 text-left">
+                <div className="flex items-center gap-2">
+                  <XCircle className="h-5 w-5 text-red-500 shrink-0" />
+                  <p className="text-sm font-bold text-red-700 dark:text-red-300">{heading}</p>
+                </div>
+                <p className="text-xs text-red-600 dark:text-red-400 leading-relaxed">{detail}</p>
+                {!isDenied && (
+                  <button
+                    className="mt-1 text-xs font-semibold text-red-700 dark:text-red-300 underline underline-offset-2 text-left"
+                    onClick={() => getCurrentPosition().catch(() => {})}
+                  >
+                    Try again
+                  </button>
+                )}
               </div>
-              <ExternalLink className="h-4 w-4 text-red-400 shrink-0" />
-            </div>
-          )}
+            );
+          })()}
 
           {/* Pre-clock-in geofence pill */}
           {!activeTimeEntry && geofenceStatus && workLocations.length > 0 && (
@@ -771,7 +758,7 @@ export default function TimeClockWidget() {
           ) : (
             <Button
               onClick={handleClockAction}
-              disabled={clockInMutation.isPending || clockOutMutation.isPending || activeEntryLoading || (locationPermission === 'denied' && workLocations.length > 0 && !activeTimeEntry)}
+              disabled={clockInMutation.isPending || clockOutMutation.isPending || activeEntryLoading || (permissionState === 'denied' && workLocations.length > 0 && !activeTimeEntry)}
               className={`w-full text-base font-bold py-4 rounded-2xl ${
                 activeTimeEntry
                   ? 'bg-destructive hover:bg-destructive/90 text-destructive-foreground'

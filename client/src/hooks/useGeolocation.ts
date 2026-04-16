@@ -16,6 +16,7 @@ export function useGeolocation() {
   const [position, setPosition] = useState<GeolocationPosition | null>(null);
   const [error, setError] = useState<GeolocationError | null>(null);
   const [loading, setLoading] = useState(false);
+  const [permissionState, setPermissionState] = useState<PermissionState | 'unsupported' | 'unknown'>('unknown');
 
   const getCurrentPosition = useCallback((): Promise<GeolocationPosition> => {
     return new Promise((resolve, reject) => {
@@ -39,6 +40,7 @@ export function useGeolocation() {
         setPosition(pos);
         setLoading(false);
         setError(null);
+        setPermissionState('granted');
         resolve(pos);
       };
 
@@ -48,13 +50,16 @@ export function useGeolocation() {
           navigator.geolocation.getCurrentPosition(
             onSuccess,
             (fallbackErr) => {
-              const error: GeolocationError = {
+              const geoError: GeolocationError = {
                 code: fallbackErr.code,
                 message: getErrorMessage(fallbackErr.code),
               };
-              setError(error);
+              setError(geoError);
               setLoading(false);
-              reject(error);
+              if (fallbackErr.code === 1) {
+                setPermissionState('denied');
+              }
+              reject(geoError);
             },
             { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 }
           );
@@ -89,14 +94,18 @@ export function useGeolocation() {
         };
         setPosition(pos);
         setError(null);
+        setPermissionState('granted');
         callback(pos);
       },
       (err) => {
-        const error: GeolocationError = {
+        const geoError: GeolocationError = {
           code: err.code,
           message: getErrorMessage(err.code),
         };
-        setError(error);
+        setError(geoError);
+        if (err.code === 1) {
+          setPermissionState('denied');
+        }
       },
       options
     );
@@ -122,23 +131,57 @@ export function useGeolocation() {
   }, []);
 
   useEffect(() => {
-    // Check if geolocation is available and request permission
-    if (navigator.geolocation) {
-      requestPermission().catch((err) => {
-        console.warn('Geolocation permission check failed:', err);
-      });
-    } else {
+    if (!navigator.geolocation) {
+      setPermissionState('unsupported');
       setError({
         code: 0,
         message: 'Geolocation is not supported by this browser',
       });
+      return;
     }
-  }, [requestPermission]);
+
+    let permissionStatus: PermissionStatus | null = null;
+
+    if (navigator.permissions) {
+      navigator.permissions.query({ name: 'geolocation' }).then(result => {
+        permissionStatus = result;
+        setPermissionState(result.state);
+
+        if (result.state === 'denied') {
+          setError({
+            code: 1,
+            message: getErrorMessage(1),
+          });
+        }
+
+        result.onchange = () => {
+          setPermissionState(result.state);
+          if (result.state === 'denied') {
+            setError({
+              code: 1,
+              message: getErrorMessage(1),
+            });
+          } else if (result.state === 'granted') {
+            setError(null);
+          }
+        };
+      }).catch(() => {
+        setPermissionState('unknown');
+      });
+    }
+
+    return () => {
+      if (permissionStatus) {
+        permissionStatus.onchange = null;
+      }
+    };
+  }, []);
 
   return {
     position,
     error,
     loading,
+    permissionState,
     getCurrentPosition,
     watchPosition,
     clearWatch,
@@ -149,7 +192,7 @@ export function useGeolocation() {
 function getErrorMessage(code: number): string {
   switch (code) {
     case 1:
-      return 'Location access denied by user. Please enable location permissions in your browser settings.';
+      return 'Location access denied. Please enable location permissions in your browser settings.';
     case 2:
       return 'Location information is unavailable. Please check your device\'s location settings.';
     case 3:
