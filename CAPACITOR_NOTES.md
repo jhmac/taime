@@ -125,6 +125,16 @@ The build script will:
 
 ### 5b. Configure Signing Keystore
 
+> **SECURITY WARNING — never commit these files to git:**
+> - `taime-release.keystore` / `*.keystore` — if lost or leaked, the Play Store listing
+>   cannot be transferred to a new key without going through a lengthy Google support process.
+> - `android/app/google-services.json` — contains Firebase project credentials.
+> - `ios/App/GoogleService-Info.plist` — iOS equivalent of the above.
+>
+> All three patterns are listed in `.gitignore`. Store them in a password manager or
+> secure secrets vault (e.g. 1Password, Bitwarden, or your CI/CD secret store) and
+> share them only through encrypted channels.
+
 1. Generate a release keystore (keep this file safe — it cannot be recovered):
 
 ```bash
