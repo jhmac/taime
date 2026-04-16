@@ -89,3 +89,16 @@ The backend is a Node.js Express.js server written in TypeScript. It uses Drizzl
 - **date-fns**
 - **Zod**
 - **clsx, tailwind-merge**
+
+## Developer Setup
+
+### Git Hooks
+A pre-commit hook validates that every `.sql` file in `migrations/` is recorded in `migrations/meta/_journal.json` and vice versa. This prevents commits that would leave the migration journal out of sync.
+
+After cloning the repository, install the hooks by running:
+
+```bash
+bash scripts/install-hooks.sh
+```
+
+This symlinks `scripts/hooks/pre-commit` into `.git/hooks/` and makes it executable. The hook runs `scripts/validate-migrations.ts` before every commit and blocks the commit with a clear error message if any mismatch is found.

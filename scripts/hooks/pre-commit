@@ -1,0 +1,19 @@
+#!/bin/bash
+# Pre-commit hook: validates that migration SQL files are in sync with _journal.json.
+# If any SQL file is missing from the journal (or vice versa), the commit is blocked.
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+echo "Running migration validation..."
+
+if npx tsx "$REPO_ROOT/scripts/validate-migrations.ts"; then
+  echo "Migration validation passed."
+  exit 0
+else
+  echo ""
+  echo "ERROR: Migration validation failed."
+  echo "Make sure every .sql file in migrations/ is recorded in migrations/meta/_journal.json"
+  echo "and that every journal entry has a corresponding .sql file."
+  echo "Fix the mismatch before committing."
+  exit 1
+fi
