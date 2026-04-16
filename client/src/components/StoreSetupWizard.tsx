@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { useClerk } from "@clerk/clerk-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -20,7 +21,7 @@ import {
 import { cn } from "@/lib/utils";
 import {
   Store, MapPin, Phone, Mail, Globe, Clock, ArrowRight,
-  CheckCircle, Sparkles, Loader2, Building2,
+  CheckCircle, Sparkles, Loader2, Building2, LogOut,
 } from "lucide-react";
 
 const DAYS = [
@@ -142,6 +143,7 @@ interface StoreSetupWizardProps {
 export default function StoreSetupWizard({ onComplete }: StoreSetupWizardProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { signOut } = useClerk();
   const [step, setStep] = useState<StepId>("welcome");
 
   const form = useForm<StoreFormValues>({
@@ -196,8 +198,17 @@ export default function StoreSetupWizard({ onComplete }: StoreSetupWizardProps) 
         <div className="max-w-lg mx-auto px-6 py-10 min-h-full flex flex-col">
 
           {/* Logo */}
-          <div className="flex items-center gap-2 mb-8">
+          <div className="flex items-center justify-between mb-8">
             <img src="/TAIME-logo.png" alt="Taime" className="h-9 w-auto" />
+            <button
+              type="button"
+              onClick={() => signOut({ redirectUrl: '/' })}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-red-500 transition-colors px-2 py-1 rounded-md hover:bg-red-50"
+              title="Sign out"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              Sign out
+            </button>
           </div>
 
           {/* Progress bar (visible during data-entry steps) */}
