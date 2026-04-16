@@ -287,6 +287,7 @@ export interface IStorage {
   // Notification delivery log operations
   createNotificationDeliveryLog(log: InsertNotificationDeliveryLog): Promise<NotificationDeliveryLog>;
   getNotificationDeliveryLogs(options?: { channel?: string; since?: Date; limit?: number }): Promise<NotificationDeliveryLog[]>;
+  deleteOldNotificationDeliveryLogs(olderThanDays: number): Promise<number>;
 
   // Role management operations
   getUserWithRole(id: string): Promise<UserWithRole | undefined>;
@@ -1267,6 +1268,15 @@ export class DatabaseStorage implements IStorage {
       .orderBy(sql`${notificationDeliveryLogs.sentAt} DESC`)
       .limit(options?.limit ?? 200);
     return query;
+  }
+
+  async deleteOldNotificationDeliveryLogs(olderThanDays: number): Promise<number> {
+    const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
+    const deleted = await db
+      .delete(notificationDeliveryLogs)
+      .where(sql`${notificationDeliveryLogs.sentAt} < ${cutoff}`)
+      .returning({ id: notificationDeliveryLogs.id });
+    return deleted.length;
   }
 
   // Role management operations

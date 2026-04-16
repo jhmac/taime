@@ -1033,3 +1033,28 @@ export function scheduleStaleTokenCleanup(): void {
   runStaleTokenCleanup();
   setInterval(runStaleTokenCleanup, CLEANUP_INTERVAL_MS);
 }
+
+/**
+ * Registers a nightly job that deletes notification_delivery_logs rows whose sent_at
+ * is older than DELIVERY_LOG_RETENTION_DAYS (default 30 days). Runs once on boot
+ * and then every 24 hours so the log table stays lean and fast.
+ */
+const _parsedLogDays = parseInt(process.env.DELIVERY_LOG_RETENTION_DAYS || '30', 10);
+const DELIVERY_LOG_RETENTION_DAYS = Number.isFinite(_parsedLogDays) && _parsedLogDays > 0 ? _parsedLogDays : 30;
+
+async function runDeliveryLogCleanup(): Promise<void> {
+  try {
+    const deleted = await storage.deleteOldNotificationDeliveryLogs(DELIVERY_LOG_RETENTION_DAYS);
+    if (deleted > 0) {
+      console.log(`[DeliveryLogCleanup] Deleted ${deleted} old delivery log entry(ies) (threshold: ${DELIVERY_LOG_RETENTION_DAYS} days)`);
+    }
+  } catch (err: unknown) {
+    const pgErr = err as { message?: string };
+    console.warn('[DeliveryLogCleanup] Delivery log cleanup failed (non-fatal):', pgErr?.message ?? err);
+  }
+}
+
+export function scheduleDeliveryLogCleanup(): void {
+  runDeliveryLogCleanup();
+  setInterval(runDeliveryLogCleanup, CLEANUP_INTERVAL_MS);
+}
