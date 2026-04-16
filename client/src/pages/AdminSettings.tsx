@@ -245,7 +245,6 @@ export default function AdminSettings() {
         allowTeamMessaging: settings.allowTeamMessaging ?? true,
         breakDurationMinutes: settings.breakDurationMinutes ?? 30,
         autoClockOutMinutes: settings.autoClockOutMinutes ?? 480,
-        enableSmartClockPrompt: settings.enableSmartClockPrompt || false,
         enableClockOutOnFocusLoss: settings.enableClockOutOnFocusLoss || false,
         focusLossGraceSeconds: settings.focusLossGraceSeconds ?? 30,
         requireMobileClockIn: settings.requireMobileClockIn || false,

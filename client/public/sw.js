@@ -261,8 +261,8 @@ self.addEventListener('notificationclick', (event) => {
   else if (data.type === 'task_assignment') url = '/?action=tasks';
   else if (data.type === 'schedule_update') url = '/?action=schedule';
   else if (data.type === 'payroll_ready') url = '/?action=payroll';
-  else if (data.type === 'anomaly_alert') url = data.url || '/';
-  else if (action === 'view_details' && data.type === 'anomaly_alert') url = '/';
+  else if (data.type === 'anomaly_alert') url = data.url || '/dashboard';
+  else if (action === 'view_details' && data.type === 'anomaly_alert') url = '/dashboard';
   else if (data.type === 'achievement_unlocked') url = data.url || '/my-score';
   else if (data.type === 'tier_change') url = data.url || '/my-score';
   else if (data.type === 'top_rank') url = data.url || '/my-score';
