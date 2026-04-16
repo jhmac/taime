@@ -2,6 +2,7 @@ import { db } from "../db";
 import { sql } from "drizzle-orm";
 import { workLocations } from "@shared/schema";
 import { eq } from "drizzle-orm";
+import { storage } from "../storage";
 
 /**
  * Applies idempotent schema alterations at server startup.
@@ -980,4 +981,31 @@ export async function seedDefaultRoles(): Promise<void> {
     const pgErr = err as { message?: string };
     console.warn('[Migration] Default role seeding failed (non-fatal):', pgErr?.message ?? err);
   }
+}
+
+/**
+ * Registers a nightly job that deletes native_push_tokens rows whose updated_at
+ * is older than STALE_TOKEN_DAYS (default 90 days). The job runs once immediately
+ * on boot and then every 24 hours thereafter so stale rows are cleaned up even
+ * when no delivery failures occur.
+ */
+const _parsedDays = parseInt(process.env.STALE_TOKEN_DAYS || '90', 10);
+const STALE_TOKEN_DAYS = Number.isFinite(_parsedDays) && _parsedDays > 0 ? _parsedDays : 90;
+const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+async function runStaleTokenCleanup(): Promise<void> {
+  try {
+    const deleted = await storage.deleteStaleNativePushTokens(STALE_TOKEN_DAYS);
+    if (deleted > 0) {
+      console.log(`[TokenCleanup] Deleted ${deleted} stale native push token(s) (threshold: ${STALE_TOKEN_DAYS} days)`);
+    }
+  } catch (err: unknown) {
+    const pgErr = err as { message?: string };
+    console.warn('[TokenCleanup] Stale token cleanup failed (non-fatal):', pgErr?.message ?? err);
+  }
+}
+
+export function scheduleStaleTokenCleanup(): void {
+  runStaleTokenCleanup();
+  setInterval(runStaleTokenCleanup, CLEANUP_INTERVAL_MS);
 }

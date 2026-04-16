@@ -274,6 +274,7 @@ export interface IStorage {
   upsertNativePushToken(userId: string, token: string, platform: string): Promise<NativePushToken>;
   getUserNativePushTokens(userId: string): Promise<NativePushToken[]>;
   deleteNativePushToken(userId: string, token: string): Promise<void>;
+  deleteStaleNativePushTokens(olderThanDays: number): Promise<number>;
   
   // Role management operations
   getUserWithRole(id: string): Promise<UserWithRole | undefined>;
@@ -1204,6 +1205,15 @@ export class DatabaseStorage implements IStorage {
           eq(nativePushTokens.token, token)
         )
       );
+  }
+
+  async deleteStaleNativePushTokens(olderThanDays: number): Promise<number> {
+    const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
+    const deleted = await db
+      .delete(nativePushTokens)
+      .where(sql`${nativePushTokens.updatedAt} < ${cutoff}`)
+      .returning({ id: nativePushTokens.id });
+    return deleted.length;
   }
 
   // Role management operations

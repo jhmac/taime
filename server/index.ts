@@ -10,7 +10,7 @@ import logger from "./lib/logger";
 import { globalErrorHandler } from "./lib/routeWrapper";
 import { startRitualScheduler } from "./services/ritualScheduler";
 import { backfillLegacyUserRoles, backfillInactiveAuthenticatedUsers, backfillStoreCreatorOwnerRole } from "./lib/backfill";
-import { runSchemaMigrations } from "./lib/migrations";
+import { runSchemaMigrations, scheduleStaleTokenCleanup } from "./lib/migrations";
 import { runStartupAiContentBackfill } from "./services/sopIndexer";
 import { validateMigrationJournal } from "./lib/validateMigrations";
 
@@ -193,6 +193,7 @@ app.use((req, res, next) => {
       backfillLegacyUserRoles();
       backfillInactiveAuthenticatedUsers();
       backfillStoreCreatorOwnerRole();
+      scheduleStaleTokenCleanup();
     }).catch((err) => console.error('[Startup] Migration failed:', err));
     setTimeout(() => runStartupAiContentBackfill(), 5000);
   });
