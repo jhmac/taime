@@ -13,6 +13,7 @@ import { isUnauthorizedError } from '@/lib/authUtils';
 import type { TimeEntry, WorkLocation, CompanySettings } from '@shared/schema';
 import { MapPin, Shield, AlertTriangle, CheckCircle2, XCircle, Wifi, ExternalLink, Smartphone } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
+import { App as CapacitorApp } from '@capacitor/app';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import LocationHelpSheet from '@/components/LocationHelpSheet';
 
@@ -60,6 +61,7 @@ export default function TimeClockWidget() {
   const [showLocationHelp, setShowLocationHelp] = useState(false);
   const lastMonitorTimeRef = useRef<number>(0);
   const prevActiveEntryRef = useRef<any>(null);
+  const prevPermissionStateRef = useRef<string | null>(null);
 
   const { data: activeTimeEntry, isLoading: activeEntryLoading } = useQuery<TimeEntry | null>({
     queryKey: ['/api/time-entries/active'],
@@ -350,6 +352,35 @@ export default function TimeClockWidget() {
       locationLostReported.current = false;
     }
   }, [activeTimeEntry, locationError]);
+
+  useEffect(() => {
+    const prev = prevPermissionStateRef.current;
+    prevPermissionStateRef.current = permissionState;
+    if (prev === 'denied' && permissionState === 'granted') {
+      hasRequestedLocation.current = false;
+      getCurrentPosition().catch(() => {});
+    }
+  }, [permissionState]);
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    let mounted = true;
+    let listenerHandle: { remove: () => void } | null = null;
+    CapacitorApp.addListener('appStateChange', ({ isActive }) => {
+      if (!isActive) return;
+      getCurrentPosition().catch(() => {});
+    }).then((handle) => {
+      if (mounted) {
+        listenerHandle = handle;
+      } else {
+        handle.remove();
+      }
+    }).catch(() => {});
+    return () => {
+      mounted = false;
+      listenerHandle?.remove();
+    };
+  }, []);
 
   useEffect(() => {
     if (!position || workLocations.length === 0) return;
