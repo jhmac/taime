@@ -7,8 +7,10 @@ import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { Video, Camera, Square, RotateCcw, Check, Upload } from "lucide-react";
+import { Capacitor } from "@capacitor/core";
 
 const MAX_DURATION = 60;
+const IS_NATIVE_IOS = Capacitor.isNativePlatform() && Capacitor.getPlatform() === "ios";
 
 const CATEGORIES = [
   { value: "process", label: "Process", icon: "fas fa-cogs", color: "bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400" },
@@ -55,6 +57,10 @@ export default function VideoRecordDialog({ open, onOpenChange, onSuccess }: Pro
   }, []);
 
   const startCamera = useCallback(async () => {
+    if (IS_NATIVE_IOS) {
+      setCameraSupported(false);
+      return;
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
@@ -325,17 +331,21 @@ export default function VideoRecordDialog({ open, onOpenChange, onSuccess }: Pro
                   <div className="text-center py-8 bg-muted/30 rounded-xl border-2 border-dashed border-muted-foreground/20">
                     <Camera className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
                     <p className="text-sm text-muted-foreground mb-3">
-                      Camera not available. Upload a video file instead.
+                      {Capacitor.isNativePlatform()
+                        ? "Use your device camera to record a video, then select it below."
+                        : "Camera not available. Upload a video file instead."}
                     </p>
                     <input
                       ref={fileInputRef}
                       type="file"
                       accept="video/mp4,video/quicktime,video/webm"
+                      capture={Capacitor.isNativePlatform() ? "environment" : undefined}
                       onChange={handleFileSelect}
                       className="hidden"
                     />
                     <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
-                      <Upload className="h-4 w-4 mr-1" /> Choose Video File
+                      <Upload className="h-4 w-4 mr-1" />
+                      {Capacitor.isNativePlatform() ? "Record or Choose Video" : "Choose Video File"}
                     </Button>
                   </div>
                   {recordedBlob && previewUrl && (

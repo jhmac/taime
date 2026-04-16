@@ -1,4 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { Capacitor } from '@capacitor/core';
+import { Geolocation } from '@capacitor/geolocation';
 
 export interface GeolocationPosition {
   latitude: number;
@@ -18,7 +20,56 @@ export function useGeolocation() {
   const [loading, setLoading] = useState(false);
   const [permissionState, setPermissionState] = useState<PermissionState | 'unsupported' | 'unknown'>('unknown');
 
+  const capacitorWatchIdRef = useRef<string | null>(null);
+
   const getCurrentPosition = useCallback((): Promise<GeolocationPosition> => {
+    if (Capacitor.isNativePlatform()) {
+      setLoading(true);
+      setError(null);
+      return (async () => {
+        try {
+          let permStatus = await Geolocation.checkPermissions();
+          if (permStatus.location === 'prompt' || permStatus.location === 'prompt-with-rationale') {
+            permStatus = await Geolocation.requestPermissions({ permissions: ['location'] });
+          }
+          if (permStatus.location === 'denied') {
+            const geoError: GeolocationError = { code: 1, message: getErrorMessage(1) };
+            setError(geoError);
+            setPermissionState('denied');
+            setLoading(false);
+            throw geoError;
+          }
+
+          const pos = await Geolocation.getCurrentPosition({
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 5000,
+          });
+
+          const result: GeolocationPosition = {
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude,
+            accuracy: pos.coords.accuracy,
+            timestamp: pos.timestamp,
+          };
+          setPosition(result);
+          setLoading(false);
+          setError(null);
+          setPermissionState('granted');
+          return result;
+        } catch (err: any) {
+          const geoError: GeolocationError = {
+            code: err.code ?? 2,
+            message: getErrorMessage(err.code ?? 2),
+          };
+          setError(geoError);
+          setLoading(false);
+          if (err.code === 1) setPermissionState('denied');
+          throw geoError;
+        }
+      })();
+    }
+
     return new Promise((resolve, reject) => {
       if (!navigator.geolocation) {
         reject(new Error('Geolocation is not supported by this browser'));
@@ -69,13 +120,45 @@ export function useGeolocation() {
     });
   }, []);
 
-  const watchPosition = useCallback((callback: (position: GeolocationPosition) => void) => {
+  const watchPosition = useCallback((callback: (position: GeolocationPosition) => void): number => {
+    if (Capacitor.isNativePlatform()) {
+      Geolocation.watchPosition(
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 },
+        (pos, err) => {
+          if (err) {
+            const geoError: GeolocationError = {
+              code: (err as any).code ?? 2,
+              message: getErrorMessage((err as any).code ?? 2),
+            };
+            setError(geoError);
+            if ((err as any).code === 1) setPermissionState('denied');
+            return;
+          }
+          if (pos) {
+            const result: GeolocationPosition = {
+              latitude: pos.coords.latitude,
+              longitude: pos.coords.longitude,
+              accuracy: pos.coords.accuracy,
+              timestamp: pos.timestamp,
+            };
+            setPosition(result);
+            setError(null);
+            setPermissionState('granted');
+            callback(result);
+          }
+        }
+      ).then((id) => {
+        capacitorWatchIdRef.current = id;
+      }).catch(() => {});
+      return -1;
+    }
+
     if (!navigator.geolocation) {
       setError({
         code: 0,
         message: 'Geolocation is not supported by this browser',
       });
-      return null;
+      return -1;
     }
 
     const options: PositionOptions = {
@@ -84,7 +167,7 @@ export function useGeolocation() {
       maximumAge: 5000,
     };
 
-    const watchId = navigator.geolocation.watchPosition(
+    return navigator.geolocation.watchPosition(
       (position) => {
         const pos: GeolocationPosition = {
           latitude: position.coords.latitude,
@@ -109,15 +192,33 @@ export function useGeolocation() {
       },
       options
     );
-
-    return watchId;
   }, []);
 
   const clearWatch = useCallback((watchId: number) => {
-    navigator.geolocation.clearWatch(watchId);
+    if (Capacitor.isNativePlatform()) {
+      if (capacitorWatchIdRef.current) {
+        Geolocation.clearWatch({ id: capacitorWatchIdRef.current }).catch(() => {});
+        capacitorWatchIdRef.current = null;
+      }
+      return;
+    }
+    if (watchId >= 0) {
+      navigator.geolocation.clearWatch(watchId);
+    }
   }, []);
 
   const requestPermission = useCallback(async (): Promise<PermissionState> => {
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const result = await Geolocation.requestPermissions({ permissions: ['location'] });
+        const state = result.location as PermissionState;
+        setPermissionState(state);
+        return state;
+      } catch {
+        throw new Error('Failed to request geolocation permission');
+      }
+    }
+
     if (!navigator.permissions) {
       throw new Error('Permissions API not supported');
     }
@@ -125,12 +226,29 @@ export function useGeolocation() {
     try {
       const result = await navigator.permissions.query({ name: 'geolocation' });
       return result.state;
-    } catch (error) {
+    } catch {
       throw new Error('Failed to request geolocation permission');
     }
   }, []);
 
   useEffect(() => {
+    if (Capacitor.isNativePlatform()) {
+      Geolocation.checkPermissions().then((result) => {
+        const loc = result.location;
+        if (loc === 'granted') {
+          setPermissionState('granted');
+        } else if (loc === 'denied') {
+          setPermissionState('denied');
+          setError({ code: 1, message: getErrorMessage(1) });
+        } else {
+          setPermissionState('prompt');
+        }
+      }).catch(() => {
+        setPermissionState('unknown');
+      });
+      return;
+    }
+
     if (!navigator.geolocation) {
       setPermissionState('unsupported');
       setError({
@@ -192,7 +310,7 @@ export function useGeolocation() {
 function getErrorMessage(code: number): string {
   switch (code) {
     case 1:
-      return 'Location access denied. Please enable location permissions in your browser settings.';
+      return 'Location access denied. Please enable location permissions in your device settings.';
     case 2:
       return 'Location information is unavailable. Please check your device\'s location settings.';
     case 3:

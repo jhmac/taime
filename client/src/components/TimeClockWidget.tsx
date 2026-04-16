@@ -12,10 +12,16 @@ import { apiRequest } from '@/lib/queryClient';
 import { isUnauthorizedError } from '@/lib/authUtils';
 import type { TimeEntry, WorkLocation, CompanySettings } from '@shared/schema';
 import { MapPin, Shield, AlertTriangle, CheckCircle2, XCircle, Wifi, ExternalLink, Smartphone } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
+import { Haptics, ImpactStyle } from '@capacitor/haptics';
 
 function triggerHaptic(pattern: number | number[] = 200) {
   try {
-    if ('vibrate' in navigator) {
+    if (Capacitor.isNativePlatform()) {
+      const durationMs = Array.isArray(pattern) ? pattern.reduce((a, b) => a + b, 0) : pattern;
+      const style = durationMs > 400 ? ImpactStyle.Heavy : durationMs > 200 ? ImpactStyle.Medium : ImpactStyle.Light;
+      Haptics.impact({ style }).catch(() => {});
+    } else if ('vibrate' in navigator) {
       navigator.vibrate(pattern);
     }
   } catch (e) {}

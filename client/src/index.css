@@ -138,12 +138,22 @@
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
-/* iOS Safari specific fixes */
-@supports (-webkit-touch-callout: none) {
-  .ios-safe-area {
-    padding-top: env(safe-area-inset-top);
-    padding-bottom: env(safe-area-inset-bottom);
-  }
+/* Safe area for top (iOS notch / Dynamic Island / Android status bar in Capacitor) */
+.safe-area-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+/* Combined safe area helper */
+.ios-safe-area {
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Capacitor native app body — remove iOS overscroll bounce and enable safe areas */
+.capacitor-ios body,
+.capacitor-android body {
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* Scrollbar styling */

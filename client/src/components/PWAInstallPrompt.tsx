@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Download, X } from "lucide-react";
+import { Capacitor } from "@capacitor/core";
 
 interface BeforeInstallPromptEvent extends Event {
   readonly platforms: string[];
@@ -19,6 +20,8 @@ export default function PWAInstallPrompt() {
   const [showBanner, setShowBanner] = useState(false);
 
   useEffect(() => {
+    if (Capacitor.isNativePlatform()) return;
+
     const nav = navigator as NavigatorWithStandalone;
     const isStandalone =
       window.matchMedia("(display-mode: standalone)").matches ||

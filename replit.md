@@ -68,6 +68,23 @@ The backend is a Node.js Express.js server written in TypeScript. It uses Drizzl
 - **Web Push API**
 - **Nylas** (for email invitations)
 
+### Native App (Capacitor)
+- **@capacitor/core** — runtime bridge between web and native
+- **@capacitor/ios / @capacitor/android** — native platform projects
+- **@capacitor/geolocation** — native GPS (replaces browser API on native)
+- **@capacitor/haptics** — native haptic feedback (replaces navigator.vibrate)
+- **@capacitor/camera** — native camera access; iOS falls back to file picker
+- **@capacitor/push-notifications** — APNs (iOS) / FCM (Android) native push
+- **@capacitor/status-bar** — status bar color/style control
+- **@capacitor/splash-screen** — branded launch screen
+- App ID: `com.taime.app` | App Name: `Taime`
+- Config: `capacitor.config.ts` at project root; `webDir = dist/public`
+- Native projects generated with: `scripts/capacitor-setup.sh` (run on macOS)
+- Platform class added to `<html>` element (`capacitor-ios` / `capacitor-android`)
+- Safe-area insets: `viewport-fit=cover` + `.safe-area-bottom` / `.safe-area-top` CSS classes
+- Native push tokens stored in-memory via `POST /api/push/native-token` (APNs/FCM server integration is a follow-up)
+- Run after each web build: `npx cap sync`
+
 ### Utility Libraries
 - **date-fns**
 - **Zod**

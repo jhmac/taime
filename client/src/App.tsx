@@ -11,6 +11,7 @@ import Layout from "@/components/Layout";
 import { usePWAUpdate } from "@/hooks/usePWAUpdate";
 import PWAInstallPrompt from "@/components/PWAInstallPrompt";
 import { usePayrollSetup } from "@/hooks/usePayrollSetup";
+import { useNativePushNotifications } from "@/hooks/useNativePushNotifications";
 import OfflineIndicator from "@/components/OfflineIndicator";
 import { WebSocketProvider } from "@/contexts/WebSocketContext";
 import type { Permission } from "@shared/schema";
@@ -221,6 +222,7 @@ function ProtectedRoute({ children, permission, allowAllAuthenticated }: { child
 function AuthenticatedApp() {
   const { isAuthenticated, isLoading } = useAuth();
   const { showSetupModal, closeSetupModal } = usePayrollSetup();
+  useNativePushNotifications();
   const waiting = isLoading || !isAuthenticated;
   const authTimedOut = useLoadingTimeout(waiting);
 

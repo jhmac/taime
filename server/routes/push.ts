@@ -4,6 +4,8 @@ import { insertPushSubscriptionSchema } from "@shared/schema";
 import { notificationService } from "../services/notificationService";
 import { config } from "../lib/config";
 
+const nativeTokens = new Map<string, { token: string; platform: string; updatedAt: Date }>();
+
 export function registerPushRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
   app.get('/api/push/vapid-key', (_req, res) => {
     const publicKey = config.vapid.publicKey;
@@ -23,6 +25,21 @@ export function registerPushRoutes(app: Express, storage: IStorage, isAuthentica
     } catch (error) {
       console.error("Error creating push subscription:", error);
       res.status(400).json({ message: (error as Error).message });
+    }
+  });
+
+  app.post('/api/push/native-token', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { token, platform } = req.body;
+      if (!token || !platform) {
+        return res.status(400).json({ message: 'token and platform are required' });
+      }
+      nativeTokens.set(userId, { token, platform, updatedAt: new Date() });
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error saving native push token:', error);
+      res.status(500).json({ message: 'Failed to save native push token' });
     }
   });
 
