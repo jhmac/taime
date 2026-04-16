@@ -89,7 +89,6 @@ const companySettingsUpdateSchema = z.object({
   allowTeamMessaging: z.boolean().optional(),
   enableScheduleEvents: z.boolean().optional(),
   allowUnscheduledClockIn: z.boolean().optional(),
-  enableSmartClockPrompt: z.boolean().optional(),
   enableClockOutOnFocusLoss: z.boolean().optional(),
   focusLossGraceSeconds: z.number().int().min(5).max(300).optional(),
   autoResumeWindowSeconds: z.number().int().min(30).max(600).optional(),

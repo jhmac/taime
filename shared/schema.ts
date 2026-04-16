@@ -471,7 +471,6 @@ export const companySettings = pgTable("company_settings", {
   allowTeamMessaging: boolean("allow_team_messaging").default(true),
   enableScheduleEvents: boolean("enable_schedule_events").default(true),
   defaultGeofenceRadius: integer("default_geofence_radius").default(100),
-  enableSmartClockPrompt: boolean("enable_smart_clock_prompt").default(false),
   enableClockOutOnFocusLoss: boolean("enable_clock_out_on_focus_loss").default(false),
   focusLossGraceSeconds: integer("focus_loss_grace_seconds").default(30),
   autoResumeWindowSeconds: integer("auto_resume_window_seconds").default(600),
