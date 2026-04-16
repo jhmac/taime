@@ -12,6 +12,9 @@ import { startRitualScheduler } from "./services/ritualScheduler";
 import { backfillLegacyUserRoles, backfillInactiveAuthenticatedUsers, backfillStoreCreatorOwnerRole } from "./lib/backfill";
 import { runSchemaMigrations } from "./lib/migrations";
 import { runStartupAiContentBackfill } from "./services/sopIndexer";
+import { validateMigrationJournal } from "./lib/validateMigrations";
+
+validateMigrationJournal();
 
 process.on('uncaughtException', (err) => {
   if (err.message?.includes('Cannot set property message') ||
