@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { useLocation } from 'wouter';
 import { useAuth } from '@/hooks/useAuth';
@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import SurfacedSOPBanner from '@/components/SurfacedSOPBanner';
@@ -21,6 +21,7 @@ import BackgroundInsightsCard from '@/features/dashboard/BackgroundInsightsCard'
 import SOPRevisionCard from '@/features/dashboard/SOPRevisionCard';
 import CashStatusCard from '@/features/dashboard/CashStatusCard';
 import TimeClockWidget from '@/components/TimeClockWidget';
+import DailyQuoteCard from '@/components/DailyQuoteCard';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -28,7 +29,7 @@ import {
   Calendar, DollarSign, ClipboardList, BarChart3, Settings,
   Bot, Clock, Video, ShoppingBag, ExternalLink,
   AlertCircle, CheckCircle2, CalendarDays, Inbox, CalendarCheck, Zap, ArrowRight,
-  LogOut, Moon,
+  LogOut, Moon, ChevronRight,
 } from 'lucide-react';
 
 type ClockOutTarget = {
@@ -42,6 +43,104 @@ type ClockOutTarget = {
 function toLocalDatetimeValue(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function SlideToConfirm({ onConfirm, isPending }: { onConfirm: () => void; isPending: boolean }) {
+  const trackEl = useRef<HTMLDivElement | null>(null);
+  const isDragging = useRef(false);
+  const startClientX = useRef(0);
+  const startPct = useRef(0);
+
+  const [pct, setPct] = useState(0);
+  const [confirmed, setConfirmed] = useState(false);
+  const [isDraggingState, setIsDraggingState] = useState(false);
+
+  const THUMB_W = 52;
+  const CONFIRM_THRESHOLD = 88;
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (confirmed || isPending) return;
+    isDragging.current = true;
+    setIsDraggingState(true);
+    startClientX.current = e.clientX;
+    startPct.current = pct;
+    (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDragging.current) return;
+    const track = trackEl.current;
+    const trackWidth = track ? track.getBoundingClientRect().width : 280;
+    const maxPx = trackWidth - THUMB_W;
+    const dx = e.clientX - startClientX.current;
+    const newPx = Math.max(0, Math.min(maxPx, (startPct.current / 100) * maxPx + dx));
+    const newPct = (newPx / maxPx) * 100;
+    setPct(newPct);
+    if (newPct >= CONFIRM_THRESHOLD) {
+      isDragging.current = false;
+      setIsDraggingState(false);
+      setConfirmed(true);
+      setPct(100);
+      onConfirm();
+    }
+  };
+
+  const handlePointerUp = () => {
+    if (isDragging.current && !confirmed) {
+      isDragging.current = false;
+      setIsDraggingState(false);
+      setPct(0);
+    }
+  };
+
+  return (
+    <div
+      ref={trackEl}
+      className="relative h-13 rounded-full bg-red-100 dark:bg-red-950/40 overflow-hidden select-none"
+      style={{ touchAction: 'none', height: '52px' }}
+    >
+      {/* Fill */}
+      <div
+        className="absolute inset-y-0 left-0"
+        style={{
+          width: `${Math.max(pct, 0)}%`,
+          background: confirmed ? '#16a34a' : `rgba(239,68,68,${0.15 + pct * 0.006})`,
+          transition: isDraggingState ? 'none' : 'width 0.35s ease',
+        }}
+      />
+      {/* Label */}
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+        {!confirmed && (
+          <span
+            className="text-xs font-semibold text-red-700 dark:text-red-400 transition-opacity"
+            style={{ opacity: pct > 55 ? 0 : 1 }}
+          >
+            Slide to clock out →
+          </span>
+        )}
+        {confirmed && (
+          <span className="text-xs font-semibold text-green-700 dark:text-green-400">
+            {isPending ? 'Saving…' : 'Confirmed ✓'}
+          </span>
+        )}
+      </div>
+      {/* Thumb */}
+      <div
+        className="absolute top-1.5 bottom-1.5 rounded-full bg-white shadow-md flex items-center justify-center cursor-grab active:cursor-grabbing"
+        style={{
+          width: THUMB_W,
+          left: `calc(${pct / 100} * (100% - ${THUMB_W}px))`,
+          transition: isDraggingState ? 'none' : 'left 0.35s ease',
+        }}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+      >
+        <ChevronRight className="h-5 w-5 text-red-500" />
+      </div>
+    </div>
+  );
 }
 
 export default function OwnerDashboard() {
@@ -286,6 +385,10 @@ export default function OwnerDashboard() {
               )}
             </CardContent>
           </Card>
+        </DashboardErrorBoundary>
+
+        <DashboardErrorBoundary fallback="">
+          <DailyQuoteCard />
         </DashboardErrorBoundary>
 
         <DashboardErrorBoundary fallback="Today card failed to load">
@@ -764,12 +867,10 @@ export default function OwnerDashboard() {
               />
             </div>
           </div>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" size="sm" onClick={() => setClockOutTarget(null)}>Cancel</Button>
-            <Button
-              size="sm"
-              disabled={clockOutMutation.isPending || !clockInEdit || !clockOutEdit}
-              onClick={() => {
+          <div className="space-y-3 pt-1">
+            <SlideToConfirm
+              isPending={clockOutMutation.isPending}
+              onConfirm={() => {
                 if (!clockOutTarget) return;
                 clockOutMutation.mutate({
                   id: clockOutTarget.timeEntryId,
@@ -777,10 +878,11 @@ export default function OwnerDashboard() {
                   clockOutTime: clockOutEdit,
                 });
               }}
-            >
-              {clockOutMutation.isPending ? 'Saving…' : 'Confirm Clock Out'}
+            />
+            <Button variant="ghost" size="sm" className="w-full text-muted-foreground" onClick={() => setClockOutTarget(null)}>
+              Cancel
             </Button>
-          </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
 
