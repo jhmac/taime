@@ -15,7 +15,8 @@ export default function SmartClockPrompt() {
   const { settings } = useCompanySettings();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [dismissed, setDismissed] = useState(false);
+  const DISMISSED_KEY = 'smartClockDismissed';
+  const [dismissed, setDismissed] = useState(() => sessionStorage.getItem(DISMISSED_KEY) === '1');
   const [nearbyLocation, setNearbyLocation] = useState<{ id: string; name: string } | null>(null);
   const [checking, setChecking] = useState(false);
   const [checked, setChecked] = useState(false);
@@ -40,6 +41,8 @@ export default function SmartClockPrompt() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/time-entries'] });
       queryClient.invalidateQueries({ queryKey: ['/api/time-entries/active'] });
+      sessionStorage.removeItem(DISMISSED_KEY);
+      setDismissed(false);
       setNearbyLocation(null);
       toast({
         title: "Clocked In",
@@ -98,12 +101,14 @@ export default function SmartClockPrompt() {
 
     const handleFocusReturn = () => {
       if (!document.hidden) {
+        if (sessionStorage.getItem(DISMISSED_KEY) === '1') {
+          return;
+        }
         const lastCheck = sessionStorage.getItem(COOLDOWN_KEY);
         if (lastCheck && Date.now() - parseInt(lastCheck) < COOLDOWN_MS) {
           return;
         }
         setChecked(false);
-        setDismissed(false);
         setNearbyLocation(null);
       }
     };
@@ -131,6 +136,7 @@ export default function SmartClockPrompt() {
   };
 
   const handleDismiss = () => {
+    sessionStorage.setItem(DISMISSED_KEY, '1');
     setDismissed(true);
     setNearbyLocation(null);
   };
