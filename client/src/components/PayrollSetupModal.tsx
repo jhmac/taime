@@ -9,13 +9,11 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Calendar } from '@/components/ui/calendar';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
-import { cn } from '@/lib/utils';
 import type { User } from '@shared/schema';
 
 interface PayrollSetupModalProps {
@@ -179,79 +177,61 @@ export default function PayrollSetupModal({ isOpen, onClose }: PayrollSetupModal
                 <Label htmlFor="use-calendar">Use calendar picker (uncheck to type dates)</Label>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>First Pay Period Start Date</Label>
-                  {useCalendar ? (
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant="outline"
-                          className={cn(
-                            "w-full justify-start text-left font-normal",
-                            !startDate && "text-muted-foreground"
-                          )}
-                          data-testid="button-start-date"
-                        >
-                          <CalendarIcon className="mr-2 h-4 w-4" />
-                          {startDate ? format(startDate, "PPP") : "Pick a date"}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0">
-                        <Calendar
-                          mode="single"
-                          selected={startDate}
-                          onSelect={handleStartDateChange}
-                          initialFocus
-                        />
-                      </PopoverContent>
-                    </Popover>
-                  ) : (
+              {useCalendar ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>First Pay Period Start Date</Label>
+                    {startDate && (
+                      <p className="text-sm font-medium text-foreground">
+                        {format(startDate, "PPP")}
+                      </p>
+                    )}
+                    <Calendar
+                      mode="single"
+                      selected={startDate}
+                      onSelect={handleStartDateChange}
+                      className="rounded-md border"
+                      data-testid="calendar-start-date"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>First Pay Period End Date</Label>
+                    {endDate && (
+                      <p className="text-sm font-medium text-foreground">
+                        {format(endDate, "PPP")}
+                      </p>
+                    )}
+                    <Calendar
+                      mode="single"
+                      selected={endDate}
+                      onSelect={setEndDate}
+                      className="rounded-md border"
+                      data-testid="calendar-end-date"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>First Pay Period Start Date</Label>
                     <Input
                       type="date"
                       value={startDateInput}
                       onChange={(e) => setStartDateInput(e.target.value)}
                       data-testid="input-start-date"
                     />
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <Label>First Pay Period End Date</Label>
-                  {useCalendar ? (
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant="outline"
-                          className={cn(
-                            "w-full justify-start text-left font-normal",
-                            !endDate && "text-muted-foreground"
-                          )}
-                          data-testid="button-end-date"
-                        >
-                          <CalendarIcon className="mr-2 h-4 w-4" />
-                          {endDate ? format(endDate, "PPP") : "Pick a date"}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0">
-                        <Calendar
-                          mode="single"
-                          selected={endDate}
-                          onSelect={setEndDate}
-                          initialFocus
-                        />
-                      </PopoverContent>
-                    </Popover>
-                  ) : (
+                  </div>
+                  <div className="space-y-2">
+                    <Label>First Pay Period End Date</Label>
                     <Input
                       type="date"
                       value={endDateInput}
                       onChange={(e) => setEndDateInput(e.target.value)}
                       data-testid="input-end-date"
                     />
-                  )}
+                  </div>
                 </div>
-              </div>
+              )}
             </CardContent>
           </Card>
 
