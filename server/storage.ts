@@ -1181,8 +1181,8 @@ export class DatabaseStorage implements IStorage {
       .insert(nativePushTokens)
       .values({ userId, token, platform })
       .onConflictDoUpdate({
-        target: [nativePushTokens.userId, nativePushTokens.token],
-        set: { platform, updatedAt: new Date() },
+        target: nativePushTokens.token,
+        set: { userId, platform, updatedAt: new Date() },
       })
       .returning();
     return row;

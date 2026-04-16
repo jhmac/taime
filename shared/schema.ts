@@ -675,7 +675,7 @@ export const nativePushTokens = pgTable("native_push_tokens", {
   platform: varchar("platform", { length: 10 }).notNull(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (t) => ({
-  uniqueUserToken: unique("uq_native_push_tokens_user_token").on(t.userId, t.token),
+  uniqueToken: unique("uq_native_push_tokens_token").on(t.token),
 }));
 
 // Geofence events

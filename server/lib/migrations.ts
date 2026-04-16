@@ -659,7 +659,7 @@ export async function runSchemaMigrations(): Promise<void> {
       )`,
       indexes: [
         `CREATE INDEX IF NOT EXISTS "IDX_native_push_tokens_user" ON native_push_tokens (user_id)`,
-        `ALTER TABLE native_push_tokens ADD CONSTRAINT IF NOT EXISTS uq_native_push_tokens_user_token UNIQUE (user_id, token)`,
+        `CREATE UNIQUE INDEX IF NOT EXISTS "uq_native_push_tokens_token" ON native_push_tokens (token)`,
       ],
     },
   ];
@@ -678,6 +678,44 @@ export async function runSchemaMigrations(): Promise<void> {
       const pgErr = err as { message?: string };
       console.warn(`[Migration] Failed to create '${name}':`, pgErr?.message ?? err);
     }
+  }
+
+  // Migrate native_push_tokens to support multiple devices per user:
+  // Drop the old (user_id, token) unique constraint and replace with a token-only
+  // unique index so each push token globally identifies exactly one device.
+  try {
+    await db.execute(sql.raw(
+      `ALTER TABLE native_push_tokens DROP CONSTRAINT IF EXISTS uq_native_push_tokens_user_token`
+    ));
+    // Remove duplicate tokens deterministically: keep the most-recently-updated
+    // row per token; break ties by id so every duplicate is removed even when
+    // updated_at is identical or NULL.
+    await db.execute(sql.raw(`
+      DELETE FROM native_push_tokens
+      WHERE id IN (
+        SELECT id FROM (
+          SELECT id,
+                 ROW_NUMBER() OVER (
+                   PARTITION BY token
+                   ORDER BY updated_at DESC NULLS LAST, id DESC
+                 ) AS rn
+          FROM native_push_tokens
+        ) ranked
+        WHERE rn > 1
+      )
+    `));
+    await db.execute(sql.raw(
+      `CREATE UNIQUE INDEX IF NOT EXISTS "uq_native_push_tokens_token" ON native_push_tokens (token)`
+    ));
+    console.log('[Migration] native_push_tokens: migrated to per-token unique index');
+  } catch (err: unknown) {
+    const pgErr = err as { message?: string };
+    console.error(
+      '[Migration] IMPORTANT: native_push_tokens token-unique migration failed. ' +
+      'The uq_native_push_tokens_token unique index may be missing. ' +
+      'Native push token upserts may fail until this is resolved. Error:',
+      pgErr?.message ?? err
+    );
   }
 
   // Backfill store_id for singleton tables: assign to the first active store
