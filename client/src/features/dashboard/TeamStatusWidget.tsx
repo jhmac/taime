@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Skeleton } from '@/components/ui/skeleton';
-import { CalendarDays, AlertCircle } from 'lucide-react';
+import { CalendarDays, AlertCircle, MapPinOff } from 'lucide-react';
 
 interface ClockedInMember {
   userId: string;
@@ -90,6 +90,16 @@ export default function TeamStatusWidget() {
     queryKey: ['/api/schedules'],
     staleTime: 120_000,
   });
+
+  const { data: todayData } = useQuery<{
+    summary: { totalLocationBlocked: number };
+  }>({
+    queryKey: ['/api/dashboard/today'],
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  });
+
+  const totalLocationBlocked = todayData?.summary?.totalLocationBlocked ?? 0;
 
   const isLoading = clockedInLoading || upcomingLoading;
   const hasError = clockedInError || upcomingError;
@@ -259,12 +269,20 @@ export default function TeamStatusWidget() {
 
   return (
     <div className="rounded-3xl bg-card border border-border overflow-hidden">
-      <div className="px-4 pt-4 pb-3 flex items-center gap-2.5">
-        <div className="w-9 h-9 rounded-2xl flex items-center justify-center flex-shrink-0"
-          style={{ background: 'hsl(var(--primary) / 0.12)' }}>
-          <CalendarDays className="h-4.5 w-4.5 text-primary" style={{ width: '18px', height: '18px' }} />
+      <div className="px-4 pt-4 pb-3">
+        <div className="flex items-center gap-2.5">
+          <div className="w-9 h-9 rounded-2xl flex items-center justify-center flex-shrink-0"
+            style={{ background: 'hsl(var(--primary) / 0.12)' }}>
+            <CalendarDays className="h-4.5 w-4.5 text-primary" style={{ width: '18px', height: '18px' }} />
+          </div>
+          <h3 className="text-base font-extrabold text-foreground">Today</h3>
         </div>
-        <h3 className="text-base font-extrabold text-foreground">Today</h3>
+        {totalLocationBlocked > 0 && (
+          <div className="flex items-center gap-1.5 mt-2 ml-0.5 text-xs text-orange-500 dark:text-orange-400">
+            <MapPinOff className="h-3.5 w-3.5" />
+            <span>{totalLocationBlocked} location blocked</span>
+          </div>
+        )}
       </div>
 
       <div className="border-t border-border" />
