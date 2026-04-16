@@ -6,7 +6,7 @@
 
 import { db } from "../db";
 import { locationPermissions } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { eq, lt } from "drizzle-orm";
 
 type PermissionStatus = 'granted' | 'denied' | 'prompt' | 'unknown';
 
@@ -43,4 +43,13 @@ export async function getLocationPermission(userId: string): Promise<{ status: P
 export async function isLocationBlocked(userId: string): Promise<boolean> {
   const record = await getLocationPermission(userId);
   return record?.status === 'denied';
+}
+
+export async function cleanupStaleLocationPermissions(): Promise<number> {
+  const cutoff = new Date(Date.now() - TTL_MS);
+  const deleted = await db
+    .delete(locationPermissions)
+    .where(lt(locationPermissions.reportedAt, cutoff))
+    .returning({ userId: locationPermissions.userId });
+  return deleted.length;
 }

@@ -61,6 +61,7 @@ import { registerMorningMomentRoutes } from "./routes/morningMoment";
 import { registerSupplyRoutes } from "./routes/supply";
 import { startBackgroundInsightsCron, stopBackgroundInsightsCron } from "./services/backgroundInsights";
 import { startGamificationCron, stopGamificationCron } from "./services/gamificationCron";
+import { startLocationCleanupCron, stopLocationCleanupCron } from "./services/locationCleanupCron";
 import { createActionLoggerMiddleware, handleClientErrorReport, getActionSummary } from "./services/actionLogger";
 import { startSurfacingCron, stopSurfacingCron } from "./services/sopSurfacing";
 import { startMiddayPulseCron, stopMiddayPulseCron } from "./services/middayPulse";
@@ -266,6 +267,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     { fn: () => startSOPEvolutionCron(), label: 'SOP Evolution', delay: 55_000 },
     { fn: () => startBackgroundInsightsCron(), label: 'Background Insights', delay: 65_000 },
     { fn: () => startGamificationCron(), label: 'Gamification', delay: 75_000 },
+    { fn: () => startLocationCleanupCron(), label: 'Location Cleanup', delay: 85_000 },
     {
       fn: () => seedShiftHandoffSOP().catch(err => logger.error({ error: err.message }, 'Handoff SOP seed failed')),
       label: 'Shift Handoff Seed',
@@ -295,6 +297,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     stopSOPEvolutionCron();
     stopBackgroundInsightsCron();
     stopGamificationCron();
+    stopLocationCleanupCron();
 
     const shutdownPayload = JSON.stringify({ type: "server_restarting" });
     wsConnections.forEach((conns) => {
