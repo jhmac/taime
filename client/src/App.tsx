@@ -387,6 +387,14 @@ function Router() {
     );
   }
 
+  if (location === "/support") {
+    return (
+      <Suspense fallback={<PageLoader />}>
+        <SupportPage />
+      </Suspense>
+    );
+  }
+
   if (location.startsWith("/shopify-callback-success")) {
     return (
       <Suspense fallback={<PageLoader />}>

@@ -105,16 +105,30 @@ export default function PrivacyPolicy() {
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-base font-semibold">6. Data Retention</h2>
+          <h2 className="text-base font-semibold">6. Push Notification Tokens</h2>
           <p>
-            We retain data for as long as your account is active or as needed to provide the Service.
-            Upon account closure, data is retained for 30 days before deletion, unless a longer period
-            is required by law. You may request earlier deletion by contacting support.
+            To deliver shift reminders, schedule changes, and workplace alerts, we store a push notification
+            token tied to your device and account. These tokens are provided by Apple (APNs) or Google (FCM)
+            and are used solely to route notifications to your device. Push tokens are automatically removed
+            from our systems after 90 days of device inactivity. You can revoke notification permission at
+            any time in your device settings, which will prevent further notifications.
           </p>
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-base font-semibold">7. Data Security</h2>
+          <h2 className="text-base font-semibold">7. Data Retention</h2>
+          <p>
+            We retain data for as long as your account is active or as needed to provide the Service.
+            Upon account closure, data is retained for 30 days before deletion, unless a longer period
+            is required by law. Location check-in records are retained for payroll and compliance purposes
+            for up to 3 years. Push notification tokens are removed after 90 days of inactivity.
+            You may request earlier deletion by contacting us at{" "}
+            <a href="mailto:support@taime.us" className="underline">support@taime.us</a>.
+          </p>
+        </section>
+
+        <section className="space-y-2">
+          <h2 className="text-base font-semibold">8. Data Security</h2>
           <p>
             We implement industry-standard security measures to protect your data, including encryption
             in transit (TLS) and at rest, access controls, and regular security monitoring. However,
@@ -123,7 +137,7 @@ export default function PrivacyPolicy() {
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-base font-semibold">8. Your Rights</h2>
+          <h2 className="text-base font-semibold">9. Your Rights</h2>
           <p>Depending on your jurisdiction, you may have the right to:</p>
           <ul className="list-disc list-inside space-y-1 text-muted-foreground">
             <li>Access the personal data we hold about you</li>
@@ -140,7 +154,7 @@ export default function PrivacyPolicy() {
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-base font-semibold">9. Children's Privacy</h2>
+          <h2 className="text-base font-semibold">10. Children's Privacy</h2>
           <p>
             The Service is not directed to individuals under the age of 16. We do not knowingly collect
             personal information from minors. If you believe a minor's data has been provided to us,
@@ -149,7 +163,7 @@ export default function PrivacyPolicy() {
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-base font-semibold">10. Changes to This Policy</h2>
+          <h2 className="text-base font-semibold">11. Changes to This Policy</h2>
           <p>
             We may update this Privacy Policy from time to time. We will notify you of material changes
             by updating the date at the top of this page. Continued use of the Service after changes
@@ -158,10 +172,17 @@ export default function PrivacyPolicy() {
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-base font-semibold">11. Contact Us</h2>
+          <h2 className="text-base font-semibold">12. Contact Us</h2>
           <p>
             If you have questions or concerns about this Privacy Policy or our data practices, please
-            contact us through the Support section of the application.
+            contact us:
+          </p>
+          <p className="mt-2">
+            <strong>Email:</strong>{" "}
+            <a href="mailto:support@taime.us" className="underline">support@taime.us</a>
+            <br />
+            <strong>Website:</strong>{" "}
+            <a href="https://taime.us/support" className="underline">taime.us/support</a>
           </p>
         </section>
       </div>

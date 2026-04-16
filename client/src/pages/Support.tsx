@@ -49,6 +49,17 @@ export default function SupportPage() {
         <div className="w-6"></div>
       </div>
 
+      <div className="px-4 py-4 border-b border-border bg-muted/20">
+        <p className="text-sm text-muted-foreground mb-1">Need help? Contact us directly:</p>
+        <a
+          href="mailto:support@taime.us"
+          className="text-sm font-medium text-primary underline"
+        >
+          support@taime.us
+        </a>
+        <p className="text-xs text-muted-foreground mt-1">We typically respond within one business day.</p>
+      </div>
+
       <div className="px-4">
         {items.map((item, i) => (
           <button
