@@ -14,6 +14,7 @@ import type { TimeEntry, WorkLocation, CompanySettings } from '@shared/schema';
 import { MapPin, Shield, AlertTriangle, CheckCircle2, XCircle, Wifi, ExternalLink, Smartphone } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
+import LocationHelpSheet from '@/components/LocationHelpSheet';
 
 function triggerHaptic(pattern: number | number[] = 200) {
   try {
@@ -56,6 +57,7 @@ export default function TimeClockWidget() {
   const [countdownSeconds, setCountdownSeconds] = useState<number | null>(null);
   const countdownRef = useRef<number | null>(null);
   const totalGraceSecondsRef = useRef<number>(0);
+  const [showLocationHelp, setShowLocationHelp] = useState(false);
   const lastMonitorTimeRef = useRef<number>(0);
   const prevActiveEntryRef = useRef<any>(null);
 
@@ -614,6 +616,7 @@ export default function TimeClockWidget() {
   const showCountdown = activeTimeEntry && geofenceStatus && !geofenceStatus.isInWorkLocation && countdownSeconds != null;
 
   return (
+    <>
     <Card data-testid="time-clock-widget" className="overflow-hidden">
 
       {/* ── GEOFENCE COUNTDOWN — full takeover ─────────────── */}
@@ -730,15 +733,7 @@ export default function TimeClockWidget() {
                 ? 'Location request timed out'
                 : 'Location unavailable';
             const detail = isDenied
-              ? (() => {
-                  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-                  const isAndroid = /Android/.test(navigator.userAgent);
-                  return isIOS
-                    ? 'Smart Clock-In needs your location to verify you\'re at a work site. To enable: Settings → Privacy & Security → Location Services → your browser → "While Using".'
-                    : isAndroid
-                      ? 'Smart Clock-In needs your location to verify you\'re at a work site. To enable: Settings → Apps → your browser → Permissions → Location → Allow.'
-                      : 'Smart Clock-In needs your location to verify you\'re at a work site. To enable: click the lock icon in the address bar and set Location to "Allow".';
-                })()
+              ? 'Smart Clock-In needs your location to verify you\'re at a work site. Tap the button below for step-by-step help.'
               : isTimeout
                 ? 'Your location could not be determined in time. Tap "Try again" or check that GPS is enabled.'
                 : 'Your device could not determine your location. Check that GPS or location services are enabled.';
@@ -749,7 +744,15 @@ export default function TimeClockWidget() {
                   <p className="text-sm font-bold text-red-700 dark:text-red-300">{heading}</p>
                 </div>
                 <p className="text-xs text-red-600 dark:text-red-400 leading-relaxed">{detail}</p>
-                {!isDenied && (
+                {isDenied ? (
+                  <button
+                    className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-red-700 dark:text-red-300 underline underline-offset-2 text-left"
+                    onClick={() => setShowLocationHelp(true)}
+                    data-testid="how-to-enable-location-button"
+                  >
+                    How to enable location →
+                  </button>
+                ) : (
                   <button
                     className="mt-1 text-xs font-semibold text-red-700 dark:text-red-300 underline underline-offset-2 text-left"
                     onClick={() => getCurrentPosition().catch(() => {})}
@@ -846,5 +849,8 @@ export default function TimeClockWidget() {
       )}
 
     </Card>
+
+    <LocationHelpSheet open={showLocationHelp} onOpenChange={setShowLocationHelp} />
+    </>
   );
 }
