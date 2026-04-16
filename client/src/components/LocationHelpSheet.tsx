@@ -1,4 +1,5 @@
 import { Capacitor } from '@capacitor/core';
+import { NativeSettings, AndroidSettings, IOSSettings } from 'capacitor-native-settings';
 import {
   Sheet,
   SheetContent,
@@ -7,6 +8,7 @@ import {
   SheetDescription,
 } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
+import { useToast } from '@/hooks/use-toast';
 import { MapPin, Settings, ExternalLink } from 'lucide-react';
 
 interface LocationHelpSheetProps {
@@ -110,6 +112,23 @@ const PLATFORM_STEPS: Record<Platform, StepConfig> = {
 export default function LocationHelpSheet({ open, onOpenChange }: LocationHelpSheetProps) {
   const platform = detectPlatform();
   const config = PLATFORM_STEPS[platform];
+  const { toast } = useToast();
+
+  async function openDeviceSettings() {
+    try {
+      if (platform === 'native-ios') {
+        await NativeSettings.openIOS({ option: IOSSettings.App });
+      } else if (platform === 'native-android') {
+        await NativeSettings.openAndroid({ option: AndroidSettings.ApplicationDetails });
+      }
+    } catch {
+      toast({
+        title: 'Could not open Settings',
+        description: 'Please open your device Settings app manually and find Taime.',
+        variant: 'destructive',
+      });
+    }
+  }
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -148,9 +167,23 @@ export default function LocationHelpSheet({ open, onOpenChange }: LocationHelpSh
         )}
 
         <div className="mt-5 flex flex-col gap-2">
+          {(platform === 'native-ios' || platform === 'native-android') && (
+            <Button
+              onClick={() => { void openDeviceSettings(); }}
+              className="w-full bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-xl"
+            >
+              <Settings className="h-4 w-4 mr-2" />
+              Open Settings
+            </Button>
+          )}
           <Button
+            variant={platform === 'native-ios' || platform === 'native-android' ? 'outline' : 'default'}
             onClick={() => onOpenChange(false)}
-            className="w-full bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-xl"
+            className={
+              platform === 'native-ios' || platform === 'native-android'
+                ? 'w-full rounded-xl'
+                : 'w-full bg-orange-500 hover:bg-orange-600 text-white font-semibold rounded-xl'
+            }
           >
             Got it
           </Button>
