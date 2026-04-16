@@ -1,11 +1,12 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
 import { users, roles, companySettings, employeeDocuments, managerNotes, workLocations } from "@shared/schema";
-import { eq, desc, or, isNull, and } from "drizzle-orm";
+import { eq, desc, or, isNull, and, sql as sqlExpr } from "drizzle-orm";
 import { db } from "../db";
 import { sendTeamInviteEmail } from "../services/emailService";
 import { randomBytes } from "crypto";
 import { tryResolveStoreIdForUser } from "../lib/storeResolver";
+import { clerkClient } from "@clerk/express";
 
 function generateInviteToken(): string {
   return randomBytes(32).toString("hex");
@@ -535,6 +536,72 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
     } catch (error) {
       console.error("Error deleting note:", error);
       res.status(500).json({ message: "Failed to delete note" });
+    }
+  });
+
+  // POST /api/account/unsubscribe — remove all push tokens and opt out of notifications
+  app.post('/api/account/unsubscribe', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+
+      // Remove all native push tokens so no more push notifications are delivered
+      await db.execute(sqlExpr`DELETE FROM native_push_tokens WHERE user_id = ${userId}`);
+
+      // Remove web push subscriptions if table exists
+      try {
+        await db.execute(sqlExpr`DELETE FROM push_subscriptions WHERE user_id = ${userId}`);
+      } catch { /* table may not exist */ }
+
+      console.log(`[Account] User ${userId} unsubscribed from all push notifications`);
+      res.json({ success: true, message: "Successfully unsubscribed from all notifications" });
+    } catch (error) {
+      console.error("[Account] Unsubscribe error:", error);
+      res.status(500).json({ message: "Failed to unsubscribe" });
+    }
+  });
+
+  // DELETE /api/account/self — permanently delete own account
+  app.delete('/api/account/self', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+
+      // Prevent the only owner from deleting their account (would orphan the store)
+      const userWithRole = await storage.getUserWithRole(userId);
+      if (userWithRole?.role?.name === 'owner') {
+        const [otherOwner] = await db
+          .select({ id: users.id })
+          .from(users)
+          .innerJoin(roles, eq(users.roleId, roles.id))
+          .where(and(eq(roles.name, 'owner'), sqlExpr`users.id != ${userId}`))
+          .limit(1);
+        if (!otherOwner) {
+          return res.status(400).json({
+            message: "You are the only owner. Transfer ownership to another team member before deleting your account.",
+          });
+        }
+      }
+
+      // Remove push tokens and subscriptions first
+      await db.execute(sqlExpr`DELETE FROM native_push_tokens WHERE user_id = ${userId}`);
+      try { await db.execute(sqlExpr`DELETE FROM push_subscriptions WHERE user_id = ${userId}`); } catch { /* ok */ }
+
+      // Delete from our DB (cascades to related records)
+      await storage.deleteUser(userId);
+
+      // Delete from Clerk (best-effort — if it fails the DB is already clean)
+      try {
+        await clerkClient.users.deleteUser(userId);
+      } catch (clerkErr) {
+        console.warn(`[Account] Could not delete Clerk user ${userId}:`, clerkErr);
+      }
+
+      console.log(`[Account] User ${userId} account permanently deleted`);
+      res.json({ success: true, message: "Account permanently deleted" });
+    } catch (error) {
+      console.error("[Account] Self-delete error:", error);
+      res.status(500).json({ message: "Failed to delete account" });
     }
   });
 }

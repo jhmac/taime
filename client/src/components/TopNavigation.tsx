@@ -266,9 +266,16 @@ export default function TopNavigation() {
           <NotificationsDropdown />
           {user && (
             <div className="flex items-center gap-3">
-              <span className="text-sm text-muted-foreground">
-                {user.firstName} {user.lastName}
-              </span>
+              <div className="text-right">
+                <div className="text-sm font-medium text-foreground leading-tight">
+                  {user.firstName} {user.lastName}
+                </div>
+                {user.role && (
+                  <div className="text-xs text-muted-foreground capitalize leading-tight">
+                    {user.role.displayName || user.role.name}
+                  </div>
+                )}
+              </div>
               <UserButton afterSignOutUrl="/" />
             </div>
           )}
