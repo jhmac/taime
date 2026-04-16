@@ -672,6 +672,21 @@ export async function runSchemaMigrations(): Promise<void> {
       )`,
       indexes: [],
     },
+    {
+      name: "notification_delivery_logs",
+      ddl: `CREATE TABLE IF NOT EXISTS notification_delivery_logs (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id varchar NOT NULL REFERENCES users(id),
+        notification_type varchar(64) NOT NULL,
+        channel varchar(16) NOT NULL,
+        status varchar(16) NOT NULL,
+        error_message text,
+        sent_at timestamp DEFAULT now()
+      )`,
+      indexes: [
+        `CREATE INDEX IF NOT EXISTS "idx_notif_delivery_logs_sent_at" ON notification_delivery_logs (sent_at)`,
+      ],
+    },
   ];
 
   for (const { name, ddl, indexes } of tableCreations) {

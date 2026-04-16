@@ -25,6 +25,7 @@ export interface NotificationPayload {
     title: string;
     icon?: string;
   }>;
+  notificationType?: string;
 }
 
 export interface SendResult {
@@ -474,6 +475,48 @@ export class NotificationService {
     if (subscriptions.length === 0 && nativeTokens.length === 0) {
       console.log(`No push subscriptions found for user ${userId}`);
     }
+
+    const notificationType = payload.notificationType || (payload.data?.type as string) || 'notification';
+
+    const logPromises: Promise<any>[] = [];
+
+    if (subscriptions.length > 0) {
+      logPromises.push(
+        storage.createNotificationDeliveryLog({
+          userId,
+          notificationType,
+          channel: 'web',
+          status: succeeded > 0 ? 'success' : 'failed',
+          errorMessage: failed > 0 ? `${failed} of ${subscriptions.length} web subscription(s) failed` : null,
+        }).catch(() => {})
+      );
+    }
+
+    if (iosSucceeded > 0 || iosFailed > 0) {
+      logPromises.push(
+        storage.createNotificationDeliveryLog({
+          userId,
+          notificationType,
+          channel: 'ios',
+          status: iosSucceeded > 0 ? 'success' : 'failed',
+          errorMessage: iosFailed > 0 ? `${iosFailed} of ${iosSucceeded + iosFailed} iOS token(s) failed` : null,
+        }).catch(() => {})
+      );
+    }
+
+    if (androidSucceeded > 0 || androidFailed > 0) {
+      logPromises.push(
+        storage.createNotificationDeliveryLog({
+          userId,
+          notificationType,
+          channel: 'android',
+          status: androidSucceeded > 0 ? 'success' : 'failed',
+          errorMessage: androidFailed > 0 ? `${androidFailed} of ${androidSucceeded + androidFailed} Android token(s) failed` : null,
+        }).catch(() => {})
+      );
+    }
+
+    await Promise.all(logPromises);
 
     return {
       total: subscriptions.length,

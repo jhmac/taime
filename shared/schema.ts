@@ -685,6 +685,17 @@ export const pushCredentials = pgTable("push_credentials", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Notification delivery log
+export const notificationDeliveryLogs = pgTable("notification_delivery_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  notificationType: varchar("notification_type", { length: 64 }).notNull(),
+  channel: varchar("channel", { length: 16 }).notNull(),
+  status: varchar("status", { length: 16 }).notNull(),
+  errorMessage: text("error_message"),
+  sentAt: timestamp("sent_at").defaultNow(),
+}, (t) => [index("idx_notif_delivery_logs_sent_at").on(t.sentAt)]);
+
 // Geofence events
 export const geofenceEvents = pgTable("geofence_events", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -1051,6 +1062,7 @@ export const insertScheduleConfirmationSchema = createInsertSchema(scheduleConfi
 export const insertWorkflowLogSchema = createInsertSchema(workflowLogs).omit({ id: true, createdAt: true });
 export const insertPushSubscriptionSchema = createInsertSchema(pushSubscriptions).omit({ id: true, createdAt: true });
 export const insertNativePushTokenSchema = createInsertSchema(nativePushTokens).omit({ id: true, updatedAt: true });
+export const insertNotificationDeliveryLogSchema = createInsertSchema(notificationDeliveryLogs).omit({ id: true, sentAt: true });
 export const insertRoleSchema = createInsertSchema(roles).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertPermissionSchema = createInsertSchema(permissions).omit({ id: true, createdAt: true });
 export const insertRolePermissionSchema = createInsertSchema(rolePermissions).omit({ id: true, createdAt: true });
@@ -1138,6 +1150,8 @@ export type InsertPushSubscription = z.infer<typeof insertPushSubscriptionSchema
 export type NativePushToken = typeof nativePushTokens.$inferSelect;
 export type InsertNativePushToken = z.infer<typeof insertNativePushTokenSchema>;
 export type PushCredential = typeof pushCredentials.$inferSelect;
+export type NotificationDeliveryLog = typeof notificationDeliveryLogs.$inferSelect;
+export type InsertNotificationDeliveryLog = z.infer<typeof insertNotificationDeliveryLogSchema>;
 export type Role = typeof roles.$inferSelect;
 export type InsertRole = z.infer<typeof insertRoleSchema>;
 export type MileageReimbursement = typeof mileageReimbursements.$inferSelect;

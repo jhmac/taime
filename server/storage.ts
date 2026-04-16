@@ -104,6 +104,9 @@ import {
   type InsertPushSubscription,
   type NativePushToken,
   type InsertNativePushToken,
+  type NotificationDeliveryLog,
+  type InsertNotificationDeliveryLog,
+  notificationDeliveryLogs,
   type Role,
   type InsertRole,
   type Permission,
@@ -280,6 +283,10 @@ export interface IStorage {
   // Push credential operations (admin-managed APNs/FCM secrets)
   getPushCredential(key: string): Promise<string | null>;
   setPushCredential(key: string, value: string): Promise<void>;
+
+  // Notification delivery log operations
+  createNotificationDeliveryLog(log: InsertNotificationDeliveryLog): Promise<NotificationDeliveryLog>;
+  getNotificationDeliveryLogs(options?: { channel?: string; since?: Date; limit?: number }): Promise<NotificationDeliveryLog[]>;
 
   // Role management operations
   getUserWithRole(id: string): Promise<UserWithRole | undefined>;
@@ -1238,6 +1245,28 @@ export class DatabaseStorage implements IStorage {
         target: pushCredentials.key,
         set: { value, updatedAt: new Date() },
       });
+  }
+
+  async createNotificationDeliveryLog(log: InsertNotificationDeliveryLog): Promise<NotificationDeliveryLog> {
+    const [created] = await db.insert(notificationDeliveryLogs).values(log).returning();
+    return created;
+  }
+
+  async getNotificationDeliveryLogs(options?: { channel?: string; since?: Date; limit?: number }): Promise<NotificationDeliveryLog[]> {
+    const conditions: any[] = [];
+    if (options?.channel) {
+      conditions.push(eq(notificationDeliveryLogs.channel, options.channel));
+    }
+    if (options?.since) {
+      conditions.push(sql`${notificationDeliveryLogs.sentAt} >= ${options.since}`);
+    }
+    const query = db
+      .select()
+      .from(notificationDeliveryLogs)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(sql`${notificationDeliveryLogs.sentAt} DESC`)
+      .limit(options?.limit ?? 200);
+    return query;
   }
 
   // Role management operations

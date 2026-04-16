@@ -35,6 +35,7 @@ const fcmCredentialsSchema = z.object({
   serviceAccountJson: z.string().min(1, "Service account JSON is required"),
 });
 
+
 export function registerPushRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
   app.get('/api/push/credentials-status', isAuthenticated, (_req, res) => {
     const vapidReady = !!(config.vapid.publicKey && config.vapid.privateKey);
@@ -137,6 +138,7 @@ export function registerPushRoutes(app: Express, storage: IStorage, isAuthentica
         title: '🔔 Test Notification',
         body: 'This is a test push notification from Taime. If you see this, notifications are working!',
         data: { type: 'test' },
+        notificationType: 'test',
       });
 
       const totalSucceeded = result.succeeded + result.nativeSucceeded;
@@ -200,6 +202,35 @@ export function registerPushRoutes(app: Express, storage: IStorage, isAuthentica
     } catch (error) {
       console.error("Error sending test notification:", error);
       res.status(500).json({ message: "Failed to send test notification" });
+    }
+  });
+
+  app.get('/api/push/delivery-logs', isAuthenticated, async (req: any, res) => {
+    try {
+      await requireAdmin(storage, req.user.id);
+
+      const { channel, since, limit } = req.query;
+
+      const sinceDate = since ? new Date(since as string) : undefined;
+      const limitNum = limit ? Math.min(parseInt(limit as string, 10) || 100, 500) : 100;
+
+      if (sinceDate && isNaN(sinceDate.getTime())) {
+        return res.status(400).json({ message: 'Invalid since date' });
+      }
+
+      const logs = await storage.getNotificationDeliveryLogs({
+        channel: channel as string | undefined,
+        since: sinceDate,
+        limit: limitNum,
+      });
+
+      res.json(logs);
+    } catch (error: any) {
+      if (error?.status === 403) {
+        return res.status(403).json({ message: error.message || 'Admin access required' });
+      }
+      console.error('Error fetching delivery logs:', error);
+      res.status(500).json({ message: 'Failed to fetch delivery logs' });
     }
   });
 }

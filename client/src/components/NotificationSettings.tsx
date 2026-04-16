@@ -9,9 +9,11 @@ import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/hooks/useAuth';
+import type { NotificationDeliveryLog } from '@shared/schema';
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -134,6 +136,22 @@ export default function NotificationSettings() {
 
   const [showFcmForm, setShowFcmForm] = useState(false);
   const [fcmForm, setFcmForm] = useState({ serviceAccountJson: '' });
+
+  const [logChannelFilter, setLogChannelFilter] = useState<string>('all');
+  const [logSinceFilter, setLogSinceFilter] = useState<string>('');
+
+  const deliveryLogsQuery = useQuery<NotificationDeliveryLog[]>({
+    queryKey: ['/api/push/delivery-logs', logChannelFilter, logSinceFilter],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (logChannelFilter && logChannelFilter !== 'all') params.set('channel', logChannelFilter);
+      if (logSinceFilter) params.set('since', new Date(logSinceFilter).toISOString());
+      params.set('limit', '100');
+      const res = await fetch(`/api/push/delivery-logs?${params.toString()}`, { credentials: 'include' });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
 
   const { data: vapidData } = useQuery<{ publicKey: string }>({
     queryKey: ['/api/push/vapid-key'],
@@ -769,6 +787,89 @@ export default function NotificationSettings() {
                   </>
                 )}
               </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <i className="fas fa-list-check text-primary"></i>
+              Delivery Log
+            </CardTitle>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Select value={logChannelFilter} onValueChange={setLogChannelFilter}>
+                <SelectTrigger className="h-7 text-xs w-28">
+                  <SelectValue placeholder="All channels" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All channels</SelectItem>
+                  <SelectItem value="web">Web</SelectItem>
+                  <SelectItem value="ios">iOS</SelectItem>
+                  <SelectItem value="android">Android</SelectItem>
+                </SelectContent>
+              </Select>
+              <Input
+                type="date"
+                value={logSinceFilter}
+                onChange={(e) => setLogSinceFilter(e.target.value)}
+                className="h-7 text-xs w-36"
+                placeholder="Since date"
+              />
+              {logSinceFilter && (
+                <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setLogSinceFilter('')}>
+                  <i className="fas fa-times"></i>
+                </Button>
+              )}
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {deliveryLogsQuery.isLoading ? (
+            <div className="flex items-center justify-center py-6">
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary"></div>
+            </div>
+          ) : !deliveryLogsQuery.data || deliveryLogsQuery.data.length === 0 ? (
+            <p className="text-xs text-muted-foreground text-center py-6">
+              No delivery records yet. Send a test notification to see results here.
+            </p>
+          ) : (
+            <div className="space-y-1">
+              {deliveryLogsQuery.data.map((entry) => (
+                <div key={entry.id} className="flex items-center justify-between text-xs py-1.5 border-b last:border-0">
+                  <div className="flex items-center gap-2 min-w-0">
+                    {entry.channel === 'web' && <i className="fas fa-globe text-blue-500 w-4 text-center shrink-0"></i>}
+                    {entry.channel === 'ios' && <i className="fab fa-apple text-gray-700 dark:text-gray-300 w-4 text-center shrink-0"></i>}
+                    {entry.channel === 'android' && <i className="fab fa-android text-green-600 w-4 text-center shrink-0"></i>}
+                    <div className="min-w-0">
+                      <span className="font-medium capitalize">{entry.notificationType}</span>
+                      <span className="text-muted-foreground ml-1">via {entry.channel}</span>
+                      {entry.errorMessage && (
+                        <p className="text-destructive truncate">{entry.errorMessage}</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0 ml-2">
+                    {entry.status === 'success' ? (
+                      <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 text-xs h-5">
+                        <i className="fas fa-check mr-1"></i>Sent
+                      </Badge>
+                    ) : (
+                      <Badge variant="destructive" className="text-xs h-5">
+                        <i className="fas fa-times mr-1"></i>Failed
+                      </Badge>
+                    )}
+                    <span className="text-muted-foreground text-xs whitespace-nowrap">
+                      {new Date(entry.sentAt!).toLocaleString(undefined, {
+                        month: 'short', day: 'numeric',
+                        hour: '2-digit', minute: '2-digit',
+                      })}
+                    </span>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </CardContent>

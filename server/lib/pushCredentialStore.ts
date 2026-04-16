@@ -25,11 +25,21 @@ export async function initPushCredentialStore(storage: IStorage): Promise<void> 
   if (initialized) return;
   initialized = true;
 
-  cache.apnsKeyId = await storage.getPushCredential("APNS_KEY_ID");
-  cache.apnsTeamId = await storage.getPushCredential("APNS_TEAM_ID");
-  cache.apnsKeyP8 = await storage.getPushCredential("APNS_KEY_P8");
-  cache.apnsBundleId = await storage.getPushCredential("APNS_BUNDLE_ID");
-  cache.fcmServiceAccountJson = await storage.getPushCredential(FCM_KEY);
+  try {
+    cache.apnsKeyId = await storage.getPushCredential("APNS_KEY_ID");
+    cache.apnsTeamId = await storage.getPushCredential("APNS_TEAM_ID");
+    cache.apnsKeyP8 = await storage.getPushCredential("APNS_KEY_P8");
+    cache.apnsBundleId = await storage.getPushCredential("APNS_BUNDLE_ID");
+    cache.fcmServiceAccountJson = await storage.getPushCredential(FCM_KEY);
+  } catch (err: any) {
+    const msg = err?.message ?? String(err);
+    if (msg.includes('push_credentials') || msg.includes('does not exist')) {
+      console.warn('[PushCredentialStore] push_credentials table not yet created — falling back to env vars');
+      initialized = false;
+    } else {
+      throw err;
+    }
+  }
 }
 
 function resolveApns() {
