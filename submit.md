@@ -10,14 +10,19 @@ Every field that the stores ask for is pre-filled below. Work through each secti
 | Field | Value |
 |-------|-------|
 | App name | `Taime` |
+| Subtitle (iOS) | `AI Boutique Manager` |
 | Bundle / Package ID | `com.taime.app` |
+| SKU (iOS) | `taime-app-001` |
 | Version | `1.0.0` |
 | Build number (iOS) | `1` |
 | Version code (Android) | `1` |
-| Production URL | `https://taime.us` |
-| Support URL | `https://taime.us/support` |
-| Marketing URL | `https://taime.us` |
-| Privacy Policy URL | `https://taime.us/privacy` |
+| Copyright | `© 2026 Taime` |
+| Age rating | `4+` |
+| Primary category | `Business` |
+| Secondary category (iOS) | `Productivity` |
+| Support URL | `https://taime.replit.app/support` |
+| Marketing URL | `https://taime.replit.app` |
+| Privacy Policy URL | `https://taime.replit.app/privacy` |
 
 ---
 
@@ -37,21 +42,50 @@ Every field that the stores ask for is pre-filled below. Work through each secti
 
 ## Part 1 — Build the Native App
 
-Run once on a macOS machine:
+### First-time setup (run once on a macOS machine)
 
 ```bash
 # 1. Clone / pull latest code
 git pull
 
-# 2. Initial platform setup (adds ios/ and android/ directories)
+# 2. Initial platform setup — adds ios/ and android/ directories
 bash scripts/capacitor-setup.sh
-
-# 3. For every subsequent release, run the native build pipeline:
-TAIME_PRODUCTION_URL=https://taime.us ./scripts/build-native.sh
 ```
 
+### iOS build (every release)
+
+```bash
+# 1. Build the web application
+npm run build
+
+# 2. Sync web assets + plugins into the iOS native project
+npx cap sync ios
+
+# 3. Open Xcode
+npx cap open ios
+```
+
+### Android build (every release)
+
+```bash
+# 1. Build the web application
+npm run build
+
+# 2. Sync web assets + plugins into the Android native project
+npx cap sync android
+
+# 3. Open Android Studio
+npx cap open android
+```
+
+> **Or** use the combined pipeline script which runs build + sync in one step:
+> ```bash
+> TAIME_PRODUCTION_URL=https://taime.replit.app ./scripts/build-native.sh
+> ```
+
 > **Important:** The native WebView loads all content (frontend + API calls) from
-> `https://taime.us`. The app must be deployed before building native binaries.
+> `https://taime.replit.app`. The Replit deployment must be live before building
+> native binaries.
 
 ---
 
@@ -70,6 +104,8 @@ Generate all platform variants after placing final assets:
 npx @capacitor/assets generate
 ```
 
+This produces all icon and splash sizes for both iOS and Android from these two source files.
+
 ---
 
 ## Part 3 — Apple App Store
@@ -84,22 +120,22 @@ npx @capacitor/assets generate
 4. Enable these **Capabilities**:
    - ✅ Push Notifications
    - ✅ Background Modes *(check "Remote notifications" and "Location updates")*
-   - ✅ Associated Domains *(if using universal links later)*
 5. Click **Continue → Register**
 
 ### 3.2 Create a Distribution Certificate
 
 1. **Certificates → +** → **Apple Distribution**
-2. Follow the CSR wizard (Keychain Access → Certificate Assistant)
-3. Download and double-click to install in Keychain
-4. This certificate is used to sign the App Store build
+2. Follow the CSR wizard (Keychain Access → Certificate Assistant → Request a Certificate from a Certificate Authority)
+3. Upload the `.certSigningRequest` file
+4. Download the `.cer` file and double-click to install in Keychain
+5. This certificate signs every App Store build
 
 ### 3.3 Create an App Store Provisioning Profile
 
 1. **Profiles → +** → **App Store Connect**
 2. Select the `com.taime.app` App ID
 3. Select your Distribution certificate
-4. Name it `Taime App Store`
+4. Name: `Taime App Store`
 5. Download and double-click to install
 
 ### 3.4 Set Up APNs Auth Key (Push Notifications)
@@ -109,20 +145,22 @@ npx @capacitor/assets generate
 3. Enable **Apple Push Notifications service (APNs)**
 4. Click **Continue → Register → Download**
 
-> ⚠️ The `.p8` file can only be downloaded once. Store it securely.
+> ⚠️ The `.p8` file can only be downloaded **once**. Store it securely (password manager + encrypted backup).
 
-5. Note these three values:
-   - **Key ID** (10-character code shown on the key detail page)
-   - **Team ID** (shown in top-right of developer portal under your name)
+5. Note these three values — you will need all three:
+   - **Key ID** — 10-character alphanumeric code (shown on the key detail page)
+   - **Team ID** — 10-character code (shown top-right of the developer portal under your account name)
    - **Bundle ID:** `com.taime.app`
 
-6. In the Taime admin panel → **Settings → Push Notifications**, enter all three values
-   plus paste the full contents of the `.p8` file.
+6. In the Taime admin panel → **Settings → Push Notifications**, enter:
+   - APNs Key content (paste the full `.p8` file text)
+   - Key ID
+   - Team ID
+   - Bundle ID: `com.taime.app`
 
-### 3.5 Build & Archive in Xcode
+### 3.5 Configure Xcode
 
 ```bash
-# Open Xcode
 npx cap open ios
 ```
 
@@ -132,16 +170,22 @@ In Xcode:
 2. Set **Bundle Identifier:** `com.taime.app`
 3. Select your Apple Developer **Team**
 4. Confirm **Provisioning Profile:** Taime App Store
-5. Set scheme to **Any iOS Device (arm64)** (not a simulator)
-6. **Product → Archive**
-7. When complete: **Distribute App → App Store Connect → Upload**
-8. Accept defaults through the upload wizard
+5. Click **+ Capability** and add:
+   - **Push Notifications**
+   - **Background Modes** → enable ✅ Remote notifications, ✅ Location updates
 
-### 3.6 Create the App Record in App Store Connect
+### 3.6 Archive and Upload to App Store Connect
 
-Go to [App Store Connect → My Apps → +](https://appstoreconnect.apple.com/apps)
+1. Set scheme destination to **Any iOS Device (arm64)** — never a simulator
+2. **Product → Archive**
+3. When archive completes, click **Distribute App**
+4. Select **App Store Connect** → **Upload**
+5. Accept defaults through the wizard (Automatically manage signing is fine)
+6. The build will appear in App Store Connect within ~10 minutes
 
-Fill in **New App**:
+### 3.7 Create the App Record in App Store Connect
+
+Go to [App Store Connect → My Apps → +](https://appstoreconnect.apple.com/apps) → **New App**
 
 | Field | Value |
 |-------|-------|
@@ -152,7 +196,7 @@ Fill in **New App**:
 | SKU | `taime-app-001` |
 | User Access | Full Access |
 
-### 3.7 App Information
+### 3.8 App Information
 
 | Field | Value |
 |-------|-------|
@@ -161,21 +205,20 @@ Fill in **New App**:
 | Primary Category | Business |
 | Secondary Category | Productivity |
 | Content Rights | Does not contain third-party content |
-| Age Rating | 4+ (no objectionable content) |
+| Age Rating | 4+ |
 | Copyright | `© 2026 Taime` |
 
-### 3.8 Pricing & Availability
+### 3.9 Pricing & Availability
 
 - Price: **Free**
-- Availability: **All territories** (or limit to United States initially)
-- Pre-order: No
+- Availability: **All territories** (or United States only for initial launch)
 
-### 3.9 App Store Listing — Version 1.0.0
+### 3.10 App Store Listing — Version 1.0.0
 
-#### Promotional Text (170 chars max — shown above description, can change without resubmit)
+#### Promotional Text (170 chars max — updateable without resubmission)
 
 ```
-AI-powered workforce management built for boutique and retail teams. Smart scheduling, geofenced clock-in, and real-time team insights.
+AI-powered workforce management for boutique & retail teams. Smart scheduling, geofenced clock-in, and real-time team insights.
 ```
 
 #### Description (4000 chars max)
@@ -213,114 +256,124 @@ Track attendance patterns, on-time rates, schedule adherence, and team performan
 PUSH NOTIFICATIONS
 Get instant alerts for clock-in requests, missed clock-outs, schedule changes, task assignments, and important team updates — even when the app is in the background.
 
-BUILT FOR BOUTIQUES
-Designed specifically for Libby Story and boutique-scale retail operations: lean teams, fast-paced environments, high expectations for customer experience.
-
 ---
-Taime requires location permission for geofenced clock-in verification. Location is only accessed when you initiate a clock-in action and is not tracked continuously in the background except where background clock-out detection is explicitly enabled.
+Taime requests location permission for geofenced clock-in verification. Location is accessed only when you tap Clock In and is not tracked continuously. Background clock-out detection is opt-in and explained in the app before it is enabled.
 ```
 
-#### Keywords (100 chars max — comma-separated, no spaces after commas)
+#### Keywords (100 chars max — no spaces after commas)
 
 ```
 time tracking,scheduling,team management,boutique,clock in,geofence,shifts,staff
 ```
 
-#### Support URL
+#### URLs
 
-```
-https://taime.us/support
-```
+| Field | Value |
+|-------|-------|
+| Support URL | `https://taime.replit.app/support` |
+| Marketing URL | `https://taime.replit.app` |
+| Privacy Policy URL | `https://taime.replit.app/privacy` |
 
-#### Marketing URL
+### 3.11 Screenshot Requirements
 
-```
-https://taime.us
-```
+As of 2024, **iPhone 6.9"** and **iPad Pro 13"** screenshots are required for every submission.
 
-#### Privacy Policy URL
-
-```
-https://taime.us/privacy
-```
-
-### 3.10 Screenshot Requirements
-
-As of 2024, **6.9-inch and 13-inch iPad Pro** screenshots are required. All others are optional but strongly recommended.
-
-| Device | Size | Required |
-|--------|------|----------|
-| iPhone 6.9" (iPhone 16 Pro Max) | 1320×2868 px or 1290×2796 px | ✅ Required |
-| iPhone 5.5" (iPhone 8 Plus) | 1242×2208 px | Optional (fills older devices) |
-| iPad Pro 13" | 2064×2752 px | ✅ Required |
+| Device | Pixel size | Required |
+|--------|-----------|----------|
+| iPhone 6.9" (iPhone 16 Pro Max) | 1320×2868 or 1290×2796 px | ✅ Required |
+| iPhone 5.5" (iPhone 8 Plus) | 1242×2208 px | Optional (serves older devices) |
+| iPad Pro 13" (M4) | 2064×2752 px | ✅ Required |
 | iPad Pro 11" | 1668×2388 px | Optional |
 
-**Screenshot rules:**
-- PNG or JPEG, RGB, no alpha channel
-- No device frames required (Apple generates them)
-- Minimum 2 screenshots per device size, maximum 10
-- First screenshot is used as the primary store thumbnail
+**Rules:** PNG or JPEG, RGB color space, no alpha, minimum 2 per device, maximum 10.
 
-**Recommended screenshot subjects (in order):**
+**Recommended screenshot order:**
 1. Morning Huddle / Dashboard — "Your team, at a glance"
-2. Clock In with geofence — "Location-verified time tracking"
-3. AI Schedule view — "AI-optimized scheduling"
-4. Task Management — "Keep your team on task"
+2. Clock In screen with geofence confirmed — "Location-verified time tracking"
+3. AI Schedule view — "Shifts built by AI, approved by you"
+4. Task Management — "Keep the store running on task"
 5. AI Chat — "Ask your AI boutique manager anything"
 
-### 3.11 App Review Information
+### 3.12 App Icon
+
+- **Size:** 1024×1024 px
+- **Format:** PNG, no alpha channel, no transparency, no rounded corners (Apple applies rounding)
+- **Source file:** `resources/icon.png` (run `npx @capacitor/assets generate` to produce all variants)
+
+### 3.13 App Review Information
 
 | Field | Value |
 |-------|-------|
 | Sign-in required | Yes |
-| Demo username | Create a manager account at https://taime.us — use the sign-up flow |
-| Demo password | Set a memorable test password |
-| Notes for reviewer | "Taime is a workforce management app for retail boutiques. Sign in with the provided manager account to explore scheduling, clock-in/out (location permission required), task management, and the AI assistant. Location access is requested only when the Clock In button is tapped." |
-| Contact first name | (Your name) |
-| Contact last name | (Your last name) |
-| Contact phone | (Your phone number) |
-| Contact email | (Your email) |
+| Demo username | Create a manager account at https://taime.replit.app using Sign Up, then note the email here: `reviewer@taime-demo.com` (create this account before submitting) |
+| Demo password | Set a memorable password and note it here before submitting |
+| Contact first name | *Your first name* |
+| Contact last name | *Your last name* |
+| Contact phone | *+1 (area code) number — must be reachable during review* |
+| Contact email | *Your email address — Apple will contact you here if rejected* |
+| Notes for reviewer | See note below |
 
-### 3.12 Privacy Nutrition Labels
+**Notes for reviewer (paste into App Store Connect):**
+```
+Taime is a workforce management app for retail boutiques. Sign in with the provided
+manager account to explore all features:
 
-In App Store Connect → **App Privacy**, declare the following:
+1. Dashboard and Morning Huddle — visible immediately after sign-in
+2. Time Clock — tap Clock In (location permission required; use a real device or grant
+   simulator location access in Xcode → Features → Location → Custom Location,
+   set lat 32.42, long -90.13 for Ridgeland MS)
+3. Schedule — view and edit the team's weekly schedule
+4. Tasks — create, assign, and complete tasks
+5. AI Assistant — ask any question about store operations
 
-| Data Type | Collected | Linked to Identity | Used for Tracking |
+Location is requested only when the Clock In button is tapped, not on app launch.
+Push notifications are used for clock-in status, schedule updates, and task assignments.
+```
+
+### 3.14 Privacy Nutrition Labels
+
+In App Store Connect → **App Privacy** → **Get Started**, declare:
+
+| Data type | Collected | Linked to Identity | Used for Tracking |
 |-----------|-----------|-------------------|-------------------|
 | Precise Location | Yes | Yes | No |
 | User ID | Yes | Yes | No |
-| Device ID | Yes | Yes | No |
-| Usage Data (crash logs) | Yes | No | No |
+| Device ID (push token) | Yes | Yes | No |
+| Crash Data | Yes | No | No |
 
-**For each location data item**, select purpose: **App Functionality** (clock-in verification).
+For each declared item, select purpose **App Functionality**.
 
-### 3.13 Export Compliance
+### 3.15 Export Compliance
 
-- **Does your app use encryption?** → **No** (the app uses standard HTTPS/TLS provided by iOS; no custom encryption algorithms are implemented)
+> **Does your app use encryption beyond what is provided by the OS?** → **No**
 
-### 3.14 Version Release
+Taime uses standard HTTPS (TLS) provided by iOS. No custom encryption algorithms are implemented. Select **No** on all encryption questions.
 
-- **Manually release this version** (recommended for first submission — gives you control over timing)
-- OR **Automatically release after approval**
+### 3.16 Version Release
 
-### 3.15 Common iOS Rejection Reasons — How to Avoid Them
+Choose one:
+- **Manually release this version** — recommended for first release (you control exact go-live time)
+- **Automatically release after approval** — app goes live immediately after Apple approves
 
-| Rejection Reason | How Taime Avoids It |
-|-----------------|---------------------|
-| Background location without justification | Location is only used when employee taps Clock In. Background detection is opt-in and explained in the app description and permission dialog. |
-| Push notifications not justified | Push is used for clock-in approvals, schedule changes, and task assignments — all directly useful to users. Explain this in the App Review notes. |
-| Missing privacy policy | Privacy policy is at https://taime.us/privacy |
-| Demo account not working | Always test the demo account before submitting. Use a stable manager account with sample data. |
-| Crashes on review device | Test on a real device (not just simulator) before submitting. |
-| 4+ age rating violated | No user-generated content visible to others, no social features, no objectionable content. |
+### 3.17 Common iOS Rejection Reasons — and How Taime Avoids Them
 
-### 3.16 Submit for Review
+| Rejection Reason | Mitigation |
+|-----------------|------------|
+| Background location without clear justification | App only uses background location if the user explicitly enables background clock-out. Explained in permission dialog and reviewer notes above. |
+| Push notifications not justified | Push is used for clock-in approval, schedule changes, and task assignments — directly useful to the user. Described in reviewer notes. |
+| Missing or inaccessible privacy policy | Privacy policy at `https://taime.replit.app/privacy` must load without sign-in. |
+| Demo account not working at review time | Test the demo account fresh before submitting. Ensure the Replit deployment is live. |
+| Crashes on review device | Test on a real iPhone, not only in Simulator. |
+| Age rating inappropriate | No user-generated content shared publicly, no social features, no objectionable content. 4+ is correct. |
 
-1. In App Store Connect, select your version build
-2. Complete all required fields (shown with red indicators)
-3. Click **Add for Review → Submit to App Review**
-4. Typical review time: **1–3 business days**
-5. Monitor status in App Store Connect and via email
+### 3.18 Submit for Review
+
+1. In App Store Connect, go to your version
+2. Select the uploaded build in **Build**
+3. Confirm all required fields are complete (no red indicators)
+4. Click **Add for Review → Submit to App Review**
+5. Typical review time: **1–3 business days**
+6. Monitor status in App Store Connect and via email
 
 ---
 
@@ -330,21 +383,23 @@ In App Store Connect → **App Privacy**, declare the following:
 
 1. Go to [Firebase Console](https://console.firebase.google.com/) → **Add project**
    - Project name: `Taime`
-   - Disable Google Analytics (optional)
-2. In the project: **Add app → Android**
+   - Disable Google Analytics if desired
+2. Inside the project: **Add app → Android**
    - Android package name: `com.taime.app`
    - App nickname: `Taime Android`
-   - Debug signing certificate SHA-1: (optional for now)
-3. Download **`google-services.json`** → place at `android/app/google-services.json`
-4. In Firebase Console → **Project Settings → Cloud Messaging**:
-   - Note the **Sender ID** (numeric)
-   - Note the **Server Key** (legacy) or generate a service account for HTTP v1
+3. Download **`google-services.json`**
+4. Place the file at: `android/app/google-services.json`
 
-5. In the Taime admin panel → **Settings → Push Notifications**, enter the FCM service account credentials.
+   > ⚠️ Do **not** commit `google-services.json` to git — add it to `.gitignore`.
+
+5. In Firebase Console → **Project Settings → Service Accounts**:
+   - Click **Generate new private key** → download the JSON
+6. In the Taime admin panel → **Settings → Push Notifications**, paste the FCM service account JSON.
 
 ### 4.2 Generate a Signing Keystore
 
-> ⚠️ **CRITICAL:** The keystore file is required for every future update. If lost, you cannot update the app. Back it up to multiple secure locations.
+> ⚠️ **CRITICAL:** Every future update to the app must be signed with this same keystore.
+> If the keystore is lost, you **cannot** publish updates. Back it up to at least two secure locations.
 
 ```bash
 keytool -genkey -v \
@@ -355,25 +410,33 @@ keytool -genkey -v \
   -validity 10000
 ```
 
-Fill in the prompts:
+Fill in each prompt exactly:
 
 | Prompt | Value |
 |--------|-------|
-| Keystore password | (create a strong password — save it) |
-| First and last name | Taime |
-| Organizational unit | Engineering |
-| Organization | Taime |
-| City or Locality | Ridgeland |
-| State or Province | MS |
-| Country code | US |
-| Key password | (same as keystore password or different — save it) |
+| Keystore password | *(create a strong password and save it in your password manager)* |
+| Re-enter password | *(same password)* |
+| First and last name | `Taime` |
+| Organizational unit | `Engineering` |
+| Organization | `Taime` |
+| City or Locality | `Ridgeland` |
+| State or Province | `MS` |
+| Country code (2 letter) | `US` |
+| Key password | *(same as keystore password, or set a different one — save it)* |
 
-Store `taime-release.keystore` in a **password manager and secure cloud backup**. Never commit it to git.
+Store `taime-release.keystore` in your password manager **and** an encrypted external backup.
+Add it to `.gitignore` — never commit it.
 
 ### 4.3 Build the Signed AAB
 
 ```bash
-# Open Android Studio
+# 1. Build the web application
+npm run build
+
+# 2. Sync web assets + plugins into the Android native project
+npx cap sync android
+
+# 3. Open Android Studio
 npx cap open android
 ```
 
@@ -382,9 +445,11 @@ In Android Studio:
 1. **Build → Generate Signed Bundle / APK**
 2. Select **Android App Bundle**
 3. **Key store path:** browse to `taime-release.keystore`
-4. Enter keystore password, key alias (`taime`), key password
-5. Select **Release** build variant
-6. Click **Finish** — the `.aab` file is generated at `android/app/release/app-release.aab`
+4. Enter **Key store password**, **Key alias:** `taime`, **Key password**
+5. Select **release** build variant
+6. Click **Finish**
+
+The output file is at: `android/app/release/app-release.aab`
 
 ### 4.4 Create the App in Google Play Console
 
@@ -396,8 +461,8 @@ Go to [Google Play Console → Create app](https://play.google.com/console)
 | Default language | English (United States) |
 | App or game | App |
 | Free or paid | Free |
-| Developer Program Policies | ✅ Accept |
-| US export laws | ✅ Accept |
+
+Accept the Developer Program Policies and US export laws, then click **Create app**.
 
 ### 4.5 Store Listing
 
@@ -406,10 +471,10 @@ Go to [Google Play Console → Create app](https://play.google.com/console)
 | Field | Value |
 |-------|-------|
 | App name | `Taime` |
-| Short description (80 chars) | `AI-powered team management for boutique & retail businesses` |
+| Short description (80 chars max) | `AI-powered team management for boutique & retail businesses` |
 | Package name | `com.taime.app` |
 
-#### Full Description (4000 chars max — same content as iOS, pasted below)
+#### Full Description (4000 chars max — same text as iOS)
 
 ```
 Taime is the AI-powered boutique manager your team has been waiting for — purpose-built for retail stores, boutiques, and small businesses that need real workforce management without the enterprise price tag.
@@ -445,70 +510,72 @@ PUSH NOTIFICATIONS
 Get instant alerts for clock-in requests, missed clock-outs, schedule changes, task assignments, and important team updates — even when the app is in the background.
 
 ---
-Taime requires location permission for geofenced clock-in verification. Location is only accessed when you initiate a clock-in action and is not tracked continuously in the background except where background clock-out detection is explicitly enabled.
+Taime requests location permission for geofenced clock-in verification. Location is accessed only when you tap Clock In and is not tracked continuously. Background clock-out detection is opt-in and explained in the app before it is enabled.
 ```
 
-#### Categorization
+#### Categorization & Contact
 
 | Field | Value |
 |-------|-------|
 | App category | Business |
 | Tags | `Time Tracking`, `Scheduling`, `Team Management` |
-| Email address | (your support email) |
-| Phone | (optional) |
-| Website | `https://taime.us` |
-| Privacy Policy | `https://taime.us/privacy` |
+| Email address | *Your store or developer support email — e.g. `support@yourstore.com`* |
+| Website | `https://taime.replit.app` |
+| Privacy Policy URL | `https://taime.replit.app/privacy` |
 
-### 4.6 Screenshot Requirements
+### 4.6 App Icon & Feature Graphic
+
+| Asset | Size | Format |
+|-------|------|--------|
+| App icon | 512×512 px | PNG, no alpha |
+| Feature graphic (Play Store banner) | 1024×500 px | PNG or JPEG |
+
+The app icon is generated by `npx @capacitor/assets generate` from `resources/icon.png`.
+Create the feature graphic separately as a 1024×500 banner image.
+
+### 4.7 Screenshot Requirements
 
 | Surface | Minimum size | Required count |
 |---------|-------------|----------------|
-| Phone | 1080×1920 px (16:9 or 9:16) | At least 2 |
-| 7-inch tablet | 1200×1920 px | At least 1 (optional but recommended) |
-| 10-inch tablet | 1920×1200 px | At least 1 (optional but recommended) |
+| Phone | 1080×1920 px | At least 2 |
+| 7-inch tablet | 1200×1920 px | Recommended |
+| 10-inch tablet | 1920×1200 px | Recommended |
 
-**Additional graphics:**
+**Rules:** PNG or JPEG, no device frame required, portrait or landscape.
 
-| Asset | Size |
-|-------|------|
-| App icon | 512×512 px PNG (no alpha) |
-| Feature graphic (banner shown at top of listing) | 1024×500 px PNG or JPEG |
-
-### 4.7 Version Details
+### 4.8 Version Details
 
 | Field | Value |
 |-------|-------|
 | Version name | `1.0.0` |
 | Version code | `1` |
 
-To update version code for future releases, edit `android/app/build.gradle`:
+For future releases, increment `versionCode` in `android/app/build.gradle`:
 
 ```gradle
-android {
-    defaultConfig {
-        versionCode 1       // increment by 1 for each release
-        versionName "1.0.0" // semantic version string
-    }
+defaultConfig {
+    versionCode 2       // increment by 1 each release
+    versionName "1.0.1" // update semantic version
 }
 ```
 
-### 4.8 Data Safety Section
+### 4.9 Data Safety Section
 
-In Play Console → **Data safety**, declare the following:
+In Play Console → **Data safety**, declare the following data types:
 
 | Data type | Collected | Shared | Required | Purpose |
 |-----------|-----------|--------|----------|---------|
-| Precise location | Yes | No | Yes (for clock-in) | App functionality |
+| Precise location | Yes | No | Yes | App functionality (clock-in) |
 | Approximate location | Yes | No | No | App functionality |
 | User IDs | Yes | No | Yes | Account management |
 | Device IDs (push token) | Yes | No | Yes | Push notifications |
-| App interactions (usage) | Yes | No | No | Analytics / app functionality |
+| App interactions / usage | Yes | No | No | Analytics |
 | Crash logs | Yes | No | No | App functionality |
 
-**Is data encrypted in transit?** → Yes  
-**Can users request data deletion?** → Yes (via account deletion in app or by emailing support)
+- **Is data encrypted in transit?** → Yes
+- **Can users request data deletion?** → Yes (via account deletion in-app or by emailing support)
 
-### 4.9 Content Rating
+### 4.10 Content Rating Questionnaire
 
 Answer the **IARC questionnaire** as follows:
 
@@ -518,53 +585,56 @@ Answer the **IARC questionnaire** as follows:
 | Sexual content | None |
 | Language | None |
 | Controlled substances | None |
-| User-generated content shared with others | No |
+| User-generated content visible to other users | No |
 | Gambling | No |
-| Location sharing with other users | No |
+| Real-money purchases | No |
 
-Expected rating: **Everyone** (E) — suitable for all ages.
+Expected rating: **Everyone (E)**
 
-### 4.10 Release Strategy (Recommended)
+### 4.11 Release Strategy
 
-1. **Create a Closed Testing track first** (Internal testing → Alpha → Beta before Production)
-   - Upload the `.aab` to **Internal testing**
-   - Add tester email addresses
-   - Install via the Play Store testing link on a real Android device
-   - Verify clock-in, push notifications, and all core flows
+**Recommended: start with a closed test before production.**
 
-2. When testing passes, **Promote to Production**
-   - Set **rollout percentage** to 20% initially
-   - Monitor crash rates and reviews before going to 100%
+1. Upload the `.aab` to **Internal testing** track
+2. Add tester email addresses
+3. Install via the Play Store internal testing link on a real Android device
+4. Verify: clock-in (grant location), push notifications, schedule, tasks, AI chat
 
-3. Typical review time for new apps: **3–7 business days**
+5. When testing passes, create a **Production release**:
+   - Upload same `.aab` (or rebuild with incremented version code)
+   - Set initial rollout to **20%** — monitor crash rate and reviews for 48 hours
+   - Expand to 100%
 
-### 4.11 Common Android Rejection Reasons — How to Avoid Them
+6. Typical review time for new apps: **3–7 business days**
 
-| Rejection Reason | How Taime Avoids It |
-|-----------------|---------------------|
-| `ACCESS_BACKGROUND_LOCATION` without justification | Required for background clock-out. Justify it in the Play Console declaration and in the app's permission request dialog. Google may require a video demo showing the feature. |
-| Target API level too low | Ensure `targetSdkVersion` in `build.gradle` is 34+ (Android 14). |
-| Privacy policy missing or inaccessible | `https://taime.us/privacy` must load without a login wall. |
-| Data safety section incomplete | Fill out every declared data type with collection purpose and retention. |
-| AAB not signed with release keystore | Always use the release keystore, not the debug keystore. |
-| Keystore enrolled in Play App Signing | Enroll on first upload — Google then manages key security. |
+### 4.12 Common Android Rejection Reasons — and How Taime Avoids Them
+
+| Rejection Reason | Mitigation |
+|-----------------|------------|
+| `ACCESS_BACKGROUND_LOCATION` without justification | Required for background clock-out. Justify in the Play Console declaration and in the app's runtime permission dialog. Google may request a demo video. |
+| Target API level below requirement | `targetSdkVersion` must be 34+ (Android 14). Verify in `android/app/build.gradle`. |
+| Privacy policy inaccessible | `https://taime.replit.app/privacy` must load without sign-in. |
+| Data Safety section incomplete | Declare every collected data type with collection purpose and retention policy. |
+| AAB signed with debug key | Always use `taime-release.keystore`, not the debug keystore. |
+| Signing enrolled in Play App Signing | Enroll on first upload — Google manages key security going forward. |
 
 ---
 
 ## Part 5 — Post-Submission Checklist
 
-- [ ] App Store Connect build selected and all required fields complete
-- [ ] Google Play Console store listing 100% complete (green indicators)
-- [ ] Privacy policy at `https://taime.us/privacy` is publicly accessible
-- [ ] Demo account credentials provided to Apple reviewer
-- [ ] `resources/icon.png` is the final branded asset (no placeholder)
-- [ ] `resources/splash.png` is the final branded asset (no placeholder)
-- [ ] `google-services.json` is in `android/app/` (not committed to git)
-- [ ] `taime-release.keystore` backed up to secure storage (not committed to git)
-- [ ] APNs key ID, Team ID, and `.p8` contents saved in Taime admin settings
+- [ ] App Store Connect: build selected, all required fields green (no red indicators)
+- [ ] Google Play Console: store listing 100% complete
+- [ ] `https://taime.replit.app/privacy` loads publicly without sign-in
+- [ ] `https://taime.replit.app/support` loads publicly without sign-in
+- [ ] Demo account (`reviewer@taime-demo.com` or equivalent) tested and working
+- [ ] `resources/icon.png` is the final branded 1024×1024 asset (not the placeholder)
+- [ ] `resources/splash.png` is the final branded 2732×2732 asset (not the placeholder)
+- [ ] `google-services.json` is in `android/app/` — **not** committed to git
+- [ ] `taime-release.keystore` backed up to password manager and encrypted external storage — **not** committed to git
+- [ ] APNs key ID, Team ID, and `.p8` file contents saved in Taime admin settings
 - [ ] FCM service account JSON saved in Taime admin settings
-- [ ] Tested on real iOS device (not simulator)
-- [ ] Tested on real Android device
+- [ ] App tested end-to-end on a real iOS device (not Simulator)
+- [ ] App tested end-to-end on a real Android device
 
 ---
 
@@ -573,15 +643,21 @@ Expected rating: **Everyone** (E) — suitable for all ages.
 For every app update after initial submission:
 
 ```bash
-# 1. Make and deploy web app changes
-git pull && npm run build
-# Deploy to https://taime.us
+# 1. Deploy web app changes to Replit
+npm run build
+# Publish via Replit dashboard
 
-# 2. Run native build pipeline
-TAIME_PRODUCTION_URL=https://taime.us ./scripts/build-native.sh
+# 2. iOS update
+npm run build
+npx cap sync ios
+npx cap open ios
+# In Xcode: increment build number → Product → Archive → Distribute App → App Store Connect
 
-# 3. iOS: increment build number in Xcode → Archive → Distribute
-# 4. Android: increment versionCode in build.gradle → Generate Signed Bundle → Upload to Play Console
+# 3. Android update
+npm run build
+npx cap sync android
+npx cap open android
+# In Android Studio: increment versionCode in build.gradle → Generate Signed Bundle → Upload to Play Console
 ```
 
-See `CAPACITOR_NOTES.md` for detailed platform-specific build and troubleshooting steps.
+See `CAPACITOR_NOTES.md` for detailed platform-specific build steps and troubleshooting.
