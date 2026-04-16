@@ -1,7 +1,7 @@
 import { storage } from '../storage';
 import { notificationService } from './notificationService';
 import { db } from '../db';
-import { geofenceEvents, timeEntries, workLocations, offsiteAllowanceRules, offsiteSessions } from '@shared/schema';
+import { geofenceEvents, timeEntries, workLocations, offsiteAllowanceRules, offsiteSessions, users } from '@shared/schema';
 import { eq, and, isNull, isNotNull, desc } from 'drizzle-orm';
 import { fetchAndStoreRoute, clearWatchdogs } from './routeTrackingService';
 import { postMileageReimbursement } from './mileageReimbursementService';
@@ -899,14 +899,53 @@ export class GeofencingService {
 
     setInterval(async () => {
       try {
-        const activeEntries = await db.select()
+        const activeEntries = await db.select({
+          id: timeEntries.id,
+          userId: timeEntries.userId,
+          clockInTime: timeEntries.clockInTime,
+          locationId: timeEntries.locationId,
+        })
           .from(timeEntries)
           .where(isNull(timeEntries.clockOutTime));
 
+        if (activeEntries.length === 0) return;
+
+        // Load company settings once for max-shift enforcement
+        const settings = await storage.getCompanySettings();
+        const maxShiftMinutes = settings?.autoClockOutMinutes ?? 480;
+        const maxShiftEnabled = settings?.autoClockOutEnabled === true;
+
         for (const entry of activeEntries) {
           const lastReport = this.getLastLocationReport(entry.userId);
+          const shiftAgeMs = Date.now() - new Date(entry.clockInTime).getTime();
+          const shiftAgeMinutes = shiftAgeMs / 60000;
+
+          // Log stale pings (phone went to sleep, background kill, etc.)
           if (lastReport && Date.now() - lastReport > STALE_THRESHOLD) {
-            console.warn(`[Geofence] User ${entry.userId} hasn't reported location in ${Math.round((Date.now() - lastReport) / 1000)}s — location ping is stale (screen lock or background). No auto clock-out triggered.`);
+            console.warn(`[Geofence] User ${entry.userId} hasn't reported location in ${Math.round((Date.now() - lastReport) / 1000)}s — stale ping (screen lock or background).`);
+          }
+
+          // Enforce max shift length for users with no location data at all
+          if (maxShiftEnabled && shiftAgeMinutes >= maxShiftMinutes) {
+            const hasEverReported = lastReport !== undefined;
+            const locationIsStale = !hasEverReported || (Date.now() - (lastReport ?? 0) > STALE_THRESHOLD);
+
+            if (locationIsStale) {
+              console.log(`[Geofence] User ${entry.userId} has been clocked in for ${Math.round(shiftAgeMinutes)}m (max=${maxShiftMinutes}m) with no live location — triggering max-shift auto clock-out.`);
+              await storage.updateTimeEntry(entry.id, {
+                clockOutTime: new Date(),
+                clockOutSource: 'auto-max-shift',
+                notes: `Auto clocked out after exceeding max shift length (${maxShiftMinutes} minutes).`,
+              });
+              if (entry.locationId) {
+                await db.insert(geofenceEvents).values({
+                  userId: entry.userId,
+                  locationId: entry.locationId,
+                  eventType: 'auto_clock_out',
+                  timeEntryId: entry.id,
+                }).catch(() => {/* non-fatal */});
+              }
+            }
           }
         }
       } catch (error) {
