@@ -10,18 +10,28 @@ const APNS_READY = !!(
   process.env.APNS_KEY_P8
 );
 
-function isFcmServiceAccountConfigured(): boolean {
-  const raw = process.env.FCM_SERVICE_ACCOUNT_JSON || process.env.FCM_SERVER_KEY;
-  if (!raw) return false;
+function isFcmConfigured(): boolean {
+  const saJson = process.env.FCM_SERVICE_ACCOUNT_JSON || process.env.FCM_SERVER_KEY;
+  if (!saJson) return false;
   try {
-    const parsed = JSON.parse(raw);
-    return !!(parsed.project_id && parsed.private_key && parsed.client_email);
+    const parsed = JSON.parse(saJson);
+    if (parsed.project_id && parsed.private_key && parsed.client_email) {
+      return true;
+    }
   } catch {
-    return false;
+    // Not JSON — check if FCM_SERVER_KEY is a plain legacy server key string
   }
+  if (process.env.FCM_SERVER_KEY) {
+    try {
+      JSON.parse(process.env.FCM_SERVER_KEY);
+    } catch {
+      return true;
+    }
+  }
+  return false;
 }
 
-const FCM_READY = isFcmServiceAccountConfigured();
+const FCM_READY = isFcmConfigured();
 
 function platformReady(platform: string): boolean {
   if (platform === 'ios') return APNS_READY;

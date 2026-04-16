@@ -273,6 +273,76 @@ function parseFcmServiceAccount(): ServiceAccount | null {
   return null;
 }
 
+let _legacyFcmWarningEmitted = false;
+
+function getLegacyFcmServerKey(): string | null {
+  const key = process.env.FCM_SERVER_KEY;
+  if (!key) return null;
+  try {
+    JSON.parse(key);
+    return null;
+  } catch {
+    return key;
+  }
+}
+
+async function sendFcmLegacy(
+  deviceToken: string,
+  payload: NotificationPayload,
+  serverKey: string
+): Promise<void> {
+  const body = JSON.stringify({
+    to: deviceToken,
+    priority: 'high',
+    notification: {
+      title: payload.title,
+      body: payload.body,
+      sound: 'default',
+    },
+    data: Object.fromEntries(
+      Object.entries(payload.data || {}).map(([k, v]) => [k, String(v)])
+    ),
+  });
+
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname: 'fcm.googleapis.com',
+      path: '/fcm/send',
+      method: 'POST',
+      headers: {
+        'Authorization': `key=${serverKey}`,
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+      },
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        if (res.statusCode === 200) {
+          try {
+            const parsed = JSON.parse(data);
+            if (parsed.failure === 0 || parsed.success > 0) {
+              resolve();
+            } else {
+              reject(new Error(`FCM legacy send failed: ${data}`));
+            }
+          } catch {
+            reject(new Error(`FCM legacy returned non-JSON response: ${data}`));
+          }
+        } else {
+          reject(new Error(`FCM legacy error ${res.statusCode}: ${data}`));
+        }
+      });
+    });
+
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
 // ─── Notification Service ────────────────────────────────────────────────────
 
 export class NotificationService {
@@ -336,6 +406,8 @@ export class NotificationService {
     if (nativeTokens.length > 0) {
       const fcmServiceAccount = parseFcmServiceAccount();
 
+      const legacyFcmServerKey = getLegacyFcmServerKey();
+
       const nativeResults = await Promise.allSettled(
         nativeTokens.map(async (entry) => {
           if (entry.platform === 'ios') {
@@ -344,10 +416,17 @@ export class NotificationService {
             }
             await sendApns(entry.token, payload);
           } else if (entry.platform === 'android') {
-            if (!fcmServiceAccount) {
-              throw new Error('FCM service account credentials not configured. Set FCM_SERVICE_ACCOUNT_JSON or FCM_SERVER_KEY with a valid service account JSON.');
+            if (fcmServiceAccount) {
+              await sendFcmV1(entry.token, payload, fcmServiceAccount);
+            } else if (legacyFcmServerKey) {
+              if (!_legacyFcmWarningEmitted) {
+                _legacyFcmWarningEmitted = true;
+                console.warn('FCM: using legacy server key (Authorization: key=). Migrate to FCM_SERVICE_ACCOUNT_JSON for the HTTP v1 API.');
+              }
+              await sendFcmLegacy(entry.token, payload, legacyFcmServerKey);
+            } else {
+              throw new Error('FCM credentials not configured. Set FCM_SERVICE_ACCOUNT_JSON (recommended) or FCM_SERVER_KEY.');
             }
-            await sendFcmV1(entry.token, payload, fcmServiceAccount);
           } else {
             throw new Error(`Unknown platform: ${entry.platform}`);
           }
