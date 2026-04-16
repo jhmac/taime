@@ -1,12 +1,12 @@
 import { useEffect } from 'react';
-import { Capacitor } from '@capacitor/core';
+import { isNativePlatform, getPlatform } from '@/lib/capacitor';
 import { useAuth } from '@/hooks/useAuth';
 
 export function useNativePushNotifications() {
   const { user, isAuthenticated } = useAuth();
 
   useEffect(() => {
-    if (!Capacitor.isNativePlatform() || !isAuthenticated || !user) return;
+    if (!isNativePlatform() || !isAuthenticated || !user) return;
 
     let mounted = true;
     const listeners: Array<{ remove: () => void }> = [];
@@ -31,7 +31,7 @@ export function useNativePushNotifications() {
             credentials: 'include',
             body: JSON.stringify({
               token: token.value,
-              platform: Capacitor.getPlatform(),
+              platform: getPlatform(),
             }),
           });
           const body = (await resp.json()) as { success: boolean; deliveryReady: boolean };

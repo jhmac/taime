@@ -1,14 +1,14 @@
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
-import { Capacitor } from "@capacitor/core";
+import { isNativePlatform, getPlatform } from "@/lib/capacitor";
 
-if (Capacitor.isNativePlatform()) {
-  document.documentElement.classList.add(`capacitor-${Capacitor.getPlatform()}`);
+if (isNativePlatform()) {
+  document.documentElement.classList.add(`capacitor-${getPlatform()}`);
 
   import("@capacitor/status-bar").then(({ StatusBar, Style }) => {
     StatusBar.setStyle({ style: Style.Default }).catch(() => {});
-    if (Capacitor.getPlatform() === "android") {
+    if (getPlatform() === "android") {
       StatusBar.setBackgroundColor({ color: "#FFFBF5" }).catch(() => {});
     }
   }).catch(() => {});

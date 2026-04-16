@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Download, X } from "lucide-react";
-import { Capacitor } from "@capacitor/core";
+import { isNativePlatform } from "@/lib/capacitor";
 
 interface BeforeInstallPromptEvent extends Event {
   readonly platforms: string[];
@@ -20,7 +20,7 @@ export default function PWAInstallPrompt() {
   const [showBanner, setShowBanner] = useState(false);
 
   useEffect(() => {
-    if (Capacitor.isNativePlatform()) return;
+    if (isNativePlatform()) return;
 
     const nav = navigator as NavigatorWithStandalone;
     const isStandalone =
