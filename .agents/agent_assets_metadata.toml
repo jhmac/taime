@@ -1,5 +1,22 @@
 uploads = []
-generated = []
+
+[[generated]]
+id = "Hi2XDyGCFbkR9kokIFI8s"
+uri = "file://attached_assets/generated_images/taime_icon_draft.png"
+type = "image"
+title = "taime app icon orange"
+
+[[generated]]
+id = "cTJTxsAup0ytQFyGZGNpJ"
+uri = "file://attached_assets/generated_images/taime_splash_draft.png"
+type = "image"
+title = "taime splash screen cream"
+
+[[generated]]
+id = "vZQbV5MKdkVI6579KDRQY"
+uri = "file://attached_assets/generated_images/taime_icon_v2.png"
+type = "image"
+title = "taime icon full bleed square"
 
 [[outputs]]
 id = "aMEaVT8CXk9n4gUHgeh3i"
