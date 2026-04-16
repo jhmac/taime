@@ -17,6 +17,55 @@
       "breakpoints": true
     },
     {
+      "idx": 2,
+      "version": "7",
+      "when": 1775615325000,
+      "tag": "0002_add_trip_receipt_fields",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1775700450000,
+      "tag": "0003_add_mileage_reimbursements",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1775785575000,
+      "tag": "0004_add_composite_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1775870700000,
+      "tag": "0005_add_knowledge_documents",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1775955825000,
+      "tag": "0006_user_shops_unique_constraint",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1776040950000,
+      "tag": "0007_companies_multi_tenant",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1776126075000,
+      "tag": "0008_ai_content_studio",
+      "breakpoints": true
+    },
+    {
       "idx": 9,
       "version": "7",
       "when": 1776211200000,
