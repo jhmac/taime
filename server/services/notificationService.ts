@@ -33,6 +33,10 @@ export interface SendResult {
   nativeTotal: number;
   nativeSucceeded: number;
   nativeFailed: number;
+  iosSucceeded: number;
+  iosFailed: number;
+  androidSucceeded: number;
+  androidFailed: number;
 }
 
 // ─── Utilities ───────────────────────────────────────────────────────────────
@@ -402,6 +406,10 @@ export class NotificationService {
     // ── Native Push ──
     let nativeSucceeded = 0;
     let nativeFailed = 0;
+    let iosSucceeded = 0;
+    let iosFailed = 0;
+    let androidSucceeded = 0;
+    let androidFailed = 0;
 
     if (nativeTokens.length > 0) {
       const fcmServiceAccount = parseFcmServiceAccount();
@@ -435,12 +443,17 @@ export class NotificationService {
 
       for (let i = 0; i < nativeResults.length; i++) {
         const result = nativeResults[i];
+        const platform = nativeTokens[i].platform;
         if (result.status === 'fulfilled') {
           nativeSucceeded++;
+          if (platform === 'ios') iosSucceeded++;
+          else if (platform === 'android') androidSucceeded++;
         } else {
           nativeFailed++;
+          if (platform === 'ios') iosFailed++;
+          else if (platform === 'android') androidFailed++;
           console.error(
-            `Failed to send native notification for user ${userId} (${nativeTokens[i].platform}):`,
+            `Failed to send native notification for user ${userId} (${platform}):`,
             result.reason
           );
           const errMsg = (result.reason as Error)?.message || '';
@@ -467,6 +480,10 @@ export class NotificationService {
       nativeTotal: nativeTokens.length,
       nativeSucceeded,
       nativeFailed,
+      iosSucceeded,
+      iosFailed,
+      androidSucceeded,
+      androidFailed,
     };
   }
 

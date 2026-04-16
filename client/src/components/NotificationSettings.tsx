@@ -30,16 +30,107 @@ type NotificationPreferences = {
   anomalyAlerts: boolean;
 };
 
+type CredentialsStatus = {
+  vapidReady: boolean;
+  apnsReady: boolean;
+  fcmReady: boolean;
+};
+
+type TestChannels = {
+  web: { attempted: number; succeeded: number; failed: number; credentialsReady: boolean };
+  ios: { tokensRegistered: number; credentialsReady: boolean; succeeded: number; failed: number };
+  android: { tokensRegistered: number; credentialsReady: boolean; succeeded: number; failed: number };
+};
+
+type TestResult = {
+  success: boolean;
+  message: string;
+  channels?: TestChannels;
+  nativeStatus?: string;
+};
+
+type TestNotificationError = Error & { data?: TestResult };
+
+declare global {
+  interface Window {
+    Clerk?: {
+      session?: {
+        getToken: () => Promise<string | null>;
+      };
+    };
+  }
+}
+
+function CredentialBadge({ ready }: { ready: boolean }) {
+  if (ready) {
+    return (
+      <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 shrink-0">
+        <i className="fas fa-check-circle mr-1"></i>Configured
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="destructive" className="shrink-0">
+      <i className="fas fa-times-circle mr-1"></i>Not configured
+    </Badge>
+  );
+}
+
+function SetupInstructions({ channel }: { channel: 'apns' | 'fcm' | 'vapid' }) {
+  if (channel === 'apns') {
+    return (
+      <div className="mt-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-xs space-y-1">
+        <p className="font-medium text-amber-800 dark:text-amber-400">Set these secrets to enable iOS push:</p>
+        <ul className="list-disc list-inside space-y-0.5 text-amber-700 dark:text-amber-300 font-mono">
+          <li>APNS_KEY_ID — your APNs Auth Key ID (10-char string)</li>
+          <li>APNS_TEAM_ID — your Apple Team ID (10-char string)</li>
+          <li>APNS_KEY_P8 — the contents of your .p8 key file</li>
+          <li>APNS_BUNDLE_ID — your app bundle ID (optional)</li>
+        </ul>
+        <p className="text-amber-600 dark:text-amber-400 pt-1">Generate an APNs Auth Key in Apple Developer → Certificates, IDs &amp; Profiles → Keys.</p>
+      </div>
+    );
+  }
+  if (channel === 'fcm') {
+    return (
+      <div className="mt-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-xs space-y-1">
+        <p className="font-medium text-amber-800 dark:text-amber-400">Set one of these secrets to enable Android push:</p>
+        <ul className="list-disc list-inside space-y-0.5 text-amber-700 dark:text-amber-300 font-mono">
+          <li>FCM_SERVICE_ACCOUNT_JSON — recommended: service account JSON from Firebase Console</li>
+          <li>FCM_SERVER_KEY — legacy: server key from Firebase Console → Cloud Messaging</li>
+        </ul>
+        <p className="text-amber-600 dark:text-amber-400 pt-1">For the recommended option, download the service account JSON from Firebase Console → Project Settings → Service Accounts → Generate new private key.</p>
+      </div>
+    );
+  }
+  return (
+    <div className="mt-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-xs space-y-1">
+      <p className="font-medium text-amber-800 dark:text-amber-400">Set these secrets to enable web push:</p>
+      <ul className="list-disc list-inside space-y-0.5 text-amber-700 dark:text-amber-300 font-mono">
+        <li>VAPID_PUBLIC_KEY</li>
+        <li>VAPID_PRIVATE_KEY</li>
+      </ul>
+      <p className="text-amber-600 dark:text-amber-400 pt-1">Generate a VAPID key pair using <code className="bg-amber-100 dark:bg-amber-900 px-1 rounded">npx web-push generate-vapid-keys</code>.</p>
+    </div>
+  );
+}
+
 export default function NotificationSettings() {
   const { toast } = useToast();
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [permissionStatus, setPermissionStatus] = useState<NotificationPermission>('default');
   const [isSupported, setIsSupported] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
+  const [lastTestResult, setLastTestResult] = useState<TestResult | null>(null);
 
   const { data: vapidData } = useQuery<{ publicKey: string }>({
     queryKey: ['/api/push/vapid-key'],
   });
+
+  const { data: credentialsStatus } = useQuery<CredentialsStatus>({
+    queryKey: ['/api/push/credentials-status'],
+  });
+
   const [preferences, setPreferences] = useState<NotificationPreferences>({
     clockReminders: true,
     taskAssignments: true,
@@ -148,15 +239,40 @@ export default function NotificationSettings() {
   });
 
   const testNotificationMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest('POST', '/api/push/test');
-      return res.json();
+    mutationFn: async (): Promise<TestResult> => {
+      let authHeaders: Record<string, string> = {};
+      try {
+        const token = await window.Clerk?.session?.getToken();
+        if (token) authHeaders = { Authorization: `Bearer ${token}` };
+      } catch {}
+
+      const res = await fetch('/api/push/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        credentials: 'include',
+      });
+
+      let data: TestResult;
+      try {
+        data = await res.json();
+      } catch {
+        throw new Error(res.ok ? 'Unexpected response' : `${res.status}: ${res.statusText}`);
+      }
+
+      if (!res.ok) {
+        const err: TestNotificationError = new Error(data.message || `Error ${res.status}`);
+        err.data = data;
+        throw err;
+      }
+      return data;
     },
-    onSuccess: () => {
-      toast({ title: 'Test Sent', description: 'A test notification has been sent to your device.' });
+    onSuccess: (data) => {
+      setLastTestResult(data);
+      toast({ title: 'Test Sent', description: data.message });
     },
-    onError: (error: Error) => {
-      toast({ title: 'Error', description: `Failed to send test: ${error.message}`, variant: 'destructive' });
+    onError: (error: TestNotificationError) => {
+      if (error.data) setLastTestResult(error.data);
+      toast({ title: 'Test Failed', description: error.message, variant: 'destructive' });
     },
   });
 
@@ -267,6 +383,80 @@ export default function NotificationSettings() {
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <i className="fas fa-satellite-dish text-primary"></i>
+            Push Delivery Channels
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            Configure server-side credentials to enable push delivery to each platform. These are set as environment secrets by your developer.
+          </p>
+
+          <div className="space-y-4">
+            <div>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <i className="fas fa-globe text-blue-500"></i>
+                  <span className="text-sm font-medium">Web Push (VAPID)</span>
+                </div>
+                <CredentialBadge ready={credentialsStatus?.vapidReady ?? false} />
+              </div>
+              <p className="text-xs text-muted-foreground mt-1 ml-6">
+                Delivers notifications to browsers on desktop and mobile web.
+              </p>
+              {credentialsStatus && !credentialsStatus.vapidReady && (
+                <div className="ml-6">
+                  <SetupInstructions channel="vapid" />
+                </div>
+              )}
+            </div>
+
+            <Separator />
+
+            <div>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <i className="fab fa-apple text-gray-700 dark:text-gray-300"></i>
+                  <span className="text-sm font-medium">iOS (APNs)</span>
+                </div>
+                <CredentialBadge ready={credentialsStatus?.apnsReady ?? false} />
+              </div>
+              <p className="text-xs text-muted-foreground mt-1 ml-6">
+                Delivers native push notifications to iPhones and iPads via Apple Push Notification service.
+              </p>
+              {credentialsStatus && !credentialsStatus.apnsReady && (
+                <div className="ml-6">
+                  <SetupInstructions channel="apns" />
+                </div>
+              )}
+            </div>
+
+            <Separator />
+
+            <div>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <i className="fab fa-android text-green-600"></i>
+                  <span className="text-sm font-medium">Android (FCM)</span>
+                </div>
+                <CredentialBadge ready={credentialsStatus?.fcmReady ?? false} />
+              </div>
+              <p className="text-xs text-muted-foreground mt-1 ml-6">
+                Delivers native push notifications to Android devices via Firebase Cloud Messaging.
+              </p>
+              {credentialsStatus && !credentialsStatus.fcmReady && (
+                <div className="ml-6">
+                  <SetupInstructions channel="fcm" />
+                </div>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {isSubscribed && (
         <>
           <Card>
@@ -303,31 +493,117 @@ export default function NotificationSettings() {
               ))}
             </CardContent>
           </Card>
-
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium">Test Notification</p>
-                  <p className="text-xs text-muted-foreground">Send a test push notification to this device</p>
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => testNotificationMutation.mutate()}
-                  disabled={testNotificationMutation.isPending}
-                >
-                  {testNotificationMutation.isPending ? (
-                    <><i className="fas fa-spinner fa-spin mr-2"></i>Sending...</>
-                  ) : (
-                    <><i className="fas fa-paper-plane mr-2"></i>Send Test</>
-                  )}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
         </>
       )}
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <i className="fas fa-paper-plane text-primary"></i>
+            Send Test Notification
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium">Test Push Delivery</p>
+              <p className="text-xs text-muted-foreground">
+                Send a test notification and see results per channel
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => testNotificationMutation.mutate()}
+              disabled={testNotificationMutation.isPending}
+            >
+              {testNotificationMutation.isPending ? (
+                <><i className="fas fa-spinner fa-spin mr-2"></i>Sending...</>
+              ) : (
+                <><i className="fas fa-paper-plane mr-2"></i>Send Test</>
+              )}
+            </Button>
+          </div>
+
+          {lastTestResult && (
+            <div className="space-y-2 pt-2 border-t">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Last Test Results</p>
+              <div className="space-y-2">
+                {lastTestResult.channels && (
+                  <>
+                    <div className="flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-2">
+                        <i className="fas fa-globe text-blue-500 w-4 text-center"></i>
+                        <span>Web Push</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {lastTestResult.channels.web.attempted === 0 ? (
+                          <Badge variant="secondary" className="text-xs">No subscription</Badge>
+                        ) : lastTestResult.channels.web.succeeded > 0 ? (
+                          <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 text-xs">
+                            <i className="fas fa-check mr-1"></i>
+                            {lastTestResult.channels.web.succeeded}/{lastTestResult.channels.web.attempted} sent
+                          </Badge>
+                        ) : (
+                          <Badge variant="destructive" className="text-xs">
+                            Failed ({lastTestResult.channels.web.failed})
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-2">
+                        <i className="fab fa-apple text-gray-700 dark:text-gray-300 w-4 text-center"></i>
+                        <span>iOS</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {!lastTestResult.channels.ios.credentialsReady ? (
+                          <Badge variant="destructive" className="text-xs">Credentials missing</Badge>
+                        ) : lastTestResult.channels.ios.tokensRegistered === 0 ? (
+                          <Badge variant="secondary" className="text-xs">No device registered</Badge>
+                        ) : lastTestResult.channels.ios.succeeded > 0 ? (
+                          <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 text-xs">
+                            <i className="fas fa-check mr-1"></i>
+                            {lastTestResult.channels.ios.succeeded}/{lastTestResult.channels.ios.tokensRegistered} sent
+                          </Badge>
+                        ) : (
+                          <Badge variant="destructive" className="text-xs">
+                            Failed ({lastTestResult.channels.ios.failed})
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-2">
+                        <i className="fab fa-android text-green-600 w-4 text-center"></i>
+                        <span>Android</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {!lastTestResult.channels.android.credentialsReady ? (
+                          <Badge variant="destructive" className="text-xs">Credentials missing</Badge>
+                        ) : lastTestResult.channels.android.tokensRegistered === 0 ? (
+                          <Badge variant="secondary" className="text-xs">No device registered</Badge>
+                        ) : lastTestResult.channels.android.succeeded > 0 ? (
+                          <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 text-xs">
+                            <i className="fas fa-check mr-1"></i>
+                            {lastTestResult.channels.android.succeeded}/{lastTestResult.channels.android.tokensRegistered} sent
+                          </Badge>
+                        ) : (
+                          <Badge variant="destructive" className="text-xs">
+                            Failed ({lastTestResult.channels.android.failed})
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

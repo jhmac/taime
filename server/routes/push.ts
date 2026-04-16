@@ -40,6 +40,15 @@ function platformReady(platform: string): boolean {
 }
 
 export function registerPushRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
+  app.get('/api/push/credentials-status', isAuthenticated, (_req, res) => {
+    const vapidReady = !!(config.vapid.publicKey && config.vapid.privateKey);
+    res.json({
+      vapidReady,
+      apnsReady: APNS_READY,
+      fcmReady: FCM_READY,
+    });
+  });
+
   app.get('/api/push/vapid-key', (_req, res) => {
     const publicKey = config.vapid.publicKey;
     if (!publicKey) {
@@ -89,6 +98,9 @@ export function registerPushRoutes(app: Express, storage: IStorage, isAuthentica
       const userId = req.user.id;
       const nativeTokens = await storage.getUserNativePushTokens(userId);
 
+      const iosTokens = nativeTokens.filter(t => t.platform === 'ios');
+      const androidTokens = nativeTokens.filter(t => t.platform === 'android');
+
       const result = await notificationService.sendToUserWithResult(userId, {
         title: '🔔 Test Notification',
         body: 'This is a test push notification from Taime. If you see this, notifications are working!',
@@ -104,11 +116,33 @@ export function registerPushRoutes(app: Express, storage: IStorage, isAuthentica
           : 'native_token_registered_delivery_pending'
         : 'no_native_token';
 
+      const channels = {
+        web: {
+          attempted: result.total,
+          succeeded: result.succeeded,
+          failed: result.failed,
+          credentialsReady: !!(config.vapid.publicKey && config.vapid.privateKey),
+        },
+        ios: {
+          tokensRegistered: iosTokens.length,
+          credentialsReady: APNS_READY,
+          succeeded: result.iosSucceeded,
+          failed: result.iosFailed,
+        },
+        android: {
+          tokensRegistered: androidTokens.length,
+          credentialsReady: FCM_READY,
+          succeeded: result.androidSucceeded,
+          failed: result.androidFailed,
+        },
+      };
+
       if (totalAttempted === 0) {
         return res.status(400).json({
           success: false,
           message: 'No push subscriptions found. Please enable notifications first.',
           nativeStatus,
+          channels,
         });
       }
 
@@ -118,6 +152,7 @@ export function registerPushRoutes(app: Express, storage: IStorage, isAuthentica
           message: `Delivery failed for all ${totalAttempted} subscription(s). Check credentials and token validity.`,
           telemetry: result,
           nativeStatus,
+          channels,
         });
       }
 
@@ -128,6 +163,7 @@ export function registerPushRoutes(app: Express, storage: IStorage, isAuthentica
           : 'Test notification sent',
         telemetry: result,
         nativeStatus,
+        channels,
       });
     } catch (error) {
       console.error("Error sending test notification:", error);
