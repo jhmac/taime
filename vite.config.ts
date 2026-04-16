@@ -32,6 +32,14 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (id.includes("node_modules")) {
+            // /@clerk/ MUST be checked before /react/ because
+            // @clerk/shared/dist/runtime/react/index.mjs matches both
+            // patterns. Without this guard, that file lands in vendor-react,
+            // creating a circular vendor-clerk ↔ vendor-react dependency
+            // that triggers a TDZ ReferenceError in Firefox/Safari.
+            if (id.includes("/@clerk/")) {
+              return "vendor-clerk";
+            }
             if (
               id.includes("/react/") ||
               id.includes("/react-dom/") ||
@@ -44,9 +52,6 @@ export default defineConfig({
               id.includes("/react-query/")
             ) {
               return "vendor-query";
-            }
-            if (id.includes("/@clerk/")) {
-              return "vendor-clerk";
             }
             if (id.includes("/@radix-ui/")) {
               return "vendor-radix";
