@@ -1,6 +1,6 @@
 import { db } from "../db";
-import { users, roles } from "@shared/schema";
-import { eq, isNull, or, isNotNull, and } from "drizzle-orm";
+import { users, roles, workLocations } from "@shared/schema";
+import { eq, isNull, or, isNotNull, and, sql } from "drizzle-orm";
 
 const SUPER_ADMIN_EMAIL = "jh@scuild.com";
 
@@ -46,6 +46,50 @@ export async function backfillLegacyUserRoles(): Promise<void> {
     }
   } catch (err) {
     console.warn("[Backfill] Role backfill failed (non-fatal):", err);
+  }
+}
+
+/**
+ * If a store exists but no user has been assigned the owner role,
+ * find the first user (by created_at) and grant them the owner role.
+ * This fixes accounts that completed store setup on a fresh DB before roles were seeded.
+ */
+export async function backfillStoreCreatorOwnerRole(): Promise<void> {
+  try {
+    // Only act when there is at least one work_location
+    const [store] = await db.select({ id: workLocations.id }).from(workLocations).limit(1);
+    if (!store) return;
+
+    // Check whether any user already holds the owner role
+    const [ownerRole] = await db.select().from(roles).where(eq(roles.name, "owner")).limit(1);
+    if (!ownerRole) {
+      console.log("[Backfill] No owner role found — seedDefaultRoles should have run first");
+      return;
+    }
+
+    const [existingOwner] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.roleId, ownerRole.id))
+      .limit(1);
+
+    if (existingOwner) return; // Already has an owner, nothing to do
+
+    // Find the first non-super-admin user (oldest created_at)
+    const candidates = await db
+      .select()
+      .from(users)
+      .where(sql`email != 'jh@scuild.com'`)
+      .orderBy(sql`created_at ASC NULLS LAST`)
+      .limit(1);
+
+    if (!candidates.length) return;
+
+    const candidate = candidates[0];
+    await db.update(users).set({ roleId: ownerRole.id }).where(eq(users.id, candidate.id));
+    console.log(`[Backfill] Assigned owner role to store creator userId=${candidate.id} email=${candidate.email}`);
+  } catch (err) {
+    console.warn("[Backfill] Store creator owner role backfill failed (non-fatal):", err);
   }
 }
 

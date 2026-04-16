@@ -9,7 +9,7 @@ import { config } from "./lib/config";
 import logger from "./lib/logger";
 import { globalErrorHandler } from "./lib/routeWrapper";
 import { startRitualScheduler } from "./services/ritualScheduler";
-import { backfillLegacyUserRoles, backfillInactiveAuthenticatedUsers } from "./lib/backfill";
+import { backfillLegacyUserRoles, backfillInactiveAuthenticatedUsers, backfillStoreCreatorOwnerRole } from "./lib/backfill";
 import { runSchemaMigrations } from "./lib/migrations";
 import { runStartupAiContentBackfill } from "./services/sopIndexer";
 
@@ -185,9 +185,12 @@ app.use((req, res, next) => {
     // Stagger background job startup so they don't all hit the DB and AI APIs
     // simultaneously when the server is also handling the first user requests.
     startRitualScheduler();
-    runSchemaMigrations();
-    backfillLegacyUserRoles();
-    backfillInactiveAuthenticatedUsers();
+    // Run migrations first so default roles are seeded, then run backfills that depend on them
+    runSchemaMigrations().then(() => {
+      backfillLegacyUserRoles();
+      backfillInactiveAuthenticatedUsers();
+      backfillStoreCreatorOwnerRole();
+    }).catch((err) => console.error('[Startup] Migration failed:', err));
     setTimeout(() => runStartupAiContentBackfill(), 5000);
   });
 })();

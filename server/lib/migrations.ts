@@ -778,6 +778,9 @@ export async function runSchemaMigrations(): Promise<void> {
 
   console.log(`[Migration] Schema migrations complete (${altered} column alteration(s))`);
 
+  // Seed default roles and permissions on every boot (idempotent).
+  await seedDefaultRoles();
+
   // Seed the "enable_clock_out_on_focus_loss" permission and grant it to admin/owner roles.
   // This is idempotent — safe to run on every boot.
   try {
@@ -849,5 +852,132 @@ export async function runSchemaMigrations(): Promise<void> {
     }
   } catch {
     // Non-fatal — table may not exist yet on first boot
+  }
+}
+
+/**
+ * Seeds the default roles (owner, admin, manager, employee) and their permission sets.
+ * Fully idempotent — safe to call on every boot.  Exported so it can also be called
+ * during first-time store setup to guarantee roles exist before assigning.
+ */
+export async function seedDefaultRoles(): Promise<void> {
+  try {
+    // --- 1. Seed all core permissions ---
+    const permissionDefs = [
+      { name: 'admin.manage_all',           displayName: 'Full Admin Access',          description: 'Superuser access to all features',                    category: 'admin' },
+      { name: 'admin.system_settings',      displayName: 'System Settings',            description: 'Manage system settings',                              category: 'admin' },
+      { name: 'admin.role_management',      displayName: 'Role Management',            description: 'Manage roles and permissions',                         category: 'admin' },
+      { name: 'admin.location_management',  displayName: 'Location Management',        description: 'Manage work locations',                               category: 'admin' },
+      { name: 'hr.view_team',               displayName: 'View Team',                  description: 'View team member profiles',                            category: 'hr' },
+      { name: 'hr.edit_team',               displayName: 'Edit Team',                  description: 'Edit team member profiles',                            category: 'hr' },
+      { name: 'hr.insights',                displayName: 'HR Insights',                description: 'View AI insights and analytics',                       category: 'hr' },
+      { name: 'hr.payroll_view',            displayName: 'View Payroll',               description: 'View payroll information',                             category: 'hr' },
+      { name: 'hr.payroll_process',         displayName: 'Process Payroll',            description: 'Process and manage payroll',                           category: 'hr' },
+      { name: 'schedule.view_own',          displayName: 'View Own Schedule',          description: 'View own schedule',                                   category: 'schedule' },
+      { name: 'schedule.view_all',          displayName: 'View All Schedules',         description: 'View all team schedules',                             category: 'schedule' },
+      { name: 'schedule.edit_own',          displayName: 'Edit Own Schedule',          description: 'Edit own schedule',                                   category: 'schedule' },
+      { name: 'schedule.edit_all',          displayName: 'Edit All Schedules',         description: 'Edit any schedules',                                  category: 'schedule' },
+      { name: 'schedule.create',            displayName: 'Create Schedules',           description: 'Create schedules for team',                           category: 'schedule' },
+      { name: 'time.view_own',              displayName: 'View Own Time',              description: 'View own time entries',                               category: 'time' },
+      { name: 'time.view_all',              displayName: 'View All Time',              description: 'View all time entries',                               category: 'time' },
+      { name: 'time.edit_own',              displayName: 'Edit Own Time',              description: 'Edit own time entries',                               category: 'time' },
+      { name: 'time.edit_all',              displayName: 'Edit All Time',              description: 'Edit any time entries',                               category: 'time' },
+      { name: 'time.clock_in_out',          displayName: 'Clock In/Out',               description: 'Clock in and out',                                    category: 'time' },
+      { name: 'time.approve',               displayName: 'Approve Time',               description: 'Approve time entries',                                category: 'time' },
+      { name: 'tasks.view_own',             displayName: 'View Own Tasks',             description: 'View own tasks',                                      category: 'tasks' },
+      { name: 'tasks.view_all',             displayName: 'View All Tasks',             description: 'View all tasks',                                      category: 'tasks' },
+      { name: 'tasks.edit_own',             displayName: 'Edit Own Tasks',             description: 'Edit own tasks',                                      category: 'tasks' },
+      { name: 'tasks.edit_all',             displayName: 'Edit All Tasks',             description: 'Edit any tasks',                                      category: 'tasks' },
+      { name: 'tasks.create',               displayName: 'Create Tasks',               description: 'Create new tasks',                                    category: 'tasks' },
+      { name: 'tasks.ai_assign',            displayName: 'AI Task Assignment',         description: 'Use AI to assign tasks',                              category: 'tasks' },
+      { name: 'comm.view_messages',         displayName: 'View Messages',              description: 'View team messages',                                  category: 'communication' },
+      { name: 'comm.send_messages',         displayName: 'Send Messages',              description: 'Send messages to team',                               category: 'communication' },
+      { name: 'comm.send_announcements',    displayName: 'Send Announcements',         description: 'Send announcements to all',                           category: 'communication' },
+      { name: 'communication.create_groups',displayName: 'Create Groups',              description: 'Create new chat groups and invite members',            category: 'communication' },
+      { name: 'communication.manage_groups',displayName: 'Manage Groups',              description: 'Add/remove members from chat groups',                 category: 'communication' },
+      { name: 'enable_clock_out_on_focus_loss', displayName: 'Enable clock-out on focus loss', description: 'Allow this role to be subject to automatic clock-out when the app loses focus', category: 'time_tracking' },
+    ];
+
+    for (const perm of permissionDefs) {
+      await db.execute(sql.raw(`
+        INSERT INTO permissions (id, name, display_name, description, category)
+        VALUES (gen_random_uuid(), '${perm.name}', '${perm.displayName.replace(/'/g, "''")}', '${perm.description.replace(/'/g, "''")}', '${perm.category}')
+        ON CONFLICT (name) DO NOTHING
+      `));
+    }
+
+    // --- 2. Seed default roles ---
+    const roleDefs = [
+      { name: 'owner',    displayName: 'Owner',    description: 'Full access to all features', isSystemRole: true },
+      { name: 'admin',    displayName: 'Admin',    description: 'Administrative access',        isSystemRole: true },
+      { name: 'manager',  displayName: 'Manager',  description: 'Team management access',       isSystemRole: true },
+      { name: 'employee', displayName: 'Employee', description: 'Standard employee access',     isSystemRole: true },
+    ];
+
+    for (const role of roleDefs) {
+      await db.execute(sql.raw(`
+        INSERT INTO roles (id, name, display_name, description, is_system_role, is_active, created_at, updated_at)
+        VALUES (gen_random_uuid(), '${role.name}', '${role.displayName}', '${role.description}', ${role.isSystemRole}, true, NOW(), NOW())
+        ON CONFLICT (name) DO NOTHING
+      `));
+    }
+
+    // --- 3. Assign permissions to roles ---
+    const ownerPerms = permissionDefs.map(p => p.name);
+    const adminPerms = [
+      'admin.manage_all', 'admin.system_settings', 'admin.role_management', 'admin.location_management',
+      'hr.view_team', 'hr.edit_team', 'hr.insights', 'hr.payroll_view', 'hr.payroll_process',
+      'schedule.view_all', 'schedule.edit_all', 'schedule.create',
+      'time.view_all', 'time.edit_all', 'time.approve', 'time.clock_in_out',
+      'tasks.view_all', 'tasks.edit_all', 'tasks.create', 'tasks.ai_assign',
+      'comm.view_messages', 'comm.send_messages', 'comm.send_announcements',
+      'communication.create_groups', 'communication.manage_groups',
+    ];
+    const managerPerms = [
+      'hr.view_team', 'hr.edit_team',
+      'schedule.view_all', 'schedule.edit_all', 'schedule.edit_own', 'schedule.create', 'schedule.view_own',
+      'time.view_all', 'time.edit_all', 'time.view_own', 'time.edit_own', 'time.clock_in_out', 'time.approve',
+      'tasks.view_all', 'tasks.edit_all', 'tasks.view_own', 'tasks.edit_own', 'tasks.create', 'tasks.ai_assign',
+      'comm.view_messages', 'comm.send_messages', 'comm.send_announcements',
+      'communication.create_groups', 'communication.manage_groups',
+    ];
+    const employeePerms = [
+      'schedule.view_own', 'schedule.edit_own',
+      'time.view_own', 'time.edit_own', 'time.clock_in_out',
+      'tasks.view_own', 'tasks.edit_own',
+      'comm.view_messages', 'comm.send_messages',
+    ];
+
+    const rolePermMap: Record<string, string[]> = {
+      owner: ownerPerms,
+      admin: adminPerms,
+      manager: managerPerms,
+      employee: employeePerms,
+    };
+
+    for (const [roleName, perms] of Object.entries(rolePermMap)) {
+      const roleRows = await db.execute(sql.raw(`SELECT id FROM roles WHERE name = '${roleName}' LIMIT 1`));
+      const roleId = ((roleRows as any).rows ?? [])[0]?.id as string | undefined;
+      if (!roleId) continue;
+
+      for (const permName of perms) {
+        const permRows = await db.execute(sql.raw(`SELECT id FROM permissions WHERE name = '${permName}' LIMIT 1`));
+        const permId = ((permRows as any).rows ?? [])[0]?.id as string | undefined;
+        if (!permId) continue;
+
+        await db.execute(sql.raw(`
+          INSERT INTO role_permissions (id, role_id, permission_id)
+          SELECT gen_random_uuid(), '${roleId}', '${permId}'
+          WHERE NOT EXISTS (
+            SELECT 1 FROM role_permissions WHERE role_id = '${roleId}' AND permission_id = '${permId}'
+          )
+        `));
+      }
+    }
+
+    console.log('[Migration] Default roles and permissions seeded successfully');
+  } catch (err: unknown) {
+    const pgErr = err as { message?: string };
+    console.warn('[Migration] Default role seeding failed (non-fatal):', pgErr?.message ?? err);
   }
 }
