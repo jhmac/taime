@@ -8,8 +8,6 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
-import { Input } from '@/components/ui/input';
 import SurfacedSOPBanner from '@/components/SurfacedSOPBanner';
 import MiddayPulseCard from '@/components/MiddayPulseCard';
 import ImprovementFeedWidget from '@/components/ImprovementFeedWidget';
@@ -43,6 +41,71 @@ type ClockOutTarget = {
 function toLocalDatetimeValue(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function formatDuration(from: string, to: string): string {
+  const diff = new Date(to).getTime() - new Date(from).getTime();
+  if (diff <= 0 || isNaN(diff)) return '—';
+  const totalMins = Math.round(diff / 60000);
+  const h = Math.floor(totalMins / 60);
+  const m = totalMins % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+function TimeEditCard({
+  label,
+  labelColor,
+  value,
+  onChange,
+}: {
+  label: string;
+  labelColor: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  if (!value || !value.includes('T')) return null;
+  const [datePart, timePart] = value.split('T');
+  const d = new Date(value);
+  const dateLabel = isNaN(d.getTime())
+    ? datePart
+    : d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  const timeLabel = isNaN(d.getTime())
+    ? timePart
+    : d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+
+  return (
+    <div className="space-y-2">
+      <p className={`text-[10px] uppercase tracking-widest font-bold ${labelColor}`}>{label}</p>
+      <div className="flex gap-2">
+        {/* Date card */}
+        <div className="relative flex-1 h-16 bg-muted/50 hover:bg-muted rounded-2xl overflow-hidden flex items-center justify-center cursor-pointer active:scale-[0.98] transition-transform">
+          <input
+            type="date"
+            value={datePart}
+            onChange={e => onChange(`${e.target.value}T${timePart}`)}
+            className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+          />
+          <div className="text-center pointer-events-none">
+            <p className="text-[9px] text-muted-foreground uppercase tracking-wide mb-0.5">Date</p>
+            <p className="text-sm font-semibold leading-tight">{dateLabel}</p>
+          </div>
+        </div>
+        {/* Time card */}
+        <div className="relative h-16 px-5 bg-muted/50 hover:bg-muted rounded-2xl overflow-hidden flex items-center justify-center cursor-pointer active:scale-[0.98] transition-transform">
+          <input
+            type="time"
+            value={timePart}
+            onChange={e => onChange(`${datePart}T${e.target.value}`)}
+            className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+          />
+          <div className="text-center pointer-events-none">
+            <p className="text-[9px] text-muted-foreground uppercase tracking-wide mb-0.5">Time</p>
+            <p className="text-2xl font-bold tabular-nums leading-tight">{timeLabel}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function SlideToConfirm({ onConfirm, isPending }: { onConfirm: () => void; isPending: boolean }) {
@@ -835,39 +898,53 @@ export default function OwnerDashboard() {
         </DashboardErrorBoundary>
       </div>
 
-      {/* Admin clock-out / time-adjust dialog */}
+      {/* Admin clock-out / time-adjust dialog — mobile-first */}
       <Dialog open={!!clockOutTarget} onOpenChange={(open) => { if (!open) setClockOutTarget(null); }}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Clock out {clockOutTarget?.userName}</DialogTitle>
-          </DialogHeader>
+        <DialogContent className="max-w-sm w-[calc(100vw-1.5rem)] rounded-3xl p-0 overflow-hidden gap-0">
+          {/* Header */}
+          <div className="px-6 pt-6 pb-4 border-b border-border/50">
+            <DialogTitle className="text-lg font-bold">{clockOutTarget?.userName}</DialogTitle>
+            <p className="text-xs text-muted-foreground mt-0.5">Adjust times and confirm clock-out</p>
+          </div>
+
+          {/* Overnight warning */}
           {clockOutTarget?.isOvernightShift && (
-            <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 text-xs bg-amber-50 dark:bg-amber-950/30 px-3 py-2 rounded-md">
-              <Moon className="h-3.5 w-3.5 shrink-0" />
-              This employee has been clocked in since yesterday. Please verify the times below.
+            <div className="mx-4 mt-4 flex items-start gap-2.5 text-amber-700 dark:text-amber-400 text-xs bg-amber-50 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/30 px-3 py-2.5 rounded-xl">
+              <Moon className="h-4 w-4 shrink-0 mt-0.5" />
+              <span>Clocked in since <strong>yesterday</strong> — please check both times before confirming.</span>
             </div>
           )}
-          <div className="space-y-4 py-1">
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium">Clock-in time</Label>
-              <Input
-                type="datetime-local"
-                value={clockInEdit}
-                onChange={e => setClockInEdit(e.target.value)}
-                className="text-sm"
-              />
+
+          {/* Time cards */}
+          <div className="px-5 pt-4 pb-2 space-y-4">
+            <TimeEditCard
+              label="Clocked in"
+              labelColor="text-green-600 dark:text-green-400"
+              value={clockInEdit}
+              onChange={setClockInEdit}
+            />
+
+            {/* Duration strip */}
+            <div className="flex items-center gap-3">
+              <div className="flex-1 h-px bg-border" />
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground bg-muted/60 px-3 py-1.5 rounded-full">
+                <Clock className="h-3 w-3" />
+                <span>{formatDuration(clockInEdit, clockOutEdit)}</span>
+                <span className="font-normal">total</span>
+              </div>
+              <div className="flex-1 h-px bg-border" />
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium">Clock-out time</Label>
-              <Input
-                type="datetime-local"
-                value={clockOutEdit}
-                onChange={e => setClockOutEdit(e.target.value)}
-                className="text-sm"
-              />
-            </div>
+
+            <TimeEditCard
+              label="Clocking out"
+              labelColor="text-red-600 dark:text-red-400"
+              value={clockOutEdit}
+              onChange={setClockOutEdit}
+            />
           </div>
-          <div className="space-y-3 pt-1">
+
+          {/* Slide to confirm + cancel */}
+          <div className="px-5 pt-3 pb-6 space-y-3">
             <SlideToConfirm
               isPending={clockOutMutation.isPending}
               onConfirm={() => {
@@ -879,7 +956,12 @@ export default function OwnerDashboard() {
                 });
               }}
             />
-            <Button variant="ghost" size="sm" className="w-full text-muted-foreground" onClick={() => setClockOutTarget(null)}>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full text-muted-foreground h-10"
+              onClick={() => setClockOutTarget(null)}
+            >
               Cancel
             </Button>
           </div>
