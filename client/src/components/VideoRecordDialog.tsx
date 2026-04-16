@@ -104,8 +104,8 @@ export default function VideoRecordDialog({ open, onOpenChange, onSuccess }: Pro
   const pickNativeGalleryVideo = useCallback(async () => {
     setIsNativeCapturing(true);
     try {
-      const { Camera } = await import("@capacitor/camera");
-      const gallery = await Camera.chooseFromGallery({ limit: 1 });
+      const { Camera, MediaType } = await import("@capacitor/camera");
+      const gallery = await Camera.chooseFromGallery({ limit: 1, mediaType: MediaType.Videos });
       const media = gallery.results?.[0];
       if (!media) return;
       const url = media.webPath ?? media.uri ?? "";
