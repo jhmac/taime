@@ -25,9 +25,9 @@ export default function ShopifyCallbackSuccess() {
       window.close();
     } else {
       if (error) {
-        window.location.href = `/admin?shopify=error&message=${encodeURIComponent(message || "Connection failed")}`;
+        window.location.href = `/admin?shopify=error&message=${encodeURIComponent(message || "Connection failed")}&section=pos-connection`;
       } else {
-        window.location.href = `/admin?shopify=connected&shop=${encodeURIComponent(shop || "")}`;
+        window.location.href = `/admin?shopify=connected&shop=${encodeURIComponent(shop || "")}&section=pos-connection`;
       }
     }
   }, [search]);

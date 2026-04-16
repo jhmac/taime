@@ -107,6 +107,11 @@ export default function AdminSettings() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    const section = params.get('section');
+    const validSectionIds = SIDEBAR_SECTIONS.flatMap(cat => cat.items.map(item => item.id));
+    if (section && validSectionIds.includes(section)) {
+      setActiveSection(section);
+    }
     if (params.get('shopify') === 'connected') {
       toast({ title: "Shopify Connected", description: "Your Shopify store has been connected successfully." });
       window.history.replaceState({}, '', window.location.pathname);

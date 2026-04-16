@@ -271,7 +271,7 @@ export default function OwnerDashboard() {
                 <div className="text-center py-4">
                   <ShoppingBag className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
                   <p className="text-sm text-muted-foreground mb-2">Connect Shopify to see sales data</p>
-                  <Button variant="outline" size="sm" onClick={() => navigate('/admin')}>
+                  <Button variant="outline" size="sm" onClick={() => navigate('/admin?section=pos-connection')}>
                     <ExternalLink className="h-3 w-3 mr-1" /> Connect
                   </Button>
                 </div>
