@@ -14,7 +14,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
-import type { User } from '@shared/schema';
+import type { User, Role } from '@shared/schema';
 
 interface PayrollSetupModalProps {
   isOpen: boolean;
@@ -36,15 +36,27 @@ export default function PayrollSetupModal({ isOpen, onClose }: PayrollSetupModal
   const [startDateInput, setStartDateInput] = useState('');
   const [endDateInput, setEndDateInput] = useState('');
 
-  // Fetch users for notification selection
+  // Fetch users and roles for notification selection
   const { data: users = [] } = useQuery<User[]>({
     queryKey: ["/api/users"],
     enabled: isOpen,
   });
 
-  // Get eligible users (owners and managers)
-  const eligibleUsers = users.filter(u => 
-    u.roleId && ['owner', 'manager'].some(role => u.roleId?.includes(role))
+  const { data: roles = [] } = useQuery<Role[]>({
+    queryKey: ["/api/roles"],
+    enabled: isOpen,
+  });
+
+  // Build set of role IDs for owner/manager/admin so we filter by actual ID
+  const managerRoleIds = new Set(
+    roles
+      .filter(r => ['owner', 'manager', 'admin', 'store_manager'].includes(r.name))
+      .map(r => r.id)
+  );
+
+  // Eligible = any active user with an owner/manager/admin role
+  const eligibleUsers = users.filter(u =>
+    u.roleId && (managerRoleIds.has(u.roleId) || u.roleId.includes('manager') || u.roleId.includes('owner') || u.roleId.includes('admin'))
   );
 
   const setupMutation = useMutation({
