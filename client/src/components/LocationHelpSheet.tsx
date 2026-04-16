@@ -25,7 +25,11 @@ function detectPlatform(): Platform {
   if (Capacitor.isNativePlatform()) {
     return Capacitor.getPlatform() === 'android' ? 'native-android' : 'native-ios';
   }
-  if (/iPad|iPhone|iPod/.test(navigator.userAgent)) return 'web-ios';
+  // Modern iPadOS (13+) reports a desktop Safari UA — detect via touch capability.
+  const isIOS =
+    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+  if (isIOS) return 'web-ios';
   if (/Android/.test(navigator.userAgent)) return 'web-android';
   return 'web-desktop';
 }
