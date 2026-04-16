@@ -61,7 +61,7 @@ export default function PayrollSetupModal({ isOpen, onClose }: PayrollSetupModal
 
   const setupMutation = useMutation({
     mutationFn: async (data: any) => {
-      await apiRequest('/api/payroll/setup', 'POST', data);
+      await apiRequest('POST', '/api/payroll/setup', data);
     },
     onSuccess: () => {
       toast({
