@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { apiRequest } from '@/lib/queryClient';
+import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -9,6 +9,9 @@ import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { useAuth } from '@/hooks/useAuth';
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -117,11 +120,20 @@ function SetupInstructions({ channel }: { channel: 'apns' | 'fcm' | 'vapid' }) {
 
 export default function NotificationSettings() {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const isAdmin = user?.role?.name === 'admin' || user?.role?.name === 'owner';
+
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [permissionStatus, setPermissionStatus] = useState<NotificationPermission>('default');
   const [isSupported, setIsSupported] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
   const [lastTestResult, setLastTestResult] = useState<TestResult | null>(null);
+
+  const [showApnsForm, setShowApnsForm] = useState(false);
+  const [apnsForm, setApnsForm] = useState({ keyId: '', teamId: '', keyP8: '', bundleId: '' });
+
+  const [showFcmForm, setShowFcmForm] = useState(false);
+  const [fcmForm, setFcmForm] = useState({ serviceAccountJson: '' });
 
   const { data: vapidData } = useQuery<{ publicKey: string }>({
     queryKey: ['/api/push/vapid-key'],
@@ -129,6 +141,34 @@ export default function NotificationSettings() {
 
   const { data: credentialsStatus } = useQuery<CredentialsStatus>({
     queryKey: ['/api/push/credentials-status'],
+  });
+
+  const saveApnsMutation = useMutation({
+    mutationFn: (data: typeof apnsForm) =>
+      apiRequest('PATCH', '/api/push/credentials/apns', data),
+    onSuccess: () => {
+      toast({ title: 'APNs credentials saved', description: 'iOS push delivery is now configured.' });
+      setShowApnsForm(false);
+      setApnsForm({ keyId: '', teamId: '', keyP8: '', bundleId: '' });
+      queryClient.invalidateQueries({ queryKey: ['/api/push/credentials-status'] });
+    },
+    onError: (err: any) => {
+      toast({ title: 'Failed to save APNs credentials', description: err.message, variant: 'destructive' });
+    },
+  });
+
+  const saveFcmMutation = useMutation({
+    mutationFn: (data: typeof fcmForm) =>
+      apiRequest('PATCH', '/api/push/credentials/fcm', data),
+    onSuccess: () => {
+      toast({ title: 'FCM credentials saved', description: 'Android push delivery is now configured.' });
+      setShowFcmForm(false);
+      setFcmForm({ serviceAccountJson: '' });
+      queryClient.invalidateQueries({ queryKey: ['/api/push/credentials-status'] });
+    },
+    onError: (err: any) => {
+      toast({ title: 'Failed to save FCM credentials', description: err.message, variant: 'destructive' });
+    },
   });
 
   const [preferences, setPreferences] = useState<NotificationPreferences>({
@@ -392,7 +432,8 @@ export default function NotificationSettings() {
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-xs text-muted-foreground">
-            Configure server-side credentials to enable push delivery to each platform. These are set as environment secrets by your developer.
+            Configure server-side credentials to enable push delivery to each platform.
+            {isAdmin ? ' Enter credentials directly below to update them without developer access.' : ' These are set as environment secrets by your developer.'}
           </p>
 
           <div className="space-y-4">
@@ -422,12 +463,90 @@ export default function NotificationSettings() {
                   <i className="fab fa-apple text-gray-700 dark:text-gray-300"></i>
                   <span className="text-sm font-medium">iOS (APNs)</span>
                 </div>
-                <CredentialBadge ready={credentialsStatus?.apnsReady ?? false} />
+                <div className="flex items-center gap-2">
+                  {isAdmin && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => setShowApnsForm(v => !v)}
+                    >
+                      <i className={`fas fa-${showApnsForm ? 'times' : 'pencil-alt'} mr-1`}></i>
+                      {credentialsStatus?.apnsReady ? 'Update' : 'Configure'}
+                    </Button>
+                  )}
+                  <CredentialBadge ready={credentialsStatus?.apnsReady ?? false} />
+                </div>
               </div>
               <p className="text-xs text-muted-foreground mt-1 ml-6">
                 Delivers native push notifications to iPhones and iPads via Apple Push Notification service.
               </p>
-              {credentialsStatus && !credentialsStatus.apnsReady && (
+              {showApnsForm && isAdmin && (
+                <div className="ml-6 mt-3 space-y-3 p-4 rounded-lg border bg-muted/30">
+                  <p className="text-xs font-medium text-foreground">Enter APNs credentials — values are write-only and will not be displayed after saving.</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <Label className="text-xs">Key ID <span className="text-destructive">*</span></Label>
+                      <Input
+                        className="h-8 text-xs font-mono"
+                        placeholder="XXXXXXXXXX"
+                        value={apnsForm.keyId}
+                        onChange={e => setApnsForm(f => ({ ...f, keyId: e.target.value }))}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Team ID <span className="text-destructive">*</span></Label>
+                      <Input
+                        className="h-8 text-xs font-mono"
+                        placeholder="XXXXXXXXXX"
+                        value={apnsForm.teamId}
+                        onChange={e => setApnsForm(f => ({ ...f, teamId: e.target.value }))}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Bundle ID <span className="text-muted-foreground">(optional)</span></Label>
+                    <Input
+                      className="h-8 text-xs font-mono"
+                      placeholder="com.yourcompany.app"
+                      value={apnsForm.bundleId}
+                      onChange={e => setApnsForm(f => ({ ...f, bundleId: e.target.value }))}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Key P8 contents <span className="text-destructive">*</span></Label>
+                    <Textarea
+                      className="text-xs font-mono h-24 resize-none"
+                      placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
+                      value={apnsForm.keyP8}
+                      onChange={e => setApnsForm(f => ({ ...f, keyP8: e.target.value }))}
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      className="h-8 text-xs"
+                      disabled={saveApnsMutation.isPending || !apnsForm.keyId || !apnsForm.teamId || !apnsForm.keyP8}
+                      onClick={() => saveApnsMutation.mutate(apnsForm)}
+                    >
+                      {saveApnsMutation.isPending ? (
+                        <><i className="fas fa-spinner fa-spin mr-1"></i>Saving…</>
+                      ) : (
+                        <><i className="fas fa-save mr-1"></i>Save APNs Credentials</>
+                      )}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 text-xs"
+                      onClick={() => { setShowApnsForm(false); setApnsForm({ keyId: '', teamId: '', keyP8: '', bundleId: '' }); }}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
+              {!showApnsForm && credentialsStatus && !credentialsStatus.apnsReady && !isAdmin && (
                 <div className="ml-6">
                   <SetupInstructions channel="apns" />
                 </div>
@@ -442,12 +561,62 @@ export default function NotificationSettings() {
                   <i className="fab fa-android text-green-600"></i>
                   <span className="text-sm font-medium">Android (FCM)</span>
                 </div>
-                <CredentialBadge ready={credentialsStatus?.fcmReady ?? false} />
+                <div className="flex items-center gap-2">
+                  {isAdmin && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => setShowFcmForm(v => !v)}
+                    >
+                      <i className={`fas fa-${showFcmForm ? 'times' : 'pencil-alt'} mr-1`}></i>
+                      {credentialsStatus?.fcmReady ? 'Update' : 'Configure'}
+                    </Button>
+                  )}
+                  <CredentialBadge ready={credentialsStatus?.fcmReady ?? false} />
+                </div>
               </div>
               <p className="text-xs text-muted-foreground mt-1 ml-6">
                 Delivers native push notifications to Android devices via Firebase Cloud Messaging.
               </p>
-              {credentialsStatus && !credentialsStatus.fcmReady && (
+              {showFcmForm && isAdmin && (
+                <div className="ml-6 mt-3 space-y-3 p-4 rounded-lg border bg-muted/30">
+                  <p className="text-xs font-medium text-foreground">Enter the FCM service account JSON — the value is write-only and will not be displayed after saving.</p>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Service Account JSON <span className="text-destructive">*</span></Label>
+                    <Textarea
+                      className="text-xs font-mono h-32 resize-none"
+                      placeholder={'{\n  "type": "service_account",\n  "project_id": "...",\n  ...\n}'}
+                      value={fcmForm.serviceAccountJson}
+                      onChange={e => setFcmForm({ serviceAccountJson: e.target.value })}
+                    />
+                    <p className="text-xs text-muted-foreground">Download from Firebase Console → Project Settings → Service Accounts → Generate new private key.</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      className="h-8 text-xs"
+                      disabled={saveFcmMutation.isPending || !fcmForm.serviceAccountJson}
+                      onClick={() => saveFcmMutation.mutate(fcmForm)}
+                    >
+                      {saveFcmMutation.isPending ? (
+                        <><i className="fas fa-spinner fa-spin mr-1"></i>Saving…</>
+                      ) : (
+                        <><i className="fas fa-save mr-1"></i>Save FCM Credentials</>
+                      )}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 text-xs"
+                      onClick={() => { setShowFcmForm(false); setFcmForm({ serviceAccountJson: '' }); }}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
+              {!showFcmForm && credentialsStatus && !credentialsStatus.fcmReady && !isAdmin && (
                 <div className="ml-6">
                   <SetupInstructions channel="fcm" />
                 </div>

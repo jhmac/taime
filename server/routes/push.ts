@@ -3,50 +3,82 @@ import type { IStorage } from "../storage";
 import { insertPushSubscriptionSchema } from "@shared/schema";
 import { notificationService } from "../services/notificationService";
 import { config } from "../lib/config";
-
-const APNS_READY = !!(
-  process.env.APNS_KEY_ID &&
-  process.env.APNS_TEAM_ID &&
-  process.env.APNS_KEY_P8
-);
-
-function isFcmConfigured(): boolean {
-  const saJson = process.env.FCM_SERVICE_ACCOUNT_JSON || process.env.FCM_SERVER_KEY;
-  if (!saJson) return false;
-  try {
-    const parsed = JSON.parse(saJson);
-    if (parsed.project_id && parsed.private_key && parsed.client_email) {
-      return true;
-    }
-  } catch {
-    // Not JSON — check if FCM_SERVER_KEY is a plain legacy server key string
-  }
-  if (process.env.FCM_SERVER_KEY) {
-    try {
-      JSON.parse(process.env.FCM_SERVER_KEY);
-    } catch {
-      return true;
-    }
-  }
-  return false;
-}
-
-const FCM_READY = isFcmConfigured();
+import {
+  isApnsReady,
+  isFcmReady,
+  saveApnsCredentials,
+  saveFcmCredentials,
+} from "../lib/pushCredentialStore";
+import { z } from "zod";
 
 function platformReady(platform: string): boolean {
-  if (platform === 'ios') return APNS_READY;
-  if (platform === 'android') return FCM_READY;
+  if (platform === 'ios') return isApnsReady();
+  if (platform === 'android') return isFcmReady();
   return false;
 }
+
+async function requireAdmin(storage: IStorage, userId: string): Promise<void> {
+  const perms = await storage.getUserPermissions(userId);
+  if (!perms.some((p: any) => p.name === 'admin.manage_all')) {
+    throw Object.assign(new Error("Admin access required"), { status: 403 });
+  }
+}
+
+const apnsCredentialsSchema = z.object({
+  keyId: z.string().min(1, "Key ID is required"),
+  teamId: z.string().min(1, "Team ID is required"),
+  keyP8: z.string().min(1, "Key P8 content is required"),
+  bundleId: z.string().default(""),
+});
+
+const fcmCredentialsSchema = z.object({
+  serviceAccountJson: z.string().min(1, "Service account JSON is required"),
+});
 
 export function registerPushRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
   app.get('/api/push/credentials-status', isAuthenticated, (_req, res) => {
     const vapidReady = !!(config.vapid.publicKey && config.vapid.privateKey);
     res.json({
       vapidReady,
-      apnsReady: APNS_READY,
-      fcmReady: FCM_READY,
+      apnsReady: isApnsReady(),
+      fcmReady: isFcmReady(),
     });
+  });
+
+  app.patch('/api/push/credentials/apns', isAuthenticated, async (req: any, res) => {
+    try {
+      await requireAdmin(storage, req.user.id);
+      const data = apnsCredentialsSchema.parse(req.body);
+      await saveApnsCredentials(storage, data.keyId, data.teamId, data.keyP8, data.bundleId);
+      res.json({ success: true });
+    } catch (err: any) {
+      if (err.status === 403) return res.status(403).json({ message: err.message });
+      if (err.name === 'ZodError') return res.status(400).json({ message: err.errors[0].message });
+      console.error("Error saving APNs credentials:", err);
+      res.status(500).json({ message: "Failed to save APNs credentials" });
+    }
+  });
+
+  app.patch('/api/push/credentials/fcm', isAuthenticated, async (req: any, res) => {
+    try {
+      await requireAdmin(storage, req.user.id);
+      const data = fcmCredentialsSchema.parse(req.body);
+      try {
+        const parsed = JSON.parse(data.serviceAccountJson);
+        if (!parsed.project_id || !parsed.private_key || !parsed.client_email) {
+          return res.status(400).json({ message: "Invalid service account JSON: missing project_id, private_key, or client_email" });
+        }
+      } catch {
+        return res.status(400).json({ message: "Invalid JSON format" });
+      }
+      await saveFcmCredentials(storage, data.serviceAccountJson);
+      res.json({ success: true });
+    } catch (err: any) {
+      if (err.status === 403) return res.status(403).json({ message: err.message });
+      if (err.name === 'ZodError') return res.status(400).json({ message: err.errors[0].message });
+      console.error("Error saving FCM credentials:", err);
+      res.status(500).json({ message: "Failed to save FCM credentials" });
+    }
   });
 
   app.get('/api/push/vapid-key', (_req, res) => {
@@ -84,8 +116,8 @@ export function registerPushRoutes(app: Express, storage: IStorage, isAuthentica
       res.json({
         success: true,
         deliveryReady: platformReady(platform),
-        apnsReady: APNS_READY,
-        fcmReady: FCM_READY,
+        apnsReady: isApnsReady(),
+        fcmReady: isFcmReady(),
       });
     } catch (error) {
       console.error('Error saving native push token:', error);
@@ -125,13 +157,13 @@ export function registerPushRoutes(app: Express, storage: IStorage, isAuthentica
         },
         ios: {
           tokensRegistered: iosTokens.length,
-          credentialsReady: APNS_READY,
+          credentialsReady: isApnsReady(),
           succeeded: result.iosSucceeded,
           failed: result.iosFailed,
         },
         android: {
           tokensRegistered: androidTokens.length,
-          credentialsReady: FCM_READY,
+          credentialsReady: isFcmReady(),
           succeeded: result.androidSucceeded,
           failed: result.androidFailed,
         },

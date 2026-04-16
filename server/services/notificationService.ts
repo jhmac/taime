@@ -4,6 +4,7 @@ import http2 from 'node:http2';
 import https from 'node:https';
 import { storage } from '../storage';
 import { config } from '../lib/config';
+import { getApnsCredentials, getFcmCredential, isApnsReady } from '../lib/pushCredentialStore';
 
 if (config.vapid.publicKey && config.vapid.privateKey) {
   webpush.setVapidDetails(
@@ -55,9 +56,10 @@ function getApnsJwt(): string {
     return _apnsJwt.token;
   }
 
-  const keyId = process.env.APNS_KEY_ID!;
-  const teamId = process.env.APNS_TEAM_ID!;
-  const keyP8 = process.env.APNS_KEY_P8!.replace(/\\n/g, '\n');
+  const apns = getApnsCredentials();
+  const keyId = apns.keyId;
+  const teamId = apns.teamId;
+  const keyP8 = apns.keyP8.replace(/\\n/g, '\n');
 
   const header = base64url(Buffer.from(JSON.stringify({ alg: 'ES256', kid: keyId })));
   const payload = base64url(Buffer.from(JSON.stringify({ iss: teamId, iat: now })));
@@ -75,7 +77,7 @@ function getApnsJwt(): string {
 async function sendApns(
   deviceToken: string,
   payload: NotificationPayload,
-  bundleId: string = process.env.APNS_BUNDLE_ID || 'com.taime.app'
+  bundleId: string = getApnsCredentials().bundleId || 'com.taime.app'
 ): Promise<void> {
   const jwt = getApnsJwt();
   const host = process.env.APNS_ENV === 'production'
@@ -264,7 +266,7 @@ async function sendFcmV1(
 }
 
 function parseFcmServiceAccount(): ServiceAccount | null {
-  const raw = process.env.FCM_SERVICE_ACCOUNT_JSON || process.env.FCM_SERVER_KEY;
+  const raw = getFcmCredential();
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw);
@@ -419,7 +421,7 @@ export class NotificationService {
       const nativeResults = await Promise.allSettled(
         nativeTokens.map(async (entry) => {
           if (entry.platform === 'ios') {
-            if (!process.env.APNS_KEY_ID || !process.env.APNS_TEAM_ID || !process.env.APNS_KEY_P8) {
+            if (!isApnsReady()) {
               throw new Error('APNs credentials not configured');
             }
             await sendApns(entry.token, payload);

@@ -678,6 +678,13 @@ export const nativePushTokens = pgTable("native_push_tokens", {
   uniqueToken: unique("uq_native_push_tokens_token").on(t.token),
 }));
 
+// Push credential storage — admin-managed APNs/FCM credentials
+export const pushCredentials = pgTable("push_credentials", {
+  key: varchar("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // Geofence events
 export const geofenceEvents = pgTable("geofence_events", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -1130,6 +1137,7 @@ export type PushSubscription = typeof pushSubscriptions.$inferSelect;
 export type InsertPushSubscription = z.infer<typeof insertPushSubscriptionSchema>;
 export type NativePushToken = typeof nativePushTokens.$inferSelect;
 export type InsertNativePushToken = z.infer<typeof insertNativePushTokenSchema>;
+export type PushCredential = typeof pushCredentials.$inferSelect;
 export type Role = typeof roles.$inferSelect;
 export type InsertRole = z.infer<typeof insertRoleSchema>;
 export type MileageReimbursement = typeof mileageReimbursements.$inferSelect;

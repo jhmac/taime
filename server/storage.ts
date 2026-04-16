@@ -15,6 +15,7 @@ import {
   aiInsights,
   pushSubscriptions,
   nativePushTokens,
+  pushCredentials,
   roles,
   permissions,
   rolePermissions,
@@ -275,7 +276,11 @@ export interface IStorage {
   getUserNativePushTokens(userId: string): Promise<NativePushToken[]>;
   deleteNativePushToken(userId: string, token: string): Promise<void>;
   deleteStaleNativePushTokens(olderThanDays: number): Promise<number>;
-  
+
+  // Push credential operations (admin-managed APNs/FCM secrets)
+  getPushCredential(key: string): Promise<string | null>;
+  setPushCredential(key: string, value: string): Promise<void>;
+
   // Role management operations
   getUserWithRole(id: string): Promise<UserWithRole | undefined>;
   getAllRoles(): Promise<Role[]>;
@@ -1214,6 +1219,25 @@ export class DatabaseStorage implements IStorage {
       .where(sql`${nativePushTokens.updatedAt} < ${cutoff}`)
       .returning({ id: nativePushTokens.id });
     return deleted.length;
+  }
+
+  // Push credential operations (admin-managed APNs/FCM secrets)
+  async getPushCredential(key: string): Promise<string | null> {
+    const [row] = await db
+      .select()
+      .from(pushCredentials)
+      .where(eq(pushCredentials.key, key));
+    return row?.value ?? null;
+  }
+
+  async setPushCredential(key: string, value: string): Promise<void> {
+    await db
+      .insert(pushCredentials)
+      .values({ key, value })
+      .onConflictDoUpdate({
+        target: pushCredentials.key,
+        set: { value, updatedAt: new Date() },
+      });
   }
 
   // Role management operations

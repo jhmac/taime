@@ -67,6 +67,7 @@ import { startSurfacingCron, stopSurfacingCron } from "./services/sopSurfacing";
 import { startMiddayPulseCron, stopMiddayPulseCron } from "./services/middayPulse";
 import { seedShiftHandoffSOP } from "./services/shiftHandoffSeed";
 import logger from "./lib/logger";
+import { initPushCredentialStore } from "./lib/pushCredentialStore";
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
 
@@ -112,6 +113,7 @@ function stopHeartbeat() {
 
 export async function registerRoutes(app: Express): Promise<Server> {
   await setupAuth(app);
+  await initPushCredentialStore(storage);
 
   app.use(createActionLoggerMiddleware());
 
