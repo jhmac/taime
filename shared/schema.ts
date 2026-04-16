@@ -117,6 +117,14 @@ export const users = pgTable("users", {
   index("idx_users_company_id").on(table.companyId),
 ]);
 
+// Location permission status — persisted so the manager dashboard survives server restarts.
+// Records older than 24 h are treated as stale by the application layer.
+export const locationPermissions = pgTable("location_permissions", {
+  userId: varchar("user_id").primaryKey().references(() => users.id),
+  status: varchar("status", { length: 20 }).notNull(), // 'granted' | 'denied' | 'prompt' | 'unknown'
+  reportedAt: timestamp("reported_at").notNull().defaultNow(),
+});
+
 // Work locations for geofencing
 export const workLocations = pgTable("work_locations", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

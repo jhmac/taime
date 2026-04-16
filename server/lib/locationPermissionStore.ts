@@ -1,33 +1,46 @@
 /**
- * In-memory store tracking each user's last-reported location permission state.
- * This is intentionally volatile — it resets on server restart and is only used
- * for real-time manager dashboard indicators.
+ * Database-backed store tracking each user's last-reported location permission state.
+ * Persisting to the DB ensures the manager dashboard shows accurate indicators after
+ * a server restart. Records older than 24 h are treated as stale by the read helpers.
  */
 
-interface LocationPermissionRecord {
-  status: 'granted' | 'denied' | 'prompt' | 'unknown';
-  reportedAt: Date;
-}
+import { db } from "../db";
+import { locationPermissions } from "@shared/schema";
+import { eq } from "drizzle-orm";
 
-const store = new Map<string, LocationPermissionRecord>();
+type PermissionStatus = 'granted' | 'denied' | 'prompt' | 'unknown';
 
 const TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
-export function setLocationPermission(userId: string, status: LocationPermissionRecord['status']): void {
-  store.set(userId, { status, reportedAt: new Date() });
+export async function setLocationPermission(userId: string, status: PermissionStatus): Promise<void> {
+  await db
+    .insert(locationPermissions)
+    .values({ userId, status, reportedAt: new Date() })
+    .onConflictDoUpdate({
+      target: locationPermissions.userId,
+      set: { status, reportedAt: new Date() },
+    });
 }
 
-export function getLocationPermission(userId: string): LocationPermissionRecord | undefined {
-  const record = store.get(userId);
+export async function getLocationPermission(userId: string): Promise<{ status: PermissionStatus; reportedAt: Date } | undefined> {
+  const rows = await db
+    .select()
+    .from(locationPermissions)
+    .where(eq(locationPermissions.userId, userId))
+    .limit(1);
+
+  const record = rows[0];
   if (!record) return undefined;
+
   if (Date.now() - record.reportedAt.getTime() > TTL_MS) {
-    store.delete(userId);
+    await db.delete(locationPermissions).where(eq(locationPermissions.userId, userId));
     return undefined;
   }
-  return record;
+
+  return { status: record.status as PermissionStatus, reportedAt: record.reportedAt };
 }
 
-export function isLocationBlocked(userId: string): boolean {
-  const record = getLocationPermission(userId);
+export async function isLocationBlocked(userId: string): Promise<boolean> {
+  const record = await getLocationPermission(userId);
   return record?.status === 'denied';
 }

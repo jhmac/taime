@@ -1,11 +1,11 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
 import { db } from "../db";
-import { schedules, timeEntries, shopifyDailySales, userShops, users } from "@shared/schema";
-import { eq, and, gte, lte, desc, isNull, ne } from "drizzle-orm";
+import { schedules, timeEntries, shopifyDailySales, userShops, users, locationPermissions } from "@shared/schema";
+import { eq, and, gte, lte, desc, isNull, ne, inArray } from "drizzle-orm";
 import { cache } from "../lib/cache";
 import { gamificationService } from "../services/gamificationService";
-import { setLocationPermission, isLocationBlocked } from "../lib/locationPermissionStore";
+import { setLocationPermission } from "../lib/locationPermissionStore";
 
 export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
 
@@ -14,15 +14,20 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
    * Employees report their current location permission state so managers can see
    * which staff have location blocked on the Today dashboard card.
    */
-  app.post('/api/location-permission', isAuthenticated, (req: any, res) => {
-    const userId: string = req.user.id;
-    const { status } = req.body;
-    const allowed = ['granted', 'denied', 'prompt', 'unknown'];
-    if (!status || !allowed.includes(status)) {
-      return res.status(400).json({ message: 'Invalid status' });
+  app.post('/api/location-permission', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId: string = req.user.id;
+      const { status } = req.body;
+      const allowed = ['granted', 'denied', 'prompt', 'unknown'];
+      if (!status || !allowed.includes(status)) {
+        return res.status(400).json({ message: 'Invalid status' });
+      }
+      await setLocationPermission(userId, status);
+      res.json({ ok: true });
+    } catch (error) {
+      console.error('Error saving location permission:', error);
+      res.status(500).json({ message: 'Failed to save location permission' });
     }
-    setLocationPermission(userId, status);
-    res.json({ ok: true });
   });
 
   /**
@@ -166,6 +171,28 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
         entriesByUser.set(te.userId, arr);
       }
 
+      const TTL_MS = 24 * 60 * 60 * 1000;
+      const cutoff = new Date(Date.now() - TTL_MS);
+      const scheduledUserIds = [...new Set(todaySchedules.map(s => s.userId))];
+      const locationBlockedMap = new Map<string, boolean>();
+      if (scheduledUserIds.length > 0) {
+        const permRows = await db
+          .select()
+          .from(locationPermissions)
+          .where(inArray(locationPermissions.userId, scheduledUserIds));
+        const staleUserIds: string[] = [];
+        for (const row of permRows) {
+          if (row.reportedAt < cutoff) {
+            staleUserIds.push(row.userId);
+          } else {
+            locationBlockedMap.set(row.userId, row.status === 'denied');
+          }
+        }
+        if (staleUserIds.length > 0) {
+          await db.delete(locationPermissions).where(inArray(locationPermissions.userId, staleUserIds));
+        }
+      }
+
       const scheduleData = todaySchedules.map(s => {
         const user = userMap.get(s.userId);
         const userEntries = entriesByUser.get(s.userId) ?? [];
@@ -204,7 +231,7 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
           minutesLate,
           minutesUntilShift: minutesUntilShift > 0 ? minutesUntilShift : null,
           shiftPassed: minutesUntilShift <= 0 && !clockedInEntry,
-          locationBlocked: isLocationBlocked(s.userId),
+          locationBlocked: locationBlockedMap.get(s.userId) ?? false,
         };
       });
 

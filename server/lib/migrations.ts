@@ -777,6 +777,21 @@ export async function runSchemaMigrations(): Promise<void> {
     console.warn('[Migration] focus-clockout permission seed failed (non-fatal):', pgErr?.message ?? err);
   }
 
+  // Create location_permissions table if it doesn't exist (persists employee location
+  // permission status across server restarts for the manager Today dashboard).
+  try {
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS location_permissions (
+        user_id varchar PRIMARY KEY REFERENCES users(id),
+        status varchar(20) NOT NULL,
+        reported_at timestamp NOT NULL DEFAULT now()
+      )
+    `));
+  } catch (err: unknown) {
+    const pgErr = err as { message?: string };
+    console.warn('[Migration] location_permissions table creation failed (non-fatal):', pgErr?.message ?? err);
+  }
+
   // Mark any generation jobs that were still "running" when the server last shut down.
   // These are orphaned — the setImmediate background task was lost on restart — so
   // they will never complete. Reset them to "failed" so users can retry.
