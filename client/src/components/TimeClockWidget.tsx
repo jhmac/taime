@@ -102,6 +102,11 @@ export default function TimeClockWidget() {
     }
   }, [workLocations, permissionState]);
 
+  useEffect(() => {
+    if (permissionState === 'unknown') return;
+    apiRequest('POST', '/api/location-permission', { status: permissionState }).catch(() => {});
+  }, [permissionState]);
+
   const logClockEvent = useCallback(async (eventType: string, timeEntryId?: string, metadata?: any) => {
     try {
       await apiRequest('POST', '/api/clock-events', {

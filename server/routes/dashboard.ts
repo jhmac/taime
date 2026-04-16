@@ -5,8 +5,25 @@ import { schedules, timeEntries, shopifyDailySales, userShops, users } from "@sh
 import { eq, and, gte, lte, desc, isNull, ne } from "drizzle-orm";
 import { cache } from "../lib/cache";
 import { gamificationService } from "../services/gamificationService";
+import { setLocationPermission, isLocationBlocked } from "../lib/locationPermissionStore";
 
 export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
+
+  /**
+   * POST /api/location-permission
+   * Employees report their current location permission state so managers can see
+   * which staff have location blocked on the Today dashboard card.
+   */
+  app.post('/api/location-permission', isAuthenticated, (req: any, res) => {
+    const userId: string = req.user.id;
+    const { status } = req.body;
+    const allowed = ['granted', 'denied', 'prompt', 'unknown'];
+    if (!status || !allowed.includes(status)) {
+      return res.status(400).json({ message: 'Invalid status' });
+    }
+    setLocationPermission(userId, status);
+    res.json({ ok: true });
+  });
 
   /**
    * GET /api/dashboard/init
@@ -187,6 +204,7 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
           minutesLate,
           minutesUntilShift: minutesUntilShift > 0 ? minutesUntilShift : null,
           shiftPassed: minutesUntilShift <= 0 && !clockedInEntry,
+          locationBlocked: isLocationBlocked(s.userId),
         };
       });
 

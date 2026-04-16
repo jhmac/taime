@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Clock, UserCheck, AlertTriangle, Timer, Users, ChevronRight } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Clock, UserCheck, AlertTriangle, Timer, Users, ChevronRight, MapPinOff } from 'lucide-react';
 import { useLocation } from 'wouter';
 
 interface ScheduleEntry {
@@ -18,6 +19,7 @@ interface ScheduleEntry {
   minutesLate: number;
   minutesUntilShift: number | null;
   shiftPassed: boolean;
+  locationBlocked: boolean;
 }
 
 interface ClockedInEntry {
@@ -169,6 +171,20 @@ export default function TodaySchedulePanel() {
                         <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800">
                           {entry.minutesLate}m late
                         </Badge>
+                      )}
+                      {entry.locationBlocked && !entry.isClockedIn && (
+                        <TooltipProvider delayDuration={200}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="inline-flex items-center text-orange-500 dark:text-orange-400 cursor-default">
+                                <MapPinOff className="h-3.5 w-3.5" />
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-[200px] text-xs">
+                              Location access is blocked on this employee's device. They may need help enabling it before they can clock in.
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
                       )}
                     </div>
                     <div className="flex items-center gap-2 mt-0.5">
