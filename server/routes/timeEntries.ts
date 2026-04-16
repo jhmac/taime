@@ -175,7 +175,7 @@ export function registerTimeEntryRoutes(app: Express, storage: IStorage, isAuthe
       }
 
       const allowedFields = isManager
-        ? ['clockOutTime', 'breakMinutes', 'notes', 'locationId', 'isApproved', 'status', 'clockInSource', 'clockOutSource']
+        ? ['clockInTime', 'clockOutTime', 'breakMinutes', 'notes', 'locationId', 'isApproved', 'status', 'clockInSource', 'clockOutSource']
         : ['clockOutTime', 'breakMinutes', 'notes', 'clockInSource', 'clockOutSource'];
 
       const safeUpdates: Record<string, any> = {};

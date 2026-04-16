@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import { useLocation } from 'wouter';
 import { useAuth } from '@/hooks/useAuth';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -7,6 +7,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 import SurfacedSOPBanner from '@/components/SurfacedSOPBanner';
 import MiddayPulseCard from '@/components/MiddayPulseCard';
 import ImprovementFeedWidget from '@/components/ImprovementFeedWidget';
@@ -18,18 +21,64 @@ import BackgroundInsightsCard from '@/features/dashboard/BackgroundInsightsCard'
 import SOPRevisionCard from '@/features/dashboard/SOPRevisionCard';
 import CashStatusCard from '@/features/dashboard/CashStatusCard';
 import TimeClockWidget from '@/components/TimeClockWidget';
+import { apiRequest, queryClient } from '@/lib/queryClient';
+import { useToast } from '@/hooks/use-toast';
 import {
   Briefcase, ShieldCheck, AlertTriangle, TrendingUp,
   Calendar, DollarSign, ClipboardList, BarChart3, Settings,
   Bot, Clock, Video, ShoppingBag, ExternalLink,
   AlertCircle, CheckCircle2, CalendarDays, Inbox, CalendarCheck, Zap, ArrowRight,
+  LogOut, Moon,
 } from 'lucide-react';
+
+type ClockOutTarget = {
+  timeEntryId: string;
+  userId: string;
+  userName: string;
+  clockInTime: string;
+  isOvernightShift: boolean;
+};
+
+function toLocalDatetimeValue(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
 
 export default function OwnerDashboard() {
   const { user } = useAuth();
   const isMobile = useIsMobile();
   const [, navigate] = useLocation();
   const [currentTime, setCurrentTime] = useState(new Date());
+  const { toast } = useToast();
+
+  // Admin clock-out dialog state
+  const [clockOutTarget, setClockOutTarget] = useState<ClockOutTarget | null>(null);
+  const [clockInEdit, setClockInEdit] = useState('');
+  const [clockOutEdit, setClockOutEdit] = useState('');
+
+  const openClockOut = (emp: ClockOutTarget) => {
+    setClockOutTarget(emp);
+    setClockInEdit(toLocalDatetimeValue(new Date(emp.clockInTime)));
+    setClockOutEdit(toLocalDatetimeValue(new Date()));
+  };
+
+  const clockOutMutation = useMutation({
+    mutationFn: (vars: { id: string; clockInTime: string; clockOutTime: string }) =>
+      apiRequest('PATCH', `/api/time-entries/${vars.id}`, {
+        clockInTime: new Date(vars.clockInTime).toISOString(),
+        clockOutTime: new Date(vars.clockOutTime).toISOString(),
+        editReason: 'Admin clock-out from dashboard',
+      }),
+    onSuccess: () => {
+      toast({ title: 'Clocked out', description: `${clockOutTarget?.userName} has been clocked out.` });
+      setClockOutTarget(null);
+      queryClient.invalidateQueries({ queryKey: ['/api/dashboard/today'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/dashboard/today-summary'] });
+    },
+    onError: () => {
+      toast({ title: 'Error', description: 'Could not clock out. Please try again.', variant: 'destructive' });
+    },
+  });
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 60000);
@@ -310,33 +359,41 @@ export default function OwnerDashboard() {
                 }
 
                 return (
-                  <div className="space-y-2">
+                  <div className="space-y-1.5">
                     {sorted.map((s: any, i: number) => {
                       const clockedEntry = clockedInMap.get(s.userName);
                       const isOnShift = s.isClockedIn || !!clockedEntry;
+                      const overnight = s.isOvernightShift || clockedEntry?.isOvernightShift;
+                      const teId = s.timeEntryId || clockedEntry?.timeEntryId;
+                      const cinTime = s.clockInTime || clockedEntry?.clockInTime;
                       return (
-                        <div key={s.scheduleId || i} className="flex items-center justify-between min-h-[28px]">
+                        <div key={s.scheduleId || i} className="flex items-center justify-between min-h-[32px] gap-2">
                           <div className="flex items-center gap-1.5 min-w-0 flex-1">
                             <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isOnShift ? 'bg-green-500' : 'bg-blue-400'}`} />
                             <span className="text-xs font-medium truncate">{s.userName}</span>
-                            {isOnShift && clockedEntry?.isLate && (
+                            {overnight && (
+                              <span className="text-[10px] bg-amber-100 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded-full shrink-0 font-semibold flex items-center gap-0.5">
+                                <Moon className="h-2.5 w-2.5" />overnight
+                              </span>
+                            )}
+                            {isOnShift && (clockedEntry?.isLate || s.isLate) && !overnight && (
                               <span className="text-[10px] bg-red-100 dark:bg-red-950/30 text-red-600 dark:text-red-400 px-1.5 py-0.5 rounded-full shrink-0 font-semibold">
-                                {clockedEntry.minutesLate}m late
+                                {(clockedEntry?.minutesLate || s.minutesLate)}m late
                               </span>
                             )}
                           </div>
-                          <div className="shrink-0 ml-2 text-right">
+                          <div className="flex items-center gap-2 shrink-0">
                             {isOnShift ? (
-                              <>
+                              <div className="text-right">
                                 <span className="text-[10px] text-muted-foreground block">
                                   sched {new Date(s.startTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
                                 </span>
-                                {clockedEntry && (
+                                {cinTime && (
                                   <span className="text-[10px] text-green-600 dark:text-green-400 block">
-                                    in {new Date(clockedEntry.clockInTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
+                                    in {new Date(cinTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
                                   </span>
                                 )}
-                              </>
+                              </div>
                             ) : (
                               <span className="text-xs text-muted-foreground">
                                 {new Date(s.startTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
@@ -344,24 +401,65 @@ export default function OwnerDashboard() {
                                 {new Date(s.endTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
                               </span>
                             )}
+                            {isOnShift && teId && cinTime && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-6 px-2 text-[10px] text-red-600 border-red-200 hover:bg-red-50 dark:hover:bg-red-950/20 shrink-0"
+                                onClick={() => openClockOut({
+                                  timeEntryId: teId,
+                                  userId: s.userId,
+                                  userName: s.userName,
+                                  clockInTime: cinTime,
+                                  isOvernightShift: !!overnight,
+                                })}
+                              >
+                                <LogOut className="h-2.5 w-2.5 mr-1" />
+                                Clock out
+                              </Button>
+                            )}
                           </div>
                         </div>
                       );
                     })}
                     {unscheduledOnShift.map((emp: any) => (
-                      <div key={emp.userId} className="flex items-center justify-between min-h-[28px]">
+                      <div key={emp.userId} className="flex items-center justify-between min-h-[32px] gap-2">
                         <div className="flex items-center gap-1.5 min-w-0 flex-1">
                           <div className="w-1.5 h-1.5 bg-green-500 rounded-full shrink-0" />
                           <span className="text-xs font-medium truncate">{emp.userName}</span>
-                          {emp.isLate && (
+                          {emp.isOvernightShift && (
+                            <span className="text-[10px] bg-amber-100 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded-full shrink-0 font-semibold flex items-center gap-0.5">
+                              <Moon className="h-2.5 w-2.5" />overnight
+                            </span>
+                          )}
+                          {emp.isLate && !emp.isOvernightShift && (
                             <span className="text-[10px] bg-red-100 dark:bg-red-950/30 text-red-600 dark:text-red-400 px-1.5 py-0.5 rounded-full shrink-0 font-semibold">
                               {emp.minutesLate}m late
                             </span>
                           )}
                         </div>
-                        <span className="text-[10px] text-green-600 dark:text-green-400 shrink-0 ml-2">
-                          in {new Date(emp.clockInTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
-                        </span>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="text-[10px] text-green-600 dark:text-green-400">
+                            in {new Date(emp.clockInTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
+                          </span>
+                          {emp.timeEntryId && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-6 px-2 text-[10px] text-red-600 border-red-200 hover:bg-red-50 dark:hover:bg-red-950/20 shrink-0"
+                              onClick={() => openClockOut({
+                                timeEntryId: emp.timeEntryId,
+                                userId: emp.userId,
+                                userName: emp.userName,
+                                clockInTime: emp.clockInTime,
+                                isOvernightShift: !!emp.isOvernightShift,
+                              })}
+                            >
+                              <LogOut className="h-2.5 w-2.5 mr-1" />
+                              Clock out
+                            </Button>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -633,6 +731,58 @@ export default function OwnerDashboard() {
           </div>
         </DashboardErrorBoundary>
       </div>
+
+      {/* Admin clock-out / time-adjust dialog */}
+      <Dialog open={!!clockOutTarget} onOpenChange={(open) => { if (!open) setClockOutTarget(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Clock out {clockOutTarget?.userName}</DialogTitle>
+          </DialogHeader>
+          {clockOutTarget?.isOvernightShift && (
+            <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 text-xs bg-amber-50 dark:bg-amber-950/30 px-3 py-2 rounded-md">
+              <Moon className="h-3.5 w-3.5 shrink-0" />
+              This employee has been clocked in since yesterday. Please verify the times below.
+            </div>
+          )}
+          <div className="space-y-4 py-1">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">Clock-in time</Label>
+              <Input
+                type="datetime-local"
+                value={clockInEdit}
+                onChange={e => setClockInEdit(e.target.value)}
+                className="text-sm"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium">Clock-out time</Label>
+              <Input
+                type="datetime-local"
+                value={clockOutEdit}
+                onChange={e => setClockOutEdit(e.target.value)}
+                className="text-sm"
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" size="sm" onClick={() => setClockOutTarget(null)}>Cancel</Button>
+            <Button
+              size="sm"
+              disabled={clockOutMutation.isPending || !clockInEdit || !clockOutEdit}
+              onClick={() => {
+                if (!clockOutTarget) return;
+                clockOutMutation.mutate({
+                  id: clockOutTarget.timeEntryId,
+                  clockInTime: clockInEdit,
+                  clockOutTime: clockOutEdit,
+                });
+              }}
+            >
+              {clockOutMutation.isPending ? 'Saving…' : 'Confirm Clock Out'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
     </div>
   );

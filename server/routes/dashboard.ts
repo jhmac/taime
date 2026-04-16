@@ -253,12 +253,14 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
           endTime: s.endTime,
           title: s.title,
           isClockedIn: !!clockedInEntry,
+          timeEntryId: clockedInEntry?.id || null,
           clockInTime: firstClockIn?.clockInTime || null,
           isLate,
           minutesLate,
           minutesUntilShift: minutesUntilShift > 0 ? minutesUntilShift : null,
           shiftPassed: minutesUntilShift <= 0 && !clockedInEntry,
           locationBlocked: locationBlockedMap.get(s.userId) ?? false,
+          isOvernightShift: clockedInEntry ? new Date(clockedInEntry.clockInTime) < startOfDay : false,
         };
       });
 
@@ -280,6 +282,7 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
         const hoursWorked = (now.getTime() - new Date(te.clockInTime).getTime()) / 3600000;
 
         return {
+          timeEntryId: te.id,
           userId: te.userId,
           userName: user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() : 'Unknown',
           profileImageUrl: user?.profileImageUrl || null,
@@ -288,6 +291,7 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
           isLate,
           minutesLate,
           locationId: te.locationId,
+          isOvernightShift: new Date(te.clockInTime) < startOfDay,
         };
       });
 
