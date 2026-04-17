@@ -63,9 +63,14 @@ function TimeEditCard({
   value: string;
   onChange: (v: string) => void;
 }) {
+  const dateRef = useRef<HTMLInputElement>(null);
+  const timeRef = useRef<HTMLInputElement>(null);
+
   if (!value || !value.includes('T')) return null;
-  const [datePart, timePart] = value.split('T');
-  const d = new Date(value);
+  const [datePart, rawTime] = value.split('T');
+  // Normalise to "HH:MM" — some browsers return "HH:MM:SS" from the picker
+  const timePart = rawTime?.slice(0, 5) ?? '';
+  const d = new Date(`${datePart}T${timePart}`);
   const dateLabel = isNaN(d.getTime())
     ? datePart
     : d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
@@ -73,32 +78,53 @@ function TimeEditCard({
     ? timePart
     : d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
 
+  const openDate = () => {
+    const el = dateRef.current;
+    if (!el) return;
+    try { el.showPicker(); } catch { el.focus(); el.click(); }
+  };
+  const openTime = () => {
+    const el = timeRef.current;
+    if (!el) return;
+    try { el.showPicker(); } catch { el.focus(); el.click(); }
+  };
+
   return (
     <div className="space-y-2">
       <p className={`text-[10px] uppercase tracking-widest font-bold ${labelColor}`}>{label}</p>
       <div className="flex gap-2">
-        {/* Date card */}
-        <div className="relative flex-1 h-16 bg-muted/50 hover:bg-muted rounded-2xl overflow-hidden flex items-center justify-center cursor-pointer active:scale-[0.98] transition-transform">
+        {/* Date card — clicking the visible card calls showPicker() on the hidden input */}
+        <div
+          className="relative flex-1 h-16 bg-muted/50 hover:bg-muted rounded-2xl flex items-center justify-center cursor-pointer active:scale-[0.98] transition-transform select-none"
+          onClick={openDate}
+        >
           <input
+            ref={dateRef}
             type="date"
             value={datePart}
             onChange={e => onChange(`${e.target.value}T${timePart}`)}
-            className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+            className="sr-only"
+            tabIndex={-1}
           />
-          <div className="text-center pointer-events-none">
+          <div className="text-center">
             <p className="text-[9px] text-muted-foreground uppercase tracking-wide mb-0.5">Date</p>
             <p className="text-sm font-semibold leading-tight">{dateLabel}</p>
           </div>
         </div>
         {/* Time card */}
-        <div className="relative h-16 px-5 bg-muted/50 hover:bg-muted rounded-2xl overflow-hidden flex items-center justify-center cursor-pointer active:scale-[0.98] transition-transform">
+        <div
+          className="relative h-16 px-5 bg-muted/50 hover:bg-muted rounded-2xl flex items-center justify-center cursor-pointer active:scale-[0.98] transition-transform select-none"
+          onClick={openTime}
+        >
           <input
+            ref={timeRef}
             type="time"
             value={timePart}
-            onChange={e => onChange(`${datePart}T${e.target.value}`)}
-            className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+            onChange={e => onChange(`${datePart}T${e.target.value.slice(0, 5)}`)}
+            className="sr-only"
+            tabIndex={-1}
           />
-          <div className="text-center pointer-events-none">
+          <div className="text-center">
             <p className="text-[9px] text-muted-foreground uppercase tracking-wide mb-0.5">Time</p>
             <p className="text-2xl font-bold tabular-nums leading-tight">{timeLabel}</p>
           </div>
