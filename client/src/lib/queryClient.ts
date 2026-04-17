@@ -1,23 +1,51 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 import { reportApiError } from "./errorReporter";
 
-async function throwIfResNotOk(res: Response) {
-  if (!res.ok) {
-    const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
-  }
+// ── Clerk JWT cache ──────────────────────────────────────────────────────────
+// Clerk caches tokens internally, but calling getToken() is still an async
+// Promise resolution that adds overhead when the app fires many parallel
+// requests at once. We cache the raw JWT here and skip the Clerk call until
+// the token is within 60 seconds of expiry.
+interface CachedToken {
+  token: string;
+  exp: number; // Unix seconds
+}
+let _cachedToken: CachedToken | null = null;
+
+/** Call this whenever a Clerk session-ended event fires. */
+export function clearTokenCache(): void {
+  _cachedToken = null;
 }
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
   try {
     if (typeof window !== 'undefined' && (window as any).Clerk) {
+      const nowSecs = Date.now() / 1000;
+      // Use cached token if it still has more than 60 seconds of life left
+      if (_cachedToken && _cachedToken.exp > nowSecs + 60) {
+        return { Authorization: `Bearer ${_cachedToken.token}` };
+      }
       const token = await (window as any).Clerk.session?.getToken();
       if (token) {
+        // Decode the exp claim from the JWT payload (no external library needed)
+        try {
+          const payload = JSON.parse(atob(token.split('.')[1]));
+          _cachedToken = { token, exp: payload.exp as number };
+        } catch {
+          // If decoding fails, still use the token but don't cache it
+        }
         return { Authorization: `Bearer ${token}` };
       }
     }
   } catch {}
   return {};
+}
+
+async function throwIfResNotOk(res: Response) {
+  if (!res.ok) {
+    const text = (await res.text()) || res.statusText;
+    throw new Error(`${res.status}: ${text}`);
+  }
 }
 
 export async function apiRequest(
@@ -42,7 +70,7 @@ export async function apiRequest(
 
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
-    let parsed: any;
+    let parsed: unknown;
     try { parsed = JSON.parse(text); } catch { parsed = text; }
     reportApiError(method, url, res.status, parsed);
     throw new Error(`${res.status}: ${text}`);
@@ -69,7 +97,7 @@ export const getQueryFn: <T>(options: {
 
     if (!res.ok) {
       const text = (await res.text()) || res.statusText;
-      let parsed: any;
+      let parsed: unknown;
       try { parsed = JSON.parse(text); } catch { parsed = text; }
       reportApiError('GET', url.split('?')[0], res.status, parsed);
       throw new Error(`${res.status}: ${text}`);

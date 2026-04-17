@@ -24,6 +24,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Search,
   Plus,
@@ -292,8 +293,45 @@ export default function Team() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-24">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      <div className="p-4 lg:p-6 space-y-4">
+        <div className="flex items-center gap-3">
+          <Skeleton className="h-9 flex-1 max-w-xs rounded-md" />
+          <Skeleton className="h-9 w-24 rounded-md" />
+          <Skeleton className="h-9 w-28 rounded-md" />
+        </div>
+        <div className="rounded-lg border bg-card overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-muted/50">
+                {['Team Member', 'Contact', 'Access', 'Location', 'Role', 'Status'].map(h => (
+                  <th key={h} className="text-left p-3 font-medium">
+                    <Skeleton className="h-3.5 w-16 rounded" />
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {Array.from({ length: 5 }).map((_, i) => (
+                <tr key={i} className="border-b last:border-0">
+                  <td className="p-3">
+                    <div className="flex items-center gap-3">
+                      <Skeleton className="h-9 w-9 rounded-full shrink-0" />
+                      <div className="space-y-1.5">
+                        <Skeleton className="h-3.5 w-28 rounded" />
+                        <Skeleton className="h-3 w-16 rounded" />
+                      </div>
+                    </div>
+                  </td>
+                  <td className="p-3"><Skeleton className="h-3.5 w-36 rounded" /></td>
+                  <td className="p-3"><Skeleton className="h-5 w-16 rounded-full" /></td>
+                  <td className="p-3"><Skeleton className="h-3.5 w-20 rounded" /></td>
+                  <td className="p-3"><Skeleton className="h-5 w-20 rounded-full" /></td>
+                  <td className="p-3"><Skeleton className="h-5 w-16 rounded-full" /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     );
   }

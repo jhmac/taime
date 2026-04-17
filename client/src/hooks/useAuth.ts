@@ -2,6 +2,7 @@ import { useUser, useAuth as useClerkAuth } from "@clerk/clerk-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { UserWithRole } from "@shared/schema";
 import { useEffect, useRef } from "react";
+import { clearTokenCache } from "@/lib/queryClient";
 
 export function useAuth() {
   const { user: clerkUser, isLoaded, isSignedIn } = useUser();
@@ -59,6 +60,7 @@ export function useAuth() {
     }
     if (!isSignedIn) {
       hasSynced.current = false;
+      clearTokenCache();
     }
   }, [isLoaded, isSignedIn, clerkUser, syncedUser, getToken, queryClient]);
 

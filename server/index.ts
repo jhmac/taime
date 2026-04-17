@@ -1,6 +1,7 @@
 import path from "path";
 import express, { type Request, Response, NextFunction } from "express";
 import helmet from "helmet";
+import compression from "compression";
 import rateLimit from "express-rate-limit";
 import fs from "fs";
 import { registerRoutes } from "./routes";
@@ -34,6 +35,11 @@ process.on('unhandledRejection', (reason: any) => {
 const app = express();
 
 app.set('trust proxy', 1);
+
+// Compress all HTTP responses (gzip/deflate). Must be registered before any
+// route or static-file handler so that both API JSON and served assets are
+// compressed. Reduces JSON payloads by 60–80% and JS bundles by 50–70%.
+app.use(compression());
 
 app.use(helmet({
   contentSecurityPolicy: false,

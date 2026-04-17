@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { useLocation } from "wouter";
@@ -462,8 +463,45 @@ export default function ScheduleManagement() {
 
   if (schedulesLoading || usersLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      <div className="min-h-screen bg-background p-4 md:p-6">
+        <div className="max-w-lg mx-auto space-y-4">
+          {/* Week range label */}
+          <Skeleton className="h-4 w-40 mx-auto rounded" />
+          {/* Week navigator: prev arrow + 7 day circles + next arrow */}
+          <div className="flex items-center justify-between">
+            <Skeleton className="h-8 w-8 rounded-md" />
+            <div className="flex gap-1">
+              {Array.from({ length: 7 }).map((_, i) => (
+                <div key={i} className="flex flex-col items-center gap-1">
+                  <Skeleton className="h-3 w-6 rounded" />
+                  <Skeleton className="h-9 w-9 rounded-full" />
+                </div>
+              ))}
+            </div>
+            <Skeleton className="h-8 w-8 rounded-md" />
+          </div>
+          {/* Filter pills */}
+          <div className="flex gap-2 justify-center">
+            {[60, 56, 68].map((w, i) => (
+              <Skeleton key={i} className={`h-7 w-${w < 60 ? 14 : w === 60 ? 16 : 18} rounded-full`} style={{ width: `${w}px` }} />
+            ))}
+          </div>
+          {/* Skeleton shift cards */}
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="rounded-lg border bg-card p-3 space-y-2">
+              <Skeleton className="h-3.5 w-32 rounded" />
+              {Array.from({ length: i === 1 ? 2 : 1 }).map((_, j) => (
+                <div key={j} className="rounded border p-2 bg-muted/30 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <Skeleton className="h-4 w-36 rounded" />
+                    <Skeleton className="h-3 w-8 rounded" />
+                  </div>
+                  <Skeleton className="h-3 w-24 rounded" />
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
