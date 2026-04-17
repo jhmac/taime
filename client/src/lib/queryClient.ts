@@ -27,12 +27,19 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
       }
       const token = await (window as any).Clerk.session?.getToken();
       if (token) {
-        // Decode the exp claim from the JWT payload (no external library needed)
+        // Decode the exp claim from the JWT payload.
+        // JWTs use base64url (URL-safe alphabet, no padding), so we must
+        // substitute `-`→`+` and `_`→`/` then add `=` padding before atob.
         try {
-          const payload = JSON.parse(atob(token.split('.')[1]));
-          _cachedToken = { token, exp: payload.exp as number };
+          const b64url = token.split('.')[1];
+          const b64 = b64url.replace(/-/g, '+').replace(/_/g, '/');
+          const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
+          const payload = JSON.parse(atob(padded)) as Record<string, unknown>;
+          if (typeof payload.exp === 'number') {
+            _cachedToken = { token, exp: payload.exp };
+          }
         } catch {
-          // If decoding fails, still use the token but don't cache it
+          // If decoding fails, use the token for this request without caching
         }
         return { Authorization: `Bearer ${token}` };
       }

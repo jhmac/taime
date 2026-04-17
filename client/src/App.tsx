@@ -1,8 +1,8 @@
 import { useState, useEffect, lazy, Suspense, Component, type ReactNode, type ErrorInfo } from "react";
 import { Switch, Route, useLocation } from "wouter";
-import { queryClient } from "./lib/queryClient";
+import { queryClient, clearTokenCache } from "./lib/queryClient";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
-import { ClerkProvider, SignedIn, SignedOut, ClerkLoading, ClerkLoaded, AuthenticateWithRedirectCallback } from "@clerk/clerk-react";
+import { ClerkProvider, SignedIn, SignedOut, ClerkLoading, ClerkLoaded, AuthenticateWithRedirectCallback, useClerk } from "@clerk/clerk-react";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
@@ -16,6 +16,19 @@ import OfflineIndicator from "@/components/OfflineIndicator";
 import { WebSocketProvider } from "@/contexts/WebSocketContext";
 import type { Permission } from "@shared/schema";
 const OnboardingGuard = lazy(() => import("@/components/OnboardingGuard"));
+
+// Listens to Clerk's session lifecycle events and evicts the cached JWT
+// immediately when the session ends — ensuring the module-level token cache
+// in queryClient.ts never serves a stale token after sign-out.
+function ClerkSessionWatcher() {
+  const clerk = useClerk();
+  useEffect(() => {
+    return clerk.addListener(({ session }) => {
+      if (!session) clearTokenCache();
+    });
+  }, [clerk]);
+  return null;
+}
 
 class AppErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: Error | null }> {
   constructor(props: { children: ReactNode }) {
@@ -524,6 +537,7 @@ function App() {
   return (
     <AppErrorBoundary>
       <ClerkProvider publishableKey={clerkKey}>
+        <ClerkSessionWatcher />
         <QueryClientProvider client={queryClient}>
           <WebSocketProvider>
             <TooltipProvider>
