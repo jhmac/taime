@@ -11,7 +11,7 @@ import type { WorkLocation, CompanySettings, ActivityLog, HolidayPayRule } from 
 import {
   Settings, MapPin, Calendar, Clock, DollarSign, Users, User, Bell,
   Shield, FileText, MessageSquare, Store, Menu, X, ChevronRight,
-  ExternalLink, Trophy, BookOpen, BrainCircuit, Building2
+  ExternalLink, Trophy, BookOpen, BrainCircuit, Building2, Target
 } from 'lucide-react';
 
 import BasicInfoSection from '@/components/settings/BasicInfoSection';
@@ -35,6 +35,7 @@ import WorkPatternsSection from '@/components/settings/WorkPatternsSection';
 import GeofenceMapSection from '@/components/settings/GeofenceMapSection';
 import OffsiteAllowanceSection from '@/components/settings/OffsiteAllowanceSection';
 import StoreLocationsSection from '@/components/settings/StoreLocationsSection';
+import DailySalesGoalSection from '@/components/settings/DailySalesGoalSection';
 
 const SIDEBAR_SECTIONS = [
   {
@@ -45,6 +46,7 @@ const SIDEBAR_SECTIONS = [
       { id: 'geofencing', label: 'Geofencing', icon: Shield },
       { id: 'offsite-allowances', label: 'Off-site allowances', icon: MapPin },
       { id: 'pos-connection', label: 'POS connection', icon: Store },
+      { id: 'daily-sales-goal', label: 'Daily sales goal', icon: Target },
     ],
   },
   {
@@ -250,6 +252,9 @@ export default function AdminSettings() {
         requireMobileClockIn: settings.requireMobileClockIn || false,
         defaultMileageRateCents: settings.defaultMileageRateCents ?? 0,
         taskAutoAssign: settings.taskAutoAssign ?? false,
+        dailySalesGoalEnabled: settings.dailySalesGoalEnabled ?? false,
+        salesGoalIncreaseType: settings.salesGoalIncreaseType || 'percentage',
+        salesGoalIncreaseValue: settings.salesGoalIncreaseValue ?? 0,
       });
     }
   }, [settings]);
@@ -521,6 +526,8 @@ export default function AdminSettings() {
             handleUpdateLocation={handleUpdateLocation}
           />
         );
+      case 'daily-sales-goal':
+        return <DailySalesGoalSection settingsForm={settingsForm} updateForm={updateForm} />;
       case 'pos-connection':
         return (
           <PosConnectionSection

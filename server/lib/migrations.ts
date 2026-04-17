@@ -107,6 +107,19 @@ export async function runSchemaMigrations(): Promise<void> {
       table: "company_settings",
       sql: `ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS task_auto_assign boolean DEFAULT false`,
     },
+    // company_settings: daily sales goal feature
+    {
+      table: "company_settings",
+      sql: `ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS daily_sales_goal_enabled boolean DEFAULT false`,
+    },
+    {
+      table: "company_settings",
+      sql: `ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS sales_goal_increase_type varchar DEFAULT 'percentage'`,
+    },
+    {
+      table: "company_settings",
+      sql: `ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS sales_goal_increase_value numeric(10,2) DEFAULT 0`,
+    },
     // offsite_sessions: route polyline for map rendering
     {
       table: "offsite_sessions",

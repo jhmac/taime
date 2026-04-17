@@ -485,6 +485,9 @@ export const companySettings = pgTable("company_settings", {
   requireMobileClockIn: boolean("require_mobile_clock_in").default(false),
   defaultMileageRateCents: integer("default_mileage_rate_cents").default(0),
   taskAutoAssign: boolean("task_auto_assign").default(false),
+  dailySalesGoalEnabled: boolean("daily_sales_goal_enabled").default(false),
+  salesGoalIncreaseType: varchar("sales_goal_increase_type").default("percentage"),
+  salesGoalIncreaseValue: decimal("sales_goal_increase_value", { precision: 10, scale: 2 }).default("0"),
   version: integer("version").default(1).notNull(),
 });
 

@@ -316,43 +316,69 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
     try {
       const now = new Date();
       const todayDow = now.getDay();
+      const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+      // Load company settings to check if feature is enabled and get increase config
+      const companySettings = await storage.getCompanySettings();
+      const goalEnabled = companySettings?.dailySalesGoalEnabled ?? false;
 
       const userShopRows = await db.select({ shopDomain: userShops.shopDomain }).from(userShops).limit(1);
       if (userShopRows.length === 0) {
-        return res.json({ hasGoal: false, message: "No Shopify store connected" });
+        return res.json({ hasGoal: false, goalEnabled, message: "No Shopify store connected" });
       }
 
       const shopDomain = userShopRows[0].shopDomain;
 
-      const oneYearAgo = new Date(now);
-      oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-      const twoYearsAgo = new Date(now);
-      twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+      // Find the closest same-day-of-week from approximately one year ago (look in a ±4 week window around exactly 52 weeks back)
+      const exactlyOneYearAgo = new Date(now);
+      exactlyOneYearAgo.setFullYear(exactlyOneYearAgo.getFullYear() - 1);
+      const windowStart = new Date(exactlyOneYearAgo);
+      windowStart.setDate(windowStart.getDate() - 28);
+      const windowEnd = new Date(exactlyOneYearAgo);
+      windowEnd.setDate(windowEnd.getDate() + 28);
 
       const lastYearSales = await db.select({
           date: shopifyDailySales.date,
           totalRevenue: shopifyDailySales.totalRevenue,
           orderCount: shopifyDailySales.orderCount,
+          averageOrderValue: shopifyDailySales.averageOrderValue,
         })
         .from(shopifyDailySales)
         .where(and(
           eq(shopifyDailySales.shopDomain, shopDomain),
           eq(shopifyDailySales.dayOfWeek, todayDow),
-          gte(shopifyDailySales.date, twoYearsAgo),
-          lte(shopifyDailySales.date, oneYearAgo)
+          gte(shopifyDailySales.date, windowStart),
+          lte(shopifyDailySales.date, windowEnd)
         ))
         .orderBy(desc(shopifyDailySales.date));
 
       if (lastYearSales.length === 0) {
-        return res.json({ hasGoal: false, message: "No sales data for this day from last year" });
+        return res.json({ hasGoal: false, goalEnabled, message: "No sales data for this day from last year" });
       }
 
-      const closestSameDay = lastYearSales[0];
-      const avgRevenue = lastYearSales.reduce((sum, s) => sum + parseFloat(s.totalRevenue || '0'), 0) / lastYearSales.length;
-      const avgOrders = lastYearSales.reduce((sum, s) => sum + (s.orderCount || 0), 0) / lastYearSales.length;
+      // Use the closest same-day entry from last year
+      const lastYearEntry = lastYearSales[0];
+      const lastYearRevenue = parseFloat(lastYearEntry.totalRevenue || '0');
+      const lastYearOrders = lastYearEntry.orderCount || 0;
+      const avgOrderValue = lastYearOrders > 0
+        ? parseFloat(lastYearEntry.averageOrderValue || '0') || (lastYearRevenue / lastYearOrders)
+        : 0;
 
-      const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      // Apply increase
+      const increaseType = companySettings?.salesGoalIncreaseType ?? 'percentage';
+      const increaseValue = parseFloat(String(companySettings?.salesGoalIncreaseValue ?? '0'));
+      let increaseAmount = 0;
+      if (increaseType === 'percentage') {
+        increaseAmount = Math.round(lastYearRevenue * (increaseValue / 100) * 100) / 100;
+      } else {
+        increaseAmount = increaseValue;
+      }
+      const goalRevenue = Math.round((lastYearRevenue + increaseAmount) * 100) / 100;
+      const goalOrders = lastYearOrders > 0 && avgOrderValue > 0
+        ? Math.ceil(goalRevenue / avgOrderValue)
+        : lastYearOrders;
 
+      // Fetch today's current sales
       const todaySales = await db.select({
           totalRevenue: shopifyDailySales.totalRevenue,
           orderCount: shopifyDailySales.orderCount,
@@ -367,21 +393,32 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
 
       const currentRevenue = todaySales.length > 0 ? parseFloat(todaySales[0].totalRevenue || '0') : 0;
       const currentOrders = todaySales.length > 0 ? (todaySales[0].orderCount || 0) : 0;
+      const amountRemaining = Math.max(goalRevenue - currentRevenue, 0);
+      const salesNeeded = avgOrderValue > 0 ? Math.ceil(amountRemaining / avgOrderValue) : 0;
+      const progress = goalRevenue > 0 ? Math.min(Math.round((currentRevenue / goalRevenue) * 100), 100) : 0;
 
       res.json({
         hasGoal: true,
+        goalEnabled,
         dayName: dayNames[todayDow],
+        lastYearRevenue,
+        lastYearOrders,
+        lastYearDate: lastYearEntry.date,
+        increaseType,
+        increaseValue,
+        increaseAmount,
+        averageOrderValue: Math.round(avgOrderValue * 100) / 100,
         goal: {
-          revenue: Math.round(avgRevenue * 100) / 100,
-          orders: Math.round(avgOrders),
-          basedOnDate: closestSameDay.date,
-          sampleSize: lastYearSales.length,
+          revenue: goalRevenue,
+          orders: goalOrders,
         },
         current: {
           revenue: currentRevenue,
           orders: currentOrders,
         },
-        progress: avgRevenue > 0 ? Math.min(Math.round((currentRevenue / avgRevenue) * 100), 100) : 0,
+        amountRemaining,
+        salesNeeded,
+        progress,
       });
     } catch (error) {
       console.error("Error fetching daily goal:", error);
