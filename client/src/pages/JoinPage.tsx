@@ -191,6 +191,10 @@ export default function JoinPage() {
                 <Link href="/terms" className="underline hover:text-gray-900">
                   Terms of Service
                 </Link>
+                {" "}and{" "}
+                <Link href="/privacy" className="underline hover:text-gray-900">
+                  Privacy Policy
+                </Link>
               </p>
             </div>
 
