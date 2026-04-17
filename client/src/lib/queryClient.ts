@@ -1,6 +1,10 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 import { reportApiError } from "./errorReporter";
 
+// Default client-side timeout for every network request (ms).
+// Keeps the app responsive on slow mobile connections.
+export const REQUEST_TIMEOUT_MS = 15_000;
+
 declare global {
   interface Window {
     Clerk?: {
@@ -53,7 +57,7 @@ export async function apiRequest(
   method: string,
   url: string,
   data?: unknown,
-  options?: { signal?: AbortSignal },
+  options?: { signal?: AbortSignal; timeoutMs?: number },
 ): Promise<Response> {
   const authHeaders = await getAuthHeaders();
   const headers: Record<string, string> = { ...authHeaders };
@@ -61,13 +65,32 @@ export async function apiRequest(
     headers["Content-Type"] = "application/json";
   }
 
-  const res = await fetch(url, {
-    method,
-    headers,
-    body: data ? JSON.stringify(data) : undefined,
-    credentials: "include",
-    signal: options?.signal,
-  });
+  // If the caller didn't supply an AbortSignal, create a timeout-based one
+  // so requests never hang indefinitely on slow connections.
+  const callerSignal = options?.signal;
+  const timeoutMs = options?.timeoutMs ?? REQUEST_TIMEOUT_MS;
+  const timeoutController = new AbortController();
+  const timeoutId = setTimeout(() => timeoutController.abort(new DOMException('Request timed out', 'TimeoutError')), timeoutMs);
+
+  // Combine caller signal + timeout signal
+  const signal = callerSignal
+    ? AbortSignal.any
+      ? AbortSignal.any([callerSignal, timeoutController.signal])
+      : timeoutController.signal
+    : timeoutController.signal;
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method,
+      headers,
+      body: data ? JSON.stringify(data) : undefined,
+      credentials: "include",
+      signal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
@@ -84,13 +107,30 @@ export const getQueryFn: <T>(options: {
   on401: UnauthorizedBehavior;
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
-  async ({ queryKey }) => {
+  async ({ queryKey, signal: querySignal }) => {
     const authHeaders = await getAuthHeaders();
     const url = queryKey.join("/") as string;
-    const res = await fetch(url, {
-      credentials: "include",
-      headers: { ...authHeaders },
-    });
+
+    // Apply a client-side timeout so queries never hang indefinitely.
+    const timeoutController = new AbortController();
+    const timeoutId = setTimeout(
+      () => timeoutController.abort(new DOMException('Request timed out', 'TimeoutError')),
+      REQUEST_TIMEOUT_MS,
+    );
+    const signal = querySignal && AbortSignal.any
+      ? AbortSignal.any([querySignal, timeoutController.signal])
+      : timeoutController.signal;
+
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        credentials: "include",
+        headers: { ...authHeaders },
+        signal,
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
       return null;

@@ -7,6 +7,19 @@ import { cache } from "../lib/cache";
 import { gamificationService } from "../services/gamificationService";
 import { setLocationPermission } from "../lib/locationPermissionStore";
 
+// Maximum time the init endpoint will wait for DB queries before responding
+// with a 503 so the client can show a retry prompt rather than hanging.
+const SERVER_INIT_TIMEOUT_MS = 12_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+    ),
+  ]);
+}
+
 export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
 
   /**
@@ -37,15 +50,23 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
    * and (for employees) gamification score, (for managers/owners) today's summary.
    */
   app.get('/api/dashboard/init', isAuthenticated, async (req: any, res) => {
+    // Record absolute deadline so every async branch shares the same budget.
+    const deadlineAt = Date.now() + SERVER_INIT_TIMEOUT_MS;
+    const remaining = () => Math.max(0, deadlineAt - Date.now());
+
     try {
       const userId: string = req.user.id;
 
-      const [userWithRole, activeTimeEntry, permissions, companySettings] = await Promise.all([
-        storage.getUserWithRole(userId),
-        storage.getActiveTimeEntry(userId),
-        storage.getUserPermissions(userId),
-        storage.getCompanySettings(),
-      ]);
+      const [userWithRole, activeTimeEntry, permissions, companySettings] = await withTimeout(
+        Promise.all([
+          storage.getUserWithRole(userId),
+          storage.getActiveTimeEntry(userId),
+          storage.getUserPermissions(userId),
+          storage.getCompanySettings(),
+        ]),
+        remaining(),
+        'dashboard/init core',
+      );
 
       const role = userWithRole?.role?.name;
       const isEmployee = role !== 'owner' && role !== 'admin';
@@ -60,7 +81,11 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
 
       if (isEmployee) {
         try {
-          const myScore = await gamificationService.computeUserScore(userId);
+          const myScore = await withTimeout(
+            gamificationService.computeUserScore(userId),
+            remaining(),
+            'dashboard/init gamification',
+          );
           gamificationScore = {
             overallScore: myScore.overallScore,
             tier: myScore.tier,
@@ -76,18 +101,22 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
           const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
           const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
-          const [todayTimeEntries, todaySchedules] = await Promise.all([
-            db.select({
-              id: timeEntries.id,
-              userId: timeEntries.userId,
-              clockInTime: timeEntries.clockInTime,
-              clockOutTime: timeEntries.clockOutTime,
-            }).from(timeEntries).where(gte(timeEntries.clockInTime, startOfDay)),
-            db.select({ id: schedules.id }).from(schedules).where(and(
-              gte(schedules.startTime, startOfDay),
-              lte(schedules.startTime, endOfDay),
-            )),
-          ]);
+          const [todayTimeEntries, todaySchedules] = await withTimeout(
+            Promise.all([
+              db.select({
+                id: timeEntries.id,
+                userId: timeEntries.userId,
+                clockInTime: timeEntries.clockInTime,
+                clockOutTime: timeEntries.clockOutTime,
+              }).from(timeEntries).where(gte(timeEntries.clockInTime, startOfDay)),
+              db.select({ id: schedules.id }).from(schedules).where(and(
+                gte(schedules.startTime, startOfDay),
+                lte(schedules.startTime, endOfDay),
+              )),
+            ]),
+            remaining(),
+            'dashboard/init today-summary',
+          );
 
           const activeEntries = todayTimeEntries.filter(te => !te.clockOutTime);
 
@@ -114,8 +143,11 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
         todaySummary,
       });
     } catch (error) {
+      const isTimeout = error instanceof Error && error.message.includes('timed out');
       console.error("Error fetching dashboard init data:", error);
-      res.status(500).json({ message: "Failed to fetch dashboard init data" });
+      res
+        .status(isTimeout ? 503 : 500)
+        .json({ message: isTimeout ? "Dashboard init timed out" : "Failed to fetch dashboard init data" });
     }
   });
 

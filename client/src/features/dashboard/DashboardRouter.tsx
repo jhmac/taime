@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Button } from '@/components/ui/button';
+import { WifiOff, RefreshCw } from 'lucide-react';
 import AssociateDashboard from './AssociateDashboard';
 import ManagerDashboard from './ManagerDashboard';
 import OwnerDashboard from './OwnerDashboard';
@@ -28,7 +30,7 @@ export default function DashboardRouter() {
   const { user, isLoading } = useAuth();
   const queryClient = useQueryClient();
 
-  const { data: initData, isError: initError } = useQuery<DashboardInitData>({
+  const { data: initData, isError: initError, refetch: refetchInit, isFetching: initFetching } = useQuery<DashboardInitData>({
     queryKey: ['/api/dashboard/init'],
     enabled: !!user,
     staleTime: 60 * 1000,
@@ -72,8 +74,8 @@ export default function DashboardRouter() {
   }, [initData, queryClient]);
 
   // Wait for auth, then wait for init (unless it errored or timed out).
-  // On error or timeout, fall through to render dashboards normally so
-  // individual widget queries can load their own data.
+  // On error, show a retry prompt so the user isn't left with a silent spinner.
+  // On timeout (slow connection), fall through so per-widget queries can run.
   const initSettled = !!initData || initError || initTimedOut;
   if (isLoading || (user && !initSettled)) {
     return (
@@ -81,6 +83,29 @@ export default function DashboardRouter() {
         <Skeleton className="h-32 w-full rounded-xl" />
         <Skeleton className="h-48 w-full rounded-xl" />
         <Skeleton className="h-48 w-full rounded-xl" />
+      </div>
+    );
+  }
+
+  if (initError) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-4 p-8 text-center">
+        <WifiOff className="h-10 w-10 text-muted-foreground" />
+        <div>
+          <p className="font-medium">Couldn't load the dashboard</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            Check your connection and try again.
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          onClick={() => { setInitTimedOut(false); refetchInit(); }}
+          disabled={initFetching}
+          className="gap-2"
+        >
+          <RefreshCw className={`h-4 w-4 ${initFetching ? 'animate-spin' : ''}`} />
+          Retry
+        </Button>
       </div>
     );
   }
