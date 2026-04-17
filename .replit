@@ -9,7 +9,7 @@ packages = ["glib", "nss", "nspr", "at-spi2-atk", "cups", "dbus", "expat", "libd
 [deployment]
 deploymentTarget = "autoscale"
 build = ["npm", "run", "build"]
-run = ["node", "dist/index.js"]
+run = ["npm", "start"]
 
 [env]
 PORT = "5000"
