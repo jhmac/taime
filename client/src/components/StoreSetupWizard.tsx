@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "wouter";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -279,6 +280,16 @@ export default function StoreSetupWizard({ onComplete }: StoreSetupWizardProps) 
                     >
                       Get started <ArrowRight className="w-4 h-4" />
                     </Button>
+                    <p className="text-xs text-center text-muted-foreground pt-1">
+                      By creating an account, you agree to our{" "}
+                      <Link href="/terms" className="underline hover:text-gray-900">
+                        Terms of Service
+                      </Link>
+                      {" "}and{" "}
+                      <Link href="/privacy" className="underline hover:text-gray-900">
+                        Privacy Policy
+                      </Link>
+                    </p>
                   </div>
                 )}
 
