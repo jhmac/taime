@@ -488,9 +488,9 @@ export default function AssociateDashboard() {
   });
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const todayEnd = new Date(today); todayEnd.setHours(23, 59, 59, 999);
+  // Show ALL tasks assigned to this user that aren't completed (not just ones with today's due date)
   const myTasksToday = tasks.filter(t =>
-    t.assignedTo === user?.id && t.dueDate &&
-    new Date(t.dueDate) >= today && new Date(t.dueDate) <= todayEnd
+    t.assignedTo === user?.id && t.status !== 'completed'
   );
 
   const DOW_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
@@ -635,7 +635,7 @@ export default function AssociateDashboard() {
               <div>
                 <div className="flex items-center justify-between mb-3">
                   {/* 18px subheading — readable on mobile */}
-                  <h2 className="text-lg font-extrabold text-foreground">Today's To-Do</h2>
+                  <h2 className="text-lg font-extrabold text-foreground">Your Tasks</h2>
                   {pendingTasks.length > 0 && (
                     <span className="w-6 h-6 rounded-full text-white text-xs font-extrabold flex items-center justify-center bg-primary">
                       {pendingTasks.length}
@@ -713,7 +713,7 @@ export default function AssociateDashboard() {
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-2.5">
                     {/* 20px section heading — clear hierarchy on mobile */}
-                    <h2 className="text-xl font-extrabold text-foreground">Your tasks today</h2>
+                    <h2 className="text-xl font-extrabold text-foreground">Your Tasks</h2>
                     {pendingTasks.length > 0 && (
                       <span className="w-6 h-6 rounded-full text-white text-xs font-extrabold flex items-center justify-center bg-primary">
                         {pendingTasks.length}
@@ -730,7 +730,7 @@ export default function AssociateDashboard() {
                     <p className="text-3xl mb-2">🎉</p>
                     {/* 18px for empty state heading — should feel comfortable, not tiny */}
                     <p className="text-lg font-bold text-foreground">All clear!</p>
-                    <p className="text-sm text-muted-foreground mt-1">No tasks assigned for today.</p>
+                    <p className="text-sm text-muted-foreground mt-1">No tasks assigned to you yet.</p>
                   </div>
                 ) : (
                   <div className="space-y-3">

@@ -721,7 +721,10 @@ export default function TimeClockWidget() {
     for (const entry of todayEntries) {
       if (activeTimeEntry && entry.id === activeTimeEntry.id) continue;
       const start = new Date(entry.clockInTime);
-      const end = entry.clockOutTime ? new Date(entry.clockOutTime) : now;
+      // Only count entries that have actually been clocked out; open entries
+      // from other users (visible to admins) would inflate the total.
+      const end = entry.clockOutTime ? new Date(entry.clockOutTime) : null;
+      if (!end) continue;
       totalMs += end.getTime() - start.getTime();
     }
     if (activeTimeEntry) {

@@ -431,10 +431,62 @@ export default function OwnerDashboard() {
         </section>
       </DashboardErrorBoundary>
 
-      <div className={isMobile ? 'px-4 pt-3 pb-1 space-y-4' : 'px-6 pt-4 pb-2 space-y-4'}>
+      <div className={isMobile ? 'px-4 pt-3 pb-3 space-y-3' : 'px-6 pt-4 pb-4 space-y-3'}>
         <DashboardErrorBoundary fallback="Time clock failed to load">
           <TimeClockWidget />
         </DashboardErrorBoundary>
+
+        {/* Compact stats row — replaces the standalone Morning Whisper card */}
+        <div className="grid grid-cols-3 gap-2">
+          {analyticsLoading ? (
+            [1,2,3].map(i => <Skeleton key={i} className="h-14 rounded-2xl" />)
+          ) : (
+            <>
+              <div className="rounded-2xl bg-card border border-border px-3 py-2.5 text-center">
+                <p className="text-lg font-extrabold text-foreground tabular-nums">{analyticsData?.totalHours?.toFixed(1) || '—'}</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">Hrs Today</p>
+              </div>
+              <div className="rounded-2xl bg-card border border-border px-3 py-2.5 text-center">
+                <p className="text-lg font-extrabold text-foreground tabular-nums">{analyticsData?.tasksCompleted ?? completedTasks.length}</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">Tasks Done</p>
+              </div>
+              <div className="rounded-2xl bg-card border border-border px-3 py-2.5 text-center">
+                <p className="text-lg font-extrabold text-foreground tabular-nums">{analyticsData?.punctuality ? `${analyticsData.punctuality}%` : '—'}</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">Punctuality</p>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Personal assigned tasks */}
+        {(() => {
+          const myTasks = allTasks.filter((t: any) => t.assignedTo === user?.id && t.status !== 'completed');
+          if (myTasks.length === 0) return null;
+          return (
+            <DashboardErrorBoundary fallback="">
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-extrabold text-foreground">Your Tasks</p>
+                  <button onClick={() => navigate('/tasks')} className="text-xs font-bold text-primary">See all</button>
+                </div>
+                <div className="rounded-2xl overflow-hidden bg-card border border-border">
+                  {myTasks.slice(0, 5).map((t: any, i: number) => (
+                    <div key={t.id} className="flex items-center gap-3 px-3.5 py-2.5 min-h-[44px]"
+                      style={{ borderBottom: i < Math.min(myTasks.length, 5) - 1 ? '1px solid hsl(var(--border))' : 'none' }}>
+                      <div className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />
+                      <p className="text-[13px] font-semibold text-foreground flex-1 truncate">{t.title}</p>
+                      {t.dueDate && (
+                        <span className="text-[11px] text-muted-foreground shrink-0">
+                          {new Date(t.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </DashboardErrorBoundary>
+          );
+        })()}
 
         <DashboardErrorBoundary fallback="Could not load SOP banner">
           <SurfacedSOPBanner />
@@ -442,39 +494,6 @@ export default function OwnerDashboard() {
       </div>
 
       <div className={isMobile ? 'px-4 pb-3 space-y-4' : 'px-6 pb-4 space-y-6'}>
-        <DashboardErrorBoundary fallback="Morning Whisper failed to load">
-          <Card className="border-gray-200 dark:border-gray-700">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm flex items-center gap-2 text-muted-foreground">
-                <Briefcase className="h-4 w-4" />
-                Morning Whisper (Preview)
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {analyticsLoading ? (
-                <div className="space-y-2">
-                  <Skeleton className="h-4 w-3/4" />
-                  <Skeleton className="h-4 w-1/2" />
-                </div>
-              ) : (
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="text-center">
-                    <p className="text-2xl font-bold">{analyticsData?.totalHours?.toFixed(1) || '—'}</p>
-                    <p className="text-xs text-muted-foreground">Total Hours</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-2xl font-bold">{analyticsData?.tasksCompleted ?? completedTasks.length}</p>
-                    <p className="text-xs text-muted-foreground">Tasks Completed</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-2xl font-bold">{analyticsData?.punctuality ? `${analyticsData.punctuality}%` : '—'}</p>
-                    <p className="text-xs text-muted-foreground">Punctuality</p>
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </DashboardErrorBoundary>
 
         <DashboardErrorBoundary fallback="">
           <DailyQuoteCard />
