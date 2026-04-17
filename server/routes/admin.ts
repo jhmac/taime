@@ -94,6 +94,9 @@ const companySettingsUpdateSchema = z.object({
   autoResumeWindowSeconds: z.number().int().min(30).max(600).optional(),
   requireMobileClockIn: z.boolean().optional(),
   defaultMileageRateCents: z.number().int().min(0).max(1000).optional(),
+  taskAutoAssign: z.boolean().optional(),
+  dailySalesGoalEnabled: z.boolean().optional(),
+  showPaySummaryToEmployees: z.boolean().optional(),
 }).strict();
 
 async function requireAdmin(storage: IStorage, userId: string): Promise<void> {

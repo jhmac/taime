@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
-import { users, roles, companySettings, employeeDocuments, managerNotes, workLocations } from "@shared/schema";
-import { eq, desc, or, isNull, and, sql as sqlExpr } from "drizzle-orm";
+import { users, roles, companySettings, employeeDocuments, managerNotes, workLocations, timeEntries, payrollPeriods } from "@shared/schema";
+import { eq, desc, or, isNull, and, sql as sqlExpr, gte, lte } from "drizzle-orm";
 import { db } from "../db";
 import { sendTeamInviteEmail } from "../services/emailService";
 import { randomBytes } from "crypto";
@@ -602,6 +602,151 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
     } catch (error) {
       console.error("[Account] Self-delete error:", error);
       res.status(500).json({ message: "Failed to delete account" });
+    }
+  });
+
+  // GET /api/users/me/pay-summary — Employee pay estimate for current pay period
+  app.get('/api/users/me/pay-summary', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId: string = req.auth.userId;
+
+      // 1. Fetch user with deduction settings
+      const [user] = await db.select({
+        id: users.id,
+        hourlyRate: users.hourlyRate,
+        federalWithholdingPct: users.federalWithholdingPct,
+        stateWithholdingPct: users.stateWithholdingPct,
+        otherDeductionsCents: users.otherDeductionsCents,
+      }).from(users).where(eq(users.id, userId)).limit(1);
+
+      if (!user) return res.status(404).json({ message: "User not found" });
+
+      const hourlyRate = parseFloat(user.hourlyRate ?? "0");
+
+      // 2. Find current payroll period
+      const now = new Date();
+      const [currentPeriod] = await db
+        .select()
+        .from(payrollPeriods)
+        .where(and(
+          lte(payrollPeriods.startDate, now),
+          gte(payrollPeriods.endDate, now)
+        ))
+        .orderBy(desc(payrollPeriods.startDate))
+        .limit(1);
+
+      // Fall back to the most recent period if none spans today
+      const [latestPeriod] = currentPeriod
+        ? [currentPeriod]
+        : await db
+            .select()
+            .from(payrollPeriods)
+            .orderBy(desc(payrollPeriods.startDate))
+            .limit(1);
+
+      const period = latestPeriod ?? null;
+      const periodStart = period ? new Date(period.startDate) : new Date(now.getFullYear(), now.getMonth(), 1);
+      const periodEnd = period ? new Date(period.endDate) : now;
+
+      // 3. Fetch time entries for this period
+      const entries = await db
+        .select()
+        .from(timeEntries)
+        .where(and(
+          eq(timeEntries.userId, userId),
+          gte(timeEntries.clockInTime, periodStart),
+          lte(timeEntries.clockInTime, periodEnd)
+        ));
+
+      // 4. Calculate hours worked (exclude any currently-open entry's in-progress time)
+      let totalHours = 0;
+      let currentlyClocked = false;
+      let hoursInProgress = 0;
+
+      for (const entry of entries) {
+        const clockIn = new Date(entry.clockInTime);
+        const clockOut = entry.clockOutTime ? new Date(entry.clockOutTime) : null;
+
+        if (!clockOut) {
+          currentlyClocked = true;
+          const ms = now.getTime() - clockIn.getTime();
+          hoursInProgress = ms / (1000 * 60 * 60) - (entry.breakMinutes ?? 0) / 60;
+        } else {
+          const ms = clockOut.getTime() - clockIn.getTime();
+          const worked = ms / (1000 * 60 * 60) - (entry.breakMinutes ?? 0) / 60;
+          totalHours += Math.max(0, worked);
+        }
+      }
+
+      const totalHoursIncludingNow = totalHours + (currentlyClocked ? hoursInProgress : 0);
+
+      // 5. Gross pay
+      const grossPay = totalHoursIncludingNow * hourlyRate;
+
+      // 6. Deduction calculations
+      const ficaRate = 0.0765; // 6.2% SS + 1.45% Medicare
+      const federalRate = parseFloat(user.federalWithholdingPct ?? "12") / 100;
+      const stateRate = parseFloat(user.stateWithholdingPct ?? "5") / 100;
+      const otherDeductionsDollars = (user.otherDeductionsCents ?? 0) / 100;
+
+      const ficaDeduction = grossPay * ficaRate;
+      const federalDeduction = grossPay * federalRate;
+      const stateDeduction = grossPay * stateRate;
+      const totalDeductions = ficaDeduction + federalDeduction + stateDeduction + otherDeductionsDollars;
+      const netPay = Math.max(0, grossPay - totalDeductions);
+
+      res.json({
+        periodStart: periodStart.toISOString(),
+        periodEnd: periodEnd.toISOString(),
+        periodLabel: period ? `${periodStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${periodEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : 'This Month',
+        hourlyRate,
+        totalHours: Math.round(totalHoursIncludingNow * 100) / 100,
+        hoursLogged: Math.round(totalHours * 100) / 100,
+        currentlyClocked,
+        grossPay: Math.round(grossPay * 100) / 100,
+        deductions: {
+          fica: Math.round(ficaDeduction * 100) / 100,
+          federal: Math.round(federalDeduction * 100) / 100,
+          state: Math.round(stateDeduction * 100) / 100,
+          other: Math.round(otherDeductionsDollars * 100) / 100,
+          total: Math.round(totalDeductions * 100) / 100,
+        },
+        netPay: Math.round(netPay * 100) / 100,
+        ficaRate: ficaRate * 100,
+        federalRate: federalRate * 100,
+        stateRate: stateRate * 100,
+      });
+    } catch (error) {
+      console.error("[Pay Summary] Error:", error);
+      res.status(500).json({ message: "Failed to load pay summary" });
+    }
+  });
+
+  // PATCH /api/users/:userId/withholding — Manager/admin updates employee deduction settings
+  app.patch('/api/users/:userId/withholding', isAuthenticated, async (req: any, res) => {
+    try {
+      const requesterId: string = req.auth.userId;
+      const { userId } = req.params;
+
+      const userPermissions = await storage.getUserPermissions(requesterId);
+      const canEdit = userPermissions.some(p => p.name === 'hr.edit_team' || p.name === 'hr.edit_pay_rates');
+      if (!canEdit) return res.status(403).json({ message: "Insufficient permissions" });
+
+      const { federalWithholdingPct, stateWithholdingPct, otherDeductionsCents } = req.body;
+
+      await db.update(users)
+        .set({
+          ...(federalWithholdingPct !== undefined ? { federalWithholdingPct: String(federalWithholdingPct) } : {}),
+          ...(stateWithholdingPct !== undefined ? { stateWithholdingPct: String(stateWithholdingPct) } : {}),
+          ...(otherDeductionsCents !== undefined ? { otherDeductionsCents: Number(otherDeductionsCents) } : {}),
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, userId));
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("[Withholding] Error:", error);
+      res.status(500).json({ message: "Failed to update withholding" });
     }
   });
 }

@@ -77,6 +77,7 @@ export default function TeamMember() {
   const [locationSettingsOpen, setLocationSettingsOpen] = useState(true);
   const [editingJob, setEditingJob] = useState(false);
   const [editingPayroll, setEditingPayroll] = useState(false);
+  const [editingWithholding, setEditingWithholding] = useState(false);
   const [editingContact, setEditingContact] = useState(false);
   const [editingPersonalPayroll, setEditingPersonalPayroll] = useState(false);
   const [terminateDialogOpen, setTerminateDialogOpen] = useState(false);
@@ -717,6 +718,95 @@ export default function TeamMember() {
                     Edit
                   </Button>
                 )}
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <h2 className="text-lg font-bold mb-3">Tax & Deduction Settings</h2>
+            <div className="border rounded-lg p-4">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs text-muted-foreground">
+                  Used to estimate the employee's take-home pay. FICA is always 7.65%.
+                </p>
+                {canEdit && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="border-purple-400 text-purple-600"
+                    onClick={() => setEditingWithholding(!editingWithholding)}
+                  >
+                    <Pencil className="h-3 w-3 mr-1" />
+                    {editingWithholding ? "Done" : "Edit"}
+                  </Button>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-x-12 gap-y-2 text-sm">
+                <p className="text-muted-foreground">Federal Withholding %:</p>
+                {editingWithholding ? (
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="100"
+                    className="border rounded px-2 py-1 text-sm w-24"
+                    defaultValue={member.federalWithholdingPct ?? 12}
+                    onBlur={(e) => {
+                      const val = parseFloat(e.target.value);
+                      if (!isNaN(val)) {
+                        updateUserMutation.mutate({ federalWithholdingPct: val });
+                      }
+                    }}
+                  />
+                ) : (
+                  <p className="font-medium">{member.federalWithholdingPct ?? 12}%</p>
+                )}
+                <p className="text-muted-foreground">State Withholding %:</p>
+                {editingWithholding ? (
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="100"
+                    className="border rounded px-2 py-1 text-sm w-24"
+                    defaultValue={member.stateWithholdingPct ?? 5}
+                    onBlur={(e) => {
+                      const val = parseFloat(e.target.value);
+                      if (!isNaN(val)) {
+                        updateUserMutation.mutate({ stateWithholdingPct: val });
+                      }
+                    }}
+                  />
+                ) : (
+                  <p className="font-medium">{member.stateWithholdingPct ?? 5}%</p>
+                )}
+                <p className="text-muted-foreground">Other Deductions (flat):</p>
+                {editingWithholding ? (
+                  <div className="flex items-center gap-1">
+                    <span className="text-sm">$</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      className="border rounded px-2 py-1 text-sm w-24"
+                      defaultValue={member.otherDeductionsCents != null ? (member.otherDeductionsCents / 100).toFixed(2) : "0.00"}
+                      onBlur={(e) => {
+                        const val = parseFloat(e.target.value);
+                        if (!isNaN(val) && val >= 0) {
+                          updateUserMutation.mutate({ otherDeductionsCents: Math.round(val * 100) });
+                        }
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <p className="font-medium">
+                    {member.otherDeductionsCents != null && member.otherDeductionsCents > 0
+                      ? `$${(member.otherDeductionsCents / 100).toFixed(2)}`
+                      : "—"}
+                  </p>
+                )}
+                <p className="text-muted-foreground">FICA (fixed):</p>
+                <p className="font-medium">7.65%</p>
               </div>
             </div>
           </div>

@@ -255,6 +255,7 @@ export default function AdminSettings() {
         dailySalesGoalEnabled: settings.dailySalesGoalEnabled ?? false,
         salesGoalIncreaseType: settings.salesGoalIncreaseType || 'percentage',
         salesGoalIncreaseValue: settings.salesGoalIncreaseValue ?? 0,
+        showPaySummaryToEmployees: settings.showPaySummaryToEmployees ?? false,
       });
     }
   }, [settings]);

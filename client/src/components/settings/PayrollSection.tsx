@@ -1,7 +1,8 @@
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { SettingsSectionProps } from '@/components/settings/types';
 
@@ -73,6 +74,30 @@ export default function PayrollSection({ settingsForm, updateForm }: SettingsSec
               />
               <span className="text-sm text-muted-foreground">{mileageDisplay}</span>
             </div>
+          </div>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Employee pay visibility</CardTitle>
+          <CardDescription>
+            Let team members see their estimated pay, hours worked, and projected deductions on their home screen.
+            Deduction rates (federal, state, FICA) are configured per employee in their Team profile.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium">Show pay summary to employees</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                When enabled, each employee sees a "Pay This Period" card on their home page showing
+                gross pay, estimated deductions, and projected net pay.
+              </p>
+            </div>
+            <Switch
+              checked={settingsForm.showPaySummaryToEmployees ?? false}
+              onCheckedChange={val => updateForm('showPaySummaryToEmployees', val)}
+            />
           </div>
         </CardContent>
       </Card>

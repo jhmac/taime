@@ -12,6 +12,7 @@ import SmartSuggestionsCard from '@/features/dashboard/SmartSuggestionsCard';
 import { DashboardErrorBoundary } from '@/features/dashboard/DashboardErrorBoundary';
 import ScoreWidget from '@/features/dashboard/ScoreWidget';
 import TimeClockWidget from '@/components/TimeClockWidget';
+import PaySummaryWidget from '@/features/dashboard/PaySummaryWidget';
 import DailyQuestionnaireCard from '@/features/dashboard/DailyQuestionnaireCard';
 import DailyQuoteCard from '@/components/DailyQuoteCard';
 import TeamStatusWidget from '@/features/dashboard/TeamStatusWidget';
@@ -508,6 +509,12 @@ export default function AssociateDashboard() {
   });
   const unreadCount = unreadData?.data?.count || 0;
 
+  const { data: companySettings } = useQuery<{ showPaySummaryToEmployees?: boolean }>({
+    queryKey: ['/api/company-settings'],
+    staleTime: 5 * 60 * 1000,
+  });
+  const showPaySummary = companySettings?.showPaySummaryToEmployees ?? false;
+
   const pendingTasks = myTasksToday.filter(t => t.status !== 'completed');
   const completedTasks = myTasksToday.filter(t => t.status === 'completed');
 
@@ -637,6 +644,9 @@ export default function AssociateDashboard() {
           <DashboardErrorBoundary fallback=""><TrainingProgressCard /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><LeanBoardCard /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><ImprovementFeedWidget /></DashboardErrorBoundary>
+          {showPaySummary && (
+            <DashboardErrorBoundary fallback=""><PaySummaryWidget /></DashboardErrorBoundary>
+          )}
 
         </div>
       )}
@@ -780,6 +790,9 @@ export default function AssociateDashboard() {
           <DashboardErrorBoundary fallback=""><ScoreWidget /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><LeanBoardCard /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><ImprovementFeedWidget /></DashboardErrorBoundary>
+          {showPaySummary && (
+            <DashboardErrorBoundary fallback=""><PaySummaryWidget /></DashboardErrorBoundary>
+          )}
 
         </div>
       )}

@@ -103,6 +103,9 @@ export const users = pgTable("users", {
   personalEmail: varchar("personal_email"),
   scoreNotificationsEnabled: boolean("score_notifications_enabled").default(true),
   mileageRateCentsOverride: integer("mileage_rate_cents_override"),
+  federalWithholdingPct: decimal("federal_withholding_pct", { precision: 5, scale: 2 }).default("12"),
+  stateWithholdingPct: decimal("state_withholding_pct", { precision: 5, scale: 2 }).default("5"),
+  otherDeductionsCents: integer("other_deductions_cents").default(0),
   invitedAt: timestamp("invited_at"),
   inviteAcceptedAt: timestamp("invite_accepted_at"),
   inviteToken: varchar("invite_token").unique(),
@@ -488,6 +491,7 @@ export const companySettings = pgTable("company_settings", {
   dailySalesGoalEnabled: boolean("daily_sales_goal_enabled").default(false),
   salesGoalIncreaseType: varchar("sales_goal_increase_type").default("percentage"),
   salesGoalIncreaseValue: decimal("sales_goal_increase_value", { precision: 10, scale: 2 }).default("0"),
+  showPaySummaryToEmployees: boolean("show_pay_summary_to_employees").default(false),
   version: integer("version").default(1).notNull(),
 });
 

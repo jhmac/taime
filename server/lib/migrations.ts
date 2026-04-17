@@ -268,6 +268,22 @@ export async function runSchemaMigrations(): Promise<void> {
       table: "unanswered_questions",
       sql: `ALTER TABLE unanswered_questions ADD COLUMN IF NOT EXISTS conversation_id varchar REFERENCES ai_chat_conversations(id)`,
     },
+    {
+      table: "users",
+      sql: `ALTER TABLE users ADD COLUMN IF NOT EXISTS federal_withholding_pct decimal(5,2) DEFAULT 12`,
+    },
+    {
+      table: "users",
+      sql: `ALTER TABLE users ADD COLUMN IF NOT EXISTS state_withholding_pct decimal(5,2) DEFAULT 5`,
+    },
+    {
+      table: "users",
+      sql: `ALTER TABLE users ADD COLUMN IF NOT EXISTS other_deductions_cents integer DEFAULT 0`,
+    },
+    {
+      table: "company_settings",
+      sql: `ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS show_pay_summary_to_employees boolean DEFAULT false`,
+    },
   ];
 
   let altered = 0;
@@ -879,6 +895,7 @@ export async function seedDefaultRoles(): Promise<void> {
       { name: 'hr.insights',                displayName: 'HR Insights',                description: 'View AI insights and analytics',                       category: 'hr' },
       { name: 'hr.payroll_view',            displayName: 'View Payroll',               description: 'View payroll information',                             category: 'hr' },
       { name: 'hr.payroll_process',         displayName: 'Process Payroll',            description: 'Process and manage payroll',                           category: 'hr' },
+      { name: 'hr.edit_pay_rates',          displayName: 'Edit Pay Rates',             description: 'Edit hourly rates for team members',                   category: 'hr' },
       { name: 'schedule.view_own',          displayName: 'View Own Schedule',          description: 'View own schedule',                                   category: 'schedule' },
       { name: 'schedule.view_all',          displayName: 'View All Schedules',         description: 'View all team schedules',                             category: 'schedule' },
       { name: 'schedule.edit_own',          displayName: 'Edit Own Schedule',          description: 'Edit own schedule',                                   category: 'schedule' },
@@ -935,7 +952,7 @@ export async function seedDefaultRoles(): Promise<void> {
     const ownerPerms = permissionDefs.map(p => p.name);
     const adminPerms = [
       'admin.manage_all', 'admin.system_settings', 'admin.role_management', 'admin.location_management',
-      'hr.view_team', 'hr.edit_team', 'hr.insights', 'hr.payroll_view', 'hr.payroll_process',
+      'hr.view_team', 'hr.edit_team', 'hr.insights', 'hr.payroll_view', 'hr.payroll_process', 'hr.edit_pay_rates',
       'schedule.view_all', 'schedule.edit_all', 'schedule.create',
       'time.view_all', 'time.edit_all', 'time.approve', 'time.clock_in_out',
       'tasks.view_all', 'tasks.edit_all', 'tasks.create', 'tasks.ai_assign',
@@ -945,7 +962,7 @@ export async function seedDefaultRoles(): Promise<void> {
       'enable_clock_out_on_focus_loss',
     ];
     const managerPerms = [
-      'hr.view_team', 'hr.edit_team',
+      'hr.view_team', 'hr.edit_team', 'hr.edit_pay_rates',
       'schedule.view_all', 'schedule.edit_all', 'schedule.edit_own', 'schedule.create', 'schedule.view_own',
       'time.view_all', 'time.edit_all', 'time.view_own', 'time.edit_own', 'time.clock_in_out', 'time.approve',
       'tasks.view_all', 'tasks.edit_all', 'tasks.view_own', 'tasks.edit_own', 'tasks.create', 'tasks.ai_assign',
