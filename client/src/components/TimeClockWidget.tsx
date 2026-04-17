@@ -68,6 +68,8 @@ export default function TimeClockWidget() {
   const [promptBannerFading, setPromptBannerFading] = useState(false);
   const [showGeofencePill, setShowGeofencePill] = useState(false);
   const [geofencePillFading, setGeofencePillFading] = useState(false);
+  const [geofencePillCrossFading, setGeofencePillCrossFading] = useState(false);
+  const prevGeofenceIsInRef = useRef<boolean | null>(null);
   const [displayGeofenceStatus, setDisplayGeofenceStatus] = useState<typeof geofenceStatus>(null);
 
   const { data: activeTimeEntry, isLoading: activeEntryLoading } = useQuery<TimeEntry | null>({
@@ -412,21 +414,38 @@ export default function TimeClockWidget() {
   useEffect(() => {
     const shouldShow = !activeTimeEntry && !!geofenceStatus && workLocations.length > 0;
     if (shouldShow) {
-      setDisplayGeofenceStatus(geofenceStatus);
       if (!showGeofencePill) {
+        setDisplayGeofenceStatus(geofenceStatus);
+        prevGeofenceIsInRef.current = geofenceStatus.isInWorkLocation;
         setShowGeofencePill(true);
         setGeofencePillFading(true);
         const timer = setTimeout(() => setGeofencePillFading(false), 16);
         return () => clearTimeout(timer);
       } else {
-        setGeofencePillFading(false);
+        const statusChanged =
+          prevGeofenceIsInRef.current !== null &&
+          prevGeofenceIsInRef.current !== geofenceStatus.isInWorkLocation;
+        prevGeofenceIsInRef.current = geofenceStatus.isInWorkLocation;
+        if (statusChanged) {
+          setGeofencePillCrossFading(true);
+          const timer = setTimeout(() => {
+            setDisplayGeofenceStatus(geofenceStatus);
+            setGeofencePillCrossFading(false);
+          }, 150);
+          return () => clearTimeout(timer);
+        } else {
+          setDisplayGeofenceStatus(geofenceStatus);
+          setGeofencePillFading(false);
+        }
       }
     } else if (showGeofencePill) {
       setGeofencePillFading(true);
       const timer = setTimeout(() => {
         setShowGeofencePill(false);
         setGeofencePillFading(false);
+        setGeofencePillCrossFading(false);
         setDisplayGeofenceStatus(null);
+        prevGeofenceIsInRef.current = null;
       }, 350);
       return () => clearTimeout(timer);
     }
@@ -888,10 +907,13 @@ export default function TimeClockWidget() {
           {/* Pre-clock-in geofence pill */}
           {showGeofencePill && displayGeofenceStatus && (
             <div
-              className="grid transition-[grid-template-rows,opacity] duration-300 ease-in-out"
+              className="grid ease-in-out"
               style={{
                 gridTemplateRows: geofencePillFading ? '0fr' : '1fr',
-                opacity: geofencePillFading ? 0 : 1,
+                opacity: (geofencePillFading || geofencePillCrossFading) ? 0 : 1,
+                transition: geofencePillCrossFading
+                  ? 'opacity 150ms ease-in-out'
+                  : 'grid-template-rows 300ms ease-in-out, opacity 300ms ease-in-out',
               }}
             >
               <div className="overflow-hidden">
