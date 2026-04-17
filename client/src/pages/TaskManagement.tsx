@@ -63,6 +63,7 @@ export default function TaskManagement() {
   const [filterAIAssign, setFilterAIAssign] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('all');
+  const [viewingTask, setViewingTask] = useState<Task | null>(null);
 
   const isAdmin = user?.role?.name === 'owner' || user?.role?.name === 'admin';
 
@@ -476,14 +477,19 @@ export default function TaskManagement() {
                   </Card>
                 ) : (
                   filteredTasks.map(task => (
-                    <Card key={task.id} className="hover:shadow-sm transition-shadow" data-testid={`task-card-${task.id}`}>
+                    <Card
+                      key={task.id}
+                      className="hover:shadow-sm transition-shadow cursor-pointer"
+                      data-testid={`task-card-${task.id}`}
+                      onClick={() => canManageTasks ? openEdit(task) : setViewingTask(task)}
+                    >
                       <CardContent className="p-4">
                         <div className="flex items-start gap-3">
                           <button
-                            onClick={() => statusMutation.mutate({
+                            onClick={(e) => { e.stopPropagation(); statusMutation.mutate({
                               id: task.id,
                               status: task.status === 'completed' ? 'pending' : 'completed'
-                            })}
+                            }); }}
                             className="mt-1 flex-shrink-0"
                             data-testid={`toggle-task-${task.id}`}
                           >
@@ -524,12 +530,12 @@ export default function TaskManagement() {
                                       src={task.completionImageUrl} 
                                       alt="Completion" 
                                       className="w-20 h-20 object-cover rounded-md border cursor-pointer hover:opacity-80 transition-opacity"
-                                      onClick={() => window.open(task.completionImageUrl!, '_blank')}
+                                      onClick={(e) => { e.stopPropagation(); window.open(task.completionImageUrl!, '_blank'); }}
                                     />
                                   </div>
                                 )}
                               </div>
-                              <div className="flex items-center gap-1 flex-shrink-0">
+                              <div className="flex items-center gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
                                 {task.assignedTo === user?.id && task.status !== 'completed' && (
                                   <Button
                                     variant="outline"
@@ -628,44 +634,48 @@ export default function TaskManagement() {
                               <div className="flex items-center gap-2">
                                 <i className="fas fa-user-tag text-xs text-muted-foreground"></i>
                                 {canManageTasks ? (
-                                  <Select
-                                    value={task.assignedTo || 'unassigned'}
-                                    onValueChange={(val) => assignMutation.mutate({
-                                      id: task.id,
-                                      userId: val === 'unassigned' ? '' : val
-                                    })}
-                                  >
-                                    <SelectTrigger className="h-6 text-xs w-[150px] border-dashed">
-                                      <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="unassigned">Unassigned</SelectItem>
-                                      {activeUsers.map(u => (
-                                        <SelectItem key={u.id} value={u.id}>
-                                          {u.firstName} {u.lastName}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
+                                  <div onClick={e => e.stopPropagation()}>
+                                    <Select
+                                      value={task.assignedTo || 'unassigned'}
+                                      onValueChange={(val) => assignMutation.mutate({
+                                        id: task.id,
+                                        userId: val === 'unassigned' ? '' : val
+                                      })}
+                                    >
+                                      <SelectTrigger className="h-6 text-xs w-[150px] border-dashed">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="unassigned">Unassigned</SelectItem>
+                                        {activeUsers.map(u => (
+                                          <SelectItem key={u.id} value={u.id}>
+                                            {u.firstName} {u.lastName}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
                                 ) : (
                                   <span className="text-xs text-muted-foreground">{getUserName(task.assignedTo)}</span>
                                 )}
                               </div>
                               {canManageTasks && task.status !== 'completed' && (
-                                <Select
-                                  value={task.status || 'pending'}
-                                  onValueChange={(val) => statusMutation.mutate({ id: task.id, status: val })}
-                                >
-                                  <SelectTrigger className="h-6 text-xs w-[120px]">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="pending">Pending</SelectItem>
-                                    <SelectItem value="in_progress">In Progress</SelectItem>
-                                    <SelectItem value="completed">Completed</SelectItem>
-                                    <SelectItem value="cancelled">Cancelled</SelectItem>
-                                  </SelectContent>
-                                </Select>
+                                <div onClick={e => e.stopPropagation()}>
+                                  <Select
+                                    value={task.status || 'pending'}
+                                    onValueChange={(val) => statusMutation.mutate({ id: task.id, status: val })}
+                                  >
+                                    <SelectTrigger className="h-6 text-xs w-[120px]">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="pending">Pending</SelectItem>
+                                      <SelectItem value="in_progress">In Progress</SelectItem>
+                                      <SelectItem value="completed">Completed</SelectItem>
+                                      <SelectItem value="cancelled">Cancelled</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
                               )}
                             </div>
                           </div>
@@ -823,6 +833,95 @@ export default function TaskManagement() {
                 : <><i className="fas fa-save mr-2"></i>{editingTask ? 'Update Task' : 'Create Task'}</>
               }
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!viewingTask} onOpenChange={(open) => { if (!open) setViewingTask(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <i className="fas fa-clipboard-list text-primary"></i>
+              Task Details
+            </DialogTitle>
+          </DialogHeader>
+          {viewingTask && (
+            <div className="space-y-3 text-sm">
+              <div>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Title</p>
+                <p className="font-medium">{viewingTask.title}</p>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Description</p>
+                <p className="text-muted-foreground">{viewingTask.description || 'No description'}</p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Status</p>
+                  <Badge className={`text-[10px] ${STATUS_COLORS[viewingTask.status || 'pending']}`}>
+                    {viewingTask.status?.replace('_', ' ') || 'pending'}
+                  </Badge>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Priority</p>
+                  {viewingTask.priority ? (
+                    <Badge className={`text-[10px] ${PRIORITY_COLORS[viewingTask.priority]}`}>
+                      {viewingTask.priority}
+                    </Badge>
+                  ) : (
+                    <p className="text-muted-foreground">Not set</p>
+                  )}
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Assigned To</p>
+                  <p>{getUserName(viewingTask.assignedTo)}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Day</p>
+                  <p className="capitalize">{viewingTask.dayOfWeek || 'Any day'}</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Time</p>
+                  <p className="capitalize">{viewingTask.timeOfDay || 'Any time'}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Zone</p>
+                  <p className="capitalize">{viewingTask.choreZone || 'No zone'}</p>
+                </div>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Estimated Time</p>
+                <p>{viewingTask.estimatedMinutes ? `${viewingTask.estimatedMinutes} minutes` : 'Not set'}</p>
+              </div>
+              <div className="flex flex-wrap gap-2 pt-1">
+                {viewingTask.isRecurring ? (
+                  <Badge variant="outline" className="text-[10px] border-purple-300 text-purple-700 dark:text-purple-400">
+                    <i className="fas fa-sync-alt mr-1"></i>Recurring
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="text-[10px]">
+                    <i className="fas fa-minus mr-1"></i>One-time
+                  </Badge>
+                )}
+                {viewingTask.requiresSignature && (
+                  <Badge variant="outline" className="text-[10px] border-orange-300 text-orange-700 dark:text-orange-400">
+                    <i className="fas fa-signature mr-1"></i>Requires Sign-off
+                  </Badge>
+                )}
+                {viewingTask.isAIAssigned && (
+                  <Badge className="text-[10px] bg-primary/15 text-primary border border-primary/30">
+                    <i className="fas fa-robot mr-1"></i>AI Assigned
+                  </Badge>
+                )}
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setViewingTask(null)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
