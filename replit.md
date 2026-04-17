@@ -84,6 +84,7 @@ The backend is a Node.js Express.js server written in TypeScript. It uses Drizzl
 - Safe-area insets: `viewport-fit=cover` + `.safe-area-bottom` / `.safe-area-top` CSS classes
 - Native push tokens stored in-memory via `POST /api/push/native-token` (APNs/FCM server integration is a follow-up)
 - Run after each web build: `npx cap sync`
+- App icons are generated from `resources/icon.png` using `@capacitor/assets`. Run `npm run generate:icons` whenever `resources/icon.png` changes to regenerate icons in `client/public/assets/icons/`.
 
 ### Utility Libraries
 - **date-fns**
