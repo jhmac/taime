@@ -483,7 +483,7 @@ export default function ScheduleManagement() {
           {/* Filter pills */}
           <div className="flex gap-2 justify-center">
             {[60, 56, 68].map((w, i) => (
-              <Skeleton key={i} className={`h-7 w-${w < 60 ? 14 : w === 60 ? 16 : 18} rounded-full`} style={{ width: `${w}px` }} />
+              <Skeleton key={i} className="h-7 rounded-full" style={{ width: `${w}px` }} />
             ))}
           </div>
           {/* Skeleton shift cards */}
