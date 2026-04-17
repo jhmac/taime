@@ -1,6 +1,16 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 import { reportApiError } from "./errorReporter";
 
+declare global {
+  interface Window {
+    Clerk?: {
+      session?: {
+        getToken: () => Promise<string | null>;
+      };
+    };
+  }
+}
+
 interface CachedToken {
   token: string;
   exp: number; // Unix seconds
@@ -13,13 +23,12 @@ export function clearTokenCache(): void {
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
   try {
-    if (typeof window !== 'undefined' && (window as any).Clerk) {
+    if (typeof window !== 'undefined' && window.Clerk) {
       const nowSecs = Date.now() / 1000;
-      // Use cached token if it still has more than 60 seconds of life left
       if (_cachedToken && _cachedToken.exp > nowSecs + 60) {
         return { Authorization: `Bearer ${_cachedToken.token}` };
       }
-      const token = await (window as any).Clerk.session?.getToken();
+      const token = await window.Clerk.session?.getToken();
       if (token) {
         // JWTs use base64url — normalize to base64 before decoding exp
         try {
@@ -40,17 +49,10 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
   return {};
 }
 
-async function throwIfResNotOk(res: Response) {
-  if (!res.ok) {
-    const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
-  }
-}
-
 export async function apiRequest(
   method: string,
   url: string,
-  data?: unknown | undefined,
+  data?: unknown,
   options?: { signal?: AbortSignal },
 ): Promise<Response> {
   const authHeaders = await getAuthHeaders();

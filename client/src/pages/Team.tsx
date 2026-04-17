@@ -292,6 +292,7 @@ export default function Team() {
   };
 
   if (isLoading) {
+    const colWidths = ['w-24', 'w-28', 'w-20', 'w-16', 'w-10', 'w-14'];
     return (
       <div className="p-4 lg:p-6 space-y-4">
         <div className="flex items-center gap-3">
@@ -303,9 +304,9 @@ export default function Team() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-muted/50">
-                {['Team Member', 'Contact', 'Access', 'Location', 'Role', 'Status'].map(h => (
-                  <th key={h} className="text-left p-3 font-medium">
-                    <Skeleton className="h-3.5 w-16 rounded" />
+                {colWidths.map((w, i) => (
+                  <th key={i} className="text-left p-3 font-medium">
+                    <Skeleton className={`h-3.5 ${w} rounded`} />
                   </th>
                 ))}
               </tr>
@@ -322,11 +323,16 @@ export default function Team() {
                       </div>
                     </div>
                   </td>
-                  <td className="p-3"><Skeleton className="h-3.5 w-36 rounded" /></td>
-                  <td className="p-3"><Skeleton className="h-5 w-16 rounded-full" /></td>
+                  <td className="p-3">
+                    <div className="space-y-1.5">
+                      <Skeleton className="h-3.5 w-36 rounded" />
+                      <Skeleton className="h-3 w-20 rounded" />
+                    </div>
+                  </td>
+                  <td className="p-3"><Skeleton className="h-3.5 w-16 rounded" /></td>
                   <td className="p-3"><Skeleton className="h-3.5 w-20 rounded" /></td>
                   <td className="p-3"><Skeleton className="h-5 w-20 rounded-full" /></td>
-                  <td className="p-3"><Skeleton className="h-5 w-16 rounded-full" /></td>
+                  <td className="p-3"><Skeleton className="h-5 w-14 rounded-full" /></td>
                 </tr>
               ))}
             </tbody>

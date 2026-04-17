@@ -56,16 +56,6 @@ type TestResult = {
 
 type TestNotificationError = Error & { data?: TestResult };
 
-declare global {
-  interface Window {
-    Clerk?: {
-      session?: {
-        getToken: () => Promise<string | null>;
-      };
-    };
-  }
-}
-
 function CredentialBadge({ ready }: { ready: boolean }) {
   if (ready) {
     return (
