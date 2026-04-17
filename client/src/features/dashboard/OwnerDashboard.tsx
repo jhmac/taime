@@ -27,7 +27,7 @@ import {
   Calendar, DollarSign, ClipboardList, BarChart3, Settings,
   Clock, Video, ShoppingBag, ExternalLink,
   AlertCircle, CheckCircle2, CalendarDays, Inbox, CalendarCheck, Zap, ArrowRight,
-  LogOut, Moon, ChevronRight,
+  LogOut, Moon, ChevronRight, Circle,
 } from 'lucide-react';
 
 type ClockOutTarget = {
@@ -268,6 +268,21 @@ export default function OwnerDashboard() {
     },
   });
 
+  const completeTaskMutation = useMutation({
+    mutationFn: (taskId: string) =>
+      apiRequest('PATCH', `/api/tasks/${taskId}`, {
+        status: 'completed',
+        completedAt: new Date().toISOString(),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/tasks'] });
+      toast({ title: 'Task done!', description: 'Marked as complete.' });
+    },
+    onError: () => {
+      toast({ title: 'Error', description: 'Could not complete task. Try again.', variant: 'destructive' });
+    },
+  });
+
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 60000);
     return () => clearInterval(timer);
@@ -442,18 +457,30 @@ export default function OwnerDashboard() {
         {myTasksForFooter.length === 0 ? (
           <p className="text-[12px] text-muted-foreground italic">All caught up!</p>
         ) : (
-          <div className="space-y-1">
-            {myTasksForFooter.slice(0, 4).map((t: any) => (
-              <div key={t.id} className="flex items-center gap-2 min-w-0">
-                <div className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
-                <p className="text-[12px] font-semibold text-foreground truncate flex-1">{t.title}</p>
-                {t.dueDate && (
-                  <span className="text-[10px] text-muted-foreground shrink-0">
-                    {new Date(t.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                  </span>
-                )}
-              </div>
-            ))}
+          <div className="space-y-1.5">
+            {myTasksForFooter.slice(0, 4).map((t: any) => {
+              const isCompleting = completeTaskMutation.isPending && completeTaskMutation.variables === t.id;
+              return (
+                <div key={t.id} className="flex items-center gap-2 min-w-0">
+                  <button
+                    onClick={() => completeTaskMutation.mutate(t.id)}
+                    disabled={isCompleting}
+                    className="shrink-0 text-muted-foreground hover:text-primary active:scale-90 transition-transform disabled:opacity-40"
+                    aria-label="Complete task"
+                  >
+                    {isCompleting
+                      ? <CheckCircle2 size={16} className="text-primary animate-pulse" />
+                      : <Circle size={16} />}
+                  </button>
+                  <p className="text-[12px] font-semibold text-foreground truncate flex-1">{t.title}</p>
+                  {t.dueDate && (
+                    <span className="text-[10px] text-muted-foreground shrink-0">
+                      {new Date(t.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
