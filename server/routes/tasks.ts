@@ -20,7 +20,7 @@ export function registerTaskRoutes(app: Express, storage: IStorage, isAuthentica
         // Auto-assign in background if setting is on and no assignee was provided
         storage.getCompanySettings().then(settings => {
           if (settings?.taskAutoAssign) {
-            runAutoAssign(storage).catch(err => {
+            runAutoAssign(storage, broadcastToAll).catch(err => {
               console.error('[auto-assign] Background assignment failed:', err);
             });
           }

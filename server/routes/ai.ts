@@ -15,16 +15,20 @@ const aiRateLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+type BroadcastFn = (data: Record<string, unknown>) => void;
+
 // Shared assignment logic — used by both the manual endpoint and auto-assign on task creation
-export async function runAutoAssign(storage: IStorage): Promise<{ assignments: { choreId: string; assignedTo: string; reasoning: string; estimatedCompletion: string }[]; source: string; message?: string }> {
+export async function runAutoAssign(
+  storage: IStorage,
+  broadcastToAll?: BroadcastFn,
+): Promise<{ assignments: { choreId: string; assignedTo: string; reasoning: string; estimatedCompletion: string }[]; source: string; message?: string }> {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
 
-  // 1. Try scheduled employees first
+  // 1. Build employee pool — scheduled employees take priority
   const schedules = await storage.getAllSchedules(today, tomorrow);
-  const tasks = await storage.getTasksForDate(today);
 
   const uniqueUserIds = Array.from(new Set(schedules.map(s => s.userId)));
   const userRows = uniqueUserIds.length > 0
@@ -34,9 +38,14 @@ export async function runAutoAssign(storage: IStorage): Promise<{ assignments: {
     : [];
   const usersById = new Map(userRows.map(u => [u.id, u]));
 
-  let employeePool: { id: string; name: string; shiftStart?: string; shiftEnd?: string; skills: string[]; workload: number; pastPerformance: number }[] = schedules.map((schedule) => {
+  // Deduplicate by userId (a user may have multiple schedule entries for split shifts)
+  const seenUserIds = new Set<string>();
+  const scheduledPool: { id: string; name: string; shiftStart: string; shiftEnd: string; skills: string[]; workload: number; pastPerformance: number }[] = [];
+  for (const schedule of schedules) {
+    if (seenUserIds.has(schedule.userId)) continue;
+    seenUserIds.add(schedule.userId);
     const user = usersById.get(schedule.userId);
-    return {
+    scheduledPool.push({
       id: schedule.userId,
       name: `${user?.firstName || ''} ${user?.lastName || ''}`.trim(),
       shiftStart: schedule.startTime.toISOString(),
@@ -44,9 +53,10 @@ export async function runAutoAssign(storage: IStorage): Promise<{ assignments: {
       skills: [],
       workload: 50,
       pastPerformance: 85,
-    };
-  });
+    });
+  }
 
+  let employeePool: typeof scheduledPool = scheduledPool;
   let source = 'schedule';
 
   // 2. Fall back to clocked-in employees if nobody is scheduled today
@@ -55,6 +65,8 @@ export async function runAutoAssign(storage: IStorage): Promise<{ assignments: {
     employeePool = clockedIn.map(u => ({
       id: u.id,
       name: `${u.firstName || ''} ${u.lastName || ''}`.trim(),
+      shiftStart: '',
+      shiftEnd: '',
       skills: [],
       workload: 50,
       pastPerformance: 85,
@@ -62,7 +74,13 @@ export async function runAutoAssign(storage: IStorage): Promise<{ assignments: {
     source = 'clocked-in';
   }
 
-  const availableChores = tasks
+  if (employeePool.length === 0) {
+    return { assignments: [], source, message: 'No employees scheduled or clocked in' };
+  }
+
+  // 3. Get all unassigned pending tasks (not limited to tasks with a due date today)
+  const allTasks = await storage.getAllTasks();
+  const availableChores = allTasks
     .filter(task => !task.assignedTo && task.status === 'pending')
     .map(task => ({
       id: task.id,
@@ -70,15 +88,11 @@ export async function runAutoAssign(storage: IStorage): Promise<{ assignments: {
       description: task.description || '',
       estimatedMinutes: task.estimatedMinutes || 30,
       requiredSkills: [],
-      priority: 'medium' as const,
+      priority: (task.priority as 'low' | 'medium' | 'high') || 'medium',
     }));
 
   if (availableChores.length === 0) {
-    return { assignments: [], source, message: 'No unassigned chores available' };
-  }
-
-  if (employeePool.length === 0) {
-    return { assignments: [], source, message: 'No employees scheduled or clocked in' };
+    return { assignments: [], source, message: 'No unassigned tasks available' };
   }
 
   const result = await claudeService.assignChores({
@@ -87,18 +101,20 @@ export async function runAutoAssign(storage: IStorage): Promise<{ assignments: {
   });
 
   for (const assignment of result.assignments) {
-    await storage.updateTask(assignment.choreId, {
+    const updated = await storage.updateTask(assignment.choreId, {
       assignedTo: assignment.assignedTo,
       isAIAssigned: true,
       aiReasoning: assignment.reasoning,
     });
 
-    const task = await storage.getTask(assignment.choreId);
-    if (task) {
+    // Push real-time update so open task list views refresh automatically
+    broadcastToAll?.({ type: 'task_updated', data: { task: updated } });
+
+    if (updated) {
       await notificationService.sendTaskAssignment(
         assignment.assignedTo,
-        task.title,
-        assignment.estimatedCompletion
+        updated.title,
+        assignment.estimatedCompletion,
       );
     }
   }
@@ -106,10 +122,10 @@ export async function runAutoAssign(storage: IStorage): Promise<{ assignments: {
   return { ...result, source };
 }
 
-export function registerAIRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
+export function registerAIRoutes(app: Express, storage: IStorage, isAuthenticated: any, broadcastToAll: BroadcastFn) {
   app.post('/api/ai/assign-chores', isAuthenticated, aiRateLimiter, async (req: any, res) => {
     try {
-      const result = await runAutoAssign(storage);
+      const result = await runAutoAssign(storage, broadcastToAll);
       if (result.message && result.assignments.length === 0) {
         return res.json({ message: result.message });
       }

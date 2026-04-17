@@ -158,7 +158,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerTimeEntryRoutes(app, storage, isAuthenticated, broadcastToAll);
   registerScheduleRoutes(app, storage, isAuthenticated, broadcastToAll);
   registerTaskRoutes(app, storage, isAuthenticated, broadcastToAll);
-  registerAIRoutes(app, storage, isAuthenticated);
+  registerAIRoutes(app, storage, isAuthenticated, broadcastToAll);
   registerAdminRoutes(app, storage, isAuthenticated);
   registerUserRoutes(app, storage, isAuthenticated);
   registerRoleRoutes(app, storage, isAuthenticated);
