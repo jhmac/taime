@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { cn } from '@/lib/utils';
-import { Sparkles } from 'lucide-react';
+import { Sparkles, ChevronDown, ChevronRight } from 'lucide-react';
 
 const TIER_COLORS: Record<string, string> = {
   bronze: 'text-orange-600',
@@ -64,12 +64,60 @@ const managementNavItems = [
   { path: '/admin', icon: 'fas fa-sliders-h', label: 'Settings', permission: 'admin.manage_all' },
 ];
 
+type SectionKey = 'general' | 'gtd' | 'management';
+
+function getSectionForPath(path: string): SectionKey | null {
+  if (generalNavItems.some(i => i.path === path || (path !== '/' && path.startsWith(i.path)))) return 'general';
+  if (gtdNavItems.some(i => path.startsWith(i.path))) return 'gtd';
+  if (managementNavItems.some(i => path.startsWith(i.path))) return 'management';
+  return null;
+}
+
+const STORAGE_KEY = 'sidebar-sections';
+
+function loadSections(activeSection: SectionKey | null): Record<SectionKey, boolean> {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) return JSON.parse(saved);
+  } catch {}
+  return {
+    general: activeSection === 'general',
+    gtd: activeSection === 'gtd',
+    management: activeSection === 'management',
+  };
+}
+
 export default function DesktopSidebar() {
   const [location, navigate] = useLocation();
   const [collapsed, setCollapsed] = useState(false);
   const { user } = useAuth();
 
   const isAdmin = user?.role?.name === 'admin' || user?.role?.name === 'owner' || user?.role?.name === 'manager';
+
+  const activeSection = getSectionForPath(location);
+
+  const [sections, setSections] = useState<Record<SectionKey, boolean>>(() =>
+    loadSections(activeSection)
+  );
+
+  // Auto-expand the section of the active route
+  useEffect(() => {
+    if (activeSection && !sections[activeSection]) {
+      setSections(prev => {
+        const next = { ...prev, [activeSection]: true };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+        return next;
+      });
+    }
+  }, [location]);
+
+  function toggleSection(key: SectionKey) {
+    setSections(prev => {
+      const next = { ...prev, [key]: !prev[key] };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+  }
 
   const { data: unreadData } = useQuery<{ success: boolean; data: { count: number } }>({
     queryKey: ["/api/messages/unread-count"],
@@ -97,7 +145,7 @@ export default function DesktopSidebar() {
       <button
         onClick={() => navigate(path)}
         className={cn(
-          "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors",
+          "w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors",
           isActive
             ? "bg-sidebar-primary text-sidebar-primary-foreground font-medium"
             : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
@@ -105,7 +153,7 @@ export default function DesktopSidebar() {
         )}
         title={collapsed ? label : undefined}
       >
-        <div className="relative">
+        <div className="relative flex-shrink-0">
           <i className={cn(icon, "w-5 text-center")}></i>
           {badge != null && badge > 0 && (
             <span className="absolute -top-1.5 -right-2 bg-red-500 text-white text-[9px] font-bold rounded-full h-4 min-w-[16px] flex items-center justify-center px-0.5">
@@ -113,9 +161,7 @@ export default function DesktopSidebar() {
             </span>
           )}
         </div>
-        {!collapsed && (
-          <span className="flex-1 text-left">{label}</span>
-        )}
+        {!collapsed && <span className="flex-1 text-left">{label}</span>}
         {!collapsed && badge != null && badge > 0 && (
           <span className="bg-red-500 text-white text-[10px] font-bold rounded-full h-5 min-w-[20px] flex items-center justify-center px-1">
             {badge > 99 ? "99+" : badge}
@@ -124,6 +170,43 @@ export default function DesktopSidebar() {
       </button>
     );
   }
+
+  function SectionHeader({ sectionKey, label, hasActive }: { sectionKey: SectionKey; label: string; hasActive: boolean }) {
+    const open = sections[sectionKey];
+    if (collapsed) {
+      return <div className="border-t border-sidebar-border mx-2 my-2" />;
+    }
+    return (
+      <button
+        onClick={() => toggleSection(sectionKey)}
+        className={cn(
+          "w-full flex items-center justify-between px-3 py-1.5 rounded-lg transition-colors group",
+          "hover:bg-sidebar-accent/50"
+        )}
+      >
+        <span className={cn(
+          "text-xs font-semibold uppercase tracking-wider transition-colors",
+          hasActive ? "text-primary" : "text-sidebar-foreground/50 group-hover:text-sidebar-foreground/70"
+        )}>
+          {label}
+        </span>
+        {open
+          ? <ChevronDown className="w-3.5 h-3.5 text-sidebar-foreground/40" />
+          : <ChevronRight className="w-3.5 h-3.5 text-sidebar-foreground/40" />
+        }
+      </button>
+    );
+  }
+
+  const generalItems = generalNavItems.filter(
+    item => !('employeeOnly' in item && item.employeeOnly) || !isAdmin
+  );
+
+  const generalActive = generalItems.some(
+    i => location === i.path || (i.path !== '/' && location.startsWith(i.path))
+  );
+  const gtdActive = gtdNavItems.some(i => location.startsWith(i.path));
+  const managementActive = managementNavItems.some(i => location.startsWith(i.path));
 
   return (
     <aside
@@ -140,11 +223,12 @@ export default function DesktopSidebar() {
         )}
       </div>
 
-      <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
+      <nav className="flex-1 p-2 overflow-y-auto">
+        {/* Ask AI — always visible */}
         <button
           onClick={() => window.dispatchEvent(new Event('open-ask-mainager'))}
           className={cn(
-            "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors",
+            "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors mb-1",
             "bg-primary/10 text-primary hover:bg-primary/20 font-medium",
             collapsed && "justify-center px-0"
           )}
@@ -154,48 +238,52 @@ export default function DesktopSidebar() {
           {!collapsed && <span className="flex-1 text-left">Ask AI</span>}
         </button>
 
-        {generalNavItems
-          .filter(item => !('employeeOnly' in item && item.employeeOnly) || !isAdmin)
-          .map(item => (
-            <NavButton
-              key={item.path}
-              path={item.path}
-              icon={item.icon}
-              label={item.label}
-              badge={item.path === '/messages' ? unreadCount : undefined}
-            />
-          ))}
-
-        <div className={cn("pt-4 pb-1", collapsed && "pt-2 pb-0")}>
-          {!collapsed && (
-            <span className="px-3 text-xs font-medium text-sidebar-foreground/50 uppercase tracking-wider">
-              GTD
-            </span>
-          )}
-          {collapsed && <div className="border-t border-sidebar-border mx-2"></div>}
-        </div>
-        {gtdNavItems.map(item => (
-          <NavButton key={item.path} {...item} />
-        ))}
-
-        {isAdmin && (
-          <>
-            <div className={cn("pt-4 pb-1", collapsed && "pt-2 pb-0")}>
-              {!collapsed && (
-                <span className="px-3 text-xs font-medium text-sidebar-foreground/50 uppercase tracking-wider">
-                  Management
-                </span>
-              )}
-              {collapsed && <div className="border-t border-sidebar-border mx-2"></div>}
+        {/* General section */}
+        <div className="mt-1">
+          <SectionHeader sectionKey="general" label="General" hasActive={generalActive} />
+          {sections.general && (
+            <div className="mt-0.5 space-y-0.5">
+              {generalItems.map(item => (
+                <NavButton
+                  key={item.path}
+                  path={item.path}
+                  icon={item.icon}
+                  label={item.label}
+                  badge={item.path === '/messages' ? unreadCount : undefined}
+                />
+              ))}
             </div>
-            {managementNavItems.map(item => (
-              <NavButton
-                key={item.path}
-                {...item}
-                badge={item.path === '/ai-questions' ? unansweredCount : undefined}
-              />
-            ))}
-          </>
+          )}
+        </div>
+
+        {/* GTD section */}
+        <div className="mt-1">
+          <SectionHeader sectionKey="gtd" label="GTD" hasActive={gtdActive} />
+          {sections.gtd && (
+            <div className="mt-0.5 space-y-0.5">
+              {gtdNavItems.map(item => (
+                <NavButton key={item.path} {...item} />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Management section */}
+        {isAdmin && (
+          <div className="mt-1">
+            <SectionHeader sectionKey="management" label="Management" hasActive={managementActive} />
+            {sections.management && (
+              <div className="mt-0.5 space-y-0.5">
+                {managementNavItems.map(item => (
+                  <NavButton
+                    key={item.path}
+                    {...item}
+                    badge={item.path === '/ai-questions' ? unansweredCount : undefined}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
         )}
       </nav>
 
