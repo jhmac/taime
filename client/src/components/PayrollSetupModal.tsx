@@ -9,11 +9,13 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
+import { cn } from '@/lib/utils';
 import type { User, Role } from '@shared/schema';
 
 interface PayrollSetupModalProps {
@@ -35,6 +37,8 @@ export default function PayrollSetupModal({ isOpen, onClose }: PayrollSetupModal
   const [useCalendar, setUseCalendar] = useState(true);
   const [startDateInput, setStartDateInput] = useState('');
   const [endDateInput, setEndDateInput] = useState('');
+  const [startDateOpen, setStartDateOpen] = useState(false);
+  const [endDateOpen, setEndDateOpen] = useState(false);
 
   // Fetch users and roles for notification selection
   const { data: users = [] } = useQuery<User[]>({
@@ -147,6 +151,7 @@ export default function PayrollSetupModal({ isOpen, onClose }: PayrollSetupModal
     if (date && useCalendar) {
       setEndDate(calculateEndDate(date));
     }
+    setStartDateOpen(false);
   };
 
   return (
@@ -193,33 +198,57 @@ export default function PayrollSetupModal({ isOpen, onClose }: PayrollSetupModal
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>First Pay Period Start Date</Label>
-                    {startDate && (
-                      <p className="text-sm font-medium text-foreground">
-                        {format(startDate, "PPP")}
-                      </p>
-                    )}
-                    <Calendar
-                      mode="single"
-                      selected={startDate}
-                      onSelect={handleStartDateChange}
-                      className="rounded-md border"
-                      data-testid="calendar-start-date"
-                    />
+                    <Popover modal={false} open={startDateOpen} onOpenChange={setStartDateOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          className={cn(
+                            "w-full justify-start text-left font-normal",
+                            !startDate && "text-muted-foreground"
+                          )}
+                          data-testid="calendar-start-date-trigger"
+                        >
+                          <CalendarIcon className="mr-2 h-4 w-4" />
+                          {startDate ? format(startDate, "PPP") : "Pick a date"}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0 z-[9999]" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={startDate}
+                          onSelect={handleStartDateChange}
+                          initialFocus
+                          data-testid="calendar-start-date"
+                        />
+                      </PopoverContent>
+                    </Popover>
                   </div>
                   <div className="space-y-2">
                     <Label>First Pay Period End Date</Label>
-                    {endDate && (
-                      <p className="text-sm font-medium text-foreground">
-                        {format(endDate, "PPP")}
-                      </p>
-                    )}
-                    <Calendar
-                      mode="single"
-                      selected={endDate}
-                      onSelect={setEndDate}
-                      className="rounded-md border"
-                      data-testid="calendar-end-date"
-                    />
+                    <Popover modal={false} open={endDateOpen} onOpenChange={setEndDateOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          className={cn(
+                            "w-full justify-start text-left font-normal",
+                            !endDate && "text-muted-foreground"
+                          )}
+                          data-testid="calendar-end-date-trigger"
+                        >
+                          <CalendarIcon className="mr-2 h-4 w-4" />
+                          {endDate ? format(endDate, "PPP") : "Pick a date"}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0 z-[9999]" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={endDate}
+                          onSelect={(date) => { setEndDate(date); setEndDateOpen(false); }}
+                          initialFocus
+                          data-testid="calendar-end-date"
+                        />
+                      </PopoverContent>
+                    </Popover>
                   </div>
                 </div>
               ) : (
