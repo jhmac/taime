@@ -249,6 +249,7 @@ export default function AdminSettings() {
         focusLossGraceSeconds: settings.focusLossGraceSeconds ?? 30,
         requireMobileClockIn: settings.requireMobileClockIn || false,
         defaultMileageRateCents: settings.defaultMileageRateCents ?? 0,
+        taskAutoAssign: settings.taskAutoAssign ?? false,
       });
     }
   }, [settings]);

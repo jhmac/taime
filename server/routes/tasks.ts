@@ -3,6 +3,7 @@ import type { IStorage } from "../storage";
 import { insertTaskSchema } from "@shared/schema";
 import { notificationService } from "../services/notificationService";
 import { tryResolveStoreIdForUser } from "../lib/storeResolver";
+import { runAutoAssign } from "./ai";
 
 export function registerTaskRoutes(app: Express, storage: IStorage, isAuthenticated: any, broadcastToAll: (data: any) => void) {
   app.post('/api/tasks', isAuthenticated, async (req: any, res) => {
@@ -15,6 +16,15 @@ export function registerTaskRoutes(app: Express, storage: IStorage, isAuthentica
       if (data.assignedTo) {
         const dueTime = data.dueDate ? new Date(data.dueDate).toLocaleString() : 'No due date';
         await notificationService.sendTaskAssignment(data.assignedTo, task.title, dueTime);
+      } else {
+        // Auto-assign in background if setting is on and no assignee was provided
+        storage.getCompanySettings().then(settings => {
+          if (settings?.taskAutoAssign) {
+            runAutoAssign(storage).catch(err => {
+              console.error('[auto-assign] Background assignment failed:', err);
+            });
+          }
+        }).catch(() => {});
       }
 
       broadcastToAll({

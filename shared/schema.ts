@@ -484,6 +484,7 @@ export const companySettings = pgTable("company_settings", {
   autoResumeWindowSeconds: integer("auto_resume_window_seconds").default(600),
   requireMobileClockIn: boolean("require_mobile_clock_in").default(false),
   defaultMileageRateCents: integer("default_mileage_rate_cents").default(0),
+  taskAutoAssign: boolean("task_auto_assign").default(false),
   version: integer("version").default(1).notNull(),
 });
 

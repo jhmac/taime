@@ -102,6 +102,11 @@ export async function runSchemaMigrations(): Promise<void> {
       table: "company_settings",
       sql: `ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS default_mileage_rate_cents integer DEFAULT 0`,
     },
+    // company_settings: task auto-assign toggle
+    {
+      table: "company_settings",
+      sql: `ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS task_auto_assign boolean DEFAULT false`,
+    },
     // offsite_sessions: route polyline for map rendering
     {
       table: "offsite_sessions",

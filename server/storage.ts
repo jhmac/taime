@@ -309,6 +309,7 @@ export interface IStorage {
   // Company settings operations
   getCompanySettings(storeId?: string): Promise<CompanySettings | undefined>;
   updateCompanySettings(settings: InsertCompanySettings, storeId?: string): Promise<CompanySettings>;
+  getClockedInUsers(locationId?: string): Promise<{ id: string; firstName: string | null; lastName: string | null }[]>;
   
   // Work location update/delete
   updateWorkLocation(id: string, updates: Partial<WorkLocation>): Promise<WorkLocation>;
@@ -1553,6 +1554,15 @@ export class DatabaseStorage implements IStorage {
       .where(eq(users.id, userId))
       .returning();
     return updatedUser;
+  }
+
+  async getClockedInUsers(locationId?: string): Promise<{ id: string; firstName: string | null; lastName: string | null }[]> {
+    const rows = await db
+      .selectDistinct({ id: users.id, firstName: users.firstName, lastName: users.lastName })
+      .from(timeEntries)
+      .innerJoin(users, eq(timeEntries.userId, users.id))
+      .where(isNull(timeEntries.clockOutTime));
+    return rows;
   }
 
   async getCompanySettings(storeId?: string): Promise<CompanySettings | undefined> {

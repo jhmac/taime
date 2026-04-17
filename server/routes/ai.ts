@@ -15,76 +15,111 @@ const aiRateLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// Shared assignment logic — used by both the manual endpoint and auto-assign on task creation
+export async function runAutoAssign(storage: IStorage): Promise<{ assignments: { choreId: string; assignedTo: string; reasoning: string; estimatedCompletion: string }[]; source: string; message?: string }> {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+
+  // 1. Try scheduled employees first
+  const schedules = await storage.getAllSchedules(today, tomorrow);
+  const tasks = await storage.getTasksForDate(today);
+
+  const uniqueUserIds = Array.from(new Set(schedules.map(s => s.userId)));
+  const userRows = uniqueUserIds.length > 0
+    ? await db.select({ id: users.id, firstName: users.firstName, lastName: users.lastName })
+        .from(users)
+        .where(inArray(users.id, uniqueUserIds))
+    : [];
+  const usersById = new Map(userRows.map(u => [u.id, u]));
+
+  let employeePool: { id: string; name: string; shiftStart?: string; shiftEnd?: string; skills: string[]; workload: number; pastPerformance: number }[] = schedules.map((schedule) => {
+    const user = usersById.get(schedule.userId);
+    return {
+      id: schedule.userId,
+      name: `${user?.firstName || ''} ${user?.lastName || ''}`.trim(),
+      shiftStart: schedule.startTime.toISOString(),
+      shiftEnd: schedule.endTime.toISOString(),
+      skills: [],
+      workload: 50,
+      pastPerformance: 85,
+    };
+  });
+
+  let source = 'schedule';
+
+  // 2. Fall back to clocked-in employees if nobody is scheduled today
+  if (employeePool.length === 0) {
+    const clockedIn = await storage.getClockedInUsers();
+    employeePool = clockedIn.map(u => ({
+      id: u.id,
+      name: `${u.firstName || ''} ${u.lastName || ''}`.trim(),
+      skills: [],
+      workload: 50,
+      pastPerformance: 85,
+    }));
+    source = 'clocked-in';
+  }
+
+  const availableChores = tasks
+    .filter(task => !task.assignedTo && task.status === 'pending')
+    .map(task => ({
+      id: task.id,
+      title: task.title,
+      description: task.description || '',
+      estimatedMinutes: task.estimatedMinutes || 30,
+      requiredSkills: [],
+      priority: 'medium' as const,
+    }));
+
+  if (availableChores.length === 0) {
+    return { assignments: [], source, message: 'No unassigned chores available' };
+  }
+
+  if (employeePool.length === 0) {
+    return { assignments: [], source, message: 'No employees scheduled or clocked in' };
+  }
+
+  const result = await claudeService.assignChores({
+    scheduledEmployees: employeePool,
+    availableChores,
+  });
+
+  for (const assignment of result.assignments) {
+    await storage.updateTask(assignment.choreId, {
+      assignedTo: assignment.assignedTo,
+      isAIAssigned: true,
+      aiReasoning: assignment.reasoning,
+    });
+
+    const task = await storage.getTask(assignment.choreId);
+    if (task) {
+      await notificationService.sendTaskAssignment(
+        assignment.assignedTo,
+        task.title,
+        assignment.estimatedCompletion
+      );
+    }
+  }
+
+  return { ...result, source };
+}
+
 export function registerAIRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
   app.post('/api/ai/assign-chores', isAuthenticated, aiRateLimiter, async (req: any, res) => {
     try {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-
-      const schedules = await storage.getAllSchedules(today, tomorrow);
-      const tasks = await storage.getTasksForDate(today);
-      
-      const uniqueUserIds = Array.from(new Set(schedules.map(s => s.userId)));
-      const userRows = uniqueUserIds.length > 0
-        ? await db.select({ id: users.id, firstName: users.firstName, lastName: users.lastName })
-            .from(users)
-            .where(inArray(users.id, uniqueUserIds))
-        : [];
-      const usersById = new Map(userRows.map(u => [u.id, u]));
-
-      const scheduledEmployees = schedules.map((schedule) => {
-        const user = usersById.get(schedule.userId);
-        return {
-          id: schedule.userId,
-          name: `${user?.firstName || ''} ${user?.lastName || ''}`.trim(),
-          shiftStart: schedule.startTime.toISOString(),
-          shiftEnd: schedule.endTime.toISOString(),
-          skills: [],
-          workload: 50,
-          pastPerformance: 85,
-        };
-      });
-
-      const availableChores = tasks
-        .filter(task => !task.assignedTo && task.status === 'pending')
-        .map(task => ({
-          id: task.id,
-          title: task.title,
-          description: task.description || '',
-          estimatedMinutes: task.estimatedMinutes || 30,
-          requiredSkills: [],
-          priority: 'medium' as const,
-        }));
-
-      if (availableChores.length === 0) {
-        return res.json({ message: 'No unassigned chores available' });
+      const result = await runAutoAssign(storage);
+      if (result.message && result.assignments.length === 0) {
+        return res.json({ message: result.message });
       }
-
-      const assignments = await claudeService.assignChores({
-        scheduledEmployees,
-        availableChores,
+      const count = result.assignments.length;
+      res.json({
+        ...result,
+        message: result.source === 'clocked-in'
+          ? `${count} task${count !== 1 ? 's' : ''} assigned to clocked-in employees (no schedule found for today)`
+          : undefined,
       });
-
-      for (const assignment of assignments.assignments) {
-        await storage.updateTask(assignment.choreId, {
-          assignedTo: assignment.assignedTo,
-          isAIAssigned: true,
-          aiReasoning: assignment.reasoning,
-        });
-
-        const task = await storage.getTask(assignment.choreId);
-        if (task) {
-          await notificationService.sendTaskAssignment(
-            assignment.assignedTo,
-            task.title,
-            assignment.estimatedCompletion
-          );
-        }
-      }
-
-      res.json(assignments);
     } catch (error) {
       console.error("Error assigning chores:", error);
       res.status(500).json({ message: "Failed to assign chores with AI" });

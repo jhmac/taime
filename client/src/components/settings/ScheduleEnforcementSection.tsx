@@ -123,6 +123,23 @@ export default function ScheduleEnforcementSection({ settingsForm, updateForm }:
           </div>
         </CardContent>
       </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Task assignment</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-start gap-3">
+            <Checkbox checked={settingsForm.taskAutoAssign ?? false} onCheckedChange={val => updateForm('taskAutoAssign', !!val)} />
+            <div>
+              <Label className="text-sm">Auto-assign tasks</Label>
+              <p className="text-xs text-muted-foreground">
+                When a task is created without an assignee, automatically distribute it to employees on today's schedule. If no one is scheduled, clocked-in employees are used instead.
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
