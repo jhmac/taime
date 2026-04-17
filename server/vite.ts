@@ -127,11 +127,20 @@ export function serveStatic(app: Express) {
       const contentType =
         contentTypeMap[ext] ?? "application/octet-stream";
 
-      res.set({
+      const cacheHeaders: Record<string, string> = {
         "Content-Encoding": "gzip",
         "Content-Type": contentType,
         "Vary": "Accept-Encoding",
-      });
+      };
+
+      // Hashed assets (e.g. /assets/index-Bx3kj92.js) are safe to cache
+      // indefinitely because the filename changes whenever the content changes.
+      if (urlPath.startsWith("/assets/")) {
+        cacheHeaders["Cache-Control"] =
+          "public, max-age=31536000, immutable";
+      }
+
+      res.set(cacheHeaders);
 
       res.sendFile(gzPath, (sendErr) => {
         if (sendErr) {
@@ -143,7 +152,23 @@ export function serveStatic(app: Express) {
     });
   });
 
-  app.use(express.static(distPath));
+  app.use(
+    express.static(distPath, {
+      setHeaders(res, filePath) {
+        // Apply immutable cache headers to content-hashed assets produced by
+        // Vite (e.g. assets/index-Bx3kj92.js). The hash in the filename
+        // changes whenever the content changes, so browsers can cache these
+        // files indefinitely without ever needing to revalidate.
+        const relativePath = path.relative(distPath, filePath);
+        if (relativePath.startsWith("assets" + path.sep)) {
+          res.setHeader(
+            "Cache-Control",
+            "public, max-age=31536000, immutable",
+          );
+        }
+      },
+    }),
+  );
 
   // fall through to index.html if the file doesn't exist
   app.use("*", (_req, res) => {
