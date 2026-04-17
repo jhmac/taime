@@ -88,6 +88,9 @@ export default function PaySummaryWidget() {
             <span className="text-xs text-white/80">{fmt(grossCents)} gross</span>
           </div>
         </div>
+        <p className="text-[10px] text-white/55 mt-2 leading-snug">
+          Approximate only — actual pay may vary.
+        </p>
       </button>
 
       {expanded && (
@@ -115,9 +118,6 @@ export default function PaySummaryWidget() {
             <span>Projected Net Pay</span>
             <span>{fmt(netCents)}</span>
           </div>
-          <p className="text-[10px] text-white/50 mt-2 leading-snug">
-            Estimates are based on current hours and configured rates. Actual paycheck may vary.
-          </p>
         </div>
       )}
     </div>
