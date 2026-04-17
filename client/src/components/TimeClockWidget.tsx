@@ -29,7 +29,14 @@ function triggerHaptic(pattern: number | number[] = 200) {
   } catch (e) {}
 }
 
-export default function TimeClockWidget() {
+interface TimeClockWidgetProps {
+  /** Shown in the top-left of the card, with the clock moved to the right */
+  greetingSlot?: React.ReactNode;
+  /** Appended inside the card after a divider */
+  footerSlot?: React.ReactNode;
+}
+
+export default function TimeClockWidget({ greetingSlot, footerSlot }: TimeClockWidgetProps = {}) {
   const { user } = useAuth();
   const isMobile = useIsMobile();
   const { position, getCurrentPosition, watchPosition, clearWatch, loading: locationLoading, error: locationError, permissionState } = useGeolocation();
@@ -799,13 +806,25 @@ export default function TimeClockWidget() {
       {!showCountdown && (
         <CardContent className="p-5 text-center space-y-4">
 
-          {/* Time — no date (dashboard header already shows it) */}
-          <div
-            className="text-4xl font-extrabold tabular-nums text-foreground tracking-tight"
-            data-testid="current-time"
-          >
-            {formatTime(currentTime)}
-          </div>
+          {/* Time — side-by-side with greeting if greetingSlot provided */}
+          {greetingSlot ? (
+            <div className="flex items-center justify-between gap-3 text-left">
+              <div className="flex-1 min-w-0">{greetingSlot}</div>
+              <div
+                className="text-4xl font-extrabold tabular-nums text-foreground tracking-tight shrink-0"
+                data-testid="current-time"
+              >
+                {formatTime(currentTime)}
+              </div>
+            </div>
+          ) : (
+            <div
+              className="text-4xl font-extrabold tabular-nums text-foreground tracking-tight"
+              data-testid="current-time"
+            >
+              {formatTime(currentTime)}
+            </div>
+          )}
 
           {/* Clocked-in status — single clean line */}
           {activeTimeEntry && (
@@ -988,19 +1007,28 @@ export default function TimeClockWidget() {
             </div>
           )}
 
-          {/* Today's hours — single stat, only show break if > 0 */}
-          <div className="flex items-center justify-center gap-6 pt-1">
-            <div className="text-center">
-              <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Today</p>
-              <p className="text-xl font-extrabold text-foreground" data-testid="today-hours">{todayTotalDisplay}</p>
-            </div>
-            {activeTimeEntry && (activeTimeEntry.breakMinutes ?? 0) > 0 && (
+          {/* Today's hours — hidden when footerSlot replaces it */}
+          {!footerSlot && (
+            <div className="flex items-center justify-center gap-6 pt-1">
               <div className="text-center">
-                <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Break</p>
-                <p className="text-xl font-extrabold text-foreground" data-testid="break-time">{activeTimeEntry.breakMinutes}m</p>
+                <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Today</p>
+                <p className="text-xl font-extrabold text-foreground" data-testid="today-hours">{todayTotalDisplay}</p>
               </div>
-            )}
-          </div>
+              {activeTimeEntry && (activeTimeEntry.breakMinutes ?? 0) > 0 && (
+                <div className="text-center">
+                  <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Break</p>
+                  <p className="text-xl font-extrabold text-foreground" data-testid="break-time">{activeTimeEntry.breakMinutes}m</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Optional footer slot — injected by parent (e.g. OwnerDashboard stats row) */}
+          {footerSlot && (
+            <>
+              <div className="border-t border-border -mx-5 pt-4">{footerSlot}</div>
+            </>
+          )}
 
         </CardContent>
       )}

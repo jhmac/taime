@@ -25,7 +25,7 @@ import { useToast } from '@/hooks/use-toast';
 import {
   Briefcase, ShieldCheck, AlertTriangle, TrendingUp,
   Calendar, DollarSign, ClipboardList, BarChart3, Settings,
-  Bot, Clock, Video, ShoppingBag, ExternalLink,
+  Clock, Video, ShoppingBag, ExternalLink,
   AlertCircle, CheckCircle2, CalendarDays, Inbox, CalendarCheck, Zap, ArrowRight,
   LogOut, Moon, ChevronRight,
 } from 'lucide-react';
@@ -406,57 +406,48 @@ export default function OwnerDashboard() {
     })),
   ].slice(0, 8);
 
+  const greetingSlot = (
+    <div>
+      <h1 className="text-xl font-extrabold text-foreground leading-tight">
+        {getGreeting()}, {(user as any)?.firstName || 'Owner'}
+      </h1>
+      <p className="text-sm text-muted-foreground mt-1">
+        Here's your business at a glance &bull;{' '}
+        {currentTime.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+      </p>
+    </div>
+  );
+
+  const statsFooterSlot = (
+    <div className="grid grid-cols-3 text-center">
+      <div className="py-1">
+        <p className="text-sm text-muted-foreground mb-0.5">Hrs Today</p>
+        <p className="text-2xl font-extrabold text-foreground tabular-nums" data-testid="today-hours">
+          {analyticsData?.totalHours != null ? `${analyticsData.totalHours.toFixed(1)}h` : '0.0h'}
+        </p>
+      </div>
+      <div className="py-1 border-l border-r border-border">
+        <p className="text-sm text-muted-foreground mb-0.5">Tasks Done</p>
+        <p className="text-2xl font-extrabold text-foreground tabular-nums">
+          {analyticsData?.tasksCompleted ?? completedTasks.length}
+        </p>
+      </div>
+      <div className="py-1">
+        <p className="text-sm text-muted-foreground mb-0.5">Punctuality</p>
+        <p className="text-2xl font-extrabold text-foreground tabular-nums">
+          {analyticsData?.punctuality ? `${analyticsData.punctuality}%` : 'N/A'}
+        </p>
+      </div>
+    </div>
+  );
+
   return (
     <div className="min-h-full bg-background">
-      <DashboardErrorBoundary fallback="Header failed to load">
-        <section className="bg-gradient-to-br from-slate-900 to-slate-800 text-white p-5 md:p-8 md:rounded-xl md:m-6 md:mt-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-lg md:text-2xl font-bold">
-                {getGreeting()}, {(user as any)?.firstName || 'Owner'}
-              </h1>
-              <p className="text-sm opacity-70 mt-1">
-                Here's your business at a glance &bull;{' '}
-                {currentTime.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-              </p>
-            </div>
-            <Button
-              onClick={() => window.dispatchEvent(new Event("open-ask-mainager"))}
-              size="icon"
-              className="bg-white/10 hover:bg-white/20 text-white rounded-full h-10 w-10"
-            >
-              <Bot className="h-5 w-5" />
-            </Button>
-          </div>
-        </section>
-      </DashboardErrorBoundary>
 
-      <div className={isMobile ? 'px-4 pt-3 pb-3 space-y-3' : 'px-6 pt-4 pb-4 space-y-3'}>
+      <div className={isMobile ? 'px-4 pt-4 pb-3 space-y-3' : 'px-6 pt-5 pb-4 space-y-3'}>
         <DashboardErrorBoundary fallback="Time clock failed to load">
-          <TimeClockWidget />
+          <TimeClockWidget greetingSlot={greetingSlot} footerSlot={statsFooterSlot} />
         </DashboardErrorBoundary>
-
-        {/* Compact stats row — replaces the standalone Morning Whisper card */}
-        <div className="grid grid-cols-3 gap-2">
-          {analyticsLoading ? (
-            [1,2,3].map(i => <Skeleton key={i} className="h-14 rounded-2xl" />)
-          ) : (
-            <>
-              <div className="rounded-2xl bg-card border border-border px-3 py-2.5 text-center">
-                <p className="text-lg font-extrabold text-foreground tabular-nums">{analyticsData?.totalHours?.toFixed(1) || '—'}</p>
-                <p className="text-[11px] text-muted-foreground mt-0.5">Hrs Today</p>
-              </div>
-              <div className="rounded-2xl bg-card border border-border px-3 py-2.5 text-center">
-                <p className="text-lg font-extrabold text-foreground tabular-nums">{analyticsData?.tasksCompleted ?? completedTasks.length}</p>
-                <p className="text-[11px] text-muted-foreground mt-0.5">Tasks Done</p>
-              </div>
-              <div className="rounded-2xl bg-card border border-border px-3 py-2.5 text-center">
-                <p className="text-lg font-extrabold text-foreground tabular-nums">{analyticsData?.punctuality ? `${analyticsData.punctuality}%` : '—'}</p>
-                <p className="text-[11px] text-muted-foreground mt-0.5">Punctuality</p>
-              </div>
-            </>
-          )}
-        </div>
 
         {/* Personal assigned tasks */}
         {(() => {
