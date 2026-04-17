@@ -205,6 +205,25 @@ export function registerPushRoutes(app: Express, storage: IStorage, isAuthentica
     }
   });
 
+  app.get('/api/push/delivery-stats', isAuthenticated, async (req: any, res) => {
+    try {
+      await requireAdmin(storage, req.user.id);
+      const { since } = req.query;
+      const sinceDate = since ? new Date(since as string) : undefined;
+      if (sinceDate && isNaN(sinceDate.getTime())) {
+        return res.status(400).json({ message: 'Invalid since date' });
+      }
+      const stats = await storage.getNotificationDeliveryStats({ since: sinceDate });
+      res.json(stats);
+    } catch (error: any) {
+      if (error?.status === 403) {
+        return res.status(403).json({ message: error.message || 'Admin access required' });
+      }
+      console.error('Error fetching delivery stats:', error);
+      res.status(500).json({ message: 'Failed to fetch delivery stats' });
+    }
+  });
+
   app.get('/api/push/delivery-logs', isAuthenticated, async (req: any, res) => {
     try {
       await requireAdmin(storage, req.user.id);

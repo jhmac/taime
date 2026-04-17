@@ -13,7 +13,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/hooks/useAuth';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 import type { NotificationDeliveryLogWithUser, User } from '@shared/schema';
+
+type EmployeeDeliveryStats = {
+  userId: string;
+  recipientName: string | null;
+  total: number;
+  failures: number;
+};
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -131,9 +139,15 @@ export default function NotificationSettings() {
   const [logSinceFilter, setLogSinceFilter] = useState<string>('');
   const [logUserFilter, setLogUserFilter] = useState<string>('all');
   const [logTypeFilter, setLogTypeFilter] = useState<string>('all');
+  const [showSummary, setShowSummary] = useState<boolean>(true);
 
   const usersQuery = useQuery<User[]>({
     queryKey: ['/api/users'],
+  });
+
+  const deliveryStatsQuery = useQuery<EmployeeDeliveryStats[]>({
+    queryKey: ['/api/push/delivery-stats'],
+    enabled: isAdmin,
   });
 
   const deliveryLogsQuery = useQuery<NotificationDeliveryLogWithUser[]>({
@@ -789,6 +803,79 @@ export default function NotificationSettings() {
           )}
         </CardContent>
       </Card>
+
+      {isAdmin && (
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2">
+                <i className="fas fa-chart-bar text-primary"></i>
+                Delivery Summary
+              </CardTitle>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={() => setShowSummary(v => !v)}
+              >
+                {showSummary ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                {showSummary ? 'Hide' : 'Show'}
+              </Button>
+            </div>
+          </CardHeader>
+          {showSummary && (
+            <CardContent className="pt-0">
+              {deliveryStatsQuery.isLoading ? (
+                <div className="flex items-center justify-center py-4">
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary"></div>
+                </div>
+              ) : !deliveryStatsQuery.data || deliveryStatsQuery.data.length === 0 ? (
+                <p className="text-xs text-muted-foreground text-center py-4">
+                  No delivery records yet.
+                </p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b text-muted-foreground">
+                        <th className="text-left py-1.5 pr-4 font-medium">Employee</th>
+                        <th className="text-right py-1.5 pr-4 font-medium">Total</th>
+                        <th className="text-right py-1.5 font-medium">Failures</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {deliveryStatsQuery.data.map((row) => (
+                        <tr
+                          key={row.userId}
+                          className="border-b last:border-0 cursor-pointer hover:bg-muted/50 transition-colors"
+                          onClick={() => setLogUserFilter(row.userId)}
+                        >
+                          <td className="py-1.5 pr-4 font-medium text-foreground">
+                            {row.recipientName || <span className="text-muted-foreground italic">Unknown</span>}
+                          </td>
+                          <td className="py-1.5 pr-4 text-right text-muted-foreground">{row.total}</td>
+                          <td className="py-1.5 text-right">
+                            {row.failures > 0 ? (
+                              <Badge variant="destructive" className="text-xs h-5 ml-auto">
+                                {row.failures}
+                              </Badge>
+                            ) : (
+                              <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 text-xs h-5 ml-auto">
+                                0
+                              </Badge>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <p className="text-xs text-muted-foreground mt-2">Click a row to filter the log below to that employee.</p>
+                </div>
+              )}
+            </CardContent>
+          )}
+        </Card>
+      )}
 
       <Card>
         <CardHeader className="pb-3">

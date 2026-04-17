@@ -288,6 +288,7 @@ export interface IStorage {
   // Notification delivery log operations
   createNotificationDeliveryLog(log: InsertNotificationDeliveryLog): Promise<NotificationDeliveryLog>;
   getNotificationDeliveryLogs(options?: { channel?: string; userId?: string; notificationType?: string; since?: Date; limit?: number }): Promise<NotificationDeliveryLogWithUser[]>;
+  getNotificationDeliveryStats(options?: { since?: Date }): Promise<{ userId: string; recipientName: string | null; total: number; failures: number }[]>;
   deleteOldNotificationDeliveryLogs(olderThanDays: number): Promise<number>;
 
   // Role management operations
@@ -1295,6 +1296,32 @@ export class DatabaseStorage implements IStorage {
       errorMessage: r.errorMessage,
       sentAt: r.sentAt,
       recipientName: r.firstName && r.lastName ? `${r.firstName} ${r.lastName}` : r.firstName || r.lastName || null,
+    }));
+  }
+
+  async getNotificationDeliveryStats(options?: { since?: Date }): Promise<{ userId: string; recipientName: string | null; total: number; failures: number }[]> {
+    const conditions: any[] = [];
+    if (options?.since) {
+      conditions.push(sql`${notificationDeliveryLogs.sentAt} >= ${options.since}`);
+    }
+    const rows = await db
+      .select({
+        userId: notificationDeliveryLogs.userId,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        total: sql<number>`cast(count(*) as int)`,
+        failures: sql<number>`cast(sum(case when ${notificationDeliveryLogs.status} = 'failure' then 1 else 0 end) as int)`,
+      })
+      .from(notificationDeliveryLogs)
+      .leftJoin(users, eq(notificationDeliveryLogs.userId, users.id))
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .groupBy(notificationDeliveryLogs.userId, users.firstName, users.lastName)
+      .orderBy(sql`sum(case when ${notificationDeliveryLogs.status} = 'failure' then 1 else 0 end) DESC`);
+    return rows.map((r) => ({
+      userId: r.userId,
+      recipientName: r.firstName && r.lastName ? `${r.firstName} ${r.lastName}` : r.firstName || r.lastName || null,
+      total: r.total,
+      failures: r.failures,
     }));
   }
 
