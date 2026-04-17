@@ -58,6 +58,7 @@ import { registerQuizRoutes } from "./routes/quiz";
 import { registerDailyQuestionnaireRoutes } from "./routes/dailyQuestionnaire";
 import { registerTrainingPlayerRoutes } from "./routes/trainingPlayer";
 import { registerMorningMomentRoutes } from "./routes/morningMoment";
+import { registerMigrateRoute } from "./routes/migrate";
 import { registerSupplyRoutes } from "./routes/supply";
 import { startBackgroundInsightsCron, stopBackgroundInsightsCron } from "./services/backgroundInsights";
 import { startGamificationCron, stopGamificationCron } from "./services/gamificationCron";
@@ -154,6 +155,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
+  registerMigrateRoute(app);
   registerAuthRoutes(app, storage, isAuthenticated);
   registerTimeEntryRoutes(app, storage, isAuthenticated, broadcastToAll);
   registerScheduleRoutes(app, storage, isAuthenticated, broadcastToAll);
