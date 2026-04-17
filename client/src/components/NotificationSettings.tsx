@@ -150,6 +150,10 @@ export default function NotificationSettings() {
     enabled: isAdmin,
   });
 
+  const deliveryLogTypesQuery = useQuery<string[]>({
+    queryKey: ['/api/push/delivery-log-types'],
+  });
+
   const deliveryLogsQuery = useQuery<NotificationDeliveryLogWithUser[]>({
     queryKey: ['/api/push/delivery-logs', logChannelFilter, logSinceFilter, logUserFilter, logTypeFilter],
     queryFn: async () => {
@@ -904,13 +908,11 @@ export default function NotificationSettings() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All types</SelectItem>
-                  <SelectItem value="clock_in_reminder">Clock-in reminder</SelectItem>
-                  <SelectItem value="clock_out_reminder">Clock-out reminder</SelectItem>
-                  <SelectItem value="overtime_warning">Overtime warning</SelectItem>
-                  <SelectItem value="schedule_published">Schedule published</SelectItem>
-                  <SelectItem value="task_assignment">Task assignment</SelectItem>
-                  <SelectItem value="shift_starting">Shift starting</SelectItem>
-                  <SelectItem value="test">Test</SelectItem>
+                  {(deliveryLogTypesQuery.data ?? []).map((type) => (
+                    <SelectItem key={type} value={type}>
+                      {type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
               <Select value={logChannelFilter} onValueChange={setLogChannelFilter}>

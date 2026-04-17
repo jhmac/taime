@@ -224,6 +224,20 @@ export function registerPushRoutes(app: Express, storage: IStorage, isAuthentica
     }
   });
 
+  app.get('/api/push/delivery-log-types', isAuthenticated, async (req: any, res) => {
+    try {
+      await requireAdmin(storage, req.user.id);
+      const types = await storage.getDistinctNotificationTypes();
+      res.json(types);
+    } catch (error: any) {
+      if (error?.status === 403) {
+        return res.status(403).json({ message: error.message || 'Admin access required' });
+      }
+      console.error('Error fetching distinct notification types:', error);
+      res.status(500).json({ message: 'Failed to fetch notification types' });
+    }
+  });
+
   app.get('/api/push/delivery-logs', isAuthenticated, async (req: any, res) => {
     try {
       await requireAdmin(storage, req.user.id);

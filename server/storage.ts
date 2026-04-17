@@ -289,6 +289,7 @@ export interface IStorage {
   createNotificationDeliveryLog(log: InsertNotificationDeliveryLog): Promise<NotificationDeliveryLog>;
   getNotificationDeliveryLogs(options?: { channel?: string; userId?: string; notificationType?: string; since?: Date; limit?: number }): Promise<NotificationDeliveryLogWithUser[]>;
   getNotificationDeliveryStats(options?: { since?: Date }): Promise<{ userId: string; recipientName: string | null; total: number; failures: number }[]>;
+  getDistinctNotificationTypes(): Promise<string[]>;
   deleteOldNotificationDeliveryLogs(olderThanDays: number): Promise<number>;
 
   // Role management operations
@@ -1325,6 +1326,14 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
+  async getDistinctNotificationTypes(): Promise<string[]> {
+    const rows = await db
+      .selectDistinct({ notificationType: notificationDeliveryLogs.notificationType })
+      .from(notificationDeliveryLogs)
+      .orderBy(notificationDeliveryLogs.notificationType);
+    return rows.map((r) => r.notificationType).filter(Boolean) as string[];
+  }
+
   async deleteOldNotificationDeliveryLogs(olderThanDays: number): Promise<number> {
     const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
     const deleted = await db
@@ -1433,7 +1442,7 @@ export class DatabaseStorage implements IStorage {
         roleId,
         permissionId
       }));
-      
+
       await db.insert(rolePermissions).values(newRolePermissions);
     }
     cache.invalidatePrefix('permissions:');
