@@ -213,6 +213,12 @@ export default function EmployeeSettings() {
           title="Data & Privacy"
           rows={[
             {
+              icon: 'fas fa-file-contract',
+              label: 'Terms of Service',
+              subtitle: 'View our terms and conditions',
+              action: () => navigate('/terms'),
+            },
+            {
               icon: 'fas fa-bell-slash',
               label: 'Unsubscribe from notifications',
               subtitle: 'Stop all push notifications from Taime',

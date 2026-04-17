@@ -1,4 +1,4 @@
-import { useParams, useLocation } from "wouter";
+import { useParams, useLocation, Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useClerk } from "@clerk/clerk-react";
 import { Loader2, CheckCircle, XCircle, Mail, Building2, UserCheck } from "lucide-react";
@@ -186,6 +186,12 @@ export default function JoinPage() {
               >
                 I already have an account
               </Button>
+              <p className="text-xs text-center text-muted-foreground pt-1">
+                By creating an account, you agree to our{" "}
+                <Link href="/terms" className="underline hover:text-gray-900">
+                  Terms of Service
+                </Link>
+              </p>
             </div>
 
           </div>
