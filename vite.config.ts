@@ -24,6 +24,12 @@ export default defineConfig({
             threshold: 1024,
             deleteOriginFile: false,
           }),
+          viteCompression({
+            algorithm: "brotliCompress",
+            ext: ".br",
+            threshold: 1024,
+            deleteOriginFile: false,
+          }),
         ]
       : []),
   ],

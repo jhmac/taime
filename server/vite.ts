@@ -76,16 +76,13 @@ export function serveStatic(app: Express) {
     );
   }
 
-  // Serve pre-compressed .gz sidecar files for static assets when the client
-  // supports gzip. This avoids on-the-fly compression CPU cost for JS/CSS/etc.
+  // Serve pre-compressed sidecar files for static assets when the client
+  // supports brotli or gzip. Brotli is preferred when available as it achieves
+  // 15–25% better compression ratios than gzip. This avoids on-the-fly
+  // compression CPU cost for JS/CSS/etc.
   // The compression() middleware in index.ts remains as a fallback for dynamic
-  // API responses and any assets that don't have a .gz sidecar.
+  // API responses and any assets that don't have a sidecar.
   app.use((req, res, next) => {
-    const acceptEncoding = req.headers["accept-encoding"] ?? "";
-    if (!acceptEncoding.includes("gzip")) {
-      return next();
-    }
-
     // Only attempt pre-compressed serving for GET/HEAD requests to static files
     if (req.method !== "GET" && req.method !== "HEAD") {
       return next();
@@ -103,53 +100,72 @@ export function serveStatic(app: Express) {
       return next();
     }
 
+    const acceptEncoding = req.headers["accept-encoding"] ?? "";
+
+    // Determine the original content type from the uncompressed filename
+    const ext = path.extname(urlPath).toLowerCase();
+    const contentTypeMap: Record<string, string> = {
+      ".js": "application/javascript; charset=utf-8",
+      ".mjs": "application/javascript; charset=utf-8",
+      ".css": "text/css; charset=utf-8",
+      ".html": "text/html; charset=utf-8",
+      ".json": "application/json; charset=utf-8",
+      ".svg": "image/svg+xml",
+      ".wasm": "application/wasm",
+      ".txt": "text/plain; charset=utf-8",
+      ".xml": "application/xml",
+    };
+    const contentType = contentTypeMap[ext] ?? "application/octet-stream";
+
+    const tryServe = (
+      filePath: string,
+      encoding: string,
+      fallback: () => void,
+    ) => {
+      fs.access(filePath, fs.constants.F_OK, (err) => {
+        if (err) return fallback();
+
+        const headers: Record<string, string> = {
+          "Content-Encoding": encoding,
+          "Content-Type": contentType,
+          "Vary": "Accept-Encoding",
+        };
+
+        // Hashed assets (e.g. /assets/index-Bx3kj92.js) are safe to cache
+        // indefinitely because the filename changes whenever the content changes.
+        if (urlPath.startsWith("/assets/")) {
+          headers["Cache-Control"] = "public, max-age=31536000, immutable";
+        }
+
+        res.set(headers);
+
+        res.sendFile(filePath, (sendErr) => {
+          if (sendErr) {
+            res.removeHeader("Content-Encoding");
+            fallback();
+          }
+        });
+      });
+    };
+
+    const brPath = path.join(distPath, urlPath + ".br");
     const gzPath = path.join(distPath, urlPath + ".gz");
 
-    fs.access(gzPath, fs.constants.F_OK, (err) => {
-      if (err) {
-        // No .gz sidecar — fall through to regular static handler
-        return next();
-      }
-
-      // Determine the original content type from the uncompressed filename
-      const ext = path.extname(urlPath).toLowerCase();
-      const contentTypeMap: Record<string, string> = {
-        ".js": "application/javascript; charset=utf-8",
-        ".mjs": "application/javascript; charset=utf-8",
-        ".css": "text/css; charset=utf-8",
-        ".html": "text/html; charset=utf-8",
-        ".json": "application/json; charset=utf-8",
-        ".svg": "image/svg+xml",
-        ".wasm": "application/wasm",
-        ".txt": "text/plain; charset=utf-8",
-        ".xml": "application/xml",
-      };
-      const contentType =
-        contentTypeMap[ext] ?? "application/octet-stream";
-
-      const cacheHeaders: Record<string, string> = {
-        "Content-Encoding": "gzip",
-        "Content-Type": contentType,
-        "Vary": "Accept-Encoding",
-      };
-
-      // Hashed assets (e.g. /assets/index-Bx3kj92.js) are safe to cache
-      // indefinitely because the filename changes whenever the content changes.
-      if (urlPath.startsWith("/assets/")) {
-        cacheHeaders["Cache-Control"] =
-          "public, max-age=31536000, immutable";
-      }
-
-      res.set(cacheHeaders);
-
-      res.sendFile(gzPath, (sendErr) => {
-        if (sendErr) {
-          // If sending the .gz file fails for any reason, fall through
-          res.removeHeader("Content-Encoding");
+    if (acceptEncoding.includes("br")) {
+      // Try brotli first, fall back to gzip, then uncompressed
+      tryServe(brPath, "br", () => {
+        if (acceptEncoding.includes("gzip")) {
+          tryServe(gzPath, "gzip", next);
+        } else {
           next();
         }
       });
-    });
+    } else if (acceptEncoding.includes("gzip")) {
+      // No brotli support — try gzip, then uncompressed
+      tryServe(gzPath, "gzip", next);
+    } else {
+      next();
+    }
   });
 
   app.use(
