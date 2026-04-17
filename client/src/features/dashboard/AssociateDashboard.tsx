@@ -493,6 +493,12 @@ export default function AssociateDashboard() {
     new Date(t.dueDate) >= today && new Date(t.dueDate) <= todayEnd
   );
 
+  const DOW_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  const todayDOW = DOW_NAMES[new Date().getDay()];
+  const teamChoresToday = tasks.filter(t =>
+    (t as any).isRecurring && (t as any).dayOfWeek === todayDOW && t.status !== 'completed'
+  );
+
   const toggleTaskMutation = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: string }) =>
       apiRequest('PATCH', `/api/tasks/${id}`, { status }),
@@ -581,6 +587,47 @@ export default function AssociateDashboard() {
               onClick={() => navigate('/messages')}
             />
           </div>
+
+          {/* Today's Team Chores */}
+          {teamChoresToday.length > 0 && (
+            <DashboardErrorBoundary fallback="">
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="text-lg font-extrabold text-foreground">Today's Chores</h2>
+                  <button onClick={() => navigate('/tasks')} className="text-sm font-bold text-primary">
+                    View all
+                  </button>
+                </div>
+                <div className="rounded-3xl overflow-hidden bg-card border border-border">
+                  {teamChoresToday.slice(0, 5).map((task, i) => (
+                    <div
+                      key={task.id}
+                      className="flex items-center gap-3.5 px-4 py-3 min-h-[52px]"
+                      style={{ borderBottom: i < Math.min(teamChoresToday.length, 5) - 1 ? '1px solid hsl(var(--border))' : 'none' }}
+                    >
+                      <div className="w-2 h-2 rounded-full bg-primary/60 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[14px] font-semibold text-foreground leading-snug truncate">{task.title}</p>
+                        {(task as any).timeOfDay && (
+                          <p className="text-xs text-muted-foreground capitalize">{(task as any).timeOfDay}</p>
+                        )}
+                      </div>
+                      {(task as any).assignedTo ? (
+                        <span className="text-xs text-muted-foreground font-medium shrink-0">Assigned</span>
+                      ) : (
+                        <span className="text-xs text-orange-500 font-semibold shrink-0">Open</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                {teamChoresToday.length > 5 && (
+                  <button onClick={() => navigate('/tasks')} className="w-full text-center text-sm font-bold text-primary mt-3 py-1">
+                    +{teamChoresToday.length - 5} more chores today
+                  </button>
+                )}
+              </div>
+            </DashboardErrorBoundary>
+          )}
 
           {/* Task preview */}
           {myTasksToday.length > 0 && (
@@ -754,6 +801,45 @@ export default function AssociateDashboard() {
           </DashboardErrorBoundary>
 
           <DashboardErrorBoundary fallback=""><SmartSuggestionsCard /></DashboardErrorBoundary>
+
+          {/* Today's Team Chores (post-clock-in) */}
+          {teamChoresToday.length > 0 && (
+            <DashboardErrorBoundary fallback="">
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="text-lg font-extrabold text-foreground">Today's Chores</h2>
+                  <button onClick={() => navigate('/tasks')} className="text-sm font-bold text-primary">View all</button>
+                </div>
+                <div className="rounded-3xl overflow-hidden bg-card border border-border">
+                  {teamChoresToday.slice(0, 5).map((task, i) => (
+                    <div
+                      key={task.id}
+                      className="flex items-center gap-3.5 px-4 py-3 min-h-[52px]"
+                      style={{ borderBottom: i < Math.min(teamChoresToday.length, 5) - 1 ? '1px solid hsl(var(--border))' : 'none' }}
+                    >
+                      <div className="w-2 h-2 rounded-full bg-primary/60 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[14px] font-semibold text-foreground leading-snug truncate">{task.title}</p>
+                        {(task as any).timeOfDay && (
+                          <p className="text-xs text-muted-foreground capitalize">{(task as any).timeOfDay}</p>
+                        )}
+                      </div>
+                      {(task as any).assignedTo ? (
+                        <span className="text-xs text-muted-foreground font-medium shrink-0">Assigned</span>
+                      ) : (
+                        <span className="text-xs text-orange-500 font-semibold shrink-0">Open</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                {teamChoresToday.length > 5 && (
+                  <button onClick={() => navigate('/tasks')} className="w-full text-center text-sm font-bold text-primary mt-3 py-1">
+                    +{teamChoresToday.length - 5} more chores today
+                  </button>
+                )}
+              </div>
+            </DashboardErrorBoundary>
+          )}
 
           {inProgressExecutions.length > 0 && (
             <DashboardErrorBoundary fallback="">

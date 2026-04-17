@@ -35,6 +35,14 @@ export function registerTimeEntryRoutes(app: Express, storage: IStorage, isAuthe
       if (typeof body.clockOutTime === 'string') body.clockOutTime = new Date(body.clockOutTime);
       const data = insertTimeEntrySchema.parse(body);
       
+      // Prevent double clock-in: reject if user already has an open entry
+      if (!data.clockOutTime) {
+        const existingActive = await storage.getActiveTimeEntry(userId);
+        if (existingActive) {
+          return res.status(409).json({ message: "You are already clocked in. Please clock out before clocking in again." });
+        }
+      }
+
       const allWorkLocations = await withRetry(() => storage.getAllWorkLocations());
       const hasActiveLocations = allWorkLocations.some(loc => loc.isActive && (loc as any).geofenceEnabled !== false);
       

@@ -3,11 +3,14 @@ import { workLocations } from '@shared/schema';
 import { eq } from 'drizzle-orm';
 import { getOrGenerateHuddle } from './morningHuddleAI';
 import { generateDailyQuote } from './dailyQuoteAI';
+import { runAutoAssign } from '../routes/ai';
+import { storage } from '../storage';
 import logger from '../lib/logger';
 
 let schedulerTimer: ReturnType<typeof setInterval> | null = null;
 let lastQuoteDate = '';
 let lastHuddleDate = '';
+let lastAutoAssignDate = '';
 
 async function getStoreIds(): Promise<string[]> {
   const stores = await db.select({ id: workLocations.id })
@@ -24,8 +27,9 @@ async function runScheduledTasks() {
 
   const needsQuotes = hour >= 5 && lastQuoteDate !== todayStr;
   const needsHuddles = hour >= 6 && lastHuddleDate !== todayStr;
+  const needsAutoAssign = hour >= 7 && lastAutoAssignDate !== todayStr;
 
-  if (!needsQuotes && !needsHuddles) return;
+  if (!needsQuotes && !needsHuddles && !needsAutoAssign) return;
 
   try {
     const storeIds = await getStoreIds();
@@ -52,6 +56,21 @@ async function runScheduledTasks() {
       }
       lastHuddleDate = todayStr;
       logger.info('Morning huddles generated for all stores');
+    }
+
+    if (needsAutoAssign) {
+      try {
+        const settings = await storage.getCompanySettings();
+        if (settings?.taskAutoAssign) {
+          const result = await runAutoAssign(storage);
+          lastAutoAssignDate = todayStr;
+          logger.info({ assignments: result.assignments.length, source: result.source }, 'Daily task auto-assign complete');
+        } else {
+          lastAutoAssignDate = todayStr; // mark done even if disabled so we don't retry all day
+        }
+      } catch (err: any) {
+        logger.error({ error: err.message }, 'Daily task auto-assign failed');
+      }
     }
   } catch (err: any) {
     logger.error({ error: err.message }, 'Ritual scheduler error');
