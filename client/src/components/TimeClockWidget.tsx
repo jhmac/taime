@@ -64,6 +64,8 @@ export default function TimeClockWidget() {
   const prevPermissionStateRef = useRef<string | null>(null);
   const [showDeniedBanner, setShowDeniedBanner] = useState(false);
   const [deniedBannerFading, setDeniedBannerFading] = useState(false);
+  const [showPromptBanner, setShowPromptBanner] = useState(false);
+  const [promptBannerFading, setPromptBannerFading] = useState(false);
 
   const { data: activeTimeEntry, isLoading: activeEntryLoading } = useQuery<TimeEntry | null>({
     queryKey: ['/api/time-entries/active'],
@@ -382,6 +384,27 @@ export default function TimeClockWidget() {
       return () => clearTimeout(timer);
     }
   }, [permissionState, locationError, position, activeTimeEntry, workLocations.length]);
+
+  useEffect(() => {
+    const shouldShow =
+      workLocations.length > 0 &&
+      permissionState === 'prompt' &&
+      !activeTimeEntry;
+
+    if (shouldShow && !showPromptBanner) {
+      setShowPromptBanner(true);
+      setPromptBannerFading(true);
+      const timer = setTimeout(() => setPromptBannerFading(false), 16);
+      return () => clearTimeout(timer);
+    } else if (!shouldShow && showPromptBanner) {
+      setPromptBannerFading(true);
+      const timer = setTimeout(() => {
+        setShowPromptBanner(false);
+        setPromptBannerFading(false);
+      }, 350);
+      return () => clearTimeout(timer);
+    }
+  }, [permissionState, activeTimeEntry, workLocations.length]);
 
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
@@ -753,25 +776,35 @@ export default function TimeClockWidget() {
           )}
 
           {/* Location permission prompt nudge (pre-clock-in only, prompt state) */}
-          {workLocations.length > 0 && permissionState === 'prompt' && !activeTimeEntry && (
-            <div className="flex flex-col gap-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-2xl p-4 text-left">
-              <div className="flex items-start gap-3">
-                <MapPin className="h-5 w-5 text-blue-500 shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-sm font-bold text-blue-800 dark:text-blue-200">Location permission needed</p>
-                  <p className="text-xs text-blue-700 dark:text-blue-300 mt-0.5 leading-relaxed">
-                    Smart Clock-In verifies you're at a work site before clocking in. Tap the button below to allow location access.
-                  </p>
+          {showPromptBanner && (
+            <div
+              className="grid transition-[grid-template-rows,opacity] duration-300 ease-in-out"
+              style={{
+                gridTemplateRows: promptBannerFading ? '0fr' : '1fr',
+                opacity: promptBannerFading ? 0 : 1,
+              }}
+            >
+              <div className="overflow-hidden">
+                <div className="flex flex-col gap-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-2xl p-4 text-left">
+                  <div className="flex items-start gap-3">
+                    <MapPin className="h-5 w-5 text-blue-500 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-bold text-blue-800 dark:text-blue-200">Location permission needed</p>
+                      <p className="text-xs text-blue-700 dark:text-blue-300 mt-0.5 leading-relaxed">
+                        Smart Clock-In verifies you're at a work site before clocking in. Tap the button below to allow location access.
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    onClick={() => getCurrentPosition().catch(() => {})}
+                    disabled={locationLoading}
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold py-2 rounded-xl"
+                    data-testid="allow-location-button"
+                  >
+                    {locationLoading ? 'Requesting…' : 'Allow Location Access'}
+                  </Button>
                 </div>
               </div>
-              <Button
-                onClick={() => getCurrentPosition().catch(() => {})}
-                disabled={locationLoading}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold py-2 rounded-xl"
-                data-testid="allow-location-button"
-              >
-                {locationLoading ? 'Requesting…' : 'Allow Location Access'}
-              </Button>
             </div>
           )}
 
