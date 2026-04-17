@@ -418,25 +418,44 @@ export default function OwnerDashboard() {
     </div>
   );
 
+  const myTasksForFooter = allTasks.filter((t: any) => t.assignedTo === user?.id && t.status !== 'completed');
+
   const statsFooterSlot = (
-    <div className="grid grid-cols-3 text-center">
-      <div className="py-1">
-        <p className="text-sm text-muted-foreground mb-0.5">Hrs Today</p>
+    <div className="flex gap-3 items-start">
+      {/* Hrs Today — 1/4 */}
+      <div className="w-1/4 shrink-0 text-center py-1">
+        <p className="text-[11px] text-muted-foreground mb-0.5 leading-tight">Hrs Today</p>
         <p className="text-2xl font-extrabold text-foreground tabular-nums" data-testid="today-hours">
           {analyticsData?.totalHours != null ? `${analyticsData.totalHours.toFixed(1)}h` : '0.0h'}
         </p>
       </div>
-      <div className="py-1 border-l border-r border-border">
-        <p className="text-sm text-muted-foreground mb-0.5">Tasks Done</p>
-        <p className="text-2xl font-extrabold text-foreground tabular-nums">
-          {analyticsData?.tasksCompleted ?? completedTasks.length}
-        </p>
-      </div>
-      <div className="py-1">
-        <p className="text-sm text-muted-foreground mb-0.5">Punctuality</p>
-        <p className="text-2xl font-extrabold text-foreground tabular-nums">
-          {analyticsData?.punctuality ? `${analyticsData.punctuality}%` : 'N/A'}
-        </p>
+
+      {/* Divider */}
+      <div className="w-px self-stretch bg-border shrink-0" />
+
+      {/* Task list — 3/4 */}
+      <div className="flex-1 min-w-0 py-1">
+        <div className="flex items-center justify-between mb-1.5">
+          <p className="text-[11px] text-muted-foreground leading-tight">Your Tasks</p>
+          <button onClick={() => navigate('/tasks')} className="text-[11px] font-bold text-primary leading-tight">See all</button>
+        </div>
+        {myTasksForFooter.length === 0 ? (
+          <p className="text-[12px] text-muted-foreground italic">All caught up!</p>
+        ) : (
+          <div className="space-y-1">
+            {myTasksForFooter.slice(0, 4).map((t: any) => (
+              <div key={t.id} className="flex items-center gap-2 min-w-0">
+                <div className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
+                <p className="text-[12px] font-semibold text-foreground truncate flex-1">{t.title}</p>
+                {t.dueDate && (
+                  <span className="text-[10px] text-muted-foreground shrink-0">
+                    {new Date(t.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -448,36 +467,6 @@ export default function OwnerDashboard() {
         <DashboardErrorBoundary fallback="Time clock failed to load">
           <TimeClockWidget greetingSlot={greetingSlot} footerSlot={statsFooterSlot} />
         </DashboardErrorBoundary>
-
-        {/* Personal assigned tasks */}
-        {(() => {
-          const myTasks = allTasks.filter((t: any) => t.assignedTo === user?.id && t.status !== 'completed');
-          if (myTasks.length === 0) return null;
-          return (
-            <DashboardErrorBoundary fallback="">
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-sm font-extrabold text-foreground">Your Tasks</p>
-                  <button onClick={() => navigate('/tasks')} className="text-xs font-bold text-primary">See all</button>
-                </div>
-                <div className="rounded-2xl overflow-hidden bg-card border border-border">
-                  {myTasks.slice(0, 5).map((t: any, i: number) => (
-                    <div key={t.id} className="flex items-center gap-3 px-3.5 py-2.5 min-h-[44px]"
-                      style={{ borderBottom: i < Math.min(myTasks.length, 5) - 1 ? '1px solid hsl(var(--border))' : 'none' }}>
-                      <div className="w-1.5 h-1.5 rounded-full bg-primary flex-shrink-0" />
-                      <p className="text-[13px] font-semibold text-foreground flex-1 truncate">{t.title}</p>
-                      {t.dueDate && (
-                        <span className="text-[11px] text-muted-foreground shrink-0">
-                          {new Date(t.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                        </span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </DashboardErrorBoundary>
-          );
-        })()}
 
         <DashboardErrorBoundary fallback="Could not load SOP banner">
           <SurfacedSOPBanner />
