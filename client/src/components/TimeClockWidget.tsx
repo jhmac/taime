@@ -66,6 +66,9 @@ export default function TimeClockWidget() {
   const [deniedBannerFading, setDeniedBannerFading] = useState(false);
   const [showPromptBanner, setShowPromptBanner] = useState(false);
   const [promptBannerFading, setPromptBannerFading] = useState(false);
+  const [showGeofencePill, setShowGeofencePill] = useState(false);
+  const [geofencePillFading, setGeofencePillFading] = useState(false);
+  const [displayGeofenceStatus, setDisplayGeofenceStatus] = useState<typeof geofenceStatus>(null);
 
   const { data: activeTimeEntry, isLoading: activeEntryLoading } = useQuery<TimeEntry | null>({
     queryKey: ['/api/time-entries/active'],
@@ -405,6 +408,29 @@ export default function TimeClockWidget() {
       return () => clearTimeout(timer);
     }
   }, [permissionState, activeTimeEntry, workLocations.length]);
+
+  useEffect(() => {
+    const shouldShow = !activeTimeEntry && !!geofenceStatus && workLocations.length > 0;
+    if (shouldShow) {
+      setDisplayGeofenceStatus(geofenceStatus);
+      if (!showGeofencePill) {
+        setShowGeofencePill(true);
+        setGeofencePillFading(true);
+        const timer = setTimeout(() => setGeofencePillFading(false), 16);
+        return () => clearTimeout(timer);
+      } else {
+        setGeofencePillFading(false);
+      }
+    } else if (showGeofencePill) {
+      setGeofencePillFading(true);
+      const timer = setTimeout(() => {
+        setShowGeofencePill(false);
+        setGeofencePillFading(false);
+        setDisplayGeofenceStatus(null);
+      }, 350);
+      return () => clearTimeout(timer);
+    }
+  }, [geofenceStatus, activeTimeEntry, workLocations.length]);
 
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
@@ -860,16 +886,26 @@ export default function TimeClockWidget() {
           })()}
 
           {/* Pre-clock-in geofence pill */}
-          {!activeTimeEntry && geofenceStatus && workLocations.length > 0 && (
-            <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-semibold ${
-              geofenceStatus.isInWorkLocation
-                ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
-                : 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300'
-            }`}>
-              {geofenceStatus.isInWorkLocation
-                ? <><CheckCircle2 className="h-4 w-4" /> At {geofenceStatus.location?.name || 'Work Location'}</>
-                : <><AlertTriangle className="h-4 w-4" /> {geofenceStatus.nearestLocation ? `${Math.round(geofenceStatus.nearestLocation.distance)}m from ${geofenceStatus.nearestLocation.name}` : 'Not at a work location'}</>
-              }
+          {showGeofencePill && displayGeofenceStatus && (
+            <div
+              className="grid transition-[grid-template-rows,opacity] duration-300 ease-in-out"
+              style={{
+                gridTemplateRows: geofencePillFading ? '0fr' : '1fr',
+                opacity: geofencePillFading ? 0 : 1,
+              }}
+            >
+              <div className="overflow-hidden">
+                <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-semibold ${
+                  displayGeofenceStatus.isInWorkLocation
+                    ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+                    : 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300'
+                }`}>
+                  {displayGeofenceStatus.isInWorkLocation
+                    ? <><CheckCircle2 className="h-4 w-4" /> At {displayGeofenceStatus.location?.name || 'Work Location'}</>
+                    : <><AlertTriangle className="h-4 w-4" /> {displayGeofenceStatus.nearestLocation ? `${Math.round(displayGeofenceStatus.nearestLocation.distance)}m from ${displayGeofenceStatus.nearestLocation.name}` : 'Not at a work location'}</>
+                  }
+                </div>
+              </div>
             </div>
           )}
 
