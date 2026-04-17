@@ -926,6 +926,9 @@ export async function seedDefaultRoles(): Promise<void> {
       { name: 'communication.create_groups',displayName: 'Create Groups',              description: 'Create new chat groups and invite members',            category: 'communication' },
       { name: 'communication.manage_groups',displayName: 'Manage Groups',              description: 'Add/remove members from chat groups',                 category: 'communication' },
       { name: 'enable_clock_out_on_focus_loss', displayName: 'Enable clock-out on focus loss', description: 'Allow this role to be subject to automatic clock-out when the app loses focus', category: 'time_tracking' },
+      { name: 'sales.view_own',             displayName: 'View Own Sales',             description: 'View own sales totals and commission data',            category: 'sales' },
+      { name: 'sales.view_all',             displayName: 'View All Sales',             description: 'View sales data for all team members',                category: 'sales' },
+      { name: 'sales.view_reports',         displayName: 'View Sales Reports',         description: 'Access full sales reports and analytics dashboards',   category: 'sales' },
     ];
 
     for (const perm of permissionDefs) {
@@ -962,6 +965,7 @@ export async function seedDefaultRoles(): Promise<void> {
       'tasks.view_all', 'tasks.edit_all', 'tasks.create', 'tasks.ai_assign',
       'comm.view_messages', 'comm.send_messages', 'comm.send_announcements',
       'communication.create_groups', 'communication.manage_groups',
+      'sales.view_all', 'sales.view_reports',
     ];
     const managerPerms = [
       'hr.view_team', 'hr.edit_team',
@@ -970,12 +974,14 @@ export async function seedDefaultRoles(): Promise<void> {
       'tasks.view_all', 'tasks.edit_all', 'tasks.view_own', 'tasks.edit_own', 'tasks.create', 'tasks.ai_assign',
       'comm.view_messages', 'comm.send_messages', 'comm.send_announcements',
       'communication.create_groups', 'communication.manage_groups',
+      'sales.view_all', 'sales.view_reports', 'sales.view_own',
     ];
     const employeePerms = [
       'schedule.view_own', 'schedule.edit_own',
       'time.view_own', 'time.edit_own', 'time.clock_in_out',
       'tasks.view_own', 'tasks.edit_own',
       'comm.view_messages', 'comm.send_messages',
+      'sales.view_own',
     ];
 
     const rolePermMap: Record<string, string[]> = {

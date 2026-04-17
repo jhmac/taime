@@ -46,16 +46,21 @@ import {
   AlertCircle,
   Copy,
   Zap,
+  ShoppingBag,
 } from "lucide-react";
 
 const CATEGORY_META: Record<string, { label: string; icon: typeof Clock }> = {
   time_tracking: { label: "Time & Attendance", icon: Clock },
+  time: { label: "Time & Attendance", icon: Clock },
   scheduling: { label: "Scheduling", icon: Calendar },
+  schedule: { label: "Scheduling", icon: Calendar },
   hr: { label: "HR & People", icon: Users },
   admin: { label: "Administration", icon: Shield },
   communication: { label: "Communication", icon: MessageSquare },
+  tasks: { label: "Task Management", icon: Zap },
   payroll: { label: "Payroll", icon: DollarSign },
   ai: { label: "AI Features", icon: Sparkles },
+  sales: { label: "Sales & Revenue", icon: ShoppingBag },
 };
 
 const ROLE_PRESETS: Record<string, { label: string; description: string; categories: Record<string, boolean> }> = {
