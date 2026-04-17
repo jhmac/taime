@@ -97,7 +97,7 @@ const companySettingsUpdateSchema = z.object({
   taskAutoAssign: z.boolean().optional(),
   dailySalesGoalEnabled: z.boolean().optional(),
   salesGoalIncreaseType: z.string().optional(),
-  salesGoalIncreaseValue: z.number().optional(),
+  salesGoalIncreaseValue: z.coerce.number().optional(),
   showPaySummaryToEmployees: z.boolean().optional(),
 }).strict();
 
