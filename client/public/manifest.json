@@ -64,9 +64,9 @@
       "url": "/?action=clock",
       "icons": [
         {
-          "src": "/icon-96x96.png",
+          "src": "assets/icons/icon-96.webp",
           "sizes": "96x96",
-          "type": "image/png"
+          "type": "image/webp"
         }
       ]
     },
@@ -76,9 +76,9 @@
       "url": "/?action=schedule",
       "icons": [
         {
-          "src": "/icon-96x96.png",
+          "src": "assets/icons/icon-96.webp",
           "sizes": "96x96",
-          "type": "image/png"
+          "type": "image/webp"
         }
       ]
     },
@@ -88,9 +88,9 @@
       "url": "/?action=ai",
       "icons": [
         {
-          "src": "/icon-96x96.png",
+          "src": "assets/icons/icon-96.webp",
           "sizes": "96x96",
-          "type": "image/png"
+          "type": "image/webp"
         }
       ]
     }
