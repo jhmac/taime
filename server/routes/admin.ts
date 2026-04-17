@@ -96,6 +96,8 @@ const companySettingsUpdateSchema = z.object({
   defaultMileageRateCents: z.number().int().min(0).max(1000).optional(),
   taskAutoAssign: z.boolean().optional(),
   dailySalesGoalEnabled: z.boolean().optional(),
+  salesGoalIncreaseType: z.string().optional(),
+  salesGoalIncreaseValue: z.number().optional(),
   showPaySummaryToEmployees: z.boolean().optional(),
 }).strict();
 
