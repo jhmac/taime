@@ -19,7 +19,7 @@ export function registerMigrateRoute(app: Express) {
       const sqlPath = path.join(process.cwd(), "server", "routes", "_migration_data.sql");
       const rawSql = fs.readFileSync(sqlPath, "utf8");
 
-      // Extract only INSERT statements from the pg_dump output
+      // Extract INSERT statements in dump order (pg_dump already orders by FK deps)
       const lines = rawSql.split("\n");
       const insertBlocks: string[] = [];
       let current = "";
@@ -39,29 +39,28 @@ export function registerMigrateRoute(app: Express) {
         }
       }
 
-      await client.query("BEGIN");
-      // Disable FK and trigger checks for the migration
-      await client.query("SET session_replication_role = 'replica'");
-
-      // Truncate all tables in one shot
+      // Truncate all tables with CASCADE (handles FK ordering automatically)
       const tableRes = await client.query<{ tablename: string }>(
         `SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename != 'sessions'`
       );
       const tables = tableRes.rows.map((r) => r.tablename);
+
+      await client.query("BEGIN");
+
       if (tables.length > 0) {
+        // Truncate with CASCADE — PostgreSQL resolves FK order automatically
         await client.query(
-          `TRUNCATE TABLE ${tables.map((t) => `"${t}"`).join(", ")} RESTART IDENTITY CASCADE`
+          `TRUNCATE TABLE ${tables.map((t) => `"${t}"`).join(", ")} CASCADE`
         );
       }
 
-      // Run all INSERT statements
+      // Insert in dump order (pg_dump ensures parent tables come before children)
       let count = 0;
       for (const stmt of insertBlocks) {
         await client.query(stmt);
         count++;
       }
 
-      await client.query("SET session_replication_role = 'DEFAULT'");
       await client.query("COMMIT");
 
       res.json({
