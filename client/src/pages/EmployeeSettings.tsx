@@ -219,6 +219,12 @@ export default function EmployeeSettings() {
               action: () => navigate('/terms'),
             },
             {
+              icon: 'fas fa-shield-alt',
+              label: 'Privacy Policy',
+              subtitle: 'View our privacy policy',
+              action: () => navigate('/privacy'),
+            },
+            {
               icon: 'fas fa-bell-slash',
               label: 'Unsubscribe from notifications',
               subtitle: 'Stop all push notifications from Taime',
