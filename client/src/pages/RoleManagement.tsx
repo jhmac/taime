@@ -162,13 +162,28 @@ export default function RoleManagement() {
       const response = await apiRequest("PUT", `/api/roles/${roleId}/permissions`, { permissionIds });
       return response.json();
     },
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/roles/all-permissions"] });
-      setPendingCells(new Set());
+    onMutate: async ({ roleId, permissionIds }) => {
+      // Cancel any in-flight refetch so it doesn't overwrite the optimistic value
+      await queryClient.cancelQueries({ queryKey: ["/api/roles/all-permissions"] });
+      const previous = queryClient.getQueryData<Record<string, string[]>>(["/api/roles/all-permissions"]);
+      // Write the new state into the cache immediately so rapid consecutive
+      // toggles always read the freshest local value, not stale server data
+      queryClient.setQueryData<Record<string, string[]>>(["/api/roles/all-permissions"], (old) =>
+        old ? { ...old, [roleId]: permissionIds } : old
+      );
+      return { previous };
     },
-    onError: (error) => {
+    onError: (error, _vars, context) => {
+      // Roll back to the snapshot captured before the optimistic update
+      if (context?.previous) {
+        queryClient.setQueryData(["/api/roles/all-permissions"], context.previous);
+      }
       setPendingCells(new Set());
       toast({ title: "Error", description: `Failed to update permissions: ${error.message}`, variant: "destructive" });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/roles/all-permissions"] });
+      setPendingCells(new Set());
     },
   });
 
