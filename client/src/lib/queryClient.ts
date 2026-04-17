@@ -1,18 +1,12 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 import { reportApiError } from "./errorReporter";
 
-// ── Clerk JWT cache ──────────────────────────────────────────────────────────
-// Clerk caches tokens internally, but calling getToken() is still an async
-// Promise resolution that adds overhead when the app fires many parallel
-// requests at once. We cache the raw JWT here and skip the Clerk call until
-// the token is within 60 seconds of expiry.
 interface CachedToken {
   token: string;
   exp: number; // Unix seconds
 }
 let _cachedToken: CachedToken | null = null;
 
-/** Call this whenever a Clerk session-ended event fires. */
 export function clearTokenCache(): void {
   _cachedToken = null;
 }
@@ -27,9 +21,7 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
       }
       const token = await (window as any).Clerk.session?.getToken();
       if (token) {
-        // Decode the exp claim from the JWT payload.
-        // JWTs use base64url (URL-safe alphabet, no padding), so we must
-        // substitute `-`→`+` and `_`→`/` then add `=` padding before atob.
+        // JWTs use base64url — normalize to base64 before decoding exp
         try {
           const b64url = token.split('.')[1];
           const b64 = b64url.replace(/-/g, '+').replace(/_/g, '/');
@@ -39,7 +31,7 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
             _cachedToken = { token, exp: payload.exp };
           }
         } catch {
-          // If decoding fails, use the token for this request without caching
+          // decoding failed — use token without caching
         }
         return { Authorization: `Bearer ${token}` };
       }

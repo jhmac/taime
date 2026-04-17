@@ -17,9 +17,6 @@ import { WebSocketProvider } from "@/contexts/WebSocketContext";
 import type { Permission } from "@shared/schema";
 const OnboardingGuard = lazy(() => import("@/components/OnboardingGuard"));
 
-// Listens to Clerk's session lifecycle events and evicts the cached JWT
-// immediately when the session ends — ensuring the module-level token cache
-// in queryClient.ts never serves a stale token after sign-out.
 function ClerkSessionWatcher() {
   const clerk = useClerk();
   useEffect(() => {

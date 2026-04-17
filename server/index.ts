@@ -36,9 +36,6 @@ const app = express();
 
 app.set('trust proxy', 1);
 
-// Compress all HTTP responses (gzip/deflate). Must be registered before any
-// route or static-file handler so that both API JSON and served assets are
-// compressed. Reduces JSON payloads by 60–80% and JS bundles by 50–70%.
 app.use(compression());
 
 app.use(helmet({
