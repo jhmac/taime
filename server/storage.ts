@@ -1372,12 +1372,18 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getPermissionsByCategory(): Promise<Record<string, Permission[]>> {
+    // Normalize legacy/inconsistent category names to canonical keys before grouping
+    const CATEGORY_ALIASES: Record<string, string> = {
+      time_tracking: 'time',
+      scheduling: 'schedule',
+    };
     const allPermissions = await this.getAllPermissions();
     return allPermissions.reduce((acc, permission) => {
-      if (!acc[permission.category]) {
-        acc[permission.category] = [];
+      const category = CATEGORY_ALIASES[permission.category] ?? permission.category;
+      if (!acc[category]) {
+        acc[category] = [];
       }
-      acc[permission.category].push(permission);
+      acc[category].push(permission);
       return acc;
     }, {} as Record<string, Permission[]>);
   }

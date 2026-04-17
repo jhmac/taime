@@ -50,9 +50,7 @@ import {
 } from "lucide-react";
 
 const CATEGORY_META: Record<string, { label: string; icon: typeof Clock }> = {
-  time_tracking: { label: "Time & Attendance", icon: Clock },
   time: { label: "Time & Attendance", icon: Clock },
-  scheduling: { label: "Scheduling", icon: Calendar },
   schedule: { label: "Scheduling", icon: Calendar },
   hr: { label: "HR & People", icon: Users },
   admin: { label: "Administration", icon: Shield },

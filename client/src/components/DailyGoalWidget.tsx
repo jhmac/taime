@@ -92,7 +92,7 @@ export default function DailyGoalWidget() {
   const currentRevenue = current?.revenue || 0;
   const currentOrders = current?.orders || 0;
   const goalOrders = goal?.orders || 0;
-  const isGoalMet = currentRevenue >= goalRevenue;
+  const isGoalMet = goalRevenue > 0 && currentRevenue >= goalRevenue;
 
   const getProgressColor = () => {
     if (isGoalMet) return 'from-green-500 to-emerald-500';
