@@ -7,13 +7,32 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
-import { Shield, ExternalLink, ShoppingBag, Loader2 } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { Shield, ExternalLink, ShoppingBag, Loader2, Users, AlertCircle, RefreshCw } from 'lucide-react';
 import type { Role, Permission } from '@shared/schema';
+
+type RoleMember = { id: string; firstName: string | null; lastName: string | null; email: string | null };
 
 export default function TeamPermissionsSection() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const [pendingToggles, setPendingToggles] = useState<Set<string>>(new Set());
+
+  const [confirmDialog, setConfirmDialog] = useState<{
+    open: boolean;
+    role: Role | null;
+    willGain: boolean;
+    members: RoleMember[];
+    loadingMembers: boolean;
+    membersError: boolean;
+  }>({ open: false, role: null, willGain: false, members: [], loadingMembers: false, membersError: false });
 
   const { data: roles = [], isLoading: rolesLoading } = useQuery<Role[]>({
     queryKey: ['/api/roles'],
@@ -67,19 +86,63 @@ export default function TeamPermissionsSection() {
     },
   });
 
-  const handleToggleSalesView = (role: Role) => {
+  const handleToggleSalesView = async (role: Role) => {
     if (!salesViewPermissionId) return;
+    const current = allRolePerms[role.id] ?? [];
+    const hasSalesView = current.includes(salesViewPermissionId);
+
+    setConfirmDialog({ open: true, role, willGain: !hasSalesView, members: [], loadingMembers: true, membersError: false });
+
+    try {
+      const res = await apiRequest('GET', `/api/roles/${role.id}/members`);
+      const members: RoleMember[] = await res.json();
+      setConfirmDialog(prev => ({ ...prev, members, loadingMembers: false, membersError: false }));
+    } catch {
+      setConfirmDialog(prev => ({ ...prev, loadingMembers: false, membersError: true }));
+    }
+  };
+
+  const handleConfirm = () => {
+    const { role } = confirmDialog;
+    if (!role || !salesViewPermissionId) return;
     const current = allRolePerms[role.id] ?? [];
     const hasSalesView = current.includes(salesViewPermissionId);
     const newIds = hasSalesView
       ? current.filter(id => id !== salesViewPermissionId)
       : [...current, salesViewPermissionId];
 
+    setConfirmDialog(prev => ({ ...prev, open: false }));
     setPendingToggles(prev => new Set(prev).add(role.id));
     updatePermissionsMutation.mutate({ roleId: role.id, permissionIds: newIds });
   };
 
+  const handleCancelDialog = () => {
+    setConfirmDialog({ open: false, role: null, willGain: false, members: [], loadingMembers: false, membersError: false });
+  };
+
+  const handleRetryMembers = async () => {
+    const { role } = confirmDialog;
+    if (!role) return;
+    setConfirmDialog(prev => ({ ...prev, loadingMembers: true, membersError: false }));
+    try {
+      const res = await apiRequest('GET', `/api/roles/${role.id}/members`);
+      const members: RoleMember[] = await res.json();
+      setConfirmDialog(prev => ({ ...prev, members, loadingMembers: false, membersError: false }));
+    } catch {
+      setConfirmDialog(prev => ({ ...prev, loadingMembers: false, membersError: true }));
+    }
+  };
+
   const isLoading = rolesLoading || permissionsLoading || rolePermsLoading;
+
+  const memberLabel = (members: RoleMember[]) => {
+    if (members.length === 0) return 'No active employees in this role.';
+    const names = members
+      .slice(0, 5)
+      .map(m => [m.firstName, m.lastName].filter(Boolean).join(' ') || m.email || 'Unknown');
+    const extra = members.length > 5 ? ` and ${members.length - 5} more` : '';
+    return names.join(', ') + extra;
+  };
 
   return (
     <div className="space-y-6">
@@ -149,6 +212,71 @@ export default function TeamPermissionsSection() {
           </Button>
         </CardContent>
       </Card>
+
+      <Dialog open={confirmDialog.open} onOpenChange={open => !open && handleCancelDialog()}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {confirmDialog.willGain ? 'Grant' : 'Revoke'} sales access for{' '}
+              {confirmDialog.role?.displayName ?? confirmDialog.role?.name}?
+            </DialogTitle>
+            <DialogDescription>
+              {confirmDialog.willGain
+                ? 'Employees in this role will gain access to sales analytics, Shopify data, and revenue dashboards.'
+                : 'Employees in this role will lose access to sales analytics, Shopify data, and revenue dashboards.'}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="py-2">
+            {confirmDialog.loadingMembers ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Loading affected employees…
+              </div>
+            ) : confirmDialog.membersError ? (
+              <div className="rounded-md border border-destructive/40 bg-destructive/5 px-4 py-3 space-y-2">
+                <div className="flex items-center gap-2 text-sm font-medium text-destructive">
+                  <AlertCircle className="w-4 h-4" />
+                  Unable to load affected employees
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Could not retrieve the list of employees for this role. Please try again before proceeding.
+                </p>
+                <Button variant="outline" size="sm" onClick={handleRetryMembers} className="gap-1.5">
+                  <RefreshCw className="w-3.5 h-3.5" /> Retry
+                </Button>
+              </div>
+            ) : (
+              <div className="rounded-md border bg-muted/40 px-4 py-3 space-y-2">
+                <div className="flex items-center gap-2 text-sm font-medium">
+                  <Users className="w-4 h-4 text-muted-foreground" />
+                  {confirmDialog.members.length === 0
+                    ? 'No active employees in this role'
+                    : `${confirmDialog.members.length} employee${confirmDialog.members.length === 1 ? '' : 's'} affected`}
+                </div>
+                {confirmDialog.members.length > 0 && (
+                  <p className="text-sm text-muted-foreground">
+                    {memberLabel(confirmDialog.members)}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={handleCancelDialog}>
+              Cancel
+            </Button>
+            <Button
+              variant={confirmDialog.willGain ? 'default' : 'destructive'}
+              onClick={handleConfirm}
+              disabled={confirmDialog.loadingMembers || confirmDialog.membersError}
+            >
+              {confirmDialog.willGain ? 'Grant access' : 'Revoke access'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

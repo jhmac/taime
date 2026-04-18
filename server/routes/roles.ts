@@ -77,6 +77,13 @@ export function registerRoleRoutes(app: Express, storage: IStorage, isAuthentica
     res.json(result);
   }));
 
+  app.get('/api/roles/:id/members', isAuthenticated, asyncHandler(async (req: any, res) => {
+    await requireRoleManagement(storage, req.user.id);
+    const { id } = req.params;
+    const members = await storage.getUsersByRole(id);
+    res.json(members.map(u => ({ id: u.id, firstName: u.firstName, lastName: u.lastName, email: u.email })));
+  }));
+
   app.get('/api/roles/:id/permissions', isAuthenticated, asyncHandler(async (req: any, res) => {
     await requireRoleManagement(storage, req.user.id);
     const { id } = req.params;

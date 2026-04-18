@@ -333,6 +333,7 @@ export interface IStorage {
   
   // User management
   getAllUsers(): Promise<User[]>;
+  getUsersByRole(roleId: string): Promise<User[]>;
   updateUserRole(userId: string, roleId: string): Promise<User>;
   deleteUser(userId: string): Promise<void>;
   deactivateUser(userId: string): Promise<User>;
@@ -1552,6 +1553,15 @@ export class DatabaseStorage implements IStorage {
   async getAllUsers(): Promise<User[]> {
     return await db.select().from(users).where(
       or(eq(users.isActive, true), isNull(users.isActive))
+    );
+  }
+
+  async getUsersByRole(roleId: string): Promise<User[]> {
+    return await db.select().from(users).where(
+      and(
+        eq(users.roleId, roleId),
+        or(eq(users.isActive, true), isNull(users.isActive))
+      )
     );
   }
 
