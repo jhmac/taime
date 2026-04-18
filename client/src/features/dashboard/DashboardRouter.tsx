@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { WifiOff, RefreshCw, Wifi, X } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
 import AssociateDashboard from './AssociateDashboard';
 import ManagerDashboard from './ManagerDashboard';
 import OwnerDashboard from './OwnerDashboard';
@@ -36,6 +37,7 @@ const INIT_TIMEOUT_MS = 3000;
 export default function DashboardRouter() {
   const { user, isLoading } = useAuth();
   const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   const { data: initData, isError: initError, refetch: refetchInit, isFetching: initFetching } = useQuery<DashboardInitData>({
     queryKey: ['/api/dashboard/init'],
@@ -54,6 +56,20 @@ export default function DashboardRouter() {
     const id = setTimeout(() => setInitTimedOut(true), INIT_TIMEOUT_MS);
     return () => clearTimeout(id);
   }, [user, initData, initError]);
+
+  // When the slow-connection banner auto-clears (initData arrived after a timeout),
+  // show a brief confirmation toast — but only if the user didn't manually dismiss.
+  const toastFiredRef = useRef(false);
+  useEffect(() => {
+    if (initTimedOut && initData && !bannerDismissed && !toastFiredRef.current) {
+      toastFiredRef.current = true;
+      toast({
+        title: 'Data up to date',
+        description: 'Dashboard data loaded.',
+        duration: 2000,
+      });
+    }
+  }, [initTimedOut, initData, bannerDismissed, toast]);
 
   // Pre-populate the query cache from the consolidated init response.
   // Child dashboards get cache hits on first render instead of separate requests.
