@@ -87,6 +87,15 @@ export function registerRitualRoutes(
   }));
 
   app.get('/api/rituals/pulse/today', isAuthenticated, asyncHandler(async (req: any, res) => {
+    const userId = req.user.id;
+    const isAdminOrOwner = req.user.role?.name === 'admin' || req.user.role?.name === 'owner';
+    const userPerms = await storage.getUserPermissions(userId);
+    const hasSalesAccess = isAdminOrOwner || userPerms.some(p => p.name === 'sales.view' || p.name === 'admin.manage_all');
+
+    if (!hasSalesAccess) {
+      return res.status(403).json({ success: false, message: 'Access denied: sales.view permission required' });
+    }
+
     const storeId = await getFirstStoreId();
     const now = new Date();
     const hour = now.getHours();
