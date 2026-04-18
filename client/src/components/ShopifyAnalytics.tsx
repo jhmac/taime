@@ -3,6 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/use-auth';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Button } from '@/components/ui/button';
+import { Download } from 'lucide-react';
 import {
   BarChart,
   Bar,
@@ -99,6 +101,37 @@ function formatWeek(dateStr: string) {
   return 'Wk ' + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
+function getExportFilename(timeRange: TimeRange, daysBack: number, dataStart?: string, dataEnd?: string): string {
+  const today = new Date();
+  const fallbackStart = new Date(today);
+  fallbackStart.setDate(today.getDate() - daysBack + 1);
+  const todayStr = dataEnd ?? today.toISOString().split('T')[0];
+  const startStr = dataStart ?? fallbackStart.toISOString().split('T')[0];
+
+  if (timeRange === 'daily') {
+    return `shopify-analytics-${todayStr}.csv`;
+  }
+  return `shopify-analytics-${startStr}-to-${todayStr}.csv`;
+}
+
+function buildCsv(rows: { label: string; revenue: number; laborCost: number; percentage: number }[], isQuarterly: boolean): string {
+  const header = [isQuarterly ? 'Week of' : 'Date', 'Revenue', 'Labor Cost', 'Labor %'].join(',');
+  const lines = rows.map(r =>
+    [r.label, r.revenue.toFixed(2), r.laborCost.toFixed(2), r.percentage.toFixed(2)].join(',')
+  );
+  return [header, ...lines].join('\n');
+}
+
+function downloadCsv(content: string, filename: string) {
+  const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function ShopifyAnalytics({ shopDomain }: { shopDomain: string }) {
   const { user } = useAuth();
   const roleName = (user as any)?.role?.name;
@@ -146,6 +179,19 @@ export default function ShopifyAnalytics({ shopDomain }: { shopDomain: string })
 
   const isQuarterly = timeRange === 'quarterly';
 
+  function handleExportCsv() {
+    if (!data) return;
+    const sorted = [...data.dailyBreakdown].sort((a, b) => a.date.localeCompare(b.date));
+    const dataStart = sorted[0]?.date;
+    const dataEnd = sorted[sorted.length - 1]?.date;
+    const rows = isQuarterly
+      ? aggregateByWeek(data.dailyBreakdown).map(w => ({ label: w.week, revenue: w.revenue, laborCost: w.laborCost, percentage: w.percentage }))
+      : sorted.map(d => ({ label: d.date, revenue: d.revenue, laborCost: d.laborCost, percentage: d.percentage }));
+    const csv = buildCsv(rows, isQuarterly);
+    const filename = getExportFilename(timeRange, selectedRange.daysBack, dataStart, dataEnd);
+    downloadCsv(csv, filename);
+  }
+
   const chartData = isQuarterly && data
     ? aggregateByWeek(data.dailyBreakdown).map(w => ({ date: w.week, revenue: w.revenue, laborCost: w.laborCost, percentage: w.percentage }))
     : (data?.dailyBreakdown ?? []).map(d => ({ date: d.date, revenue: d.revenue, laborCost: d.laborCost, percentage: d.percentage }));
@@ -191,20 +237,32 @@ export default function ShopifyAnalytics({ shopDomain }: { shopDomain: string })
           <i className="fab fa-shopify text-green-600 text-lg"></i>
           <h2 className="text-base font-semibold">Shopify Revenue vs Labor Cost</h2>
         </div>
-        <div className="flex rounded-lg border bg-muted/30 p-1 gap-1">
-          {TIME_RANGES.map(r => (
-            <button
-              key={r.key}
-              onClick={() => setTimeRange(r.key)}
-              className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
-                timeRange === r.key
-                  ? 'bg-background shadow-sm text-foreground'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              {r.label}
-            </button>
-          ))}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex rounded-lg border bg-muted/30 p-1 gap-1">
+            {TIME_RANGES.map(r => (
+              <button
+                key={r.key}
+                onClick={() => setTimeRange(r.key)}
+                className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                  timeRange === r.key
+                    ? 'bg-background shadow-sm text-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {r.label}
+              </button>
+            ))}
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExportCsv}
+            disabled={!data}
+            className="text-xs h-8 gap-1.5"
+          >
+            <Download className="h-3.5 w-3.5" />
+            Download CSV
+          </Button>
         </div>
       </div>
 
