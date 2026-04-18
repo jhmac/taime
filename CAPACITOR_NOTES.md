@@ -182,6 +182,84 @@ archiving/building again.
 
 ---
 
+## Pre-commit Security Hook
+
+A pre-commit script at `.husky/pre-commit` blocks any commit that includes the
+following secret credential files, regardless of `.gitignore` settings:
+
+| Blocked pattern | Why it's sensitive |
+|---|---|
+| `*.keystore` | Android release signing key — cannot be replaced on the Play Store without a lengthy Google support process |
+| `android/app/google-services.json` | Firebase Android credentials |
+| `ios/App/GoogleService-Info.plist` | Firebase iOS credentials |
+
+### One-time developer setup (required per machine)
+
+Every developer who clones this repository must activate the hook before their
+first commit. Choose **one** of the methods below.
+
+#### Option A — Project install script (recommended)
+
+```bash
+bash scripts/install-hooks.sh
+```
+
+This installs all project hooks in one shot. It wires up `.husky/pre-commit`
+(credential guard) as the primary entry point, which internally chains to
+`scripts/hooks/pre-commit` (migration validation), so both checks run on
+every commit.
+
+#### Option B — Husky
+
+```bash
+npx husky install
+```
+
+After running this once, git will automatically execute `.husky/pre-commit`
+before every local commit. The hook already chains to the migration validation
+script, so no extra wiring is needed.
+
+To make this permanent for all future installs on your machine, add a
+`prepare` script to `package.json`:
+
+```json
+"scripts": {
+  "prepare": "husky install"
+}
+```
+
+#### Option C — Manual git hook symlink (no extra dependency)
+
+```bash
+ln -sf ../../.husky/pre-commit .git/hooks/pre-commit
+chmod +x .git/hooks/pre-commit
+```
+
+### What happens when a blocked file is staged
+
+The commit is aborted and a clear error message is printed, e.g.:
+
+```
+╔══════════════════════════════════════════════════════════════╗
+║           COMMIT BLOCKED — SECRET FILE DETECTED             ║
+╠══════════════════════════════════════════════════════════════╣
+║  The following sensitive credential file(s) are staged:     ║
+║    ✗  android/app/google-services.json                      ║
+...
+╚══════════════════════════════════════════════════════════════╝
+```
+
+To resolve, unstage the file and store it securely instead:
+
+```bash
+git reset HEAD android/app/google-services.json
+```
+
+Store credential files in a password manager (1Password, Bitwarden) or your
+CI/CD secret store and share them only through encrypted channels.
+
+---
+
 ## Troubleshooting
 
 | Issue | Fix |
