@@ -1,13 +1,45 @@
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Switch } from '@/components/ui/switch';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { DAYS_OF_WEEK, TIME_OPTIONS } from '@/components/settings/constants';
 import type { SettingsSectionProps } from '@/components/settings/types';
+import { apiRequest } from '@/lib/queryClient';
+import { useToast } from '@/hooks/use-toast';
+import { Wand2, Users, CalendarCheck, Loader2 } from 'lucide-react';
 
 export default function ScheduleEnforcementSection({ settingsForm, updateForm }: SettingsSectionProps) {
+  const { toast } = useToast();
+  const [lastResult, setLastResult] = useState<{ count: number; source: string } | null>(null);
+
+  const assignNowMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest('POST', '/api/ai/assign-chores');
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      const count = data.assignments?.length ?? 0;
+      const source = data.source === 'schedule' ? 'scheduled employees' : data.source === 'clocked-in' ? 'clocked-in employees' : 'employees';
+      if (count === 0) {
+        toast({ title: 'Nothing to assign', description: data.message || 'All tasks are already assigned or no employees are available.' });
+        setLastResult(null);
+      } else {
+        toast({ title: `${count} task${count !== 1 ? 's' : ''} assigned`, description: `Distributed to ${source}.` });
+        setLastResult({ count, source });
+      }
+    },
+    onError: () => {
+      toast({ title: 'Error', description: 'Could not auto-assign tasks. Please try again.', variant: 'destructive' });
+    },
+  });
+
   return (
     <div className="space-y-6">
       <Card>
@@ -124,20 +156,86 @@ export default function ScheduleEnforcementSection({ settingsForm, updateForm }:
         </CardContent>
       </Card>
 
+      {/* ── Daily task auto-assignment ─────────────────────────── */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Task assignment</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-start gap-3">
-            <Checkbox checked={settingsForm.taskAutoAssign ?? false} onCheckedChange={val => updateForm('taskAutoAssign', !!val)} />
+          <div className="flex items-center justify-between gap-4">
             <div>
-              <Label className="text-sm">Auto-assign tasks</Label>
-              <p className="text-xs text-muted-foreground">
-                When a task is created without an assignee, automatically distribute it to employees on today's schedule. If no one is scheduled, clocked-in employees are used instead.
-              </p>
+              <CardTitle className="text-base">Daily task auto-assignment</CardTitle>
+              <CardDescription className="mt-1 text-xs">
+                Automatically distribute today's unassigned tasks each morning.
+              </CardDescription>
+            </div>
+            <Switch
+              checked={settingsForm.taskAutoAssign ?? false}
+              onCheckedChange={val => updateForm('taskAutoAssign', val)}
+              aria-label="Toggle daily task auto-assignment"
+            />
+          </div>
+        </CardHeader>
+
+        <CardContent className="space-y-4">
+          {/* How it works */}
+          <div className="rounded-xl bg-muted/50 p-3 space-y-2">
+            <div className="flex items-start gap-2.5">
+              <CalendarCheck className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+              <div>
+                <p className="text-xs font-semibold text-foreground">Scheduled workers first</p>
+                <p className="text-xs text-muted-foreground">Tasks are distributed among team members who have a shift today.</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-2.5">
+              <Users className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+              <div>
+                <p className="text-xs font-semibold text-foreground">Falls back to clocked-in</p>
+                <p className="text-xs text-muted-foreground">If nobody is scheduled, tasks go to whoever is already clocked in.</p>
+              </div>
             </div>
           </div>
+
+          {/* Mode label */}
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-muted-foreground">
+              {settingsForm.taskAutoAssign
+                ? 'Auto-assignment runs each morning and whenever a new unassigned task is created.'
+                : 'Auto-assignment is off — you assign tasks manually.'}
+            </p>
+            <Badge variant={settingsForm.taskAutoAssign ? 'default' : 'outline'} className="text-xs shrink-0">
+              {settingsForm.taskAutoAssign ? 'Auto' : 'Manual'}
+            </Badge>
+          </div>
+
+          <Separator />
+
+          {/* Assign Now */}
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-medium">Assign today's tasks now</p>
+              <p className="text-xs text-muted-foreground">Run assignment immediately without waiting for the morning cron.</p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => assignNowMutation.mutate()}
+              disabled={assignNowMutation.isPending}
+              className="shrink-0 gap-1.5"
+            >
+              {assignNowMutation.isPending
+                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                : <Wand2 className="h-3.5 w-3.5" />}
+              {assignNowMutation.isPending ? 'Assigning…' : 'Assign Now'}
+            </Button>
+          </div>
+
+          {/* Last result */}
+          {lastResult && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg px-3 py-2">
+              <Wand2 className="h-3.5 w-3.5 text-green-600 dark:text-green-400 shrink-0" />
+              <span>
+                <span className="font-semibold text-green-700 dark:text-green-400">{lastResult.count} task{lastResult.count !== 1 ? 's' : ''}</span> assigned to {lastResult.source}.
+              </span>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
