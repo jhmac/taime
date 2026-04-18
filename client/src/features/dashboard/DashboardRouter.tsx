@@ -3,7 +3,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
-import { WifiOff, RefreshCw } from 'lucide-react';
+import { WifiOff, RefreshCw, Wifi, X } from 'lucide-react';
 import AssociateDashboard from './AssociateDashboard';
 import ManagerDashboard from './ManagerDashboard';
 import OwnerDashboard from './OwnerDashboard';
@@ -48,6 +48,7 @@ export default function DashboardRouter() {
   // Deadline-based fallback: if init hasn't resolved within INIT_TIMEOUT_MS,
   // render the dashboard anyway so per-widget queries can run normally.
   const [initTimedOut, setInitTimedOut] = useState(false);
+  const [bannerDismissed, setBannerDismissed] = useState(false);
   useEffect(() => {
     if (!user || initData || initError) return;
     const id = setTimeout(() => setInitTimedOut(true), INIT_TIMEOUT_MS);
@@ -126,13 +127,31 @@ export default function DashboardRouter() {
 
   const role = user?.role?.name;
 
+  // Show the slow-connection banner when init timed out AND fresh data hasn't
+  // arrived yet. Disappears automatically once initData resolves.
+  const showStaleBanner = initTimedOut && !initData && !bannerDismissed;
+
+  const StaleBanner = showStaleBanner ? (
+    <div className="flex items-center gap-2.5 px-4 py-2.5 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-sm">
+      <Wifi className="h-4 w-4 shrink-0 animate-pulse" />
+      <span className="flex-1">Slow connection — some numbers are loading in the background.</span>
+      <button
+        onClick={() => setBannerDismissed(true)}
+        aria-label="Dismiss"
+        className="shrink-0 rounded p-0.5 hover:bg-amber-200 dark:hover:bg-amber-800 transition-colors"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  ) : null;
+
   if (role === 'owner') {
-    return <OwnerDashboard />;
+    return <>{StaleBanner}<OwnerDashboard /></>;
   }
 
   if (role === 'admin') {
-    return <ManagerDashboard />;
+    return <>{StaleBanner}<ManagerDashboard /></>;
   }
 
-  return <AssociateDashboard />;
+  return <>{StaleBanner}<AssociateDashboard /></>;
 }
