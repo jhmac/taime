@@ -922,6 +922,7 @@ export async function seedDefaultRoles(): Promise<void> {
       { name: 'sales.view_own',             displayName: 'View Own Sales',             description: 'View own sales totals and commission data',            category: 'sales' },
       { name: 'sales.view_all',             displayName: 'View All Sales',             description: 'View sales data for all team members',                category: 'sales' },
       { name: 'sales.view_reports',         displayName: 'View Sales Reports',         description: 'Access full sales reports and analytics dashboards',   category: 'sales' },
+      { name: 'sales.view',                 displayName: 'View Sales Data',            description: 'Access sales analytics, Shopify data, and revenue dashboards', category: 'sales' },
     ];
 
     for (const perm of permissionDefs) {
@@ -958,7 +959,7 @@ export async function seedDefaultRoles(): Promise<void> {
       'tasks.view_all', 'tasks.edit_all', 'tasks.create', 'tasks.ai_assign',
       'comm.view_messages', 'comm.send_messages', 'comm.send_announcements',
       'communication.create_groups', 'communication.manage_groups',
-      'sales.view_all', 'sales.view_reports',
+      'sales.view_all', 'sales.view_reports', 'sales.view',
       'enable_clock_out_on_focus_loss',
     ];
     const managerPerms = [
@@ -968,7 +969,7 @@ export async function seedDefaultRoles(): Promise<void> {
       'tasks.view_all', 'tasks.edit_all', 'tasks.view_own', 'tasks.edit_own', 'tasks.create', 'tasks.ai_assign',
       'comm.view_messages', 'comm.send_messages', 'comm.send_announcements',
       'communication.create_groups', 'communication.manage_groups',
-      'sales.view_all', 'sales.view_reports', 'sales.view_own',
+      'sales.view_all', 'sales.view_reports', 'sales.view_own', 'sales.view',
     ];
     const employeePerms = [
       'schedule.view_own', 'schedule.edit_own',

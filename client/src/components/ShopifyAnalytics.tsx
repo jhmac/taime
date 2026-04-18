@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useAuth } from '@/hooks/use-auth';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -11,6 +13,15 @@ import {
   ResponsiveContainer,
   Legend,
 } from 'recharts';
+
+type TimeRange = 'daily' | 'weekly' | 'monthly' | 'quarterly';
+
+const TIME_RANGES: { key: TimeRange; label: string; daysBack: number }[] = [
+  { key: 'daily',     label: 'Daily',     daysBack: 1  },
+  { key: 'weekly',    label: 'Weekly',    daysBack: 7  },
+  { key: 'monthly',   label: 'Monthly',   daysBack: 30 },
+  { key: 'quarterly', label: 'Quarterly', daysBack: 90 },
+];
 
 interface DailyBreakdown {
   date: string;
@@ -25,6 +36,39 @@ interface LaborCostRatioData {
   laborCostPercentage: number;
   daysBack: number;
   dailyBreakdown: DailyBreakdown[];
+}
+
+interface WeeklyBreakdown {
+  week: string;
+  revenue: number;
+  laborCost: number;
+  percentage: number;
+}
+
+function aggregateByWeek(daily: DailyBreakdown[]): WeeklyBreakdown[] {
+  const buckets = new Map<string, { revenue: number; laborCost: number }>();
+  for (const d of daily) {
+    const dt = new Date(d.date + 'T00:00:00');
+    const dow = dt.getDay();
+    const weekStart = new Date(dt);
+    weekStart.setDate(dt.getDate() - dow);
+    const key = weekStart.toISOString().split('T')[0];
+    const existing = buckets.get(key) ?? { revenue: 0, laborCost: 0 };
+    buckets.set(key, {
+      revenue: existing.revenue + d.revenue,
+      laborCost: existing.laborCost + d.laborCost,
+    });
+  }
+  return Array.from(buckets.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([week, data]) => ({
+      week,
+      revenue: Math.round(data.revenue * 100) / 100,
+      laborCost: Math.round(data.laborCost * 100) / 100,
+      percentage: data.revenue > 0
+        ? Math.round((data.laborCost / data.revenue) * 10000) / 100
+        : 0,
+    }));
 }
 
 function getPercentageColor(pct: number) {
@@ -50,11 +94,32 @@ function formatDate(dateStr: string) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
+function formatWeek(dateStr: string) {
+  const d = new Date(dateStr + 'T00:00:00');
+  return 'Wk ' + d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
 export default function ShopifyAnalytics({ shopDomain }: { shopDomain: string }) {
+  const { user } = useAuth();
+  const roleName = (user as any)?.role?.name;
+  const isAdminOrOwner = roleName === 'owner' || roleName === 'admin';
+  const { data: permissions = [] } = useQuery<{ name: string }[]>({
+    queryKey: ['/api/auth/permissions'],
+    enabled: !!user && !isAdminOrOwner,
+    staleTime: 5 * 60 * 1000,
+  });
+  const hasSalesView = isAdminOrOwner || permissions.some(p => p.name === 'sales.view' || p.name === 'admin.manage_all');
+
+  const [timeRange, setTimeRange] = useState<TimeRange>('monthly');
+  const selectedRange = TIME_RANGES.find(r => r.key === timeRange)!;
+
   const { data, isLoading } = useQuery<LaborCostRatioData>({
-    queryKey: ['/api/shopify/labor-cost-ratio', shopDomain],
+    queryKey: ['/api/shopify/labor-cost-ratio', shopDomain, selectedRange.daysBack],
     queryFn: async () => {
-      const res = await fetch(`/api/shopify/labor-cost-ratio?shop=${encodeURIComponent(shopDomain)}&daysBack=30`, { credentials: 'include' });
+      const res = await fetch(
+        `/api/shopify/labor-cost-ratio?shop=${encodeURIComponent(shopDomain)}&daysBack=${selectedRange.daysBack}`,
+        { credentials: 'include' }
+      );
       if (!res.ok) throw new Error('Failed to fetch labor cost ratio');
       return res.json();
     },
@@ -70,6 +135,29 @@ export default function ShopifyAnalytics({ shopDomain }: { shopDomain: string })
     },
     enabled: !!shopDomain,
   });
+
+  if (!hasSalesView) {
+    return (
+      <div className="rounded-lg border bg-card p-6 text-center">
+        <p className="text-sm text-muted-foreground">You don't have access to sales data.</p>
+      </div>
+    );
+  }
+
+  const isQuarterly = timeRange === 'quarterly';
+
+  const chartData = isQuarterly && data
+    ? aggregateByWeek(data.dailyBreakdown).map(w => ({ date: w.week, revenue: w.revenue, laborCost: w.laborCost, percentage: w.percentage }))
+    : (data?.dailyBreakdown ?? []).map(d => ({ date: d.date, revenue: d.revenue, laborCost: d.laborCost, percentage: d.percentage }));
+
+  const chartLabelFn = isQuarterly ? formatWeek : formatDate;
+  const chartTitle = isQuarterly
+    ? 'Revenue vs Labor Cost (by Week — 90 Days)'
+    : `Revenue vs Labor Cost (${selectedRange.label} — ${selectedRange.daysBack}d)`;
+
+  const tableRows = isQuarterly && data
+    ? aggregateByWeek(data.dailyBreakdown)
+    : (data?.dailyBreakdown ?? []).slice().reverse().slice(0, 14);
 
   if (isLoading) {
     return (
@@ -96,18 +184,28 @@ export default function ShopifyAnalytics({ shopDomain }: { shopDomain: string })
     );
   }
 
-  const chartData = data.dailyBreakdown.map(d => ({
-    date: d.date,
-    revenue: d.revenue,
-    laborCost: d.laborCost,
-    percentage: d.percentage,
-  }));
-
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <i className="fab fa-shopify text-green-600 text-lg"></i>
-        <h2 className="text-base font-semibold">Shopify Revenue vs Labor Cost</h2>
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-2">
+          <i className="fab fa-shopify text-green-600 text-lg"></i>
+          <h2 className="text-base font-semibold">Shopify Revenue vs Labor Cost</h2>
+        </div>
+        <div className="flex rounded-lg border bg-muted/30 p-1 gap-1">
+          {TIME_RANGES.map(r => (
+            <button
+              key={r.key}
+              onClick={() => setTimeRange(r.key)}
+              className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                timeRange === r.key
+                  ? 'bg-background shadow-sm text-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -160,7 +258,7 @@ export default function ShopifyAnalytics({ shopDomain }: { shopDomain: string })
         <CardHeader className="pb-3">
           <CardTitle className="text-sm flex items-center gap-2">
             <i className="fas fa-chart-bar text-primary"></i>
-            Revenue vs Labor Cost (30 Days)
+            {chartTitle}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -170,7 +268,7 @@ export default function ShopifyAnalytics({ shopDomain }: { shopDomain: string })
                 <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
                 <XAxis
                   dataKey="date"
-                  tickFormatter={formatDate}
+                  tickFormatter={chartLabelFn}
                   tick={{ fontSize: 11 }}
                   interval="preserveStartEnd"
                 />
@@ -180,7 +278,7 @@ export default function ShopifyAnalytics({ shopDomain }: { shopDomain: string })
                     `$${value.toFixed(2)}`,
                     name === 'revenue' ? 'Revenue' : 'Labor Cost',
                   ]}
-                  labelFormatter={formatDate}
+                  labelFormatter={chartLabelFn}
                 />
                 <Legend formatter={(value) => value === 'revenue' ? 'Revenue' : 'Labor Cost'} />
                 <Bar dataKey="revenue" fill="hsl(200, 80%, 50%)" radius={[4, 4, 0, 0]} />
@@ -210,12 +308,12 @@ export default function ShopifyAnalytics({ shopDomain }: { shopDomain: string })
         </Card>
       )}
 
-      {data.dailyBreakdown.length > 0 && (
+      {tableRows.length > 0 && (
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-sm flex items-center gap-2">
               <i className="fas fa-table text-primary"></i>
-              Daily Breakdown
+              {isQuarterly ? 'Weekly Breakdown' : 'Daily Breakdown'}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -223,23 +321,37 @@ export default function ShopifyAnalytics({ shopDomain }: { shopDomain: string })
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b">
-                    <th className="text-left py-2 px-2 font-medium text-muted-foreground">Date</th>
+                    <th className="text-left py-2 px-2 font-medium text-muted-foreground">
+                      {isQuarterly ? 'Week of' : 'Date'}
+                    </th>
                     <th className="text-right py-2 px-2 font-medium text-muted-foreground">Revenue</th>
                     <th className="text-right py-2 px-2 font-medium text-muted-foreground">Labor Cost</th>
                     <th className="text-right py-2 px-2 font-medium text-muted-foreground">Labor %</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {data.dailyBreakdown.slice().reverse().slice(0, 14).map((day) => (
-                    <tr key={day.date} className="border-b last:border-0 hover:bg-muted/50">
-                      <td className="py-2 px-2">{formatDate(day.date)}</td>
-                      <td className="text-right py-2 px-2">${day.revenue.toLocaleString()}</td>
-                      <td className="text-right py-2 px-2">${day.laborCost.toLocaleString()}</td>
-                      <td className={`text-right py-2 px-2 font-medium ${getPercentageColor(day.percentage)}`}>
-                        {day.percentage}%
-                      </td>
-                    </tr>
-                  ))}
+                  {isQuarterly
+                    ? (tableRows as WeeklyBreakdown[]).slice().reverse().map((row) => (
+                        <tr key={row.week} className="border-b last:border-0 hover:bg-muted/50">
+                          <td className="py-2 px-2">{formatDate(row.week)}</td>
+                          <td className="text-right py-2 px-2">${row.revenue.toLocaleString()}</td>
+                          <td className="text-right py-2 px-2">${row.laborCost.toLocaleString()}</td>
+                          <td className={`text-right py-2 px-2 font-medium ${getPercentageColor(row.percentage)}`}>
+                            {row.percentage}%
+                          </td>
+                        </tr>
+                      ))
+                    : (tableRows as DailyBreakdown[]).map((day) => (
+                        <tr key={day.date} className="border-b last:border-0 hover:bg-muted/50">
+                          <td className="py-2 px-2">{formatDate(day.date)}</td>
+                          <td className="text-right py-2 px-2">${day.revenue.toLocaleString()}</td>
+                          <td className="text-right py-2 px-2">${day.laborCost.toLocaleString()}</td>
+                          <td className={`text-right py-2 px-2 font-medium ${getPercentageColor(day.percentage)}`}>
+                            {day.percentage}%
+                          </td>
+                        </tr>
+                      ))
+                  }
                 </tbody>
               </table>
             </div>

@@ -7,6 +7,8 @@ import { useWebSocket } from '@/hooks/useWebSocket';
 import { useEffect } from 'react';
 import { queryClient } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/useAuth';
+import type { Permission } from '@shared/schema';
 
 interface PulseData {
   headline: string;
@@ -25,6 +27,18 @@ interface PulseData {
 export default function MiddayPulseCard() {
   const { lastMessage } = useWebSocket();
   const { toast } = useToast();
+  const { user } = useAuth();
+
+  const roleName = user?.role?.name ?? '';
+  const isAdminOrOwner = roleName === 'owner' || roleName === 'admin';
+
+  const { data: permissions = [] } = useQuery<Permission[]>({
+    queryKey: ['/api/auth/permissions'],
+    enabled: !!user && !isAdminOrOwner,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const hasSalesView = isAdminOrOwner || permissions.some(p => p.name === 'sales.view' || p.name === 'admin.manage_all');
 
   useEffect(() => {
     if (lastMessage?.type === 'midday_pulse') {
@@ -48,7 +62,7 @@ export default function MiddayPulseCard() {
     enabled: isAfterNoon,
   });
 
-  if (!isAfterNoon) return null;
+  if (!isAfterNoon || !hasSalesView) return null;
 
   if (isLoading) {
     return (

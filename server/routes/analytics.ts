@@ -10,15 +10,19 @@ export function registerAnalyticsRoutes(app: Express, storage: IStorage, isAuthe
     try {
       const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
-      const canView = userPermissions.some(p => p.name === 'admin.manage_all');
+      const roleName = req.user?.role?.name ?? '';
+      const isAdminOrOwner = roleName === 'owner' || roleName === 'admin';
+      const canView = isAdminOrOwner || userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'sales.view');
 
       if (!canView) {
         return res.status(403).json({ message: "Access denied" });
       }
 
       const now = new Date();
+      const rawDaysBack = parseInt((req.query.daysBack as string) || '30', 10);
+      const daysBack = [1, 7, 30, 90].includes(rawDaysBack) ? rawDaysBack : 30;
       const thirtyDaysAgo = new Date(now);
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - daysBack);
       thirtyDaysAgo.setHours(0, 0, 0, 0);
 
       const todayStart = new Date(now);
@@ -223,7 +227,7 @@ export function registerAnalyticsRoutes(app: Express, storage: IStorage, isAuthe
         },
       };
 
-      res.json({ laborCostByDay, punctualityScore, taskCompletion, teamSummary, employeePunctualityBreakdown, weeklyComparison });
+      res.json({ laborCostByDay, punctualityScore, taskCompletion, teamSummary, employeePunctualityBreakdown, weeklyComparison, daysBack });
     } catch (error) {
       console.error("Error fetching analytics dashboard:", error);
       res.status(500).json({ message: "Failed to fetch analytics data" });

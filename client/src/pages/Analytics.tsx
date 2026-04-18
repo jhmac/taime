@@ -56,6 +56,35 @@ interface DashboardData {
   teamSummary: { activeNow: number; totalHoursToday: number; tasksCompletedToday: number; totalEmployees: number };
   employeePunctualityBreakdown: EmployeePunctuality[];
   weeklyComparison: WeeklyComparison;
+  daysBack?: number;
+}
+
+type AnalyticsTimeRange = 'daily' | 'weekly' | 'monthly' | 'quarterly';
+
+const ANALYTICS_TIME_RANGES: { key: AnalyticsTimeRange; label: string; daysBack: number }[] = [
+  { key: 'daily',     label: 'Daily',     daysBack: 1  },
+  { key: 'weekly',    label: 'Weekly',    daysBack: 7  },
+  { key: 'monthly',   label: 'Monthly',   daysBack: 30 },
+  { key: 'quarterly', label: 'Quarterly', daysBack: 90 },
+];
+
+function aggregateLaborByWeek(days: LaborCostDay[]): LaborCostDay[] {
+  const buckets = new Map<string, LaborCostDay>();
+  for (const d of days) {
+    const dt = new Date(d.date + 'T00:00:00');
+    const dow = dt.getDay();
+    const weekStart = new Date(dt);
+    weekStart.setDate(dt.getDate() - dow);
+    const key = weekStart.toISOString().split('T')[0];
+    const existing = buckets.get(key) ?? { date: key, totalHours: 0, totalCost: 0, employeeCount: 0 };
+    buckets.set(key, {
+      date: key,
+      totalHours: Math.round((existing.totalHours + d.totalHours) * 100) / 100,
+      totalCost: Math.round((existing.totalCost + d.totalCost) * 100) / 100,
+      employeeCount: Math.max(existing.employeeCount, d.employeeCount),
+    });
+  }
+  return Array.from(buckets.values()).sort((a, b) => a.date.localeCompare(b.date));
 }
 
 interface Anomaly {
@@ -350,8 +379,16 @@ function GamificationSettingsPanel() {
 
 export default function Analytics() {
   const isMobile = useIsMobile();
+  const [analyticsRange, setAnalyticsRange] = useState<AnalyticsTimeRange>('monthly');
+  const selectedAnalyticsRange = ANALYTICS_TIME_RANGES.find(r => r.key === analyticsRange)!;
+
   const { data, isLoading } = useQuery<DashboardData>({
-    queryKey: ['/api/analytics/dashboard'],
+    queryKey: ['/api/analytics/dashboard', selectedAnalyticsRange.daysBack],
+    queryFn: async () => {
+      const res = await fetch(`/api/analytics/dashboard?daysBack=${selectedAnalyticsRange.daysBack}`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to fetch analytics');
+      return res.json();
+    },
   });
 
   const { data: shopifyShops = [] } = useQuery<{ id: string; shopDomain: string; isActive: boolean }[]>({
@@ -409,13 +446,25 @@ export default function Analytics() {
   return (
     <div className="min-h-full bg-background">
       <section className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground p-5 md:p-6 md:rounded-xl md:m-6 md:mt-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
           <div>
             <h1 className="text-lg md:text-xl font-bold">Analytics Dashboard</h1>
             <p className="text-sm opacity-80">Labor costs, punctuality & task insights</p>
           </div>
-          <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
-            <i className="fas fa-chart-bar"></i>
+          <div className="flex rounded-lg border border-white/20 bg-white/10 p-1 gap-1">
+            {ANALYTICS_TIME_RANGES.map(r => (
+              <button
+                key={r.key}
+                onClick={() => setAnalyticsRange(r.key)}
+                className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                  analyticsRange === r.key
+                    ? 'bg-white/30 text-white shadow-sm'
+                    : 'text-white/70 hover:text-white'
+                }`}
+              >
+                {r.label}
+              </button>
+            ))}
           </div>
         </div>
       </section>
@@ -523,18 +572,28 @@ export default function Analytics() {
               </Card>
             </div>
 
+            {(() => {
+              const isQ = analyticsRange === 'quarterly';
+              const laborChartData = isQ ? aggregateLaborByWeek(data.laborCostByDay) : data.laborCostByDay;
+              const laborLabel = isQ
+                ? `Labor Cost Trends (by Week — 90 Days)`
+                : `Labor Cost Trends (${selectedAnalyticsRange.label} — ${selectedAnalyticsRange.daysBack}d)`;
+              const hoursLabel = isQ
+                ? `Hours by Week (90 Days)`
+                : `Hours by Day (${selectedAnalyticsRange.label} — ${selectedAnalyticsRange.daysBack}d)`;
+              return (
             <div className={isMobile ? "space-y-4" : "grid grid-cols-2 gap-4"}>
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-sm flex items-center gap-2">
                     <i className="fas fa-dollar-sign text-primary"></i>
-                    Labor Cost Trends (30 Days)
+                    {laborLabel}
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {data.laborCostByDay.length > 0 ? (
+                  {laborChartData.length > 0 ? (
                     <ResponsiveContainer width="100%" height={250}>
-                      <BarChart data={data.laborCostByDay}>
+                      <BarChart data={laborChartData}>
                         <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
                         <XAxis
                           dataKey="date"
@@ -659,13 +718,13 @@ export default function Analytics() {
                 <CardHeader className="pb-3">
                   <CardTitle className="text-sm flex items-center gap-2">
                     <i className="fas fa-chart-line text-primary"></i>
-                    Hours by Day (30 Days)
+                    {hoursLabel}
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {data.laborCostByDay.length > 0 ? (
+                  {laborChartData.length > 0 ? (
                     <ResponsiveContainer width="100%" height={250}>
-                      <BarChart data={data.laborCostByDay}>
+                      <BarChart data={laborChartData}>
                         <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
                         <XAxis
                           dataKey="date"
@@ -690,6 +749,8 @@ export default function Analytics() {
                 </CardContent>
               </Card>
             </div>
+              );
+            })()}
 
             {data.employeePunctualityBreakdown && data.employeePunctualityBreakdown.length > 0 && (
               <Card>

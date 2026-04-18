@@ -172,7 +172,7 @@ function useLoadingTimeout(isActive: boolean, ms = 10000) {
   return timedOut;
 }
 
-function ProtectedRoute({ children, permission, allowAllAuthenticated }: { children: React.ReactNode; permission?: string; allowAllAuthenticated?: boolean }) {
+function ProtectedRoute({ children, permission, allowAllAuthenticated, deniedMessage }: { children: React.ReactNode; permission?: string; allowAllAuthenticated?: boolean; deniedMessage?: string }) {
   const { user, isLoading } = useAuth();
   const { data: permissions = [], isError: permissionsError, isLoading: permissionsLoading } = useQuery<Permission[]>({
     queryKey: ["/api/auth/permissions"],
@@ -221,7 +221,7 @@ function ProtectedRoute({ children, permission, allowAllAuthenticated }: { child
         <div className="rounded-lg border bg-card p-6">
           <h3 className="text-lg font-semibold">Access Denied</h3>
           <p className="text-sm text-muted-foreground mt-2">
-            You don't have permission to access this page.
+            {deniedMessage ?? "You don't have permission to access this page."}
           </p>
         </div>
       </div>
@@ -280,7 +280,7 @@ function AuthenticatedApp() {
           <ProtectedRoute permission="hr.payroll_view"><PayPeriodManagement /></ProtectedRoute>
         </Route>
         <Route path="/analytics">
-          <ProtectedRoute permission="admin.manage_all"><Analytics /></ProtectedRoute>
+          <ProtectedRoute permission="sales.view" deniedMessage="You don't have access to sales data."><Analytics /></ProtectedRoute>
         </Route>
         <Route path="/performance">
           <ProtectedRoute><Performance /></ProtectedRoute>
