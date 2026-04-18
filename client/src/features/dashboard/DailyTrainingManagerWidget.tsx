@@ -6,6 +6,7 @@ import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { BookOpen, RefreshCw, CheckCircle, Clock, AlertTriangle } from 'lucide-react';
+import ErrorWithRetry from '@/components/ErrorWithRetry';
 
 interface SummaryData {
   questionnaire: {
@@ -26,7 +27,7 @@ export default function DailyTrainingManagerWidget() {
   const queryClient = useQueryClient();
   const [expanded, setExpanded] = useState(false);
 
-  const { data, isLoading } = useQuery<{ success: boolean; data: SummaryData }>({
+  const { data, isLoading, isError, refetch } = useQuery<{ success: boolean; data: SummaryData }>({
     queryKey: ['/api/daily-questionnaire/summary'],
     staleTime: 60_000,
   });
@@ -52,6 +53,16 @@ export default function DailyTrainingManagerWidget() {
   });
 
   if (isLoading) return <Skeleton className="h-36 w-full rounded-2xl" />;
+
+  if (isError) {
+    return (
+      <Card>
+        <CardContent className="p-4">
+          <ErrorWithRetry onRetry={() => refetch()} message="Could not load training data" />
+        </CardContent>
+      </Card>
+    );
+  }
 
   const summary = data?.data;
 

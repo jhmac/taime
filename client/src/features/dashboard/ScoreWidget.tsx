@@ -1,15 +1,17 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation } from 'wouter';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ShieldCheck, CheckCircle2, Inbox, CalendarCheck, AlertTriangle, Zap, ArrowRight, Timer, Video } from 'lucide-react';
+import ErrorWithRetry from '@/components/ErrorWithRetry';
 
 export default function ScoreWidget() {
   const { user } = useAuth();
   const [, navigate] = useLocation();
+  const queryClient = useQueryClient();
 
-  const { data: gtdData, isLoading: gtdLoading } = useQuery<{
+  const { data: gtdData, isLoading: gtdLoading, isError: gtdError } = useQuery<{
     success: boolean;
     data: {
       inbox_count: number;
@@ -24,13 +26,13 @@ export default function ScoreWidget() {
     staleTime: 60_000,
   });
 
-  const { data: tasks, isLoading: tasksLoading } = useQuery<any[]>({
+  const { data: tasks, isLoading: tasksLoading, isError: tasksError } = useQuery<any[]>({
     queryKey: ['/api/tasks'],
     enabled: !!user,
     staleTime: 60_000,
   });
 
-  const { data: sopExecutionsRaw, isLoading: sopsLoading } = useQuery<any>({
+  const { data: sopExecutionsRaw, isLoading: sopsLoading, isError: sopsError } = useQuery<any>({
     queryKey: ['/api/sops/executions'],
     enabled: !!user,
     staleTime: 60_000,
@@ -87,6 +89,26 @@ export default function ScoreWidget() {
 
   const overdueGtdTotal = (gtdData?.data?.actions_overdue_count || 0) + (gtdData?.data?.waiting_overdue_count || 0);
   const quickWins = gtdData?.data?.two_minute_actions_count || 0;
+
+  const hasError = gtdError || tasksError || sopsError;
+  if (hasError) {
+    return (
+      <div className="rounded-2xl border border-border bg-card p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <CheckCircle2 className="h-4 w-4 text-purple-600" />
+          <h3 className="text-sm font-semibold text-foreground">Tasks & Operations</h3>
+        </div>
+        <ErrorWithRetry
+          onRetry={() => {
+            queryClient.invalidateQueries({ queryKey: ['/api/gtd/dashboard'] });
+            queryClient.invalidateQueries({ queryKey: ['/api/tasks'] });
+            queryClient.invalidateQueries({ queryKey: ['/api/sops/executions'] });
+          }}
+          message="Could not load task data"
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-2xl border border-border bg-card p-4">

@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { DollarSign, TrendingUp, Minus, ChevronDown, ChevronUp } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useState } from 'react';
+import ErrorWithRetry from '@/components/ErrorWithRetry';
 
 interface PaySummary {
   periodStart: string;
@@ -32,7 +33,7 @@ function fmtHours(h: number) {
 export default function PaySummaryWidget() {
   const [expanded, setExpanded] = useState(false);
 
-  const { data, isLoading, isError } = useQuery<PaySummary>({
+  const { data, isLoading, isError, refetch } = useQuery<PaySummary>({
     queryKey: ['/api/users/me/pay-summary'],
   });
 
@@ -40,7 +41,11 @@ export default function PaySummaryWidget() {
     return <Skeleton className="h-24 w-full rounded-3xl" />;
   }
 
-  if (isError || !data) return null;
+  if (isError) {
+    return <ErrorWithRetry onRetry={() => refetch()} message="Could not load pay summary" />;
+  }
+
+  if (!data) return null;
 
   const grossCents = Math.round(data.grossPay * 100);
   const netCents = Math.round(data.netPay * 100);

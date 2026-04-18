@@ -6,6 +6,7 @@ import {
   BarChart3, TrendingUp, TrendingDown, Minus, Lightbulb,
   Heart, ShieldCheck, ArrowRight,
 } from "lucide-react";
+import ErrorWithRetry from "@/components/ErrorWithRetry";
 
 interface LeanMetrics {
   improvements_submitted: number;
@@ -33,7 +34,7 @@ function Trend({ current, previous }: { current: number; previous: number }) {
 export default function LeanBoardCard() {
   const [, navigate] = useLocation();
 
-  const { data, isLoading } = useQuery<{
+  const { data, isLoading, isError, refetch } = useQuery<{
     currentMetrics: LeanMetrics | null;
     trends: TrendWeek[];
   }>({
@@ -46,7 +47,19 @@ export default function LeanBoardCard() {
     staleTime: 5 * 60 * 1000,
   });
 
-  if (isLoading || !data?.currentMetrics) return null;
+  if (isLoading) return null;
+
+  if (isError) {
+    return (
+      <Card className="border-violet-200 dark:border-violet-800/50 bg-violet-50/50 dark:bg-violet-950/20">
+        <CardContent className="p-4">
+          <ErrorWithRetry onRetry={() => refetch()} message="Could not load lean board" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!data?.currentMetrics) return null;
 
   const m = data.currentMetrics;
   const prev = data.trends?.length >= 2 ? data.trends[data.trends.length - 2] : null;

@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import ErrorWithRetry from "@/components/ErrorWithRetry";
 import {
   Sparkles,
   RefreshCw,
@@ -79,7 +80,7 @@ export default function SmartSuggestionsCard() {
   const queryClient = useQueryClient();
   const refreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const { data, isLoading } = useQuery<{ success: boolean; data: SuggestionsResponse }>({
+  const { data, isLoading, isError, refetch } = useQuery<{ success: boolean; data: SuggestionsResponse }>({
     queryKey: ["/api/ai/suggestions"],
     staleTime: 15 * 60 * 1000,
     refetchOnWindowFocus: false,
@@ -145,6 +146,16 @@ export default function SmartSuggestionsCard() {
           {[1, 2, 3].map(i => (
             <Skeleton key={i} className="h-16 w-full rounded-2xl" />
           ))}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (isError) {
+    return (
+      <Card>
+        <CardContent className="px-4 py-4">
+          <ErrorWithRetry onRetry={() => refetch()} message="Could not load suggestions" />
         </CardContent>
       </Card>
     );

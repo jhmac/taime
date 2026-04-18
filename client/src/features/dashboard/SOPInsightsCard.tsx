@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import ErrorWithRetry from "@/components/ErrorWithRetry";
 import {
   ShieldCheck, AlertTriangle, Info, CheckCircle2, ChevronRight, Eye,
 } from "lucide-react";
@@ -46,7 +47,7 @@ const SEVERITY_CONFIG: Record<string, { icon: typeof AlertTriangle; color: strin
 export default function SOPInsightsCard() {
   const [, navigate] = useLocation();
 
-  const { data: insights, isLoading } = useQuery<Insight[]>({
+  const { data: insights, isLoading, isError, refetch } = useQuery<Insight[]>({
     queryKey: ["/api/sops/insights"],
     staleTime: 5 * 60 * 1000,
   });
@@ -67,6 +68,16 @@ export default function SOPInsightsCard() {
           <Skeleton className="h-5 w-40" />
           <Skeleton className="h-16 w-full" />
           <Skeleton className="h-16 w-full" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (isError) {
+    return (
+      <Card>
+        <CardContent className="py-4">
+          <ErrorWithRetry onRetry={() => refetch()} message="Could not load SOP insights" />
         </CardContent>
       </Card>
     );

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import ErrorWithRetry from "@/components/ErrorWithRetry";
 import {
   Lightbulb, AlertTriangle, Info, CheckCircle2, ChevronRight, Eye, ShieldCheck,
   Clock, DollarSign, Shield,
@@ -63,11 +64,11 @@ export default function BackgroundInsightsCard() {
   const [, navigate] = useLocation();
   const [activeTab, setActiveTab] = useState<TabType>("all");
 
-  const { data, isLoading } = useQuery<{ success: boolean; data: Insight[] }>({
+  const { data, isLoading, isError, refetch } = useQuery<{ success: boolean; data: Insight[] }>({
     queryKey: ["/api/background-insights"],
     queryFn: async () => {
       const res = await fetch("/api/background-insights?limit=10", { credentials: "include" });
-      if (!res.ok) return { success: true, data: [] };
+      if (!res.ok) throw new Error("Failed to load insights");
       return res.json();
     },
     staleTime: 5 * 60 * 1000,
@@ -102,6 +103,16 @@ export default function BackgroundInsightsCard() {
             <span className="text-sm font-medium">AI Insights</span>
           </div>
           <Skeleton className="h-16 w-full" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (isError) {
+    return (
+      <Card>
+        <CardContent className="p-4">
+          <ErrorWithRetry onRetry={() => refetch()} message="Could not load AI insights" />
         </CardContent>
       </Card>
     );

@@ -6,12 +6,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import ErrorWithRetry from "@/components/ErrorWithRetry";
 
 export default function CashStatusCard() {
   const [, navigate] = useLocation();
   const today = new Date().toISOString().split("T")[0];
 
-  const { data: sessions = [], isLoading: sessionsLoading, isError: sessionsError } = useQuery({
+  const { data: sessions = [], isLoading: sessionsLoading, isError: sessionsError, refetch: refetchSessions } = useQuery({
     queryKey: ["/api/cash/sessions", today],
     queryFn: async () => {
       const res = await apiRequest("GET", `/api/cash/sessions?date=${today}`);
@@ -32,7 +33,15 @@ export default function CashStatusCard() {
   const { data: settings } = useQuery<Record<string, any>>({ queryKey: ["/api/cash/settings"], retry: 1 });
 
   if (sessionsLoading) return <Skeleton className="h-32" />;
-  if (sessionsError) return null;
+  if (sessionsError) {
+    return (
+      <Card>
+        <CardContent className="p-4">
+          <ErrorWithRetry onRetry={() => refetchSessions()} message="Could not load cash status" />
+        </CardContent>
+      </Card>
+    );
+  }
 
   const registers = (settings?.registers as any[]) || [{ name: "Register 1" }];
   const openingSessions = sessions.filter((s: any) => s.sessionType === "opening" && s.status !== "pending");

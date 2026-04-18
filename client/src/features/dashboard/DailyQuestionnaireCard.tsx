@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
 import { Skeleton } from '@/components/ui/skeleton';
+import ErrorWithRetry from '@/components/ErrorWithRetry';
 import {
   BookOpen, ChevronRight, CheckCircle, XCircle, Trophy, Flame,
   Star, Zap, Crown, Users, Medal, X
@@ -514,7 +515,7 @@ export default function DailyQuestionnaireCard() {
   const [submitResult, setSubmitResult] = useState<DQSubmitResult | null>(null);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
 
-  const { data, isLoading } = useQuery<{ success: boolean; data: DQTodayData }>({
+  const { data, isLoading, isError, refetch } = useQuery<{ success: boolean; data: DQTodayData }>({
     queryKey: ['/api/daily-questionnaire/today'],
     staleTime: 60_000,
   });
@@ -522,6 +523,11 @@ export default function DailyQuestionnaireCard() {
   const today = data?.data;
 
   if (isLoading) return <Skeleton className="h-24 w-full rounded-3xl" />;
+
+  if (isError) {
+    return <ErrorWithRetry onRetry={() => refetch()} message="Could not load today's training" className="rounded-3xl" />;
+  }
+
   if (!today?.questionnaire || today.noQuestionnaire) return null;
 
   const { questionnaire, completed, userResponse, teamCompletionCount, teamTotalCount, userStreak } = today;

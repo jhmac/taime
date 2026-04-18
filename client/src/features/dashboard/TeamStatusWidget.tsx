@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Skeleton } from '@/components/ui/skeleton';
-import { CalendarDays, AlertCircle, MapPinOff } from 'lucide-react';
+import { CalendarDays, MapPinOff } from 'lucide-react';
+import ErrorWithRetry from '@/components/ErrorWithRetry';
 
 interface ClockedInMember {
   userId: string;
@@ -70,6 +71,7 @@ export default function TeamStatusWidget() {
     data: clockedInData,
     isLoading: clockedInLoading,
     isError: clockedInError,
+    refetch: refetchClockedIn,
   } = useQuery<{ clockedIn: ClockedInMember[] }>({
     queryKey: ['/api/team-status/clocked-in'],
     refetchInterval: 60_000,
@@ -80,6 +82,7 @@ export default function TeamStatusWidget() {
     data: upcomingData,
     isLoading: upcomingLoading,
     isError: upcomingError,
+    refetch: refetchUpcoming,
   } = useQuery<{ upcomingShifts: UpcomingShift[] }>({
     queryKey: ['/api/team-status/upcoming-shifts'],
     refetchInterval: 120_000,
@@ -148,14 +151,11 @@ export default function TeamStatusWidget() {
 
   if (hasError) {
     return (
-      <div className="rounded-3xl bg-card border border-border p-4 flex items-center gap-3">
-        <div className="w-9 h-9 rounded-2xl flex items-center justify-center flex-shrink-0 bg-destructive/10">
-          <AlertCircle className="h-4 w-4 text-destructive" />
-        </div>
-        <div>
-          <p className="text-sm font-bold text-foreground">Team Status unavailable</p>
-          <p className="text-xs text-muted-foreground">Could not load team data right now</p>
-        </div>
+      <div className="rounded-3xl bg-card border border-border p-4">
+        <ErrorWithRetry
+          onRetry={() => { refetchClockedIn(); refetchUpcoming(); }}
+          message="Could not load team status"
+        />
       </div>
     );
   }

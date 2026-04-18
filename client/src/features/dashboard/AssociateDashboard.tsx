@@ -5,6 +5,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { apiRequest } from '@/lib/queryClient';
 import { Skeleton } from '@/components/ui/skeleton';
+import ErrorWithRetry from '@/components/ErrorWithRetry';
 import SurfacedSOPBanner from '@/components/SurfacedSOPBanner';
 import ImprovementFeedWidget from '@/components/ImprovementFeedWidget';
 import LeanBoardCard from '@/features/dashboard/LeanBoardCard';
@@ -76,7 +77,7 @@ function BrainBoostCard() {
   const [sessionDone, setSessionDone] = useState(false);
   const [finalData, setFinalData] = useState<{ score: number; totalPoints: number; correctAnswers: number; totalQuestions: number; multiplier: number } | null>(null);
 
-  const { data: quizData, isLoading } = useQuery<{ success: boolean; data: DailyQuizData }>({
+  const { data: quizData, isLoading, isError: quizError, refetch: refetchQuiz } = useQuery<{ success: boolean; data: DailyQuizData }>({
     queryKey: ['/api/quiz/daily'],
     staleTime: 60_000,
   });
@@ -151,6 +152,7 @@ function BrainBoostCard() {
   }
 
   if (isLoading) return <Skeleton className="h-24 w-full rounded-3xl" />;
+  if (quizError) return <ErrorWithRetry onRetry={() => refetchQuiz()} message="Could not load daily quiz" className="rounded-3xl" />;
   if (quiz?.noQuestions) return null;
 
   const isCompleted = quiz?.completed || sessionDone;
@@ -368,7 +370,7 @@ function ScenarioCard() {
   const [selected, setSelected] = useState<number | null>(null);
   const [serverCoaching, setServerCoaching] = useState<string | null>(null);
 
-  const { data: scenarioData, isLoading } = useQuery<{ success: boolean; data: { scenario: ScenarioQuestion | null } }>({
+  const { data: scenarioData, isLoading, isError: scenarioError, refetch: refetchScenario } = useQuery<{ success: boolean; data: { scenario: ScenarioQuestion | null } }>({
     queryKey: ['/api/quiz/scenario-card'],
     staleTime: 5 * 60 * 1000,
   });
@@ -392,7 +394,9 @@ function ScenarioCard() {
     }
   };
 
-  if (isLoading || !scenario) return null;
+  if (isLoading) return null;
+  if (scenarioError) return <ErrorWithRetry onRetry={() => refetchScenario()} message="Could not load scenario" className="rounded-3xl" />;
+  if (!scenario) return null;
 
   const coaching = serverCoaching ?? scenario.coachingText;
 
