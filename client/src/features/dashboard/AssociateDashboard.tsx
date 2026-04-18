@@ -585,7 +585,7 @@ export default function AssociateDashboard() {
                 iconBg="bg-yellow-100 dark:bg-yellow-900/30"
                 onClick={() => navigate('/my-score')}
               />
-              {partialErrors?.gamificationError && (
+              {partialErrors?.gamificationError && !scoreData && (
                 <span
                   className="absolute top-1.5 right-1.5 text-amber-500"
                   title="Score data couldn't load — may be stale"
