@@ -470,6 +470,12 @@ export default function AssociateDashboard() {
     staleTime: 5 * 60 * 1000,
   });
 
+  // Partial-failure flags written by DashboardRouter — cache-only, no network request
+  const { data: partialErrors } = useQuery<{ gamificationError: boolean; todaySummaryError: boolean }>({
+    queryKey: ['/api/dashboard/partial-errors'],
+    enabled: false,
+  });
+
   // Defer non-critical list queries until after first paint
   const [deferredEnabled, setDeferredEnabled] = useState(false);
   useEffect(() => {
@@ -570,14 +576,24 @@ export default function AssociateDashboard() {
               iconBg="bg-primary/10"
               onClick={() => navigate('/tasks')}
             />
-            <StatChip
-              icon={<Trophy className="h-4 w-4" style={{ color: '#F9C846' }} />}
-              label="Score"
-              value={scoreData ? `${scoreData.overallScore}` : '—'}
-              sub={scoreData?.tier ?? 'pts'}
-              iconBg="bg-yellow-100 dark:bg-yellow-900/30"
-              onClick={() => navigate('/my-score')}
-            />
+            <div className="relative">
+              <StatChip
+                icon={<Trophy className="h-4 w-4" style={{ color: '#F9C846' }} />}
+                label="Score"
+                value={scoreData ? `${scoreData.overallScore}` : '—'}
+                sub={scoreData?.tier ?? 'pts'}
+                iconBg="bg-yellow-100 dark:bg-yellow-900/30"
+                onClick={() => navigate('/my-score')}
+              />
+              {partialErrors?.gamificationError && (
+                <span
+                  className="absolute top-1.5 right-1.5 text-amber-500"
+                  title="Score data couldn't load — may be stale"
+                >
+                  <AlertTriangle size={11} />
+                </span>
+              )}
+            </div>
             <StatChip
               icon={<MessageCircle className="h-4 w-4" style={{ color: '#4ECDC4' }} />}
               label="Messages"

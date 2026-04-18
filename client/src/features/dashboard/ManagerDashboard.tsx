@@ -62,6 +62,12 @@ export default function ManagerDashboard() {
     enabled: false,
   });
 
+  // Partial-failure flags written by DashboardRouter — cache-only, no network request
+  const { data: partialErrors } = useQuery<{ gamificationError: boolean; todaySummaryError: boolean }>({
+    queryKey: ['/api/dashboard/partial-errors'],
+    enabled: false,
+  });
+
   // Defer non-critical list queries until after first paint so the initial
   // render uses only the pre-hydrated /api/dashboard/init data (1-2 requests).
   const [deferredEnabled, setDeferredEnabled] = useState(false);
@@ -218,7 +224,12 @@ export default function ManagerDashboard() {
                     <UserCheck className="h-5 w-5 text-green-600 dark:text-green-400" />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-2xl font-bold">{totalClockedIn}</p>
+                    <div className="flex items-center gap-1">
+                      <p className="text-2xl font-bold">{totalClockedIn}</p>
+                      {partialErrors?.todaySummaryError && !todaySummary && (
+                        <AlertTriangle size={13} className="text-amber-500 shrink-0" title="Attendance data may be unavailable" />
+                      )}
+                    </div>
                     <p className="text-xs text-muted-foreground truncate">Clocked In</p>
                   </div>
                 </div>
@@ -244,7 +255,12 @@ export default function ManagerDashboard() {
                     <CalendarDays className="h-5 w-5 text-amber-600 dark:text-amber-400" />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-2xl font-bold">{totalScheduled}</p>
+                    <div className="flex items-center gap-1">
+                      <p className="text-2xl font-bold">{totalScheduled}</p>
+                      {partialErrors?.todaySummaryError && !todaySummary && (
+                        <AlertTriangle size={13} className="text-amber-500 shrink-0" title="Schedule data may be unavailable" />
+                      )}
+                    </div>
                     <p className="text-xs text-muted-foreground truncate">Shifts Today</p>
                   </div>
                 </div>

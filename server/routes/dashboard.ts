@@ -73,11 +73,13 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
       const isManagerOrOwner = role === 'owner' || role === 'admin';
 
       let gamificationScore: { overallScore: number; tier: string } | null = null;
+      let gamificationError = false;
       let todaySummary: {
         totalClockedIn: number;
         totalScheduled: number;
         activeEntries: any[];
       } | null = null;
+      let todaySummaryError = false;
 
       if (isEmployee) {
         try {
@@ -90,8 +92,9 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
             overallScore: myScore.overallScore,
             tier: myScore.tier,
           };
-        } catch {
-          // non-fatal — gamification score is optional for first render
+        } catch (err) {
+          gamificationError = true;
+          console.warn('[dashboard/init] gamification score failed (non-fatal):', err instanceof Error ? err.message : err);
         }
       }
 
@@ -129,8 +132,9 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
               clockInTime: te.clockInTime,
             })),
           };
-        } catch {
-          // non-fatal — today summary is optional for first render
+        } catch (err) {
+          todaySummaryError = true;
+          console.warn('[dashboard/init] today summary failed (non-fatal):', err instanceof Error ? err.message : err);
         }
       }
 
@@ -140,7 +144,9 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
         permissions,
         companySettings: companySettings ?? null,
         gamificationScore,
+        gamificationError,
         todaySummary,
+        todaySummaryError,
       });
     } catch (error) {
       const isTimeout = error instanceof Error && error.message.includes('timed out');

@@ -14,11 +14,18 @@ interface DashboardInitData {
   permissions: any[];
   companySettings: any | null;
   gamificationScore: { overallScore: number; tier: string } | null;
+  gamificationError?: boolean;
   todaySummary: {
     totalClockedIn: number;
     totalScheduled: number;
     activeEntries: any[];
   } | null;
+  todaySummaryError?: boolean;
+}
+
+export interface DashboardPartialErrors {
+  gamificationError: boolean;
+  todaySummaryError: boolean;
 }
 
 // Maximum time to wait for /api/dashboard/init before rendering anyway.
@@ -71,6 +78,13 @@ export default function DashboardRouter() {
     if (initData.todaySummary) {
       queryClient.setQueryData(['/api/dashboard/today-summary'], initData.todaySummary);
     }
+
+    // Store partial-failure flags so child dashboards can show a subtle warning
+    // without making an extra network request.
+    queryClient.setQueryData<DashboardPartialErrors>(['/api/dashboard/partial-errors'], {
+      gamificationError: !!initData.gamificationError,
+      todaySummaryError: !!initData.todaySummaryError,
+    });
   }, [initData, queryClient]);
 
   // Wait for auth, then wait for init (unless it errored or timed out).
