@@ -1,4 +1,4 @@
-import type { Express, Request, Response } from "express";
+import type { Express } from "express";
 import type { IStorage } from "../storage";
 import { insertRoleSchema } from "@shared/schema";
 import { cache } from "../lib/cache";
@@ -98,8 +98,46 @@ export function registerRoleRoutes(app: Express, storage: IStorage, isAuthentica
     if (!Array.isArray(permissionIds)) {
       throw new AppError(400, "permissionIds must be an array", "VALIDATION_ERROR");
     }
+
+    // Capture current state before updating to detect sales.view changes
+    const allPermsByCategory = await storage.getPermissionsByCategory();
+    const allPerms = Object.values(allPermsByCategory).flat();
+    const salesViewPerm = allPerms.find(p => p.name === 'sales.view');
+
+    const [prevPermissions, role, affectedEmployees] = await Promise.all([
+      storage.getRolePermissions(id),
+      storage.getRole(id),
+      storage.getUsersByRole(id),
+    ]);
+    const hadSalesView = prevPermissions.some(p => p.name === 'sales.view');
+    const newHasSalesView = salesViewPerm ? permissionIds.includes(salesViewPerm.id) : false;
+
     await storage.updateRolePermissions(id, permissionIds);
     cache.invalidatePrefix('roles:');
+
+    // Log if sales.view access changed for this role
+    if (salesViewPerm && hadSalesView !== newHasSalesView) {
+      const action = newHasSalesView ? 'grant' : 'revoke';
+      const roleName = role?.displayName || role?.name || id;
+      const employeeCount = affectedEmployees.length;
+      await storage.createActivityLog({
+        userId: req.user.id,
+        action,
+        targetType: 'sales_access',
+        targetId: id,
+        details: newHasSalesView
+          ? `Granted sales data access to the ${roleName} role (${employeeCount} employee${employeeCount !== 1 ? 's' : ''} affected)`
+          : `Revoked sales data access from the ${roleName} role (${employeeCount} employee${employeeCount !== 1 ? 's' : ''} affected)`,
+        metadata: {
+          roleId: id,
+          roleName,
+          employeeCount,
+          accessGranted: newHasSalesView,
+          changeType: 'role_permission',
+        },
+      });
+    }
+
     const updatedPermissions = await storage.getRolePermissions(id);
     res.json(updatedPermissions);
   }));
@@ -128,7 +166,52 @@ export function registerRoleRoutes(app: Express, storage: IStorage, isAuthentica
     if (typeof grant !== 'boolean' && grant !== null) {
       throw new AppError(400, "grant must be true, false, or null", "VALIDATION_ERROR");
     }
+
+    // Fetch current override and target user before making changes
+    const [currentOverride, targetUser] = await Promise.all([
+      storage.getUserSalesAccessOverride(id),
+      storage.getUser(id),
+    ]);
+    const targetName = targetUser
+      ? `${targetUser.firstName} ${targetUser.lastName}`.trim()
+      : id;
+
+    // Determine if the override is actually changing to avoid noisy duplicate log entries
+    const currentGrantValue = currentOverride ? currentOverride.grant : null;
+    const isNoOp = currentGrantValue === grant;
+
     await storage.setUserSalesAccessOverride(id, grant);
+
+    // Log the individual override change only when the value actually changed
+    if (!isNoOp) {
+      let action: string;
+      let details: string;
+      if (grant === null) {
+        action = 'clear';
+        details = `Cleared individual sales data access override for ${targetName} (reverted to role default)`;
+      } else if (grant) {
+        action = 'grant';
+        details = `Granted individual sales data access to ${targetName}`;
+      } else {
+        action = 'revoke';
+        details = `Revoked individual sales data access from ${targetName}`;
+      }
+
+      await storage.createActivityLog({
+        userId: req.user.id,
+        action,
+        targetType: 'sales_access',
+        targetId: id,
+        details,
+        metadata: {
+          targetUserId: id,
+          targetUserName: targetName,
+          accessGranted: grant,
+          changeType: 'user_override',
+        },
+      });
+    }
+
     const [override, userPerms] = await Promise.all([
       storage.getUserSalesAccessOverride(id),
       storage.getUserPermissions(id),

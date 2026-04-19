@@ -456,6 +456,21 @@ export default function AdminSettings() {
   };
 
   const formatLogAction = (log: ActivityLog) => {
+    if (log.targetType === 'sales_access') {
+      const meta = log.metadata as Record<string, any> | null;
+      if (meta?.changeType === 'role_permission') {
+        return meta.accessGranted
+          ? `Granted sales access to ${meta.roleName || 'role'}`
+          : `Revoked sales access from ${meta.roleName || 'role'}`;
+      }
+      if (meta?.changeType === 'user_override') {
+        if (log.action === 'clear') return `Cleared sales access override for ${meta.targetUserName || 'employee'}`;
+        return meta.accessGranted
+          ? `Granted sales access to ${meta.targetUserName || 'employee'}`
+          : `Revoked sales access from ${meta.targetUserName || 'employee'}`;
+      }
+      return log.action === 'grant' ? 'Granted sales access' : log.action === 'revoke' ? 'Revoked sales access' : 'Updated sales access';
+    }
     const actionLabels: Record<string, string> = {
       'update': 'Updated',
       'create': 'Created',
