@@ -43,8 +43,7 @@ import {
   Video,
   Timer,
 } from 'lucide-react';
-
-const DELIVERY_FAILURE_HIGH_THRESHOLD = 0.25;
+import { DELIVERY_FAILURE_HIGH_THRESHOLD } from '@/lib/notificationConstants';
 
 export default function ManagerDashboard() {
   const { user } = useAuth();

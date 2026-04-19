@@ -1,0 +1,1 @@
+export const DELIVERY_FAILURE_HIGH_THRESHOLD = 0.25;

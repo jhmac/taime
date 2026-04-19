@@ -16,6 +16,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { ChevronDown, ChevronUp, Download, ArrowDown, ArrowUp, AlertTriangle, X } from 'lucide-react';
 import { useSearch } from 'wouter';
 import type { NotificationDeliveryLogWithUser, User } from '@shared/schema';
+import { DELIVERY_FAILURE_HIGH_THRESHOLD } from '@/lib/notificationConstants';
 
 type EmployeeDeliveryStats = {
   userId: string;
@@ -25,7 +26,6 @@ type EmployeeDeliveryStats = {
 };
 
 /** Rows at or above this ratio are highlighted red as high-risk (≥25% failure rate). */
-const DELIVERY_FAILURE_HIGH_THRESHOLD = 0.25;
 
 function escapeCsvField(value: string | number | null | undefined): string {
   let str = value == null ? '' : String(value);
