@@ -844,36 +844,66 @@ export default function NotificationSettings() {
                       <tr className="border-b text-muted-foreground">
                         <th className="text-left py-1.5 pr-4 font-medium">Employee</th>
                         <th className="text-right py-1.5 pr-4 font-medium">Total</th>
-                        <th className="text-right py-1.5 font-medium">Failures</th>
+                        <th className="text-right py-1.5 pr-4 font-medium">Failures</th>
+                        <th className="text-right py-1.5 font-medium">Rate</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {deliveryStatsQuery.data.map((row) => (
-                        <tr
-                          key={row.userId}
-                          className="border-b last:border-0 cursor-pointer hover:bg-muted/50 transition-colors"
-                          onClick={() => setLogUserFilter(row.userId)}
-                        >
-                          <td className="py-1.5 pr-4 font-medium text-foreground">
-                            {row.recipientName || <span className="text-muted-foreground italic">Unknown</span>}
-                          </td>
-                          <td className="py-1.5 pr-4 text-right text-muted-foreground">{row.total}</td>
-                          <td className="py-1.5 text-right">
-                            {row.failures > 0 ? (
-                              <Badge variant="destructive" className="text-xs h-5 ml-auto">
-                                {row.failures}
-                              </Badge>
-                            ) : (
-                              <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 text-xs h-5 ml-auto">
-                                0
-                              </Badge>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
+                      {deliveryStatsQuery.data.map((row) => {
+                        const rate = row.total > 0 ? Math.round((row.failures / row.total) * 100) : 0;
+                        const isHighRisk = rate >= 25 && row.failures > 0;
+                        const isMedRisk = rate > 0 && rate < 25;
+                        return (
+                          <tr
+                            key={row.userId}
+                            className={[
+                              'border-b last:border-0 cursor-pointer transition-colors',
+                              isHighRisk
+                                ? 'bg-red-50 dark:bg-red-950/30 hover:bg-red-100 dark:hover:bg-red-950/50'
+                                : isMedRisk
+                                ? 'bg-amber-50 dark:bg-amber-950/20 hover:bg-amber-100 dark:hover:bg-amber-950/40'
+                                : 'hover:bg-muted/50',
+                            ].join(' ')}
+                            onClick={() => setLogUserFilter(row.userId)}
+                          >
+                            <td className="py-1.5 pr-4 font-medium text-foreground">
+                              {row.recipientName || <span className="text-muted-foreground italic">Unknown</span>}
+                            </td>
+                            <td className="py-1.5 pr-4 text-right text-muted-foreground">{row.total}</td>
+                            <td className="py-1.5 pr-4 text-right">
+                              {row.failures > 0 ? (
+                                <Badge variant="destructive" className="text-xs h-5 ml-auto">
+                                  {row.failures}
+                                </Badge>
+                              ) : (
+                                <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 text-xs h-5 ml-auto">
+                                  0
+                                </Badge>
+                              )}
+                            </td>
+                            <td className="py-1.5 text-right">
+                              <span className={[
+                                'font-semibold tabular-nums',
+                                isHighRisk ? 'text-red-600 dark:text-red-400'
+                                  : isMedRisk ? 'text-amber-600 dark:text-amber-400'
+                                  : 'text-green-600 dark:text-green-400',
+                              ].join(' ')}>
+                                {rate}%
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
-                  <p className="text-xs text-muted-foreground mt-2">Click a row to filter the log below to that employee.</p>
+                  <div className="flex items-center justify-between mt-2">
+                    <p className="text-xs text-muted-foreground">Click a row to filter the log below to that employee.</p>
+                    <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+                      <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-green-200 dark:bg-green-900/60" /> &lt;1%</span>
+                      <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-amber-200 dark:bg-amber-900/60" /> 1–24%</span>
+                      <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-red-200 dark:bg-red-900/60" /> ≥25%</span>
+                    </div>
+                  </div>
                 </div>
               )}
             </CardContent>
