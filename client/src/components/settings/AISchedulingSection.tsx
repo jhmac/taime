@@ -83,6 +83,7 @@ export default function AISchedulingSection() {
       queryClient.invalidateQueries({ queryKey: ['/api/company-settings'] });
     },
     onError: () => {
+      setTaskAutoAssign(companySettings?.taskAutoAssign ?? false);
       toast({ title: 'Error', description: 'Could not save setting. Please try again.', variant: 'destructive' });
     },
   });
@@ -630,6 +631,7 @@ export default function AISchedulingSection() {
             </div>
             <Switch
               checked={taskAutoAssign}
+              disabled={saveTaskAutoAssignMutation.isPending}
               onCheckedChange={(val) => {
                 setTaskAutoAssign(val);
                 saveTaskAutoAssignMutation.mutate(val);
