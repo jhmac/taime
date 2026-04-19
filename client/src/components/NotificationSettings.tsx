@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/hooks/useAuth';
-import { ChevronDown, ChevronUp, Download } from 'lucide-react';
+import { ChevronDown, ChevronUp, Download, ArrowDown, ArrowUp } from 'lucide-react';
 import type { NotificationDeliveryLogWithUser, User } from '@shared/schema';
 
 type EmployeeDeliveryStats = {
@@ -165,6 +165,7 @@ export default function NotificationSettings() {
   const [logUserFilter, setLogUserFilter] = useState<string>('all');
   const [logTypeFilter, setLogTypeFilter] = useState<string>('all');
   const [showSummary, setShowSummary] = useState<boolean>(true);
+  const [rateSortDir, setRateSortDir] = useState<'asc' | 'desc'>('desc');
 
   const usersQuery = useQuery<User[]>({
     queryKey: ['/api/users'],
@@ -902,11 +903,26 @@ export default function NotificationSettings() {
                         <th className="text-left py-1.5 pr-4 font-medium">Employee</th>
                         <th className="text-right py-1.5 pr-4 font-medium">Total</th>
                         <th className="text-right py-1.5 pr-4 font-medium">Failures</th>
-                        <th className="text-right py-1.5 font-medium">Rate</th>
+                        <th className="text-right py-1.5 font-medium">
+                          <button
+                            className="inline-flex items-center gap-1 hover:text-foreground transition-colors"
+                            onClick={() => setRateSortDir(d => d === 'desc' ? 'asc' : 'desc')}
+                          >
+                            Rate
+                            {rateSortDir === 'desc'
+                              ? <ArrowDown className="h-3 w-3" />
+                              : <ArrowUp className="h-3 w-3" />
+                            }
+                          </button>
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
-                      {deliveryStatsQuery.data.map((row) => {
+                      {[...deliveryStatsQuery.data].sort((a, b) => {
+                        const rateA = a.total > 0 ? a.failures / a.total : 0;
+                        const rateB = b.total > 0 ? b.failures / b.total : 0;
+                        return rateSortDir === 'desc' ? rateB - rateA : rateA - rateB;
+                      }).map((row) => {
                         const rawRatio = row.total > 0 ? row.failures / row.total : 0;
                         const rate = Math.round(rawRatio * 100); // display only — classification uses rawRatio
                         const isHighRisk = rawRatio >= DELIVERY_FAILURE_HIGH_THRESHOLD && row.failures > 0;
