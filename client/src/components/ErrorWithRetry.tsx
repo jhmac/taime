@@ -64,7 +64,7 @@ export default function ErrorWithRetry({
   return (
     <div
       className={cn(
-        "flex items-center gap-3 rounded-2xl border border-destructive/20 bg-destructive/5 px-4 py-3",
+        "relative overflow-hidden flex items-center gap-3 rounded-2xl border border-destructive/20 bg-destructive/5 px-4 py-3",
         className
       )}
     >
@@ -89,6 +89,14 @@ export default function ErrorWithRetry({
         <RefreshCw className={cn("h-3 w-3", isRetrying && "animate-spin")} />
         Retry
       </Button>
+      {countdown != null && retryIn != null && retryIn > 0 && (
+        <div
+          className="absolute bottom-0 left-0 h-0.5 w-full origin-left bg-destructive/30"
+          style={{
+            animation: `error-countdown-shrink ${retryIn}s linear forwards`,
+          }}
+        />
+      )}
     </div>
   );
 }

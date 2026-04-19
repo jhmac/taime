@@ -122,6 +122,11 @@
       box-shadow: 0 0 0 0 rgba(244, 125, 49, 0);
     }
   }
+
+  @keyframes error-countdown-shrink {
+    from { transform: scaleX(1); }
+    to   { transform: scaleX(0); }
+  }
 }
 
 /* PWA and Mobile Optimizations */
