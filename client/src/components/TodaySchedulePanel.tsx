@@ -78,6 +78,7 @@ function UserAvatar({ name, imageUrl, size = 'md' }: { name: string; imageUrl: s
 export default function TodaySchedulePanel() {
   const [, navigate] = useLocation();
   const [filterLocationBlocked, setFilterLocationBlocked] = useState(false);
+  const [filterLate, setFilterLate] = useState(false);
 
   const { data, isLoading } = useQuery<DashboardData>({
     queryKey: ['/api/dashboard/today'],
@@ -111,7 +112,9 @@ export default function TodaySchedulePanel() {
   const allSchedules = data?.schedules || [];
   const schedules = filterLocationBlocked
     ? allSchedules.filter(e => e.locationBlocked && !e.isClockedIn)
-    : allSchedules;
+    : filterLate
+      ? allSchedules.filter(e => e.isLate)
+      : allSchedules;
   const clockedIn = data?.clockedIn || [];
 
   return (
@@ -141,14 +144,23 @@ export default function TodaySchedulePanel() {
                 <span>{summary.totalClockedIn} clocked in</span>
               </div>
               {summary.totalLate > 0 && (
-                <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                <button
+                  onClick={() => { setFilterLate(f => !f); setFilterLocationBlocked(false); }}
+                  className={`flex items-center gap-1.5 text-xs rounded-md px-1.5 py-0.5 transition-colors ${
+                    filterLate
+                      ? 'bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 ring-1 ring-amber-300 dark:ring-amber-700'
+                      : 'text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/20'
+                  }`}
+                  title={filterLate ? 'Clear filter' : 'Filter to late employees'}
+                >
                   <AlertTriangle className="h-3.5 w-3.5" />
                   <span>{summary.totalLate} late</span>
-                </div>
+                  {filterLate && <X className="h-3 w-3 ml-0.5" />}
+                </button>
               )}
               {summary.totalLocationBlocked > 0 && (
                 <button
-                  onClick={() => setFilterLocationBlocked(f => !f)}
+                  onClick={() => { setFilterLocationBlocked(f => !f); setFilterLate(false); }}
                   className={`flex items-center gap-1.5 text-xs rounded-md px-1.5 py-0.5 transition-colors ${
                     filterLocationBlocked
                       ? 'bg-orange-100 dark:bg-orange-950/40 text-orange-700 dark:text-orange-300 ring-1 ring-orange-300 dark:ring-orange-700'
@@ -165,6 +177,21 @@ export default function TodaySchedulePanel() {
           )}
         </CardHeader>
         <CardContent className="pt-0 px-4 pb-4">
+          {filterLate && (
+            <div className="flex items-center justify-between mb-3 px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/40 text-xs text-amber-700 dark:text-amber-300">
+              <div className="flex items-center gap-1.5">
+                <AlertTriangle className="h-3.5 w-3.5" />
+                <span>Showing late employees only</span>
+              </div>
+              <button
+                onClick={() => setFilterLate(false)}
+                className="flex items-center gap-1 hover:text-amber-900 dark:hover:text-amber-100 transition-colors"
+              >
+                <X className="h-3.5 w-3.5" />
+                Clear
+              </button>
+            </div>
+          )}
           {filterLocationBlocked && (
             <div className="flex items-center justify-between mb-3 px-3 py-2 rounded-lg bg-orange-50 dark:bg-orange-950/20 border border-orange-200 dark:border-orange-800/40 text-xs text-orange-700 dark:text-orange-300">
               <div className="flex items-center gap-1.5">
@@ -183,7 +210,12 @@ export default function TodaySchedulePanel() {
           {schedules.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               <Clock className="h-10 w-10 mx-auto mb-2 opacity-30" />
-              {filterLocationBlocked ? (
+              {filterLate ? (
+                <>
+                  <p className="text-sm font-medium">No late employees</p>
+                  <p className="text-xs mt-1">Everyone has clocked in on time</p>
+                </>
+              ) : filterLocationBlocked ? (
                 <>
                   <p className="text-sm font-medium">No location-blocked employees</p>
                   <p className="text-xs mt-1">All employees have location access enabled</p>
