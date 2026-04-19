@@ -290,7 +290,15 @@ export function useGeolocation() {
     if (navigator.permissions) {
       navigator.permissions.query({ name: 'geolocation' }).then(result => {
         permissionStatus = result;
-        setPermissionState(result.state);
+        // Don't downgrade a previously-cached 'granted' to 'prompt'.
+        // The Permissions API can return 'prompt' when the origin changes
+        // (e.g. Replit preview URLs) or when the browser session is fresh,
+        // even though the user already explicitly allowed access.
+        // The silent auto-request in TimeClockWidget will fire and confirm
+        // or correct the real state without showing the banner unnecessarily.
+        if (result.state !== 'prompt' || readCachedPermission() !== 'granted') {
+          setPermissionState(result.state);
+        }
 
         if (result.state === 'denied') {
           setError({
