@@ -26,6 +26,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
 import {
   ArrowLeft,
   Phone,
@@ -49,6 +50,7 @@ import {
   Wallet,
   MapPin,
   ExternalLink,
+  BarChart2,
 } from "lucide-react";
 import TripReceiptModal from "@/components/TripReceiptModal";
 
@@ -137,6 +139,47 @@ export default function TeamMember() {
       return data.filter((s: any) => s.status !== 'active').slice(0, 5);
     },
     enabled: !!userId && activeTab === "job",
+  });
+
+  const { data: salesAccess, isLoading: isSalesAccessLoading } = useQuery<{
+    hasSalesAccess: boolean;
+    isOverride: boolean;
+    overrideValue: boolean | null;
+  }>({
+    queryKey: ["/api/users", userId, "sales-access"],
+    queryFn: async () => {
+      const res = await fetch(`/api/users/${userId}/sales-access`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch sales access");
+      return res.json();
+    },
+    enabled: !!userId,
+  });
+
+  const setSalesAccessMutation = useMutation({
+    mutationFn: async (grant: boolean | null) => {
+      const res = await apiRequest("PUT", `/api/users/${userId}/sales-access`, { grant });
+      return res.json();
+    },
+    onMutate: async (grant) => {
+      // Optimistic update
+      await queryClient.cancelQueries({ queryKey: ["/api/users", userId, "sales-access"] });
+      const prev = queryClient.getQueryData(["/api/users", userId, "sales-access"]);
+      queryClient.setQueryData(["/api/users", userId, "sales-access"], (old: any) => ({
+        ...old,
+        hasSalesAccess: grant === null ? (old?.hasSalesAccess ?? false) : grant,
+        isOverride: grant !== null,
+        overrideValue: grant,
+      }));
+      return { prev };
+    },
+    onError: (_err, _grant, context: any) => {
+      queryClient.setQueryData(["/api/users", userId, "sales-access"], context?.prev);
+      toast({ title: "Error", description: "Failed to update sales access.", variant: "destructive" });
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(["/api/users", userId, "sales-access"], data);
+      toast({ title: "Updated", description: "Sales access updated." });
+    },
   });
 
   const isAdminRole = currentUser?.role?.name === 'owner' || currentUser?.role?.name === 'admin';
@@ -644,6 +687,40 @@ export default function TeamMember() {
                     ))}
                   </div>
                 )}
+              </div>
+
+              <Separator className="my-4" />
+
+              <div>
+                <div className="flex items-center gap-2 font-semibold text-sm mb-3">
+                  <BarChart2 className="h-4 w-4" />
+                  Sales Access
+                </div>
+                <div className="flex items-center justify-between ml-1">
+                  <div>
+                    <p className="text-sm text-muted-foreground">
+                      Grant this employee access to sales dashboards and revenue data
+                    </p>
+                    {salesAccess?.isOverride && (
+                      <p className="text-xs text-amber-600 mt-0.5">
+                        Individual override — differs from role default
+                      </p>
+                    )}
+                  </div>
+                  {isSalesAccessLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  ) : (
+                    <Switch
+                      checked={salesAccess?.hasSalesAccess ?? false}
+                      onCheckedChange={(checked) => {
+                        if (canEdit) {
+                          setSalesAccessMutation.mutate(checked);
+                        }
+                      }}
+                      disabled={!canEdit || setSalesAccessMutation.isPending}
+                    />
+                  )}
+                </div>
               </div>
             </div>
           </div>

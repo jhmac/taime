@@ -19,6 +19,7 @@ import {
   roles,
   permissions,
   rolePermissions,
+  userPermissionOverrides,
   companySettings,
   activityLogs,
   holidayPayRules,
@@ -114,6 +115,7 @@ import {
   type InsertPermission,
   type RolePermission,
   type InsertRolePermission,
+  type UserPermissionOverride,
   type UserWithRole,
   type CompanySettings,
   type InsertCompanySettings,
@@ -307,6 +309,8 @@ export interface IStorage {
   getRolePermissions(roleId: string): Promise<Permission[]>;
   updateRolePermissions(roleId: string, permissionIds: string[]): Promise<void>;
   getUserPermissions(userId: string): Promise<Permission[]>;
+  getUserSalesAccessOverride(userId: string): Promise<UserPermissionOverride | null>;
+  setUserSalesAccessOverride(userId: string, grant: boolean | null): Promise<void>;
   
   // Company settings operations
   getCompanySettings(storeId?: string): Promise<CompanySettings | undefined>;
@@ -1476,8 +1480,70 @@ export class DatabaseStorage implements IStorage {
       perms = result.map(row => row.permission);
     }
 
+    // Apply per-user permission overrides
+    const overrides = await db
+      .select()
+      .from(userPermissionOverrides)
+      .where(eq(userPermissionOverrides.userId, userId));
+
+    if (overrides.length > 0) {
+      const permMap = new Map(perms.map(p => [p.name, p]));
+      for (const override of overrides) {
+        if (override.grant) {
+          // Grant: add permission if not already present
+          if (!permMap.has(override.permissionName)) {
+            const [perm] = await db
+              .select()
+              .from(permissions)
+              .where(eq(permissions.name, override.permissionName))
+              .limit(1);
+            if (perm) permMap.set(perm.name, perm);
+          }
+        } else {
+          // Revoke: remove permission
+          permMap.delete(override.permissionName);
+        }
+      }
+      perms = Array.from(permMap.values());
+    }
+
     cache.set(cacheKey, perms, 2 * 60 * 1000);
     return perms;
+  }
+
+  async getUserSalesAccessOverride(userId: string): Promise<UserPermissionOverride | null> {
+    const [override] = await db
+      .select()
+      .from(userPermissionOverrides)
+      .where(and(
+        eq(userPermissionOverrides.userId, userId),
+        eq(userPermissionOverrides.permissionName, 'sales.view')
+      ))
+      .limit(1);
+    return override ?? null;
+  }
+
+  async setUserSalesAccessOverride(userId: string, grant: boolean | null): Promise<void> {
+    if (grant === null) {
+      // Remove the override — revert to role default
+      await db
+        .delete(userPermissionOverrides)
+        .where(and(
+          eq(userPermissionOverrides.userId, userId),
+          eq(userPermissionOverrides.permissionName, 'sales.view')
+        ));
+    } else {
+      // Upsert the override
+      await db
+        .insert(userPermissionOverrides)
+        .values({ userId, permissionName: 'sales.view', grant })
+        .onConflictDoUpdate({
+          target: [userPermissionOverrides.userId, userPermissionOverrides.permissionName],
+          set: { grant, updatedAt: new Date() },
+        });
+    }
+    // Bust the permissions cache for this user
+    cache.invalidatePrefix(`permissions:${userId}`);
   }
 
   // Payroll settings operations

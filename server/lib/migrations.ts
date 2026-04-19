@@ -855,6 +855,28 @@ export async function runSchemaMigrations(): Promise<void> {
     console.warn('[Migration] location_permissions table creation failed (non-fatal):', pgErr?.message ?? err);
   }
 
+  // Create user_permission_overrides table — allows per-user sales access overrides
+  // independent of role assignments.
+  try {
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS user_permission_overrides (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id varchar NOT NULL REFERENCES users(id),
+        permission_name varchar NOT NULL,
+        "grant" boolean NOT NULL,
+        created_at timestamp DEFAULT now(),
+        updated_at timestamp DEFAULT now()
+      )
+    `));
+    await db.execute(sql.raw(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_user_permission_overrides_unique
+      ON user_permission_overrides (user_id, permission_name)
+    `));
+  } catch (err: unknown) {
+    const pgErr = err as { message?: string };
+    console.warn('[Migration] user_permission_overrides table creation failed (non-fatal):', pgErr?.message ?? err);
+  }
+
   // Mark any generation jobs that were still "running" when the server last shut down.
   // These are orphaned — the setImmediate background task was lost on restart — so
   // they will never complete. Reset them to "failed" so users can retry.

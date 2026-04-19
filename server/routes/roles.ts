@@ -103,4 +103,41 @@ export function registerRoleRoutes(app: Express, storage: IStorage, isAuthentica
     const updatedPermissions = await storage.getRolePermissions(id);
     res.json(updatedPermissions);
   }));
+
+  // User-level sales access override endpoints
+  app.get('/api/users/:id/sales-access', isAuthenticated, asyncHandler(async (req: any, res) => {
+    await requireRoleManagement(storage, req.user.id);
+    const { id } = req.params;
+    // Get effective sales access: role default + override
+    const [override, userPerms] = await Promise.all([
+      storage.getUserSalesAccessOverride(id),
+      storage.getUserPermissions(id),
+    ]);
+    const hasSalesAccess = userPerms.some(p => p.name === 'sales.view');
+    res.json({
+      hasSalesAccess,
+      isOverride: override !== null,
+      overrideValue: override ? override.grant : null,
+    });
+  }));
+
+  app.put('/api/users/:id/sales-access', isAuthenticated, asyncHandler(async (req: any, res) => {
+    await requireRoleManagement(storage, req.user.id);
+    const { id } = req.params;
+    const { grant } = req.body;
+    if (typeof grant !== 'boolean' && grant !== null) {
+      throw new AppError(400, "grant must be true, false, or null", "VALIDATION_ERROR");
+    }
+    await storage.setUserSalesAccessOverride(id, grant);
+    const [override, userPerms] = await Promise.all([
+      storage.getUserSalesAccessOverride(id),
+      storage.getUserPermissions(id),
+    ]);
+    const hasSalesAccess = userPerms.some(p => p.name === 'sales.view');
+    res.json({
+      hasSalesAccess,
+      isOverride: override !== null,
+      overrideValue: override ? override.grant : null,
+    });
+  }));
 }
