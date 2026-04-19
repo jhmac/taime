@@ -4,7 +4,8 @@ import { useAuth } from '@/hooks/use-auth';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
-import { Download } from 'lucide-react';
+import { Download, Clipboard, Check } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
 import {
   BarChart,
   Bar,
@@ -134,6 +135,7 @@ function downloadCsv(content: string, filename: string) {
 
 export default function ShopifyAnalytics({ shopDomain }: { shopDomain: string }) {
   const { user } = useAuth();
+  const { toast } = useToast();
   const roleName = (user as any)?.role?.name;
   const isAdminOrOwner = roleName === 'owner' || roleName === 'admin';
   const { data: permissions = [] } = useQuery<{ name: string }[]>({
@@ -144,6 +146,7 @@ export default function ShopifyAnalytics({ shopDomain }: { shopDomain: string })
   const hasSalesView = isAdminOrOwner || permissions.some(p => p.name === 'sales.view' || p.name === 'admin.manage_all');
 
   const [timeRange, setTimeRange] = useState<TimeRange>('monthly');
+  const [copied, setCopied] = useState(false);
   const selectedRange = TIME_RANGES.find(r => r.key === timeRange)!;
 
   const { data, isLoading } = useQuery<LaborCostRatioData>({
@@ -179,17 +182,36 @@ export default function ShopifyAnalytics({ shopDomain }: { shopDomain: string })
 
   const isQuarterly = timeRange === 'quarterly';
 
+  function buildCurrentCsv() {
+    if (!data) return '';
+    const sorted = [...data.dailyBreakdown].sort((a, b) => a.date.localeCompare(b.date));
+    const rows = isQuarterly
+      ? aggregateByWeek(data.dailyBreakdown).map(w => ({ label: w.week, revenue: w.revenue, laborCost: w.laborCost, percentage: w.percentage }))
+      : sorted.map(d => ({ label: d.date, revenue: d.revenue, laborCost: d.laborCost, percentage: d.percentage }));
+    return buildCsv(rows, isQuarterly);
+  }
+
   function handleExportCsv() {
     if (!data) return;
     const sorted = [...data.dailyBreakdown].sort((a, b) => a.date.localeCompare(b.date));
     const dataStart = sorted[0]?.date;
     const dataEnd = sorted[sorted.length - 1]?.date;
-    const rows = isQuarterly
-      ? aggregateByWeek(data.dailyBreakdown).map(w => ({ label: w.week, revenue: w.revenue, laborCost: w.laborCost, percentage: w.percentage }))
-      : sorted.map(d => ({ label: d.date, revenue: d.revenue, laborCost: d.laborCost, percentage: d.percentage }));
-    const csv = buildCsv(rows, isQuarterly);
+    const csv = buildCurrentCsv();
     const filename = getExportFilename(timeRange, selectedRange.daysBack, dataStart, dataEnd);
     downloadCsv(csv, filename);
+  }
+
+  async function handleCopyCsv() {
+    const csv = buildCurrentCsv();
+    if (!csv) return;
+    try {
+      await navigator.clipboard.writeText(csv);
+      setCopied(true);
+      toast({ description: 'CSV copied to clipboard.' });
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast({ description: 'Copy failed — try the Download button instead.', variant: 'destructive' });
+    }
   }
 
   const chartData = isQuarterly && data
@@ -253,16 +275,28 @@ export default function ShopifyAnalytics({ shopDomain }: { shopDomain: string })
               </button>
             ))}
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleExportCsv}
-            disabled={!data}
-            className="text-xs h-8 gap-1.5"
-          >
-            <Download className="h-3.5 w-3.5" />
-            Download CSV
-          </Button>
+          <div className="flex items-center gap-1.5">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleCopyCsv}
+              disabled={!data}
+              className="text-xs h-8 w-8 p-0"
+              title="Copy CSV to clipboard"
+            >
+              {copied ? <Check className="h-3.5 w-3.5 text-green-600" /> : <Clipboard className="h-3.5 w-3.5" />}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExportCsv}
+              disabled={!data}
+              className="text-xs h-8 gap-1.5"
+            >
+              <Download className="h-3.5 w-3.5" />
+              Download CSV
+            </Button>
+          </div>
         </div>
       </div>
 
