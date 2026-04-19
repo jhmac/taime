@@ -44,6 +44,8 @@ import {
   Timer,
 } from 'lucide-react';
 
+const DELIVERY_FAILURE_HIGH_THRESHOLD = 0.25;
+
 export default function ManagerDashboard() {
   const { user } = useAuth();
   const isMobile = useIsMobile();
@@ -102,6 +104,15 @@ export default function ManagerDashboard() {
     enabled: deferredEnabled,
     staleTime: 60_000,
   });
+
+  const { data: deliveryStats } = useQuery<{ userId: string; total: number; failures: number }[]>({
+    queryKey: ['/api/push/delivery-stats'],
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const highRiskCount = (deliveryStats ?? []).filter(
+    row => row.total > 0 && row.failures > 0 && row.failures / row.total >= DELIVERY_FAILURE_HIGH_THRESHOLD
+  ).length;
 
   const { data: unansweredCountData } = useQuery<{ pending: number }>({
     queryKey: ['/api/ai/questions/count'],
@@ -282,6 +293,30 @@ export default function ManagerDashboard() {
           </div>
         </DashboardErrorBoundary>
       </div>
+
+      {highRiskCount > 0 && (
+        <div className={isMobile ? "px-4 pb-2" : "px-6 pb-2"}>
+          <Card
+            className="cursor-pointer hover:shadow-md transition-shadow border-amber-200 dark:border-amber-800/40 bg-amber-50/50 dark:bg-amber-950/10"
+            onClick={() => navigate('/admin?section=notifications&focus=delivery-summary')}
+          >
+            <CardContent className="p-4 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0">
+                <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-amber-800 dark:text-amber-300">
+                  {highRiskCount} employee{highRiskCount !== 1 ? 's' : ''} {highRiskCount !== 1 ? 'have' : 'has'} high notification failure rates
+                </p>
+                <p className="text-xs text-amber-600 dark:text-amber-400/80">
+                  Review delivery summary in Notification Settings
+                </p>
+              </div>
+              <ChevronRight className="h-4 w-4 text-amber-500 shrink-0" />
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       <div className={isMobile ? "px-4 pb-1" : "px-6 pb-2"}>
         <DashboardErrorBoundary fallback="Could not load SOP banner">

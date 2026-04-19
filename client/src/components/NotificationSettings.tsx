@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/hooks/useAuth';
 import { ChevronDown, ChevronUp, Download, ArrowDown, ArrowUp, AlertTriangle, X } from 'lucide-react';
+import { useSearch } from 'wouter';
 import type { NotificationDeliveryLogWithUser, User } from '@shared/schema';
 
 type EmployeeDeliveryStats = {
@@ -168,6 +169,17 @@ export default function NotificationSettings() {
   const [rateSortDir, setRateSortDir] = useState<'asc' | 'desc'>('desc');
   const [highRiskBannerDismissed, setHighRiskBannerDismissed] = useState(false);
   const deliverySummaryRef = useRef<HTMLDivElement>(null);
+  const searchString = useSearch();
+  const focusParam = new URLSearchParams(searchString).get('focus');
+
+  useEffect(() => {
+    if (focusParam === 'delivery-summary' && deliverySummaryRef.current) {
+      const timer = setTimeout(() => {
+        deliverySummaryRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 400);
+      return () => clearTimeout(timer);
+    }
+  }, [focusParam]);
 
   const usersQuery = useQuery<User[]>({
     queryKey: ['/api/users'],
