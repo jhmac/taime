@@ -16,6 +16,7 @@ import { Capacitor } from '@capacitor/core';
 import { App as CapacitorApp } from '@capacitor/app';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import LocationHelpSheet from '@/components/LocationHelpSheet';
+import ErrorWithRetry from '@/components/ErrorWithRetry';
 
 function triggerHaptic(pattern: number | number[] = 200) {
   try {
@@ -79,7 +80,7 @@ export default function TimeClockWidget({ greetingSlot, footerSlot }: TimeClockW
   const prevGeofenceIsInRef = useRef<boolean | null>(null);
   const [displayGeofenceStatus, setDisplayGeofenceStatus] = useState<typeof geofenceStatus>(null);
 
-  const { data: activeTimeEntry, isLoading: activeEntryLoading } = useQuery<TimeEntry | null>({
+  const { data: activeTimeEntry, isLoading: activeEntryLoading, isError: activeEntryError, refetch: refetchActiveEntry, isFetching: activeEntryFetching } = useQuery<TimeEntry | null>({
     queryKey: ['/api/time-entries/active'],
     refetchInterval: (query) => (query.state.data ? 10000 : 30000),
   });
@@ -744,6 +745,10 @@ export default function TimeClockWidget({ greetingSlot, footerSlot }: TimeClockW
 
   // Full-screen geofence countdown takeover — shown when outside with a grace timer
   const showCountdown = activeTimeEntry && geofenceStatus && !geofenceStatus.isInWorkLocation && countdownSeconds != null;
+
+  if (activeEntryError) {
+    return <ErrorWithRetry onRetry={() => refetchActiveEntry()} message="Failed to load clock status" isRetrying={activeEntryFetching} />;
+  }
 
   return (
     <>

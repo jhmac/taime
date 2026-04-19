@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Heart, Send, Loader2 } from 'lucide-react';
+import ErrorWithRetry from '@/components/ErrorWithRetry';
 
 function getInitials(firstName?: string | null, lastName?: string | null): string {
   return ((firstName?.[0] || '') + (lastName?.[0] || '')).toUpperCase() || '?';
@@ -34,7 +35,7 @@ export default function KudosWidget() {
   const [selectedRecipient, setSelectedRecipient] = useState<string | null>(null);
   const [message, setMessage] = useState('');
 
-  const { data: kudosData, isLoading } = useQuery<{ success: boolean; data: any[] }>({
+  const { data: kudosData, isLoading, isError, refetch, isFetching } = useQuery<{ success: boolean; data: any[] }>({
     queryKey: ['/api/kudos'],
   });
 
@@ -75,6 +76,10 @@ export default function KudosWidget() {
         </CardContent>
       </Card>
     );
+  }
+
+  if (isError) {
+    return <ErrorWithRetry onRetry={() => refetch()} message="Failed to load kudos" isRetrying={isFetching} />;
   }
 
   return (

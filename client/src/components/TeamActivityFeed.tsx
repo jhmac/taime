@@ -5,18 +5,23 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useEffect } from 'react';
+import ErrorWithRetry from '@/components/ErrorWithRetry';
 
 export default function TeamActivityFeed() {
   const { user } = useAuth();
   const { lastMessage } = useWebSocket();
 
-  const { data: timeEntries = [], refetch: refetchTimeEntries } = useQuery<any[]>({
+  const { data: timeEntries = [], refetch: refetchTimeEntries, isError: timeEntriesError, isFetching: timeEntriesFetching } = useQuery<any[]>({
     queryKey: ['/api/time-entries'],
   });
 
-  const { data: tasks = [], refetch: refetchTasks } = useQuery<any[]>({
+  const { data: tasks = [], refetch: refetchTasks, isError: tasksError, isFetching: tasksFetching } = useQuery<any[]>({
     queryKey: ['/api/tasks'],
   });
+
+  const isError = timeEntriesError || tasksError;
+  const isFetching = timeEntriesFetching || tasksFetching;
+  const refetch = () => { refetchTimeEntries(); refetchTasks(); };
 
   // Refetch data when receiving WebSocket updates
   useEffect(() => {
@@ -118,6 +123,10 @@ export default function TeamActivityFeed() {
   };
 
   const recentActivity = getRecentActivity();
+
+  if (isError) {
+    return <ErrorWithRetry onRetry={refetch} message="Failed to load team activity" isRetrying={isFetching} />;
+  }
 
   return (
     <Card data-testid="team-activity-feed">

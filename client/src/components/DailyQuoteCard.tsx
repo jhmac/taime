@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Quote } from 'lucide-react';
+import ErrorWithRetry from '@/components/ErrorWithRetry';
 
 interface QuoteData {
   quoteText: string;
@@ -9,7 +10,7 @@ interface QuoteData {
 }
 
 export default function DailyQuoteCard() {
-  const { data, isLoading } = useQuery<{ success: boolean; data: QuoteData }>({
+  const { data, isLoading, isError, refetch, isFetching } = useQuery<{ success: boolean; data: QuoteData }>({
     queryKey: ['/api/rituals/quote/today'],
     staleTime: 5 * 60 * 1000,
   });
@@ -25,6 +26,10 @@ export default function DailyQuoteCard() {
         </CardContent>
       </Card>
     );
+  }
+
+  if (isError) {
+    return <ErrorWithRetry onRetry={() => refetch()} message="Failed to load daily quote" isRetrying={isFetching} />;
   }
 
   const text = quote?.quoteText || "Every day is a chance to get a little better.";

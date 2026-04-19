@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { BarChart3, TrendingUp, TrendingDown, AlertTriangle, DollarSign, ShoppingBag } from 'lucide-react';
+import ErrorWithRetry from '@/components/ErrorWithRetry';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useEffect } from 'react';
 import { queryClient } from '@/lib/queryClient';
@@ -56,7 +57,7 @@ export default function MiddayPulseCard() {
   const now = new Date();
   const isAfterNoon = now.getHours() >= 12;
 
-  const { data, isLoading } = useQuery<{ success: boolean; data: PulseData | null }>({
+  const { data, isLoading, isError, refetch, isFetching } = useQuery<{ success: boolean; data: PulseData | null }>({
     queryKey: ['/api/rituals/pulse/today'],
     staleTime: 5 * 60 * 1000,
     enabled: isAfterNoon,
@@ -74,6 +75,10 @@ export default function MiddayPulseCard() {
         </CardContent>
       </Card>
     );
+  }
+
+  if (isError) {
+    return <ErrorWithRetry onRetry={() => refetch()} message="Failed to load midday pulse" isRetrying={isFetching} />;
   }
 
   if (!data?.data) return null;

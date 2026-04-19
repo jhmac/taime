@@ -4,6 +4,7 @@ import { useWebSocket } from "@/hooks/useWebSocket";
 import { useLocation } from "wouter";
 import { X, ClipboardCheck, ChevronRight, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import ErrorWithRetry from "@/components/ErrorWithRetry";
 
 interface SurfacedSOP {
   templateId: string;
@@ -45,7 +46,7 @@ export default function SurfacedSOPBanner() {
   const { lastMessage } = useWebSocket();
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
 
-  const { data: surfacedSOPs = [] } = useQuery<SurfacedSOP[]>({
+  const { data: surfacedSOPs = [], isError, refetch, isFetching } = useQuery<SurfacedSOP[]>({
     queryKey: ["/api/sops/surfaced"],
     refetchInterval: 5 * 60 * 1000,
   });
@@ -56,6 +57,10 @@ export default function SurfacedSOPBanner() {
       queryClient.invalidateQueries({ queryKey: ["/api/sops/surfaced"] });
     }
   }, [lastMessage, queryClient]);
+
+  if (isError) {
+    return <ErrorWithRetry onRetry={() => refetch()} message="Failed to load SOP suggestions" isRetrying={isFetching} />;
+  }
 
   const visibleSOPs = surfacedSOPs.filter((s) => !dismissed.has(s.templateId));
 
