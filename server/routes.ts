@@ -65,17 +65,12 @@ import { startLocationCleanupCron, stopLocationCleanupCron } from "./services/lo
 import { createActionLoggerMiddleware, handleClientErrorReport, getActionSummary } from "./services/actionLogger";
 import { startSurfacingCron, stopSurfacingCron } from "./services/sopSurfacing";
 import { startMiddayPulseCron, stopMiddayPulseCron } from "./services/middayPulse";
+import { broadcastMiddayPulse as _broadcastMiddayPulse, type TrackedConnection } from "./services/middayPulseBroadcast";
 import { seedShiftHandoffSOP } from "./services/shiftHandoffSeed";
 import logger from "./lib/logger";
 import { initPushCredentialStore } from "./lib/pushCredentialStore";
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
-
-interface TrackedConnection {
-  ws: WebSocket;
-  userId: string;
-  alive: boolean;
-}
 
 const wsConnections = new Map<string, Set<TrackedConnection>>();
 
@@ -140,26 +135,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
 
   async function broadcastMiddayPulse(data: Record<string, unknown>) {
-    const payload = JSON.stringify(data);
-    for (const [userId, conns] of Array.from(wsConnections.entries())) {
-      try {
-        const roleName = await storage.getUserRoleName(userId);
-        const isAdminOrOwner = roleName === 'admin' || roleName === 'owner';
-        if (!isAdminOrOwner) {
-          const perms = await storage.getUserPermissions(userId);
-          const hasSalesAccess = perms.some(p => p.name === 'sales.view' || p.name === 'admin.manage_all');
-          if (!hasSalesAccess) continue;
-        }
-      } catch (err: any) {
-        logger.warn({ userId, error: err.message }, 'ws: could not check permissions for midday_pulse broadcast, skipping');
-        continue;
-      }
-      for (const conn of Array.from(conns)) {
-        if (conn.ws.readyState === WebSocket.OPEN) {
-          conn.ws.send(payload);
-        }
-      }
-    }
+    await _broadcastMiddayPulse(data, wsConnections, storage, logger);
   }
 
   function sendToUsers(userIds: string[], data: Record<string, unknown>) {

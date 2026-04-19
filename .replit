@@ -26,6 +26,10 @@ author = "agent"
 task = "workflow.run"
 args = "Start application"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "unit-tests"
+
 [[workflows.workflow]]
 name = "Start application"
 author = "agent"
@@ -34,6 +38,17 @@ author = "agent"
 task = "shell.exec"
 args = "npm run dev"
 waitForPort = 5000
+
+[[workflows.workflow]]
+name = "unit-tests"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npx vitest run --reporter=verbose"
+
+[workflows.workflow.metadata]
+isValidation = true
 
 [agent]
 integrations = ["javascript_anthropic:1.0.0", "javascript_log_in_with_replit:1.0.0", "javascript_sendgrid:1.0.0", "javascript_database:1.0.0", "javascript_websocket:1.0.0", "github:1.0.0", "javascript_openai_ai_integrations:2.0.0"]
