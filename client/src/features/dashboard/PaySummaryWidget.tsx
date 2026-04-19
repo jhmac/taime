@@ -3,6 +3,7 @@ import { DollarSign, TrendingUp, Minus, ChevronDown, ChevronUp } from 'lucide-re
 import { Skeleton } from '@/components/ui/skeleton';
 import { useState } from 'react';
 import ErrorWithRetry from '@/components/ErrorWithRetry';
+import { useOnlineRetry } from '@/hooks/useOnlineRetry';
 
 interface PaySummary {
   periodStart: string;
@@ -36,6 +37,8 @@ export default function PaySummaryWidget() {
   const { data, isLoading, isError, refetch } = useQuery<PaySummary>({
     queryKey: ['/api/users/me/pay-summary'],
   });
+
+  useOnlineRetry(refetch, isError);
 
   if (isLoading) {
     return <Skeleton className="h-24 w-full rounded-3xl" />;

@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AlertTriangle, CalendarDays, MapPinOff, X } from 'lucide-react';
 import ErrorWithRetry from '@/components/ErrorWithRetry';
+import { useOnlineRetry } from '@/hooks/useOnlineRetry';
 
 interface ClockedInMember {
   userId: string;
@@ -123,6 +124,12 @@ export default function TeamStatusWidget() {
 
   const isLoading = clockedInLoading || upcomingLoading;
   const hasError = clockedInError || upcomingError;
+
+  useOnlineRetry(() => {
+    refetchClockedIn();
+    refetchUpcoming();
+  }, hasError);
+
   const clockedIn = clockedInData?.clockedIn ?? [];
   const upcomingShifts = upcomingData?.upcomingShifts ?? [];
 

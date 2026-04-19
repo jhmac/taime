@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import ErrorWithRetry from "@/components/ErrorWithRetry";
+import { useOnlineRetry } from "@/hooks/useOnlineRetry";
 import {
   Lightbulb, AlertTriangle, Info, CheckCircle2, ChevronRight, Eye, ShieldCheck,
   Clock, DollarSign, Shield,
@@ -83,6 +84,8 @@ export default function BackgroundInsightsCard() {
       queryClient.invalidateQueries({ queryKey: ["/api/background-insights/summary"] });
     },
   });
+
+  useOnlineRetry(refetch, isError);
 
   const allInsights = data?.data || [];
   const anomalies = allInsights.filter(i => ANOMALY_TYPES.includes(i.insightType));

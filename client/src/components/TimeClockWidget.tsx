@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { useGeolocation } from '@/hooks/useGeolocation';
+import { useOnlineRetry } from '@/hooks/useOnlineRetry';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useOffsiteBreadcrumbReporter } from '@/hooks/useOffsiteBreadcrumbReporter';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -84,6 +85,8 @@ export default function TimeClockWidget({ greetingSlot, footerSlot }: TimeClockW
     queryKey: ['/api/time-entries/active'],
     refetchInterval: (query) => (query.state.data ? 10000 : 30000),
   });
+
+  useOnlineRetry(refetchActiveEntry, activeEntryError);
 
   const { data: todayEntries = [] } = useQuery<TimeEntry[]>({
     queryKey: ['/api/time-entries', 'today'],

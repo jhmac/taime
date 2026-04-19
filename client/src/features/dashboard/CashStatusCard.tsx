@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import ErrorWithRetry from "@/components/ErrorWithRetry";
+import { useOnlineRetry } from "@/hooks/useOnlineRetry";
 
 export default function CashStatusCard() {
   const [, navigate] = useLocation();
@@ -31,6 +32,8 @@ export default function CashStatusCard() {
   });
 
   const { data: settings } = useQuery<Record<string, any>>({ queryKey: ["/api/cash/settings"], retry: 1 });
+
+  useOnlineRetry(refetchSessions, sessionsError);
 
   if (sessionsLoading) return <Skeleton className="h-32" />;
   if (sessionsError) {

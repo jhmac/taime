@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
 import { Skeleton } from '@/components/ui/skeleton';
 import ErrorWithRetry from '@/components/ErrorWithRetry';
+import { useOnlineRetry } from '@/hooks/useOnlineRetry';
 import {
   BookOpen, ChevronRight, CheckCircle, XCircle, Trophy, Flame,
   Star, Zap, Crown, Users, Medal, X
@@ -521,6 +522,8 @@ export default function DailyQuestionnaireCard() {
   });
 
   const today = data?.data;
+
+  useOnlineRetry(refetch, isError);
 
   if (isLoading) return <Skeleton className="h-24 w-full rounded-3xl" />;
 

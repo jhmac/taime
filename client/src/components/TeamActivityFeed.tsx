@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { useWebSocket } from '@/hooks/useWebSocket';
+import { useOnlineRetry } from '@/hooks/useOnlineRetry';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -22,6 +23,8 @@ export default function TeamActivityFeed() {
   const isError = timeEntriesError || tasksError;
   const isFetching = timeEntriesFetching || tasksFetching;
   const refetch = () => { refetchTimeEntries(); refetchTasks(); };
+
+  useOnlineRetry(refetch, isError);
 
   // Refetch data when receiving WebSocket updates
   useEffect(() => {

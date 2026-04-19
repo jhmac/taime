@@ -7,6 +7,7 @@ import {
   Heart, ShieldCheck, ArrowRight,
 } from "lucide-react";
 import ErrorWithRetry from "@/components/ErrorWithRetry";
+import { useOnlineRetry } from "@/hooks/useOnlineRetry";
 
 interface LeanMetrics {
   improvements_submitted: number;
@@ -46,6 +47,8 @@ export default function LeanBoardCard() {
     },
     staleTime: 5 * 60 * 1000,
   });
+
+  useOnlineRetry(refetch, isError);
 
   if (isLoading) return null;
 

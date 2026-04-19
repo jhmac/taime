@@ -7,6 +7,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { BookOpen, RefreshCw, CheckCircle, Clock, AlertTriangle } from 'lucide-react';
 import ErrorWithRetry from '@/components/ErrorWithRetry';
+import { useOnlineRetry } from '@/hooks/useOnlineRetry';
 
 interface SummaryData {
   questionnaire: {
@@ -51,6 +52,8 @@ export default function DailyTrainingManagerWidget() {
       setGenerateError(err.message);
     },
   });
+
+  useOnlineRetry(refetch, isError);
 
   if (isLoading) return <Skeleton className="h-36 w-full rounded-2xl" />;
 

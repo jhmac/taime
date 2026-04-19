@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useOnlineRetry } from "@/hooks/useOnlineRetry";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useLocation } from "wouter";
@@ -57,6 +58,8 @@ export default function SurfacedSOPBanner() {
       queryClient.invalidateQueries({ queryKey: ["/api/sops/surfaced"] });
     }
   }, [lastMessage, queryClient]);
+
+  useOnlineRetry(refetch, isError);
 
   if (isError) {
     return <ErrorWithRetry onRetry={() => refetch()} message="Failed to load SOP suggestions" isRetrying={isFetching} />;

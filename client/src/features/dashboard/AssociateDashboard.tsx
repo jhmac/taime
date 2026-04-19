@@ -6,6 +6,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { apiRequest } from '@/lib/queryClient';
 import { Skeleton } from '@/components/ui/skeleton';
 import ErrorWithRetry from '@/components/ErrorWithRetry';
+import { useOnlineRetry } from '@/hooks/useOnlineRetry';
 import SurfacedSOPBanner from '@/components/SurfacedSOPBanner';
 import ImprovementFeedWidget from '@/components/ImprovementFeedWidget';
 import LeanBoardCard from '@/features/dashboard/LeanBoardCard';
@@ -121,6 +122,8 @@ function BrainBoostCard() {
       }
     },
   });
+
+  useOnlineRetry(refetchQuiz, quizError);
 
   const quiz = quizData?.data;
   const streak = statsData?.data?.currentStreak ?? 0;
@@ -393,6 +396,8 @@ function ScenarioCard() {
       answerScenarioMutation.mutate({ questionId: scenario.id, selectedIndex: i });
     }
   };
+
+  useOnlineRetry(refetchScenario, scenarioError);
 
   if (isLoading) return null;
   if (scenarioError) return <ErrorWithRetry onRetry={() => refetchScenario()} message="Could not load scenario" className="rounded-3xl" />;

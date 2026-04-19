@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { useOnlineRetry } from '@/hooks/useOnlineRetry';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
@@ -62,6 +63,8 @@ export default function MiddayPulseCard() {
     staleTime: 5 * 60 * 1000,
     enabled: isAfterNoon,
   });
+
+  useOnlineRetry(refetch, isError);
 
   if (!isAfterNoon || !hasSalesView) return null;
 

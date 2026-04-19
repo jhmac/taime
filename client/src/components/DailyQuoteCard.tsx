@@ -3,6 +3,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Quote } from 'lucide-react';
 import ErrorWithRetry from '@/components/ErrorWithRetry';
+import { useOnlineRetry } from '@/hooks/useOnlineRetry';
 
 interface QuoteData {
   quoteText: string;
@@ -16,6 +17,8 @@ export default function DailyQuoteCard() {
   });
 
   const quote = data?.data;
+
+  useOnlineRetry(refetch, isError);
 
   if (isLoading) {
     return (

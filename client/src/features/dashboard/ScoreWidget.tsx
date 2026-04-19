@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ShieldCheck, CheckCircle2, Inbox, CalendarCheck, AlertTriangle, Zap, ArrowRight, Timer, Video } from 'lucide-react';
 import ErrorWithRetry from '@/components/ErrorWithRetry';
+import { useOnlineRetry } from '@/hooks/useOnlineRetry';
 
 export default function ScoreWidget() {
   const { user } = useAuth();
@@ -91,6 +92,13 @@ export default function ScoreWidget() {
   const quickWins = gtdData?.data?.two_minute_actions_count || 0;
 
   const hasError = gtdError || tasksError || sopsError;
+
+  useOnlineRetry(() => {
+    queryClient.invalidateQueries({ queryKey: ['/api/gtd/dashboard'] });
+    queryClient.invalidateQueries({ queryKey: ['/api/tasks'] });
+    queryClient.invalidateQueries({ queryKey: ['/api/sops/executions'] });
+  }, hasError);
+
   if (hasError) {
     return (
       <div className="rounded-2xl border border-border bg-card p-4">

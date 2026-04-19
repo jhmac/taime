@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import ErrorWithRetry from "@/components/ErrorWithRetry";
+import { useOnlineRetry } from "@/hooks/useOnlineRetry";
 import {
   Sparkles,
   RefreshCw,
@@ -102,6 +103,8 @@ export default function SmartSuggestionsCard() {
       if (refreshTimerRef.current) clearInterval(refreshTimerRef.current);
     };
   }, [queryClient]);
+
+  useOnlineRetry(refetch, isError);
 
   function handleTap(suggestion: TaskSuggestion) {
     switch (suggestion.type) {

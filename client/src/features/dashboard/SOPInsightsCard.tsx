@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import ErrorWithRetry from "@/components/ErrorWithRetry";
+import { useOnlineRetry } from "@/hooks/useOnlineRetry";
 import {
   ShieldCheck, AlertTriangle, Info, CheckCircle2, ChevronRight, Eye,
 } from "lucide-react";
@@ -60,6 +61,8 @@ export default function SOPInsightsCard() {
       queryClient.invalidateQueries({ queryKey: ["/api/sops/insights"] });
     },
   });
+
+  useOnlineRetry(refetch, isError);
 
   if (isLoading) {
     return (

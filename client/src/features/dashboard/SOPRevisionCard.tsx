@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Lightbulb, ChevronRight, CheckCircle2 } from "lucide-react";
 import ErrorWithRetry from "@/components/ErrorWithRetry";
+import { useOnlineRetry } from "@/hooks/useOnlineRetry";
 
 interface RevisionStats {
   pendingCount: number;
@@ -19,6 +20,8 @@ export default function SOPRevisionCard() {
     queryKey: ["/api/sops/revisions/stats"],
     staleTime: 5 * 60 * 1000,
   });
+
+  useOnlineRetry(refetch, isError);
 
   if (isLoading) {
     return (

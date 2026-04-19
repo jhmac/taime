@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { useOnlineRetry } from '@/hooks/useOnlineRetry';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { apiRequest } from '@/lib/queryClient';
@@ -66,6 +67,8 @@ export default function KudosWidget() {
   });
 
   const charsLeft = 280 - message.length;
+
+  useOnlineRetry(refetch, isError);
 
   if (isLoading) {
     return (
