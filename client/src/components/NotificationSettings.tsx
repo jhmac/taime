@@ -167,7 +167,46 @@ export default function NotificationSettings() {
   const [logTypeFilter, setLogTypeFilter] = useState<string>('all');
   const [showSummary, setShowSummary] = useState<boolean>(true);
   const [rateSortDir, setRateSortDir] = useState<'asc' | 'desc'>('desc');
-  const [highRiskBannerDismissed, setHighRiskBannerDismissed] = useState(false);
+  const [bannerSuppressed, setBannerSuppressed] = useState(false);
+
+  const HIGH_RISK_BANNER_KEY = 'highRiskBannerDismissed';
+  const HIGH_RISK_BANNER_TTL_MS = 24 * 60 * 60 * 1000;
+
+  function readBannerDismissal(): { dismissedAt: number; userIds: string[] } | null {
+    try {
+      const raw = localStorage.getItem(HIGH_RISK_BANNER_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (
+        typeof parsed !== 'object' ||
+        parsed === null ||
+        typeof parsed.dismissedAt !== 'number' ||
+        !Array.isArray(parsed.userIds) ||
+        parsed.userIds.some((id: unknown) => typeof id !== 'string')
+      ) {
+        return null;
+      }
+      return parsed as { dismissedAt: number; userIds: string[] };
+    } catch {
+      return null;
+    }
+  }
+
+  function computeBannerSuppressed(currentHighRiskIds: string[]): boolean {
+    const stored = readBannerDismissal();
+    if (!stored) return false;
+    if (Date.now() - stored.dismissedAt > HIGH_RISK_BANNER_TTL_MS) return false;
+    return !currentHighRiskIds.some((id) => !stored.userIds.includes(id));
+  }
+
+  function dismissBanner(currentHighRiskIds: string[]): void {
+    localStorage.setItem(
+      HIGH_RISK_BANNER_KEY,
+      JSON.stringify({ dismissedAt: Date.now(), userIds: currentHighRiskIds })
+    );
+    setBannerSuppressed(true);
+  }
+
   const deliverySummaryRef = useRef<HTMLDivElement>(null);
   const searchString = useSearch();
   const focusParam = new URLSearchParams(searchString).get('focus');
@@ -196,6 +235,15 @@ export default function NotificationSettings() {
     },
     enabled: isAdmin,
   });
+
+  useEffect(() => {
+    const stats = deliveryStatsQuery.data;
+    if (!stats) return;
+    const highRiskIds = stats
+      .filter((row) => row.total > 0 && row.failures > 0 && row.failures / row.total >= DELIVERY_FAILURE_HIGH_THRESHOLD)
+      .map((row) => row.userId);
+    setBannerSuppressed(computeBannerSuppressed(highRiskIds));
+  }, [deliveryStatsQuery.data]);
 
   const deliveryLogTypesQuery = useQuery<string[]>({
     queryKey: ['/api/push/delivery-log-types'],
@@ -859,7 +907,8 @@ export default function NotificationSettings() {
         const highRiskEmployees = (deliveryStatsQuery.data ?? []).filter(
           (row) => row.total > 0 && row.failures > 0 && row.failures / row.total >= DELIVERY_FAILURE_HIGH_THRESHOLD
         );
-        const showHighRiskBanner = highRiskEmployees.length > 0 && !highRiskBannerDismissed;
+        const highRiskIds = highRiskEmployees.map((r) => r.userId);
+        const showHighRiskBanner = highRiskEmployees.length > 0 && !bannerSuppressed;
         return (
           <>
             {showHighRiskBanner && (
@@ -883,7 +932,7 @@ export default function NotificationSettings() {
                 <button
                   aria-label="Dismiss"
                   className="shrink-0 text-amber-600 dark:text-amber-400 hover:text-amber-900 dark:hover:text-amber-200 transition-colors"
-                  onClick={() => setHighRiskBannerDismissed(true)}
+                  onClick={() => dismissBanner(highRiskIds)}
                 >
                   <X className="h-4 w-4" />
                 </button>
