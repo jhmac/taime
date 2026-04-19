@@ -9,7 +9,8 @@
     "start": "NODE_ENV=production node dist/index.js",
     "check": "tsc",
     "db:push": "drizzle-kit push",
-    "generate:icons": "npx @capacitor/assets generate"
+    "generate:icons": "npx @capacitor/assets generate",
+    "prepare": "husky install"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.37.0",
@@ -137,6 +138,7 @@
     "autoprefixer": "^10.4.20",
     "drizzle-kit": "^0.30.4",
     "esbuild": "^0.25.0",
+    "husky": "^9.1.7",
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.17",
     "tsx": "^4.19.1",
