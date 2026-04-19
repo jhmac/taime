@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/hooks/useAuth';
-import { ChevronDown, ChevronUp, Download, ArrowDown, ArrowUp } from 'lucide-react';
+import { ChevronDown, ChevronUp, Download, ArrowDown, ArrowUp, AlertTriangle, X } from 'lucide-react';
 import type { NotificationDeliveryLogWithUser, User } from '@shared/schema';
 
 type EmployeeDeliveryStats = {
@@ -166,6 +166,8 @@ export default function NotificationSettings() {
   const [logTypeFilter, setLogTypeFilter] = useState<string>('all');
   const [showSummary, setShowSummary] = useState<boolean>(true);
   const [rateSortDir, setRateSortDir] = useState<'asc' | 'desc'>('desc');
+  const [highRiskBannerDismissed, setHighRiskBannerDismissed] = useState(false);
+  const deliverySummaryRef = useRef<HTMLDivElement>(null);
 
   const usersQuery = useQuery<User[]>({
     queryKey: ['/api/users'],
@@ -841,7 +843,41 @@ export default function NotificationSettings() {
         </CardContent>
       </Card>
 
-      {isAdmin && (
+      {isAdmin && (() => {
+        const highRiskEmployees = (deliveryStatsQuery.data ?? []).filter(
+          (row) => row.total > 0 && row.failures > 0 && row.failures / row.total >= DELIVERY_FAILURE_HIGH_THRESHOLD
+        );
+        const showHighRiskBanner = highRiskEmployees.length > 0 && !highRiskBannerDismissed;
+        return (
+          <>
+            {showHighRiskBanner && (
+              <div className="flex items-start gap-3 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 px-4 py-3">
+                <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+                <p className="text-sm text-amber-800 dark:text-amber-300 flex-1">
+                  <span className="font-semibold">{highRiskEmployees.length} employee{highRiskEmployees.length !== 1 ? 's' : ''} {highRiskEmployees.length !== 1 ? 'have' : 'has'} high notification failure rates</span>
+                  {' — '}
+                  <button
+                    className="underline underline-offset-2 hover:text-amber-900 dark:hover:text-amber-200 transition-colors"
+                    onClick={() => {
+                      setShowSummary(true);
+                      setTimeout(() => {
+                        deliverySummaryRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      }, 50);
+                    }}
+                  >
+                    review the delivery summary
+                  </button>
+                </p>
+                <button
+                  aria-label="Dismiss"
+                  className="shrink-0 text-amber-600 dark:text-amber-400 hover:text-amber-900 dark:hover:text-amber-200 transition-colors"
+                  onClick={() => setHighRiskBannerDismissed(true)}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            )}
+            <div ref={deliverySummaryRef}>
         <Card>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
@@ -983,7 +1019,10 @@ export default function NotificationSettings() {
             </CardContent>
           )}
         </Card>
-      )}
+            </div>
+          </>
+        );
+      })()}
 
       <Card>
         <CardHeader className="pb-3">
