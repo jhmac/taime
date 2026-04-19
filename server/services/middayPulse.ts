@@ -211,7 +211,7 @@ ${staleData ? '- Note: sales data may be delayed' : ''}`,
 let pulseTimer: ReturnType<typeof setInterval> | null = null;
 let lastPulseDate = '';
 
-export function startMiddayPulseCron(broadcastToAll: (data: any) => void) {
+export function startMiddayPulseCron(broadcastToAll: (data: any) => void | Promise<void>) {
   if (pulseTimer) return;
 
   async function checkAndGenerate() {
@@ -230,7 +230,7 @@ export function startMiddayPulseCron(broadcastToAll: (data: any) => void) {
       for (const store of stores) {
         try {
           const pulse = await generateMiddayPulse(store.id);
-          broadcastToAll({ type: 'midday_pulse', data: pulse });
+          await broadcastToAll({ type: 'midday_pulse', data: pulse });
           logger.info({ storeId: store.id }, 'Midday pulse generated and broadcast');
         } catch (err: any) {
           logger.error({ storeId: store.id, error: err.message }, 'Midday pulse generation failed');

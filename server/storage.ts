@@ -309,6 +309,7 @@ export interface IStorage {
   getRolePermissions(roleId: string): Promise<Permission[]>;
   updateRolePermissions(roleId: string, permissionIds: string[]): Promise<void>;
   getUserPermissions(userId: string): Promise<Permission[]>;
+  getUserRoleName(userId: string): Promise<string | null>;
   getUserSalesAccessOverride(userId: string): Promise<UserPermissionOverride | null>;
   setUserSalesAccessOverride(userId: string, grant: boolean | null): Promise<void>;
   
@@ -1509,6 +1510,16 @@ export class DatabaseStorage implements IStorage {
 
     cache.set(cacheKey, perms, 2 * 60 * 1000);
     return perms;
+  }
+
+  async getUserRoleName(userId: string): Promise<string | null> {
+    const [row] = await db
+      .select({ roleName: roles.name })
+      .from(users)
+      .innerJoin(roles, eq(users.roleId, roles.id))
+      .where(eq(users.id, userId))
+      .limit(1);
+    return row?.roleName ?? null;
   }
 
   async getUserSalesAccessOverride(userId: string): Promise<UserPermissionOverride | null> {

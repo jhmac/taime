@@ -139,6 +139,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   }
 
+  async function broadcastMiddayPulse(data: Record<string, unknown>) {
+    const payload = JSON.stringify(data);
+    for (const [userId, conns] of Array.from(wsConnections.entries())) {
+      try {
+        const roleName = await storage.getUserRoleName(userId);
+        const isAdminOrOwner = roleName === 'admin' || roleName === 'owner';
+        if (!isAdminOrOwner) {
+          const perms = await storage.getUserPermissions(userId);
+          const hasSalesAccess = perms.some(p => p.name === 'sales.view' || p.name === 'admin.manage_all');
+          if (!hasSalesAccess) continue;
+        }
+      } catch (err: any) {
+        logger.warn({ userId, error: err.message }, 'ws: could not check permissions for midday_pulse broadcast, skipping');
+        continue;
+      }
+      for (const conn of Array.from(conns)) {
+        if (conn.ws.readyState === WebSocket.OPEN) {
+          conn.ws.send(payload);
+        }
+      }
+    }
+  }
+
   function sendToUsers(userIds: string[], data: Record<string, unknown>) {
     const payload = JSON.stringify(data);
     for (const uid of userIds) {
@@ -262,7 +285,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Stagger cron job startup to avoid DB and AI API spikes during initial user requests.
   const staggered = [
     { fn: () => startSurfacingCron(broadcastToAll), label: 'SOP Surfacing', delay: 5_000 },
-    { fn: () => startMiddayPulseCron(broadcastToAll), label: 'Midday Pulse', delay: 15_000 },
+    { fn: () => startMiddayPulseCron(broadcastMiddayPulse), label: 'Midday Pulse', delay: 15_000 },
     { fn: () => startWeeklyReviewCron(), label: 'Weekly Review', delay: 25_000 },
     { fn: () => startLeanBoardCron(), label: 'Lean Board', delay: 35_000 },
     { fn: () => startSOPInsightsCron(), label: 'SOP Insights', delay: 45_000 },
