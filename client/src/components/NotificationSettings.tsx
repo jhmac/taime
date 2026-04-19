@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/hooks/useAuth';
-import { ChevronDown, ChevronUp } from 'lucide-react';
+import { ChevronDown, ChevronUp, Download } from 'lucide-react';
 import type { NotificationDeliveryLogWithUser, User } from '@shared/schema';
 
 type EmployeeDeliveryStats = {
@@ -25,6 +25,28 @@ type EmployeeDeliveryStats = {
 
 /** Rows at or above this ratio are highlighted red as high-risk (≥25% failure rate). */
 const DELIVERY_FAILURE_HIGH_THRESHOLD = 0.25;
+
+function escapeCsvField(value: string | number | null | undefined): string {
+  let str = value == null ? '' : String(value);
+  if (/^[=+\-@\t\r]/.test(str)) {
+    str = `'${str}`;
+  }
+  if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
+function downloadCsv(filename: string, rows: string[][]): void {
+  const csv = rows.map((row) => row.map(escapeCsvField).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -826,15 +848,40 @@ export default function NotificationSettings() {
                 <i className="fas fa-chart-bar text-primary"></i>
                 Delivery Summary
               </CardTitle>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 px-2 text-xs"
-                onClick={() => setShowSummary(v => !v)}
-              >
-                {showSummary ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                {showSummary ? 'Hide' : 'Show'}
-              </Button>
+              <div className="flex items-center gap-1">
+                {deliveryStatsQuery.data && deliveryStatsQuery.data.length > 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2 text-xs gap-1"
+                    onClick={() => {
+                      const header = ['Employee', 'Total', 'Failures', 'Failure Rate'];
+                      const rows = deliveryStatsQuery.data!.map((row) => {
+                        const rate = row.total > 0 ? Math.round((row.failures / row.total) * 100) : 0;
+                        return [
+                          row.recipientName ?? 'Unknown',
+                          String(row.total),
+                          String(row.failures),
+                          `${rate}%`,
+                        ];
+                      });
+                      downloadCsv('delivery-summary.csv', [header, ...rows]);
+                    }}
+                  >
+                    <Download className="h-3 w-3" />
+                    Export CSV
+                  </Button>
+                )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  onClick={() => setShowSummary(v => !v)}
+                >
+                  {showSummary ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                  {showSummary ? 'Hide' : 'Show'}
+                </Button>
+              </div>
             </div>
           </CardHeader>
           {showSummary && (
@@ -925,10 +972,34 @@ export default function NotificationSettings() {
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between flex-wrap gap-2">
-            <CardTitle className="text-base flex items-center gap-2">
-              <i className="fas fa-list-check text-primary"></i>
-              Delivery Log
-            </CardTitle>
+            <div className="flex items-center gap-2">
+              <CardTitle className="text-base flex items-center gap-2">
+                <i className="fas fa-list-check text-primary"></i>
+                Delivery Log
+              </CardTitle>
+              {deliveryLogsQuery.data && deliveryLogsQuery.data.length > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2 text-xs gap-1"
+                  onClick={() => {
+                    const header = ['Employee', 'Type', 'Channel', 'Status', 'Error', 'Sent At'];
+                    const rows = deliveryLogsQuery.data!.map((entry) => [
+                      entry.recipientName ?? 'Unknown',
+                      entry.notificationType,
+                      entry.channel,
+                      entry.status,
+                      entry.errorMessage ?? '',
+                      entry.sentAt ? new Date(entry.sentAt).toISOString() : '',
+                    ]);
+                    downloadCsv('delivery-log.csv', [header, ...rows]);
+                  }}
+                >
+                  <Download className="h-3 w-3" />
+                  Export CSV
+                </Button>
+              )}
+            </div>
             <div className="flex items-center gap-2 flex-wrap">
               <Select value={logUserFilter} onValueChange={setLogUserFilter}>
                 <SelectTrigger className="h-7 text-xs w-36">
