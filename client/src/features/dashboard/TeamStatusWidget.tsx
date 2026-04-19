@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Skeleton } from '@/components/ui/skeleton';
-import { CalendarDays, MapPinOff, X } from 'lucide-react';
+import { AlertTriangle, CalendarDays, MapPinOff, X } from 'lucide-react';
 import ErrorWithRetry from '@/components/ErrorWithRetry';
 
 interface ClockedInMember {
@@ -75,6 +75,7 @@ interface ScheduleEntry {
 
 export default function TeamStatusWidget() {
   const [filterLocationBlocked, setFilterLocationBlocked] = useState(false);
+  const [filterLate, setFilterLate] = useState(false);
 
   const {
     data: clockedInData,
@@ -283,6 +284,8 @@ export default function TeamStatusWidget() {
 
   combined.sort((a, b) => a.sortTime - b.sortTime);
 
+  const totalLate = combined.filter(e => e.kind === 'on-shift' && e.lateMins > 0).length;
+
   const displayEntries = filterLocationBlocked
     ? combined.filter(entry => {
         const uid = entry.kind === 'on-shift' ? entry.member.userId
@@ -290,7 +293,9 @@ export default function TeamStatusWidget() {
           : entry.userId;
         return blockedUserIds.has(uid);
       })
-    : combined;
+    : filterLate
+      ? combined.filter((e): e is OnShiftEntry => e.kind === 'on-shift' && e.lateMins > 0)
+      : combined;
 
   return (
     <div className="rounded-3xl bg-card border border-border overflow-hidden">
@@ -302,26 +307,60 @@ export default function TeamStatusWidget() {
           </div>
           <h3 className="text-base font-extrabold text-foreground">Today</h3>
         </div>
-        {totalLocationBlocked > 0 && (
-          <button
-            onClick={() => setFilterLocationBlocked(f => !f)}
-            className={`flex items-center gap-1.5 mt-2 ml-0.5 text-xs rounded-md px-1.5 py-0.5 transition-colors ${
-              filterLocationBlocked
-                ? 'bg-orange-100 dark:bg-orange-950/40 text-orange-700 dark:text-orange-300 ring-1 ring-orange-300 dark:ring-orange-700'
-                : 'text-orange-500 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-950/20'
-            }`}
-            title={filterLocationBlocked ? 'Clear filter' : 'Filter to location-blocked employees'}
-          >
-            <MapPinOff className="h-3.5 w-3.5" />
-            <span>{totalLocationBlocked} location blocked</span>
-            {filterLocationBlocked && <X className="h-3 w-3 ml-0.5" />}
-          </button>
+        {(totalLate > 0 || totalLocationBlocked > 0) && (
+          <div className="flex items-center gap-2 mt-2 ml-0.5 flex-wrap">
+            {totalLate > 0 && (
+              <button
+                onClick={() => { setFilterLate(f => !f); setFilterLocationBlocked(false); }}
+                className={`flex items-center gap-1.5 text-xs rounded-md px-1.5 py-0.5 transition-colors ${
+                  filterLate
+                    ? 'bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 ring-1 ring-amber-300 dark:ring-amber-700'
+                    : 'text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/20'
+                }`}
+                title={filterLate ? 'Clear filter' : 'Filter to late employees'}
+              >
+                <AlertTriangle className="h-3.5 w-3.5" />
+                <span>{totalLate} late</span>
+                {filterLate && <X className="h-3 w-3 ml-0.5" />}
+              </button>
+            )}
+            {totalLocationBlocked > 0 && (
+              <button
+                onClick={() => { setFilterLocationBlocked(f => !f); setFilterLate(false); }}
+                className={`flex items-center gap-1.5 text-xs rounded-md px-1.5 py-0.5 transition-colors ${
+                  filterLocationBlocked
+                    ? 'bg-orange-100 dark:bg-orange-950/40 text-orange-700 dark:text-orange-300 ring-1 ring-orange-300 dark:ring-orange-700'
+                    : 'text-orange-500 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-950/20'
+                }`}
+                title={filterLocationBlocked ? 'Clear filter' : 'Filter to location-blocked employees'}
+              >
+                <MapPinOff className="h-3.5 w-3.5" />
+                <span>{totalLocationBlocked} location blocked</span>
+                {filterLocationBlocked && <X className="h-3 w-3 ml-0.5" />}
+              </button>
+            )}
+          </div>
         )}
       </div>
 
       <div className="border-t border-border" />
 
       <div className="px-4 py-3">
+        {filterLate && (
+          <div className="flex items-center justify-between mb-3 px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/40 text-xs text-amber-700 dark:text-amber-300">
+            <div className="flex items-center gap-1.5">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              <span>Showing late employees only</span>
+            </div>
+            <button
+              onClick={() => setFilterLate(false)}
+              className="flex items-center gap-1 hover:text-amber-900 dark:hover:text-amber-100 transition-colors"
+            >
+              <X className="h-3.5 w-3.5" />
+              Clear
+            </button>
+          </div>
+        )}
         {filterLocationBlocked && (
           <div className="flex items-center justify-between mb-3 px-3 py-2 rounded-lg bg-orange-50 dark:bg-orange-950/20 border border-orange-200 dark:border-orange-800/40 text-xs text-orange-700 dark:text-orange-300">
             <div className="flex items-center gap-1.5">
@@ -339,7 +378,9 @@ export default function TeamStatusWidget() {
         )}
         {displayEntries.length === 0 ? (
           <div className="py-4 text-center">
-            {filterLocationBlocked ? (
+            {filterLate ? (
+              <p className="text-sm text-muted-foreground font-medium">No late employees</p>
+            ) : filterLocationBlocked ? (
               <>
                 <p className="text-sm text-muted-foreground font-medium">No location-blocked employees</p>
                 <p className="text-xs text-muted-foreground mt-1">All employees have location access enabled</p>
