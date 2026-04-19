@@ -23,6 +23,9 @@ type EmployeeDeliveryStats = {
   failures: number;
 };
 
+/** Rows at or above this ratio are highlighted red as high-risk (≥25% failure rate). */
+const DELIVERY_FAILURE_HIGH_THRESHOLD = 0.25;
+
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
@@ -850,9 +853,10 @@ export default function NotificationSettings() {
                     </thead>
                     <tbody>
                       {deliveryStatsQuery.data.map((row) => {
-                        const rate = row.total > 0 ? Math.round((row.failures / row.total) * 100) : 0;
-                        const isHighRisk = rate >= 25 && row.failures > 0;
-                        const isMedRisk = rate > 0 && rate < 25;
+                        const rawRatio = row.total > 0 ? row.failures / row.total : 0;
+                        const rate = Math.round(rawRatio * 100); // display only — classification uses rawRatio
+                        const isHighRisk = rawRatio >= DELIVERY_FAILURE_HIGH_THRESHOLD && row.failures > 0;
+                        const isMedRisk = rawRatio > 0 && rawRatio < DELIVERY_FAILURE_HIGH_THRESHOLD;
                         return (
                           <tr
                             key={row.userId}
@@ -899,8 +903,8 @@ export default function NotificationSettings() {
                   <div className="flex items-center justify-between mt-2">
                     <p className="text-xs text-muted-foreground">Click a row to filter the log below to that employee.</p>
                     <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
-                      <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-green-200 dark:bg-green-900/60" /> &lt;1%</span>
-                      <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-amber-200 dark:bg-amber-900/60" /> 1–24%</span>
+                      <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-green-200 dark:bg-green-900/60" /> 0%</span>
+                      <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-amber-200 dark:bg-amber-900/60" /> &lt;25%</span>
                       <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-red-200 dark:bg-red-900/60" /> ≥25%</span>
                     </div>
                   </div>
