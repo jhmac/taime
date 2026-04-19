@@ -12,7 +12,7 @@ export default function CashStatusCard() {
   const [, navigate] = useLocation();
   const today = new Date().toISOString().split("T")[0];
 
-  const { data: sessions = [], isLoading: sessionsLoading, isError: sessionsError, refetch: refetchSessions } = useQuery({
+  const { data: sessions = [], isLoading: sessionsLoading, isError: sessionsError, refetch: refetchSessions, failureCount: sessionsFailureCount } = useQuery({
     queryKey: ["/api/cash/sessions", today],
     queryFn: async () => {
       const res = await apiRequest("GET", `/api/cash/sessions?date=${today}`);
@@ -37,7 +37,12 @@ export default function CashStatusCard() {
     return (
       <Card>
         <CardContent className="p-4">
-          <ErrorWithRetry onRetry={() => refetchSessions()} message="Could not load cash status" />
+          <ErrorWithRetry
+            key={sessionsFailureCount}
+            onRetry={() => refetchSessions()}
+            message="Could not load cash status"
+            retryIn={30}
+          />
         </CardContent>
       </Card>
     );
