@@ -5,6 +5,11 @@ import { AlertTriangle, CalendarDays, MapPinOff, X } from 'lucide-react';
 import ErrorWithRetry from '@/components/ErrorWithRetry';
 import { useOnlineRetry } from '@/hooks/useOnlineRetry';
 
+interface ShopifyData {
+  todayRevenue?: number;
+  orderCount?: number;
+}
+
 interface ClockedInMember {
   userId: string;
   firstName: string | null;
@@ -114,6 +119,11 @@ export default function TeamStatusWidget() {
     staleTime: 30_000,
   });
 
+  const { data: shopifyData, isLoading: shopifyLoading } = useQuery<ShopifyData>({
+    queryKey: ['/api/shopify/sales-data'],
+    staleTime: 60_000,
+  });
+
   const totalLocationBlocked = todayData?.summary?.totalLocationBlocked ?? 0;
 
   const blockedUserIds = new Set(
@@ -142,7 +152,6 @@ export default function TeamStatusWidget() {
 
   const clockedInByUserId = new Map(clockedIn.map(m => [m.userId, m]));
   const upcomingByUserId = new Map(upcomingShifts.map(s => [s.userId, s]));
-  const scheduledUserIds = new Set(todaySchedules.map((s: any) => s.userId));
 
   const getLateMins = (clockInTime: string, scheduledStart: string): number => {
     const diffMs = new Date(clockInTime).getTime() - new Date(scheduledStart).getTime();
@@ -304,8 +313,12 @@ export default function TeamStatusWidget() {
       ? combined.filter((e): e is OnShiftEntry => e.kind === 'on-shift' && e.lateMins > 0)
       : combined;
 
+  const hasShopify = shopifyData?.todayRevenue !== undefined;
+  const showRevenueColumn = shopifyLoading || hasShopify;
+
   return (
     <div className="rounded-3xl bg-card border border-border overflow-hidden">
+      {/* Header */}
       <div className="px-4 pt-4 pb-3">
         <div className="flex items-center gap-2.5">
           <div className="w-9 h-9 rounded-2xl flex items-center justify-center flex-shrink-0"
@@ -352,124 +365,157 @@ export default function TeamStatusWidget() {
 
       <div className="border-t border-border" />
 
+      {/* Body: 1/6 revenue + divider + 5/6 shifts when Shopify access exists; full-width shifts otherwise */}
       <div className="px-4 py-3">
-        {filterLate && (
-          <div className="flex items-center justify-between mb-3 px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/40 text-xs text-amber-700 dark:text-amber-300">
-            <div className="flex items-center gap-1.5">
-              <AlertTriangle className="h-3.5 w-3.5" />
-              <span>Showing late employees only</span>
-            </div>
-            <button
-              onClick={() => setFilterLate(false)}
-              className="flex items-center gap-1 hover:text-amber-900 dark:hover:text-amber-100 transition-colors"
-            >
-              <X className="h-3.5 w-3.5" />
-              Clear
-            </button>
-          </div>
-        )}
-        {filterLocationBlocked && (
-          <div className="flex items-center justify-between mb-3 px-3 py-2 rounded-lg bg-orange-50 dark:bg-orange-950/20 border border-orange-200 dark:border-orange-800/40 text-xs text-orange-700 dark:text-orange-300">
-            <div className="flex items-center gap-1.5">
-              <MapPinOff className="h-3.5 w-3.5" />
-              <span>Showing location-blocked employees only</span>
-            </div>
-            <button
-              onClick={() => setFilterLocationBlocked(false)}
-              className="flex items-center gap-1 hover:text-orange-900 dark:hover:text-orange-100 transition-colors"
-            >
-              <X className="h-3.5 w-3.5" />
-              Clear
-            </button>
-          </div>
-        )}
-        {displayEntries.length === 0 ? (
-          <div className="py-4 text-center">
-            {filterLate ? (
-              <p className="text-sm text-muted-foreground font-medium">No late employees</p>
-            ) : filterLocationBlocked ? (
-              <>
-                <p className="text-sm text-muted-foreground font-medium">No location-blocked employees</p>
-                <p className="text-xs text-muted-foreground mt-1">All employees have location access enabled</p>
-              </>
+        <div className="flex gap-3 items-start">
+          {/* Revenue column — only rendered when Shopify is loading or connected */}
+          {showRevenueColumn && (
+            <>
+              <div className="w-1/6 shrink-0">
+                {shopifyLoading ? (
+                  <div className="space-y-1.5">
+                    <Skeleton className="h-6 w-full" />
+                    <Skeleton className="h-3 w-3/4" />
+                  </div>
+                ) : (
+                  <div>
+                    <p className="text-xl font-bold text-green-600 leading-tight break-words">
+                      ${Number(shopifyData!.todayRevenue || 0).toFixed(0)}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground leading-tight mt-0.5">Today's Revenue</p>
+                    {shopifyData!.orderCount !== undefined && (
+                      <p className="text-[10px] text-muted-foreground mt-1">{shopifyData!.orderCount} orders</p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Vertical divider */}
+              <div className="w-px self-stretch bg-border shrink-0" />
+            </>
+          )}
+
+          {/* Shifts column — full-width when no Shopify, 5/6 wide when Shopify exists */}
+          <div className="flex-1 min-w-0">
+            {filterLate && (
+              <div className="flex items-center justify-between mb-3 px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/40 text-xs text-amber-700 dark:text-amber-300">
+                <div className="flex items-center gap-1.5">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  <span>Showing late employees only</span>
+                </div>
+                <button
+                  onClick={() => setFilterLate(false)}
+                  className="flex items-center gap-1 hover:text-amber-900 dark:hover:text-amber-100 transition-colors"
+                >
+                  <X className="h-3.5 w-3.5" />
+                  Clear
+                </button>
+              </div>
+            )}
+            {filterLocationBlocked && (
+              <div className="flex items-center justify-between mb-3 px-3 py-2 rounded-lg bg-orange-50 dark:bg-orange-950/20 border border-orange-200 dark:border-orange-800/40 text-xs text-orange-700 dark:text-orange-300">
+                <div className="flex items-center gap-1.5">
+                  <MapPinOff className="h-3.5 w-3.5" />
+                  <span>Showing location-blocked employees only</span>
+                </div>
+                <button
+                  onClick={() => setFilterLocationBlocked(false)}
+                  className="flex items-center gap-1 hover:text-orange-900 dark:hover:text-orange-100 transition-colors"
+                >
+                  <X className="h-3.5 w-3.5" />
+                  Clear
+                </button>
+              </div>
+            )}
+            {displayEntries.length === 0 ? (
+              <div className="py-4 text-center">
+                {filterLate ? (
+                  <p className="text-sm text-muted-foreground font-medium">No late employees</p>
+                ) : filterLocationBlocked ? (
+                  <>
+                    <p className="text-sm text-muted-foreground font-medium">No location-blocked employees</p>
+                    <p className="text-xs text-muted-foreground mt-1">All employees have location access enabled</p>
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No shifts scheduled today</p>
+                )}
+              </div>
             ) : (
-              <p className="text-sm text-muted-foreground">No shifts scheduled today</p>
+              <div className="space-y-2.5">
+                {displayEntries.map((entry, i) => {
+                  if (entry.kind === 'on-shift') {
+                    const m = entry.member;
+                    const fullName = [m.firstName, m.lastName].filter(Boolean).join(' ') || 'Team Member';
+                    return (
+                      <div key={`on-${m.userId}-${i}`} className="flex items-center gap-3">
+                        <div className="relative flex-shrink-0">
+                          <Avatar firstName={m.firstName} lastName={m.lastName} profileImageUrl={m.profileImageUrl} />
+                          <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-green-500 border-2 border-background" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold text-foreground truncate">{fullName}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {entry.scheduledStart ? (
+                              <>sched {formatTime(entry.scheduledStart)} &bull; in {formatTime(m.clockInTime)}</>
+                            ) : (
+                              <>Clocked in at {formatTime(m.clockInTime)}</>
+                            )}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          {entry.lateMins > 0 && (
+                            <span className="text-xs font-bold text-red-600 dark:text-red-400 bg-red-500/10 px-1.5 py-0.5 rounded-full">
+                              {entry.lateMins}m late
+                            </span>
+                          )}
+                          <span className="text-xs font-bold text-green-600 dark:text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full">
+                            On shift
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  } else if (entry.kind === 'upcoming') {
+                    const s = entry.shift;
+                    const fullName = [s.firstName, s.lastName].filter(Boolean).join(' ') || 'Team Member';
+                    return (
+                      <div key={`up-${s.scheduleId}-${i}`} className="flex items-center gap-3">
+                        <Avatar firstName={s.firstName} lastName={s.lastName} profileImageUrl={s.profileImageUrl} size="sm" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold text-foreground truncate">{fullName}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {formatTime(s.startTime)} – {formatTime(s.endTime)}
+                          </p>
+                        </div>
+                        <span className="text-xs font-semibold text-muted-foreground flex-shrink-0 bg-muted px-2 py-0.5 rounded-full">
+                          Upcoming
+                        </span>
+                      </div>
+                    );
+                  } else {
+                    const fullName = [entry.firstName, entry.lastName].filter(Boolean).join(' ') || 'Team Member';
+                    return (
+                      <div key={`ab-${entry.userId}-${i}`} className="flex items-center gap-3">
+                        <div className="relative flex-shrink-0">
+                          <Avatar firstName={entry.firstName} lastName={entry.lastName} profileImageUrl={entry.profileImageUrl} size="sm" />
+                          <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-amber-400 border-2 border-background" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold text-foreground truncate">{fullName}</p>
+                          <p className="text-xs text-muted-foreground">
+                            sched {formatTime(entry.scheduledStart)}
+                          </p>
+                        </div>
+                        <span className="text-xs font-semibold text-amber-600 dark:text-amber-400 flex-shrink-0 bg-amber-400/10 px-2 py-0.5 rounded-full">
+                          Not In
+                        </span>
+                      </div>
+                    );
+                  }
+                })}
+              </div>
             )}
           </div>
-        ) : (
-          <div className="space-y-2.5">
-            {displayEntries.map((entry, i) => {
-              if (entry.kind === 'on-shift') {
-                const m = entry.member;
-                const fullName = [m.firstName, m.lastName].filter(Boolean).join(' ') || 'Team Member';
-                return (
-                  <div key={`on-${m.userId}-${i}`} className="flex items-center gap-3">
-                    <div className="relative flex-shrink-0">
-                      <Avatar firstName={m.firstName} lastName={m.lastName} profileImageUrl={m.profileImageUrl} />
-                      <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-green-500 border-2 border-background" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-bold text-foreground truncate">{fullName}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {entry.scheduledStart ? (
-                          <>sched {formatTime(entry.scheduledStart)} &bull; in {formatTime(m.clockInTime)}</>
-                        ) : (
-                          <>Clocked in at {formatTime(m.clockInTime)}</>
-                        )}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      {entry.lateMins > 0 && (
-                        <span className="text-xs font-bold text-red-600 dark:text-red-400 bg-red-500/10 px-1.5 py-0.5 rounded-full">
-                          {entry.lateMins}m late
-                        </span>
-                      )}
-                      <span className="text-xs font-bold text-green-600 dark:text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full">
-                        On shift
-                      </span>
-                    </div>
-                  </div>
-                );
-              } else if (entry.kind === 'upcoming') {
-                const s = entry.shift;
-                const fullName = [s.firstName, s.lastName].filter(Boolean).join(' ') || 'Team Member';
-                return (
-                  <div key={`up-${s.scheduleId}-${i}`} className="flex items-center gap-3">
-                    <Avatar firstName={s.firstName} lastName={s.lastName} profileImageUrl={s.profileImageUrl} size="sm" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-bold text-foreground truncate">{fullName}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {formatTime(s.startTime)} – {formatTime(s.endTime)}
-                      </p>
-                    </div>
-                    <span className="text-xs font-semibold text-muted-foreground flex-shrink-0 bg-muted px-2 py-0.5 rounded-full">
-                      Upcoming
-                    </span>
-                  </div>
-                );
-              } else {
-                const fullName = [entry.firstName, entry.lastName].filter(Boolean).join(' ') || 'Team Member';
-                return (
-                  <div key={`ab-${entry.userId}-${i}`} className="flex items-center gap-3">
-                    <div className="relative flex-shrink-0">
-                      <Avatar firstName={entry.firstName} lastName={entry.lastName} profileImageUrl={entry.profileImageUrl} size="sm" />
-                      <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-amber-400 border-2 border-background" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-bold text-foreground truncate">{fullName}</p>
-                      <p className="text-xs text-muted-foreground">
-                        sched {formatTime(entry.scheduledStart)}
-                      </p>
-                    </div>
-                    <span className="text-xs font-semibold text-amber-600 dark:text-amber-400 flex-shrink-0 bg-amber-400/10 px-2 py-0.5 rounded-full">
-                      Not In
-                    </span>
-                  </div>
-                );
-              }
-            })}
-          </div>
-        )}
+        </div>
       </div>
     </div>
   );
