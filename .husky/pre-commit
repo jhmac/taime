@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Pre-commit hook: block commits that include secret credential files, then
+# scan staged file contents for hardcoded API keys / secrets, and finally
 # run the existing migration-validation check.
 #
+# ── Section 1: Blocked file paths ─────────────────────────────────────────────
 # Guarded paths:
 #   *.keystore                        — Android signing keystores
 #   android/app/google-services.json  — Firebase Android credentials
@@ -55,8 +57,129 @@ if [[ ${#FOUND[@]} -gt 0 ]]; then
   exit 1
 fi
 
-# Chain to the existing migration-validation pre-commit check.
+# ── Section 2: Scan staged file contents for hardcoded secrets ────────────────
+#
+# Patterns cover the most common accidental leaks. Each entry is an ERE regex
+# that is matched against every line of every staged source file.
+#
+# To suppress a false positive add a matching string or regex to the file
+#   .secrets-allowlist
+# (one entry per line; blank lines and lines starting with # are ignored).
+# If any allowlist pattern matches the flagged line, that hit is skipped.
+# You can also append  # secrets-ignore  at the end of a specific source line
+# to silence the check for that single line.
+
+SECRET_PATTERNS=(
+  # Google / Firebase API keys  (AIza + 35 base62 chars)
+  "AIza[0-9A-Za-z_-]{35}"
+  # AWS Access Key IDs
+  "AKIA[0-9A-Z]{16}"
+  # AWS Secret Access Keys (key name followed by 40-char value)
+  "(aws_secret_access_key|AWS_SECRET_ACCESS_KEY)[[:space:]]*[=:][[:space:]]*['\"]?[0-9a-zA-Z/+]{40}"
+  # PEM private key headers (note: matched with grep -E -- to handle leading dashes)
+  "[-]{5}BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY[-]{5}"
+  # Slack bot / app / user tokens
+  "xox[baprs]-[0-9A-Za-z-]{10,}"
+  # GitHub personal access tokens (classic)
+  "ghp_[0-9A-Za-z]{36}"
+  # GitHub fine-grained personal access tokens
+  "github_pat_[0-9A-Za-z_]{36,}"
+  # Stripe live secret keys
+  "sk_live_[0-9a-zA-Z]{24,}"
+  # Twilio account SID
+  "AC[0-9a-f]{32}"
+  # Generic high-entropy assignments: key-like variable = quoted 20+ char value
+  "(api_key|api_secret|access_token|secret_key|auth_token|client_secret|private_key|password)[[:space:]]*[=:][[:space:]]*['\"][A-Za-z0-9+/=_-]{20,}['\"]"
+)
+
 REPO_ROOT="$(git rev-parse --show-toplevel)"
+ALLOWLIST_FILE="$REPO_ROOT/.secrets-allowlist"
+
+# Build allowlist array (skip blank lines and comments)
+ALLOWLIST=()
+if [[ -f "$ALLOWLIST_FILE" ]]; then
+  while IFS= read -r allow_line; do
+    [[ -z "$allow_line" || "$allow_line" == \#* ]] && continue
+    ALLOWLIST+=("$allow_line")
+  done < "$ALLOWLIST_FILE"
+fi
+
+# Returns 0 (true) if the line should be suppressed
+is_allowlisted() {
+  local text="$1"
+  # Inline annotation: must appear as a comment suffix at end of line.
+  # Accepted forms: // secrets-ignore  |  # secrets-ignore  |  -- secrets-ignore
+  if echo "$text" | grep -qE '(//|#|--)[[:space:]]*secrets-ignore[[:space:]]*$'; then
+    return 0
+  fi
+  for allow in "${ALLOWLIST[@]}"; do
+    if echo "$text" | grep -qE -- "$allow"; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# File extensions to scan (skip binaries and lock files)
+SCAN_EXTENSIONS_RE="\.(ts|tsx|js|jsx|mjs|cjs|json|env|yaml|yml|sh|bash|py|rb|go|java|kt|swift|gradle|properties|conf|config|toml|ini)$"
+
+SECRET_HITS=()
+
+while IFS= read -r staged_file; do
+  [[ -z "$staged_file" ]] && continue
+
+  # Skip files whose extension we don't want to scan
+  if ! echo "$staged_file" | grep -qE "$SCAN_EXTENSIONS_RE"; then
+    continue
+  fi
+
+  # Skip binary blobs (git returns nothing for binary files with --text suppressed)
+  if ! git show ":$staged_file" 2>/dev/null | file - | grep -qi "text"; then
+    continue
+  fi
+
+  lineno=0
+  while IFS= read -r src_line; do
+    lineno=$((lineno + 1))
+    for pattern in "${SECRET_PATTERNS[@]}"; do
+      if echo "$src_line" | grep -qE -- "$pattern"; then
+        if ! is_allowlisted "$src_line"; then
+          SECRET_HITS+=("$staged_file:$lineno")
+        fi
+        break  # one hit per line is enough
+      fi
+    done
+  done < <(git show ":$staged_file" 2>/dev/null || true)
+
+done <<< "$STAGED_FILES"
+
+if [[ ${#SECRET_HITS[@]} -gt 0 ]]; then
+  echo ""
+  echo "╔══════════════════════════════════════════════════════════════╗"
+  echo "║        COMMIT BLOCKED — HARDCODED SECRET DETECTED           ║"
+  echo "╠══════════════════════════════════════════════════════════════╣"
+  echo "║                                                              ║"
+  echo "║  Possible secrets found in staged source files:             ║"
+  echo "║                                                              ║"
+  for hit in "${SECRET_HITS[@]}"; do
+    # Print file:line only — do NOT echo the secret value to terminal/logs
+    printf "║  ✗  %-58s║\n" "$hit  [value redacted]"
+  done
+  echo "║                                                              ║"
+  echo "║  Open the file at the line shown above to inspect the       ║"
+  echo "║  secret value. Move it to an environment variable or a      ║"
+  echo "║  secrets vault. See CAPACITOR_NOTES.md for guidance.        ║"
+  echo "║                                                              ║"
+  echo "║  To suppress a false positive, choose ONE of:               ║"
+  echo "║    1. Append  # secrets-ignore  to the specific line        ║"
+  echo "║    2. Add a matching regex to .secrets-allowlist            ║"
+  echo "║                                                              ║"
+  echo "╚══════════════════════════════════════════════════════════════╝"
+  echo ""
+  exit 1
+fi
+
+# ── Section 3: Chain to the existing migration-validation pre-commit check ────
 MIGRATION_HOOK="$REPO_ROOT/scripts/hooks/pre-commit"
 if [[ -x "$MIGRATION_HOOK" ]]; then
   "$MIGRATION_HOOK"
