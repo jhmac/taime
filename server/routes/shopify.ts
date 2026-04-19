@@ -1,11 +1,12 @@
 import type { Express, Response } from "express";
 import type { IStorage } from "../storage";
-import { shops, userShops, shopifyDailySales, shopifyOrders, users, companies } from "@shared/schema";
+import { shops, userShops, shopifyDailySales, shopifyOrders, shopifyReportSchedules, timeEntries, users, companies } from "@shared/schema";
 import { eq, and, or, gte, lte, desc, sql } from "drizzle-orm";
 import { db } from "../db";
 import crypto from "crypto";
 import { ShopifyService } from "../services/shopifyService";
 import { claudeService } from "../services/claudeService";
+import { sendShopifyAnalyticsReport } from "../services/emailService";
 import { encryptToken, decryptToken } from "../utils/tokenEncryption";
 import rateLimit from "express-rate-limit";
 import { config } from "../lib/config";
@@ -131,6 +132,150 @@ async function getShopifyCredentials(shopDomain: string): Promise<{ shopDomain: 
     console.error(`Error fetching credentials for ${shopDomain}:`, error);
     return null;
   }
+}
+
+// ── Helper: verify caller owns/is-linked to a shop (mirrors existing auth) ────
+async function assertUserShopAccess(userId: string, shopDomain: string): Promise<boolean> {
+  const domain = shopDomain.toLowerCase().trim();
+
+  // Primary: explicit userShops link
+  const explicit = await db.select({ id: userShops.id })
+    .from(userShops)
+    .where(and(eq(userShops.userId, userId), eq(userShops.shopDomain, domain)))
+    .limit(1);
+  if (explicit.length > 0) return true;
+
+  // Fallback: same company owns the shop
+  const userRow = await db.select({ companyId: users.companyId })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  const userCompanyId = userRow[0]?.companyId;
+  if (!userCompanyId) return false;
+
+  const companyShop = await db.select({ shopDomain: shops.shopDomain })
+    .from(shops)
+    .where(and(eq(shops.shopDomain, domain), eq(shops.companyId, userCompanyId)))
+    .limit(1);
+  return companyShop.length > 0;
+}
+
+// ── Helper: build CSV from daily breakdown ───────────────────────────────────
+function buildAnalyticsCsv(dailyBreakdown: { date: string; revenue: number; laborCost: number; percentage: number }[]): string {
+  const header = 'Date,Revenue,Labor Cost,Labor %';
+  const lines = dailyBreakdown.map(d =>
+    [d.date, d.revenue.toFixed(2), d.laborCost.toFixed(2), d.percentage.toFixed(2)].join(',')
+  );
+  return [header, ...lines].join('\n');
+}
+
+// ── Helper: fetch analytics data and send report email ───────────────────────
+async function sendScheduledReport(shopDomain: string, frequency: string, recipientEmail: string, userId?: string): Promise<boolean> {
+  try {
+    const daysBack = frequency === 'daily' ? 1 : frequency === 'weekly' ? 7 : 30;
+    const now = new Date();
+    const startDate = new Date(now.getTime() - daysBack * 24 * 60 * 60 * 1000);
+    startDate.setHours(0, 0, 0, 0);
+
+    const salesData = await db.select()
+      .from(shopifyDailySales)
+      .where(and(
+        eq(shopifyDailySales.shopDomain, shopDomain.toLowerCase().trim()),
+        gte(shopifyDailySales.date, startDate),
+      ))
+      .orderBy(shopifyDailySales.date);
+
+    const allUsers = await db.select({ id: users.id, hourlyRate: users.hourlyRate }).from(users).where(eq(users.isActive, true));
+    const userRateMap = new Map<string, number>();
+    allUsers.forEach(u => userRateMap.set(u.id, parseFloat(u.hourlyRate || '15')));
+
+    const timeEntryRows = await db.select().from(timeEntries).where(gte(timeEntries.clockInTime, startDate));
+
+    const revenueByDate = new Map<string, number>();
+    for (const day of salesData) {
+      const dateKey = new Date(day.date).toISOString().split('T')[0];
+      revenueByDate.set(dateKey, (revenueByDate.get(dateKey) || 0) + parseFloat(day.totalRevenue || '0'));
+    }
+
+    const laborByDate = new Map<string, number>();
+    for (const entry of timeEntryRows) {
+      if (!entry.clockOutTime) continue;
+      const clockIn = new Date(entry.clockInTime);
+      const clockOut = new Date(entry.clockOutTime);
+      const hours = Math.max(0, (clockOut.getTime() - clockIn.getTime()) / 3600000 - (entry.breakMinutes || 0) / 60);
+      const rate = userRateMap.get(entry.userId) || 15;
+      const dateKey = clockIn.toISOString().split('T')[0];
+      laborByDate.set(dateKey, (laborByDate.get(dateKey) || 0) + hours * rate);
+    }
+
+    const allDates = new Set([...Array.from(revenueByDate.keys()), ...Array.from(laborByDate.keys())]);
+    const dailyBreakdown = Array.from(allDates).sort().map(date => {
+      const revenue = Math.round((revenueByDate.get(date) || 0) * 100) / 100;
+      const laborCost = Math.round((laborByDate.get(date) || 0) * 100) / 100;
+      const percentage = revenue > 0 ? Math.round((laborCost / revenue) * 10000) / 100 : 0;
+      return { date, revenue, laborCost, percentage };
+    });
+
+    const totalRevenue = Math.round(dailyBreakdown.reduce((s, d) => s + d.revenue, 0) * 100) / 100;
+    const totalLaborCost = Math.round(dailyBreakdown.reduce((s, d) => s + d.laborCost, 0) * 100) / 100;
+    const laborCostPercentage = totalRevenue > 0
+      ? Math.round((totalLaborCost / totalRevenue) * 10000) / 100
+      : 0;
+
+    const csvContent = buildAnalyticsCsv(dailyBreakdown);
+    return await sendShopifyAnalyticsReport(recipientEmail, shopDomain, frequency, csvContent, {
+      totalRevenue, totalLaborCost, laborCostPercentage, daysBack,
+    });
+  } catch (err) {
+    console.error('[ReportSchedule] sendScheduledReport error:', err);
+    return false;
+  }
+}
+
+// ── Scheduler: check and send due reports every hour ─────────────────────────
+export function startShopifyReportScheduler(): () => void {
+  async function runScheduler() {
+    try {
+      const schedules = await db.select().from(shopifyReportSchedules).where(eq(shopifyReportSchedules.enabled, true));
+      const now = new Date();
+
+      for (const schedule of schedules) {
+        const lastSent = schedule.lastSentAt ? new Date(schedule.lastSentAt) : null;
+        let isDue = false;
+
+        if (schedule.frequency === 'daily') {
+          isDue = !lastSent || (now.getTime() - lastSent.getTime()) >= 24 * 60 * 60 * 1000;
+        } else if (schedule.frequency === 'weekly') {
+          isDue = !lastSent || (now.getTime() - lastSent.getTime()) >= 7 * 24 * 60 * 60 * 1000;
+        } else if (schedule.frequency === 'monthly') {
+          isDue = !lastSent || (now.getTime() - lastSent.getTime()) >= 30 * 24 * 60 * 60 * 1000;
+        }
+
+        if (isDue) {
+          console.log(`[ReportScheduler] Sending ${schedule.frequency} report for ${schedule.shopDomain} to ${schedule.recipientEmail}`);
+          const sent = await sendScheduledReport(schedule.shopDomain, schedule.frequency, schedule.recipientEmail);
+          if (sent) {
+            await db.update(shopifyReportSchedules)
+              .set({ lastSentAt: now, updatedAt: now })
+              .where(eq(shopifyReportSchedules.id, schedule.id));
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[ReportScheduler] Error during scheduled run:', err);
+    }
+  }
+
+  // Run immediately (after migrations have created the table), then every hour
+  runScheduler();
+  const intervalId = setInterval(runScheduler, 60 * 60 * 1000);
+  console.log('[ReportScheduler] Shopify analytics report scheduler started');
+
+  // Return a stop function for graceful shutdown
+  return () => {
+    clearInterval(intervalId);
+    console.log('[ReportScheduler] Shopify analytics report scheduler stopped');
+  };
 }
 
 export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
@@ -1558,6 +1703,156 @@ Rules:
     } catch (error) {
       console.error("[GDPR] Customer redact error:", error);
       return res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // ── Report Schedule CRUD ──────────────────────────────────────────────────
+  // All four routes enforce: (1) admin/owner role, (2) caller is linked to the
+  // requested shop via userShops or same-company fallback (same pattern as the
+  // rest of the Shopify route set so cross-tenant access is impossible).
+
+  app.get("/api/shopify/report-schedule", isAuthenticated, async (req: any, res: Response) => {
+    try {
+      const shopDomain = req.query.shop as string;
+      if (!shopDomain) return res.status(400).json({ error: "shop parameter required" });
+
+      const roleName = req.user?.role?.name ?? '';
+      const isAdminOrOwner = roleName === 'owner' || roleName === 'admin';
+      if (!isAdminOrOwner) return res.status(403).json({ error: "Admin access required" });
+
+      const userId = req.user?.id || req.auth?.userId;
+      const hasAccess = await assertUserShopAccess(userId, shopDomain);
+      if (!hasAccess) return res.status(403).json({ error: "You don't have access to this shop" });
+
+      const rows = await db.select()
+        .from(shopifyReportSchedules)
+        .where(eq(shopifyReportSchedules.shopDomain, shopDomain.toLowerCase().trim()))
+        .limit(1);
+
+      res.json(rows[0] ?? null);
+    } catch (error) {
+      console.error("[ReportSchedule] GET error:", error);
+      res.status(500).json({ error: "Failed to fetch report schedule" });
+    }
+  });
+
+  app.post("/api/shopify/report-schedule", isAuthenticated, async (req: any, res: Response) => {
+    try {
+      const roleName = req.user?.role?.name ?? '';
+      const isAdminOrOwner = roleName === 'owner' || roleName === 'admin';
+      if (!isAdminOrOwner) return res.status(403).json({ error: "Admin access required" });
+
+      const { shopDomain, frequency, recipientEmail, enabled } = req.body;
+      if (!shopDomain || !frequency || !recipientEmail) {
+        return res.status(400).json({ error: "shopDomain, frequency, and recipientEmail are required" });
+      }
+
+      const validFrequencies = ['daily', 'weekly', 'monthly'];
+      if (!validFrequencies.includes(frequency)) {
+        return res.status(400).json({ error: "frequency must be daily, weekly, or monthly" });
+      }
+
+      // Validate email format
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(recipientEmail)) {
+        return res.status(400).json({ error: "recipientEmail is not a valid email address" });
+      }
+
+      const userId = req.user?.id || req.auth?.userId;
+      const hasAccess = await assertUserShopAccess(userId, shopDomain);
+      if (!hasAccess) return res.status(403).json({ error: "You don't have access to this shop" });
+
+      const domain = shopDomain.toLowerCase().trim();
+
+      const existing = await db.select({ id: shopifyReportSchedules.id })
+        .from(shopifyReportSchedules)
+        .where(eq(shopifyReportSchedules.shopDomain, domain))
+        .limit(1);
+
+      let result;
+      if (existing.length > 0) {
+        const updated = await db.update(shopifyReportSchedules)
+          .set({ frequency, recipientEmail, enabled: enabled !== false, updatedAt: new Date() })
+          .where(eq(shopifyReportSchedules.shopDomain, domain))
+          .returning();
+        result = updated[0];
+      } else {
+        const inserted = await db.insert(shopifyReportSchedules)
+          .values({ shopDomain: domain, frequency, recipientEmail, enabled: enabled !== false })
+          .returning();
+        result = inserted[0];
+      }
+
+      res.json(result);
+    } catch (error) {
+      console.error("[ReportSchedule] POST error:", error);
+      res.status(500).json({ error: "Failed to save report schedule" });
+    }
+  });
+
+  app.delete("/api/shopify/report-schedule", isAuthenticated, async (req: any, res: Response) => {
+    try {
+      const roleName = req.user?.role?.name ?? '';
+      const isAdminOrOwner = roleName === 'owner' || roleName === 'admin';
+      if (!isAdminOrOwner) return res.status(403).json({ error: "Admin access required" });
+
+      const shopDomain = req.query.shop as string;
+      if (!shopDomain) return res.status(400).json({ error: "shop parameter required" });
+
+      const userId = req.user?.id || req.auth?.userId;
+      const hasAccess = await assertUserShopAccess(userId, shopDomain);
+      if (!hasAccess) return res.status(403).json({ error: "You don't have access to this shop" });
+
+      await db.delete(shopifyReportSchedules)
+        .where(eq(shopifyReportSchedules.shopDomain, shopDomain.toLowerCase().trim()));
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("[ReportSchedule] DELETE error:", error);
+      res.status(500).json({ error: "Failed to delete report schedule" });
+    }
+  });
+
+  app.post("/api/shopify/report-schedule/send-now", isAuthenticated, async (req: any, res: Response) => {
+    try {
+      const roleName = req.user?.role?.name ?? '';
+      const isAdminOrOwner = roleName === 'owner' || roleName === 'admin';
+      if (!isAdminOrOwner) return res.status(403).json({ error: "Admin access required" });
+
+      const { shopDomain } = req.body;
+      if (!shopDomain) return res.status(400).json({ error: "shopDomain required" });
+
+      const userId = req.user?.id || req.auth?.userId;
+      const hasAccess = await assertUserShopAccess(userId, shopDomain);
+      if (!hasAccess) return res.status(403).json({ error: "You don't have access to this shop" });
+
+      const domain = shopDomain.toLowerCase().trim();
+
+      const scheduleRows = await db.select()
+        .from(shopifyReportSchedules)
+        .where(and(
+          eq(shopifyReportSchedules.shopDomain, domain),
+          eq(shopifyReportSchedules.enabled, true),
+        ))
+        .limit(1);
+
+      if (!scheduleRows.length) {
+        return res.status(404).json({ error: "No active schedule found for this shop" });
+      }
+
+      const schedule = scheduleRows[0];
+      const sent = await sendScheduledReport(schedule.shopDomain, schedule.frequency, schedule.recipientEmail);
+      if (sent) {
+        await db.update(shopifyReportSchedules)
+          .set({ lastSentAt: new Date(), updatedAt: new Date() })
+          .where(eq(shopifyReportSchedules.id, schedule.id));
+        res.json({ success: true });
+      } else {
+        res.status(500).json({ error: "Failed to send report email. Check SENDGRID_API_KEY configuration." });
+      }
+    } catch (error) {
+      console.error("[ReportSchedule] Send-now error:", error);
+      res.status(500).json({ error: "Failed to send report" });
     }
   });
 

@@ -1,11 +1,16 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/use-auth';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
-import { Download, Clipboard, Check } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Download, Clipboard, Check, Mail, Send, Settings2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { apiRequest, queryClient } from '@/lib/queryClient';
 import {
   BarChart,
   Bar,
@@ -18,6 +23,16 @@ import {
 } from 'recharts';
 
 type TimeRange = 'daily' | 'weekly' | 'monthly' | 'quarterly';
+type ReportFrequency = 'daily' | 'weekly' | 'monthly';
+
+interface ReportSchedule {
+  id: string;
+  shopDomain: string;
+  frequency: ReportFrequency;
+  recipientEmail: string;
+  enabled: boolean;
+  lastSentAt: string | null;
+}
 
 const TIME_RANGES: { key: TimeRange; label: string; daysBack: number }[] = [
   { key: 'daily',     label: 'Daily',     daysBack: 1  },
@@ -148,6 +163,78 @@ export default function ShopifyAnalytics({ shopDomain }: { shopDomain: string })
   const [timeRange, setTimeRange] = useState<TimeRange>('monthly');
   const [copied, setCopied] = useState(false);
   const selectedRange = TIME_RANGES.find(r => r.key === timeRange)!;
+
+  const [showSchedulePanel, setShowSchedulePanel] = useState(false);
+  const [scheduleEmail, setScheduleEmail] = useState('');
+  const [scheduleFrequency, setScheduleFrequency] = useState<ReportFrequency>('weekly');
+  const [scheduleEnabled, setScheduleEnabled] = useState(true);
+
+  const { data: reportSchedule, isLoading: scheduleLoading } = useQuery<ReportSchedule | null>({
+    queryKey: ['/api/shopify/report-schedule', shopDomain],
+    queryFn: async () => {
+      const res = await fetch(`/api/shopify/report-schedule?shop=${encodeURIComponent(shopDomain)}`, { credentials: 'include' });
+      if (!res.ok) return null;
+      return res.json();
+    },
+    enabled: !!shopDomain && isAdminOrOwner,
+  });
+
+  const saveScheduleMutation = useMutation({
+    mutationFn: async (payload: { shopDomain: string; frequency: string; recipientEmail: string; enabled: boolean }) => {
+      return apiRequest('POST', '/api/shopify/report-schedule', payload);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/shopify/report-schedule', shopDomain] });
+      toast({ description: 'Report schedule saved.' });
+    },
+    onError: () => {
+      toast({ description: 'Failed to save report schedule.', variant: 'destructive' });
+    },
+  });
+
+  const sendNowMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest('POST', '/api/shopify/report-schedule/send-now', { shopDomain });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/shopify/report-schedule', shopDomain] });
+      toast({ description: 'Report sent successfully.' });
+    },
+    onError: () => {
+      toast({ description: 'Failed to send report. Check SendGrid configuration.', variant: 'destructive' });
+    },
+  });
+
+  const deleteScheduleMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest('DELETE', `/api/shopify/report-schedule?shop=${encodeURIComponent(shopDomain)}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/shopify/report-schedule', shopDomain] });
+      toast({ description: 'Report schedule removed.' });
+      setShowSchedulePanel(false);
+    },
+    onError: () => {
+      toast({ description: 'Failed to remove schedule.', variant: 'destructive' });
+    },
+  });
+
+  function handleOpenSchedulePanel() {
+    if (reportSchedule) {
+      setScheduleEmail(reportSchedule.recipientEmail);
+      setScheduleFrequency(reportSchedule.frequency);
+      setScheduleEnabled(reportSchedule.enabled);
+    }
+    setShowSchedulePanel(true);
+  }
+
+  function handleSaveSchedule() {
+    if (!scheduleEmail.trim() || !scheduleEmail.includes('@')) {
+      toast({ description: 'Please enter a valid email address.', variant: 'destructive' });
+      return;
+    }
+    saveScheduleMutation.mutate({ shopDomain, frequency: scheduleFrequency, recipientEmail: scheduleEmail.trim(), enabled: scheduleEnabled });
+  }
 
   const { data, isLoading } = useQuery<LaborCostRatioData>({
     queryKey: ['/api/shopify/labor-cost-ratio', shopDomain, selectedRange.daysBack],
@@ -296,6 +383,18 @@ export default function ShopifyAnalytics({ shopDomain }: { shopDomain: string })
               <Download className="h-3.5 w-3.5" />
               Download CSV
             </Button>
+            {isAdminOrOwner && (
+              <Button
+                variant={reportSchedule?.enabled ? 'default' : 'outline'}
+                size="sm"
+                onClick={handleOpenSchedulePanel}
+                className="text-xs h-8 gap-1.5"
+                title="Configure scheduled email report"
+              >
+                <Mail className="h-3.5 w-3.5" />
+                {reportSchedule?.enabled ? 'Report On' : 'Schedule'}
+              </Button>
+            )}
           </div>
         </div>
       </div>
@@ -446,6 +545,115 @@ export default function ShopifyAnalytics({ shopDomain }: { shopDomain: string })
                   }
                 </tbody>
               </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {isAdminOrOwner && showSchedulePanel && (
+        <Card className="border-primary/20 bg-primary/5">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm flex items-center justify-between">
+              <span className="flex items-center gap-2">
+                <Settings2 className="h-4 w-4 text-primary" />
+                Scheduled Email Report
+              </span>
+              <button
+                onClick={() => setShowSchedulePanel(false)}
+                className="text-muted-foreground hover:text-foreground text-xs"
+              >
+                ✕
+              </button>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {reportSchedule && (
+              <div className="text-xs text-muted-foreground bg-background rounded-md p-3 border">
+                <span className="font-medium">Current schedule: </span>
+                <span className="capitalize">{reportSchedule.frequency}</span> to{' '}
+                <span className="font-medium">{reportSchedule.recipientEmail}</span>
+                {reportSchedule.enabled ? (
+                  <span className="ml-2 text-green-600 font-medium">· Active</span>
+                ) : (
+                  <span className="ml-2 text-muted-foreground">· Paused</span>
+                )}
+                {reportSchedule.lastSentAt && (
+                  <span className="ml-2">
+                    · Last sent {new Date(reportSchedule.lastSentAt).toLocaleDateString()}
+                  </span>
+                )}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Recipient Email</Label>
+                <Input
+                  type="email"
+                  placeholder="manager@store.com"
+                  value={scheduleEmail}
+                  onChange={e => setScheduleEmail(e.target.value)}
+                  className="h-8 text-sm"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Frequency</Label>
+                <Select value={scheduleFrequency} onValueChange={v => setScheduleFrequency(v as ReportFrequency)}>
+                  <SelectTrigger className="h-8 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="daily">Daily</SelectItem>
+                    <SelectItem value="weekly">Weekly</SelectItem>
+                    <SelectItem value="monthly">Monthly</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Switch
+                id="schedule-enabled"
+                checked={scheduleEnabled}
+                onCheckedChange={setScheduleEnabled}
+              />
+              <Label htmlFor="schedule-enabled" className="text-xs cursor-pointer">
+                {scheduleEnabled ? 'Schedule enabled' : 'Schedule paused'}
+              </Label>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button
+                size="sm"
+                onClick={handleSaveSchedule}
+                disabled={saveScheduleMutation.isPending}
+                className="text-xs h-8 gap-1.5"
+              >
+                {saveScheduleMutation.isPending ? 'Saving…' : 'Save Schedule'}
+              </Button>
+              {reportSchedule && (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => sendNowMutation.mutate()}
+                    disabled={sendNowMutation.isPending}
+                    className="text-xs h-8 gap-1.5"
+                  >
+                    <Send className="h-3 w-3" />
+                    {sendNowMutation.isPending ? 'Sending…' : 'Send Now'}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => deleteScheduleMutation.mutate()}
+                    disabled={deleteScheduleMutation.isPending}
+                    className="text-xs h-8 text-destructive hover:text-destructive"
+                  >
+                    {deleteScheduleMutation.isPending ? 'Removing…' : 'Remove Schedule'}
+                  </Button>
+                </>
+              )}
             </div>
           </CardContent>
         </Card>

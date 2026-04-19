@@ -10,6 +10,7 @@ import { config } from "./lib/config";
 import logger from "./lib/logger";
 import { globalErrorHandler } from "./lib/routeWrapper";
 import { startRitualScheduler } from "./services/ritualScheduler";
+import { startShopifyReportScheduler } from "./routes/shopify";
 import { backfillLegacyUserRoles, backfillInactiveAuthenticatedUsers, backfillStoreCreatorOwnerRole } from "./lib/backfill";
 import { runSchemaMigrations, scheduleStaleTokenCleanup, scheduleDeliveryLogCleanup } from "./lib/migrations";
 import { runStartupAiContentBackfill } from "./services/sopIndexer";
@@ -192,13 +193,24 @@ app.use((req, res, next) => {
     // simultaneously when the server is also handling the first user requests.
     startRitualScheduler();
     // Run migrations first so default roles are seeded, then run backfills that depend on them
+    let stopShopifyReportScheduler: (() => void) | null = null;
     runSchemaMigrations().then(() => {
       backfillLegacyUserRoles();
       backfillInactiveAuthenticatedUsers();
       backfillStoreCreatorOwnerRole();
       scheduleStaleTokenCleanup();
       scheduleDeliveryLogCleanup();
+      // Start after migrations so the shopify_report_schedules table is guaranteed to exist
+      stopShopifyReportScheduler = startShopifyReportScheduler();
     }).catch((err) => console.error('[Startup] Migration failed:', err));
+
+    // Graceful shutdown: stop all background schedulers
+    const gracefulStop = () => {
+      stopShopifyReportScheduler?.();
+      process.exit(0);
+    };
+    process.once('SIGTERM', gracefulStop);
+    process.once('SIGINT', gracefulStop);
     setTimeout(() => runStartupAiContentBackfill(), 5000);
   });
 })();

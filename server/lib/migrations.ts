@@ -612,6 +612,21 @@ export async function runSchemaMigrations(): Promise<void> {
       ],
     },
     {
+      name: "shopify_report_schedules",
+      ddl: `CREATE TABLE IF NOT EXISTS shopify_report_schedules (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        shop_domain varchar NOT NULL REFERENCES shops(shop_domain),
+        frequency varchar NOT NULL DEFAULT 'weekly',
+        recipient_email varchar NOT NULL,
+        enabled boolean NOT NULL DEFAULT true,
+        last_sent_at timestamp,
+        created_at timestamp DEFAULT now(),
+        updated_at timestamp DEFAULT now(),
+        UNIQUE(shop_domain)
+      )`,
+      indexes: [],
+    },
+    {
       name: "daily_questionnaires",
       ddl: `CREATE TABLE IF NOT EXISTS daily_questionnaires (
         id varchar PRIMARY KEY DEFAULT gen_random_uuid(),

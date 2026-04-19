@@ -833,6 +833,20 @@ export const shopifyOrders = pgTable("shopify_orders", {
   index("IDX_shopify_orders_order_id").on(table.orderId),
 ]);
 
+// Shopify Analytics Report Schedules
+export const shopifyReportSchedules = pgTable("shopify_report_schedules", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  shopDomain: varchar("shop_domain").notNull().references(() => shops.shopDomain),
+  frequency: varchar("frequency").notNull().default("weekly"), // 'daily' | 'weekly' | 'monthly'
+  recipientEmail: varchar("recipient_email").notNull(),
+  enabled: boolean("enabled").notNull().default(true),
+  lastSentAt: timestamp("last_sent_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("uq_shopify_report_schedules_shop").on(table.shopDomain),
+]);
+
 // SOP Library — Templates, Steps, Executions, Step Completions
 export const sopTemplates = pgTable("sop_templates", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -1136,6 +1150,7 @@ export const insertShopSchema = createInsertSchema(shops).omit({ id: true, insta
 export const insertUserShopSchema = createInsertSchema(userShops).omit({ id: true, createdAt: true });
 export const insertShopifyDailySalesSchema = createInsertSchema(shopifyDailySales).omit({ id: true, createdAt: true });
 export const insertShopifyOrderSchema = createInsertSchema(shopifyOrders).omit({ id: true, syncedAt: true, createdAt: true, updatedAt: true });
+export const insertShopifyReportScheduleSchema = createInsertSchema(shopifyReportSchedules).omit({ id: true, createdAt: true, updatedAt: true, lastSentAt: true });
 
 // Types
 export type User = typeof users.$inferSelect;
@@ -1442,6 +1457,8 @@ export type Shop = typeof shops.$inferSelect;
 export type UserShop = typeof userShops.$inferSelect;
 export type ShopifyDailySale = typeof shopifyDailySales.$inferSelect;
 export type ShopifyOrder = typeof shopifyOrders.$inferSelect;
+export type ShopifyReportSchedule = typeof shopifyReportSchedules.$inferSelect;
+export type InsertShopifyReportSchedule = z.infer<typeof insertShopifyReportScheduleSchema>;
 
 export const improvementVideos = pgTable("improvement_videos", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
