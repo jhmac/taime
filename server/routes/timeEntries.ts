@@ -3,6 +3,7 @@ import type { IStorage } from "../storage";
 import { insertTimeEntrySchema } from "@shared/schema";
 import { geofencingService } from "../services/geofencingService";
 import { getOpeningSOPsForClockIn, getShiftHandoffSOPs } from "../services/sopSurfacing";
+import { runClockInRedistribute } from "./ai";
 import logger from "../lib/logger";
 
 async function withRetry<T>(fn: () => Promise<T>, retries = 2, delay = 500): Promise<T> {
@@ -71,6 +72,17 @@ export function registerTimeEntryRoutes(app: Express, storage: IStorage, isAuthe
         type: 'time_entry_created',
         data: { timeEntry, userId },
       });
+
+      // Fire-and-forget: redistribute AI-assigned tasks equally as employees clock in
+      if (!data.clockOutTime) {
+        storage.getCompanySettings().then(settings => {
+          if (settings?.taskAutoAssign) {
+            runClockInRedistribute(storage, broadcastToAll).catch((err: any) =>
+              logger.warn({ error: err?.message }, '[TaskRedistribute] clock-in redistribution failed')
+            );
+          }
+        }).catch(() => {});
+      }
 
       const locationId = (timeEntry as any).locationId;
       if (locationId) {

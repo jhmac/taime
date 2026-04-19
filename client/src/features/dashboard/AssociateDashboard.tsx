@@ -445,6 +445,7 @@ export default function AssociateDashboard() {
   const isMobile = useIsMobile();
   const [, navigate] = useLocation();
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [tasksExpanded, setTasksExpanded] = useState(false);
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -654,7 +655,6 @@ export default function AssociateDashboard() {
             <DashboardErrorBoundary fallback="">
               <div>
                 <div className="flex items-center justify-between mb-3">
-                  {/* 18px subheading — readable on mobile */}
                   <h2 className="text-lg font-extrabold text-foreground">Your Tasks</h2>
                   {pendingTasks.length > 0 && (
                     <span className="w-6 h-6 rounded-full text-white text-xs font-extrabold flex items-center justify-center bg-primary">
@@ -662,40 +662,47 @@ export default function AssociateDashboard() {
                     </span>
                   )}
                 </div>
-                <div className="rounded-3xl overflow-hidden bg-card border border-border">
-                  {myTasksToday.slice(0, 4).map((task, i) => (
-                    <button
-                      key={task.id}
-                      onClick={() => toggleTaskMutation.mutate({ id: task.id, status: task.status === 'completed' ? 'pending' : 'completed' })}
-                      className="w-full flex items-center gap-3.5 px-4 py-4 text-left hover:bg-muted/40 transition-colors min-h-[56px]"
-                      style={{ borderBottom: i < Math.min(myTasksToday.length, 4) - 1 ? '1px solid hsl(var(--border))' : 'none' }}
-                    >
-                      {task.status === 'completed'
-                        ? <CheckCircle2 className="h-5 w-5 flex-shrink-0 text-green-500" />
-                        : <Circle className="h-5 w-5 flex-shrink-0 text-muted-foreground/30" />
-                      }
-                      <div className="flex-1 min-w-0">
-                        {/* 15px task title — just above minimum for body text */}
-                        <p className={`text-[15px] font-bold leading-snug ${task.status === 'completed' ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
-                          {task.title}
-                        </p>
-                        {task.dueDate && (
-                          // 12px for metadata only — acceptable as it's supplementary info
-                          <p className="text-xs text-muted-foreground mt-0.5 font-medium">
-                            Due {new Date(task.dueDate).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                          </p>
-                        )}
+                {(() => {
+                  const visibleTasks = myTasksToday.slice(0, tasksExpanded ? myTasksToday.length : 5);
+                  return (
+                    <>
+                      <div className="rounded-3xl overflow-hidden bg-card border border-border">
+                        {visibleTasks.map((task, i) => (
+                          <button
+                            key={task.id}
+                            onClick={() => toggleTaskMutation.mutate({ id: task.id, status: task.status === 'completed' ? 'pending' : 'completed' })}
+                            className="w-full flex items-center gap-3.5 px-4 py-4 text-left hover:bg-muted/40 transition-colors min-h-[56px]"
+                            style={{ borderBottom: i < visibleTasks.length - 1 ? '1px solid hsl(var(--border))' : 'none' }}
+                          >
+                            {task.status === 'completed'
+                              ? <CheckCircle2 className="h-5 w-5 flex-shrink-0 text-green-500" />
+                              : <Circle className="h-5 w-5 flex-shrink-0 text-muted-foreground/30" />
+                            }
+                            <div className="flex-1 min-w-0">
+                              <p className={`text-[15px] font-bold leading-snug ${task.status === 'completed' ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
+                                {task.title}
+                              </p>
+                              {task.dueDate && (
+                                <p className="text-xs text-muted-foreground mt-0.5 font-medium">
+                                  Due {new Date(task.dueDate).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                                </p>
+                              )}
+                            </div>
+                            <ChevronRight className="h-4 w-4 text-muted-foreground/30 flex-shrink-0" />
+                          </button>
+                        ))}
                       </div>
-                      <ChevronRight className="h-4 w-4 text-muted-foreground/30 flex-shrink-0" />
-                    </button>
-                  ))}
-                </div>
-                {myTasksToday.length > 4 && (
-                  // 14px for link text — minimum for tappable text
-                  <button onClick={() => navigate('/tasks')} className="w-full text-center text-sm font-bold text-primary mt-3 py-1">
-                    See all {myTasksToday.length} tasks →
-                  </button>
-                )}
+                      {myTasksToday.length > 5 && (
+                        <button
+                          onClick={() => setTasksExpanded(e => !e)}
+                          className="w-full text-center text-sm font-bold text-primary mt-3 py-1"
+                        >
+                          {tasksExpanded ? 'Show less ↑' : `Show all ${myTasksToday.length} tasks ↓`}
+                        </button>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             </DashboardErrorBoundary>
           )}
@@ -748,14 +755,13 @@ export default function AssociateDashboard() {
                 {myTasksToday.length === 0 ? (
                   <div className="rounded-3xl p-8 text-center bg-card border border-border">
                     <p className="text-3xl mb-2">🎉</p>
-                    {/* 18px for empty state heading — should feel comfortable, not tiny */}
                     <p className="text-lg font-bold text-foreground">All clear!</p>
                     <p className="text-sm text-muted-foreground mt-1">No tasks assigned to you yet.</p>
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {/* Pending — numbered hero cards */}
-                    {pendingTasks.map((task, i) => (
+                    {/* Pending — numbered hero cards (top 5 by default, expandable) */}
+                    {pendingTasks.slice(0, tasksExpanded ? pendingTasks.length : 5).map((task, i) => (
                       <button
                         key={task.id}
                         onClick={() => toggleTaskMutation.mutate({ id: task.id, status: 'completed' })}
@@ -796,6 +802,16 @@ export default function AssociateDashboard() {
                         )}
                       </button>
                     ))}
+
+                    {/* Expand/collapse pending tasks */}
+                    {pendingTasks.length > 5 && (
+                      <button
+                        onClick={() => setTasksExpanded(e => !e)}
+                        className="w-full text-center text-sm font-bold text-primary py-1"
+                      >
+                        {tasksExpanded ? 'Show less ↑' : `Show all ${pendingTasks.length} tasks ↓`}
+                      </button>
+                    )}
 
                     {/* Completed — compact rows */}
                     {completedTasks.map(task => (

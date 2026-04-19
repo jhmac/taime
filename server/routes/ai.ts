@@ -78,29 +78,40 @@ export async function runAutoAssign(
     return { assignments: [], source, message: 'No employees scheduled or clocked in' };
   }
 
-  // 3. Get all unassigned pending tasks (not limited to tasks with a due date today)
+  // 3. Gather tasks to distribute:
+  //    - Overdue/missed tasks: due before today, not completed
+  //    - Due today: due on or before end of today, not completed
+  //    - Unassigned pending tasks with no due date
   const allTasks = await storage.getAllTasks();
-  const availableChores = allTasks
-    .filter(task => !task.assignedTo && task.status === 'pending')
-    .map(task => ({
-      id: task.id,
-      title: task.title,
-      description: task.description || '',
-      estimatedMinutes: task.estimatedMinutes || 30,
-      requiredSkills: [],
-      priority: (task.priority as 'low' | 'medium' | 'high') || 'medium',
-    }));
+  const endOfToday = new Date(today);
+  endOfToday.setHours(23, 59, 59, 999);
 
-  if (availableChores.length === 0) {
-    return { assignments: [], source, message: 'No unassigned tasks available' };
-  }
-
-  const result = await claudeService.assignChores({
-    scheduledEmployees: employeePool,
-    availableChores,
+  const availableChores = allTasks.filter(task => {
+    if (task.status === 'completed') return false;
+    if (task.dueDate) {
+      // Include tasks due today or overdue (missed from previous days)
+      return new Date(task.dueDate) <= endOfToday;
+    }
+    // No due date: only include if currently unassigned
+    return !task.assignedTo && task.status === 'pending';
   });
 
-  for (const assignment of result.assignments) {
+  if (availableChores.length === 0) {
+    return { assignments: [], source, message: 'No tasks to distribute' };
+  }
+
+  // Round-robin equal distribution — each employee gets the same number of tasks
+  const assignments = availableChores.map((task, i) => {
+    const employee = employeePool[i % employeePool.length];
+    return {
+      choreId: task.id,
+      assignedTo: employee.id,
+      reasoning: `Morning distribution — shared equally across ${employeePool.length} team member${employeePool.length !== 1 ? 's' : ''}`,
+      estimatedCompletion: employee.shiftEnd || '',
+    };
+  });
+
+  for (const assignment of assignments) {
     const updated = await storage.updateTask(assignment.choreId, {
       assignedTo: assignment.assignedTo,
       isAIAssigned: true,
@@ -119,7 +130,35 @@ export async function runAutoAssign(
     }
   }
 
-  return { ...result, source };
+  return { assignments, source };
+}
+
+/**
+ * Redistributes all AI-assigned pending tasks equally among currently clocked-in employees.
+ * Called whenever a new employee clocks in so the workload stays balanced.
+ * Fire-and-forget — errors are logged but do not affect the clock-in response.
+ */
+export async function runClockInRedistribute(
+  storage: IStorage,
+  broadcastToAll?: BroadcastFn,
+): Promise<void> {
+  const clockedIn = await storage.getClockedInUsers();
+  if (clockedIn.length === 0) return;
+
+  const allTasks = await storage.getAllTasks();
+  // Only re-distribute AI-assigned tasks that haven't been completed
+  const pendingAiTasks = allTasks.filter(t => t.isAIAssigned && t.status !== 'completed');
+  if (pendingAiTasks.length === 0) return;
+
+  const poolIds = clockedIn.map(u => u.id);
+  for (let i = 0; i < pendingAiTasks.length; i++) {
+    const task = pendingAiTasks[i];
+    const newAssigneeId = poolIds[i % poolIds.length];
+    if (task.assignedTo !== newAssigneeId) {
+      const updated = await storage.updateTask(task.id, { assignedTo: newAssigneeId });
+      broadcastToAll?.({ type: 'task_updated', data: { task: updated } });
+    }
+  }
 }
 
 export function registerAIRoutes(app: Express, storage: IStorage, isAuthenticated: any, broadcastToAll: BroadcastFn) {

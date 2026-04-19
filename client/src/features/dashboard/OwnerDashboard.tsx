@@ -241,6 +241,7 @@ export default function OwnerDashboard() {
 
   // Admin clock-out dialog state
   const [clockOutTarget, setClockOutTarget] = useState<ClockOutTarget | null>(null);
+  const [tasksExpanded, setTasksExpanded] = useState(false);
   const [clockInEdit, setClockInEdit] = useState('');
   const [clockOutEdit, setClockOutEdit] = useState('');
 
@@ -458,7 +459,7 @@ export default function OwnerDashboard() {
           <p className="text-[12px] text-muted-foreground italic">All caught up!</p>
         ) : (
           <div className="space-y-1.5">
-            {myTasksForFooter.slice(0, 4).map((t: any) => {
+            {myTasksForFooter.slice(0, tasksExpanded ? myTasksForFooter.length : 5).map((t: any) => {
               const isCompleting = completeTaskMutation.isPending && completeTaskMutation.variables === t.id;
               return (
                 <div key={t.id} className="flex items-center gap-2 min-w-0">
@@ -481,6 +482,14 @@ export default function OwnerDashboard() {
                 </div>
               );
             })}
+            {myTasksForFooter.length > 5 && (
+              <button
+                onClick={() => setTasksExpanded(e => !e)}
+                className="text-[11px] font-bold text-primary mt-1 leading-tight"
+              >
+                {tasksExpanded ? 'Show less ↑' : `+${myTasksForFooter.length - 5} more ↓`}
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -515,52 +524,46 @@ export default function OwnerDashboard() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {/* Sales snapshot at top */}
-              {shopifyLoading ? (
-                <div className="space-y-2 mb-4 pb-4 border-b border-border">
-                  <Skeleton className="h-8 w-1/3" />
-                  <Skeleton className="h-4 w-2/3" />
-                </div>
-              ) : shopifyData?.todayRevenue !== undefined ? (
-                <div className="mb-4 pb-4 border-b border-border">
-                  <div className="flex items-end gap-3">
-                    <div>
-                      <p className="text-3xl font-bold text-green-600">${Number(shopifyData.todayRevenue || 0).toFixed(0)}</p>
-                      <p className="text-xs text-muted-foreground">Today's Revenue</p>
+              <div className="flex gap-3 items-start">
+                {/* Today's Revenue — 1/6 narrow column */}
+                <div className="w-1/6 shrink-0">
+                  {shopifyLoading ? (
+                    <div className="space-y-1.5">
+                      <Skeleton className="h-6 w-full" />
+                      <Skeleton className="h-3 w-3/4" />
                     </div>
-                    {shopifyData.lastWeekRevenue !== undefined && shopifyData.lastWeekRevenue > 0 && (
-                      <div className="flex items-center gap-1 text-sm">
-                        <TrendingUp className="h-4 w-4 text-muted-foreground" />
-                        <span className="text-muted-foreground">
-                          vs ${Number(shopifyData.lastWeekRevenue || 0).toFixed(0)} last week
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                  {shopifyData.orderCount !== undefined && (
-                    <p className="text-sm text-muted-foreground mt-1">
-                      {shopifyData.orderCount} orders today
-                    </p>
+                  ) : shopifyData?.todayRevenue !== undefined ? (
+                    <div>
+                      <p className="text-xl font-bold text-green-600 leading-tight break-words">${Number(shopifyData.todayRevenue || 0).toFixed(0)}</p>
+                      <p className="text-[10px] text-muted-foreground leading-tight mt-0.5">Today's Revenue</p>
+                      {shopifyData.orderCount !== undefined && (
+                        <p className="text-[10px] text-muted-foreground mt-1">{shopifyData.orderCount} orders</p>
+                      )}
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => navigate('/admin?section=pos-connection')}
+                      className="flex flex-col items-center gap-1 text-center w-full"
+                    >
+                      <ShoppingBag className="h-5 w-5 text-muted-foreground" />
+                      <span className="text-[10px] text-muted-foreground leading-tight">Connect Shopify</span>
+                    </button>
                   )}
                 </div>
-              ) : (
-                <div className="text-center py-3 mb-4 pb-4 border-b border-border">
-                  <ShoppingBag className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-                  <p className="text-sm text-muted-foreground mb-2">Connect Shopify to see sales data</p>
-                  <Button variant="outline" size="sm" onClick={() => navigate('/admin?section=pos-connection')}>
-                    <ExternalLink className="h-3 w-3 mr-1" /> Connect
-                  </Button>
-                </div>
-              )}
 
-              {/* Staff list — flat, sorted by shift start time */}
-              {dashboardLoading ? (
-                <div className="space-y-2">
-                  <Skeleton className="h-4 w-full" />
-                  <Skeleton className="h-4 w-2/3" />
-                  <Skeleton className="h-4 w-3/4" />
-                </div>
-              ) : (() => {
+                {/* Vertical divider */}
+                <div className="w-px self-stretch bg-border shrink-0" />
+
+                {/* Shifts & clocked-in — 5/6 wide column */}
+                <div className="flex-1 min-w-0">
+                {/* Staff list — flat, sorted by shift start time */}
+                {dashboardLoading ? (
+                  <div className="space-y-2">
+                    <Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-4 w-2/3" />
+                    <Skeleton className="h-4 w-3/4" />
+                  </div>
+                ) : (() => {
                 const allSchedules: any[] = dashboardToday?.schedules ?? [];
                 const clockedInArr: any[] = dashboardToday?.clockedIn ?? [];
                 const clockedInMap = new Map(clockedInArr.map((e: any) => [e.userName, e]));
@@ -683,6 +686,8 @@ export default function OwnerDashboard() {
                   </div>
                 );
               })()}
+                </div>{/* end shifts 5/6 column */}
+              </div>{/* end flex container */}
             </CardContent>
           </Card>
         </DashboardErrorBoundary>
