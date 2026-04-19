@@ -284,7 +284,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Stagger cron job startup to avoid DB and AI API spikes during initial user requests.
   const staggered = [
-    { fn: () => startSurfacingCron(broadcastToAll), label: 'SOP Surfacing', delay: 5_000 },
+    { fn: () => startSurfacingCron(sendToUsers), label: 'SOP Surfacing', delay: 5_000 },
     { fn: () => startMiddayPulseCron(broadcastMiddayPulse), label: 'Midday Pulse', delay: 15_000 },
     { fn: () => startWeeklyReviewCron(), label: 'Weekly Review', delay: 25_000 },
     { fn: () => startLeanBoardCron(), label: 'Lean Board', delay: 35_000 },

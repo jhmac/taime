@@ -405,7 +405,7 @@ async function resolveStoreId(): Promise<string | null> {
 let surfacingInterval: ReturnType<typeof setInterval> | null = null;
 
 export function startSurfacingCron(
-  broadcastToAll: (data: Record<string, unknown>) => void
+  sendToUsers: (userIds: string[], data: Record<string, unknown>) => void
 ) {
   if (surfacingInterval) return;
 
@@ -414,27 +414,35 @@ export function startSurfacingCron(
       const storeId = await resolveStoreId();
       if (!storeId) return;
 
+      // Fetch all users currently clocked in (no limit — SOPs must reach every
+      // on-shift employee). De-duplicate in case of data anomalies (e.g. an
+      // employee with two open time entries).
       const activeOnShift = await db
         .select({ userId: timeEntries.userId })
         .from(timeEntries)
-        .where(isNull(timeEntries.clockOutTime))
-        .limit(100);
+        .where(isNull(timeEntries.clockOutTime));
 
       if (activeOnShift.length === 0) return;
 
       const timeBased = await getTimeBased(storeId);
 
       if (timeBased.length > 0) {
+        // Only on-shift users should receive SOP surfacing events — this is an
+        // intentional security boundary (mirrors the sales-view filter used for
+        // midday pulse broadcasts).
+        const onShiftUserIds = Array.from(new Set(activeOnShift.map((e) => e.userId)));
+
         logger.info(
           {
             sopCount: timeBased.length,
             trigger: "time_based_cron",
             templates: timeBased.map((s) => s.templateId),
+            recipientCount: onShiftUserIds.length,
           },
-          "SOP surfacing: time-based SOPs detected"
+          "SOP surfacing: time-based SOPs detected, broadcasting to on-shift users only"
         );
 
-        broadcastToAll({
+        sendToUsers(onShiftUserIds, {
           type: "sop_surfaced",
           data: {
             sops: timeBased,
