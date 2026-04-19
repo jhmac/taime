@@ -149,7 +149,14 @@ export default function NotificationSettings() {
   });
 
   const deliveryStatsQuery = useQuery<EmployeeDeliveryStats[]>({
-    queryKey: ['/api/push/delivery-stats'],
+    queryKey: ['/api/push/delivery-stats', logSinceFilter],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (logSinceFilter) params.set('since', new Date(logSinceFilter).toISOString());
+      const res = await fetch(`/api/push/delivery-stats?${params.toString()}`, { credentials: 'include' });
+      if (!res.ok) return [];
+      return res.json();
+    },
     enabled: isAdmin,
   });
 
