@@ -183,6 +183,56 @@ export async function computeIssueRecipients(
 }
 
 /**
+ * Recipients for `huddle_updated` events.
+ * The morning huddle is visible to the entire team: every active user in the
+ * same store may view and participate.  The real-time push therefore targets
+ * all same-store members so no user from a different store can receive it.
+ *
+ * `getStoreUserIds` is injected (not imported) for unit-testability.  Route
+ * handlers pass `getAllStoreUserIds` from `server/lib/permissionUtils`.
+ */
+export async function computeHuddleRecipients(
+  storeId: string,
+  getStoreUserIds: GetStoreUserIds,
+): Promise<string[]> {
+  return getStoreUserIds(storeId);
+}
+
+/**
+ * Recipients for `schedule_created`, `schedule_updated`, and
+ * `schedule_deleted` events.
+ * Schedule data is store-scoped: all active members of the same store may
+ * need to react to schedule changes (employees to see their own shifts,
+ * managers to maintain the full view).  The real-time push therefore targets
+ * every same-store member rather than leaking events across stores.
+ *
+ * `getStoreUserIds` is injected (not imported) for unit-testability.  Route
+ * handlers pass `getAllStoreUserIds` from `server/lib/permissionUtils`.
+ */
+export async function computeScheduleStoreRecipients(
+  storeId: string,
+  getStoreUserIds: GetStoreUserIds,
+): Promise<string[]> {
+  return getStoreUserIds(storeId);
+}
+
+/**
+ * Recipients for `shoutout_created` and `shoutout_reaction` events.
+ * Shout-outs are public within the team: every active user in the same store
+ * may view them.  The real-time push therefore targets all same-store members
+ * so no user from a different store can receive the event.
+ *
+ * `getStoreUserIds` is injected (not imported) for unit-testability.  Route
+ * handlers pass `getAllStoreUserIds` from `server/lib/permissionUtils`.
+ */
+export async function computeShoutoutRecipients(
+  storeId: string,
+  getStoreUserIds: GetStoreUserIds,
+): Promise<string[]> {
+  return getStoreUserIds(storeId);
+}
+
+/**
  * Recipients for `issue_comment_added` events.
  * The reporter, the assignee (if any), the comment author, and all users
  * with `admin.manage_all` or `hr.view_team` permission should receive these

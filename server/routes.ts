@@ -161,7 +161,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerAdminRoutes(app, storage, isAuthenticated);
   registerUserRoutes(app, storage, isAuthenticated);
   registerRoleRoutes(app, storage, isAuthenticated);
-  registerCommunicationRoutes(app, storage, isAuthenticated, broadcastToAll);
+  registerCommunicationRoutes(app, storage, isAuthenticated, sendToUsers);
   registerPayrollRoutes(app, storage, isAuthenticated);
   registerShopifyRoutes(app, storage, isAuthenticated);
   registerGeofenceRoutes(app, storage, isAuthenticated);

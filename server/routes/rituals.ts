@@ -14,7 +14,7 @@ import { triggerClarification } from "../services/gtdClarificationAI";
 import type { IStorage } from "../storage";
 import logger from "../lib/logger";
 import { getUserIdsWithPermission, getAllStoreUserIds } from "../lib/permissionUtils";
-import { computeDebriefRecipients, computeKudoRecipients } from "../lib/broadcastRecipients";
+import { computeDebriefRecipients, computeKudoRecipients, computeHuddleRecipients } from "../lib/broadcastRecipients";
 
 async function getFirstStoreId(): Promise<string> {
   const [store] = await db.select({ id: workLocations.id }).from(workLocations).limit(1);
@@ -85,7 +85,8 @@ export function registerRitualRoutes(
 
     if (!updated) throw new AppError(404, "No huddle found for today", "NOT_FOUND");
 
-    broadcastToAll({ type: 'huddle_updated', data: { huddle: updated } });
+    const huddleRecipients = await computeHuddleRecipients(storeId, getAllStoreUserIds);
+    sendToUsers(huddleRecipients, { type: 'huddle_updated', data: { huddle: updated } });
     res.json({ success: true, data: updated });
   }));
 

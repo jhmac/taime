@@ -6,7 +6,8 @@ import { db } from "../db";
 import { notificationService } from "../services/notificationService";
 import { claudeService } from "../services/claudeService";
 import { tryResolveStoreIdForUser } from "../lib/storeResolver";
-import { computeScheduleDmRecipients } from "../lib/broadcastRecipients";
+import { computeScheduleDmRecipients, computeScheduleStoreRecipients } from "../lib/broadcastRecipients";
+import { getAllStoreUserIds } from "../lib/permissionUtils";
 
 export function registerScheduleRoutes(
   app: Express,
@@ -36,7 +37,9 @@ export function registerScheduleRoutes(
         );
       }
 
-      broadcastToAll({
+      const scheduleStoreId = (await tryResolveStoreIdForUser(userId)) || 'default';
+      const scheduleCreatedRecipients = await computeScheduleStoreRecipients(scheduleStoreId, getAllStoreUserIds);
+      sendToUsers(scheduleCreatedRecipients, {
         type: 'schedule_created',
         data: { schedule },
       });
@@ -86,7 +89,9 @@ export function registerScheduleRoutes(
       if (body.endTime && typeof body.endTime === 'string') body.endTime = new Date(body.endTime);
 
       const updated = await storage.updateSchedule(req.params.id, body);
-      broadcastToAll({ type: 'schedule_updated', data: { schedule: updated } });
+      const scheduleUpdatedStoreId = (await tryResolveStoreIdForUser(userId)) || 'default';
+      const scheduleUpdatedRecipients = await computeScheduleStoreRecipients(scheduleUpdatedStoreId, getAllStoreUserIds);
+      sendToUsers(scheduleUpdatedRecipients, { type: 'schedule_updated', data: { schedule: updated } });
       res.json(updated);
     } catch (error) {
       console.error("Error updating schedule:", error);
@@ -242,7 +247,9 @@ export function registerScheduleRoutes(
         return res.status(403).json({ message: "Permission denied" });
       }
       await storage.deleteSchedule(req.params.id);
-      broadcastToAll({ type: 'schedule_deleted', data: { scheduleId: req.params.id } });
+      const scheduleDeletedStoreId = (await tryResolveStoreIdForUser(userId)) || 'default';
+      const scheduleDeletedRecipients = await computeScheduleStoreRecipients(scheduleDeletedStoreId, getAllStoreUserIds);
+      sendToUsers(scheduleDeletedRecipients, { type: 'schedule_deleted', data: { scheduleId: req.params.id } });
       res.json({ success: true });
     } catch (error) {
       console.error("Error deleting schedule:", error);

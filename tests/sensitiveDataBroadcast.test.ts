@@ -24,6 +24,9 @@
  *  • new_message (schedule notify-week DM)    → admin + target employee only
  *  • issue_created / issue_updated            → reporter + assignee + admin.manage_all + hr.view_team
  *  • issue_comment_added                      → reporter + assignee + comment author + admin.manage_all + hr.view_team
+ *  • huddle_updated                           → all same-store members
+ *  • schedule_created / schedule_updated / schedule_deleted → all same-store members
+ *  • shoutout_created / shoutout_reaction     → all same-store members
  *
  * Recipient-logic pattern follows tests/middayPulseBroadcast.test.ts — pure
  * functions with injected dependencies so no database or Express context is needed.
@@ -41,6 +44,9 @@ import {
   computeKudoRecipients,
   computeIssueRecipients,
   computeIssueCommentRecipients,
+  computeHuddleRecipients,
+  computeScheduleStoreRecipients,
+  computeShoutoutRecipients,
 } from "../server/lib/broadcastRecipients";
 
 const ROOT = resolve(__dirname, "..");
@@ -555,6 +561,136 @@ describe("computeIssueCommentRecipients — issue_comment_added", () => {
   });
 });
 
+// ─── huddle_updated ──────────────────────────────────────────────────────────
+
+describe("computeHuddleRecipients — huddle_updated", () => {
+  it("returns all store members for the given storeId", async () => {
+    const getStoreUserIds = makeGetStoreUserIds({ "store-a": ["emp-1", "emp-2", "mgr-1"] });
+    const recipients = await computeHuddleRecipients("store-a", getStoreUserIds);
+    expect(recipients).toContain("emp-1");
+    expect(recipients).toContain("emp-2");
+    expect(recipients).toContain("mgr-1");
+  });
+
+  it("calls getStoreUserIds with the correct storeId", async () => {
+    const getStoreUserIds = makeGetStoreUserIds({ "store-xyz": ["emp-1"] });
+    await computeHuddleRecipients("store-xyz", getStoreUserIds);
+    expect(getStoreUserIds).toHaveBeenCalledWith("store-xyz");
+  });
+
+  it("does NOT include users from a different store", async () => {
+    const getStoreUserIds = makeGetStoreUserIds({
+      "store-a": ["emp-a1", "emp-a2"],
+      "store-b": ["emp-b1", "emp-b2"],
+    });
+    const recipients = await computeHuddleRecipients("store-a", getStoreUserIds);
+    expect(recipients).not.toContain("emp-b1");
+    expect(recipients).not.toContain("emp-b2");
+  });
+
+  it("does NOT call getStoreUserIds with any storeId other than the huddle's storeId", async () => {
+    const getStoreUserIds = makeGetStoreUserIds({ "store-a": ["emp-1"] });
+    await computeHuddleRecipients("store-a", getStoreUserIds);
+    expect(getStoreUserIds).toHaveBeenCalledTimes(1);
+    expect(getStoreUserIds).toHaveBeenCalledWith("store-a");
+  });
+
+  it("returns an empty list when the store has no members", async () => {
+    const getStoreUserIds = makeGetStoreUserIds({ "store-a": [] });
+    const recipients = await computeHuddleRecipients("store-a", getStoreUserIds);
+    expect(recipients).toStrictEqual([]);
+  });
+});
+
+// ─── schedule_created / schedule_updated / schedule_deleted ──────────────────
+
+describe("computeScheduleStoreRecipients — schedule_created / schedule_updated / schedule_deleted", () => {
+  it("returns all store members for the given storeId", async () => {
+    const getStoreUserIds = makeGetStoreUserIds({ "store-a": ["emp-1", "emp-2", "mgr-1"] });
+    const recipients = await computeScheduleStoreRecipients("store-a", getStoreUserIds);
+    expect(recipients).toContain("emp-1");
+    expect(recipients).toContain("emp-2");
+    expect(recipients).toContain("mgr-1");
+  });
+
+  it("calls getStoreUserIds with the correct storeId", async () => {
+    const getStoreUserIds = makeGetStoreUserIds({ "store-abc": ["emp-1"] });
+    await computeScheduleStoreRecipients("store-abc", getStoreUserIds);
+    expect(getStoreUserIds).toHaveBeenCalledWith("store-abc");
+  });
+
+  it("does NOT include users from a different store", async () => {
+    const getStoreUserIds = makeGetStoreUserIds({
+      "store-a": ["emp-a1", "emp-a2"],
+      "store-b": ["emp-b1", "emp-b2"],
+    });
+    const recipients = await computeScheduleStoreRecipients("store-a", getStoreUserIds);
+    expect(recipients).not.toContain("emp-b1");
+    expect(recipients).not.toContain("emp-b2");
+  });
+
+  it("does NOT call getStoreUserIds more than once", async () => {
+    const getStoreUserIds = makeGetStoreUserIds({ "store-a": ["emp-1"] });
+    await computeScheduleStoreRecipients("store-a", getStoreUserIds);
+    expect(getStoreUserIds).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns an empty list when the store has no active members", async () => {
+    const getStoreUserIds = makeGetStoreUserIds({ "store-empty": [] });
+    const recipients = await computeScheduleStoreRecipients("store-empty", getStoreUserIds);
+    expect(recipients).toStrictEqual([]);
+  });
+});
+
+// ─── shoutout_created / shoutout_reaction ────────────────────────────────────
+
+describe("computeShoutoutRecipients — shoutout_created / shoutout_reaction", () => {
+  it("returns all store members for the given storeId", async () => {
+    const getStoreUserIds = makeGetStoreUserIds({ "store-a": ["emp-1", "emp-2", "emp-3"] });
+    const recipients = await computeShoutoutRecipients("store-a", getStoreUserIds);
+    expect(recipients).toContain("emp-1");
+    expect(recipients).toContain("emp-2");
+    expect(recipients).toContain("emp-3");
+  });
+
+  it("calls getStoreUserIds with the correct storeId", async () => {
+    const getStoreUserIds = makeGetStoreUserIds({ "store-x": ["emp-1"] });
+    await computeShoutoutRecipients("store-x", getStoreUserIds);
+    expect(getStoreUserIds).toHaveBeenCalledWith("store-x");
+  });
+
+  it("does NOT include users from a different store — store-boundary exclusion", async () => {
+    const getStoreUserIds = makeGetStoreUserIds({
+      "store-a": ["emp-a1", "emp-a2"],
+      "store-b": ["emp-b1", "emp-b2"],
+    });
+    const recipients = await computeShoutoutRecipients("store-a", getStoreUserIds);
+    expect(recipients).not.toContain("emp-b1");
+    expect(recipients).not.toContain("emp-b2");
+  });
+
+  it("does NOT call getStoreUserIds with any storeId other than the shoutout's storeId", async () => {
+    const getStoreUserIds = makeGetStoreUserIds({ "store-a": ["emp-1"] });
+    await computeShoutoutRecipients("store-a", getStoreUserIds);
+    expect(getStoreUserIds).toHaveBeenCalledTimes(1);
+    expect(getStoreUserIds).toHaveBeenCalledWith("store-a");
+  });
+
+  it("returns an empty list when the store has no active members", async () => {
+    const getStoreUserIds = makeGetStoreUserIds({ "store-empty": [] });
+    const recipients = await computeShoutoutRecipients("store-empty", getStoreUserIds);
+    expect(recipients).toStrictEqual([]);
+  });
+
+  it("returns the full member list including senders and reactors", async () => {
+    const members = ["sender-1", "recipient-1", "emp-3", "mgr-1"];
+    const getStoreUserIds = makeGetStoreUserIds({ "store-a": members });
+    const recipients = await computeShoutoutRecipients("store-a", getStoreUserIds);
+    for (const m of members) expect(recipients).toContain(m);
+    expect(recipients).toHaveLength(4);
+  });
+});
+
 // ─── Route wiring audit ───────────────────────────────────────────────────────
 //
 // For each sensitive event type, verify that the route file:
@@ -645,6 +781,42 @@ const WIRING_CASES: WiringCase[] = [
     file: "server/routes/issues.ts",
     eventType: "issue_comment_added",
     helperFn: "computeIssueCommentRecipients",
+  },
+  {
+    label: "huddle_updated",
+    file: "server/routes/rituals.ts",
+    eventType: "huddle_updated",
+    helperFn: "computeHuddleRecipients",
+  },
+  {
+    label: "schedule_created",
+    file: "server/routes/schedules.ts",
+    eventType: "schedule_created",
+    helperFn: "computeScheduleStoreRecipients",
+  },
+  {
+    label: "schedule_updated",
+    file: "server/routes/schedules.ts",
+    eventType: "schedule_updated",
+    helperFn: "computeScheduleStoreRecipients",
+  },
+  {
+    label: "schedule_deleted",
+    file: "server/routes/schedules.ts",
+    eventType: "schedule_deleted",
+    helperFn: "computeScheduleStoreRecipients",
+  },
+  {
+    label: "shoutout_created",
+    file: "server/routes/communication.ts",
+    eventType: "shoutout_created",
+    helperFn: "computeShoutoutRecipients",
+  },
+  {
+    label: "shoutout_reaction",
+    file: "server/routes/communication.ts",
+    eventType: "shoutout_reaction",
+    helperFn: "computeShoutoutRecipients",
   },
 ];
 
