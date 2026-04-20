@@ -7,7 +7,13 @@ import { notificationService } from "../services/notificationService";
 import { claudeService } from "../services/claudeService";
 import { tryResolveStoreIdForUser } from "../lib/storeResolver";
 
-export function registerScheduleRoutes(app: Express, storage: IStorage, isAuthenticated: any, broadcastToAll: (data: any) => void) {
+export function registerScheduleRoutes(
+  app: Express,
+  storage: IStorage,
+  isAuthenticated: any,
+  broadcastToAll: (data: any) => void,
+  sendToUsers: (userIds: string[], data: Record<string, unknown>) => void,
+) {
   app.post('/api/schedules', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
@@ -200,8 +206,8 @@ export function registerScheduleRoutes(app: Express, storage: IStorage, isAuthen
             .set({ updatedAt: new Date() })
             .where(eq(messageThreads.id, threadId));
 
-          // Broadcast via WebSocket so the recipient sees it in real-time
-          broadcastToAll({
+          // Send only to the two DM participants so message content stays private
+          sendToUsers([adminId, empUserId], {
             type: 'new_message',
             data: {
               threadId,

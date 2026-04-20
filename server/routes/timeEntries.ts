@@ -5,6 +5,7 @@ import { geofencingService } from "../services/geofencingService";
 import { getOpeningSOPsForClockIn, getShiftHandoffSOPs } from "../services/sopSurfacing";
 import { runClockInRedistribute } from "./ai";
 import logger from "../lib/logger";
+import { getUserIdsWithPermission } from "../lib/permissionUtils";
 
 async function withRetry<T>(fn: () => Promise<T>, retries = 2, delay = 500): Promise<T> {
   for (let i = 0; i <= retries; i++) {
@@ -27,7 +28,13 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 2, delay = 500): Pro
   throw new Error('Retry exhausted');
 }
 
-export function registerTimeEntryRoutes(app: Express, storage: IStorage, isAuthenticated: any, broadcastToAll: (data: any) => void) {
+export function registerTimeEntryRoutes(
+  app: Express,
+  storage: IStorage,
+  isAuthenticated: any,
+  broadcastToAll: (data: any) => void,
+  sendToUsers: (userIds: string[], data: Record<string, unknown>) => void,
+) {
   app.post('/api/time-entries', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
@@ -67,8 +74,10 @@ export function registerTimeEntryRoutes(app: Express, storage: IStorage, isAuthe
       }
 
       const timeEntry = await withRetry(() => storage.createTimeEntry(data));
-      
-      broadcastToAll({
+
+      const timeViewerIds = await getUserIdsWithPermission('time.view_all');
+      const timeEntryRecipients = Array.from(new Set([userId, ...timeViewerIds]));
+      sendToUsers(timeEntryRecipients, {
         type: 'time_entry_created',
         data: { timeEntry, userId },
       });
@@ -97,7 +106,7 @@ export function registerTimeEntryRoutes(app: Express, storage: IStorage, isAuthe
               { userId, sopCount: surfacedSOPs.length, trigger: "clock_in" },
               "SOP surfacing: clock-in triggered"
             );
-            broadcastToAll({
+            sendToUsers([userId], {
               type: "sop_surfaced",
               data: { sops: surfacedSOPs, trigger: "clock_in", userId },
             });
@@ -234,8 +243,10 @@ export function registerTimeEntryRoutes(app: Express, storage: IStorage, isAuthe
       await Promise.all(auditPromises);
 
       const timeEntry = await storage.updateTimeEntry(id, safeUpdates);
-      
-      broadcastToAll({
+
+      const timeViewerIds = await getUserIdsWithPermission('time.view_all');
+      const timeEntryRecipients = Array.from(new Set([existing.userId, ...timeViewerIds]));
+      sendToUsers(timeEntryRecipients, {
         type: 'time_entry_updated',
         data: { timeEntry },
       });

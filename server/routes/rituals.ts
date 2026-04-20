@@ -13,6 +13,7 @@ import { generateMiddayPulse } from "../services/middayPulse";
 import { triggerClarification } from "../services/gtdClarificationAI";
 import type { IStorage } from "../storage";
 import logger from "../lib/logger";
+import { getUserIdsWithPermission } from "../lib/permissionUtils";
 
 async function getFirstStoreId(): Promise<string> {
   const [store] = await db.select({ id: workLocations.id }).from(workLocations).limit(1);
@@ -28,7 +29,8 @@ export function registerRitualRoutes(
   app: Express,
   storage: IStorage,
   isAuthenticated: any,
-  broadcastToAll: (data: any) => void
+  broadcastToAll: (data: any) => void,
+  sendToUsers: (userIds: string[], data: Record<string, unknown>) => void,
 ) {
   app.get('/api/rituals/huddle/today', isAuthenticated, asyncHandler(async (req: any, res) => {
     const storeId = await getFirstStoreId();
@@ -146,7 +148,10 @@ export function registerRitualRoutes(
       [debrief] = await db.insert(dailyDebriefs).values(body).returning();
     }
 
-    broadcastToAll({ type: 'debrief_submitted', data: { debrief } });
+    const managerIds = await getUserIdsWithPermission('hr.view_team');
+    const adminIds = await getUserIdsWithPermission('admin.manage_all');
+    const debriefRecipients = Array.from(new Set([userId, ...managerIds, ...adminIds]));
+    sendToUsers(debriefRecipients, { type: 'debrief_submitted', data: { debrief } });
 
     if (debrief.whatBuggedYou) {
       try {

@@ -154,8 +154,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
   registerAuthRoutes(app, storage, isAuthenticated);
-  registerTimeEntryRoutes(app, storage, isAuthenticated, broadcastToAll);
-  registerScheduleRoutes(app, storage, isAuthenticated, broadcastToAll);
+  registerTimeEntryRoutes(app, storage, isAuthenticated, broadcastToAll, sendToUsers);
+  registerScheduleRoutes(app, storage, isAuthenticated, broadcastToAll, sendToUsers);
   registerTaskRoutes(app, storage, isAuthenticated, broadcastToAll);
   registerAIRoutes(app, storage, isAuthenticated, broadcastToAll);
   registerAdminRoutes(app, storage, isAuthenticated);
@@ -177,9 +177,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerAiSchedulingRoutes(app, storage, isAuthenticated);
   registerDashboardRoutes(app, storage, isAuthenticated);
   registerIssueRoutes(app, storage, isAuthenticated, broadcastToAll);
-  registerRitualRoutes(app, storage, isAuthenticated, broadcastToAll);
+  registerRitualRoutes(app, storage, isAuthenticated, broadcastToAll, sendToUsers);
   registerVideoRoutes(app, storage, isAuthenticated, broadcastToAll);
-  registerGtdRoutes(app, storage, isAuthenticated, broadcastToAll);
+  registerGtdRoutes(app, storage, isAuthenticated, broadcastToAll, sendToUsers);
   registerMeetingRoutes(app, storage, isAuthenticated, broadcastToAll, sendToUsers);
   registerWeeklyReviewRoutes(app, storage, isAuthenticated);
   registerMessageRoutes(app, storage, isAuthenticated, sendToUsers);

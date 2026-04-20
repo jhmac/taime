@@ -146,7 +146,8 @@ export function registerGtdRoutes(
   app: Express,
   storage: IStorage,
   isAuthenticated: any,
-  broadcastToAll: (data: any) => void
+  broadcastToAll: (data: any) => void,
+  sendToUsers: (userIds: string[], data: Record<string, unknown>) => void,
 ) {
 
   // ── INBOX ──────────────────────────────────────────────
@@ -164,7 +165,7 @@ export function registerGtdRoutes(
       status: 'unprocessed',
     }).returning();
 
-    broadcastToAll({ type: 'inbox_item_created', data: { item } });
+    sendToUsers([userId], { type: 'inbox_item_created', data: { item } });
 
     const user = await storage.getUserWithRole(userId);
     const employeeName = user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() : 'Unknown';
@@ -311,7 +312,7 @@ export function registerGtdRoutes(
       }).where(eq(gtdInboxItems.id, id));
     });
 
-    broadcastToAll({ type: 'inbox_item_processed', data: { itemId: id, destination: body.destination, createdId } });
+    sendToUsers([userId], { type: 'inbox_item_processed', data: { itemId: id, destination: body.destination, createdId } });
     res.json({ success: true, data: { itemId: id, destination: body.destination, createdId } });
   }));
 
@@ -435,7 +436,8 @@ export function registerGtdRoutes(
       isTwoMinute: body.is_two_minute || false,
     }).returning();
 
-    broadcastToAll({ type: 'action_created', data: { action } });
+    const actionRecipients = Array.from(new Set([userId, action.assignedTo].filter(Boolean))) as string[];
+    sendToUsers(actionRecipients, { type: 'action_created', data: { action } });
     res.status(201).json({ success: true, data: action });
   }));
 
@@ -484,7 +486,8 @@ export function registerGtdRoutes(
         targetId: id,
         details: `Completed GTD action: ${updated.title}`,
       });
-      broadcastToAll({ type: 'action_completed', data: { action: updated } });
+      const completedRecipients = Array.from(new Set([userId, updated.assignedTo, updated.createdBy].filter(Boolean))) as string[];
+      sendToUsers(completedRecipients, { type: 'action_completed', data: { action: updated } });
     }
 
     res.json({ success: true, data: updated });
@@ -640,7 +643,9 @@ export function registerGtdRoutes(
       .returning();
 
     if (body.status === 'completed') {
-      broadcastToAll({ type: 'project_completed', data: { project: updated } });
+      const projectOwner = updated.ownerId || userId;
+      const projectRecipients = Array.from(new Set([userId, projectOwner].filter(Boolean))) as string[];
+      sendToUsers(projectRecipients, { type: 'project_completed', data: { project: updated } });
     }
 
     res.json({ success: true, data: updated });
