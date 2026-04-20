@@ -630,6 +630,8 @@ export function registerSopLibraryRoutes(
           : (c.status === "completed" || c.status === "skipped")
       ) && reachableStepIds.size > 0;
 
+    const managerIds = await getManagerUserIds();
+
     if (allDone) {
       await db.update(sopExecutions)
         .set({ status: "completed", completedAt: new Date() })
@@ -643,13 +645,11 @@ export function registerSopLibraryRoutes(
         details: "SOP execution completed (all steps done)",
       });
 
-      const managerIdsForExecComplete = await getManagerUserIds();
-      const recipientsForExecComplete = Array.from(new Set([execution.employeeId, ...managerIdsForExecComplete]));
+      const recipientsForExecComplete = Array.from(new Set([execution.employeeId, ...managerIds]));
       sendToUsers(recipientsForExecComplete, { type: "execution_completed", data: { executionId: id, employeeId: execution.employeeId } });
     }
 
-    const managerIdsForStep = await getManagerUserIds();
-    const recipientsForStep = Array.from(new Set([execution.employeeId, ...managerIdsForStep]));
+    const recipientsForStep = Array.from(new Set([execution.employeeId, ...managerIds]));
     sendToUsers(recipientsForStep, { type: "step_completed", data: { executionId: id, stepId, status: body.status } });
 
     const [updated] = await db.select().from(sopStepCompletions).where(eq(sopStepCompletions.id, completion.id));
