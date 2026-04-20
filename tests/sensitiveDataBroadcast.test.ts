@@ -22,6 +22,8 @@
  *  • inbox_item_created / inbox_item_processed → captured-by user only
  *  • action_created / action_completed        → actor + assignee + (original creator)
  *  • new_message (schedule notify-week DM)    → admin + target employee only
+ *  • issue_created / issue_updated            → reporter + assignee + admin.manage_all + hr.view_team
+ *  • issue_comment_added                      → reporter + assignee + comment author + admin.manage_all + hr.view_team
  *
  * Recipient-logic pattern follows tests/middayPulseBroadcast.test.ts — pure
  * functions with injected dependencies so no database or Express context is needed.
@@ -37,6 +39,8 @@ import {
   computeGtdActionRecipients,
   computeScheduleDmRecipients,
   computeKudoRecipients,
+  computeIssueRecipients,
+  computeIssueCommentRecipients,
 } from "../server/lib/broadcastRecipients";
 
 const ROOT = resolve(__dirname, "..");
@@ -389,6 +393,168 @@ describe("computeKudoRecipients — kudo_sent", () => {
   });
 });
 
+// ─── issue_created / issue_updated ──────────────────────────────────────────
+
+describe("computeIssueRecipients — issue_created / issue_updated", () => {
+  it("always includes the reporter", async () => {
+    const getPermittedIds = makeGetPermittedIds([]);
+    const recipients = await computeIssueRecipients("reporter-1", null, getPermittedIds);
+    expect(recipients).toContain("reporter-1");
+  });
+
+  it("includes the assignee when one is set", async () => {
+    const getPermittedIds = makeGetPermittedIds([]);
+    const recipients = await computeIssueRecipients("reporter-1", "assignee-1", getPermittedIds);
+    expect(recipients).toContain("assignee-1");
+  });
+
+  it("does NOT include an absent assignee (null)", async () => {
+    const getPermittedIds = makeGetPermittedIds([]);
+    const recipients = await computeIssueRecipients("reporter-1", null, getPermittedIds);
+    expect(recipients).toHaveLength(1);
+    expect(recipients).toStrictEqual(["reporter-1"]);
+  });
+
+  it("includes users with admin.manage_all permission", async () => {
+    const getPermittedIds = makeGetPermittedIdsByPerm({
+      "admin.manage_all": ["admin-1"],
+      "hr.view_team": [],
+    });
+    const recipients = await computeIssueRecipients("reporter-1", null, getPermittedIds);
+    expect(recipients).toContain("admin-1");
+  });
+
+  it("includes users with hr.view_team permission", async () => {
+    const getPermittedIds = makeGetPermittedIdsByPerm({
+      "admin.manage_all": [],
+      "hr.view_team": ["hr-mgr-1"],
+    });
+    const recipients = await computeIssueRecipients("reporter-1", null, getPermittedIds);
+    expect(recipients).toContain("hr-mgr-1");
+  });
+
+  it("includes both admin.manage_all and hr.view_team holders together", async () => {
+    const getPermittedIds = makeGetPermittedIdsByPerm({
+      "admin.manage_all": ["admin-1"],
+      "hr.view_team": ["hr-mgr-1"],
+    });
+    const recipients = await computeIssueRecipients("reporter-1", "assignee-1", getPermittedIds);
+    expect(recipients).toContain("reporter-1");
+    expect(recipients).toContain("assignee-1");
+    expect(recipients).toContain("admin-1");
+    expect(recipients).toContain("hr-mgr-1");
+  });
+
+  it("does NOT include users who hold neither permission", async () => {
+    const getPermittedIds = makeGetPermittedIdsByPerm({
+      "admin.manage_all": ["admin-1"],
+      "hr.view_team": ["hr-mgr-1"],
+    });
+    const recipients = await computeIssueRecipients("reporter-1", null, getPermittedIds);
+    expect(recipients).not.toContain("random-employee");
+    expect(recipients).not.toContain("sales-user");
+  });
+
+  it("calls getPermittedIds for both admin.manage_all and hr.view_team", async () => {
+    const getPermittedIds = makeGetPermittedIds([]);
+    await computeIssueRecipients("reporter-1", null, getPermittedIds);
+    expect(getPermittedIds).toHaveBeenCalledWith("admin.manage_all");
+    expect(getPermittedIds).toHaveBeenCalledWith("hr.view_team");
+  });
+
+  it("de-duplicates when reporter is also an admin", async () => {
+    const getPermittedIds = makeGetPermittedIdsByPerm({
+      "admin.manage_all": ["reporter-1", "admin-2"],
+      "hr.view_team": [],
+    });
+    const recipients = await computeIssueRecipients("reporter-1", null, getPermittedIds);
+    const reporterOccurrences = recipients.filter((id) => id === "reporter-1");
+    expect(reporterOccurrences).toHaveLength(1);
+  });
+});
+
+// ─── issue_comment_added ─────────────────────────────────────────────────────
+
+describe("computeIssueCommentRecipients — issue_comment_added", () => {
+  it("always includes the issue reporter", async () => {
+    const getPermittedIds = makeGetPermittedIds([]);
+    const recipients = await computeIssueCommentRecipients("reporter-1", null, "author-1", getPermittedIds);
+    expect(recipients).toContain("reporter-1");
+  });
+
+  it("always includes the comment author", async () => {
+    const getPermittedIds = makeGetPermittedIds([]);
+    const recipients = await computeIssueCommentRecipients("reporter-1", null, "author-1", getPermittedIds);
+    expect(recipients).toContain("author-1");
+  });
+
+  it("includes the assignee when one is set", async () => {
+    const getPermittedIds = makeGetPermittedIds([]);
+    const recipients = await computeIssueCommentRecipients("reporter-1", "assignee-1", "author-1", getPermittedIds);
+    expect(recipients).toContain("assignee-1");
+  });
+
+  it("does NOT include an absent assignee (null)", async () => {
+    const getPermittedIds = makeGetPermittedIds([]);
+    const recipients = await computeIssueCommentRecipients("reporter-1", null, "author-1", getPermittedIds);
+    expect(recipients).not.toContain(null);
+    expect(recipients.every((id) => typeof id === "string" && id.length > 0)).toBe(true);
+  });
+
+  it("includes users with admin.manage_all permission", async () => {
+    const getPermittedIds = makeGetPermittedIdsByPerm({
+      "admin.manage_all": ["admin-1"],
+      "hr.view_team": [],
+    });
+    const recipients = await computeIssueCommentRecipients("reporter-1", null, "author-1", getPermittedIds);
+    expect(recipients).toContain("admin-1");
+  });
+
+  it("includes users with hr.view_team permission", async () => {
+    const getPermittedIds = makeGetPermittedIdsByPerm({
+      "admin.manage_all": [],
+      "hr.view_team": ["hr-mgr-1"],
+    });
+    const recipients = await computeIssueCommentRecipients("reporter-1", null, "author-1", getPermittedIds);
+    expect(recipients).toContain("hr-mgr-1");
+  });
+
+  it("does NOT include users who hold neither permission", async () => {
+    const getPermittedIds = makeGetPermittedIdsByPerm({
+      "admin.manage_all": ["admin-1"],
+      "hr.view_team": [],
+    });
+    const recipients = await computeIssueCommentRecipients("reporter-1", null, "author-1", getPermittedIds);
+    expect(recipients).not.toContain("random-user");
+  });
+
+  it("calls getPermittedIds for both admin.manage_all and hr.view_team", async () => {
+    const getPermittedIds = makeGetPermittedIds([]);
+    await computeIssueCommentRecipients("reporter-1", null, "author-1", getPermittedIds);
+    expect(getPermittedIds).toHaveBeenCalledWith("admin.manage_all");
+    expect(getPermittedIds).toHaveBeenCalledWith("hr.view_team");
+  });
+
+  it("de-duplicates when reporter is also the comment author", async () => {
+    const getPermittedIds = makeGetPermittedIds([]);
+    const recipients = await computeIssueCommentRecipients("user-1", null, "user-1", getPermittedIds);
+    const occurrences = recipients.filter((id) => id === "user-1");
+    expect(occurrences).toHaveLength(1);
+  });
+
+  it("de-duplicates when all three parties are the same user", async () => {
+    const getPermittedIds = makeGetPermittedIds([]);
+    const recipients = await computeIssueCommentRecipients("user-1", "user-1", "user-1", getPermittedIds);
+    expect(recipients).toStrictEqual(["user-1"]);
+  });
+
+  it("returns reporter + author when no assignee and no privileged users", async () => {
+    const getPermittedIds = makeGetPermittedIds([]);
+    const recipients = await computeIssueCommentRecipients("reporter-1", null, "author-1", getPermittedIds);
+    expect(recipients).toStrictEqual(["reporter-1", "author-1"]);
+  });
+});
+
 // ─── Route wiring audit ───────────────────────────────────────────────────────
 //
 // For each sensitive event type, verify that the route file:
@@ -461,6 +627,24 @@ const WIRING_CASES: WiringCase[] = [
     file: "server/routes/rituals.ts",
     eventType: "kudo_sent",
     helperFn: "computeKudoRecipients",
+  },
+  {
+    label: "issue_created",
+    file: "server/routes/issues.ts",
+    eventType: "issue_created",
+    helperFn: "computeIssueRecipients",
+  },
+  {
+    label: "issue_updated",
+    file: "server/routes/issues.ts",
+    eventType: "issue_updated",
+    helperFn: "computeIssueRecipients",
+  },
+  {
+    label: "issue_comment_added",
+    file: "server/routes/issues.ts",
+    eventType: "issue_comment_added",
+    helperFn: "computeIssueCommentRecipients",
   },
 ];
 

@@ -8,12 +8,15 @@ import type { IStorage } from "../storage";
 import { getIssueBasedSOPs } from "../services/sopSurfacing";
 import { triggerClarification } from "../services/gtdClarificationAI";
 import logger from "../lib/logger";
+import { getUserIdsWithPermission } from "../lib/permissionUtils";
+import { computeIssueRecipients, computeIssueCommentRecipients } from "../lib/broadcastRecipients";
 
 export function registerIssueRoutes(
   app: Express,
   storage: IStorage,
   isAuthenticated: any,
-  broadcastToAll: (data: any) => void
+  broadcastToAll: (data: any) => void,
+  sendToUsers: (userIds: string[], data: Record<string, unknown>) => void,
 ) {
   app.post('/api/issues', isAuthenticated, asyncHandler(async (req: any, res) => {
     const userId = req.user.id;
@@ -41,7 +44,12 @@ export function registerIssueRoutes(
       metadata: { category: issue.category, priority: issue.priority },
     });
 
-    broadcastToAll({ type: 'issue_created', data: { issue } });
+    const issueCreatedRecipients = await computeIssueRecipients(
+      issue.reportedBy,
+      issue.assignedTo,
+      getUserIdsWithPermission,
+    );
+    sendToUsers(issueCreatedRecipients, { type: 'issue_created', data: { issue } });
 
     try {
       const relatedSOPs = await getIssueBasedSOPs(issue.category, issue.title, storeId);
@@ -276,7 +284,12 @@ export function registerIssueRoutes(
       });
     }
 
-    broadcastToAll({ type: 'issue_updated', data: { issue: updated } });
+    const issueUpdatedRecipients = await computeIssueRecipients(
+      updated.reportedBy,
+      updated.assignedTo,
+      getUserIdsWithPermission,
+    );
+    sendToUsers(issueUpdatedRecipients, { type: 'issue_updated', data: { issue: updated } });
 
     res.json({ success: true, data: updated });
   }));
@@ -299,7 +312,15 @@ export function registerIssueRoutes(
     const author = await storage.getUser(userId);
     const authorName = author ? `${author.firstName || ''} ${author.lastName || ''}`.trim() : 'Unknown';
 
-    broadcastToAll({
+    const [issueRow] = await db.select({ reportedBy: issues.reportedBy, assignedTo: issues.assignedTo })
+      .from(issues).where(eq(issues.id, id));
+    const commentRecipients = await computeIssueCommentRecipients(
+      issueRow.reportedBy,
+      issueRow.assignedTo,
+      userId,
+      getUserIdsWithPermission,
+    );
+    sendToUsers(commentRecipients, {
       type: 'issue_comment_added',
       data: { issueId: id, comment: { ...comment, authorName } },
     });

@@ -156,3 +156,55 @@ export function computeSopSignOffCompletedRecipients(
 ): string[] {
   return Array.from(new Set([employeeId, managerId]));
 }
+
+/**
+ * Recipients for `issue_created` and `issue_updated` events.
+ * The reporter who filed the issue, the assigned employee (if any), and all
+ * users with `admin.manage_all` or `hr.view_team` permission should receive
+ * these messages.
+ */
+export async function computeIssueRecipients(
+  reporterId: string,
+  assignedTo: string | null | undefined,
+  getPermittedIds: GetPermittedIds,
+): Promise<string[]> {
+  const [adminIds, hrIds] = await Promise.all([
+    getPermittedIds("admin.manage_all"),
+    getPermittedIds("hr.view_team"),
+  ]);
+  return Array.from(
+    new Set([
+      reporterId,
+      ...(assignedTo ? [assignedTo] : []),
+      ...adminIds,
+      ...hrIds,
+    ]),
+  );
+}
+
+/**
+ * Recipients for `issue_comment_added` events.
+ * The reporter, the assignee (if any), the comment author, and all users
+ * with `admin.manage_all` or `hr.view_team` permission should receive these
+ * messages.
+ */
+export async function computeIssueCommentRecipients(
+  reporterId: string,
+  assignedTo: string | null | undefined,
+  commentAuthorId: string,
+  getPermittedIds: GetPermittedIds,
+): Promise<string[]> {
+  const [adminIds, hrIds] = await Promise.all([
+    getPermittedIds("admin.manage_all"),
+    getPermittedIds("hr.view_team"),
+  ]);
+  return Array.from(
+    new Set([
+      reporterId,
+      ...(assignedTo ? [assignedTo] : []),
+      commentAuthorId,
+      ...adminIds,
+      ...hrIds,
+    ]),
+  );
+}
