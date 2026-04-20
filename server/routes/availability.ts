@@ -106,10 +106,11 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
   app.get('/api/time-off-requests', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const isAdmin = req.user?.role?.name === 'admin' || req.user?.role?.name === 'owner';
+      const roleName = req.user?.role?.name;
+      const canReview = roleName === 'admin' || roleName === 'owner' || roleName === 'manager';
       const { all } = req.query;
 
-      if (all === 'true' && isAdmin) {
+      if (all === 'true' && canReview) {
         const requests = await storage.getTimeOffRequests();
         return res.json(requests);
       }
@@ -126,7 +127,8 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
     try {
       const { id } = req.params;
       const userId = req.user.id;
-      const isAdmin = req.user?.role?.name === 'admin' || req.user?.role?.name === 'owner';
+      const roleName = req.user?.role?.name;
+      const isAdmin = roleName === 'admin' || roleName === 'owner' || roleName === 'manager';
       const { status, adminNotes } = req.body;
 
       const existing = await storage.getTimeOffRequest(id);
@@ -161,7 +163,8 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
     try {
       const { id } = req.params;
       const userId = req.user.id;
-      const isAdmin = req.user?.role?.name === 'admin' || req.user?.role?.name === 'owner';
+      const roleName = req.user?.role?.name;
+      const isAdmin = roleName === 'admin' || roleName === 'owner' || roleName === 'manager';
 
       const existing = await storage.getTimeOffRequest(id);
       if (!existing) {
