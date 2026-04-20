@@ -5,6 +5,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { AlertTriangle, CalendarDays, MapPinOff, X } from 'lucide-react';
 import ErrorWithRetry from '@/components/ErrorWithRetry';
 import { useOnlineRetry } from '@/hooks/useOnlineRetry';
+import { readShopifyConnectionCache, writeShopifyConnectionCache } from '@/lib/shopifyConnectionCache';
 
 interface ShopifyData {
   connected?: boolean;
@@ -128,40 +129,11 @@ export default function TeamStatusWidget() {
   });
 
   const shopifyCacheKey = clerkUser?.id ? `shopify_connected:${clerkUser.id}` : null;
-
-  // Cache TTL: trust the stored connection status for up to 30 minutes.
-  // After that, fall back to the safe default (full-width, no skeleton) so
-  // a store that has since disconnected Shopify doesn't keep flashing a
-  // revenue skeleton on every page load until the user manually refreshes.
-  const SHOPIFY_CACHE_TTL_MS = 30 * 60 * 1000;
-
-  const cachedShopifyConnected = (() => {
-    if (!shopifyCacheKey) return false;
-    try {
-      const raw = localStorage.getItem(shopifyCacheKey);
-      if (!raw) return false;
-      const parsed = JSON.parse(raw);
-      if (
-        typeof parsed === 'object' &&
-        parsed !== null &&
-        typeof parsed.connected === 'boolean' &&
-        typeof parsed.cachedAt === 'number' &&
-        Date.now() - parsed.cachedAt < SHOPIFY_CACHE_TTL_MS
-      ) {
-        return parsed.connected;
-      }
-    } catch {}
-    return false;
-  })();
+  const cachedShopifyConnected = readShopifyConnectionCache(shopifyCacheKey);
 
   useEffect(() => {
     if (shopifyCacheKey && shopifyData !== undefined) {
-      try {
-        localStorage.setItem(
-          shopifyCacheKey,
-          JSON.stringify({ connected: shopifyData.connected === true, cachedAt: Date.now() })
-        );
-      } catch {}
+      writeShopifyConnectionCache(shopifyCacheKey, shopifyData.connected === true);
     }
   }, [shopifyData, shopifyCacheKey]);
 
