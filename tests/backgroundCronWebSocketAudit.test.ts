@@ -110,6 +110,75 @@ describe("Background cron WebSocket leak audit — named cron services", () => {
   }
 });
 
+/**
+ * Sensitive event types defined in server/lib/broadcastRecipients.ts.
+ * These events carry per-user data (time entries, debriefs, GTD inbox/actions,
+ * DMs) and MUST only be sent via sendToUsers() with appropriate recipient
+ * filtering. Accidentally routing them through broadcastToAll() would leak
+ * private data to every connected client.
+ */
+const SENSITIVE_EVENT_TYPES: string[] = [
+  "time_entry_created",
+  "time_entry_updated",
+  "debrief_submitted",
+  "inbox_item_created",
+  "inbox_item_processed",
+  "action_created",
+  "action_completed",
+  "new_message",
+];
+
+/**
+ * Build a regex that matches a broadcastToAll call whose `type:` literal is
+ * one of the sensitive event types. The pattern handles both single and double
+ * quotes and allows optional whitespace around the colon.
+ *
+ * Example it matches:
+ *   broadcastToAll({ type: 'time_entry_created', ... })
+ *   broadcastToAll({ type: "new_message", ... })
+ */
+function buildSensitiveEventPattern(eventType: string): RegExp {
+  return new RegExp(
+    `broadcastToAll\\s*\\([^)]*type\\s*:\\s*['"]${eventType}['"]`,
+    "s",
+  );
+}
+
+describe("Route handler sensitive-event broadcast audit", () => {
+  /**
+   * Scan every route file for broadcastToAll calls that use a known sensitive
+   * event type. Route handlers are allowed to use broadcastToAll for public
+   * events (e.g. huddle_updated, schedule_created) but must never use it for
+   * events that carry per-user private data.
+   */
+  const routeFiles = listTsFiles("server/routes");
+
+  for (const eventType of SENSITIVE_EVENT_TYPES) {
+    const pattern = buildSensitiveEventPattern(eventType);
+
+    it(`no route handler calls broadcastToAll with sensitive event type "${eventType}"`, () => {
+      const violations: string[] = [];
+
+      for (const filePath of routeFiles) {
+        const source = readFile(filePath);
+        if (pattern.test(source)) {
+          violations.push(filePath);
+        }
+      }
+
+      expect(
+        violations,
+        `The following route files call broadcastToAll with the sensitive event type "${eventType}":\n` +
+          violations.map((v) => `  - ${v}`).join("\n") +
+          `\n\nFix: use sendToUsers() with the appropriate recipient filter from ` +
+          `server/lib/broadcastRecipients.ts instead of broadcastToAll() for ` +
+          `"${eventType}" events. broadcastToAll() sends to every connected ` +
+          `client and must not be used for per-user private data.`,
+      ).toHaveLength(0);
+    });
+  }
+});
+
 describe("Background cron WebSocket leak audit — service-layer repo scan", () => {
   /**
    * Scan all service files. Route handlers (server/routes/*.ts) are excluded
