@@ -402,6 +402,71 @@ async function resolveStoreId(): Promise<string | null> {
   return locations[0]?.id || null;
 }
 
+export interface CronDeps {
+  resolveStoreId: () => Promise<string | null>;
+  getActiveOnShift: () => Promise<Array<{ userId: string }>>;
+  getTimeBased: (storeId: string) => Promise<SurfacedSOP[]>;
+  logger: { info: (obj: Record<string, unknown>, msg: string) => void; error: (obj: Record<string, unknown>, msg: string) => void };
+}
+
+export async function runSurfacingTick(
+  sendToUsers: (userIds: string[], data: Record<string, unknown>) => void,
+  deps: CronDeps
+): Promise<void> {
+  const storeId = await deps.resolveStoreId();
+  if (!storeId) return;
+
+  // Fetch all users currently clocked in (no limit — SOPs must reach every
+  // on-shift employee). De-duplicate in case of data anomalies (e.g. an
+  // employee with two open time entries).
+  const activeOnShift = await deps.getActiveOnShift();
+
+  if (activeOnShift.length === 0) return;
+
+  const timeBased = await deps.getTimeBased(storeId);
+
+  if (timeBased.length > 0) {
+    // Only on-shift users should receive SOP surfacing events — this is an
+    // intentional security boundary (mirrors the sales-view filter used for
+    // midday pulse broadcasts).
+    const onShiftUserIds = Array.from(new Set(activeOnShift.map((e) => e.userId)));
+
+    deps.logger.info(
+      {
+        sopCount: timeBased.length,
+        trigger: "time_based_cron",
+        templates: timeBased.map((s) => s.templateId),
+        recipientCount: onShiftUserIds.length,
+      },
+      "SOP surfacing: time-based SOPs detected, broadcasting to on-shift users only"
+    );
+
+    sendToUsers(onShiftUserIds, {
+      type: "sop_surfaced",
+      data: {
+        sops: timeBased,
+        trigger: "time_based",
+      },
+    });
+  }
+}
+
+function makeProdDeps(): CronDeps {
+  return {
+    resolveStoreId,
+    getActiveOnShift: () =>
+      db
+        .select({ userId: timeEntries.userId })
+        .from(timeEntries)
+        .where(isNull(timeEntries.clockOutTime)),
+    getTimeBased,
+    logger: {
+      info: (obj, msg) => logger.info(obj, msg),
+      error: (obj, msg) => logger.error(obj, msg),
+    },
+  };
+}
+
 let surfacingInterval: ReturnType<typeof setInterval> | null = null;
 
 export function startSurfacingCron(
@@ -409,47 +474,11 @@ export function startSurfacingCron(
 ) {
   if (surfacingInterval) return;
 
+  const deps = makeProdDeps();
+
   surfacingInterval = setInterval(async () => {
     try {
-      const storeId = await resolveStoreId();
-      if (!storeId) return;
-
-      // Fetch all users currently clocked in (no limit — SOPs must reach every
-      // on-shift employee). De-duplicate in case of data anomalies (e.g. an
-      // employee with two open time entries).
-      const activeOnShift = await db
-        .select({ userId: timeEntries.userId })
-        .from(timeEntries)
-        .where(isNull(timeEntries.clockOutTime));
-
-      if (activeOnShift.length === 0) return;
-
-      const timeBased = await getTimeBased(storeId);
-
-      if (timeBased.length > 0) {
-        // Only on-shift users should receive SOP surfacing events — this is an
-        // intentional security boundary (mirrors the sales-view filter used for
-        // midday pulse broadcasts).
-        const onShiftUserIds = Array.from(new Set(activeOnShift.map((e) => e.userId)));
-
-        logger.info(
-          {
-            sopCount: timeBased.length,
-            trigger: "time_based_cron",
-            templates: timeBased.map((s) => s.templateId),
-            recipientCount: onShiftUserIds.length,
-          },
-          "SOP surfacing: time-based SOPs detected, broadcasting to on-shift users only"
-        );
-
-        sendToUsers(onShiftUserIds, {
-          type: "sop_surfaced",
-          data: {
-            sops: timeBased,
-            trigger: "time_based",
-          },
-        });
-      }
+      await runSurfacingTick(sendToUsers, deps);
     } catch (error: any) {
       logger.error({ error: error.message }, "SOP surfacing cron error");
     }
