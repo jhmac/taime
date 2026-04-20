@@ -5,6 +5,7 @@ import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { IStorage } from "../storage";
 import { seedDefaultRoles } from "../lib/migrations";
+import { invalidatePermissionCache } from "../lib/permissionUtils";
 
 const storeSetupSchema = z.object({
   name: z.string().min(1, "Store name is required").max(100),
@@ -165,6 +166,7 @@ export function registerOnboardingRoutes(app: Express, storage: IStorage, isAuth
         const ownerRole = allRoles.find(r => r.name === "owner");
         if (ownerRole && userRecord.roleId !== ownerRole.id) {
           await storage.assignUserRole(userId, ownerRole.id);
+          invalidatePermissionCache();
           console.log(`[Onboarding] Assigned owner role to store creator userId=${userId}`);
         }
       }

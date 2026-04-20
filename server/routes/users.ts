@@ -7,6 +7,7 @@ import { sendTeamInviteEmail } from "../services/emailService";
 import { randomBytes } from "crypto";
 import { tryResolveStoreIdForUser } from "../lib/storeResolver";
 import { clerkClient } from "@clerk/express";
+import { invalidatePermissionCache } from "../lib/permissionUtils";
 
 function generateInviteToken(): string {
   return randomBytes(32).toString("hex");
@@ -89,6 +90,7 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
       if (hourlyRate) newUserData.hourlyRate = hourlyRate;
 
       const [newUser] = await db.insert(users).values(newUserData).returning();
+      if (roleId) invalidatePermissionCache();
 
       const inviter = await storage.getUser(currentUserId);
       const inviterName = inviter ? `${inviter.firstName || ''} ${inviter.lastName || ''}`.trim() || 'Your manager' : 'Your manager';
@@ -237,6 +239,9 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
       if (updated.length === 0) {
         return res.status(404).json({ message: "User not found" });
       }
+      if ('roleId' in updateData || 'isActive' in updateData) {
+        invalidatePermissionCache();
+      }
       res.json(updated[0]);
     } catch (error) {
       console.error("Error updating user:", error);
@@ -282,6 +287,7 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
       }
 
       await storage.deleteUser(userId);
+      invalidatePermissionCache();
       res.json({ message: "User deleted successfully" });
     } catch (error) {
       console.error("Error deleting user:", error);
@@ -303,6 +309,7 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
       }
 
       const updatedUser = await storage.updateUserRole(userId, roleId);
+      invalidatePermissionCache();
       res.json(updatedUser);
     } catch (error) {
       console.error("Error updating user role:", error);
@@ -324,6 +331,7 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
       const { roleId } = req.body;
       
       await storage.assignUserRole(id, roleId);
+      invalidatePermissionCache();
       const updatedUser = await storage.getUserWithRole(id);
       res.json(updatedUser);
     } catch (error) {

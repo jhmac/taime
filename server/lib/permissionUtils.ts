@@ -2,17 +2,45 @@ import { db } from "../db";
 import { users, permissions, rolePermissions, userPermissionOverrides } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
 
+const CACHE_TTL_MS = 60_000;
+
+interface CacheEntry {
+  result: string[];
+  expiresAt: number;
+}
+
+const permissionCache = new Map<string, CacheEntry>();
+
+export function invalidatePermissionCache(permName?: string): void {
+  if (permName) {
+    permissionCache.delete(permName);
+  } else {
+    permissionCache.clear();
+  }
+}
+
 /**
  * Returns the IDs of all active users who have the given permission,
  * taking into account role-based grants and individual override rows.
+ * Results are cached for ~60 seconds to reduce DB load during high-frequency
+ * broadcasts (clock-ins, debrief submits, etc.).
  */
 export async function getUserIdsWithPermission(permName: string): Promise<string[]> {
+  const now = Date.now();
+  const cached = permissionCache.get(permName);
+  if (cached && now < cached.expiresAt) {
+    return cached.result;
+  }
+
   const allActiveUsers = await db
     .select({ id: users.id, roleId: users.roleId })
     .from(users)
     .where(eq(users.isActive, true));
 
-  if (allActiveUsers.length === 0) return [];
+  if (allActiveUsers.length === 0) {
+    permissionCache.set(permName, { result: [], expiresAt: now + CACHE_TTL_MS });
+    return [];
+  }
 
   const [permRow] = await db
     .select({ id: permissions.id })
@@ -45,5 +73,7 @@ export async function getUserIdsWithPermission(permName: string): Promise<string
       result.push(u.id);
     }
   }
+
+  permissionCache.set(permName, { result, expiresAt: now + CACHE_TTL_MS });
   return result;
 }

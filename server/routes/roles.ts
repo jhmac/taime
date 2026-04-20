@@ -3,6 +3,7 @@ import type { IStorage } from "../storage";
 import { insertRoleSchema } from "@shared/schema";
 import { cache } from "../lib/cache";
 import { asyncHandler, AppError } from "../lib/routeWrapper";
+import { invalidatePermissionCache } from "../lib/permissionUtils";
 
 async function requireRoleManagement(storage: IStorage, userId: string): Promise<void> {
   const perms = await storage.getUserPermissions(userId);
@@ -49,6 +50,7 @@ export function registerRoleRoutes(app: Express, storage: IStorage, isAuthentica
     const { id } = req.params;
     await storage.deleteRole(id);
     cache.invalidatePrefix('roles:');
+    invalidatePermissionCache();
     res.json({ success: true });
   }));
 
@@ -114,6 +116,7 @@ export function registerRoleRoutes(app: Express, storage: IStorage, isAuthentica
 
     await storage.updateRolePermissions(id, permissionIds);
     cache.invalidatePrefix('roles:');
+    invalidatePermissionCache();
 
     // Log if sales.view access changed for this role
     if (salesViewPerm && hadSalesView !== newHasSalesView) {
@@ -181,6 +184,7 @@ export function registerRoleRoutes(app: Express, storage: IStorage, isAuthentica
     const isNoOp = currentGrantValue === grant;
 
     await storage.setUserSalesAccessOverride(id, grant);
+    invalidatePermissionCache('sales.view');
 
     // Log the individual override change only when the value actually changed
     if (!isNoOp) {
