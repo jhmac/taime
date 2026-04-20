@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useUser } from '@clerk/clerk-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AlertTriangle, CalendarDays, MapPinOff, X } from 'lucide-react';
 import ErrorWithRetry from '@/components/ErrorWithRetry';
@@ -83,6 +84,7 @@ interface ScheduleEntry {
 export default function TeamStatusWidget() {
   const [filterLocationBlocked, setFilterLocationBlocked] = useState(false);
   const [filterLate, setFilterLate] = useState(false);
+  const { user: clerkUser } = useUser();
 
   const {
     data: clockedInData,
@@ -124,6 +126,16 @@ export default function TeamStatusWidget() {
     queryKey: ['/api/shopify/sales-data'],
     staleTime: 60_000,
   });
+
+  const shopifyCacheKey = clerkUser?.id ? `shopify_connected:${clerkUser.id}` : null;
+  const cachedShopifyConnected =
+    shopifyCacheKey != null && localStorage.getItem(shopifyCacheKey) === 'true';
+
+  useEffect(() => {
+    if (shopifyCacheKey && shopifyData !== undefined) {
+      localStorage.setItem(shopifyCacheKey, shopifyData.connected === true ? 'true' : 'false');
+    }
+  }, [shopifyData, shopifyCacheKey]);
 
   const totalLocationBlocked = todayData?.summary?.totalLocationBlocked ?? 0;
 
@@ -315,7 +327,7 @@ export default function TeamStatusWidget() {
       : combined;
 
   const hasShopify = shopifyData?.connected === true;
-  const showRevenueColumn = hasShopify;
+  const showRevenueColumn = hasShopify || (shopifyLoading && cachedShopifyConnected);
 
   return (
     <div className="rounded-3xl bg-card border border-border overflow-hidden">
