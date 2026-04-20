@@ -551,6 +551,7 @@ export function registerSopLibraryRoutes(
       notes: body.notes ?? null,
     };
 
+    let signOffNoReviewers = false;
     if (step.isCheckpoint && body.status === "completed") {
       updateData.managerSignOff = false;
       const signOffEligibleIds = await computeSopSignOffEligibleRecipients(getUserIdsWithPermission);
@@ -560,6 +561,7 @@ export function registerSopLibraryRoutes(
           data: { executionId: id, stepId, stepTitle: step.title, employeeId: execution.employeeId },
         });
       } else {
+        signOffNoReviewers = true;
         logger.warn({ executionId: id, stepId }, "[SOP] sign_off_requested skipped: no eligible sign-off users found");
       }
     }
@@ -643,7 +645,7 @@ export function registerSopLibraryRoutes(
     sendToUsers(recipientsForStep, { type: "step_completed", data: { executionId: id, stepId, status: body.status } });
 
     const [updated] = await db.select().from(sopStepCompletions).where(eq(sopStepCompletions.id, completion.id));
-    res.json({ success: true, data: { stepCompletion: updated, executionCompleted: allDone } });
+    res.json({ success: true, data: { stepCompletion: updated, executionCompleted: allDone, signOffNoReviewers } });
   }));
 
   app.put("/api/sops/executions/:id", isAuthenticated, asyncHandler(async (req: any, res) => {

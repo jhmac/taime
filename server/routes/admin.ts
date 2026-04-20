@@ -4,6 +4,7 @@ import { z } from "zod";
 import { cache } from "../lib/cache";
 import { asyncHandler, AppError } from "../lib/routeWrapper";
 import { tryResolveStoreIdForUser } from "../lib/storeResolver";
+import { getUserIdsWithPermission } from "../lib/permissionUtils";
 
 const companySettingsUpdateSchema = z.object({
   companyName: z.string().max(200).optional(),
@@ -243,5 +244,49 @@ export function registerAdminRoutes(app: Express, storage: IStorage, isAuthentic
 
     const rule = await storage.updateHolidayPayRule(id, safeUpdates);
     res.json(rule);
+  }));
+
+  app.get('/api/admin/health/sop-sign-off', isAuthenticated, asyncHandler(async (req: any, res) => {
+    await requireAdmin(storage, req.user.id);
+
+    const SOP_SIGN_OFF_PERMISSIONS = [
+      "admin.manage_all",
+      "admin.role_management",
+      "admin.manage_payroll",
+    ] as const;
+
+    const idSets = await Promise.all(
+      SOP_SIGN_OFF_PERMISSIONS.map(p => getUserIdsWithPermission(p))
+    );
+
+    const permissions = SOP_SIGN_OFF_PERMISSIONS.map((permission, i) => ({
+      permission,
+      count: idSets[i].length,
+    }));
+
+    const totalEligible = new Set(idSets.flat()).size;
+
+    const warnings: string[] = [];
+    for (const { permission, count } of permissions) {
+      if (count === 0) {
+        warnings.push(
+          `No active users hold the "${permission}" permission. ` +
+          "SOP checkpoint sign-off requests will be silently dropped if no other sign-off permission is covered either."
+        );
+      }
+    }
+    if (totalEligible === 0) {
+      warnings.push(
+        "No active users hold any sign-off permission (admin.manage_all, admin.role_management, admin.manage_payroll). " +
+        "SOP checkpoint sign-off requests will be silently dropped until at least one user is granted one of these permissions."
+      );
+    }
+
+    res.json({
+      healthy: totalEligible > 0,
+      totalEligibleReviewers: totalEligible,
+      permissions,
+      warnings,
+    });
   }));
 }
