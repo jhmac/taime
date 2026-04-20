@@ -128,12 +128,40 @@ export default function TeamStatusWidget() {
   });
 
   const shopifyCacheKey = clerkUser?.id ? `shopify_connected:${clerkUser.id}` : null;
-  const cachedShopifyConnected =
-    shopifyCacheKey != null && localStorage.getItem(shopifyCacheKey) === 'true';
+
+  // Cache TTL: trust the stored connection status for up to 30 minutes.
+  // After that, fall back to the safe default (full-width, no skeleton) so
+  // a store that has since disconnected Shopify doesn't keep flashing a
+  // revenue skeleton on every page load until the user manually refreshes.
+  const SHOPIFY_CACHE_TTL_MS = 30 * 60 * 1000;
+
+  const cachedShopifyConnected = (() => {
+    if (!shopifyCacheKey) return false;
+    try {
+      const raw = localStorage.getItem(shopifyCacheKey);
+      if (!raw) return false;
+      const parsed = JSON.parse(raw);
+      if (
+        typeof parsed === 'object' &&
+        parsed !== null &&
+        typeof parsed.connected === 'boolean' &&
+        typeof parsed.cachedAt === 'number' &&
+        Date.now() - parsed.cachedAt < SHOPIFY_CACHE_TTL_MS
+      ) {
+        return parsed.connected;
+      }
+    } catch {}
+    return false;
+  })();
 
   useEffect(() => {
     if (shopifyCacheKey && shopifyData !== undefined) {
-      localStorage.setItem(shopifyCacheKey, shopifyData.connected === true ? 'true' : 'false');
+      try {
+        localStorage.setItem(
+          shopifyCacheKey,
+          JSON.stringify({ connected: shopifyData.connected === true, cachedAt: Date.now() })
+        );
+      } catch {}
     }
   }, [shopifyData, shopifyCacheKey]);
 
