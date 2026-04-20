@@ -6,6 +6,7 @@ import { getOpeningSOPsForClockIn, getShiftHandoffSOPs } from "../services/sopSu
 import { runClockInRedistribute } from "./ai";
 import logger from "../lib/logger";
 import { getUserIdsWithPermission } from "../lib/permissionUtils";
+import { computeTimeEntryRecipients } from "../lib/broadcastRecipients";
 
 async function withRetry<T>(fn: () => Promise<T>, retries = 2, delay = 500): Promise<T> {
   for (let i = 0; i <= retries; i++) {
@@ -75,8 +76,7 @@ export function registerTimeEntryRoutes(
 
       const timeEntry = await withRetry(() => storage.createTimeEntry(data));
 
-      const timeViewerIds = await getUserIdsWithPermission('time.view_all');
-      const timeEntryRecipients = Array.from(new Set([userId, ...timeViewerIds]));
+      const timeEntryRecipients = await computeTimeEntryRecipients(userId, getUserIdsWithPermission);
       sendToUsers(timeEntryRecipients, {
         type: 'time_entry_created',
         data: { timeEntry, userId },
@@ -244,8 +244,7 @@ export function registerTimeEntryRoutes(
 
       const timeEntry = await storage.updateTimeEntry(id, safeUpdates);
 
-      const timeViewerIds = await getUserIdsWithPermission('time.view_all');
-      const timeEntryRecipients = Array.from(new Set([existing.userId, ...timeViewerIds]));
+      const timeEntryRecipients = await computeTimeEntryRecipients(existing.userId, getUserIdsWithPermission);
       sendToUsers(timeEntryRecipients, {
         type: 'time_entry_updated',
         data: { timeEntry },

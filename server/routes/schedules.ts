@@ -6,6 +6,7 @@ import { db } from "../db";
 import { notificationService } from "../services/notificationService";
 import { claudeService } from "../services/claudeService";
 import { tryResolveStoreIdForUser } from "../lib/storeResolver";
+import { computeScheduleDmRecipients } from "../lib/broadcastRecipients";
 
 export function registerScheduleRoutes(
   app: Express,
@@ -207,7 +208,7 @@ export function registerScheduleRoutes(
             .where(eq(messageThreads.id, threadId));
 
           // Send only to the two DM participants so message content stays private
-          sendToUsers([adminId, empUserId], {
+          sendToUsers(computeScheduleDmRecipients(adminId, empUserId), {
             type: 'new_message',
             data: {
               threadId,

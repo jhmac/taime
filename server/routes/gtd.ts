@@ -12,6 +12,7 @@ import { asyncHandler, AppError } from "../lib/routeWrapper";
 import type { IStorage } from "../storage";
 import { triggerClarification } from "../services/gtdClarificationAI";
 import logger from "../lib/logger";
+import { computeGtdInboxRecipients, computeGtdActionRecipients } from "../lib/broadcastRecipients";
 
 const captureSchema = z.object({
   raw_input: z.string().min(1).max(2000),
@@ -165,7 +166,7 @@ export function registerGtdRoutes(
       status: 'unprocessed',
     }).returning();
 
-    sendToUsers([userId], { type: 'inbox_item_created', data: { item } });
+    sendToUsers(computeGtdInboxRecipients(userId), { type: 'inbox_item_created', data: { item } });
 
     const user = await storage.getUserWithRole(userId);
     const employeeName = user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() : 'Unknown';
@@ -312,7 +313,7 @@ export function registerGtdRoutes(
       }).where(eq(gtdInboxItems.id, id));
     });
 
-    sendToUsers([userId], { type: 'inbox_item_processed', data: { itemId: id, destination: body.destination, createdId } });
+    sendToUsers(computeGtdInboxRecipients(userId), { type: 'inbox_item_processed', data: { itemId: id, destination: body.destination, createdId } });
     res.json({ success: true, data: { itemId: id, destination: body.destination, createdId } });
   }));
 
@@ -436,7 +437,7 @@ export function registerGtdRoutes(
       isTwoMinute: body.is_two_minute || false,
     }).returning();
 
-    const actionRecipients = Array.from(new Set([userId, action.assignedTo].filter(Boolean))) as string[];
+    const actionRecipients = computeGtdActionRecipients(userId, action.assignedTo);
     sendToUsers(actionRecipients, { type: 'action_created', data: { action } });
     res.status(201).json({ success: true, data: action });
   }));
@@ -486,7 +487,7 @@ export function registerGtdRoutes(
         targetId: id,
         details: `Completed GTD action: ${updated.title}`,
       });
-      const completedRecipients = Array.from(new Set([userId, updated.assignedTo, updated.createdBy].filter(Boolean))) as string[];
+      const completedRecipients = computeGtdActionRecipients(userId, updated.assignedTo, updated.createdBy);
       sendToUsers(completedRecipients, { type: 'action_completed', data: { action: updated } });
     }
 

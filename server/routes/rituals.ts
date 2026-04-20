@@ -14,6 +14,7 @@ import { triggerClarification } from "../services/gtdClarificationAI";
 import type { IStorage } from "../storage";
 import logger from "../lib/logger";
 import { getUserIdsWithPermission } from "../lib/permissionUtils";
+import { computeDebriefRecipients } from "../lib/broadcastRecipients";
 
 async function getFirstStoreId(): Promise<string> {
   const [store] = await db.select({ id: workLocations.id }).from(workLocations).limit(1);
@@ -148,9 +149,7 @@ export function registerRitualRoutes(
       [debrief] = await db.insert(dailyDebriefs).values(body).returning();
     }
 
-    const managerIds = await getUserIdsWithPermission('hr.view_team');
-    const adminIds = await getUserIdsWithPermission('admin.manage_all');
-    const debriefRecipients = Array.from(new Set([userId, ...managerIds, ...adminIds]));
+    const debriefRecipients = await computeDebriefRecipients(userId, getUserIdsWithPermission);
     sendToUsers(debriefRecipients, { type: 'debrief_submitted', data: { debrief } });
 
     if (debrief.whatBuggedYou) {
