@@ -120,20 +120,53 @@ export default function TimeClockWidget({ greetingSlot, footerSlot }: TimeClockW
   useOffsiteBreadcrumbReporter(offsiteSessionWithRoute?.id ?? null);
 
   useEffect(() => {
-    // Fire the silent auto-request if:
-    // - work locations are configured (geofencing is active)
-    // - we haven't already attempted this session
-    // - permission isn't hard-denied
-    // - EITHER the state is confirmed/unknown (normal path)
-    //   OR the user previously granted and the browser/OS is saying 'prompt'
-    //   again (URL change, session reset, etc.) — try silently rather than
-    //   showing the in-app nudge banner for a returning user.
-    const canAutoRequest =
-      permissionState !== 'denied' &&
-      (permissionState !== 'prompt' || hadPreviousGrant);
-    if (workLocations.length > 0 && !hasRequestedLocation.current && canAutoRequest) {
-      hasRequestedLocation.current = true;
-      getCurrentPosition().catch(() => {});
+    // Auto-fetch location at mount, but ONLY when we can do so without
+    // triggering the browser's native permission dialog unexpectedly.
+    //
+    // On native (iOS/Android) the OS is the authority — trust our state.
+    // On web we first ask the Permissions API for the actual browser answer:
+    //   • 'granted'  → browser will return location silently, safe to call
+    //   • 'prompt'   → browser would show its dialog, wait for the user to
+    //                  click Clock In instead (expected context for the ask)
+    //   • 'denied'   → skip entirely
+    //
+    // This prevents the surprise browser popup that appeared every session
+    // when our localStorage said 'granted' but the browser needed to re-ask
+    // (e.g. after a URL change, cache clear, or browser permission reset).
+    if (!workLocations.length || hasRequestedLocation.current) return;
+    if (permissionState === 'denied') return;
+
+    if (Capacitor.isNativePlatform()) {
+      // Native: OS manages the dialog; our cached state is reliable.
+      if (permissionState !== 'prompt' || hadPreviousGrant) {
+        hasRequestedLocation.current = true;
+        getCurrentPosition().catch(() => {});
+      }
+      return;
+    }
+
+    // Web: verify with the real browser permission before calling anything.
+    if (navigator.permissions) {
+      navigator.permissions.query({ name: 'geolocation' }).then((result) => {
+        if (result.state === 'granted') {
+          // Browser will answer immediately with no dialog.
+          hasRequestedLocation.current = true;
+          getCurrentPosition().catch(() => {});
+        }
+        // 'prompt' or 'denied': don't auto-request — let the user initiate.
+      }).catch(() => {
+        // Permissions API failed; fall back to cached state.
+        if (permissionState !== 'prompt' || hadPreviousGrant) {
+          hasRequestedLocation.current = true;
+          getCurrentPosition().catch(() => {});
+        }
+      });
+    } else {
+      // No Permissions API (older browser): use cached state as before.
+      if (permissionState !== 'prompt' || hadPreviousGrant) {
+        hasRequestedLocation.current = true;
+        getCurrentPosition().catch(() => {});
+      }
     }
   }, [workLocations, permissionState, hadPreviousGrant]);
 
