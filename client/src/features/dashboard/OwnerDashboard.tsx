@@ -93,9 +93,9 @@ function TimeEditCard({
     <div className="space-y-2">
       <p className={`text-[10px] uppercase tracking-widest font-bold ${labelColor}`}>{label}</p>
       <div className="flex gap-2">
-        {/* Date card — clicking the visible card calls showPicker() on the hidden input */}
+        {/* Date card — tap to edit */}
         <div
-          className="relative flex-1 h-16 bg-muted/50 hover:bg-muted rounded-2xl flex items-center justify-center cursor-pointer active:scale-[0.98] transition-transform select-none"
+          className="relative flex-1 h-16 bg-muted/50 hover:bg-muted rounded-2xl flex items-center justify-center cursor-pointer active:scale-[0.98] transition-transform select-none border-2 border-dashed border-border/60"
           onClick={openDate}
         >
           <input
@@ -110,10 +110,13 @@ function TimeEditCard({
             <p className="text-[9px] text-muted-foreground uppercase tracking-wide mb-0.5">Date</p>
             <p className="text-sm font-semibold leading-tight">{dateLabel}</p>
           </div>
+          <span className="absolute top-1.5 right-2 text-[9px] text-muted-foreground/60 flex items-center gap-0.5">
+            ✏️ tap
+          </span>
         </div>
         {/* Time card */}
         <div
-          className="relative h-16 px-5 bg-muted/50 hover:bg-muted rounded-2xl flex items-center justify-center cursor-pointer active:scale-[0.98] transition-transform select-none"
+          className="relative h-16 px-5 bg-muted/50 hover:bg-muted rounded-2xl flex items-center justify-center cursor-pointer active:scale-[0.98] transition-transform select-none border-2 border-dashed border-border/60"
           onClick={openTime}
         >
           <input
@@ -128,6 +131,9 @@ function TimeEditCard({
             <p className="text-[9px] text-muted-foreground uppercase tracking-wide mb-0.5">Time</p>
             <p className="text-2xl font-bold tabular-nums leading-tight">{timeLabel}</p>
           </div>
+          <span className="absolute top-1.5 right-2 text-[9px] text-muted-foreground/60 flex items-center gap-0.5">
+            ✏️ tap
+          </span>
         </div>
       </div>
     </div>

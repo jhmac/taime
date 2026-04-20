@@ -539,6 +539,8 @@ export default function AssociateDashboard() {
 
   const pendingTasks = myTasksToday.filter(t => t.status !== 'completed');
   const completedTasks = myTasksToday.filter(t => t.status === 'completed');
+  // Unassigned tasks — visible to all clocked-in employees so they can pick them up
+  const unassignedTasks = tasks.filter(t => !t.assignedTo && t.status !== 'completed');
 
   const wrapper = `p-4 space-y-5 ${!isMobile ? 'max-w-2xl mx-auto' : ''}`;
 
@@ -842,6 +844,44 @@ export default function AssociateDashboard() {
           </DashboardErrorBoundary>
 
           <DashboardErrorBoundary fallback=""><SmartSuggestionsCard /></DashboardErrorBoundary>
+
+          {/* Unassigned / open tasks — visible to all clocked-in staff */}
+          {unassignedTasks.length > 0 && (
+            <DashboardErrorBoundary fallback="">
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <h2 className="text-lg font-extrabold text-foreground">Open Tasks</h2>
+                    <p className="text-xs text-muted-foreground">Not yet assigned — anyone can complete these</p>
+                  </div>
+                  <button onClick={() => navigate('/tasks')} className="text-sm font-bold text-primary">View all</button>
+                </div>
+                <div className="space-y-2">
+                  {unassignedTasks.slice(0, 5).map((task, i) => (
+                    <button
+                      key={task.id}
+                      onClick={() => toggleTaskMutation.mutate({ id: task.id, status: 'completed' })}
+                      disabled={toggleTaskMutation.isPending}
+                      className="w-full rounded-2xl px-4 py-3.5 flex items-center gap-3.5 text-left transition-transform active:scale-[0.98] bg-card border border-border/60 min-h-[60px]"
+                    >
+                      <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 bg-primary/10">
+                        <span className="text-primary font-extrabold text-sm">{i + 1}</span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[15px] font-bold leading-snug text-foreground truncate">{task.title}</p>
+                        <p className="text-xs text-orange-500 font-semibold mt-0.5">Unassigned · tap to complete</p>
+                      </div>
+                    </button>
+                  ))}
+                  {unassignedTasks.length > 5 && (
+                    <button onClick={() => navigate('/tasks')} className="w-full text-center text-sm font-bold text-primary py-1">
+                      +{unassignedTasks.length - 5} more open tasks
+                    </button>
+                  )}
+                </div>
+              </div>
+            </DashboardErrorBoundary>
+          )}
 
           {/* Today's Team Chores (post-clock-in) */}
           {teamChoresToday.length > 0 && (

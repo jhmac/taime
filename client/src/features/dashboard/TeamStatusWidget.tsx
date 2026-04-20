@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useUser } from '@clerk/clerk-react';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -6,6 +6,7 @@ import { AlertTriangle, CalendarDays, MapPinOff, X } from 'lucide-react';
 import ErrorWithRetry from '@/components/ErrorWithRetry';
 import { useOnlineRetry } from '@/hooks/useOnlineRetry';
 import { readShopifyConnectionCache, writeShopifyConnectionCache } from '@/lib/shopifyConnectionCache';
+import { useWebSocketContext } from '@/contexts/WebSocketContext';
 
 interface ShopifyData {
   connected?: boolean;
@@ -136,6 +137,23 @@ export default function TeamStatusWidget() {
       writeShopifyConnectionCache(shopifyCacheKey, shopifyData.connected === true);
     }
   }, [shopifyData, shopifyCacheKey]);
+
+  // Instant refetch when any clock-in or clock-out event arrives over WebSocket
+  // so the "Today" list updates immediately instead of waiting 60 s.
+  const { lastMessage } = useWebSocketContext();
+  const lastMessageIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!lastMessage) return;
+    const msgId = (lastMessage as any).id ?? JSON.stringify(lastMessage);
+    if (msgId === lastMessageIdRef.current) return;
+    lastMessageIdRef.current = msgId;
+    if (
+      lastMessage.type === 'time_entry_created' ||
+      lastMessage.type === 'time_entry_updated'
+    ) {
+      refetchClockedIn();
+    }
+  }, [lastMessage]);
 
   const totalLocationBlocked = todayData?.summary?.totalLocationBlocked ?? 0;
 
