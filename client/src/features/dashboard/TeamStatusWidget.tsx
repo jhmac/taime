@@ -6,6 +6,7 @@ import ErrorWithRetry from '@/components/ErrorWithRetry';
 import { useOnlineRetry } from '@/hooks/useOnlineRetry';
 
 interface ShopifyData {
+  connected?: boolean;
   todayRevenue?: number;
   orderCount?: number;
 }
@@ -313,8 +314,8 @@ export default function TeamStatusWidget() {
       ? combined.filter((e): e is OnShiftEntry => e.kind === 'on-shift' && e.lateMins > 0)
       : combined;
 
-  const hasShopify = shopifyData?.todayRevenue !== undefined;
-  const showRevenueColumn = shopifyLoading || hasShopify;
+  const hasShopify = shopifyData?.connected === true;
+  const showRevenueColumn = hasShopify;
 
   return (
     <div className="rounded-3xl bg-card border border-border overflow-hidden">
@@ -368,7 +369,7 @@ export default function TeamStatusWidget() {
       {/* Body: 1/6 revenue + divider + 5/6 shifts when Shopify access exists; full-width shifts otherwise */}
       <div className="px-4 py-3">
         <div className="flex gap-3 items-start">
-          {/* Revenue column — only rendered when Shopify is loading or connected */}
+          {/* Revenue column — only rendered when Shopify is confirmed connected */}
           {showRevenueColumn && (
             <>
               <div className="w-1/6 shrink-0">
