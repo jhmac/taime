@@ -45,6 +45,11 @@ export function useGeolocation() {
   const [permissionState, setPermissionStateRaw] = useState<PermissionState | 'unsupported' | 'unknown'>(
     readCachedPermission
   );
+  // Stable flag: was permission ever granted in a previous session?
+  // Set once at mount from localStorage — never flips back to false.
+  // Used by consumers to suppress the in-app permission nudge banner for
+  // returning users who have already agreed to location access.
+  const [hadPreviousGrant] = useState(() => readCachedPermission() === 'granted');
 
   const setPermissionState = (state: PermissionState | 'unsupported' | 'unknown') => {
     cachePermission(state);
@@ -268,7 +273,14 @@ export function useGeolocation() {
           setPermissionState('denied');
           setError({ code: 1, message: getErrorMessage(1) });
         } else {
-          setPermissionState('prompt');
+          // Don't downgrade a cached 'granted' to 'prompt' on native either.
+          // On iOS/Android the OS is the source of truth, but if checkPermissions
+          // returns 'prompt' while we have a cached grant (can happen during
+          // app transitions or permission dialog delays), keep the cached state
+          // so the in-app banner stays hidden while the auto-request fires.
+          if (readCachedPermission() !== 'granted') {
+            setPermissionState('prompt');
+          }
         }
       }).catch(() => {
         setPermissionState('unknown');
@@ -335,6 +347,7 @@ export function useGeolocation() {
     error,
     loading,
     permissionState,
+    hadPreviousGrant,
     getCurrentPosition,
     watchPosition,
     clearWatch,

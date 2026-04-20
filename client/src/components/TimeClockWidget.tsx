@@ -41,7 +41,7 @@ interface TimeClockWidgetProps {
 export default function TimeClockWidget({ greetingSlot, footerSlot }: TimeClockWidgetProps = {}) {
   const { user } = useAuth();
   const isMobile = useIsMobile();
-  const { position, getCurrentPosition, watchPosition, clearWatch, loading: locationLoading, error: locationError, permissionState } = useGeolocation();
+  const { position, getCurrentPosition, watchPosition, clearWatch, loading: locationLoading, error: locationError, permissionState, hadPreviousGrant } = useGeolocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -120,11 +120,22 @@ export default function TimeClockWidget({ greetingSlot, footerSlot }: TimeClockW
   useOffsiteBreadcrumbReporter(offsiteSessionWithRoute?.id ?? null);
 
   useEffect(() => {
-    if (workLocations.length > 0 && !hasRequestedLocation.current && permissionState !== 'denied' && permissionState !== 'prompt') {
+    // Fire the silent auto-request if:
+    // - work locations are configured (geofencing is active)
+    // - we haven't already attempted this session
+    // - permission isn't hard-denied
+    // - EITHER the state is confirmed/unknown (normal path)
+    //   OR the user previously granted and the browser/OS is saying 'prompt'
+    //   again (URL change, session reset, etc.) — try silently rather than
+    //   showing the in-app nudge banner for a returning user.
+    const canAutoRequest =
+      permissionState !== 'denied' &&
+      (permissionState !== 'prompt' || hadPreviousGrant);
+    if (workLocations.length > 0 && !hasRequestedLocation.current && canAutoRequest) {
       hasRequestedLocation.current = true;
       getCurrentPosition().catch(() => {});
     }
-  }, [workLocations, permissionState]);
+  }, [workLocations, permissionState, hadPreviousGrant]);
 
   useEffect(() => {
     if (permissionState === 'unknown') return;
@@ -402,9 +413,17 @@ export default function TimeClockWidget({ greetingSlot, footerSlot }: TimeClockW
   }, [permissionState, locationError, position, activeTimeEntry, workLocations.length]);
 
   useEffect(() => {
+    // Only show the in-app "Allow Location Access" nudge when:
+    // - work locations are configured
+    // - the permission state is genuinely unresolved ('prompt')
+    // - the user has NOT previously granted (hadPreviousGrant = false)
+    //   → returning users who already said Yes should never see this banner;
+    //     the auto-request fires silently for them instead.
+    // - not currently clocked in
     const shouldShow =
       workLocations.length > 0 &&
       permissionState === 'prompt' &&
+      !hadPreviousGrant &&
       !activeTimeEntry;
 
     if (shouldShow && !showPromptBanner) {
@@ -420,7 +439,7 @@ export default function TimeClockWidget({ greetingSlot, footerSlot }: TimeClockW
       }, 350);
       return () => clearTimeout(timer);
     }
-  }, [permissionState, activeTimeEntry, workLocations.length]);
+  }, [permissionState, hadPreviousGrant, activeTimeEntry, workLocations.length]);
 
   useEffect(() => {
     const shouldShow = !activeTimeEntry && !!geofenceStatus && workLocations.length > 0;
