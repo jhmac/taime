@@ -1,5 +1,5 @@
 import { db } from "../db";
-import { users, permissions, rolePermissions, userPermissionOverrides } from "@shared/schema";
+import { users, permissions, rolePermissions, userPermissionOverrides, workLocations } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
 
 const CACHE_TTL_MS = 60_000;
@@ -21,23 +21,31 @@ export function invalidatePermissionCache(permName?: string): void {
 }
 
 /**
- * Returns the IDs of all active users in the given store.
+ * Returns the IDs of all active users whose work location matches the given
+ * store.  Users are linked to a store via the `locationName` text field on the
+ * `users` table, which is matched against the `name` column of `work_locations`.
  *
- * In the current single-store schema the `users` table has no `storeId`
- * column, so "in the store" means "is an active user".  The `storeId`
- * parameter is accepted to make call-sites store-aware and to future-proof
- * this function for multi-store deployments.  Results are cached for ~60 s
- * (same TTL as `getUserIdsWithPermission`).
+ * Results are cached per storeId for ~60 s (same TTL as
+ * `getUserIdsWithPermission`) so that high-frequency broadcasts don't hammer
+ * the database, and so that each store has its own independent TTL entry.
  */
-export async function getAllStoreUserIds(_storeId: string): Promise<string[]> {
-  const cacheKey = "all_store_users";
+export async function getAllStoreUserIds(storeId: string): Promise<string[]> {
+  const cacheKey = `store_users:${storeId}`;
   const now = Date.now();
   const cached = storeUserCache.get(cacheKey);
   if (cached && now < cached.expiresAt) {
     return cached.result;
   }
 
-  const rows = await db.select({ id: users.id }).from(users).where(eq(users.isActive, true));
+  const rows = await db
+    .select({ id: users.id })
+    .from(users)
+    .innerJoin(
+      workLocations,
+      and(eq(workLocations.name, users.locationName), eq(workLocations.id, storeId)),
+    )
+    .where(eq(users.isActive, true));
+
   const result = rows.map((r) => r.id);
   storeUserCache.set(cacheKey, { result, expiresAt: now + CACHE_TTL_MS });
   return result;
