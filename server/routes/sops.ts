@@ -11,6 +11,7 @@ import { getSurfacedSOPsForEmployee } from "../services/sopSurfacing";
 import { triggerClarification } from "../services/gtdClarificationAI";
 import { indexSOPTemplate } from "../services/sopIndexer";
 import logger from "../lib/logger";
+import { getUserIdsWithPermission } from "../lib/permissionUtils";
 
 const stepSchema = z.object({
   title: z.string().min(1).max(500),
@@ -78,11 +79,29 @@ async function requireManagerOrAbove(storage: IStorage, userId: string): Promise
   );
 }
 
+async function getManagerUserIds(): Promise<string[]> {
+  const [adminIds, hrIds] = await Promise.all([
+    getUserIdsWithPermission("admin.manage_all"),
+    getUserIdsWithPermission("hr.view_team"),
+  ]);
+  return Array.from(new Set([...adminIds, ...hrIds]));
+}
+
+async function getSignOffEligibleUserIds(): Promise<string[]> {
+  const [adminIds, roleAdminIds, payrollIds] = await Promise.all([
+    getUserIdsWithPermission("admin.manage_all"),
+    getUserIdsWithPermission("admin.role_management"),
+    getUserIdsWithPermission("admin.manage_payroll"),
+  ]);
+  return Array.from(new Set([...adminIds, ...roleAdminIds, ...payrollIds]));
+}
+
 export function registerSopLibraryRoutes(
   app: Express,
   storage: IStorage,
   isAuthenticated: any,
-  broadcastToAll: (data: Record<string, unknown>) => void
+  broadcastToAll: (data: Record<string, unknown>) => void,
+  sendToUsers: (userIds: string[], data: Record<string, unknown>) => void
 ) {
   app.post("/api/sops/templates/ai-generate", isAuthenticated, asyncHandler(async (req: any, res) => {
     await requireAdminOrOwner(storage, req.user.id);
@@ -502,7 +521,9 @@ export function registerSopLibraryRoutes(
       details: `Started SOP: ${template.title}`,
     });
 
-    broadcastToAll({ type: "execution_started", data: { executionId: result.id, templateTitle: template.title, employeeId: req.user.id } });
+    const managerIdsForStart = await getManagerUserIds();
+    const recipientsForStart = Array.from(new Set([req.user.id, ...managerIdsForStart]));
+    sendToUsers(recipientsForStart, { type: "execution_started", data: { executionId: result.id, templateTitle: template.title, employeeId: req.user.id } });
     res.status(201).json({ success: true, data: result });
   }));
 
@@ -544,7 +565,8 @@ export function registerSopLibraryRoutes(
 
     if (step.isCheckpoint && body.status === "completed") {
       updateData.managerSignOff = false;
-      broadcastToAll({
+      const signOffEligibleIds = await getSignOffEligibleUserIds();
+      sendToUsers(signOffEligibleIds, {
         type: "sign_off_requested",
         data: { executionId: id, stepId, stepTitle: step.title, employeeId: execution.employeeId },
       });
@@ -621,10 +643,14 @@ export function registerSopLibraryRoutes(
         details: "SOP execution completed (all steps done)",
       });
 
-      broadcastToAll({ type: "execution_completed", data: { executionId: id, employeeId: execution.employeeId } });
+      const managerIdsForExecComplete = await getManagerUserIds();
+      const recipientsForExecComplete = Array.from(new Set([execution.employeeId, ...managerIdsForExecComplete]));
+      sendToUsers(recipientsForExecComplete, { type: "execution_completed", data: { executionId: id, employeeId: execution.employeeId } });
     }
 
-    broadcastToAll({ type: "step_completed", data: { executionId: id, stepId, status: body.status } });
+    const managerIdsForStep = await getManagerUserIds();
+    const recipientsForStep = Array.from(new Set([execution.employeeId, ...managerIdsForStep]));
+    sendToUsers(recipientsForStep, { type: "step_completed", data: { executionId: id, stepId, status: body.status } });
 
     const [updated] = await db.select().from(sopStepCompletions).where(eq(sopStepCompletions.id, completion.id));
     res.json({ success: true, data: { stepCompletion: updated, executionCompleted: allDone } });
@@ -662,7 +688,9 @@ export function registerSopLibraryRoutes(
     });
 
     if (body.status === "completed") {
-      broadcastToAll({ type: "execution_completed", data: { executionId: id, employeeId: execution.employeeId } });
+      const managerIdsForStatusComplete = await getManagerUserIds();
+      const recipientsForStatusComplete = Array.from(new Set([execution.employeeId, ...managerIdsForStatusComplete]));
+      sendToUsers(recipientsForStatusComplete, { type: "execution_completed", data: { executionId: id, employeeId: execution.employeeId } });
     }
 
     if (body.notes && body.notes.trim().length > 0) {
@@ -787,7 +815,7 @@ export function registerSopLibraryRoutes(
       .where(eq(sopStepCompletions.id, stepCompletionId))
       .returning();
 
-    broadcastToAll({
+    sendToUsers([execution.employeeId, req.user.id], {
       type: "sign_off_completed",
       data: { executionId: execution.id, stepCompletionId, managerId: req.user.id },
     });
