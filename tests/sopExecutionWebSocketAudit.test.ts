@@ -55,7 +55,10 @@ const EXECUTION_EVENTS: Array<{
   {
     event: "sign_off_completed",
     broadcastPattern: /broadcastToAll\s*\([^)]*sign_off_completed/,
-    sendToUsersPattern: /sendToUsers\s*\([^)]*sign_off_completed/,
+    // Use [\s\S]*? (dotAll-style) because the recipient argument may itself
+    // contain parentheses (e.g. computeSopSignOffCompletedRecipients(...)),
+    // which would cause the simpler [^)]* pattern to stop too early.
+    sendToUsersPattern: /sendToUsers\s*\([\s\S]*?sign_off_completed/,
   },
 ];
 

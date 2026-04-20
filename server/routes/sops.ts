@@ -12,6 +12,11 @@ import { triggerClarification } from "../services/gtdClarificationAI";
 import { indexSOPTemplate } from "../services/sopIndexer";
 import logger from "../lib/logger";
 import { getUserIdsWithPermission } from "../lib/permissionUtils";
+import {
+  computeSopManagerRecipients,
+  computeSopSignOffEligibleRecipients,
+  computeSopSignOffCompletedRecipients,
+} from "../lib/broadcastRecipients";
 
 const stepSchema = z.object({
   title: z.string().min(1).max(500),
@@ -79,22 +84,6 @@ async function requireManagerOrAbove(storage: IStorage, userId: string): Promise
   );
 }
 
-async function getManagerUserIds(): Promise<string[]> {
-  const [adminIds, hrIds] = await Promise.all([
-    getUserIdsWithPermission("admin.manage_all"),
-    getUserIdsWithPermission("hr.view_team"),
-  ]);
-  return Array.from(new Set([...adminIds, ...hrIds]));
-}
-
-async function getSignOffEligibleUserIds(): Promise<string[]> {
-  const [adminIds, roleAdminIds, payrollIds] = await Promise.all([
-    getUserIdsWithPermission("admin.manage_all"),
-    getUserIdsWithPermission("admin.role_management"),
-    getUserIdsWithPermission("admin.manage_payroll"),
-  ]);
-  return Array.from(new Set([...adminIds, ...roleAdminIds, ...payrollIds]));
-}
 
 export function registerSopLibraryRoutes(
   app: Express,
@@ -521,8 +510,7 @@ export function registerSopLibraryRoutes(
       details: `Started SOP: ${template.title}`,
     });
 
-    const managerIdsForStart = await getManagerUserIds();
-    const recipientsForStart = Array.from(new Set([req.user.id, ...managerIdsForStart]));
+    const recipientsForStart = await computeSopManagerRecipients(req.user.id, getUserIdsWithPermission);
     sendToUsers(recipientsForStart, { type: "execution_started", data: { executionId: result.id, templateTitle: template.title, employeeId: req.user.id } });
     res.status(201).json({ success: true, data: result });
   }));
@@ -565,11 +553,15 @@ export function registerSopLibraryRoutes(
 
     if (step.isCheckpoint && body.status === "completed") {
       updateData.managerSignOff = false;
-      const signOffEligibleIds = await getSignOffEligibleUserIds();
-      sendToUsers(signOffEligibleIds, {
-        type: "sign_off_requested",
-        data: { executionId: id, stepId, stepTitle: step.title, employeeId: execution.employeeId },
-      });
+      const signOffEligibleIds = await computeSopSignOffEligibleRecipients(getUserIdsWithPermission);
+      if (signOffEligibleIds.length > 0) {
+        sendToUsers(signOffEligibleIds, {
+          type: "sign_off_requested",
+          data: { executionId: id, stepId, stepTitle: step.title, employeeId: execution.employeeId },
+        });
+      } else {
+        logger.warn({ executionId: id, stepId }, "[SOP] sign_off_requested skipped: no eligible sign-off users found");
+      }
     }
 
     if (body.decisionChoice && step.stepType === "decision") {
@@ -630,7 +622,7 @@ export function registerSopLibraryRoutes(
           : (c.status === "completed" || c.status === "skipped")
       ) && reachableStepIds.size > 0;
 
-    const managerIds = await getManagerUserIds();
+    const recipientsForStep = await computeSopManagerRecipients(execution.employeeId, getUserIdsWithPermission);
 
     if (allDone) {
       await db.update(sopExecutions)
@@ -645,11 +637,9 @@ export function registerSopLibraryRoutes(
         details: "SOP execution completed (all steps done)",
       });
 
-      const recipientsForExecComplete = Array.from(new Set([execution.employeeId, ...managerIds]));
-      sendToUsers(recipientsForExecComplete, { type: "execution_completed", data: { executionId: id, employeeId: execution.employeeId } });
+      sendToUsers(recipientsForStep, { type: "execution_completed", data: { executionId: id, employeeId: execution.employeeId } });
     }
 
-    const recipientsForStep = Array.from(new Set([execution.employeeId, ...managerIds]));
     sendToUsers(recipientsForStep, { type: "step_completed", data: { executionId: id, stepId, status: body.status } });
 
     const [updated] = await db.select().from(sopStepCompletions).where(eq(sopStepCompletions.id, completion.id));
@@ -688,8 +678,7 @@ export function registerSopLibraryRoutes(
     });
 
     if (body.status === "completed") {
-      const managerIdsForStatusComplete = await getManagerUserIds();
-      const recipientsForStatusComplete = Array.from(new Set([execution.employeeId, ...managerIdsForStatusComplete]));
+      const recipientsForStatusComplete = await computeSopManagerRecipients(execution.employeeId, getUserIdsWithPermission);
       sendToUsers(recipientsForStatusComplete, { type: "execution_completed", data: { executionId: id, employeeId: execution.employeeId } });
     }
 
@@ -815,7 +804,7 @@ export function registerSopLibraryRoutes(
       .where(eq(sopStepCompletions.id, stepCompletionId))
       .returning();
 
-    sendToUsers([execution.employeeId, req.user.id], {
+    sendToUsers(computeSopSignOffCompletedRecipients(execution.employeeId, req.user.id), {
       type: "sign_off_completed",
       data: { executionId: execution.id, stepCompletionId, managerId: req.user.id },
     });

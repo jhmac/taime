@@ -106,3 +106,53 @@ export function computeScheduleDmRecipients(
 ): string[] {
   return [adminId, employeeId];
 }
+
+/**
+ * Recipients for SOP execution events: `execution_started`, `step_completed`,
+ * and `execution_completed`. The executing employee always receives the event
+ * so the list is never empty regardless of the permission lookup results.
+ * Managers (holders of `admin.manage_all` or `hr.view_team`) are also notified.
+ */
+export async function computeSopManagerRecipients(
+  employeeId: string,
+  getPermittedIds: GetPermittedIds,
+): Promise<string[]> {
+  const [adminIds, hrIds] = await Promise.all([
+    getPermittedIds("admin.manage_all"),
+    getPermittedIds("hr.view_team"),
+  ]);
+  return Array.from(new Set([employeeId, ...adminIds, ...hrIds]));
+}
+
+/**
+ * Recipients for `sign_off_requested` events. Only users who are eligible
+ * to approve a checkpoint sign-off (`admin.manage_all`, `admin.role_management`,
+ * or `admin.manage_payroll`) receive the prompt.
+ *
+ * If none of those permissions are assigned the returned list will be empty,
+ * which would silently drop the event. Callers should guard against this with
+ * a length check before invoking `sendToUsers`.
+ */
+export async function computeSopSignOffEligibleRecipients(
+  getPermittedIds: GetPermittedIds,
+): Promise<string[]> {
+  const [adminIds, roleAdminIds, payrollIds] = await Promise.all([
+    getPermittedIds("admin.manage_all"),
+    getPermittedIds("admin.role_management"),
+    getPermittedIds("admin.manage_payroll"),
+  ]);
+  return Array.from(new Set([...adminIds, ...roleAdminIds, ...payrollIds]));
+}
+
+/**
+ * Recipients for `sign_off_completed` events. Only the employee who ran the
+ * SOP and the manager who approved the sign-off need to know. Both IDs are
+ * available at call time so no permission lookup is required, and the list is
+ * always non-empty.
+ */
+export function computeSopSignOffCompletedRecipients(
+  employeeId: string,
+  managerId: string,
+): string[] {
+  return Array.from(new Set([employeeId, managerId]));
+}
