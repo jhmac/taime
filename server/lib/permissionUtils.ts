@@ -10,6 +10,7 @@ interface CacheEntry {
 }
 
 const permissionCache = new Map<string, CacheEntry>();
+const storeUserCache = new Map<string, CacheEntry>();
 
 export function invalidatePermissionCache(permName?: string): void {
   if (permName) {
@@ -17,6 +18,29 @@ export function invalidatePermissionCache(permName?: string): void {
   } else {
     permissionCache.clear();
   }
+}
+
+/**
+ * Returns the IDs of all active users in the given store.
+ *
+ * In the current single-store schema the `users` table has no `storeId`
+ * column, so "in the store" means "is an active user".  The `storeId`
+ * parameter is accepted to make call-sites store-aware and to future-proof
+ * this function for multi-store deployments.  Results are cached for ~60 s
+ * (same TTL as `getUserIdsWithPermission`).
+ */
+export async function getAllStoreUserIds(_storeId: string): Promise<string[]> {
+  const cacheKey = "all_store_users";
+  const now = Date.now();
+  const cached = storeUserCache.get(cacheKey);
+  if (cached && now < cached.expiresAt) {
+    return cached.result;
+  }
+
+  const rows = await db.select({ id: users.id }).from(users).where(eq(users.isActive, true));
+  const result = rows.map((r) => r.id);
+  storeUserCache.set(cacheKey, { result, expiresAt: now + CACHE_TTL_MS });
+  return result;
 }
 
 /**

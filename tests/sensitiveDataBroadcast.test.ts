@@ -36,6 +36,7 @@ import {
   computeGtdInboxRecipients,
   computeGtdActionRecipients,
   computeScheduleDmRecipients,
+  computeKudoRecipients,
 } from "../server/lib/broadcastRecipients";
 
 const ROOT = resolve(__dirname, "..");
@@ -304,6 +305,90 @@ describe("computeScheduleDmRecipients — schedule notify-week DM (new_message)"
   });
 });
 
+// ─── kudo_sent ───────────────────────────────────────────────────────────────
+
+/**
+ * Build a mock `getStoreUserIds` that returns a fixed list for a given storeId.
+ * Simulates a store-aware lookup: only IDs in `memberMap[storeId]` are returned,
+ * so out-of-store users are naturally absent from any other storeId call.
+ */
+function makeGetStoreUserIds(memberMap: Record<string, string[]>) {
+  return vi.fn().mockImplementation((storeId: string) =>
+    Promise.resolve(memberMap[storeId] ?? []),
+  );
+}
+
+describe("computeKudoRecipients — kudo_sent", () => {
+  it("always includes the sender (fromEmployeeId)", async () => {
+    const getStoreUserIds = makeGetStoreUserIds({ "store-a": [] });
+    const recipients = await computeKudoRecipients("store-a", "sender-1", "recipient-1", getStoreUserIds);
+    expect(recipients).toContain("sender-1");
+  });
+
+  it("always includes the recognised employee (toEmployeeId)", async () => {
+    const getStoreUserIds = makeGetStoreUserIds({ "store-a": [] });
+    const recipients = await computeKudoRecipients("store-a", "sender-1", "recipient-1", getStoreUserIds);
+    expect(recipients).toContain("recipient-1");
+  });
+
+  it("includes all active store members returned by getStoreUserIds", async () => {
+    const storeMembers = ["sender-1", "recipient-1", "emp-3", "emp-4", "mgr-1"];
+    const getStoreUserIds = makeGetStoreUserIds({ "store-a": storeMembers });
+    const recipients = await computeKudoRecipients("store-a", "sender-1", "recipient-1", getStoreUserIds);
+    for (const m of storeMembers) expect(recipients).toContain(m);
+  });
+
+  it("calls getStoreUserIds with the correct storeId", async () => {
+    const getStoreUserIds = makeGetStoreUserIds({ "store-xyz": ["emp-1"] });
+    await computeKudoRecipients("store-xyz", "sender-1", "recipient-1", getStoreUserIds);
+    expect(getStoreUserIds).toHaveBeenCalledWith("store-xyz");
+  });
+
+  it("does NOT include users from a different store — store-boundary exclusion", async () => {
+    const getStoreUserIds = makeGetStoreUserIds({
+      "store-a": ["emp-a1", "emp-a2", "sender-1", "recipient-1"],
+      "store-b": ["emp-b1", "emp-b2", "hr-other-store"],
+    });
+    const recipients = await computeKudoRecipients("store-a", "sender-1", "recipient-1", getStoreUserIds);
+    expect(recipients).not.toContain("emp-b1");
+    expect(recipients).not.toContain("emp-b2");
+    expect(recipients).not.toContain("hr-other-store");
+  });
+
+  it("does NOT call getStoreUserIds with any storeId other than the kudo's storeId", async () => {
+    const getStoreUserIds = makeGetStoreUserIds({ "store-a": ["emp-1"] });
+    await computeKudoRecipients("store-a", "sender-1", "recipient-1", getStoreUserIds);
+    expect(getStoreUserIds).toHaveBeenCalledTimes(1);
+    expect(getStoreUserIds).toHaveBeenCalledWith("store-a");
+    expect(getStoreUserIds).not.toHaveBeenCalledWith("store-b");
+  });
+
+  it("de-duplicates when sender and recipient are also in the store member list", async () => {
+    const getStoreUserIds = makeGetStoreUserIds({ "store-a": ["sender-1", "recipient-1", "emp-3"] });
+    const recipients = await computeKudoRecipients("store-a", "sender-1", "recipient-1", getStoreUserIds);
+    const senderOccurrences = recipients.filter((id) => id === "sender-1");
+    const recipientOccurrences = recipients.filter((id) => id === "recipient-1");
+    expect(senderOccurrences).toHaveLength(1);
+    expect(recipientOccurrences).toHaveLength(1);
+  });
+
+  it("returns only sender and recipient when the store has no other members", async () => {
+    const getStoreUserIds = makeGetStoreUserIds({ "store-a": [] });
+    const recipients = await computeKudoRecipients("store-a", "sender-1", "recipient-1", getStoreUserIds);
+    expect(recipients).toStrictEqual(["sender-1", "recipient-1"]);
+  });
+
+  it("includes all store members alongside sender and recipient", async () => {
+    const storeMembers = ["emp-a", "emp-b", "emp-c"];
+    const getStoreUserIds = makeGetStoreUserIds({ "store-a": storeMembers });
+    const recipients = await computeKudoRecipients("store-a", "sender-1", "recipient-1", getStoreUserIds);
+    expect(recipients).toContain("sender-1");
+    expect(recipients).toContain("recipient-1");
+    for (const m of storeMembers) expect(recipients).toContain(m);
+    expect(recipients).toHaveLength(5);
+  });
+});
+
 // ─── Route wiring audit ───────────────────────────────────────────────────────
 //
 // For each sensitive event type, verify that the route file:
@@ -370,6 +455,12 @@ const WIRING_CASES: WiringCase[] = [
     file: "server/routes/schedules.ts",
     eventType: "new_message",
     helperFn: "computeScheduleDmRecipients",
+  },
+  {
+    label: "kudo_sent",
+    file: "server/routes/rituals.ts",
+    eventType: "kudo_sent",
+    helperFn: "computeKudoRecipients",
   },
 ];
 

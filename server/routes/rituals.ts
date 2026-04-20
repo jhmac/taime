@@ -13,8 +13,8 @@ import { generateMiddayPulse } from "../services/middayPulse";
 import { triggerClarification } from "../services/gtdClarificationAI";
 import type { IStorage } from "../storage";
 import logger from "../lib/logger";
-import { getUserIdsWithPermission } from "../lib/permissionUtils";
-import { computeDebriefRecipients } from "../lib/broadcastRecipients";
+import { getUserIdsWithPermission, getAllStoreUserIds } from "../lib/permissionUtils";
+import { computeDebriefRecipients, computeKudoRecipients } from "../lib/broadcastRecipients";
 
 async function getFirstStoreId(): Promise<string> {
   const [store] = await db.select({ id: workLocations.id }).from(workLocations).limit(1);
@@ -231,7 +231,8 @@ export function registerRitualRoutes(
     const sender = await storage.getUser(userId);
     const recipient = await storage.getUser(body.toEmployeeId);
 
-    broadcastToAll({
+    const kudoRecipients = await computeKudoRecipients(storeId, userId, body.toEmployeeId, getAllStoreUserIds);
+    sendToUsers(kudoRecipients, {
       type: 'kudo_sent',
       data: {
         kudo: {
