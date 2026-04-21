@@ -256,10 +256,10 @@ self.addEventListener('notificationclick', (event) => {
   if (data.type === 'clock_in_reminder' || action === 'clock_in') url = '/?action=clock';
   else if (action === 'clock_out') url = '/?action=clock';
   else if (action === 'view_task') url = '/?action=tasks';
-  else if (action === 'view_schedule') url = '/?action=schedule';
+  else if (action === 'view_schedule') url = data.url || '/schedules';
   else if (action === 'review_payroll') url = '/?action=payroll';
   else if (data.type === 'task_assignment') url = '/?action=tasks';
-  else if (data.type === 'schedule_update') url = '/?action=schedule';
+  else if (data.type === 'schedule_update') url = data.url || '/schedules';
   else if (data.type === 'payroll_ready') url = '/?action=payroll';
   else if (data.type === 'anomaly_alert') url = data.url || '/dashboard';
   else if (action === 'view_details' && data.type === 'anomaly_alert') url = '/dashboard';

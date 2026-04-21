@@ -31,10 +31,13 @@ export function registerScheduleRoutes(
       const schedule = await storage.createSchedule(data);
       
       if (data.userId !== userId) {
-        await notificationService.sendScheduleUpdate(
-          data.userId,
-          `New shift scheduled: ${schedule.title || 'Shift'} on ${new Date(schedule.startTime).toLocaleDateString()}`
-        );
+        const newDay = new Date(schedule.startTime).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+        const newStart = new Date(schedule.startTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+        const newEnd = new Date(schedule.endTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+        const newDescription = `${schedule.title ? schedule.title + ' – ' : ''}${newDay}, ${newStart}–${newEnd}`;
+        notificationService.sendScheduleUpdate(data.userId, newDescription, '/schedules').catch((err) => {
+          console.error(`Failed to notify user ${data.userId} of new schedule:`, err);
+        });
       }
 
       const scheduleStoreId = (await tryResolveStoreIdForUser(userId)) || 'default';
@@ -89,9 +92,22 @@ export function registerScheduleRoutes(
       if (body.endTime && typeof body.endTime === 'string') body.endTime = new Date(body.endTime);
 
       const updated = await storage.updateSchedule(req.params.id, body);
+      if (!updated) return res.status(404).json({ message: "Schedule not found" });
+
       const scheduleUpdatedStoreId = (await tryResolveStoreIdForUser(userId)) || 'default';
       const scheduleUpdatedRecipients = await computeScheduleStoreRecipients(scheduleUpdatedStoreId, getAllStoreUserIds);
       sendToUsers(scheduleUpdatedRecipients, { type: 'schedule_updated', data: { schedule: updated } });
+
+      if (updated.userId && updated.userId !== userId) {
+        const day = new Date(updated.startTime).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+        const start = new Date(updated.startTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+        const end = new Date(updated.endTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+        const description = `${updated.title ? updated.title + ' – ' : ''}${day}, ${start}–${end}`;
+        notificationService.sendScheduleUpdate(updated.userId, description, '/schedules').catch((err) => {
+          console.error(`Failed to notify user ${updated.userId} of schedule update:`, err);
+        });
+      }
+
       res.json(updated);
     } catch (error) {
       console.error("Error updating schedule:", error);

@@ -605,11 +605,11 @@ export class NotificationService {
     });
   }
 
-  async sendScheduleUpdate(userId: string, changeDescription: string): Promise<void> {
+  async sendScheduleUpdate(userId: string, changeDescription: string, url: string = '/schedules'): Promise<void> {
     await this.sendToUser(userId, {
       title: '📅 Schedule Updated',
       body: changeDescription,
-      data: { type: 'schedule_update', changeDescription },
+      data: { type: 'schedule_update', changeDescription, url },
       actions: [
         { action: 'view_schedule', title: 'View Schedule' },
         { action: 'dismiss', title: 'Dismiss' },
