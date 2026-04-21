@@ -191,24 +191,47 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
       const includeAll = req.query.includeAll === 'true';
 
       const requestingUser = await storage.getUser(userId);
+      const requestingLocationId = requestingUser?.locationId;
       const requestingLocationName = requestingUser?.locationName;
 
-      if (requestingLocationName) {
+      const activeFilter = includeAll ? undefined : or(eq(users.isActive, true), isNull(users.inviteAcceptedAt));
+
+      if (requestingLocationId) {
+        // Primary path: FK-based store scoping (rename-safe).
+        // Include users assigned to this store OR users with no store assignment at all
+        // (null on BOTH fields = truly unassigned/newly invited, not from another store).
+        const locationFilter = or(
+          eq(users.locationId, requestingLocationId),
+          and(isNull(users.locationId), isNull(users.locationName)),
+        );
+        const whereClause = activeFilter ? and(locationFilter, activeFilter) : locationFilter;
+        const filteredUsers = await db.select().from(users).where(whereClause);
+        res.json(filteredUsers);
+      } else if (requestingLocationName) {
+        // Compatibility fallback for requesters whose locationId hasn't been backfilled yet.
+        // Include users with a matching locationName OR users with no location at all.
         const locationFilter = or(
           eq(users.locationName, requestingLocationName),
-          isNull(users.locationName)
+          isNull(users.locationName),
         );
-        const activeFilter = includeAll ? undefined : or(eq(users.isActive, true), isNull(users.inviteAcceptedAt));
         const whereClause = activeFilter ? and(locationFilter, activeFilter) : locationFilter;
         const filteredUsers = await db.select().from(users).where(whereClause);
         res.json(filteredUsers);
       } else {
-        const allUsers = includeAll
-          ? await db.select().from(users)
-          : await db.select().from(users).where(
-              or(eq(users.isActive, true), isNull(users.inviteAcceptedAt))
-            );
-        res.json(allUsers);
+        // No store assignment — return full list only for owners/admins.
+        // Scoped viewers without a store see only themselves.
+        const isOwnerOrAdmin = roleName === 'owner' || roleName === 'admin';
+        if (isOwnerOrAdmin) {
+          const allUsers = includeAll
+            ? await db.select().from(users)
+            : await db.select().from(users).where(
+                or(eq(users.isActive, true), isNull(users.inviteAcceptedAt))
+              );
+          res.json(allUsers);
+        } else {
+          const selfUser = requestingUser ? [requestingUser] : [];
+          res.json(selfUser);
+        }
       }
     } catch (error) {
       console.error("Error fetching users:", error);
@@ -234,7 +257,24 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
   app.put('/api/users/:userId', isAuthenticated, async (req: any, res) => {
     try {
       const { userId } = req.params;
-      const updateData = req.body;
+      const updateData = { ...req.body };
+
+      // When locationName is being set, resolve and persist the matching locationId so
+      // that store-scoped queries (getAllStoreUserIds, resolveStoreIdForUser) can use the
+      // FK directly instead of a fragile name match.
+      if ('locationName' in updateData) {
+        if (updateData.locationName) {
+          const [matchedLoc] = await db
+            .select({ id: workLocations.id })
+            .from(workLocations)
+            .where(eq(workLocations.name, updateData.locationName))
+            .limit(1);
+          updateData.locationId = matchedLoc?.id ?? null;
+        } else {
+          updateData.locationId = null;
+        }
+      }
+
       const updated = await db.update(users).set({ ...updateData, updatedAt: new Date() }).where(eq(users.id, userId)).returning();
       if (updated.length === 0) {
         return res.status(404).json({ message: "User not found" });

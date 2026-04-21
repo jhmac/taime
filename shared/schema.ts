@@ -93,6 +93,7 @@ export const users = pgTable("users", {
   roleId: varchar("role_id").references(() => roles.id),
   hourlyRate: decimal("hourly_rate", { precision: 10, scale: 2 }),
   locationName: varchar("location_name"),
+  locationId: varchar("location_id").references(() => workLocations.id),
   payrollClassification: varchar("payroll_classification").default("1099 Contractor"),
   startDate: timestamp("start_date"),
   pin: varchar("pin"),
@@ -132,6 +133,7 @@ export const users = pgTable("users", {
   index("idx_users_role_id").on(table.roleId),
   index("idx_users_is_active").on(table.isActive),
   index("idx_users_company_id").on(table.companyId),
+  index("idx_users_location_id").on(table.locationId),
 ]);
 
 // Location permission status — persisted so the manager dashboard survives server restarts.

@@ -284,6 +284,11 @@ export async function runSchemaMigrations(): Promise<void> {
       table: "company_settings",
       sql: `ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS show_pay_summary_to_employees boolean DEFAULT false`,
     },
+    // users.location_id: proper FK to work_locations replacing fragile name-based matching
+    {
+      table: "users",
+      sql: `ALTER TABLE users ADD COLUMN IF NOT EXISTS location_id varchar REFERENCES work_locations(id) ON DELETE SET NULL`,
+    },
   ];
 
   let altered = 0;
@@ -302,6 +307,33 @@ export async function runSchemaMigrations(): Promise<void> {
         console.warn(`[Migration] Failed to alter '${table}':`, pgErr?.message ?? err);
       }
     }
+  }
+
+  // Index on users.location_id for fast store-scoped queries
+  try {
+    await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_users_location_id ON users (location_id)`));
+  } catch (err: unknown) {
+    const pgErr = err as { message?: string };
+    console.warn("[Migration] idx_users_location_id creation failed (non-fatal):", pgErr?.message ?? err);
+  }
+
+  // Backfill users.location_id from the existing locationName→work_locations.name match
+  // Only updates rows where location_id is still NULL but location_name is set, so it is
+  // safe and idempotent to run on every boot.
+  try {
+    await db.execute(sql.raw(`
+      UPDATE users u
+      SET location_id = wl.id
+      FROM work_locations wl
+      WHERE u.location_id IS NULL
+        AND u.location_name IS NOT NULL
+        AND u.location_name = wl.name
+        AND wl.is_active = true
+    `));
+    console.log("[Migration] Backfilled users.location_id from location_name match");
+  } catch (err: unknown) {
+    const pgErr = err as { message?: string };
+    console.warn("[Migration] users.location_id backfill failed (non-fatal):", pgErr?.message ?? err);
   }
 
   // Special step: rename company_ai_context.key_processes → goals if the old column name exists
