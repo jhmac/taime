@@ -458,15 +458,24 @@ export default function OwnerDashboard() {
         <p className="text-2xl font-extrabold text-foreground tabular-nums" data-testid="today-hours">
           {analyticsData?.totalHours != null ? `${analyticsData.totalHours.toFixed(1)}h` : '0.0h'}
         </p>
-        {paySummary && (
-          <div className="mt-2 pt-2 border-t border-border/60">
-            <p className="text-[10px] text-muted-foreground leading-tight">Pay Period</p>
-            <p className="text-sm font-extrabold text-primary tabular-nums mt-0.5">
-              {(paySummary.netPay).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}
+        <div className="mt-2 pt-2 border-t border-border/60">
+          {paySummary ? (
+            <>
+              <p className="text-[10px] text-muted-foreground leading-tight">This Period</p>
+              <p className="text-sm font-extrabold text-foreground tabular-nums mt-0.5">
+                {paySummary.totalHours.toFixed(1)}h
+              </p>
+              <p className="text-sm font-extrabold text-primary tabular-nums mt-1.5">
+                {paySummary.netPay.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}
+              </p>
+              <p className="text-[10px] text-muted-foreground leading-tight">est. net pay</p>
+            </>
+          ) : (
+            <p className="text-[10px] text-muted-foreground leading-tight italic">
+              Confirm payroll settings to see pay estimate
             </p>
-            <p className="text-[10px] text-muted-foreground leading-tight">est. net</p>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Divider */}
