@@ -111,14 +111,21 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
   // Availability template routes
   app.get('/api/availability/template', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.id;
-      const template = await storage.getAvailabilityTemplate(userId);
+      const requestingRole = req.user?.role?.name;
+      const isManagerOrAbove = ['owner', 'admin', 'manager', 'assistant_manager'].includes(requestingRole);
+      // Managers can view any employee's template via ?userId=
+      const targetUserId = (isManagerOrAbove && req.query.userId)
+        ? (req.query.userId as string)
+        : req.user.id;
+      const template = await storage.getAvailabilityTemplate(targetUserId);
       res.json(template || null);
     } catch (error) {
       console.error("Error fetching availability template:", error);
       res.status(500).json({ message: "Failed to fetch availability template" });
     }
   });
+
+  const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
   app.post('/api/availability/template', isAuthenticated, async (req: any, res) => {
     try {
@@ -127,18 +134,31 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
       if (!slots || typeof slots !== 'object' || Array.isArray(slots)) {
         return res.status(400).json({ message: "slots must be an object" });
       }
-      // Validate structure: keys must be day-of-week strings 0..6, values must have boolean fields
       const validDays = new Set(['0','1','2','3','4','5','6']);
       for (const [key, val] of Object.entries(slots)) {
         if (!validDays.has(key)) {
           return res.status(400).json({ message: `Invalid day key: ${key}. Must be 0–6.` });
         }
         if (!val || typeof val !== 'object') {
-          return res.status(400).json({ message: `slots.${key} must be an object with morning/afternoon/evening booleans` });
+          return res.status(400).json({ message: `slots.${key} must be an object` });
         }
         const v = val as Record<string, unknown>;
-        if (typeof v.morning !== 'boolean' || typeof v.afternoon !== 'boolean' || typeof v.evening !== 'boolean') {
-          return res.status(400).json({ message: `slots.${key} must have boolean morning, afternoon, and evening fields` });
+        if ('available' in v) {
+          // New format: { available: boolean, startTime?: string, endTime?: string }
+          if (typeof v.available !== 'boolean') {
+            return res.status(400).json({ message: `slots.${key}.available must be a boolean` });
+          }
+          if (v.startTime !== undefined && (typeof v.startTime !== 'string' || !TIME_RE.test(v.startTime as string))) {
+            return res.status(400).json({ message: `slots.${key}.startTime must be HH:mm format` });
+          }
+          if (v.endTime !== undefined && (typeof v.endTime !== 'string' || !TIME_RE.test(v.endTime as string))) {
+            return res.status(400).json({ message: `slots.${key}.endTime must be HH:mm format` });
+          }
+        } else {
+          // Legacy format: { morning: boolean, afternoon: boolean, evening: boolean }
+          if (typeof v.morning !== 'boolean' || typeof v.afternoon !== 'boolean' || typeof v.evening !== 'boolean') {
+            return res.status(400).json({ message: `slots.${key} must have boolean morning, afternoon, and evening fields` });
+          }
         }
       }
       const template = await storage.upsertAvailabilityTemplate(userId, slots);

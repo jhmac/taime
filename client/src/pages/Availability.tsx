@@ -17,10 +17,11 @@ import { cn } from "@/lib/utils";
 import {
   Sun, Sunset, Moon, Clock, Check, Minus, ChevronLeft, ChevronRight,
   StickyNote, Plus, X, Umbrella, Thermometer, User, CalendarMinus,
-  MoreHorizontal, MessageSquare, CalendarCheck, Save, Loader2, CalendarDays
+  MoreHorizontal, MessageSquare, CalendarCheck, Save, Loader2, CalendarDays, Wand2
 } from "lucide-react";
 import type { UserAvailability, TimeOffRequest, AvailabilityTemplate } from "@shared/schema";
 
+// ─── Time slot types (for the weekly grid — unchanged) ─────────────────────
 type TimeSlot = 'morning' | 'afternoon' | 'evening' | 'all_day';
 
 interface DayNote {
@@ -33,6 +34,75 @@ interface DayNote {
   updatedAt: string;
 }
 
+// ─── Default Schedule types ─────────────────────────────────────────────────
+interface DayTemplate {
+  available: boolean;
+  startTime: string; // "HH:mm"
+  endTime: string;   // "HH:mm"
+}
+
+const DEFAULT_START = '09:00';
+const DEFAULT_END = '17:00';
+
+// Generate 15-min increments from 5 AM to 11:45 PM, plus midnight
+function generateTimeOptions(): { value: string; label: string }[] {
+  const opts: { value: string; label: string }[] = [];
+  for (let h = 5; h < 24; h++) {
+    for (let m = 0; m < 60; m += 15) {
+      const value = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+      const h12 = h > 12 ? h - 12 : h === 0 ? 12 : h;
+      const ampm = h >= 12 ? 'PM' : 'AM';
+      opts.push({ value, label: `${h12}:${String(m).padStart(2, '0')} ${ampm}` });
+    }
+  }
+  opts.push({ value: '00:00', label: '12:00 AM (midnight)' });
+  return opts;
+}
+
+const TIME_OPTIONS = generateTimeOptions();
+
+function formatTimeShort(hhmm: string): string {
+  if (!hhmm) return '';
+  const [h, m] = hhmm.split(':').map(Number);
+  const h12 = h > 12 ? h - 12 : h === 0 ? 12 : h;
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  return m === 0 ? `${h12} ${ampm}` : `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
+}
+
+// Map a DayTemplate to morning/afternoon/evening slots for userAvailability
+function slotsFromDayTemplate(slot: DayTemplate): { morning: boolean; afternoon: boolean; evening: boolean; all_day: boolean } {
+  if (!slot.available) return { morning: false, afternoon: false, evening: false, all_day: false };
+  const startH = parseInt(slot.startTime.split(':')[0]);
+  const endH = parseInt(slot.endTime.split(':')[0]);
+  const endM = parseInt(slot.endTime.split(':')[1]);
+  const morning = startH < 12;
+  const afternoon = startH < 18 && (endH > 12 || (endH === 12 && endM > 0));
+  const evening = endH > 18 || endH === 0; // 0 = midnight
+  return { morning, afternoon, evening, all_day: morning && afternoon && evening };
+}
+
+// Parse raw template slot (either new or legacy format) into a DayTemplate
+function parseDayTemplate(raw: any): DayTemplate {
+  if (!raw) return { available: false, startTime: DEFAULT_START, endTime: DEFAULT_END };
+  if ('available' in raw) {
+    return {
+      available: !!raw.available,
+      startTime: raw.startTime || DEFAULT_START,
+      endTime: raw.endTime || DEFAULT_END,
+    };
+  }
+  // Legacy format: {morning, afternoon, evening}
+  const anyOn = !!(raw.morning || raw.afternoon || raw.evening);
+  return { available: anyOn, startTime: DEFAULT_START, endTime: DEFAULT_END };
+}
+
+function emptyWeekTemplateSlots(): Record<string, DayTemplate> {
+  return Object.fromEntries(
+    Array.from({ length: 7 }, (_, i) => [String(i), { available: false, startTime: DEFAULT_START, endTime: DEFAULT_END }])
+  );
+}
+
+// ─── Static config ──────────────────────────────────────────────────────────
 const timeSlots: { value: TimeSlot; label: string; hours: string; Icon: React.ComponentType<{ className?: string }> }[] = [
   { value: 'all_day', label: 'All Day', hours: '9 AM–9 PM', Icon: Clock },
   { value: 'morning', label: 'Morning', hours: '6 AM–12 PM', Icon: Sun },
@@ -51,14 +121,9 @@ const timeOffTypes = [
   { value: 'other', label: 'Other', Icon: MoreHorizontal },
 ];
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 function emptyDaySlots(): Record<TimeSlot, boolean> {
   return { all_day: false, morning: false, afternoon: false, evening: false };
-}
-
-function emptyTemplateData(): Record<string, Record<TimeSlot, boolean>> {
-  const data: Record<string, Record<TimeSlot, boolean>> = {};
-  for (let i = 0; i < 7; i++) data[String(i)] = emptyDaySlots();
-  return data;
 }
 
 function getWeekDates(referenceDate: Date): Date[] {
@@ -86,6 +151,7 @@ function formatDateKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+// ─── DayNoteButton sub-component ─────────────────────────────────────────────
 function DayNoteButton({ date, notes, userId }: {
   date: Date;
   notes: DayNote[];
@@ -189,37 +255,53 @@ function DayNoteButton({ date, notes, userId }: {
   );
 }
 
+// ─── Main Availability page ───────────────────────────────────────────────────
 export default function Availability() {
   const { user } = useAuth();
   const { toast } = useToast();
+
+  // Tabs
   const [activeTab, setActiveTab] = useState("availability");
+
+  // Weekly view state
   const [selectedWeek, setSelectedWeek] = useState(new Date());
   const [calendarMonth, setCalendarMonth] = useState(new Date());
   const [availabilityData, setAvailabilityData] = useState<Record<string, Record<TimeSlot, boolean>>>({});
   const [hasChanges, setHasChanges] = useState(false);
+  const [autoFilled, setAutoFilled] = useState(false);
+  // Track time ranges applied from the template for display in the weekly grid
+  const [autoFilledTimeRanges, setAutoFilledTimeRanges] = useState<Record<string, { startTime: string; endTime: string } | null>>({});
+
+  // Time-off form state
   const [showTimeOffForm, setShowTimeOffForm] = useState(false);
   const [timeOffType, setTimeOffType] = useState("vacation");
   const [timeOffStartDate, setTimeOffStartDate] = useState("");
   const [timeOffEndDate, setTimeOffEndDate] = useState("");
   const [timeOffReason, setTimeOffReason] = useState("");
 
-  // Template editor state (keyed by day-of-week string "0"–"6")
-  const [templateData, setTemplateData] = useState<Record<string, Record<TimeSlot, boolean>>>(emptyTemplateData);
+  // Default Week editor state
+  const [templateSlots, setTemplateSlots] = useState<Record<string, DayTemplate>>(emptyWeekTemplateSlots);
   const [templateHasChanges, setTemplateHasChanges] = useState(false);
+  // Preset time range for quick-fill buttons
+  const [presetStart, setPresetStart] = useState(DEFAULT_START);
+  const [presetEnd, setPresetEnd] = useState(DEFAULT_END);
 
+  // ── Derived values ──────────────────────────────────────────────────────────
   const weekDates = useMemo(() => getWeekDates(selectedWeek), [selectedWeek]);
-  const weekStart = weekDates[0];
-  const weekEnd = weekDates[6];
+  const startParam = formatDateKey(weekDates[0]);
+  const endParam = formatDateKey(weekDates[6]);
 
-  const startParam = formatDateKey(weekStart);
-  const endParam = formatDateKey(weekEnd);
+  const isWeekInPast = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return weekDates[6] < today;
+  }, [weekDates]);
 
+  // ── Queries ─────────────────────────────────────────────────────────────────
   const { data: currentAvailability = [], isLoading } = useQuery<UserAvailability[]>({
     queryKey: ['/api/availability', { startDate: startParam, endDate: endParam }],
     queryFn: async () => {
-      const res = await fetch(`/api/availability?startDate=${startParam}&endDate=${endParam}`, {
-        credentials: 'include',
-      });
+      const res = await fetch(`/api/availability?startDate=${startParam}&endDate=${endParam}`, { credentials: 'include' });
       if (!res.ok) throw new Error('Failed to fetch');
       return res.json();
     },
@@ -228,9 +310,7 @@ export default function Availability() {
   const { data: dayNotes = [] } = useQuery<DayNote[]>({
     queryKey: ['/api/day-notes', startParam, endParam],
     queryFn: async () => {
-      const res = await fetch(`/api/day-notes?startDate=${startParam}&endDate=${endParam}`, {
-        credentials: 'include',
-      });
+      const res = await fetch(`/api/day-notes?startDate=${startParam}&endDate=${endParam}`, { credentials: 'include' });
       if (!res.ok) return [];
       return res.json();
     },
@@ -250,44 +330,36 @@ export default function Availability() {
     },
   });
 
-  // Sync server availability into local state when week changes
+  // ── Effects: sync server data → local state ─────────────────────────────────
+  // Sync weekly availability from server (reset auto-fill when new data loads)
   useEffect(() => {
     const availMap: Record<string, Record<TimeSlot, boolean>> = {};
     if (Array.isArray(currentAvailability)) {
       currentAvailability.forEach((avail: any) => {
         const dateKey = avail.date.split('T')[0];
-        if (!availMap[dateKey]) {
-          availMap[dateKey] = emptyDaySlots();
-        }
+        if (!availMap[dateKey]) availMap[dateKey] = emptyDaySlots();
         availMap[dateKey][avail.timeSlot as TimeSlot] = avail.isAvailable ?? false;
       });
     }
     setAvailabilityData(availMap);
     setHasChanges(false);
+    setAutoFilled(false);
+    setAutoFilledTimeRanges({});
   }, [currentAvailability]);
 
-  // Sync template from server into editor state
+  // Sync template from server → Default Week editor state
   useEffect(() => {
     if (!availabilityTemplate?.slots) return;
-    const slots = availabilityTemplate.slots as Record<string, { morning: boolean; afternoon: boolean; evening: boolean }>;
-    const newData = emptyTemplateData();
+    const rawSlots = availabilityTemplate.slots as Record<string, any>;
+    const newSlots = emptyWeekTemplateSlots();
     for (let i = 0; i < 7; i++) {
-      const key = String(i);
-      const s = slots[key] || { morning: false, afternoon: false, evening: false };
-      const allDay = s.morning && s.afternoon && s.evening;
-      newData[key] = { morning: s.morning, afternoon: s.afternoon, evening: s.evening, all_day: allDay };
+      newSlots[String(i)] = parseDayTemplate(rawSlots[String(i)]);
     }
-    setTemplateData(newData);
+    setTemplateSlots(newSlots);
     setTemplateHasChanges(false);
   }, [availabilityTemplate]);
 
-  // Auto-apply template to empty future weeks (silent, no banner)
-  const isWeekInPast = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    return weekDates[6] < today;
-  }, [weekDates]);
-
+  // Auto-apply template to empty future weeks (silent, no prompt)
   const weekHasNoAvailability = useMemo(() => {
     if (!Array.isArray(currentAvailability)) return true;
     const weekDateKeys = new Set(weekDates.map(formatDateKey));
@@ -301,27 +373,35 @@ export default function Availability() {
     if (isLoading) return;
     if (!weekHasNoAvailability) return;
     if (isWeekInPast) return;
-    if (hasChanges) return;
     if (!availabilityTemplate?.slots) return;
 
-    const slots = availabilityTemplate.slots as Record<string, { morning: boolean; afternoon: boolean; evening: boolean }>;
+    const rawSlots = availabilityTemplate.slots as Record<string, any>;
     const newData: Record<string, Record<TimeSlot, boolean>> = {};
+    const timeRanges: Record<string, { startTime: string; endTime: string } | null> = {};
+
     weekDates.forEach(date => {
       const dow = date.getDay().toString();
       const dateKey = formatDateKey(date);
-      const s = slots[dow] || { morning: false, afternoon: false, evening: false };
-      newData[dateKey] = {
-        morning: s.morning,
-        afternoon: s.afternoon,
-        evening: s.evening,
-        all_day: s.morning && s.afternoon && s.evening,
-      };
+      const raw = rawSlots[dow];
+      const tpl = parseDayTemplate(raw);
+      const slots = slotsFromDayTemplate(tpl);
+      newData[dateKey] = slots;
+
+      // Store time range for display if it's the new format and available
+      if (raw && 'available' in raw && raw.available && raw.startTime && raw.endTime) {
+        timeRanges[dateKey] = { startTime: raw.startTime, endTime: raw.endTime };
+      } else {
+        timeRanges[dateKey] = null;
+      }
     });
+
     setAvailabilityData(prev => ({ ...prev, ...newData }));
-    // Mark as changed so user can save the auto-applied template to this week
+    setAutoFilledTimeRanges(timeRanges);
     setHasChanges(true);
+    setAutoFilled(true);
   }, [isLoading, weekHasNoAvailability, isWeekInPast, availabilityTemplate, weekDates]);
 
+  // ── Mutations ────────────────────────────────────────────────────────────────
   const submitAvailabilityMutation = useMutation({
     mutationFn: async (availability: any[]) => {
       await apiRequest('POST', '/api/availability', { availability });
@@ -330,6 +410,7 @@ export default function Availability() {
       toast({ title: "Availability saved", description: "Your availability has been updated." });
       queryClient.invalidateQueries({ queryKey: ['/api/availability'] });
       setHasChanges(false);
+      setAutoFilled(false);
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to save availability.", variant: "destructive" });
@@ -337,7 +418,7 @@ export default function Availability() {
   });
 
   const saveTemplateMutation = useMutation({
-    mutationFn: async (slots: Record<string, { morning: boolean; afternoon: boolean; evening: boolean }>) => {
+    mutationFn: async (slots: Record<string, { available: boolean; startTime?: string; endTime?: string }>) => {
       await apiRequest('POST', '/api/availability/template', { slots });
     },
     onSuccess: () => {
@@ -378,6 +459,7 @@ export default function Availability() {
     },
   });
 
+  // ── Handlers: weekly view ────────────────────────────────────────────────────
   const toggleSlot = (date: Date, slot: TimeSlot) => {
     const dateKey = formatDateKey(date);
     setAvailabilityData(prev => {
@@ -394,49 +476,16 @@ export default function Availability() {
     setHasChanges(true);
   };
 
-  const toggleTemplateSlot = (dow: string, slot: TimeSlot) => {
-    setTemplateData(prev => {
-      const dayData = prev[dow] || emptyDaySlots();
-      if (slot === 'all_day') {
-        const newVal = !dayData.all_day;
-        return { ...prev, [dow]: { all_day: newVal, morning: newVal, afternoon: newVal, evening: newVal } };
-      }
-      const newSlotVal = !dayData[slot];
-      const newDay = { ...dayData, [slot]: newSlotVal };
-      newDay.all_day = newDay.morning && newDay.afternoon && newDay.evening;
-      return { ...prev, [dow]: newDay };
-    });
-    setTemplateHasChanges(true);
-  };
-
-  const applyTemplatePreset = (preset: 'weekdays' | 'weekends' | 'all' | 'clear') => {
-    const newData = emptyTemplateData();
-    for (let i = 0; i < 7; i++) {
-      const isWeekday = i > 0 && i < 6;
-      const isWeekend = !isWeekday;
-      const on =
-        preset === 'all' ? true :
-        preset === 'clear' ? false :
-        preset === 'weekdays' ? isWeekday :
-        isWeekend;
-      newData[String(i)] = { all_day: on, morning: on, afternoon: on, evening: on };
-    }
-    setTemplateData(newData);
-    setTemplateHasChanges(true);
-  };
-
   const applyPreset = (preset: 'weekdays' | 'weekends' | 'all' | 'clear') => {
     const newData: Record<string, Record<TimeSlot, boolean>> = {};
     weekDates.forEach(date => {
       const dateKey = formatDateKey(date);
       const dow = date.getDay();
       const isWeekday = dow > 0 && dow < 6;
-      const isWeekend = !isWeekday;
       const available =
         preset === 'all' ? true :
         preset === 'clear' ? false :
-        preset === 'weekdays' ? isWeekday :
-        preset === 'weekends' ? isWeekend : false;
+        preset === 'weekdays' ? isWeekday : !isWeekday;
       newData[dateKey] = { all_day: available, morning: available, afternoon: available, evening: available };
     });
     setAvailabilityData(prev => ({ ...prev, ...newData }));
@@ -459,12 +508,51 @@ export default function Availability() {
     submitAvailabilityMutation.mutate(availability);
   };
 
+  // ── Handlers: Default Week editor ───────────────────────────────────────────
+  const toggleTemplateDay = (dow: string) => {
+    setTemplateSlots(prev => {
+      const slot = prev[dow];
+      return { ...prev, [dow]: { ...slot, available: !slot.available } };
+    });
+    setTemplateHasChanges(true);
+  };
+
+  const updateTemplateTime = (dow: string, field: 'startTime' | 'endTime', value: string) => {
+    setTemplateSlots(prev => {
+      const slot = prev[dow];
+      return { ...prev, [dow]: { ...slot, [field]: value } };
+    });
+    setTemplateHasChanges(true);
+  };
+
+  const applyTemplatePreset = (preset: 'weekdays' | 'weekends' | 'all' | 'clear') => {
+    const newSlots = emptyWeekTemplateSlots();
+    for (let i = 0; i < 7; i++) {
+      const isWeekday = i > 0 && i < 6;
+      const on =
+        preset === 'all' ? true :
+        preset === 'clear' ? false :
+        preset === 'weekdays' ? isWeekday : !isWeekday;
+      newSlots[String(i)] = {
+        available: on,
+        startTime: on ? presetStart : DEFAULT_START,
+        endTime: on ? presetEnd : DEFAULT_END,
+      };
+    }
+    setTemplateSlots(newSlots);
+    setTemplateHasChanges(true);
+  };
+
   const handleSaveTemplate = () => {
-    const slots: Record<string, { morning: boolean; afternoon: boolean; evening: boolean }> = {};
+    const slots: Record<string, { available: boolean; startTime?: string; endTime?: string }> = {};
     for (let i = 0; i < 7; i++) {
       const key = String(i);
-      const d = templateData[key] || emptyDaySlots();
-      slots[key] = { morning: d.morning, afternoon: d.afternoon, evening: d.evening };
+      const slot = templateSlots[key];
+      slots[key] = {
+        available: slot.available,
+        startTime: slot.available ? slot.startTime : undefined,
+        endTime: slot.available ? slot.endTime : undefined,
+      };
     }
     saveTemplateMutation.mutate(slots);
   };
@@ -482,23 +570,13 @@ export default function Availability() {
     });
   };
 
+  // ── Computed summary helpers ─────────────────────────────────────────────────
   const getDayAvailabilitySummary = (date: Date): 'full' | 'partial' | 'none' => {
     const dateKey = formatDateKey(date);
     const slots = availabilityData[dateKey];
     if (!slots) return 'none';
     const count = [slots.morning, slots.afternoon, slots.evening].filter(Boolean).length;
-    if (count === 3) return 'full';
-    if (count > 0) return 'partial';
-    return 'none';
-  };
-
-  const getTemplateDaySummary = (dow: string): 'full' | 'partial' | 'none' => {
-    const s = templateData[dow];
-    if (!s) return 'none';
-    const count = [s.morning, s.afternoon, s.evening].filter(Boolean).length;
-    if (count === 3) return 'full';
-    if (count > 0) return 'partial';
-    return 'none';
+    return count === 3 ? 'full' : count > 0 ? 'partial' : 'none';
   };
 
   const monthDays = useMemo(
@@ -516,6 +594,7 @@ export default function Availability() {
     cancelled: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400',
   };
 
+  // ── Render ───────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-background p-4 md:p-6">
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
@@ -539,12 +618,12 @@ export default function Availability() {
           </TabsTrigger>
         </TabsList>
 
-        {/* ── Availability Tab ── */}
+        {/* ── Availability Tab ──────────────────────────────────────────────── */}
         <TabsContent value="availability" className="space-y-4">
           <Card>
             <CardContent className="p-4">
               {/* Week navigation */}
-              <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center justify-between mb-3">
                 <Button variant="ghost" size="icon" onClick={() => {
                   const d = new Date(selectedWeek); d.setDate(d.getDate() - 7); setSelectedWeek(d);
                 }}>
@@ -556,9 +635,6 @@ export default function Availability() {
                     {' – '}
                     {weekDates[6].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                   </h3>
-                  {availabilityTemplate?.slots && weekHasNoAvailability && !isWeekInPast && !isLoading && (
-                    <p className="text-[10px] text-muted-foreground mt-0.5">Default schedule applied — edit below if needed</p>
-                  )}
                 </div>
                 <Button variant="ghost" size="icon" onClick={() => {
                   const d = new Date(selectedWeek); d.setDate(d.getDate() + 7); setSelectedWeek(d);
@@ -566,6 +642,23 @@ export default function Availability() {
                   <ChevronRight className="h-4 w-4" />
                 </Button>
               </div>
+
+              {/* Auto-filled pill */}
+              {autoFilled && (
+                <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg bg-primary/5 border border-primary/20">
+                  <Wand2 className="h-3.5 w-3.5 text-primary shrink-0" />
+                  <span className="text-xs text-muted-foreground flex-1">
+                    Auto-filled from your default schedule — edit or save below.
+                  </span>
+                  <button
+                    onClick={() => setAutoFilled(false)}
+                    className="text-muted-foreground hover:text-foreground transition-colors"
+                    aria-label="Dismiss"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
 
               {/* Quick presets */}
               <div className="flex gap-2 mb-4 flex-wrap">
@@ -577,13 +670,7 @@ export default function Availability() {
                     { key: 'clear', label: 'Clear' },
                   ] as { key: 'weekdays' | 'weekends' | 'all' | 'clear'; label: string }[]
                 ).map(({ key, label }) => (
-                  <Button
-                    key={key}
-                    variant="outline"
-                    size="sm"
-                    className="text-xs"
-                    onClick={() => applyPreset(key)}
-                  >
+                  <Button key={key} variant="outline" size="sm" className="text-xs" onClick={() => applyPreset(key)}>
                     {label}
                   </Button>
                 ))}
@@ -601,6 +688,8 @@ export default function Availability() {
                     {weekDates.map(date => {
                       const isToday = date.toDateString() === new Date().toDateString();
                       const summary = getDayAvailabilitySummary(date);
+                      const dateKey = formatDateKey(date);
+                      const timeRange = autoFilled ? autoFilledTimeRanges[dateKey] : null;
                       return (
                         <div key={date.toISOString()} className="text-center px-0.5">
                           <div className="text-[10px] text-muted-foreground uppercase tracking-wide">
@@ -615,6 +704,12 @@ export default function Availability() {
                           )}>
                             {date.getDate()}
                           </div>
+                          {/* Time range label when auto-filled */}
+                          {timeRange && (
+                            <div className="text-[9px] text-primary leading-tight mt-0.5 truncate">
+                              {formatTimeShort(timeRange.startTime)}–{formatTimeShort(timeRange.endTime)}
+                            </div>
+                          )}
                           {user?.id && (
                             <DayNoteButton date={date} notes={dayNotes} userId={user.id} />
                           )}
@@ -649,10 +744,7 @@ export default function Availability() {
                               )}
                               aria-label={`Toggle ${label} on ${date.toLocaleDateString()}`}
                             >
-                              {isActive
-                                ? <Check className="h-3.5 w-3.5" />
-                                : <Minus className="h-3 w-3" />
-                              }
+                              {isActive ? <Check className="h-3.5 w-3.5" /> : <Minus className="h-3 w-3" />}
                             </button>
                           </div>
                         );
@@ -688,9 +780,7 @@ export default function Availability() {
                 <h4 className="text-sm font-semibold">Monthly Overview</h4>
                 <div className="flex items-center gap-1">
                   <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7"
+                    variant="ghost" size="icon" className="h-7 w-7"
                     onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1))}
                   >
                     <ChevronLeft className="h-3.5 w-3.5" />
@@ -699,16 +789,13 @@ export default function Availability() {
                     {calendarMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
                   </span>
                   <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7"
+                    variant="ghost" size="icon" className="h-7 w-7"
                     onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1))}
                   >
                     <ChevronRight className="h-3.5 w-3.5" />
                   </Button>
                 </div>
               </div>
-
               <div className="grid grid-cols-7 gap-1 mb-1">
                 {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
                   <div key={i} className="text-center text-[10px] text-muted-foreground font-medium py-1">{d}</div>
@@ -755,100 +842,121 @@ export default function Availability() {
           </Card>
         </TabsContent>
 
-        {/* ── Default Week Tab ── */}
+        {/* ── Default Week Tab ──────────────────────────────────────────────── */}
         <TabsContent value="default" className="space-y-4">
           <Card>
             <CardContent className="p-4">
               <div className="mb-4">
                 <h3 className="font-semibold text-sm">My Default Schedule</h3>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Set which time slots you're available each day of the week. This template auto-fills any week you haven't set yet.
+                  Set the times you're typically available each day. New weeks without saved availability will auto-fill from this.
                 </p>
               </div>
 
-              {/* Quick presets */}
-              <div className="flex gap-2 mb-4 flex-wrap">
-                {(
-                  [
-                    { key: 'weekdays', label: 'Weekdays' },
-                    { key: 'weekends', label: 'Weekends' },
-                    { key: 'all', label: 'All' },
-                    { key: 'clear', label: 'Clear' },
-                  ] as { key: 'weekdays' | 'weekends' | 'all' | 'clear'; label: string }[]
-                ).map(({ key, label }) => (
-                  <Button
-                    key={key}
-                    variant="outline"
-                    size="sm"
-                    className="text-xs"
-                    onClick={() => applyTemplatePreset(key)}
-                  >
-                    {label}
-                  </Button>
-                ))}
-              </div>
-
-              <div className="overflow-x-auto">
-                {/* Day headers */}
-                <div className="grid grid-cols-[80px_repeat(7,1fr)] gap-0 mb-1 min-w-[420px]">
-                  <div />
-                  {DAY_NAMES.map((name, dow) => {
-                    const summary = getTemplateDaySummary(String(dow));
-                    return (
-                      <div key={dow} className="text-center px-0.5">
-                        <div className="text-[10px] text-muted-foreground uppercase tracking-wide">{name}</div>
-                        <div className={cn(
-                          "w-8 h-8 mx-auto rounded-full flex items-center justify-center text-xs font-semibold",
-                          summary === 'full' && "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-                          summary === 'partial' && "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
-                          summary === 'none' && "text-muted-foreground bg-muted/30"
-                        )}>
-                          {name[0]}
-                        </div>
-                      </div>
-                    );
-                  })}
+              {/* Quick presets + default time range */}
+              <div className="space-y-2 mb-4">
+                <div className="flex gap-2 flex-wrap">
+                  {(
+                    [
+                      { key: 'weekdays', label: 'Weekdays' },
+                      { key: 'weekends', label: 'Weekends' },
+                      { key: 'all', label: 'All Week' },
+                      { key: 'clear', label: 'Clear' },
+                    ] as { key: 'weekdays' | 'weekends' | 'all' | 'clear'; label: string }[]
+                  ).map(({ key, label }) => (
+                    <Button key={key} variant="outline" size="sm" className="text-xs" onClick={() => applyTemplatePreset(key)}>
+                      {label}
+                    </Button>
+                  ))}
                 </div>
-
-                {/* Slot rows */}
-                {timeSlots.map(({ value: slot, label, hours, Icon }) => (
-                  <div key={slot} className="grid grid-cols-[80px_repeat(7,1fr)] gap-0 items-center border-t border-border/60 py-2 min-w-[420px]">
-                    <div className="flex items-center gap-1.5 pr-2">
-                      <Icon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                      <div>
-                        <div className="text-xs font-medium leading-tight">{label}</div>
-                        <div className="text-[10px] text-muted-foreground leading-tight">{hours}</div>
-                      </div>
-                    </div>
-                    {DAY_NAMES.map((_, dow) => {
-                      const key = String(dow);
-                      const dayData = templateData[key] || emptyDaySlots();
-                      const isActive = slot === 'all_day' ? dayData.all_day : dayData[slot];
-                      return (
-                        <div key={`tpl-${key}-${slot}`} className="flex justify-center">
-                          <button
-                            onClick={() => toggleTemplateSlot(key, slot)}
-                            className={cn(
-                              "w-8 h-8 rounded-lg flex items-center justify-center transition-all",
-                              isActive
-                                ? "bg-primary text-primary-foreground shadow-sm"
-                                : "bg-muted/50 text-muted-foreground hover:bg-muted"
-                            )}
-                            aria-label={`Toggle ${label} for ${DAY_FULL[dow]}`}
-                          >
-                            {isActive
-                              ? <Check className="h-3.5 w-3.5" />
-                              : <Minus className="h-3 w-3" />
-                            }
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ))}
+                {/* Default time for presets */}
+                <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
+                  <span className="shrink-0">Preset time:</span>
+                  <Select value={presetStart} onValueChange={setPresetStart}>
+                    <SelectTrigger className="h-7 text-xs w-32">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-48">
+                      {TIME_OPTIONS.map(o => (
+                        <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <span>to</span>
+                  <Select value={presetEnd} onValueChange={setPresetEnd}>
+                    <SelectTrigger className="h-7 text-xs w-32">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-48">
+                      {TIME_OPTIONS.map(o => (
+                        <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
 
-              <div className="mt-4 space-y-2">
+              {/* Day rows */}
+              <div className="space-y-1">
+                {DAY_NAMES.map((name, dow) => {
+                  const key = String(dow);
+                  const slot = templateSlots[key];
+                  return (
+                    <div
+                      key={dow}
+                      className={cn(
+                        "flex items-center gap-2 py-2.5 px-1 rounded-lg transition-colors",
+                        !slot.available && "opacity-60"
+                      )}
+                    >
+                      {/* Day name */}
+                      <span className="text-sm font-medium w-9 shrink-0">{name}</span>
+
+                      {/* Available/Unavailable toggle */}
+                      <button
+                        onClick={() => toggleTemplateDay(key)}
+                        className={cn(
+                          "shrink-0 rounded-full px-2.5 py-1 text-xs font-medium transition-all border",
+                          slot.available
+                            ? "bg-primary text-primary-foreground border-primary"
+                            : "bg-muted text-muted-foreground border-border"
+                        )}
+                      >
+                        {slot.available ? "Available" : "Unavailable"}
+                      </button>
+
+                      {/* Time pickers — shown only when available */}
+                      {slot.available && (
+                        <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                          <Select value={slot.startTime} onValueChange={v => updateTemplateTime(key, 'startTime', v)}>
+                            <SelectTrigger className="h-7 text-xs flex-1 min-w-[90px]">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="max-h-48">
+                              {TIME_OPTIONS.filter(o => o.value !== '00:00').map(o => (
+                                <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <span className="text-xs text-muted-foreground shrink-0">–</span>
+                          <Select value={slot.endTime} onValueChange={v => updateTemplateTime(key, 'endTime', v)}>
+                            <SelectTrigger className="h-7 text-xs flex-1 min-w-[90px]">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="max-h-48">
+                              {TIME_OPTIONS.map(o => (
+                                <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="mt-5 space-y-2">
                 <Button
                   onClick={handleSaveTemplate}
                   disabled={saveTemplateMutation.isPending || !templateHasChanges}
@@ -862,12 +970,12 @@ export default function Availability() {
                 </Button>
                 {availabilityTemplate?.slots && !templateHasChanges && (
                   <p className="text-center text-[11px] text-muted-foreground">
-                    Your default schedule is saved and auto-fills empty weeks.
+                    Saved — auto-fills empty future weeks automatically.
                   </p>
                 )}
                 {!availabilityTemplate?.slots && !templateHasChanges && (
                   <p className="text-center text-[11px] text-muted-foreground">
-                    No default schedule set yet. Toggle your usual availability above and save.
+                    No default schedule yet. Set your usual hours above and save.
                   </p>
                 )}
               </div>
@@ -875,7 +983,7 @@ export default function Availability() {
           </Card>
         </TabsContent>
 
-        {/* ── Time Off Tab ── */}
+        {/* ── Time Off Tab ──────────────────────────────────────────────────── */}
         <TabsContent value="time-off" className="space-y-4">
           <Button className="w-full gap-2" onClick={() => setShowTimeOffForm(true)}>
             <Plus className="h-4 w-4" />
@@ -911,33 +1019,27 @@ export default function Availability() {
                           {req.status.charAt(0).toUpperCase() + req.status.slice(1)}
                         </Badge>
                       </div>
-
                       <div className="text-sm text-muted-foreground mb-2">
                         {new Date(req.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                         {req.startDate !== req.endDate && (
                           <> – {new Date(req.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</>
                         )}
                       </div>
-
                       {req.reason && (
                         <p className="text-xs text-muted-foreground mb-2 italic">"{req.reason}"</p>
                       )}
-
                       {req.adminNotes && (
                         <p className="text-xs text-muted-foreground bg-muted/50 p-2 rounded mb-2 flex items-start gap-1.5">
                           <MessageSquare className="h-3 w-3 mt-0.5 shrink-0" />
                           Manager: {req.adminNotes}
                         </p>
                       )}
-
                       <div className="text-[10px] text-muted-foreground">
                         Submitted {new Date(req.createdAt!).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                       </div>
-
                       {req.status === 'pending' && (
                         <Button
-                          variant="ghost"
-                          size="sm"
+                          variant="ghost" size="sm"
                           className="mt-2 text-xs text-destructive hover:text-destructive gap-1"
                           onClick={() => cancelTimeOffMutation.mutate(req.id)}
                           disabled={cancelTimeOffMutation.isPending}
@@ -983,7 +1085,6 @@ export default function Availability() {
                 </SelectContent>
               </Select>
             </div>
-
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label className="text-sm">Start Date</Label>
@@ -1009,7 +1110,6 @@ export default function Availability() {
                 />
               </div>
             </div>
-
             <div>
               <Label className="text-sm">Reason (optional)</Label>
               <Textarea
@@ -1019,7 +1119,6 @@ export default function Availability() {
                 className="text-sm min-h-[80px] resize-none"
               />
             </div>
-
             <div className="flex gap-2">
               <Button variant="outline" className="flex-1" onClick={() => setShowTimeOffForm(false)}>
                 Cancel

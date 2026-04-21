@@ -357,11 +357,16 @@ export const userAvailability = pgTable("user_availability", {
 ]);
 
 // Recurring weekly availability templates — one row per user
+// slots is a map of dayOfWeek (0=Sun…6=Sat) → new format { available, startTime?, endTime? }
+// or legacy format { morning, afternoon, evening } — both are supported
+export type TemplateSlotNew = { available: boolean; startTime?: string; endTime?: string };
+export type TemplateSlotLegacy = { morning: boolean; afternoon: boolean; evening: boolean };
+export type TemplateSlot = TemplateSlotNew | TemplateSlotLegacy;
+
 export const availabilityTemplates = pgTable("availability_templates", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").references(() => users.id).notNull().unique(),
-  // slots is a map of dayOfWeek (0=Sun…6=Sat) → { morning, afternoon, evening }
-  slots: jsonb("slots").notNull().$type<Record<string, { morning: boolean; afternoon: boolean; evening: boolean }>>(),
+  slots: jsonb("slots").notNull().$type<Record<string, TemplateSlot>>(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 

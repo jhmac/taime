@@ -19,7 +19,8 @@ import { apiRequest, queryClient as globalQueryClient } from "@/lib/queryClient"
 import type { User, Schedule, WorkLocation } from "@shared/schema";
 import {
   ChevronLeft, ChevronRight, Plus, Trash2, Sparkles, Loader2,
-  Check, X, Calendar, Clock, StickyNote, Bell, Pencil, Wand2, Users
+  Check, X, Calendar, Clock, StickyNote, Bell, Pencil, Wand2, Users,
+  ChevronDown, ChevronUp, CalendarDays
 } from "lucide-react";
 
 interface DayNote {
@@ -54,6 +55,92 @@ interface GenerateResult {
 
 function formatLocalDate(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// ── Employee Default Schedule read-only summary (manager view) ────────────────
+const SCHED_DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function formatSchedTimeShort(hhmm: string): string {
+  if (!hhmm) return '';
+  const [h, m] = hhmm.split(':').map(Number);
+  const h12 = h > 12 ? h - 12 : h === 0 ? 12 : h;
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  return m === 0 ? `${h12} ${ampm}` : `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
+}
+
+function buildDefaultScheduleSummary(rawSlots: Record<string, any>): string {
+  type DayInfo = { available: boolean; startTime?: string; endTime?: string };
+  const days: DayInfo[] = Array.from({ length: 7 }, (_, i) => {
+    const raw = rawSlots[String(i)];
+    if (!raw) return { available: false };
+    if ('available' in raw) return { available: !!raw.available, startTime: raw.startTime, endTime: raw.endTime };
+    // Legacy format
+    return { available: !!(raw.morning || raw.afternoon || raw.evening) };
+  });
+
+  const parts: string[] = [];
+  let i = 0;
+  while (i < 7) {
+    const d = days[i];
+    if (!d.available) { i++; continue; }
+    const timeStr = d.startTime && d.endTime
+      ? `${formatSchedTimeShort(d.startTime)}–${formatSchedTimeShort(d.endTime)}`
+      : 'Available';
+    let j = i;
+    while (
+      j + 1 < 7 &&
+      days[j + 1].available &&
+      days[j + 1].startTime === d.startTime &&
+      days[j + 1].endTime === d.endTime
+    ) j++;
+    parts.push(j > i ? `${SCHED_DAY_NAMES[i]}–${SCHED_DAY_NAMES[j]}: ${timeStr}` : `${SCHED_DAY_NAMES[i]}: ${timeStr}`);
+    i = j + 1;
+  }
+  return parts.length ? parts.join(' · ') : 'No available days set.';
+}
+
+function EmployeeDefaultSchedule({ userId }: { userId: string }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const { data: template, isLoading } = useQuery<any>({
+    queryKey: ['/api/availability/template', userId],
+    queryFn: async () => {
+      const res = await fetch(`/api/availability/template?userId=${userId}`, { credentials: 'include' });
+      if (res.status === 404 || res.status === 204) return null;
+      if (!res.ok) return null;
+      return res.json();
+    },
+    enabled: expanded,
+  });
+
+  const summary = useMemo(() => {
+    if (!template?.slots) return null;
+    return buildDefaultScheduleSummary(template.slots as Record<string, any>);
+  }, [template]);
+
+  return (
+    <div className="mt-0.5">
+      <button
+        onClick={() => setExpanded(e => !e)}
+        className="flex items-center gap-0.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <CalendarDays className="h-2.5 w-2.5 shrink-0" />
+        <span>Default</span>
+        {expanded ? <ChevronUp className="h-2.5 w-2.5" /> : <ChevronDown className="h-2.5 w-2.5" />}
+      </button>
+      {expanded && (
+        <div className="mt-0.5 text-[10px] text-muted-foreground leading-snug max-w-[160px]">
+          {isLoading ? (
+            <span className="italic">Loading…</span>
+          ) : !template?.slots ? (
+            <span className="italic">No default schedule set.</span>
+          ) : (
+            summary
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function DayNoteAdminCell({ date, notes, currentUserId, isAdmin }: {
@@ -817,6 +904,7 @@ export default function ScheduleManagement() {
                         <div className="text-[10px] text-muted-foreground">
                           {stats.hours.toFixed(2)} hrs / ${stats.wages.toFixed(2)}
                         </div>
+                        <EmployeeDefaultSchedule userId={emp.id} />
                       </div>
                     </div>
                   </td>
