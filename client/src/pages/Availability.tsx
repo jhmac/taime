@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -289,8 +289,11 @@ export default function Availability() {
   const [weekWasAutoFilled, setWeekWasAutoFilled] = useState(false);
   // Per-day time ranges stored from template; shown regardless of pill visibility
   const [autoFilledTimeRanges, setAutoFilledTimeRanges] = useState<Record<string, { startTime: string; endTime: string } | null>>({});
-  // Session-level guard: track which week-start dates have been auto-filled this session
-  // autoFilledWeeksRef removed — weekHasNoAvailability + hasChanges guard is sufficient
+  // Session-level guard: track which week-start dates have been auto-filled this session.
+  // Once a week is auto-filled, it is added here so that if the user clears slots and
+  // navigates away without saving, the week remains cleared on return (no re-auto-fill).
+  // Different week-start keys auto-fill independently.
+  const autoFilledWeeksRef = useRef<Set<string>>(new Set());
 
   // Time-off form state
   const [showTimeOffForm, setShowTimeOffForm] = useState(false);
@@ -397,6 +400,11 @@ export default function Availability() {
     if (hasChanges) return; // User has already interacted with this week this session — do not overwrite
     if (!availabilityTemplate?.slots) return;
 
+    // Session-level guard: once auto-filled, a week is marked so that the user clearing slots
+    // and navigating away does not cause a re-auto-fill on return. New week-start keys each
+    // get their own independent auto-fill opportunity.
+    if (autoFilledWeeksRef.current.has(startParam)) return;
+
     const rawSlots = availabilityTemplate.slots as Record<string, TemplateSlot>;
     const newData: Record<string, Record<TimeSlot, boolean>> = {};
     const timeRanges: Record<string, { startTime: string; endTime: string } | null> = {};
@@ -428,12 +436,15 @@ export default function Availability() {
       }
     });
 
+    // Mark this week as auto-filled for the session before applying state changes
+    autoFilledWeeksRef.current.add(startParam);
+
     setAvailabilityData(prev => ({ ...prev, ...newData }));
     setAutoFilledTimeRanges(timeRanges);
     setHasChanges(true);
     setWeekWasAutoFilled(true);
     setShowAutoFilledPill(true);
-  }, [isLoading, weekHasNoAvailability, isWeekInPast, availabilityTemplate, weekDates, hasChanges]);
+  }, [isLoading, weekHasNoAvailability, isWeekInPast, availabilityTemplate, weekDates, hasChanges, startParam]);
 
   // ── Mutations ────────────────────────────────────────────────────────────────
   const submitAvailabilityMutation = useMutation({
