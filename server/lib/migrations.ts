@@ -336,6 +336,27 @@ export async function runSchemaMigrations(): Promise<void> {
     console.warn("[Migration] users.location_id backfill failed (non-fatal):", pgErr?.message ?? err);
   }
 
+  // Backfill users.location_name from the linked work_locations.name.
+  // Corrects any stale names on existing team profiles where the store was renamed
+  // before the rename-sync fix (task #251) was deployed. Safe to run on every boot
+  // because IS DISTINCT FROM ensures it only touches rows that are actually out of sync.
+  try {
+    const result = await db.execute(sql.raw(`
+      UPDATE users u
+      SET location_name = wl.name
+      FROM work_locations wl
+      WHERE u.location_id = wl.id
+        AND u.location_name IS DISTINCT FROM wl.name
+    `));
+    const count = (result as { rowCount?: number }).rowCount ?? 0;
+    if (count > 0) {
+      console.log(`[Migration] Backfilled location_name for ${count} user(s) whose store had been renamed`);
+    }
+  } catch (err: unknown) {
+    const pgErr = err as { message?: string };
+    console.warn("[Migration] users.location_name backfill failed (non-fatal):", pgErr?.message ?? err);
+  }
+
   // Special step: rename company_ai_context.key_processes → goals if the old column name exists
   // (from an early version of migration 0008 that used the wrong name)
   try {
