@@ -250,6 +250,7 @@ export default function AdminSettings() {
         enableClockOutOnFocusLoss: settings.enableClockOutOnFocusLoss || false,
         focusLossGraceSeconds: settings.focusLossGraceSeconds ?? 30,
         requireMobileClockIn: settings.requireMobileClockIn || false,
+        requireLocationPermission: settings.requireLocationPermission || false,
         defaultMileageRateCents: settings.defaultMileageRateCents ?? 0,
         dailySalesGoalEnabled: settings.dailySalesGoalEnabled ?? false,
         salesGoalIncreaseType: settings.salesGoalIncreaseType || 'percentage',

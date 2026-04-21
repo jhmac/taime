@@ -75,6 +75,13 @@ export default function TimeClockOptionsSection({ settingsForm, updateForm }: Se
             </div>
           </div>
           <div className="flex items-start gap-3">
+            <Checkbox checked={settingsForm.requireLocationPermission || false} onCheckedChange={val => updateForm('requireLocationPermission', !!val)} />
+            <div>
+              <Label className="text-sm">Require location permission to clock in</Label>
+              <p className="text-xs text-muted-foreground">Employees cannot clock in if they have not granted location access to the app</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-3">
             <Checkbox checked={settingsForm.autoClockOutEnabled || false} onCheckedChange={val => updateForm('autoClockOutEnabled', !!val)} />
             <div className="space-y-1 flex-1">
               <Label className="text-sm">Auto clock-out when leaving geofence</Label>

@@ -109,6 +109,7 @@ export default function TimeClockWidget({ greetingSlot, footerSlot }: TimeClockW
   });
 
   const requireMobileClockIn = companySettings?.requireMobileClockIn ?? false;
+  const requireLocationPermission = companySettings?.requireLocationPermission ?? false;
 
   const { data: activeOffsiteSession } = useQuery<any>({
     queryKey: ['/api/offsite-sessions/active'],
@@ -1026,6 +1027,28 @@ export default function TimeClockWidget({ greetingSlot, footerSlot }: TimeClockW
               <Smartphone className="h-7 w-7 text-muted-foreground" />
               <p className="text-sm font-semibold text-foreground">Mobile clock-in only</p>
               <p className="text-xs text-muted-foreground">Use your phone to clock in</p>
+            </div>
+          ) : requireLocationPermission && !activeTimeEntry && permissionState === 'denied' ? (
+            <div className="flex flex-col items-center gap-3 rounded-2xl border border-destructive/30 bg-destructive/5 p-4 text-center" data-testid="location-required-block">
+              <MapPin className="h-7 w-7 text-destructive" />
+              <div>
+                <p className="text-sm font-bold text-foreground">Location access required</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Your manager requires location permission to clock in. Enable it in your device settings, then reload the app.</p>
+              </div>
+              <Button size="sm" variant="outline" onClick={() => setShowLocationHelp(true)} className="text-xs">
+                How to enable location
+              </Button>
+            </div>
+          ) : requireLocationPermission && !activeTimeEntry && permissionState === 'prompt' ? (
+            <div className="flex flex-col items-center gap-3 rounded-2xl border border-amber-300/50 bg-amber-50/50 dark:bg-amber-950/20 p-4 text-center" data-testid="location-prompt-block">
+              <MapPin className="h-7 w-7 text-amber-600 dark:text-amber-400" />
+              <div>
+                <p className="text-sm font-bold text-foreground">Location access needed</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Your manager requires location permission to clock in. Tap below to grant access.</p>
+              </div>
+              <Button size="sm" onClick={() => { hasRequestedLocation.current = true; getCurrentPosition(); }} className="text-xs">
+                Grant Location Access
+              </Button>
             </div>
           ) : permissionState === 'prompt' && !activeTimeEntry && workLocations.length > 0 ? null : (
             <Button

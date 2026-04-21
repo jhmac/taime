@@ -500,6 +500,7 @@ export const companySettings = pgTable("company_settings", {
   focusLossGraceSeconds: integer("focus_loss_grace_seconds").default(30),
   autoResumeWindowSeconds: integer("auto_resume_window_seconds").default(600),
   requireMobileClockIn: boolean("require_mobile_clock_in").default(false),
+  requireLocationPermission: boolean("require_location_permission").default(false),
   defaultMileageRateCents: integer("default_mileage_rate_cents").default(0),
   taskAutoAssign: boolean("task_auto_assign").default(false),
   dailySalesGoalEnabled: boolean("daily_sales_goal_enabled").default(false),
