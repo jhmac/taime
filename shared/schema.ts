@@ -356,6 +356,19 @@ export const userAvailability = pgTable("user_availability", {
   index("idx_user_availability_period").on(table.payrollPeriodId),
 ]);
 
+// Recurring weekly availability templates — one row per user
+export const availabilityTemplates = pgTable("availability_templates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull().unique(),
+  // slots is a map of dayOfWeek (0=Sun…6=Sat) → { morning, afternoon, evening }
+  slots: jsonb("slots").notNull().$type<Record<string, { morning: boolean; afternoon: boolean; evening: boolean }>>(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertAvailabilityTemplateSchema = createInsertSchema(availabilityTemplates).omit({ id: true, updatedAt: true });
+export type AvailabilityTemplate = typeof availabilityTemplates.$inferSelect;
+export type InsertAvailabilityTemplate = z.infer<typeof insertAvailabilityTemplateSchema>;
+
 // Time-off requests
 export const timeOffRequests = pgTable("time_off_requests", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

@@ -1005,6 +1005,22 @@ export async function runSchemaMigrations(): Promise<void> {
     console.warn('[Migration] user_permission_overrides table creation failed (non-fatal):', pgErr?.message ?? err);
   }
 
+  // Recurring weekly availability templates — one row per user
+  try {
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS availability_templates (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id varchar NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        slots jsonb NOT NULL,
+        updated_at timestamp DEFAULT now(),
+        CONSTRAINT availability_templates_user_id_unique UNIQUE (user_id)
+      )
+    `));
+  } catch (err: unknown) {
+    const pgErr = err as { message?: string };
+    console.warn('[Migration] availability_templates table creation failed (non-fatal):', pgErr?.message ?? err);
+  }
+
   // Mark any generation jobs that were still "running" when the server last shut down.
   // These are orphaned — the setImmediate background task was lost on restart — so
   // they will never complete. Reset them to "failed" so users can retry.

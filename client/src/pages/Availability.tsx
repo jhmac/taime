@@ -17,9 +17,9 @@ import { cn } from "@/lib/utils";
 import {
   Sun, Sunset, Moon, Clock, Check, Minus, ChevronLeft, ChevronRight,
   StickyNote, Plus, X, Umbrella, Thermometer, User, CalendarMinus,
-  MoreHorizontal, MessageSquare, CalendarCheck, Save, Loader2
+  MoreHorizontal, MessageSquare, CalendarCheck, Save, Loader2, Bookmark, Wand2
 } from "lucide-react";
-import type { UserAvailability, TimeOffRequest } from "@shared/schema";
+import type { UserAvailability, TimeOffRequest, AvailabilityTemplate } from "@shared/schema";
 
 type TimeSlot = 'morning' | 'afternoon' | 'evening' | 'all_day';
 
@@ -223,6 +223,16 @@ export default function Availability() {
     queryKey: ['/api/time-off-requests'],
   });
 
+  const { data: availabilityTemplate } = useQuery<AvailabilityTemplate | null>({
+    queryKey: ['/api/availability/template'],
+    queryFn: async () => {
+      const res = await fetch('/api/availability/template', { credentials: 'include' });
+      if (res.status === 404 || res.status === 204) return null;
+      if (!res.ok) throw new Error('Failed to fetch availability template');
+      return res.json();
+    },
+  });
+
   useEffect(() => {
     const availMap: Record<string, Record<TimeSlot, boolean>> = {};
     if (Array.isArray(currentAvailability)) {
@@ -279,6 +289,63 @@ export default function Availability() {
       queryClient.invalidateQueries({ queryKey: ['/api/time-off-requests'] });
     },
   });
+
+  const saveTemplateMutation = useMutation({
+    mutationFn: async () => {
+      const slots: Record<string, { morning: boolean; afternoon: boolean; evening: boolean }> = {};
+      weekDates.forEach(date => {
+        const dow = date.getDay().toString();
+        const dateKey = formatDateKey(date);
+        const dayData = availabilityData[dateKey] || { all_day: false, morning: false, afternoon: false, evening: false };
+        slots[dow] = { morning: dayData.morning, afternoon: dayData.afternoon, evening: dayData.evening };
+      });
+      await apiRequest('POST', '/api/availability/template', { slots });
+    },
+    onSuccess: () => {
+      toast({ title: "Default week saved", description: "This week's availability will prefill future weeks automatically." });
+      queryClient.invalidateQueries({ queryKey: ['/api/availability/template'] });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to save default week.", variant: "destructive" });
+    },
+  });
+
+  const applyTemplate = () => {
+    if (!availabilityTemplate?.slots) return;
+    const slots = availabilityTemplate.slots as Record<string, { morning: boolean; afternoon: boolean; evening: boolean }>;
+    const newData: Record<string, Record<TimeSlot, boolean>> = {};
+    weekDates.forEach(date => {
+      const dow = date.getDay().toString();
+      const dateKey = formatDateKey(date);
+      const daySlots = slots[dow] || { morning: false, afternoon: false, evening: false };
+      newData[dateKey] = {
+        morning: daySlots.morning,
+        afternoon: daySlots.afternoon,
+        evening: daySlots.evening,
+        all_day: daySlots.morning && daySlots.afternoon && daySlots.evening,
+      };
+    });
+    setAvailabilityData(prev => ({ ...prev, ...newData }));
+    setHasChanges(true);
+    toast({ title: "Template applied", description: "Your default week has been loaded. Save to keep these changes." });
+  };
+
+  const weekHasNoAvailability = useMemo(() => {
+    if (!Array.isArray(currentAvailability)) return true;
+    const weekDateKeys = new Set(weekDates.map(formatDateKey));
+    return !currentAvailability.some((avail: UserAvailability) => {
+      const dateKey = (avail.date as unknown as string).split('T')[0];
+      return weekDateKeys.has(dateKey);
+    });
+  }, [currentAvailability, weekDates]);
+
+  const isWeekInPast = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return weekDates[6] < today;
+  }, [weekDates]);
+
+  const showTemplateBanner = !isLoading && !hasChanges && weekHasNoAvailability && !!availabilityTemplate?.slots && !isWeekInPast;
 
   const toggleSlot = (date: Date, slot: TimeSlot) => {
     const dateKey = formatDateKey(date);
@@ -439,6 +506,18 @@ export default function Availability() {
                 ))}
               </div>
 
+              {showTemplateBanner && (
+                <div className="mb-3 flex items-center gap-3 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5">
+                  <Wand2 className="h-4 w-4 text-primary shrink-0" />
+                  <p className="text-xs text-muted-foreground flex-1">
+                    This week has no availability set. Apply your default week template?
+                  </p>
+                  <Button size="sm" variant="outline" className="h-7 text-xs shrink-0" onClick={applyTemplate}>
+                    Apply
+                  </Button>
+                </div>
+              )}
+
               {isLoading ? (
                 <div className="flex justify-center py-8">
                   <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -512,17 +591,32 @@ export default function Availability() {
                 </div>
               )}
 
-              <div className="mt-4 flex gap-2">
+              <div className="mt-4 flex gap-2 flex-wrap">
                 <Button
                   onClick={handleSaveAvailability}
                   disabled={submitAvailabilityMutation.isPending || !hasChanges}
-                  className="flex-1 gap-2"
+                  className="flex-1 gap-2 min-w-[140px]"
                 >
                   {submitAvailabilityMutation.isPending ? (
                     <><Loader2 className="h-4 w-4 animate-spin" />Saving…</>
                   ) : (
                     <><Save className="h-4 w-4" />Save Availability</>
                   )}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 text-xs"
+                  disabled={saveTemplateMutation.isPending}
+                  onClick={() => saveTemplateMutation.mutate()}
+                  title="Save this week's slots as your recurring default"
+                >
+                  {saveTemplateMutation.isPending ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Bookmark className="h-3.5 w-3.5" />
+                  )}
+                  Set as default week
                 </Button>
                 <Button variant="ghost" size="sm" className="text-xs" onClick={() => setSelectedWeek(new Date())}>
                   Today

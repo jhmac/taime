@@ -9,6 +9,9 @@ import {
   workLocations,
   payrollPeriods,
   userAvailability,
+  availabilityTemplates,
+  type AvailabilityTemplate,
+  type InsertAvailabilityTemplate,
   payPeriodSettings,
   scheduleConfirmations,
   workflowLogs,
@@ -230,6 +233,10 @@ export interface IStorage {
   getUserAvailabilityByDateRange(userId: string, startDate: Date, endDate: Date): Promise<UserAvailability[]>;
   getAllAvailabilityForPeriod(payrollPeriodId: string): Promise<UserAvailability[]>;
   getAllAvailabilityByDateRange(startDate: Date, endDate: Date): Promise<UserAvailability[]>;
+
+  // Availability template operations
+  getAvailabilityTemplate(userId: string): Promise<AvailabilityTemplate | undefined>;
+  upsertAvailabilityTemplate(userId: string, slots: Record<string, { morning: boolean; afternoon: boolean; evening: boolean }>): Promise<AvailabilityTemplate>;
 
   // Time-off request operations
   createTimeOffRequest(request: InsertTimeOffRequest): Promise<TimeOffRequest>;
@@ -955,6 +962,30 @@ export class DatabaseStorage implements IStorage {
         lte(userAvailability.date, endDate)
       ))
       .orderBy(userAvailability.userId, userAvailability.date, userAvailability.timeSlot);
+  }
+
+  // Availability template operations
+  async getAvailabilityTemplate(userId: string): Promise<AvailabilityTemplate | undefined> {
+    const [template] = await db
+      .select()
+      .from(availabilityTemplates)
+      .where(eq(availabilityTemplates.userId, userId));
+    return template;
+  }
+
+  async upsertAvailabilityTemplate(
+    userId: string,
+    slots: Record<string, { morning: boolean; afternoon: boolean; evening: boolean }>
+  ): Promise<AvailabilityTemplate> {
+    const [result] = await db
+      .insert(availabilityTemplates)
+      .values({ userId, slots })
+      .onConflictDoUpdate({
+        target: availabilityTemplates.userId,
+        set: { slots, updatedAt: new Date() },
+      })
+      .returning();
+    return result;
   }
 
   // Time-off request operations

@@ -72,6 +72,47 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
     }
   });
 
+  // Availability template routes
+  app.get('/api/availability/template', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const template = await storage.getAvailabilityTemplate(userId);
+      res.json(template || null);
+    } catch (error) {
+      console.error("Error fetching availability template:", error);
+      res.status(500).json({ message: "Failed to fetch availability template" });
+    }
+  });
+
+  app.post('/api/availability/template', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { slots } = req.body;
+      if (!slots || typeof slots !== 'object' || Array.isArray(slots)) {
+        return res.status(400).json({ message: "slots must be an object" });
+      }
+      // Validate structure: keys must be day-of-week strings 0..6, values must have boolean fields
+      const validDays = new Set(['0','1','2','3','4','5','6']);
+      for (const [key, val] of Object.entries(slots)) {
+        if (!validDays.has(key)) {
+          return res.status(400).json({ message: `Invalid day key: ${key}. Must be 0–6.` });
+        }
+        if (!val || typeof val !== 'object') {
+          return res.status(400).json({ message: `slots.${key} must be an object with morning/afternoon/evening booleans` });
+        }
+        const v = val as Record<string, unknown>;
+        if (typeof v.morning !== 'boolean' || typeof v.afternoon !== 'boolean' || typeof v.evening !== 'boolean') {
+          return res.status(400).json({ message: `slots.${key} must have boolean morning, afternoon, and evening fields` });
+        }
+      }
+      const template = await storage.upsertAvailabilityTemplate(userId, slots);
+      res.json(template);
+    } catch (error) {
+      console.error("Error saving availability template:", error);
+      res.status(500).json({ message: "Failed to save availability template" });
+    }
+  });
+
   // Time-off request routes
   app.post('/api/time-off-requests', isAuthenticated, async (req: any, res) => {
     try {
