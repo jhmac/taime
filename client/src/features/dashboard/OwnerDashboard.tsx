@@ -326,6 +326,14 @@ export default function OwnerDashboard() {
     enabled: deferredEnabled,
   });
 
+  const { data: paySummary } = useQuery<{
+    periodStart: string; periodEnd: string;
+    totalHours: number; grossPay: number; netPay: number; payScheduleFrequency: string;
+  }>({
+    queryKey: ['/api/users/me/pay-summary'],
+    staleTime: 5 * 60 * 1000,
+  });
+
   const { data: shopifyData, isLoading: shopifyLoading } = useQuery<any>({
     queryKey: ['/api/shopify/sales-data'],
     enabled: deferredEnabled,
@@ -444,12 +452,21 @@ export default function OwnerDashboard() {
 
   const statsFooterSlot = (
     <div className="flex gap-3 items-start">
-      {/* Hrs Today — 1/4 */}
+      {/* Hrs Today + Pay Period — 1/4 */}
       <div className="w-1/4 shrink-0 text-center py-1">
         <p className="text-[11px] text-muted-foreground mb-0.5 leading-tight">Hrs Today</p>
         <p className="text-2xl font-extrabold text-foreground tabular-nums" data-testid="today-hours">
           {analyticsData?.totalHours != null ? `${analyticsData.totalHours.toFixed(1)}h` : '0.0h'}
         </p>
+        {paySummary && (
+          <div className="mt-2 pt-2 border-t border-border/60">
+            <p className="text-[10px] text-muted-foreground leading-tight">Pay Period</p>
+            <p className="text-sm font-extrabold text-primary tabular-nums mt-0.5">
+              {(paySummary.netPay).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}
+            </p>
+            <p className="text-[10px] text-muted-foreground leading-tight">est. net</p>
+          </div>
+        )}
       </div>
 
       {/* Divider */}
@@ -479,7 +496,7 @@ export default function OwnerDashboard() {
                       ? <CheckCircle2 size={16} className="text-primary animate-pulse" />
                       : <Circle size={16} />}
                   </button>
-                  <p className="text-[12px] font-semibold text-foreground truncate flex-1">{t.title}</p>
+                  <p className="text-[12px] font-semibold text-foreground truncate flex-1 text-left">{t.title}</p>
                   {t.dueDate && (
                     <span className="text-[10px] text-muted-foreground shrink-0">
                       {new Date(t.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
