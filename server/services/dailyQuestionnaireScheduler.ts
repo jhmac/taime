@@ -285,7 +285,7 @@ export function startDailyQuestionnaireScheduler(storage: IStorage): () => void 
 
       for (const store of stores) {
         const localHour = getStoreLocalHour(store.timezone);
-        if (localHour !== TARGET_HOUR) continue;
+        if (localHour < TARGET_HOUR) continue;
         try {
           await runDailyGenerationForStore(store.id, store.timezone, storage);
         } catch (err: unknown) {
@@ -308,6 +308,7 @@ export function startDailyQuestionnaireScheduler(storage: IStorage): () => void 
     "Daily questionnaire scheduler: started, checking every 15 minutes, runs at 6 AM store-local time"
   );
 
+  setImmediate(() => tick());
   intervalId = setInterval(tick, TICK_INTERVAL_MS);
 
   return () => {

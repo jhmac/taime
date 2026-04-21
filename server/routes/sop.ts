@@ -277,6 +277,9 @@ export function registerSopRoutes(app: Express, storage: IStorage, isAuthenticat
   app.get('/api/knowledge-base', isAuthenticated, async (req: any, res) => {
     try {
       const storeId = await tryResolveStoreIdForUser(req.user.id);
+      if (!storeId) {
+        return res.status(403).json({ success: false, message: "Store access required" });
+      }
       const q = req.query.q as string | undefined;
       const tag = req.query.tag as string | undefined;
 
@@ -285,7 +288,7 @@ export function registerSopRoutes(app: Express, storage: IStorage, isAuthenticat
         .from(sopCategories)
         .where(
           and(
-            storeId ? eq(sopCategories.storeId, storeId) : undefined,
+            eq(sopCategories.storeId, storeId),
             eq(sopCategories.name, "Knowledge Base")
           )
         )
@@ -347,6 +350,9 @@ export function registerSopRoutes(app: Express, storage: IStorage, isAuthenticat
   app.get('/api/knowledge-base/:id', isAuthenticated, async (req: any, res) => {
     try {
       const storeId = await tryResolveStoreIdForUser(req.user.id);
+      if (!storeId) {
+        return res.status(403).json({ success: false, message: "Store access required" });
+      }
       const { id } = req.params;
 
       const [article] = await db
@@ -356,14 +362,16 @@ export function registerSopRoutes(app: Express, storage: IStorage, isAuthenticat
         })
         .from(sopDocuments)
         .innerJoin(sopCategories, eq(sopDocuments.categoryId, sopCategories.id))
-        .where(and(eq(sopDocuments.id, id), eq(sopDocuments.isPublished, true)))
+        .where(
+          and(
+            eq(sopDocuments.id, id),
+            eq(sopDocuments.isPublished, true),
+            eq(sopCategories.storeId, storeId)
+          )
+        )
         .limit(1);
 
       if (!article) return res.status(404).json({ success: false, message: "Article not found" });
-      if (storeId && article.catStoreId && article.catStoreId !== storeId) {
-        return res.status(404).json({ success: false, message: "Article not found" });
-      }
-
       res.json({ success: true, data: article.doc });
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message });
