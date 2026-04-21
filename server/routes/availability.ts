@@ -110,10 +110,28 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
 
   // ── New calendar API ─────────────────────────────────────────────────────────
 
-  // GET /api/availability/calendar — merged view for the current user: template + overrides + time-off blocks
+  // GET /api/availability/calendar — merged view for the current user (or a specific employee for managers): template + overrides + time-off blocks
   app.get('/api/availability/calendar', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.id;
+      const requestingUserId: string = req.user.id;
+      const requestingRole = req.user?.role?.name;
+      const isManagerOrAbove = ['owner', 'admin', 'manager', 'assistant_manager'].includes(requestingRole);
+
+      let userId = requestingUserId;
+
+      // Managers can view any store employee's calendar
+      if (isManagerOrAbove && req.query.userId && req.query.userId !== requestingUserId) {
+        const targetId = req.query.userId as string;
+        const [requesterStoreId, targetStoreId] = await Promise.all([
+          tryResolveStoreIdForUser(requestingUserId),
+          tryResolveStoreIdForUser(targetId),
+        ]);
+        if (!requesterStoreId || !targetStoreId || requesterStoreId !== targetStoreId) {
+          return res.status(403).json({ message: "Not authorized to view that employee's availability" });
+        }
+        userId = targetId;
+      }
+
       const { start, end } = req.query;
       if (!start || !end) {
         return res.status(400).json({ message: "start and end query params are required (YYYY-MM-DD)" });
@@ -187,7 +205,25 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
   // PATCH /api/availability/day — upsert a specific-date override
   app.patch('/api/availability/day', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.id;
+      const requestingUserId: string = req.user.id;
+      const requestingRole = req.user?.role?.name;
+      const isManagerOrAbove = ['owner', 'admin', 'manager', 'assistant_manager'].includes(requestingRole);
+
+      let userId = requestingUserId;
+
+      // Managers can pass a targetUserId to override on behalf of an employee
+      if (isManagerOrAbove && req.body.userId && req.body.userId !== requestingUserId) {
+        const targetId = req.body.userId as string;
+        const [requesterStoreId, targetStoreId] = await Promise.all([
+          tryResolveStoreIdForUser(requestingUserId),
+          tryResolveStoreIdForUser(targetId),
+        ]);
+        if (!requesterStoreId || !targetStoreId || requesterStoreId !== targetStoreId) {
+          return res.status(403).json({ message: "Not authorized to edit that employee's availability" });
+        }
+        userId = targetId;
+      }
+
       const { date, startTime, endTime, unavailable } = req.body;
 
       if (!date || typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
@@ -216,7 +252,25 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
   // DELETE /api/availability/day — remove a specific-date override (reverts to template)
   app.delete('/api/availability/day', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.id;
+      const requestingUserId: string = req.user.id;
+      const requestingRole = req.user?.role?.name;
+      const isManagerOrAbove = ['owner', 'admin', 'manager', 'assistant_manager'].includes(requestingRole);
+
+      let userId = requestingUserId;
+
+      // Managers can pass a targetUserId to clear an override on behalf of an employee
+      if (isManagerOrAbove && req.query.userId && req.query.userId !== requestingUserId) {
+        const targetId = req.query.userId as string;
+        const [requesterStoreId, targetStoreId] = await Promise.all([
+          tryResolveStoreIdForUser(requestingUserId),
+          tryResolveStoreIdForUser(targetId),
+        ]);
+        if (!requesterStoreId || !targetStoreId || requesterStoreId !== targetStoreId) {
+          return res.status(403).json({ message: "Not authorized to edit that employee's availability" });
+        }
+        userId = targetId;
+      }
+
       const { date } = req.query;
       if (!date || typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
         return res.status(400).json({ message: "date query param must be YYYY-MM-DD" });

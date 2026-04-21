@@ -20,7 +20,7 @@ import type { User, Schedule, WorkLocation, AvailabilityTemplate, TemplateSlot, 
 import {
   ChevronLeft, ChevronRight, Plus, Trash2, Sparkles, Loader2,
   Check, X, Calendar, Clock, StickyNote, Bell, Pencil, Wand2, Users,
-  ChevronDown, ChevronUp, CalendarDays
+  ChevronDown, ChevronUp, CalendarDays, UserCog
 } from "lucide-react";
 
 interface DayNote {
@@ -151,6 +151,239 @@ function EmployeeDefaultSchedule({ userId }: { userId: string }) {
         </div>
       )}
     </div>
+  );
+}
+
+type CalendarDay = {
+  date: string;
+  source: 'template' | 'override' | 'time_off' | 'none';
+  available: boolean;
+  unavailable: boolean;
+  startTime: string | null;
+  endTime: string | null;
+  timeOff: { type: string; status: string } | null;
+};
+
+function AvailabilityOverrideDialog({
+  target,
+  onClose,
+}: {
+  target: { userId: string; date: string; empName: string };
+  onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const { data: calendarData, isLoading } = useQuery<CalendarDay[]>({
+    queryKey: ['/api/availability/calendar', target.userId, target.date],
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/availability/calendar?userId=${encodeURIComponent(target.userId)}&start=${target.date}&end=${target.date}`,
+        { credentials: 'include' }
+      );
+      if (!res.ok) throw new Error('Failed to fetch');
+      return res.json();
+    },
+  });
+
+  const dayInfo = calendarData?.[0] ?? null;
+
+  const [mode, setMode] = useState<'available' | 'unavailable'>('available');
+  const [startTime, setStartTime] = useState('09:00');
+  const [endTime, setEndTime] = useState('17:00');
+
+  useEffect(() => {
+    if (!dayInfo) return;
+    if (dayInfo.unavailable || !dayInfo.available) {
+      setMode('unavailable');
+    } else {
+      setMode('available');
+      setStartTime(dayInfo.startTime ?? '09:00');
+      setEndTime(dayInfo.endTime ?? '17:00');
+    }
+  }, [dayInfo]);
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest('PATCH', '/api/availability/day', {
+        userId: target.userId,
+        date: target.date,
+        unavailable: mode === 'unavailable',
+        startTime: mode === 'available' ? startTime : undefined,
+        endTime: mode === 'available' ? endTime : undefined,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/availability/calendar/team'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/availability/calendar', target.userId, target.date] });
+      toast({ title: "Availability updated", description: `Saved override for ${target.empName}` });
+      onClose();
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to save availability override.", variant: "destructive" });
+    },
+  });
+
+  const clearMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(
+        `/api/availability/day?date=${encodeURIComponent(target.date)}&userId=${encodeURIComponent(target.userId)}`,
+        { method: 'DELETE', credentials: 'include' }
+      );
+      if (!res.ok) throw new Error('Failed to clear');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/availability/calendar/team'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/availability/calendar', target.userId, target.date] });
+      toast({ title: "Override cleared", description: `${target.empName} reverted to their default schedule.` });
+      onClose();
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to clear availability override.", variant: "destructive" });
+    },
+  });
+
+  const dateLabel = new Date(target.date + 'T12:00:00Z').toLocaleDateString('en-US', {
+    weekday: 'long', month: 'short', day: 'numeric',
+  });
+
+  const sourceLabel = dayInfo?.source === 'override'
+    ? 'Override active'
+    : dayInfo?.source === 'time_off'
+    ? 'Time-off request'
+    : dayInfo?.source === 'template'
+    ? 'From default schedule'
+    : 'No availability set';
+
+  const isTimeOff = dayInfo?.source === 'time_off';
+
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="text-sm flex items-center gap-2">
+            <UserCog className="h-4 w-4" />Availability Override
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div>
+            <div className="text-sm font-medium">{target.empName}</div>
+            <div className="text-xs text-muted-foreground">{dateLabel}</div>
+          </div>
+
+          {isLoading ? (
+            <div className="text-xs text-muted-foreground italic">Loading current availability…</div>
+          ) : (
+            <div className={cn(
+              "text-xs px-2.5 py-1.5 rounded-md border",
+              dayInfo?.source === 'override' ? "bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-900/20 dark:border-amber-800 dark:text-amber-300" :
+              dayInfo?.source === 'time_off' ? "bg-red-50 border-red-200 text-red-700 dark:bg-red-900/20 dark:border-red-800 dark:text-red-300" :
+              dayInfo?.available ? "bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/20 dark:border-emerald-800 dark:text-emerald-300" :
+              "bg-muted border-border text-muted-foreground"
+            )}>
+              <span className="font-medium">{sourceLabel}</span>
+              {dayInfo?.available && dayInfo.startTime && dayInfo.endTime && (
+                <span className="ml-1">· {formatSchedTimeShort(dayInfo.startTime)}–{formatSchedTimeShort(dayInfo.endTime)}</span>
+              )}
+              {isTimeOff && dayInfo?.timeOff && (
+                <span className="ml-1 capitalize">· {dayInfo.timeOff.type}</span>
+              )}
+            </div>
+          )}
+
+          {isTimeOff ? (
+            <p className="text-xs text-muted-foreground">
+              This day is covered by a time-off request. To change availability, the time-off request must be cancelled first.
+            </p>
+          ) : (
+            <>
+              <div className="space-y-2">
+                <Label className="text-xs font-medium">Set availability for this day</Label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setMode('available')}
+                    className={cn(
+                      "flex-1 text-xs px-3 py-2 rounded-md border transition-colors",
+                      mode === 'available'
+                        ? "bg-emerald-100 border-emerald-400 text-emerald-800 dark:bg-emerald-900/40 dark:border-emerald-600 dark:text-emerald-200"
+                        : "bg-background border-border text-foreground hover:bg-muted"
+                    )}
+                  >
+                    Available
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMode('unavailable')}
+                    className={cn(
+                      "flex-1 text-xs px-3 py-2 rounded-md border transition-colors",
+                      mode === 'unavailable'
+                        ? "bg-red-100 border-red-400 text-red-800 dark:bg-red-900/40 dark:border-red-600 dark:text-red-200"
+                        : "bg-background border-border text-foreground hover:bg-muted"
+                    )}
+                  >
+                    Unavailable
+                  </button>
+                </div>
+              </div>
+
+              {mode === 'available' && (
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label className="text-xs">Start Time</Label>
+                    <Input
+                      type="time"
+                      className="h-8 text-sm"
+                      value={startTime}
+                      onChange={e => setStartTime(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">End Time</Label>
+                    <Input
+                      type="time"
+                      className="h-8 text-sm"
+                      value={endTime}
+                      onChange={e => setEndTime(e.target.value)}
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between gap-2 pt-1">
+                <div className="flex gap-2">
+                  {dayInfo?.source === 'override' && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="text-xs"
+                      disabled={clearMutation.isPending}
+                      onClick={() => clearMutation.mutate()}
+                    >
+                      {clearMutation.isPending ? "Clearing…" : "Revert to Default"}
+                    </Button>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <Button type="button" variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={saveMutation.isPending}
+                    onClick={() => saveMutation.mutate()}
+                  >
+                    {saveMutation.isPending ? "Saving…" : "Save Override"}
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -304,8 +537,9 @@ export default function ScheduleManagement() {
   const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null);
   const [aiResult, setAiResult] = useState<GenerateResult | null>(null);
   const [removedEntries, setRemovedEntries] = useState<Set<number>>(new Set());
+  const [availabilityEditTarget, setAvailabilityEditTarget] = useState<{ userId: string; date: string; empName: string } | null>(null);
 
-  const isAdmin = ['owner', 'admin', 'manager'].includes(currentUser?.role?.name || '');
+  const isAdmin = ['owner', 'admin', 'manager', 'assistant_manager'].includes(currentUser?.role?.name || '');
 
   const getWeekDates = (weekOffset: number) => {
     const today = new Date();
@@ -1063,20 +1297,34 @@ export default function ScheduleManagement() {
                           })}
 
                           {/* Availability indicator — merged calendar (template + overrides + time-off) */}
-                          {mergedAvail && (
-                            <div className="mt-1">
-                              <span
-                                title={mergedAvail.startTime && mergedAvail.endTime
+                          <div className="mt-1 flex items-center gap-0.5">
+                            {mergedAvail ? (
+                              <button
+                                title={isAdmin ? "Click to edit availability" : (mergedAvail.startTime && mergedAvail.endTime
                                   ? `Available ${formatSchedTimeShort(mergedAvail.startTime)}–${formatSchedTimeShort(mergedAvail.endTime)}`
-                                  : 'Available'}
-                                className="text-[9px] px-1.5 py-0.5 rounded-sm font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 leading-[14px] inline-block"
+                                  : 'Available')}
+                                onClick={() => isAdmin && setAvailabilityEditTarget({ userId: emp.id, date: dateStr, empName: `${emp.firstName} ${emp.lastName}` })}
+                                className={cn(
+                                  "text-[9px] px-1.5 py-0.5 rounded-sm font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 leading-[14px] inline-flex items-center gap-0.5",
+                                  isAdmin && "hover:bg-emerald-200 dark:hover:bg-emerald-900/60 cursor-pointer"
+                                )}
                               >
                                 {mergedAvail.startTime && mergedAvail.endTime
                                   ? `${formatSchedTimeShort(mergedAvail.startTime)}–${formatSchedTimeShort(mergedAvail.endTime)}`
                                   : 'avail'}
-                              </span>
-                            </div>
-                          )}
+                                {isAdmin && <Pencil className="h-2 w-2 ml-0.5 opacity-60" />}
+                              </button>
+                            ) : isAdmin ? (
+                              <button
+                                title="Set availability for this day"
+                                onClick={() => setAvailabilityEditTarget({ userId: emp.id, date: dateStr, empName: `${emp.firstName} ${emp.lastName}` })}
+                                className="text-[9px] px-1.5 py-0.5 rounded-sm font-medium text-muted-foreground/30 hover:text-muted-foreground hover:bg-muted/60 leading-[14px] inline-flex items-center gap-0.5 opacity-30 group-hover:opacity-100 transition-opacity cursor-pointer"
+                              >
+                                <UserCog className="h-2.5 w-2.5" />
+                                <span>set avail</span>
+                              </button>
+                            ) : null}
+                          </div>
 
                           {/* Add Shift Button */}
                           {daySchedules.length === 0 && aiEntries.length === 0 && (
@@ -1260,6 +1508,14 @@ export default function ScheduleManagement() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Availability Override Dialog */}
+      {availabilityEditTarget && (
+        <AvailabilityOverrideDialog
+          target={availabilityEditTarget}
+          onClose={() => setAvailabilityEditTarget(null)}
+        />
+      )}
 
       {/* Edit Shift Dialog */}
       <Dialog open={!!editingSchedule} onOpenChange={open => { if (!open) setEditingSchedule(null); }}>
