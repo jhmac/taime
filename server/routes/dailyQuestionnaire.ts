@@ -46,8 +46,27 @@ const submitBodySchema = z.object({
 const anthropic = new Anthropic({ apiKey: config.anthropic.apiKey });
 const DEFAULT_MODEL = "claude-sonnet-4-20250514";
 
-function getTodayStr(): string {
-  return new Date().toISOString().slice(0, 10);
+function getLocalDateStr(timezone?: string | null): string {
+  const tz = timezone || "UTC";
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
+  } catch {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
+async function fetchStoreTimezone(storeId: string): Promise<string | null> {
+  const [loc] = await db
+    .select({ timezone: workLocations.timezone })
+    .from(workLocations)
+    .where(eq(workLocations.id, storeId))
+    .limit(1);
+  return loc?.timezone ?? null;
 }
 
 function getWeekStart(): Date {
@@ -306,7 +325,7 @@ async function computeStreak(userId: string): Promise<number> {
     responses.map((r) => new Date(r.completedAt!).toISOString().slice(0, 10))
   )).sort().reverse();
 
-  const today = getTodayStr();
+  const today = getLocalDateStr();
   const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
 
   // Streak must start from today or yesterday
@@ -334,13 +353,14 @@ export function registerDailyQuestionnaireRoutes(
   // ── GET /api/daily-questionnaire/today ─────────────────────────────────────
   app.get("/api/daily-questionnaire/today", isAuthenticated, asyncHandler(async (req: any, res) => {
     const userId = req.user.id as string;
-    const today = getTodayStr();
 
     const storeId = await resolveStoreIdForUser(userId).catch(() => null);
     if (!storeId) {
       return res.json({ success: true, data: { questionnaire: null, completed: false, noQuestionnaire: true } });
     }
 
+    const storeTimezone = await fetchStoreTimezone(storeId);
+    const today = getLocalDateStr(storeTimezone);
     const questionnaire = await storage.getDailyQuestionnaire(storeId, today);
     if (!questionnaire) {
       return res.json({ success: true, data: { questionnaire: null, completed: false, noQuestionnaire: true } });
@@ -408,7 +428,8 @@ export function registerDailyQuestionnaireRoutes(
     if (questionnaire.storeId !== userStoreId) {
       throw new AppError(403, "You are not authorized to access this questionnaire", "FORBIDDEN");
     }
-    if (questionnaire.quizDate !== getTodayStr()) {
+    const checkAnswerTimezone = await fetchStoreTimezone(userStoreId);
+    if (questionnaire.quizDate !== getLocalDateStr(checkAnswerTimezone)) {
       throw new AppError(400, "This questionnaire is not for today", "STALE_QUESTIONNAIRE");
     }
 
@@ -435,10 +456,12 @@ export function registerDailyQuestionnaireRoutes(
   app.post("/api/daily-questionnaire/generate", isAuthenticated, asyncHandler(async (req: any, res) => {
     await requireManagerAccess(req, storage);
     const userId = req.user.id as string;
-    const today = getTodayStr();
 
     const storeId = await resolveStoreIdForUser(userId).catch(() => null);
     if (!storeId) throw new AppError(400, "No store associated with your account", "NO_STORE");
+
+    const generateTimezone = await fetchStoreTimezone(storeId);
+    const today = getLocalDateStr(generateTimezone);
 
     const existing = await db
       .select({ id: dailyQuestionnaires.id })
@@ -546,7 +569,8 @@ export function registerDailyQuestionnaireRoutes(
     }
 
     // Enforce daily constraint: only today's questionnaire may be submitted
-    if (questionnaire.quizDate !== getTodayStr()) {
+    const submitTimezone = await fetchStoreTimezone(userStoreId);
+    if (questionnaire.quizDate !== getLocalDateStr(submitTimezone)) {
       throw new AppError(400, "This questionnaire is no longer active (not today's)", "STALE_QUESTIONNAIRE");
     }
 
@@ -723,9 +747,10 @@ export function registerDailyQuestionnaireRoutes(
   app.get("/api/daily-questionnaire/summary", isAuthenticated, asyncHandler(async (req: any, res) => {
     await requireManagerAccess(req, storage);
     const userId = req.user.id as string;
-    const today = getTodayStr();
     const storeId = await resolveStoreIdForUser(userId).catch(() => null);
     if (!storeId) return res.json({ success: true, data: { questionnaire: null } });
+    const summaryTimezone = await fetchStoreTimezone(storeId);
+    const today = getLocalDateStr(summaryTimezone);
 
     const [questionnaire] = await db
       .select()
