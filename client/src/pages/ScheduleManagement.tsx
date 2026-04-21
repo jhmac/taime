@@ -1061,7 +1061,7 @@ export default function ScheduleManagement() {
             </div>
             <div>
               <Label className="text-xs">Location</Label>
-              <Select name="locationId">
+              <Select name="locationId" key={`loc-${showCreateShift}-${locations[0]?.id}`} defaultValue={locations[0]?.id ?? ''}>
                 <SelectTrigger className="h-8">
                   <SelectValue placeholder="Select location (optional)" />
                 </SelectTrigger>
