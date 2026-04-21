@@ -73,13 +73,19 @@ function isNewSlot(slot: TemplateSlot): slot is TemplateSlotNew {
 }
 
 function buildDefaultScheduleSummary(rawSlots: Record<string, TemplateSlot>): string {
-  type DayInfo = { available: boolean; startTime?: string; endTime?: string };
+  type DayInfo = { available: boolean; startTime?: string; endTime?: string; legacyLabel?: string };
   const days: DayInfo[] = Array.from({ length: 7 }, (_, i) => {
     const raw = rawSlots[String(i)];
     if (!raw) return { available: false };
     if (isNewSlot(raw)) return { available: raw.available, startTime: raw.startTime, endTime: raw.endTime };
-    // Legacy format
-    return { available: raw.morning || raw.afternoon || raw.evening };
+    // Legacy format — derive a human-readable label from the slot flags
+    const legacyAvail = raw.morning || raw.afternoon || raw.evening;
+    if (!legacyAvail) return { available: false };
+    const parts: string[] = [];
+    if (raw.morning) parts.push('morning');
+    if (raw.afternoon) parts.push('afternoon');
+    if (raw.evening) parts.push('evening');
+    return { available: true, legacyLabel: parts.join('/') };
   });
 
   const parts: string[] = [];
@@ -89,13 +95,14 @@ function buildDefaultScheduleSummary(rawSlots: Record<string, TemplateSlot>): st
     if (!d.available) { i++; continue; }
     const timeStr = d.startTime && d.endTime
       ? `${formatSchedTimeShort(d.startTime)}–${formatSchedTimeShort(d.endTime)}`
-      : 'Available';
+      : d.legacyLabel ?? 'Available';
     let j = i;
     while (
       j + 1 < 7 &&
       days[j + 1].available &&
       days[j + 1].startTime === d.startTime &&
-      days[j + 1].endTime === d.endTime
+      days[j + 1].endTime === d.endTime &&
+      days[j + 1].legacyLabel === d.legacyLabel
     ) j++;
     parts.push(j > i ? `${SCHED_DAY_NAMES[i]}–${SCHED_DAY_NAMES[j]}: ${timeStr}` : `${SCHED_DAY_NAMES[i]}: ${timeStr}`);
     i = j + 1;

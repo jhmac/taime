@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -290,7 +290,7 @@ export default function Availability() {
   // Per-day time ranges stored from template; shown regardless of pill visibility
   const [autoFilledTimeRanges, setAutoFilledTimeRanges] = useState<Record<string, { startTime: string; endTime: string } | null>>({});
   // Session-level guard: track which week-start dates have been auto-filled this session
-  const autoFilledWeeksRef = useRef<Set<string>>(new Set());
+  // autoFilledWeeksRef removed — weekHasNoAvailability + hasChanges guard is sufficient
 
   // Time-off form state
   const [showTimeOffForm, setShowTimeOffForm] = useState(false);
@@ -397,11 +397,6 @@ export default function Availability() {
     if (hasChanges) return; // User has already interacted with this week this session — do not overwrite
     if (!availabilityTemplate?.slots) return;
 
-    // Session-level guard: each week start is auto-filled at most once per session,
-    // preventing re-application after the user navigates away and back to the same week
-    if (autoFilledWeeksRef.current.has(startParam)) return;
-    autoFilledWeeksRef.current.add(startParam);
-
     const rawSlots = availabilityTemplate.slots as Record<string, TemplateSlot>;
     const newData: Record<string, Record<TimeSlot, boolean>> = {};
     const timeRanges: Record<string, { startTime: string; endTime: string } | null> = {};
@@ -410,15 +405,26 @@ export default function Availability() {
       const dow = date.getDay().toString();
       const dateKey = formatDateKey(date);
       const raw = rawSlots[dow];
-      const tpl = parseDayTemplate(raw);
-      const slots = slotsFromDayTemplate(tpl);
-      newData[dateKey] = slots;
 
-      // Store time range for display — only for new-format slots that are available with explicit times
-      if (raw && isNewSlot(raw) && raw.available && raw.startTime && raw.endTime) {
-        timeRanges[dateKey] = { startTime: raw.startTime, endTime: raw.endTime };
+      if (raw && isLegacySlot(raw)) {
+        // Preserve original legacy granularity — do not round-trip through default times
+        newData[dateKey] = {
+          morning: raw.morning,
+          afternoon: raw.afternoon,
+          evening: raw.evening,
+          all_day: raw.morning && raw.afternoon && raw.evening,
+        };
+        timeRanges[dateKey] = null; // No explicit time range for legacy slots
       } else {
-        timeRanges[dateKey] = null;
+        // New format: derive time-slot buckets from explicit start/end times
+        const tpl = parseDayTemplate(raw);
+        newData[dateKey] = slotsFromDayTemplate(tpl);
+        // Store time range for display — only for new-format slots that are available with explicit times
+        if (raw && isNewSlot(raw) && raw.available && raw.startTime && raw.endTime) {
+          timeRanges[dateKey] = { startTime: raw.startTime, endTime: raw.endTime };
+        } else {
+          timeRanges[dateKey] = null;
+        }
       }
     });
 
@@ -427,7 +433,7 @@ export default function Availability() {
     setHasChanges(true);
     setWeekWasAutoFilled(true);
     setShowAutoFilledPill(true);
-  }, [isLoading, weekHasNoAvailability, isWeekInPast, availabilityTemplate, weekDates, hasChanges, startParam]);
+  }, [isLoading, weekHasNoAvailability, isWeekInPast, availabilityTemplate, weekDates, hasChanges]);
 
   // ── Mutations ────────────────────────────────────────────────────────────────
   const submitAvailabilityMutation = useMutation({
