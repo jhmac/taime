@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
@@ -31,6 +31,8 @@ export default function CashManagement() {
   const [activeDepositSessionId, setActiveDepositSessionId] = useState<string | null>(null);
   const [notesDraft, setNotesDraft] = useState<Record<string, string>>({});
   const [expandedTenderBreakdown, setExpandedTenderBreakdown] = useState<Set<string>>(new Set());
+  const isFirstRender = useRef(true);
+  const autoSyncRef = useRef(false);
 
   const { data: accessCheck, isLoading: accessLoading } = useQuery<{
     allowed: boolean;
@@ -94,6 +96,9 @@ export default function CashManagement() {
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/cash/shopify-sessions"] });
       queryClient.invalidateQueries({ queryKey: ["/api/cash/sessions"] });
+      const isAuto = autoSyncRef.current;
+      autoSyncRef.current = false;
+      if (isAuto) return;
       if (data.noShopify) {
         toast({ title: "No Shopify Store", description: "Connect a Shopify store first.", variant: "destructive" });
       } else if (data.synced === 0) {
@@ -102,8 +107,25 @@ export default function CashManagement() {
         toast({ title: "Synced!", description: `Pulled ${data.synced} register session(s) from Shopify.` });
       }
     },
-    onError: (err: any) => toast({ title: "Sync Failed", description: err.message, variant: "destructive" }),
+    onError: (err: any) => {
+      const isAuto = autoSyncRef.current;
+      autoSyncRef.current = false;
+      if (!isAuto) {
+        toast({ title: "Sync Failed", description: err.message, variant: "destructive" });
+      }
+    },
   });
+
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    if (!accessCheck?.allowed) return;
+    if (syncShopifyMutation.isPending) return;
+    autoSyncRef.current = true;
+    syncShopifyMutation.mutate();
+  }, [selectedDate]);
 
   const notesMutation = useMutation({
     mutationFn: async ({ id, notes }: { id: string; notes: string }) => {
