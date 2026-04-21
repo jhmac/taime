@@ -382,6 +382,24 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
 
   const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
+  // PATCH /api/availability/template/auto-apply — update only the autoApplyTemplate flag without touching slots
+  app.patch('/api/availability/template/auto-apply', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { autoApplyTemplate } = req.body;
+      if (typeof autoApplyTemplate !== 'boolean') {
+        return res.status(400).json({ message: "autoApplyTemplate must be a boolean" });
+      }
+      const existing = await storage.getAvailabilityTemplate(userId);
+      const slots = (existing?.slots ?? {}) as Record<string, import('@shared/schema').TemplateSlot>;
+      const template = await storage.upsertAvailabilityTemplate(userId, slots, autoApplyTemplate);
+      res.json(template);
+    } catch (error) {
+      console.error("Error updating auto-apply setting:", error);
+      res.status(500).json({ message: "Failed to update auto-apply setting" });
+    }
+  });
+
   app.post('/api/availability/template', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;

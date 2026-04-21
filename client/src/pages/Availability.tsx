@@ -434,8 +434,16 @@ export default function Availability() {
   }, [currentAvailability]);
 
   // Sync template from server → Default Week editor state
+  // When the user has unsaved slot edits (templateHasChanges), only update the autoApplyTemplate
+  // flag (which may have been saved independently via the instant-save toggle) and leave the
+  // local slot state and dirty flag intact.
   useEffect(() => {
     if (!availabilityTemplate?.slots) return;
+    if (templateHasChanges) {
+      // Only sync the auto-apply flag — don't clobber unsaved slot edits
+      setAutoApplyTemplate(availabilityTemplate.autoApplyTemplate ?? false);
+      return;
+    }
     const rawSlots = availabilityTemplate.slots as Record<string, TemplateSlot>;
     const newSlots = emptyWeekTemplateSlots();
     for (let i = 0; i < 7; i++) {
@@ -444,7 +452,7 @@ export default function Availability() {
     setTemplateSlots(newSlots);
     setAutoApplyTemplate(availabilityTemplate.autoApplyTemplate ?? false);
     setTemplateHasChanges(false);
-  }, [availabilityTemplate]);
+  }, [availabilityTemplate, templateHasChanges]);
 
   // Auto-apply template to empty future weeks (silent, no prompt)
   const weekHasNoAvailability = useMemo(() => {
@@ -534,6 +542,32 @@ export default function Availability() {
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to save default schedule.", variant: "destructive" });
+    },
+  });
+
+  const saveAutoApplyMutation = useMutation({
+    mutationFn: async (autoApply: boolean) => {
+      const result = await apiRequest('PATCH', '/api/availability/template/auto-apply', { autoApplyTemplate: autoApply });
+      return result;
+    },
+    onSuccess: (_, autoApply) => {
+      toast({
+        title: autoApply ? "Auto-fill enabled" : "Auto-fill disabled",
+        description: autoApply
+          ? "Empty future weeks will now be filled from your default schedule."
+          : "New weeks will no longer be auto-filled.",
+      });
+      // Update only the autoApplyTemplate field in the cached template to avoid a refetch
+      // that would trigger the sync effect and overwrite any unsaved slot edits.
+      queryClient.setQueryData(['/api/availability/template'], (old: AvailabilityTemplate | null | undefined) => {
+        if (!old) return old;
+        return { ...old, autoApplyTemplate: autoApply };
+      });
+    },
+    onError: (_, autoApply) => {
+      // Revert the optimistic switch state on failure
+      setAutoApplyTemplate(!autoApply);
+      toast({ title: "Error", description: "Failed to update auto-fill setting.", variant: "destructive" });
     },
   });
 
@@ -1230,9 +1264,10 @@ export default function Availability() {
                 <Switch
                   id="auto-apply-toggle"
                   checked={autoApplyTemplate}
+                  disabled={saveAutoApplyMutation.isPending}
                   onCheckedChange={(checked) => {
                     setAutoApplyTemplate(checked);
-                    setTemplateHasChanges(true);
+                    saveAutoApplyMutation.mutate(checked);
                   }}
                 />
               </div>
