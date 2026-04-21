@@ -2,7 +2,7 @@ import type { Express } from "express";
 import type { IStorage } from "../storage";
 import { geofencingService } from "../services/geofencingService";
 import { db } from "../db";
-import { workLocations, geofenceEvents } from "@shared/schema";
+import { workLocations, geofenceEvents, users } from "@shared/schema";
 import { eq, desc } from "drizzle-orm";
 
 export function registerGeofenceRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
@@ -259,16 +259,28 @@ export function registerGeofenceRoutes(app: Express, storage: IStorage, isAuthen
     if (validated.geofenceEnabled !== undefined) updateData.geofenceEnabled = validated.geofenceEnabled;
     if (validated.autoClockOut !== undefined) updateData.autoClockOut = validated.autoClockOut;
 
-    const [updated] = await db.update(workLocations)
-      .set(updateData)
-      .where(eq(workLocations.id, id))
-      .returning();
+    const result = await db.transaction(async (tx) => {
+      const [updated] = await tx.update(workLocations)
+        .set(updateData)
+        .where(eq(workLocations.id, id))
+        .returning();
 
-      if (!updated) {
+      if (!updated) return null;
+
+      if (updateData.name !== undefined) {
+        await tx.update(users)
+          .set({ locationName: updated.name })
+          .where(eq(users.locationId, id));
+      }
+
+      return updated;
+    });
+
+      if (!result) {
         return res.status(404).json({ message: "Location not found" });
       }
 
-      res.json(updated);
+      res.json(result);
     } catch (error) {
       console.error("Error updating work location:", error);
       res.status(500).json({ message: "Failed to update location" });
