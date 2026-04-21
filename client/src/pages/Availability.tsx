@@ -351,6 +351,12 @@ export default function Availability() {
   const startParam = formatDateKey(weekDates[0]);
   const endParam = formatDateKey(weekDates[6]);
 
+  // Set of date keys that were silently auto-filled this session
+  const autoFilledDateKeys = useMemo(
+    () => weekWasAutoFilled ? new Set(weekDates.map(formatDateKey)) : new Set<string>(),
+    [weekWasAutoFilled, weekDates]
+  );
+
   const isWeekInPast = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -567,6 +573,7 @@ export default function Availability() {
       toast({ title: "Availability saved" });
       queryClient.invalidateQueries({ queryKey: ['/api/availability/calendar'] });
       setEditorDay(null);
+      setWeekWasAutoFilled(false);
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to save.", variant: "destructive" });
@@ -744,6 +751,8 @@ export default function Availability() {
       toast({ title: "Time off", description: "This day has an approved time-off request." });
       return;
     }
+    // User is actively editing — dismiss the auto-fill indicator
+    if (weekWasAutoFilled) setWeekWasAutoFilled(false);
     // Pre-fill from existing data
     if (entry && entry.available) {
       setEditorStartTime(entry.startTime || DEFAULT_START);
@@ -853,6 +862,16 @@ export default function Availability() {
                 </Button>
               </div>
 
+              {/* Auto-fill indicator strip */}
+              {weekWasAutoFilled && (
+                <div className="flex items-center gap-1.5 mb-2 px-1 py-1 rounded-md bg-violet-50 dark:bg-violet-950/20 border border-violet-200 dark:border-violet-800/40">
+                  <Wand2 className="h-3 w-3 text-violet-400 shrink-0" />
+                  <span className="text-[11px] text-violet-600 dark:text-violet-400 leading-tight">
+                    Auto-filled from your default schedule
+                  </span>
+                </div>
+              )}
+
               {/* Day-of-week header */}
               <div className="grid grid-cols-7 gap-1 mb-1">
                 {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
@@ -926,6 +945,14 @@ export default function Availability() {
                         )}
                         {isTemplateOnly && isAvailable && (
                           <Repeat className="absolute bottom-0.5 right-0.5 h-2 w-2 text-emerald-400 opacity-60" />
+                        )}
+                        {autoFilledDateKeys.has(dateStr) && (
+                          <span
+                            title="Auto-filled from your default schedule"
+                            className="absolute top-0.5 right-0.5"
+                          >
+                            <Wand2 className="h-2.5 w-2.5 text-violet-400 opacity-70" />
+                          </span>
                         )}
                       </button>
                     );
