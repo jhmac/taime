@@ -1001,6 +1001,11 @@ export default function ScheduleManagement() {
                     const availBySlot: Record<string, any> = {};
                     dayAvailability.forEach((a: any) => { availBySlot[a.timeSlot] = a; });
 
+                    const dateStr = formatLocalDate(date);
+                    const mergedAvail = (teamCalendar[dateStr] ?? []).find(
+                      (a: { userId: string; startTime: string | null; endTime: string | null }) => a.userId === emp.id
+                    );
+
                     return (
                       <td key={dayIdx} className={cn("px-1 py-1 border-r last:border-r-0 align-top min-h-[60px] relative", isToday && "bg-primary/5")}>
                         <div className="space-y-0.5 min-h-[48px]">
@@ -1066,8 +1071,21 @@ export default function ScheduleManagement() {
                             );
                           })}
 
-                          {/* Availability indicators */}
-                          {dayAvailability.length > 0 && (
+                          {/* Availability indicator — merged calendar (template + overrides + time-off) */}
+                          {mergedAvail ? (
+                            <div className="mt-1">
+                              <span
+                                title={mergedAvail.startTime && mergedAvail.endTime
+                                  ? `Available ${formatSchedTimeShort(mergedAvail.startTime)}–${formatSchedTimeShort(mergedAvail.endTime)}`
+                                  : 'Available'}
+                                className="text-[9px] px-1.5 py-0.5 rounded-sm font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 leading-[14px] inline-block"
+                              >
+                                {mergedAvail.startTime && mergedAvail.endTime
+                                  ? `${formatSchedTimeShort(mergedAvail.startTime)}–${formatSchedTimeShort(mergedAvail.endTime)}`
+                                  : 'avail'}
+                              </span>
+                            </div>
+                          ) : dayAvailability.length > 0 ? (
                             <div className="flex gap-0.5 flex-wrap mt-1">
                               {(['morning', 'afternoon', 'evening'] as const).map(slot => {
                                 const entry = availBySlot[slot];
@@ -1089,7 +1107,7 @@ export default function ScheduleManagement() {
                                 );
                               })}
                             </div>
-                          )}
+                          ) : null}
 
                           {/* Add Shift Button */}
                           {daySchedules.length === 0 && aiEntries.length === 0 && (
