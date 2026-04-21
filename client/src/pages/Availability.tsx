@@ -1,8 +1,8 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
@@ -14,7 +14,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
-import { StickyNote } from "lucide-react";
+import {
+  Sun, Sunset, Moon, Clock, Check, Minus, ChevronLeft, ChevronRight,
+  StickyNote, Plus, X, Umbrella, Thermometer, User, CalendarMinus,
+  MoreHorizontal, MessageSquare, CalendarCheck, Save, Loader2
+} from "lucide-react";
 import type { UserAvailability, TimeOffRequest } from "@shared/schema";
 
 type TimeSlot = 'morning' | 'afternoon' | 'evening' | 'all_day';
@@ -29,19 +33,19 @@ interface DayNote {
   updatedAt: string;
 }
 
-const timeSlots: { value: TimeSlot; label: string; hours: string; icon: string }[] = [
-  { value: 'all_day', label: 'All Day', hours: '9 AM - 9 PM', icon: 'fas fa-sun' },
-  { value: 'morning', label: 'Morning', hours: '6 AM - 12 PM', icon: 'fas fa-cloud-sun' },
-  { value: 'afternoon', label: 'Afternoon', hours: '12 PM - 6 PM', icon: 'fas fa-sun' },
-  { value: 'evening', label: 'Evening', hours: '6 PM - 12 AM', icon: 'fas fa-moon' },
+const timeSlots: { value: TimeSlot; label: string; hours: string; Icon: React.ComponentType<{ className?: string }> }[] = [
+  { value: 'all_day', label: 'All Day', hours: '9 AM–9 PM', Icon: Clock },
+  { value: 'morning', label: 'Morning', hours: '6 AM–12 PM', Icon: Sun },
+  { value: 'afternoon', label: 'Afternoon', hours: '12–6 PM', Icon: Sunset },
+  { value: 'evening', label: 'Evening', hours: '6 PM–close', Icon: Moon },
 ];
 
 const timeOffTypes = [
-  { value: 'vacation', label: 'Vacation', icon: 'fas fa-umbrella-beach' },
-  { value: 'sick', label: 'Sick Leave', icon: 'fas fa-thermometer-half' },
-  { value: 'personal', label: 'Personal', icon: 'fas fa-user' },
-  { value: 'unpaid', label: 'Unpaid Leave', icon: 'fas fa-calendar-minus' },
-  { value: 'other', label: 'Other', icon: 'fas fa-ellipsis-h' },
+  { value: 'vacation', label: 'Vacation', Icon: Umbrella },
+  { value: 'sick', label: 'Sick Leave', Icon: Thermometer },
+  { value: 'personal', label: 'Personal', Icon: User },
+  { value: 'unpaid', label: 'Unpaid Leave', Icon: CalendarMinus },
+  { value: 'other', label: 'Other', Icon: MoreHorizontal },
 ];
 
 function getWeekDates(referenceDate: Date): Date[] {
@@ -69,12 +73,10 @@ function formatDateKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-function DayNoteButton({ date, notes, userId, startDate, endDate }: {
+function DayNoteButton({ date, notes, userId }: {
   date: Date;
   notes: DayNote[];
   userId: string;
-  startDate: string;
-  endDate: string;
 }) {
   const { toast } = useToast();
   const dateKey = formatDateKey(date);
@@ -128,9 +130,7 @@ function DayNoteButton({ date, notes, userId, startDate, endDate }: {
         <button
           className={cn(
             "mx-auto flex items-center justify-center w-6 h-6 rounded transition-all mt-0.5",
-            hasNote
-              ? "text-amber-500 hover:text-amber-600"
-              : "text-muted-foreground/40 hover:text-muted-foreground"
+            hasNote ? "text-amber-500 hover:text-amber-600" : "text-muted-foreground/40 hover:text-muted-foreground"
           )}
           title={hasNote ? "Edit note" : "Add note"}
         >
@@ -190,19 +190,19 @@ export default function Availability() {
   const [timeOffReason, setTimeOffReason] = useState("");
   const [hasChanges, setHasChanges] = useState(false);
 
-  const isAdmin = user?.role?.name === 'admin' || user?.role?.name === 'owner';
-
   const weekDates = useMemo(() => getWeekDates(selectedWeek), [selectedWeek]);
   const weekStart = weekDates[0];
   const weekEnd = weekDates[6];
 
-  const startParam = `${weekStart.getFullYear()}-${String(weekStart.getMonth() + 1).padStart(2, '0')}-${String(weekStart.getDate()).padStart(2, '0')}`;
-  const endParam = `${weekEnd.getFullYear()}-${String(weekEnd.getMonth() + 1).padStart(2, '0')}-${String(weekEnd.getDate()).padStart(2, '0')}`;
+  const startParam = formatDateKey(weekStart);
+  const endParam = formatDateKey(weekEnd);
 
   const { data: currentAvailability = [], isLoading } = useQuery<UserAvailability[]>({
     queryKey: ['/api/availability', { startDate: startParam, endDate: endParam }],
     queryFn: async () => {
-      const res = await fetch(`/api/availability?startDate=${startParam}&endDate=${endParam}`);
+      const res = await fetch(`/api/availability?startDate=${startParam}&endDate=${endParam}`, {
+        credentials: 'include',
+      });
       if (!res.ok) throw new Error('Failed to fetch');
       return res.json();
     },
@@ -211,8 +211,10 @@ export default function Availability() {
   const { data: dayNotes = [] } = useQuery<DayNote[]>({
     queryKey: ['/api/day-notes', startParam, endParam],
     queryFn: async () => {
-      const res = await fetch(`/api/day-notes?startDate=${startParam}&endDate=${endParam}`);
-      if (!res.ok) throw new Error('Failed to fetch notes');
+      const res = await fetch(`/api/day-notes?startDate=${startParam}&endDate=${endParam}`, {
+        credentials: 'include',
+      });
+      if (!res.ok) return [];
       return res.json();
     },
   });
@@ -238,13 +240,7 @@ export default function Availability() {
 
   const submitAvailabilityMutation = useMutation({
     mutationFn: async (availability: any[]) => {
-      const response = await fetch('/api/availability', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ availability }),
-      });
-      if (!response.ok) throw new Error('Failed to submit availability');
-      return response.json();
+      await apiRequest('POST', '/api/availability', { availability });
     },
     onSuccess: () => {
       toast({ title: "Availability saved", description: "Your availability has been updated." });
@@ -258,13 +254,7 @@ export default function Availability() {
 
   const createTimeOffMutation = useMutation({
     mutationFn: async (data: any) => {
-      const response = await fetch('/api/time-off-requests', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
-      if (!response.ok) throw new Error('Failed to create request');
-      return response.json();
+      await apiRequest('POST', '/api/time-off-requests', data);
     },
     onSuccess: () => {
       toast({ title: "Request submitted", description: "Your time-off request has been sent to your manager." });
@@ -282,13 +272,7 @@ export default function Availability() {
 
   const cancelTimeOffMutation = useMutation({
     mutationFn: async (id: string) => {
-      const response = await fetch(`/api/time-off-requests/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'cancelled' }),
-      });
-      if (!response.ok) throw new Error('Failed to cancel');
-      return response.json();
+      await apiRequest('PATCH', `/api/time-off-requests/${id}`, { status: 'cancelled' });
     },
     onSuccess: () => {
       toast({ title: "Cancelled", description: "Time-off request has been cancelled." });
@@ -300,24 +284,18 @@ export default function Availability() {
     const dateKey = formatDateKey(date);
     setAvailabilityData(prev => {
       const dayData = prev[dateKey] || { all_day: false, morning: false, afternoon: false, evening: false };
-      
+
       if (slot === 'all_day') {
         const newVal = !dayData.all_day;
         return {
           ...prev,
-          [dateKey]: {
-            all_day: newVal,
-            morning: newVal,
-            afternoon: newVal,
-            evening: newVal,
-          },
+          [dateKey]: { all_day: newVal, morning: newVal, afternoon: newVal, evening: newVal },
         };
       }
-      
+
       const newSlotVal = !dayData[slot];
       const newDay = { ...dayData, [slot]: newSlotVal };
       newDay.all_day = newDay.morning && newDay.afternoon && newDay.evening;
-      
       return { ...prev, [dateKey]: newDay };
     });
     setHasChanges(true);
@@ -327,22 +305,15 @@ export default function Availability() {
     const newData: Record<string, Record<TimeSlot, boolean>> = {};
     weekDates.forEach(date => {
       const dateKey = formatDateKey(date);
-      const dayOfWeek = date.getDay();
-      const isWeekday = dayOfWeek > 0 && dayOfWeek < 6;
+      const dow = date.getDay();
+      const isWeekday = dow > 0 && dow < 6;
       const isWeekend = !isWeekday;
-      
       const available =
         preset === 'all' ? true :
         preset === 'clear' ? false :
         preset === 'weekdays' ? isWeekday :
         preset === 'weekends' ? isWeekend : false;
-      
-      newData[dateKey] = {
-        all_day: available,
-        morning: available,
-        afternoon: available,
-        evening: available,
-      };
+      newData[dateKey] = { all_day: available, morning: available, afternoon: available, evening: available };
     });
     setAvailabilityData(prev => ({ ...prev, ...newData }));
     setHasChanges(true);
@@ -350,10 +321,12 @@ export default function Availability() {
 
   const handleSaveAvailability = () => {
     const availability: any[] = [];
-    Object.entries(availabilityData).forEach(([dateStr, slots]) => {
+    weekDates.forEach(date => {
+      const dateKey = formatDateKey(date);
+      const slots = availabilityData[dateKey] || { all_day: false, morning: false, afternoon: false, evening: false };
       (['morning', 'afternoon', 'evening'] as TimeSlot[]).forEach(slot => {
         availability.push({
-          date: new Date(dateStr + 'T12:00:00Z'),
+          date: new Date(dateKey + 'T12:00:00Z').toISOString(),
           timeSlot: slot,
           isAvailable: slots[slot] ?? false,
         });
@@ -375,19 +348,7 @@ export default function Availability() {
     });
   };
 
-  const goToPreviousWeek = () => {
-    const d = new Date(selectedWeek);
-    d.setDate(d.getDate() - 7);
-    setSelectedWeek(d);
-  };
-
-  const goToNextWeek = () => {
-    const d = new Date(selectedWeek);
-    d.setDate(d.getDate() + 7);
-    setSelectedWeek(d);
-  };
-
-  const getDayAvailabilitySummary = (date: Date): string => {
+  const getDayAvailabilitySummary = (date: Date): 'full' | 'partial' | 'none' => {
     const dateKey = formatDateKey(date);
     const slots = availabilityData[dateKey];
     if (!slots) return 'none';
@@ -416,69 +377,87 @@ export default function Availability() {
     <div className="min-h-screen bg-background p-4 md:p-6">
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList className="grid w-full grid-cols-2 max-w-md">
-          <TabsTrigger value="availability" className="text-sm">
-            <i className="fas fa-calendar-check mr-2"></i>Availability
+          <TabsTrigger value="availability" className="text-sm flex items-center gap-1.5">
+            <CalendarCheck className="h-3.5 w-3.5" />
+            Availability
           </TabsTrigger>
-          <TabsTrigger value="time-off" className="text-sm relative">
-            <i className="fas fa-umbrella-beach mr-2"></i>Time Off
+          <TabsTrigger value="time-off" className="text-sm relative flex items-center gap-1.5">
+            <Umbrella className="h-3.5 w-3.5" />
+            Time Off
             {pendingCount > 0 && (
-              <span className="absolute -top-1 -right-1 bg-amber-500 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center">
+              <span className="absolute -top-1 -right-1 bg-amber-500 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center font-bold">
                 {pendingCount}
               </span>
             )}
           </TabsTrigger>
         </TabsList>
 
+        {/* ── Availability Tab ── */}
         <TabsContent value="availability" className="space-y-4">
           <Card>
             <CardContent className="p-4">
+              {/* Week navigation */}
               <div className="flex items-center justify-between mb-4">
-                <Button variant="ghost" size="icon" onClick={goToPreviousWeek}>
-                  <i className="fas fa-chevron-left"></i>
+                <Button variant="ghost" size="icon" onClick={() => {
+                  const d = new Date(selectedWeek); d.setDate(d.getDate() - 7); setSelectedWeek(d);
+                }}>
+                  <ChevronLeft className="h-4 w-4" />
                 </Button>
                 <div className="text-center">
                   <h3 className="font-semibold text-sm">
-                    {weekDates[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {weekDates[6].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    {weekDates[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    {' – '}
+                    {weekDates[6].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                   </h3>
                 </div>
-                <Button variant="ghost" size="icon" onClick={goToNextWeek}>
-                  <i className="fas fa-chevron-right"></i>
+                <Button variant="ghost" size="icon" onClick={() => {
+                  const d = new Date(selectedWeek); d.setDate(d.getDate() + 7); setSelectedWeek(d);
+                }}>
+                  <ChevronRight className="h-4 w-4" />
                 </Button>
               </div>
 
+              {/* Quick presets */}
               <div className="flex gap-2 mb-4 flex-wrap">
-                <Button variant="outline" size="sm" className="text-xs" onClick={() => applyPreset('weekdays')}>
-                  <i className="fas fa-briefcase mr-1"></i>Weekdays
-                </Button>
-                <Button variant="outline" size="sm" className="text-xs" onClick={() => applyPreset('weekends')}>
-                  <i className="fas fa-couch mr-1"></i>Weekends
-                </Button>
-                <Button variant="outline" size="sm" className="text-xs" onClick={() => applyPreset('all')}>
-                  <i className="fas fa-check-double mr-1"></i>All
-                </Button>
-                <Button variant="outline" size="sm" className="text-xs text-muted-foreground" onClick={() => applyPreset('clear')}>
-                  <i className="fas fa-eraser mr-1"></i>Clear
-                </Button>
+                {(
+                  [
+                    { key: 'weekdays', label: 'Weekdays' },
+                    { key: 'weekends', label: 'Weekends' },
+                    { key: 'all', label: 'All' },
+                    { key: 'clear', label: 'Clear' },
+                  ] as { key: 'weekdays' | 'weekends' | 'all' | 'clear'; label: string }[]
+                ).map(({ key, label }) => (
+                  <Button
+                    key={key}
+                    variant="outline"
+                    size="sm"
+                    className="text-xs"
+                    onClick={() => applyPreset(key)}
+                  >
+                    {label}
+                  </Button>
+                ))}
               </div>
 
               {isLoading ? (
                 <div className="flex justify-center py-8">
-                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                 </div>
               ) : (
-                <div className="space-y-0">
-                  <div className="grid grid-cols-[90px_repeat(7,1fr)] gap-0 mb-1">
-                    <div></div>
+                <div className="space-y-0 overflow-x-auto">
+                  {/* Day headers */}
+                  <div className="grid grid-cols-[80px_repeat(7,1fr)] gap-0 mb-1 min-w-[420px]">
+                    <div />
                     {weekDates.map(date => {
                       const isToday = date.toDateString() === new Date().toDateString();
                       const summary = getDayAvailabilitySummary(date);
                       return (
                         <div key={date.toISOString()} className="text-center px-0.5">
-                          <div className="text-[10px] text-muted-foreground uppercase">
+                          <div className="text-[10px] text-muted-foreground uppercase tracking-wide">
                             {date.toLocaleDateString('en-US', { weekday: 'short' })}
                           </div>
                           <div className={cn(
-                            "w-8 h-8 mx-auto rounded-full flex items-center justify-center text-sm font-medium",
+                            "w-8 h-8 mx-auto rounded-full flex items-center justify-center text-sm font-semibold",
                             isToday && "bg-primary text-primary-foreground",
                             !isToday && summary === 'full' && "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
                             !isToday && summary === 'partial' && "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
@@ -487,45 +466,43 @@ export default function Availability() {
                             {date.getDate()}
                           </div>
                           {user?.id && (
-                            <DayNoteButton
-                              date={date}
-                              notes={dayNotes}
-                              userId={user.id}
-                              startDate={startParam}
-                              endDate={endParam}
-                            />
+                            <DayNoteButton date={date} notes={dayNotes} userId={user.id} />
                           )}
                         </div>
                       );
                     })}
                   </div>
 
-                  {timeSlots.map(slot => (
-                    <div key={slot.value} className="grid grid-cols-[90px_repeat(7,1fr)] gap-0 items-center border-t border-border py-2">
+                  {/* Slot rows */}
+                  {timeSlots.map(({ value: slot, label, hours, Icon }) => (
+                    <div key={slot} className="grid grid-cols-[80px_repeat(7,1fr)] gap-0 items-center border-t border-border/60 py-2 min-w-[420px]">
                       <div className="flex items-center gap-1.5 pr-2">
-                        <i className={cn(slot.icon, "text-xs text-muted-foreground w-4")}></i>
+                        <Icon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                         <div>
-                          <div className="text-xs font-medium">{slot.label}</div>
-                          <div className="text-[10px] text-muted-foreground">{slot.hours}</div>
+                          <div className="text-xs font-medium leading-tight">{label}</div>
+                          <div className="text-[10px] text-muted-foreground leading-tight">{hours}</div>
                         </div>
                       </div>
                       {weekDates.map(date => {
                         const dateKey = formatDateKey(date);
                         const dayData = availabilityData[dateKey] || { all_day: false, morning: false, afternoon: false, evening: false };
-                        const isActive = slot.value === 'all_day' ? dayData.all_day : dayData[slot.value];
-                        
+                        const isActive = slot === 'all_day' ? dayData.all_day : dayData[slot];
                         return (
-                          <div key={`${dateKey}-${slot.value}`} className="flex justify-center">
+                          <div key={`${dateKey}-${slot}`} className="flex justify-center">
                             <button
-                              onClick={() => toggleSlot(date, slot.value)}
+                              onClick={() => toggleSlot(date, slot)}
                               className={cn(
-                                "w-8 h-8 rounded-lg flex items-center justify-center transition-all text-xs",
+                                "w-8 h-8 rounded-lg flex items-center justify-center transition-all",
                                 isActive
                                   ? "bg-green-500 text-white shadow-sm"
                                   : "bg-muted/50 text-muted-foreground hover:bg-muted"
                               )}
+                              aria-label={`Toggle ${label} on ${date.toLocaleDateString()}`}
                             >
-                              {isActive ? <i className="fas fa-check text-xs"></i> : <i className="fas fa-minus text-[10px]"></i>}
+                              {isActive
+                                ? <Check className="h-3.5 w-3.5" />
+                                : <Minus className="h-3 w-3" />
+                              }
                             </button>
                           </div>
                         );
@@ -539,46 +516,49 @@ export default function Availability() {
                 <Button
                   onClick={handleSaveAvailability}
                   disabled={submitAvailabilityMutation.isPending || !hasChanges}
-                  className="flex-1"
+                  className="flex-1 gap-2"
                 >
                   {submitAvailabilityMutation.isPending ? (
-                    <><i className="fas fa-spinner fa-spin mr-2"></i>Saving...</>
+                    <><Loader2 className="h-4 w-4 animate-spin" />Saving…</>
                   ) : (
-                    <><i className="fas fa-save mr-2"></i>Save Availability</>
+                    <><Save className="h-4 w-4" />Save Availability</>
                   )}
                 </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-xs"
-                  onClick={() => setSelectedWeek(new Date())}
-                >
+                <Button variant="ghost" size="sm" className="text-xs" onClick={() => setSelectedWeek(new Date())}>
                   Today
                 </Button>
               </div>
             </CardContent>
           </Card>
 
+          {/* Monthly overview */}
           <Card>
             <CardContent className="p-4">
               <div className="flex items-center justify-between mb-3">
-                <h4 className="text-sm font-semibold flex items-center gap-2">
-                  <i className="fas fa-calendar text-muted-foreground"></i>
-                  Monthly Overview
-                </h4>
-                <div className="flex items-center gap-2">
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1))}>
-                    <i className="fas fa-chevron-left text-xs"></i>
+                <h4 className="text-sm font-semibold">Monthly Overview</h4>
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1))}
+                  >
+                    <ChevronLeft className="h-3.5 w-3.5" />
                   </Button>
                   <span className="text-sm font-medium min-w-[120px] text-center">
                     {calendarMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
                   </span>
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1))}>
-                    <i className="fas fa-chevron-right text-xs"></i>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1))}
+                  >
+                    <ChevronRight className="h-3.5 w-3.5" />
                   </Button>
                 </div>
               </div>
-              
+
               <div className="grid grid-cols-7 gap-1 mb-1">
                 {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
                   <div key={i} className="text-center text-[10px] text-muted-foreground font-medium py-1">{d}</div>
@@ -594,14 +574,10 @@ export default function Availability() {
                     const end = new Date(r.endDate);
                     return day >= start && day <= end && r.status !== 'cancelled';
                   });
-                  
                   return (
                     <button
                       key={day.toISOString()}
-                      onClick={() => {
-                        setSelectedWeek(day);
-                        setActiveTab('availability');
-                      }}
+                      onClick={() => { setSelectedWeek(day); setActiveTab('availability'); }}
                       className={cn(
                         "h-8 rounded text-xs font-medium relative",
                         isToday && "ring-1 ring-primary",
@@ -613,35 +589,34 @@ export default function Availability() {
                     >
                       {day.getDate()}
                       {hasTimeOff && (
-                        <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-red-500"></span>
+                        <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-red-500" />
                       )}
                     </button>
                   );
                 })}
               </div>
-              <div className="flex items-center gap-4 mt-3 text-[10px] text-muted-foreground">
-                <div className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-green-100 dark:bg-green-900/30"></div>Available</div>
-                <div className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-amber-100 dark:bg-amber-900/30"></div>Partial</div>
-                <div className="flex items-center gap-1"><div className="w-3 h-3 rounded border"></div>Not set</div>
-                <div className="flex items-center gap-1"><div className="w-3 h-3 rounded ring-1 ring-red-400"></div>Time off</div>
+              <div className="flex flex-wrap items-center gap-3 mt-3 text-[10px] text-muted-foreground">
+                <div className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-green-100 dark:bg-green-900/30" />Available</div>
+                <div className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-amber-100 dark:bg-amber-900/30" />Partial</div>
+                <div className="flex items-center gap-1"><div className="w-3 h-3 rounded border" />Not set</div>
+                <div className="flex items-center gap-1"><div className="w-3 h-3 rounded ring-1 ring-red-400" />Time off</div>
               </div>
             </CardContent>
           </Card>
         </TabsContent>
 
+        {/* ── Time Off Tab ── */}
         <TabsContent value="time-off" className="space-y-4">
-          <Button
-            className="w-full"
-            onClick={() => setShowTimeOffForm(true)}
-          >
-            <i className="fas fa-plus mr-2"></i>Request Time Off
+          <Button className="w-full gap-2" onClick={() => setShowTimeOffForm(true)}>
+            <Plus className="h-4 w-4" />
+            Request Time Off
           </Button>
 
           {myRequests.length === 0 ? (
             <Card>
               <CardContent className="p-8 text-center">
                 <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-muted flex items-center justify-center">
-                  <i className="fas fa-umbrella-beach text-2xl text-muted-foreground"></i>
+                  <Umbrella className="h-7 w-7 text-muted-foreground" />
                 </div>
                 <p className="font-medium mb-1">No time-off requests</p>
                 <p className="text-sm text-muted-foreground">
@@ -653,49 +628,52 @@ export default function Availability() {
             <div className="space-y-3">
               {myRequests.map((req: TimeOffRequest) => {
                 const typeInfo = timeOffTypes.find(t => t.value === req.type);
+                const TypeIcon = typeInfo?.Icon || CalendarCheck;
                 return (
                   <Card key={req.id}>
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2">
-                          <i className={cn(typeInfo?.icon || 'fas fa-calendar', "text-muted-foreground")}></i>
+                          <TypeIcon className="h-4 w-4 text-muted-foreground" />
                           <span className="text-sm font-medium">{typeInfo?.label || req.type}</span>
                         </div>
                         <Badge className={cn("text-xs", statusColors[req.status] || statusColors.pending)}>
-                          {req.status === 'pending' ? 'Pending' : req.status.charAt(0).toUpperCase() + req.status.slice(1)}
+                          {req.status.charAt(0).toUpperCase() + req.status.slice(1)}
                         </Badge>
                       </div>
-                      
+
                       <div className="text-sm text-muted-foreground mb-2">
                         {new Date(req.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                         {req.startDate !== req.endDate && (
-                          <> - {new Date(req.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</>
+                          <> – {new Date(req.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</>
                         )}
                       </div>
-                      
+
                       {req.reason && (
                         <p className="text-xs text-muted-foreground mb-2 italic">"{req.reason}"</p>
                       )}
-                      
+
                       {req.adminNotes && (
-                        <p className="text-xs text-muted-foreground bg-muted/50 p-2 rounded mb-2">
-                          <i className="fas fa-comment-dots mr-1"></i> Manager: {req.adminNotes}
+                        <p className="text-xs text-muted-foreground bg-muted/50 p-2 rounded mb-2 flex items-start gap-1.5">
+                          <MessageSquare className="h-3 w-3 mt-0.5 shrink-0" />
+                          Manager: {req.adminNotes}
                         </p>
                       )}
-                      
+
                       <div className="text-[10px] text-muted-foreground">
                         Submitted {new Date(req.createdAt!).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                       </div>
-                      
+
                       {req.status === 'pending' && (
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="mt-2 text-xs text-destructive hover:text-destructive"
+                          className="mt-2 text-xs text-destructive hover:text-destructive gap-1"
                           onClick={() => cancelTimeOffMutation.mutate(req.id)}
                           disabled={cancelTimeOffMutation.isPending}
                         >
-                          <i className="fas fa-times mr-1"></i>Cancel Request
+                          <X className="h-3 w-3" />
+                          Cancel Request
                         </Button>
                       )}
                     </CardContent>
@@ -707,11 +685,12 @@ export default function Availability() {
         </TabsContent>
       </Tabs>
 
+      {/* Time-Off Request Dialog */}
       <Dialog open={showTimeOffForm} onOpenChange={setShowTimeOffForm}>
         <DialogContent className="max-w-sm mx-auto">
           <DialogHeader>
             <DialogTitle className="text-base flex items-center gap-2">
-              <i className="fas fa-umbrella-beach text-primary"></i>
+              <Umbrella className="h-4 w-4 text-primary" />
               Request Time Off
             </DialogTitle>
           </DialogHeader>
@@ -726,14 +705,15 @@ export default function Availability() {
                   {timeOffTypes.map(t => (
                     <SelectItem key={t.value} value={t.value}>
                       <span className="flex items-center gap-2">
-                        <i className={t.icon}></i> {t.label}
+                        <t.Icon className="h-3.5 w-3.5" />
+                        {t.label}
                       </span>
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
-            
+
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label className="text-sm">Start Date</Label>
@@ -759,28 +739,33 @@ export default function Availability() {
                 />
               </div>
             </div>
-            
+
             <div>
               <Label className="text-sm">Reason (optional)</Label>
               <Textarea
                 value={timeOffReason}
                 onChange={e => setTimeOffReason(e.target.value)}
-                placeholder="Brief reason for your request..."
-                rows={3}
+                placeholder="Any notes for your manager..."
+                className="text-sm min-h-[80px] resize-none"
               />
             </div>
-            
-            <Button
-              onClick={handleSubmitTimeOff}
-              disabled={createTimeOffMutation.isPending || !timeOffStartDate || !timeOffEndDate}
-              className="w-full"
-            >
-              {createTimeOffMutation.isPending ? (
-                <><i className="fas fa-spinner fa-spin mr-2"></i>Submitting...</>
-              ) : (
-                <><i className="fas fa-paper-plane mr-2"></i>Submit Request</>
-              )}
-            </Button>
+
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex-1" onClick={() => setShowTimeOffForm(false)}>
+                Cancel
+              </Button>
+              <Button
+                className="flex-1 gap-2"
+                onClick={handleSubmitTimeOff}
+                disabled={createTimeOffMutation.isPending}
+              >
+                {createTimeOffMutation.isPending ? (
+                  <><Loader2 className="h-4 w-4 animate-spin" />Submitting…</>
+                ) : (
+                  <>Submit Request</>
+                )}
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
