@@ -17,6 +17,16 @@ import { useLocation } from "wouter";
 
 type ViewMode = "main" | "wizard" | "deposit" | "investigation";
 
+function formatRelativeTime(date: Date | null): string {
+  if (!date) return '';
+  const minutes = Math.floor((Date.now() - date.getTime()) / 60_000);
+  if (minutes < 1) return 'Synced just now';
+  if (minutes === 1) return 'Synced 1 min ago';
+  if (minutes < 60) return `Synced ${minutes} mins ago`;
+  const hours = Math.floor(minutes / 60);
+  return hours === 1 ? 'Synced 1 hr ago' : `Synced ${hours} hrs ago`;
+}
+
 export default function CashManagement() {
   const { user } = useAuth();
   const isAdmin = user?.role?.name === 'owner' || user?.role?.name === 'admin' || user?.role?.name === 'manager';
@@ -33,6 +43,14 @@ export default function CashManagement() {
   const [expandedTenderBreakdown, setExpandedTenderBreakdown] = useState<Set<string>>(new Set());
   const isFirstRender = useRef(true);
   const autoSyncRef = useRef(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
+  const [, setTick] = useState(0);
+
+  // Re-render every minute so the "X min ago" label stays accurate
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), 60_000);
+    return () => clearInterval(id);
+  }, []);
 
   const { data: accessCheck, isLoading: accessLoading } = useQuery<{
     allowed: boolean;
@@ -59,6 +77,12 @@ export default function CashManagement() {
     const res = await apiRequest("GET", `/api/cash/shopify-sessions?date=${selectedDate}`);
     return res.json();
   }});
+
+  // Seed lastSyncedAt from the most recent session record when data first loads
+  useEffect(() => {
+    const syncedAt = (shopifySessions as any[])[0]?.syncedAt;
+    if (syncedAt) setLastSyncedAt(prev => prev ?? new Date(syncedAt));
+  }, [shopifySessions]);
 
   const createSessionMutation = useMutation({
     mutationFn: async (data: { sessionType: string; registerName: string; startingCash: string }) => {
@@ -96,6 +120,7 @@ export default function CashManagement() {
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/cash/shopify-sessions"] });
       queryClient.invalidateQueries({ queryKey: ["/api/cash/sessions"] });
+      if (!data.noShopify) setLastSyncedAt(new Date());
       const isAuto = autoSyncRef.current;
       autoSyncRef.current = false;
       if (isAuto) return;
@@ -299,17 +324,24 @@ export default function CashManagement() {
             </CardContent></Card>
           </div>
 
-          <Button
-            variant="outline"
-            size="sm"
-            className="w-full gap-2 border-dashed"
-            onClick={() => syncShopifyMutation.mutate()}
-            disabled={syncShopifyMutation.isPending}
-          >
-            {syncShopifyMutation.isPending
-              ? <><i className="fas fa-spinner fa-spin" /> Syncing from Shopify...</>
-              : <><i className="fab fa-shopify text-green-600" /> Sync from Shopify</>}
-          </Button>
+          <div className="space-y-1">
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full gap-2 border-dashed"
+              onClick={() => syncShopifyMutation.mutate()}
+              disabled={syncShopifyMutation.isPending}
+            >
+              {syncShopifyMutation.isPending
+                ? <><i className="fas fa-spinner fa-spin" /> Syncing from Shopify...</>
+                : <><i className="fab fa-shopify text-green-600" /> Sync from Shopify</>}
+            </Button>
+            {lastSyncedAt && (
+              <p className="text-[10px] text-center text-muted-foreground">
+                {formatRelativeTime(lastSyncedAt)}
+              </p>
+            )}
+          </div>
 
           {(shopifySessions as any[]).length > 0 && (
             <Card className="border-green-200 dark:border-green-800 bg-green-50/50 dark:bg-green-900/10">
@@ -326,9 +358,6 @@ export default function CashManagement() {
                     </div>
                   ))}
                 </div>
-                <p className="text-[10px] text-muted-foreground mt-2">
-                  Last synced: {new Date((shopifySessions as any[])[0]?.syncedAt).toLocaleTimeString()}
-                </p>
               </CardContent>
             </Card>
           )}
