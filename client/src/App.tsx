@@ -137,6 +137,7 @@ const MeetingDetail = lazy(() => import("@/pages/MeetingDetail"));
 const AIContentStudio = lazy(() => import("@/pages/AIContentStudio"));
 const AIQuestionsPage = lazy(() => import("@/pages/AIQuestionsPage"));
 const StoreQA = lazy(() => import("@/pages/StoreQA"));
+const KnowledgeBase = lazy(() => import("@/pages/KnowledgeBase"));
 
 function PageLoader() {
   return (
@@ -286,6 +287,7 @@ function AuthenticatedApp() {
           <ProtectedRoute><Performance /></ProtectedRoute>
         </Route>
         <Route path="/learning" component={Learning} />
+        <Route path="/knowledge-base" component={KnowledgeBase} />
         <Route path="/ai-learning-center">
           <ProtectedRoute permission="hr.edit_team"><AIContentStudio /></ProtectedRoute>
         </Route>

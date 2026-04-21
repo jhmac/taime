@@ -5,7 +5,11 @@ import {
   insertSopCategorySchema,
   insertSopDocumentSchema,
   insertTrainingModuleSchema,
+  sopDocuments,
+  sopCategories,
 } from "@shared/schema";
+import { db } from "../db";
+import { eq, and, or, ilike, desc } from "drizzle-orm";
 import { tryResolveStoreIdForUser } from "../lib/storeResolver";
 
 async function requireAdmin(storage: IStorage, userId: string): Promise<boolean> {
@@ -267,6 +271,74 @@ export function registerSopRoutes(app: Express, storage: IStorage, isAuthenticat
       res.json(progress);
     } catch (error: any) {
       res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.get('/api/knowledge-base', isAuthenticated, async (req: any, res) => {
+    try {
+      const storeId = await tryResolveStoreIdForUser(req.user.id);
+      const q = req.query.q as string | undefined;
+
+      const [kbCat] = await db
+        .select({ id: sopCategories.id })
+        .from(sopCategories)
+        .where(
+          and(
+            storeId ? eq(sopCategories.storeId, storeId) : undefined,
+            eq(sopCategories.name, "Knowledge Base")
+          )
+        )
+        .limit(1);
+
+      if (!kbCat) {
+        return res.json({ success: true, data: [] });
+      }
+
+      const conditions = [
+        eq(sopDocuments.categoryId, kbCat.id),
+        eq(sopDocuments.isPublished, true),
+      ];
+
+      if (q && q.trim()) {
+        const search = `%${q.trim()}%`;
+        conditions.push(or(ilike(sopDocuments.title, search), ilike(sopDocuments.summary, search), ilike(sopDocuments.content, search)) as any);
+      }
+
+      const articles = await db
+        .select({
+          id: sopDocuments.id,
+          title: sopDocuments.title,
+          summary: sopDocuments.summary,
+          content: sopDocuments.content,
+          tags: sopDocuments.tags,
+          source: sopDocuments.source,
+          updatedAt: sopDocuments.updatedAt,
+          createdAt: sopDocuments.createdAt,
+        })
+        .from(sopDocuments)
+        .where(and(...conditions))
+        .orderBy(desc(sopDocuments.updatedAt))
+        .limit(100);
+
+      res.json({ success: true, data: articles });
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  });
+
+  app.get('/api/knowledge-base/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const [article] = await db
+        .select()
+        .from(sopDocuments)
+        .where(and(eq(sopDocuments.id, id), eq(sopDocuments.isPublished, true)))
+        .limit(1);
+
+      if (!article) return res.status(404).json({ success: false, message: "Article not found" });
+      res.json({ success: true, data: article });
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error.message });
     }
   });
 }

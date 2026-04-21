@@ -358,6 +358,32 @@ export function registerAiStudioRoutes(
       processKnowledgeDocument(doc.id, extracted.rawText, file.originalname, {
         imageBase64: extracted.imageBase64,
         imageMimeType: extracted.imageMimeType,
+      }).then(async () => {
+        try {
+          const [autoJob] = await db
+            .insert(generationJobs)
+            .values({
+              storeId,
+              status: "pending",
+              selectedDocumentIds: [doc.id],
+              outputTypes: ["knowledge_base"],
+              targetRoles: ["New Associate", "Lead", "Manager"],
+              selectedCategories: [],
+              progressLog: ["Auto-generating knowledge base article from uploaded document..."],
+              createdBy: req.user.id,
+            })
+            .returning();
+          setImmediate(() => {
+            runAiStudioGenerationJob(autoJob.id, storeId, req.user.id).catch((err: Error) => {
+              logger.error({ err: err.message, jobId: autoJob.id }, "Auto KB generation job crashed");
+            });
+          });
+        } catch (autoErr: unknown) {
+          logger.warn(
+            { docId: doc.id, err: autoErr instanceof Error ? autoErr.message : String(autoErr) },
+            "Failed to auto-enqueue KB generation after upload"
+          );
+        }
       }).catch((err: Error) => {
         logger.error({ docId: doc.id, error: err.message }, "ai-studio: async pipeline failed");
       });

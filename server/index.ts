@@ -10,7 +10,9 @@ import { config } from "./lib/config";
 import logger from "./lib/logger";
 import { globalErrorHandler } from "./lib/routeWrapper";
 import { startRitualScheduler } from "./services/ritualScheduler";
+import { startDailyQuestionnaireScheduler } from "./services/dailyQuestionnaireScheduler";
 import { startShopifyReportScheduler } from "./routes/shopify";
+import { storage } from "./storage";
 import { backfillLegacyUserRoles, backfillInactiveAuthenticatedUsers, backfillStoreCreatorOwnerRole } from "./lib/backfill";
 import { runSchemaMigrations, scheduleStaleTokenCleanup, scheduleDeliveryLogCleanup } from "./lib/migrations";
 import { runStartupAiContentBackfill } from "./services/sopIndexer";
@@ -192,6 +194,7 @@ app.use((req, res, next) => {
     // Stagger background job startup so they don't all hit the DB and AI APIs
     // simultaneously when the server is also handling the first user requests.
     startRitualScheduler();
+    startDailyQuestionnaireScheduler(storage);
     // Run migrations first so default roles are seeded, then run backfills that depend on them
     let stopShopifyReportScheduler: (() => void) | null = null;
     runSchemaMigrations().then(() => {

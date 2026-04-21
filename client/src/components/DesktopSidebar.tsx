@@ -23,6 +23,7 @@ const generalNavItems = [
   { path: '/huddle', icon: 'fas fa-mug-hot', label: 'Morning Huddle' },
   { path: '/whisper', icon: 'fas fa-coffee', label: 'Morning Whisper' },
   { path: '/learning', icon: 'fas fa-graduation-cap', label: 'Learning' },
+  { path: '/knowledge-base', icon: 'fas fa-book', label: 'Knowledge Base' },
   { path: '/sops/revisions', icon: 'fas fa-history', label: 'SOP Revisions' },
   { path: '/improvements', icon: 'fas fa-video', label: 'Improvement Feed' },
   { path: '/my-score', icon: 'fas fa-trophy', label: 'My Score' },
