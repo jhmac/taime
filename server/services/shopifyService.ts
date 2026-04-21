@@ -260,6 +260,123 @@ export class ShopifyService {
     };
   }
 
+  async getCashTrackingSessions(date: string): Promise<any[]> {
+    const startOfDay = `${date}T00:00:00Z`;
+    const endOfDay = `${date}T23:59:59Z`;
+
+    const query = `
+      query GetCashTrackingSessions($first: Int!, $query: String, $after: String) {
+        cashTrackingSessions(first: $first, query: $query, after: $after) {
+          nodes {
+            id
+            name
+            status
+            openedAt
+            closedAt
+            register {
+              id
+              name
+            }
+            openingFloat {
+              shopMoney {
+                amount
+                currencyCode
+              }
+            }
+            expectedClosingCash {
+              shopMoney {
+                amount
+              }
+            }
+            reportedClosingCash {
+              shopMoney {
+                amount
+              }
+            }
+            cashSalesCents: cashSales {
+              shopMoney {
+                amount
+              }
+            }
+            cashRefundsCents: cashRefunds {
+              shopMoney {
+                amount
+              }
+            }
+            cashAdjustments {
+              shopMoney {
+                amount
+              }
+            }
+            totalSales {
+              shopMoney {
+                amount
+              }
+            }
+            transactions {
+              nodes {
+                amount {
+                  shopMoney {
+                    amount
+                  }
+                }
+                type
+                note
+                staffMember {
+                  name
+                }
+                occurredAt
+              }
+            }
+            tenderTypeSummaries {
+              nodes {
+                tenderType
+                amount {
+                  shopMoney {
+                    amount
+                  }
+                }
+              }
+            }
+          }
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+        }
+      }
+    `;
+
+    try {
+      const allNodes: any[] = [];
+      let cursor: string | null = null;
+      let hasNextPage = true;
+
+      while (hasNextPage) {
+        const variables: any = {
+          first: 50,
+          query: `opened_at:>=${startOfDay} opened_at:<=${endOfDay}`,
+        };
+        if (cursor) variables.after = cursor;
+
+        const response = await this.makeGraphQLRequest(query, variables);
+        const connection = response.data?.cashTrackingSessions;
+        allNodes.push(...(connection?.nodes || []));
+        hasNextPage = connection?.pageInfo?.hasNextPage ?? false;
+        cursor = connection?.pageInfo?.endCursor ?? null;
+        if (!cursor) break;
+      }
+
+      return allNodes;
+    } catch (error: any) {
+      if (error.message?.includes('cashTrackingSessions') || error.message?.includes('not supported') || error.message?.includes('unauthorized')) {
+        console.warn('[ShopifyService] cashTrackingSessions API not available (requires POS Pro):', error.message);
+        return [];
+      }
+      throw error;
+    }
+  }
+
   async registerWebhook(callbackUrl: string, topic: string = 'orders/create') {
     const graphqlQuery = `
       mutation webhookSubscriptionCreate($topic: WebhookSubscriptionTopic!, $webhookSubscription: WebhookSubscriptionInput!) {

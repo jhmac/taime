@@ -14,6 +14,15 @@ interface CashCountingWizardProps {
   sessionType: "opening" | "closing";
   registerName: string;
   startingCash: number;
+  shopifySnapshot?: {
+    cashSales?: string | null;
+    totalSales?: string | null;
+    tenderBreakdown?: any[];
+    cashMovements?: any[];
+    status?: string | null;
+    openedAt?: string | null;
+    closedAt?: string | null;
+  } | null;
   onComplete: () => void;
   onCancel: () => void;
 }
@@ -45,7 +54,7 @@ type WizardPhase = "setup" | "counting" | "review" | "register-data" | "explanat
 
 const STORAGE_KEY = "cash-wizard-state";
 
-export default function CashCountingWizard({ sessionId, sessionType, registerName, startingCash, onComplete, onCancel }: CashCountingWizardProps) {
+export default function CashCountingWizard({ sessionId, sessionType, registerName, startingCash, shopifySnapshot, onComplete, onCancel }: CashCountingWizardProps) {
   const { toast } = useToast();
 
   const [phase, setPhase] = useState<WizardPhase>("setup");
@@ -56,7 +65,11 @@ export default function CashCountingWizard({ sessionId, sessionType, registerNam
     rolledPennyCount: 0, rolledNickelCount: 0, rolledDimeCount: 0, rolledQuarterCount: 0,
     oneCount: 0, fiveCount: 0, tenCount: 0, twentyCount: 0, fiftyCount: 0, hundredCount: 0,
   });
-  const [registerData, setRegisterData] = useState({ cashSales: "", totalSales: "", shopifyPayments: "" });
+  const [registerData, setRegisterData] = useState({
+    cashSales: shopifySnapshot?.cashSales || "",
+    totalSales: shopifySnapshot?.totalSales || "",
+    shopifyPayments: "",
+  });
   const [explanation, setExplanation] = useState("");
   const [recountSuggestion, setRecountSuggestion] = useState("");
 
@@ -76,6 +89,16 @@ export default function CashCountingWizard({ sessionId, sessionType, registerNam
       } catch {}
     }
   }, []);
+
+  useEffect(() => {
+    if (shopifySnapshot != null) {
+      setRegisterData(prev => ({
+        ...prev,
+        cashSales: shopifySnapshot.cashSales || prev.cashSales,
+        totalSales: shopifySnapshot.totalSales || prev.totalSales,
+      }));
+    }
+  }, [shopifySnapshot]);
 
   useEffect(() => {
     if (phase !== "complete") {
@@ -156,10 +179,16 @@ export default function CashCountingWizard({ sessionId, sessionType, registerNam
 
   const submitRegisterDataMutation = useMutation({
     mutationFn: async () => {
+      const hasSnap = shopifySnapshot != null;
+      const nonCashPayments = hasSnap && shopifySnapshot?.tenderBreakdown
+        ? shopifySnapshot.tenderBreakdown
+            .filter((t: any) => t.tenderType && t.tenderType.toLowerCase() !== "cash")
+            .reduce((sum: number, t: any) => sum + parseFloat(t.amount?.shopMoney?.amount || "0"), 0)
+        : null;
       const res = await apiRequest("PUT", `/api/cash/sessions/${sessionId}/register-data`, {
-        registerCashSales: registerData.cashSales,
-        registerTotalSales: registerData.totalSales,
-        registerShopifyPayments: registerData.shopifyPayments,
+        registerCashSales: hasSnap ? shopifySnapshot!.cashSales : null,
+        registerTotalSales: hasSnap ? shopifySnapshot!.totalSales : null,
+        registerShopifyPayments: hasSnap && nonCashPayments !== null ? nonCashPayments.toFixed(2) : null,
       });
       return res.json();
     },
@@ -194,8 +223,10 @@ export default function CashCountingWizard({ sessionId, sessionType, registerNam
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/cash/sessions"] });
-      if (sessionType === "closing" && !registerData.cashSales) {
+      if (sessionType === "closing" && shopifySnapshot == null) {
         setPhase("register-data");
+      } else if (sessionType === "closing" && shopifySnapshot != null) {
+        submitRegisterDataMutation.mutate();
       } else {
         const os = Math.abs(parseFloat(data.session?.overShortAmount || "0"));
         if (os >= 5) setPhase("explanation");
@@ -585,6 +616,7 @@ export default function CashCountingWizard({ sessionId, sessionType, registerNam
     const cashToDeposit = total - startingCash;
     const cashSalesNum = parseFloat(registerData.cashSales || "0");
     const diff = cashSalesNum > 0 ? Math.round((cashToDeposit - cashSalesNum) * 100) / 100 : 0;
+    const hasShopifyData = shopifySnapshot != null;
 
     return (
       <div className="flex flex-col h-full">
@@ -596,55 +628,54 @@ export default function CashCountingWizard({ sessionId, sessionType, registerNam
           </div>
         </div>
         <div className="flex-1 overflow-auto p-4 space-y-4">
-          <p className="text-muted-foreground text-sm">
-            Enter the numbers from your Shopify register printout:
-          </p>
+          {hasShopifyData ? (
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+              <i className="fab fa-shopify text-green-600 text-lg" />
+              <div>
+                <p className="text-sm font-medium text-green-800 dark:text-green-300">Pulled from Shopify POS</p>
+                <p className="text-xs text-green-700 dark:text-green-400">These figures are verified — no manual entry needed.</p>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+              <i className="fab fa-shopify text-amber-600 text-lg" />
+              <div>
+                <p className="text-sm font-medium text-amber-800 dark:text-amber-300">Shopify data not yet synced</p>
+                <p className="text-xs text-amber-700 dark:text-amber-400">Use "Sync from Shopify" on the Cash page to pull register figures before completing the count.</p>
+              </div>
+            </div>
+          )}
           <div className="space-y-4">
             <div>
-              <label className="text-sm font-medium block mb-1">Cash Sales</label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                <Input
-                  type="number"
-                  inputMode="decimal"
-                  step="0.01"
-                  className="pl-7 h-14 text-xl"
-                  value={registerData.cashSales}
-                  onChange={(e) => setRegisterData(prev => ({ ...prev, cashSales: e.target.value }))}
-                  placeholder="0.00"
-                />
+              <label className="text-sm font-medium block mb-1 flex items-center gap-1">
+                Cash Sales
+                {hasShopifyData && <i className="fab fa-shopify text-green-500 text-xs" />}
+              </label>
+              <div className={cn("h-14 flex items-center px-4 rounded-md border text-xl font-semibold", hasShopifyData ? "bg-muted/40" : "bg-muted/20 text-muted-foreground")}>
+                {hasShopifyData ? `$${parseFloat(registerData.cashSales || "0").toFixed(2)}` : "—"}
               </div>
             </div>
             <div>
-              <label className="text-sm font-medium block mb-1">Total Sales (optional)</label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                <Input
-                  type="number"
-                  inputMode="decimal"
-                  step="0.01"
-                  className="pl-7 h-12"
-                  value={registerData.totalSales}
-                  onChange={(e) => setRegisterData(prev => ({ ...prev, totalSales: e.target.value }))}
-                  placeholder="0.00"
-                />
+              <label className="text-sm font-medium block mb-1 flex items-center gap-1">
+                Total Sales
+                {hasShopifyData ? <i className="fab fa-shopify text-green-500 text-xs" /> : null}
+              </label>
+              <div className={cn("h-12 flex items-center px-4 rounded-md border font-medium", hasShopifyData ? "bg-muted/40" : "bg-muted/20 text-muted-foreground")}>
+                {hasShopifyData ? `$${parseFloat(registerData.totalSales || "0").toFixed(2)}` : "—"}
               </div>
             </div>
-            <div>
-              <label className="text-sm font-medium block mb-1">Shopify Payments (optional)</label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                <Input
-                  type="number"
-                  inputMode="decimal"
-                  step="0.01"
-                  className="pl-7 h-12"
-                  value={registerData.shopifyPayments}
-                  onChange={(e) => setRegisterData(prev => ({ ...prev, shopifyPayments: e.target.value }))}
-                  placeholder="0.00"
-                />
+
+            {hasShopifyData && shopifySnapshot?.tenderBreakdown && shopifySnapshot.tenderBreakdown.length > 0 && (
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground uppercase">Payment Breakdown</p>
+                {shopifySnapshot.tenderBreakdown.map((t: any, i: number) => (
+                  <div key={i} className="flex justify-between text-sm">
+                    <span className="capitalize">{t.tenderType?.toLowerCase().replace(/_/g, " ")}</span>
+                    <span className="font-medium">${parseFloat(t.amount?.shopMoney?.amount || "0").toFixed(2)}</span>
+                  </div>
+                ))}
               </div>
-            </div>
+            )}
           </div>
 
           {cashSalesNum > 0 && (

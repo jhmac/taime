@@ -1897,6 +1897,7 @@ export const cashDeposits = pgTable("cash_deposits", {
   depositedAt: timestamp("deposited_at", { withTimezone: true }),
   expectedAmount: decimal("expected_amount", { precision: 10, scale: 2 }),
   actualAmount: decimal("actual_amount", { precision: 10, scale: 2 }),
+  drawerSessionId: varchar("drawer_session_id"),
   depositSlipPhoto: text("deposit_slip_photo"),
   registerSummaryPhoto: text("register_summary_photo"),
   drawerSummaryPhoto: text("drawer_summary_photo"),
@@ -1963,6 +1964,37 @@ export const cashDiscrepancyLog = pgTable("cash_discrepancy_log", {
 export const insertCashDiscrepancyLogSchema = createInsertSchema(cashDiscrepancyLog).omit({ id: true, createdAt: true });
 export type CashDiscrepancyLog = typeof cashDiscrepancyLog.$inferSelect;
 export type InsertCashDiscrepancyLog = z.infer<typeof insertCashDiscrepancyLogSchema>;
+
+// Cash Management - Shopify Register Sessions (snapshot from Shopify POS cashTrackingSessions API)
+export const shopifyRegisterSessions = pgTable("shopify_register_sessions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: text("store_id").notNull(),
+  sessionDate: text("session_date").notNull(),
+  registerName: text("register_name").notNull(),
+  shopifySessionId: text("shopify_session_id").notNull(),
+  status: text("status"),
+  openedAt: timestamp("opened_at", { withTimezone: true }),
+  closedAt: timestamp("closed_at", { withTimezone: true }),
+  openingFloat: decimal("opening_float", { precision: 10, scale: 2 }),
+  expectedClosingCash: decimal("expected_closing_cash", { precision: 10, scale: 2 }),
+  reportedClosingCash: decimal("reported_closing_cash", { precision: 10, scale: 2 }),
+  cashSales: decimal("cash_sales", { precision: 10, scale: 2 }),
+  cashRefunds: decimal("cash_refunds", { precision: 10, scale: 2 }),
+  cashAdjustments: decimal("cash_adjustments", { precision: 10, scale: 2 }),
+  totalSales: decimal("total_sales", { precision: 10, scale: 2 }),
+  tenderBreakdown: jsonb("tender_breakdown"),
+  cashMovements: jsonb("cash_movements"),
+  rawPayload: jsonb("raw_payload"),
+  syncedAt: timestamp("synced_at", { withTimezone: true }).defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  index("idx_shopify_register_sessions_store_date").on(table.storeId, table.sessionDate),
+  uniqueIndex("idx_shopify_register_sessions_shopify_id").on(table.shopifySessionId),
+]);
+
+export const insertShopifyRegisterSessionSchema = createInsertSchema(shopifyRegisterSessions).omit({ id: true, createdAt: true });
+export type ShopifyRegisterSession = typeof shopifyRegisterSessions.$inferSelect;
+export type InsertShopifyRegisterSession = z.infer<typeof insertShopifyRegisterSessionSchema>;
 
 export const scoreHistory = pgTable("score_history", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

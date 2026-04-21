@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 
 interface DepositFlowProps {
   sessions: any[];
+  sessionId?: string | null;
   onComplete: () => void;
   onCancel: () => void;
 }
@@ -51,7 +52,7 @@ function compressImage(file: File, maxSizeKB: number = 512): Promise<string> {
   });
 }
 
-export default function DepositFlow({ sessions, onComplete, onCancel }: DepositFlowProps) {
+export default function DepositFlow({ sessions, sessionId, onComplete, onCancel }: DepositFlowProps) {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -61,7 +62,8 @@ export default function DepositFlow({ sessions, onComplete, onCancel }: DepositF
   const [actualAmount, setActualAmount] = useState("");
   const [depositId, setDepositId] = useState<string | null>(null);
 
-  const expectedAmount = sessions.reduce((sum: number, s: any) => {
+  const relevantSessions = sessionId ? sessions.filter((s: any) => s.id === sessionId) : sessions;
+  const expectedAmount = relevantSessions.reduce((sum: number, s: any) => {
     const counted = parseFloat(s.totalCashCounted || "0");
     const starting = parseFloat(s.startingCash || "200");
     return sum + Math.max(0, counted - starting);
@@ -87,6 +89,7 @@ export default function DepositFlow({ sessions, onComplete, onCancel }: DepositF
         const createRes = await apiRequest("POST", "/api/cash/deposits", {
           expectedAmount: expectedAmount.toFixed(2),
           depositSlipPhoto: photo,
+          ...(sessionId ? { drawerSessionId: sessionId } : {}),
         });
         const deposit = await createRes.json();
         id = deposit.id;
@@ -296,6 +299,7 @@ export default function DepositFlow({ sessions, onComplete, onCancel }: DepositF
               apiRequest("POST", "/api/cash/deposits", {
                 expectedAmount: expectedAmount.toFixed(2),
                 actualAmount: actualAmount,
+                ...(sessionId ? { drawerSessionId: sessionId } : {}),
               }).then(r => r.json()).then(dep => {
                 setDepositId(dep.id);
                 queryClient.invalidateQueries({ queryKey: ["/api/cash/deposits"] });

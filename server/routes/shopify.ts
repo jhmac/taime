@@ -397,7 +397,7 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
       const baseUrl = getAppUrl(req);
       const redirectUri = `${baseUrl}/api/shopify/auth/callback`;
       console.log(`[Shopify OAuth] Initiating for shop=${shopDomain} redirectUri=${redirectUri}`);
-      const scopes = 'read_orders,read_products';
+      const scopes = 'read_orders,read_products,read_cash_tracking';
 
       const authUrl = `https://${shopDomain}/admin/oauth/authorize?` +
         `client_id=${apiKey}` +

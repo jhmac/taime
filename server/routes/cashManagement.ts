@@ -4,6 +4,7 @@ import { eq, and, desc, gte, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   drawerSessions, cashDeposits, cashDiscrepancyLog, cashManagementSettings,
+  shopifyRegisterSessions, shops, users,
   insertDrawerSessionSchema, insertCashDepositSchema,
 } from "@shared/schema";
 import type { IStorage } from "../storage";
@@ -16,6 +17,8 @@ import {
 import { timeEntries } from "@shared/schema";
 import { isNull } from "drizzle-orm";
 import logger from "../lib/logger";
+import { ShopifyService } from "../services/shopifyService";
+import { decryptToken } from "../utils/tokenEncryption";
 
 async function requireManagerOrAbove(storage: IStorage, userId: string): Promise<boolean> {
   const user = await storage.getUserWithRole(userId);
@@ -237,6 +240,50 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
         employeesOnDuty,
       }).returning();
 
+      // Auto-populate Shopify figures if a snapshot already exists for this register/date
+      if (sessionType === "closing") {
+        try {
+          const [snap] = await db.select({
+            cashSales: shopifyRegisterSessions.cashSales,
+            totalSales: shopifyRegisterSessions.totalSales,
+            tenderBreakdown: shopifyRegisterSessions.tenderBreakdown,
+          })
+            .from(shopifyRegisterSessions)
+            .where(and(
+              eq(shopifyRegisterSessions.storeId, storeId),
+              eq(shopifyRegisterSessions.sessionDate, today),
+              eq(shopifyRegisterSessions.registerName, registerName),
+            ))
+            .limit(1);
+
+          if (snap != null) {
+            const breakdown = snap.tenderBreakdown as any[] | null;
+            const nonCash = Array.isArray(breakdown)
+              ? breakdown
+                  .filter((t: any) => t.tenderType && t.tenderType.toLowerCase() !== "cash")
+                  .reduce((sum: number, t: any) => sum + parseFloat(t.amount?.shopMoney?.amount || "0"), 0)
+              : 0;
+            const cashSalesVal = parseFloat(snap.cashSales ?? "0");
+            const startingCashVal = parseFloat(startingCash?.toString() || "200");
+            const expectedCash = startingCashVal + cashSalesVal;
+            await db.update(drawerSessions).set({
+              registerCashSales: snap.cashSales ?? "0",
+              registerTotalSales: snap.totalSales ?? "0",
+              registerShopifyPayments: nonCash.toFixed(2),
+              expectedCash: expectedCash.toString(),
+            }).where(eq(drawerSessions.id, session.id));
+            Object.assign(session, {
+              registerCashSales: snap.cashSales ?? "0",
+              registerTotalSales: snap.totalSales ?? "0",
+              registerShopifyPayments: nonCash.toFixed(2),
+              expectedCash: expectedCash.toString(),
+            });
+          }
+        } catch (snapErr: any) {
+          logger.warn({ error: snapErr.message }, "[Cash] Shopify snapshot auto-populate failed (non-fatal)");
+        }
+      }
+
       res.json(session);
     } catch (err: any) {
       logger.error({ error: err.message }, "[Cash] Failed to create session");
@@ -330,21 +377,54 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
       const userId = req.user?.id || req.auth?.userId;
       const { clockedIn, atStore } = await checkClockedIn(userId);
       if (!clockedIn || !atStore) return res.status(403).json({ error: "You must be clocked in at the store to submit register data" });
-      const { registerCashSales, registerTotalSales, registerShopifyPayments } = req.body;
       const storeId = await getStoreId();
       const session = await verifySessionAccess(req.params.id, storeId);
       if (!session) return res.status(404).json({ error: "Session not found" });
 
+      const [shopifySnap] = await db.select({
+          cashSales: shopifyRegisterSessions.cashSales,
+          totalSales: shopifyRegisterSessions.totalSales,
+          tenderBreakdown: shopifyRegisterSessions.tenderBreakdown,
+        })
+        .from(shopifyRegisterSessions)
+        .where(and(
+          eq(shopifyRegisterSessions.storeId, storeId),
+          eq(shopifyRegisterSessions.sessionDate, session.sessionDate),
+          eq(shopifyRegisterSessions.registerName, session.registerName),
+        ))
+        .limit(1);
+
+      let effectiveCashSales: string | null;
+      let effectiveTotalSales: string | null;
+      let effectiveShopifyPayments: string | null;
+
+      if (shopifySnap != null) {
+        effectiveCashSales = shopifySnap.cashSales ?? "0";
+        effectiveTotalSales = shopifySnap.totalSales ?? "0";
+        const breakdown = shopifySnap.tenderBreakdown as any[] | null;
+        const nonCash = Array.isArray(breakdown)
+          ? breakdown
+              .filter((t: any) => t.tenderType && t.tenderType.toLowerCase() !== "cash")
+              .reduce((sum: number, t: any) => sum + parseFloat(t.amount?.shopMoney?.amount || "0"), 0)
+          : null;
+        effectiveShopifyPayments = nonCash !== null ? nonCash.toFixed(2) : (session.registerShopifyPayments ?? null);
+      } else {
+        // No Shopify snapshot — preserve any previously synced values; never accept manual overrides for Shopify-sourced fields
+        effectiveCashSales = session.registerCashSales ?? null;
+        effectiveTotalSales = session.registerTotalSales ?? null;
+        effectiveShopifyPayments = session.registerShopifyPayments ?? null;
+      }
+
       const startingCash = parseFloat(session.startingCash || "200");
       const totalCounted = parseFloat(session.totalCashCounted || "0");
-      const cashSales = parseFloat(registerCashSales || "0");
+      const cashSales = parseFloat(effectiveCashSales || "0");
       const expectedCash = startingCash + cashSales;
       const overShort = totalCounted - expectedCash;
 
       const [updated] = await db.update(drawerSessions).set({
-        registerCashSales: registerCashSales?.toString(),
-        registerTotalSales: registerTotalSales?.toString(),
-        registerShopifyPayments: registerShopifyPayments?.toString(),
+        registerCashSales: effectiveCashSales?.toString() || null,
+        registerTotalSales: effectiveTotalSales?.toString() || null,
+        registerShopifyPayments: effectiveShopifyPayments?.toString() || null,
         expectedCash: expectedCash.toString(),
         overShortAmount: overShort.toFixed(2),
       }).where(eq(drawerSessions.id, req.params.id)).returning();
@@ -453,7 +533,7 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
       const { clockedIn, atStore } = await checkClockedIn(userId);
       if (!clockedIn || !atStore) return res.status(403).json({ error: "You must be clocked in at the store to create a deposit" });
       const storeId = await getStoreId();
-      const { expectedAmount, actualAmount, depositSlipPhoto, registerSummaryPhoto, drawerSummaryPhoto } = req.body;
+      const { expectedAmount, actualAmount, depositSlipPhoto, registerSummaryPhoto, drawerSummaryPhoto, drawerSessionId } = req.body;
       const today = new Date().toISOString().split("T")[0];
 
       const discrepancy = actualAmount && expectedAmount ? (parseFloat(actualAmount) - parseFloat(expectedAmount)) : null;
@@ -465,6 +545,7 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
         depositedAt: new Date(),
         expectedAmount: expectedAmount?.toString(),
         actualAmount: actualAmount?.toString(),
+        drawerSessionId: drawerSessionId || null,
         depositSlipPhoto,
         registerSummaryPhoto,
         drawerSummaryPhoto,
@@ -632,6 +713,178 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
       res.json({ suggestion });
     } catch (err: any) {
       res.status(500).json({ error: "Failed to generate suggestion" });
+    }
+  });
+
+  // ===== Shopify Sync =====
+  app.post("/api/cash/sync-shopify", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!(await requireCashAccess(req, res))) return;
+      const storeId = await getStoreId();
+      const userId = req.user?.id || req.auth?.userId;
+      const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
+
+      const today = new Date().toISOString().split("T")[0];
+      const isPastDate = date < today;
+
+      if (isPastDate) {
+        const stored = await db.select().from(shopifyRegisterSessions)
+          .where(and(eq(shopifyRegisterSessions.storeId, storeId), eq(shopifyRegisterSessions.sessionDate, date)));
+        return res.json({ synced: 0, sessions: stored, message: "Past dates use stored Shopify data only." });
+      }
+
+      const [userRow] = await db.select({ companyId: users.companyId })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+      const userCompanyId = userRow?.companyId;
+
+      if (!userCompanyId) {
+        return res.status(400).json({ error: "No connected Shopify store found. Connect Shopify first.", noShopify: true });
+      }
+
+      const [shop] = await db.select().from(shops)
+        .where(and(eq(shops.isActive, true), eq(shops.companyId, userCompanyId)))
+        .limit(1);
+
+      if (!shop || !shop.accessToken) {
+        return res.status(400).json({ error: "No connected Shopify store found. Connect Shopify first.", noShopify: true });
+      }
+
+      let accessToken = shop.accessToken;
+      try { accessToken = decryptToken(accessToken); } catch {}
+
+      const shopifyService = new ShopifyService(shop.shopDomain, accessToken);
+      const sessions = await shopifyService.getCashTrackingSessions(date);
+
+      if (sessions.length === 0) {
+        const stored = await db.select().from(shopifyRegisterSessions)
+          .where(and(eq(shopifyRegisterSessions.storeId, storeId), eq(shopifyRegisterSessions.sessionDate, date)));
+        return res.json({ synced: 0, sessions: stored, message: "No Shopify POS sessions found for this date (or POS Pro not enabled)." });
+      }
+
+      const upserted = [];
+      for (const s of sessions) {
+        const registerName = s.register?.name || s.name || "Register";
+        const shopifySessionId = s.id;
+        const cashSales = s.cashSalesCents?.shopMoney?.amount || s.cashSales?.shopMoney?.amount || null;
+        const cashRefunds = s.cashRefundsCents?.shopMoney?.amount || s.cashRefunds?.shopMoney?.amount || null;
+        const cashAdjustments = s.cashAdjustments?.shopMoney?.amount || null;
+        const totalSales = s.totalSales?.shopMoney?.amount || null;
+        const openingFloat = s.openingFloat?.shopMoney?.amount || null;
+        const expectedClosingCash = s.expectedClosingCash?.shopMoney?.amount || null;
+        const reportedClosingCash = s.reportedClosingCash?.shopMoney?.amount || null;
+        const tenderBreakdown = s.tenderTypeSummaries?.nodes || [];
+        const cashMovements = s.transactions?.nodes || [];
+
+        const nonCashTenders = (tenderBreakdown as any[]).filter((t: any) =>
+          t.tenderType && t.tenderType.toLowerCase() !== "cash"
+        );
+        const shopifyPayments = nonCashTenders.reduce((sum: number, t: any) => {
+          const amount = t.amount?.shopMoney?.amount || "0";
+          return sum + parseFloat(amount);
+        }, 0);
+
+        const existing = await db.select({ id: shopifyRegisterSessions.id })
+          .from(shopifyRegisterSessions)
+          .where(eq(shopifyRegisterSessions.shopifySessionId, shopifySessionId))
+          .limit(1);
+
+        const record: any = {
+          storeId,
+          sessionDate: date,
+          registerName,
+          shopifySessionId,
+          status: s.status,
+          openedAt: s.openedAt ? new Date(s.openedAt) : null,
+          closedAt: s.closedAt ? new Date(s.closedAt) : null,
+          openingFloat: openingFloat ? parseFloat(openingFloat).toFixed(2) : null,
+          expectedClosingCash: expectedClosingCash ? parseFloat(expectedClosingCash).toFixed(2) : null,
+          reportedClosingCash: reportedClosingCash ? parseFloat(reportedClosingCash).toFixed(2) : null,
+          cashSales: cashSales ? parseFloat(cashSales).toFixed(2) : null,
+          cashRefunds: cashRefunds ? parseFloat(cashRefunds).toFixed(2) : null,
+          cashAdjustments: cashAdjustments ? parseFloat(cashAdjustments).toFixed(2) : null,
+          totalSales: totalSales ? parseFloat(totalSales).toFixed(2) : null,
+          tenderBreakdown,
+          cashMovements,
+          rawPayload: s,
+          syncedAt: new Date(),
+        };
+
+        if (existing.length > 0) {
+          const [updated] = await db.update(shopifyRegisterSessions)
+            .set(record)
+            .where(eq(shopifyRegisterSessions.id, existing[0].id))
+            .returning();
+          upserted.push(updated);
+        } else {
+          const [created] = await db.insert(shopifyRegisterSessions).values(record).returning();
+          upserted.push(created);
+        }
+
+        const matchingClosing = await db.select().from(drawerSessions)
+          .where(and(
+            eq(drawerSessions.storeId, storeId),
+            eq(drawerSessions.sessionDate, date),
+            eq(drawerSessions.sessionType, "closing"),
+            eq(drawerSessions.registerName, registerName),
+          ))
+          .limit(1);
+
+        if (matchingClosing.length > 0) {
+          const sess = matchingClosing[0];
+          const startingCash = parseFloat(sess.startingCash || "200");
+          const totalCounted = parseFloat(sess.totalCashCounted || "0");
+          const cashSalesVal = cashSales ? parseFloat(cashSales) : 0;
+          const expectedCash = startingCash + cashSalesVal;
+          const overShort = totalCounted > 0 ? totalCounted - expectedCash : parseFloat(sess.overShortAmount || "0");
+
+          await db.update(drawerSessions).set({
+            registerCashSales: cashSales ? cashSalesVal.toFixed(2) : sess.registerCashSales,
+            registerTotalSales: totalSales ? parseFloat(totalSales).toFixed(2) : sess.registerTotalSales,
+            registerShopifyPayments: shopifyPayments > 0 ? shopifyPayments.toFixed(2) : sess.registerShopifyPayments,
+            expectedCash: cashSales ? expectedCash.toFixed(2) : sess.expectedCash,
+            overShortAmount: (cashSales && totalCounted > 0) ? overShort.toFixed(2) : sess.overShortAmount,
+          }).where(eq(drawerSessions.id, sess.id));
+        }
+      }
+
+      res.json({ synced: upserted.length, sessions: upserted });
+    } catch (err: any) {
+      logger.error({ error: err.message }, "[Cash] Shopify sync failed");
+      res.status(500).json({ error: "Failed to sync from Shopify", detail: err.message });
+    }
+  });
+
+  app.get("/api/cash/shopify-sessions", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!(await requireCashAccess(req, res))) return;
+      const storeId = await getStoreId();
+      const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
+      const sessions = await db.select().from(shopifyRegisterSessions)
+        .where(and(eq(shopifyRegisterSessions.storeId, storeId), eq(shopifyRegisterSessions.sessionDate, date)));
+      res.json(sessions);
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to get Shopify sessions" });
+    }
+  });
+
+  // ===== Session Notes =====
+  app.patch("/api/cash/sessions/:id/notes", isAuthenticated, async (req: any, res) => {
+    try {
+      if (!(await requireCashAccess(req, res))) return;
+      const storeId = await getStoreId();
+      const session = await verifySessionAccess(req.params.id, storeId);
+      if (!session) return res.status(404).json({ error: "Session not found" });
+      const { notes } = req.body;
+      if (typeof notes !== "string") return res.status(400).json({ error: "notes must be a string" });
+      const [updated] = await db.update(drawerSessions)
+        .set({ notes })
+        .where(eq(drawerSessions.id, req.params.id))
+        .returning();
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to update notes" });
     }
   });
 }

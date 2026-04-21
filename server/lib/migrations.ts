@@ -289,6 +289,15 @@ export async function runSchemaMigrations(): Promise<void> {
       table: "users",
       sql: `ALTER TABLE users ADD COLUMN IF NOT EXISTS location_id varchar REFERENCES work_locations(id) ON DELETE SET NULL`,
     },
+    // Task #256 — Shopify POS register data pull
+    {
+      table: "drawer_sessions",
+      sql: `ALTER TABLE drawer_sessions ADD COLUMN IF NOT EXISTS notes text`,
+    },
+    {
+      table: "cash_deposits",
+      sql: `ALTER TABLE cash_deposits ADD COLUMN IF NOT EXISTS drawer_session_id varchar`,
+    },
   ];
 
   let altered = 0;
@@ -820,6 +829,36 @@ export async function runSchemaMigrations(): Promise<void> {
       )`,
       indexes: [
         `CREATE INDEX IF NOT EXISTS "idx_notif_delivery_logs_sent_at" ON notification_delivery_logs (sent_at)`,
+      ],
+    },
+    // Task #256 — Shopify POS register data
+    {
+      name: "shopify_register_sessions",
+      ddl: `CREATE TABLE IF NOT EXISTS shopify_register_sessions (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        store_id text NOT NULL,
+        session_date text NOT NULL,
+        register_name text NOT NULL,
+        shopify_session_id text NOT NULL,
+        status text,
+        opened_at timestamptz,
+        closed_at timestamptz,
+        opening_float decimal(10,2),
+        expected_closing_cash decimal(10,2),
+        reported_closing_cash decimal(10,2),
+        cash_sales decimal(10,2),
+        cash_refunds decimal(10,2),
+        cash_adjustments decimal(10,2),
+        total_sales decimal(10,2),
+        tender_breakdown jsonb,
+        cash_movements jsonb,
+        raw_payload jsonb,
+        synced_at timestamptz DEFAULT now(),
+        created_at timestamptz DEFAULT now()
+      )`,
+      indexes: [
+        `CREATE INDEX IF NOT EXISTS "idx_shopify_register_sessions_store_date" ON shopify_register_sessions (store_id, session_date)`,
+        `CREATE UNIQUE INDEX IF NOT EXISTS "idx_shopify_register_sessions_shopify_id" ON shopify_register_sessions (shopify_session_id)`,
       ],
     },
   ];

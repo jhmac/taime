@@ -27,6 +27,9 @@ export default function CashManagement() {
   const [viewMode, setViewMode] = useState<ViewMode>("main");
   const [activeSession, setActiveSession] = useState<{ id: string; type: "opening" | "closing"; registerName: string; startingCash: number } | null>(null);
   const [ownerTab, setOwnerTab] = useState("daily");
+  const [expandedDepositSlip, setExpandedDepositSlip] = useState<string | null>(null);
+  const [activeDepositSessionId, setActiveDepositSessionId] = useState<string | null>(null);
+  const [notesDraft, setNotesDraft] = useState<Record<string, string>>({});
 
   const { data: accessCheck, isLoading: accessLoading } = useQuery<{
     allowed: boolean;
@@ -47,6 +50,10 @@ export default function CashManagement() {
   }});
   const { data: deposits = [], isLoading: depositsLoading } = useQuery({ queryKey: ["/api/cash/deposits", selectedDate], enabled: accessCheck?.allowed, queryFn: async () => {
     const res = await apiRequest("GET", `/api/cash/deposits?date=${selectedDate}`);
+    return res.json();
+  }});
+  const { data: shopifySessions = [] } = useQuery({ queryKey: ["/api/cash/shopify-sessions", selectedDate], enabled: accessCheck?.allowed, queryFn: async () => {
+    const res = await apiRequest("GET", `/api/cash/shopify-sessions?date=${selectedDate}`);
     return res.json();
   }});
 
@@ -76,6 +83,37 @@ export default function CashManagement() {
       queryClient.invalidateQueries({ queryKey: ["/api/cash/sessions"] });
       toast({ title: "Verified", description: "Session verified successfully." });
     },
+  });
+
+  const syncShopifyMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/cash/sync-shopify?date=${selectedDate}`);
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/cash/shopify-sessions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/cash/sessions"] });
+      if (data.noShopify) {
+        toast({ title: "No Shopify Store", description: "Connect a Shopify store first.", variant: "destructive" });
+      } else if (data.synced === 0) {
+        toast({ title: "Sync Complete", description: data.message || "No new sessions found." });
+      } else {
+        toast({ title: "Synced!", description: `Pulled ${data.synced} register session(s) from Shopify.` });
+      }
+    },
+    onError: (err: any) => toast({ title: "Sync Failed", description: err.message, variant: "destructive" }),
+  });
+
+  const notesMutation = useMutation({
+    mutationFn: async ({ id, notes }: { id: string; notes: string }) => {
+      const res = await apiRequest("PATCH", `/api/cash/sessions/${id}/notes`, { notes });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/cash/sessions"] });
+      toast({ title: "Notes saved" });
+    },
+    onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
   const registers = (settings?.registers as any[]) || [{ name: "Register 1", id: "register-1" }];
@@ -125,6 +163,7 @@ export default function CashManagement() {
   }
 
   if (viewMode === "wizard" && activeSession) {
+    const shopifySnapshot = (shopifySessions as any[]).find((s: any) => s.registerName === activeSession.registerName);
     return (
       <div className="h-[calc(100vh-4rem)]">
         <CashCountingWizard
@@ -132,6 +171,7 @@ export default function CashManagement() {
           sessionType={activeSession.type}
           registerName={activeSession.registerName}
           startingCash={activeSession.startingCash}
+          shopifySnapshot={shopifySnapshot || null}
           onComplete={() => { setViewMode("main"); setActiveSession(null); }}
           onCancel={() => { setViewMode("main"); setActiveSession(null); }}
         />
@@ -144,8 +184,9 @@ export default function CashManagement() {
       <div className="h-[calc(100vh-4rem)]">
         <DepositFlow
           sessions={sessions.filter((s: any) => s.sessionType === "closing" && (s.status === "counted" || s.status === "verified"))}
-          onComplete={() => setViewMode("main")}
-          onCancel={() => setViewMode("main")}
+          sessionId={activeDepositSessionId}
+          onComplete={() => { setViewMode("main"); setActiveDepositSessionId(null); }}
+          onCancel={() => { setViewMode("main"); setActiveDepositSessionId(null); }}
         />
       </div>
     );
@@ -176,12 +217,18 @@ export default function CashManagement() {
   const getRegisterStatus = (regName: string) => {
     const opening = openingSessions.find((s: any) => s.registerName === regName);
     const closing = closingSessions.find((s: any) => s.registerName === regName);
-    return { opening, closing };
+    const shopify = (shopifySessions as any[]).find((s: any) => s.registerName === regName);
+    return { opening, closing, shopify };
   };
 
   const totalOverShort = sessions
     .filter((s: any) => s.overShortAmount)
     .reduce((sum: number, s: any) => sum + parseFloat(s.overShortAmount), 0);
+
+  const depositsForSession = (sessionId: string | undefined) => {
+    if (!sessionId) return [];
+    return (deposits as any[]).filter((d: any) => d.drawerSessionId === sessionId && d.depositSlipPhoto);
+  };
 
   return (
     <div className="p-4 space-y-4 max-w-4xl mx-auto pb-24">
@@ -229,9 +276,46 @@ export default function CashManagement() {
             </CardContent></Card>
           </div>
 
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full gap-2 border-dashed"
+            onClick={() => syncShopifyMutation.mutate()}
+            disabled={syncShopifyMutation.isPending}
+          >
+            {syncShopifyMutation.isPending
+              ? <><i className="fas fa-spinner fa-spin" /> Syncing from Shopify...</>
+              : <><i className="fab fa-shopify text-green-600" /> Sync from Shopify</>}
+          </Button>
+
+          {(shopifySessions as any[]).length > 0 && (
+            <Card className="border-green-200 dark:border-green-800 bg-green-50/50 dark:bg-green-900/10">
+              <CardContent className="p-3">
+                <p className="text-xs font-medium text-green-700 dark:text-green-400 flex items-center gap-1 mb-2">
+                  <i className="fab fa-shopify" /> Shopify POS Data
+                </p>
+                <div className="space-y-1">
+                  {(shopifySessions as any[]).map((s: any) => (
+                    <div key={s.id} className="grid grid-cols-3 gap-2 text-xs">
+                      <span className="font-medium truncate">{s.registerName}</span>
+                      <span className="text-muted-foreground">Cash Sales: <span className="font-medium text-foreground">${parseFloat(s.cashSales || "0").toFixed(2)}</span></span>
+                      <span className="text-muted-foreground">Total: <span className="font-medium text-foreground">${parseFloat(s.totalSales || "0").toFixed(2)}</span></span>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[10px] text-muted-foreground mt-2">
+                  Last synced: {new Date((shopifySessions as any[])[0]?.syncedAt).toLocaleTimeString()}
+                </p>
+              </CardContent>
+            </Card>
+          )}
+
           <div className="space-y-3">
             {registers.map((reg: any) => {
-              const { opening, closing } = getRegisterStatus(reg.name);
+              const { opening, closing, shopify } = getRegisterStatus(reg.name);
+              const regDeposits = closing ? depositsForSession(closing.id) : [];
+              const allSessions = [opening, closing].filter(Boolean);
+
               return (
                 <Card key={reg.name}>
                   <CardContent className="p-4">
@@ -239,6 +323,11 @@ export default function CashManagement() {
                       <h3 className="font-semibold flex items-center gap-2">
                         <i className="fas fa-tablet-alt text-muted-foreground" />
                         {reg.name}
+                        {shopify && (
+                          <Badge variant="outline" className="text-green-600 border-green-300 text-[10px]">
+                            <i className="fab fa-shopify mr-1" /> Synced
+                          </Badge>
+                        )}
                       </h3>
                       {opening && opening.status !== "pending" && closing && closing.status !== "pending" ? (
                         <Badge variant="default" className="bg-green-500">Complete</Badge>
@@ -299,6 +388,14 @@ export default function CashManagement() {
                                 {parseFloat(closing.overShortAmount) > 0 ? "+" : ""}${parseFloat(closing.overShortAmount).toFixed(2)}
                               </p>
                             )}
+                            {closing.registerCashSales && (
+                              <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                                {shopify
+                                  ? <><i className="fab fa-shopify text-green-500" /> Cash Sales: ${parseFloat(closing.registerCashSales).toFixed(2)}</>
+                                  : <>Cash Sales: ${parseFloat(closing.registerCashSales).toFixed(2)}</>
+                                }
+                              </p>
+                            )}
                           </div>
                         ) : (
                           <div className="space-y-1">
@@ -319,6 +416,92 @@ export default function CashManagement() {
                         )}
                       </div>
                     </div>
+
+                    {shopify && (
+                      <div className="mt-3 pt-3 border-t grid grid-cols-3 gap-2 text-xs text-muted-foreground">
+                        <div>
+                          <p>Cash Sales</p>
+                          <p className="font-semibold text-foreground">${parseFloat(shopify.cashSales || "0").toFixed(2)}</p>
+                        </div>
+                        <div>
+                          <p>Total Sales</p>
+                          <p className="font-semibold text-foreground">${parseFloat(shopify.totalSales || "0").toFixed(2)}</p>
+                        </div>
+                        <div>
+                          <p>Status</p>
+                          <p className="font-semibold text-foreground capitalize">{shopify.status?.toLowerCase() || "—"}</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {regDeposits.length > 0 && (
+                      <div className="mt-3 pt-3 border-t">
+                        <p className="text-xs text-muted-foreground font-medium mb-1 flex items-center gap-1">
+                          <i className="fas fa-receipt" /> Store Deposit Slip{regDeposits.length > 1 ? "s" : ""}
+                        </p>
+                        {regDeposits.map((dep: any) => (
+                          <div
+                            key={dep.id}
+                            className="relative cursor-pointer mb-1"
+                            onClick={() => setExpandedDepositSlip(expandedDepositSlip === dep.id ? null : dep.id)}
+                          >
+                            <img
+                              src={dep.depositSlipPhoto}
+                              alt="Deposit slip"
+                              className={cn(
+                                "w-full rounded border object-contain transition-all",
+                                expandedDepositSlip === dep.id ? "max-h-96" : "max-h-20"
+                              )}
+                            />
+                            <div className="absolute top-1 right-1 bg-black/50 text-white text-[10px] rounded px-1">
+                              {expandedDepositSlip === dep.id ? "Collapse" : "Expand"}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {closing && (closing.status === "counted" || closing.status === "verified") && regDeposits.length === 0 && selectedDate === today && (
+                      <div className="mt-3 pt-3 border-t">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full h-8 text-xs border-dashed text-muted-foreground"
+                          onClick={() => { setActiveDepositSessionId(closing.id); setViewMode("deposit"); }}
+                        >
+                          <i className="fas fa-receipt mr-1" /> Add Deposit Slip
+                        </Button>
+                      </div>
+                    )}
+
+                    {allSessions.map((sess: any) => (
+                      <div key={sess.id} className="mt-3 pt-3 border-t">
+                        <p className="text-xs text-muted-foreground font-medium mb-1 flex items-center gap-1">
+                          <i className="fas fa-sticky-note" /> Notes ({sess.sessionType})
+                        </p>
+                        <Textarea
+                          rows={2}
+                          className="text-sm resize-none"
+                          placeholder="Add notes for this session..."
+                          value={notesDraft[sess.id] !== undefined ? notesDraft[sess.id] : (sess.notes || "")}
+                          onChange={(e) => setNotesDraft(prev => ({ ...prev, [sess.id]: e.target.value }))}
+                        />
+                        {notesDraft[sess.id] !== undefined && notesDraft[sess.id] !== (sess.notes || "") && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="mt-1 h-7 text-xs"
+                            onClick={() => {
+                              notesMutation.mutate({ id: sess.id, notes: notesDraft[sess.id] });
+                              setNotesDraft(prev => { const n = { ...prev }; delete n[sess.id]; return n; });
+                            }}
+                            disabled={notesMutation.isPending}
+                          >
+                            <i className="fas fa-save mr-1" /> Save Notes
+                          </Button>
+                        )}
+                      </div>
+                    ))}
                   </CardContent>
                 </Card>
               );
@@ -476,25 +659,34 @@ function OwnerSection({ selectedDate, ownerTab, setOwnerTab, deposits, settings 
                   <div key={s.id} className="p-2 rounded border text-sm">
                     <div className="flex justify-between">
                       <span className="font-medium">{s.registerName} — {s.sessionType}</span>
-                      <Badge variant={s.status === "verified" ? "default" : s.status === "flagged" ? "destructive" : "secondary"} className="text-xs">{s.status}</Badge>
+                      <span className={cn("text-xs", parseFloat(s.overShortAmount || "0") > 0 ? "text-yellow-600" : parseFloat(s.overShortAmount || "0") < 0 ? "text-red-600" : "text-green-600")}>
+                        {parseFloat(s.overShortAmount || "0") > 0 ? "+" : ""}${parseFloat(s.overShortAmount || "0").toFixed(2)}
+                      </span>
                     </div>
-                    {s.totalCashCounted && <p>Counted: ${parseFloat(s.totalCashCounted).toFixed(2)}</p>}
-                    {s.overShortAmount && Math.abs(parseFloat(s.overShortAmount)) >= 0.01 && (
-                      <p className={parseFloat(s.overShortAmount) < 0 ? "text-red-500" : "text-yellow-500"}>
-                        Over/Short: ${parseFloat(s.overShortAmount).toFixed(2)}
-                      </p>
-                    )}
+                    {s.countedBy && <p className="text-xs text-muted-foreground">By: {s.countedBy}</p>}
                   </div>
                 ))}
 
-                {deposits.filter((d: any) => d.status === "pending").map((dep: any) => (
-                  <div key={dep.id} className="p-3 rounded border space-y-2">
-                    <p className="font-medium text-sm">Deposit needs review</p>
+                {deposits.map((dep: any) => (
+                  <div key={dep.id} className="p-2 rounded border text-sm space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium">Bank Deposit</span>
+                      <Badge variant={dep.status === "approved" ? "default" : dep.status === "flagged" ? "destructive" : "secondary"} className="text-xs">
+                        {dep.status}
+                      </Badge>
+                    </div>
+                    {dep.depositSlipPhoto && (
+                      <img src={dep.depositSlipPhoto} alt="Deposit slip" className="w-full max-h-32 object-contain rounded border" />
+                    )}
                     <div className="flex gap-2">
-                      <Button size="sm" variant="default" onClick={() => reviewMutation.mutate({ depositId: dep.id, status: "approved" })}>
+                      <Button size="sm" variant="outline" className="flex-1 h-8 text-xs text-green-600"
+                        onClick={() => reviewMutation.mutate({ depositId: dep.id, status: "approved" })}
+                        disabled={reviewMutation.isPending}>
                         <i className="fas fa-check mr-1" /> Approve
                       </Button>
-                      <Button size="sm" variant="outline" onClick={() => reviewMutation.mutate({ depositId: dep.id, status: "flagged", reviewNotes: "Needs investigation" })}>
+                      <Button size="sm" variant="outline" className="flex-1 h-8 text-xs text-red-600"
+                        onClick={() => reviewMutation.mutate({ depositId: dep.id, status: "flagged" })}
+                        disabled={reviewMutation.isPending}>
                         <i className="fas fa-flag mr-1" /> Flag
                       </Button>
                     </div>
