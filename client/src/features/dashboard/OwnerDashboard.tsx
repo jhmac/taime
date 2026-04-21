@@ -328,7 +328,7 @@ export default function OwnerDashboard() {
 
   const { data: paySummary } = useQuery<{
     periodStart: string; periodEnd: string;
-    totalHours: number; grossPay: number; netPay: number; payScheduleFrequency: string;
+    totalHours: number; grossPay: number; netPay: number; hourlyRate: number;
   }>({
     queryKey: ['/api/users/me/pay-summary'],
     staleTime: 5 * 60 * 1000,
@@ -459,20 +459,20 @@ export default function OwnerDashboard() {
           {analyticsData?.totalHours != null ? `${analyticsData.totalHours.toFixed(1)}h` : '0.0h'}
         </p>
         <div className="mt-2 pt-2 border-t border-border/60">
-          {paySummary ? (
+          <p className="text-[10px] text-muted-foreground leading-tight">This Period</p>
+          <p className="text-sm font-extrabold text-foreground tabular-nums mt-0.5">
+            {paySummary ? `${paySummary.totalHours.toFixed(1)}h` : '—'}
+          </p>
+          {paySummary && paySummary.hourlyRate > 0 ? (
             <>
-              <p className="text-[10px] text-muted-foreground leading-tight">This Period</p>
-              <p className="text-sm font-extrabold text-foreground tabular-nums mt-0.5">
-                {paySummary.totalHours.toFixed(1)}h
-              </p>
               <p className="text-sm font-extrabold text-primary tabular-nums mt-1.5">
                 {paySummary.netPay.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}
               </p>
               <p className="text-[10px] text-muted-foreground leading-tight">est. net pay</p>
             </>
           ) : (
-            <p className="text-[10px] text-muted-foreground leading-tight italic">
-              Confirm payroll settings to see pay estimate
+            <p className="text-[10px] text-muted-foreground leading-tight italic mt-1">
+              Set hourly rate in Settings to see pay estimate
             </p>
           )}
         </div>
@@ -483,31 +483,31 @@ export default function OwnerDashboard() {
 
       {/* Task list — 3/4 */}
       <div className="flex-1 min-w-0 py-1">
-        <div className="flex items-center justify-between mb-1.5">
-          <p className="text-[11px] text-muted-foreground leading-tight">Your Tasks</p>
-          <button onClick={() => navigate('/tasks')} className="text-[11px] font-bold text-primary leading-tight">See all</button>
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-xs font-semibold text-muted-foreground leading-tight">Your Tasks</p>
+          <button onClick={() => navigate('/tasks')} className="text-xs font-bold text-primary leading-tight">See all</button>
         </div>
         {myTasksForFooter.length === 0 ? (
-          <p className="text-[12px] text-muted-foreground italic">All caught up!</p>
+          <p className="text-sm text-muted-foreground italic">All caught up!</p>
         ) : (
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             {myTasksForFooter.slice(0, tasksExpanded ? myTasksForFooter.length : 5).map((t: any) => {
               const isCompleting = completeTaskMutation.isPending && completeTaskMutation.variables === t.id;
               return (
-                <div key={t.id} className="flex items-center gap-2 min-w-0">
+                <div key={t.id} className="flex items-center gap-2.5 min-w-0 min-h-[36px]">
                   <button
                     onClick={() => completeTaskMutation.mutate(t.id)}
                     disabled={isCompleting}
-                    className="shrink-0 text-muted-foreground hover:text-primary active:scale-90 transition-transform disabled:opacity-40"
+                    className="shrink-0 text-muted-foreground hover:text-primary active:scale-90 transition-transform disabled:opacity-40 p-0.5"
                     aria-label="Complete task"
                   >
                     {isCompleting
-                      ? <CheckCircle2 size={16} className="text-primary animate-pulse" />
-                      : <Circle size={16} />}
+                      ? <CheckCircle2 size={20} className="text-primary animate-pulse" />
+                      : <Circle size={20} />}
                   </button>
-                  <p className="text-[12px] font-semibold text-foreground truncate flex-1 text-left">{t.title}</p>
+                  <p className="text-sm font-semibold text-foreground truncate flex-1 text-left">{t.title}</p>
                   {t.dueDate && (
-                    <span className="text-[10px] text-muted-foreground shrink-0">
+                    <span className="text-xs text-muted-foreground shrink-0">
                       {new Date(t.dueDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                     </span>
                   )}
@@ -517,7 +517,7 @@ export default function OwnerDashboard() {
             {myTasksForFooter.length > 5 && (
               <button
                 onClick={() => setTasksExpanded(e => !e)}
-                className="text-[11px] font-bold text-primary mt-1 leading-tight"
+                className="text-xs font-bold text-primary mt-1 leading-tight"
               >
                 {tasksExpanded ? 'Show less ↑' : `+${myTasksForFooter.length - 5} more ↓`}
               </button>
