@@ -4,7 +4,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
-import type { User, Role, Permission, WorkLocation } from "@shared/schema";
+import type { User, Role, Permission, WorkLocation, TemplateSlot } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -40,7 +40,29 @@ import {
   Mail,
   Navigation,
   MapPin,
+  CalendarDays,
 } from "lucide-react";
+
+type TemplateSummaryEntry = {
+  userId: string;
+  updatedAt: string | null;
+  slots: Record<string, TemplateSlot>;
+};
+
+const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function formatTemplateSlot(slot: TemplateSlot): string {
+  if ("available" in slot) {
+    if (!slot.available) return "Unavailable";
+    if (slot.startTime && slot.endTime) return `${slot.startTime} – ${slot.endTime}`;
+    return "Available";
+  }
+  const parts: string[] = [];
+  if (slot.morning) parts.push("Morning");
+  if (slot.afternoon) parts.push("Afternoon");
+  if (slot.evening) parts.push("Evening");
+  return parts.length > 0 ? parts.join(", ") : "Unavailable";
+}
 
 function getInitials(firstName?: string | null, lastName?: string | null) {
   return `${firstName?.[0] || ""}${lastName?.[0] || ""}`.toUpperCase() || "?";
@@ -93,6 +115,7 @@ export default function Team() {
   const [invitedMember, setInvitedMember] = useState<{ name: string; email: string } | null>(null);
   const [assignLocationUser, setAssignLocationUser] = useState<User | null>(null);
   const [selectedLocationId, setSelectedLocationId] = useState<string>("");
+  const [templateDialogUser, setTemplateDialogUser] = useState<{ user: User; entry: TemplateSummaryEntry } | null>(null);
 
   const { data: members = [], isLoading, error } = useQuery<User[]>({
     queryKey: ["/api/users", { includeAll: showTerminated }],
@@ -105,6 +128,7 @@ export default function Team() {
   });
 
   const isAdminRole = currentUser?.role?.name === 'owner' || currentUser?.role?.name === 'admin' || currentUser?.role?.name === 'manager';
+  const isManagerOrAbove = isAdminRole || currentUser?.role?.name === 'assistant_manager';
   const isOwnerOrAdmin = currentUser?.role?.name === 'owner' || currentUser?.role?.name === 'admin';
 
   // Role hierarchy enforcement — lower number = higher authority
@@ -134,6 +158,22 @@ export default function Team() {
     refetchInterval: 30000,
     enabled: isAdminRole,
   });
+
+  const { data: templateSummary = [] } = useQuery<TemplateSummaryEntry[]>({
+    queryKey: ["/api/availability/templates/summary"],
+    queryFn: async () => {
+      const res = await fetch("/api/availability/templates/summary", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: isManagerOrAbove,
+  });
+
+  const templatesByUserId = useMemo(() => {
+    const map = new Map<string, TemplateSummaryEntry>();
+    templateSummary.forEach((t) => map.set(t.userId, t));
+    return map;
+  }, [templateSummary]);
 
   const inTransitUserIds = new Set(
     activeOffsiteSessions
@@ -532,6 +572,18 @@ export default function Team() {
                           <p className="text-xs text-muted-foreground">
                             {getEmploymentTypeLabel(member.employmentType)}
                           </p>
+                          {isManagerOrAbove && templatesByUserId.has(member.id) && (
+                            <button
+                              className="mt-1 inline-flex items-center gap-1 text-xs text-teal-700 bg-teal-50 hover:bg-teal-100 dark:bg-teal-950/40 dark:text-teal-400 dark:hover:bg-teal-900/60 border border-teal-200 dark:border-teal-700 rounded-full px-2 py-0.5 transition-colors"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setTemplateDialogUser({ user: member, entry: templatesByUserId.get(member.id)! });
+                              }}
+                            >
+                              <CalendarDays className="h-2.5 w-2.5" />
+                              Default schedule set
+                            </button>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -847,6 +899,53 @@ export default function Team() {
                 <><Check className="h-4 w-4 mr-1" />Save</>
               )}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!templateDialogUser} onOpenChange={(open) => { if (!open) setTemplateDialogUser(null); }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CalendarDays className="h-4 w-4 text-teal-600" />
+              Default Schedule
+            </DialogTitle>
+          </DialogHeader>
+          {templateDialogUser && (
+            <div className="space-y-3 py-1">
+              <p className="text-sm text-muted-foreground">
+                <span className="font-medium text-foreground">
+                  {templateDialogUser.user.firstName} {templateDialogUser.user.lastName}
+                </span>{" "}
+                has set up a recurring weekly schedule.
+              </p>
+              <div className="rounded-lg border bg-muted/30 divide-y">
+                {DAY_NAMES.map((day, idx) => {
+                  const slot = templateDialogUser.entry.slots[String(idx)];
+                  const label = slot ? formatTemplateSlot(slot) : "Not set";
+                  const isAvailable = slot && (
+                    ("available" in slot && slot.available) ||
+                    ("morning" in slot && (slot.morning || slot.afternoon || slot.evening))
+                  );
+                  return (
+                    <div key={idx} className="flex items-center justify-between px-3 py-2 text-sm">
+                      <span className="font-medium w-10 shrink-0">{day}</span>
+                      <span className={isAvailable ? "text-teal-700 dark:text-teal-400" : "text-muted-foreground"}>
+                        {label}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+              {templateDialogUser.entry.updatedAt && (
+                <p className="text-xs text-muted-foreground text-right">
+                  Last updated {timeAgo(templateDialogUser.entry.updatedAt)}
+                </p>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTemplateDialogUser(null)}>Close</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

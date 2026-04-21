@@ -173,7 +173,7 @@ import {
   type InsertKnowledgeDocument,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, desc, gte, lte, isNull, sql, or } from "drizzle-orm";
+import { eq, and, desc, gte, lte, isNull, sql, or, inArray } from "drizzle-orm";
 import { cache } from "./lib/cache";
 
 export interface IStorage {
@@ -236,6 +236,7 @@ export interface IStorage {
 
   // Availability template operations
   getAvailabilityTemplate(userId: string): Promise<AvailabilityTemplate | undefined>;
+  getAvailabilityTemplatesForUsers(userIds: string[]): Promise<AvailabilityTemplate[]>;
   upsertAvailabilityTemplate(userId: string, slots: Record<string, import('@shared/schema').TemplateSlot>): Promise<AvailabilityTemplate>;
 
   // Time-off request operations
@@ -971,6 +972,14 @@ export class DatabaseStorage implements IStorage {
       .from(availabilityTemplates)
       .where(eq(availabilityTemplates.userId, userId));
     return template;
+  }
+
+  async getAvailabilityTemplatesForUsers(userIds: string[]): Promise<AvailabilityTemplate[]> {
+    if (userIds.length === 0) return [];
+    return db
+      .select()
+      .from(availabilityTemplates)
+      .where(inArray(availabilityTemplates.userId, userIds));
   }
 
   async upsertAvailabilityTemplate(

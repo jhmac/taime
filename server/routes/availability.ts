@@ -109,6 +109,36 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
   });
 
   // Availability template routes
+
+  // GET /api/availability/templates/summary — manager-only: returns which store employees have a saved template
+  app.get('/api/availability/templates/summary', isAuthenticated, async (req: any, res) => {
+    try {
+      const requestingUserId: string = req.user.id;
+      const requestingRole = req.user?.role?.name;
+      const isManagerOrAbove = ['owner', 'admin', 'manager', 'assistant_manager'].includes(requestingRole);
+      if (!isManagerOrAbove) {
+        return res.status(403).json({ message: "Only managers can view template summary" });
+      }
+
+      const storeId = await tryResolveStoreIdForUser(requestingUserId);
+      if (!storeId) {
+        return res.json([]);
+      }
+
+      const storeUserIds = await getAllStoreUserIds(storeId);
+      const templates = await storage.getAvailabilityTemplatesForUsers(storeUserIds);
+      const summary = templates.map((t) => ({
+        userId: t.userId,
+        updatedAt: t.updatedAt,
+        slots: t.slots,
+      }));
+      res.json(summary);
+    } catch (error) {
+      console.error("Error fetching availability templates summary:", error);
+      res.status(500).json({ message: "Failed to fetch templates summary" });
+    }
+  });
+
   app.get('/api/availability/template', isAuthenticated, async (req: any, res) => {
     try {
       const requestingUserId: string = req.user.id;
