@@ -100,6 +100,7 @@ const companySettingsUpdateSchema = z.object({
   salesGoalIncreaseType: z.string().optional(),
   salesGoalIncreaseValue: z.coerce.number().optional(),
   showPaySummaryToEmployees: z.boolean().optional(),
+  requireLocationPermission: z.boolean().optional(),
 }).strict();
 
 async function requireAdmin(storage: IStorage, userId: string): Promise<void> {
