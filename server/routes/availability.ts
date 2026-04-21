@@ -1,5 +1,9 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
+import { notificationService } from "../services/notificationService";
+import { sendAvailabilityUpdateEmail, resolveAppUrl } from "../services/emailService";
+import { getUserIdsWithPermission, getAllStoreUserIds } from "../lib/permissionUtils";
+import { tryResolveStoreIdForUser } from "../lib/storeResolver";
 
 export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
   app.post('/api/availability', isAuthenticated, async (req: any, res) => {
@@ -16,6 +20,38 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
       
       const submitted = await storage.submitAvailability(availabilityWithUserId);
       res.json(submitted);
+
+      const user = req.user;
+      const employeeName = [user.firstName, user.lastName].filter(Boolean).join(" ") || user.email || "An employee";
+      const requestHost = req.headers["host"] as string | undefined;
+
+      Promise.resolve().then(async () => {
+        const storeId = await tryResolveStoreIdForUser(userId);
+        if (!storeId) return;
+
+        const [storeUserIds, schedulerIds] = await Promise.all([
+          getAllStoreUserIds(storeId),
+          getUserIdsWithPermission('schedule.create'),
+        ]);
+
+        const storeUserSet = new Set(storeUserIds);
+        const managerIds = schedulerIds.filter((id) => id !== userId && storeUserSet.has(id));
+        if (managerIds.length === 0) return;
+
+        await notificationService.sendAvailabilityUpdate(managerIds, employeeName);
+
+        const appUrl = resolveAppUrl(requestHost);
+        const managerRecords = await Promise.all(managerIds.map((id) => storage.getUser(id)));
+        const emailPromises = managerRecords
+          .filter((m): m is NonNullable<typeof m> => !!m && !!m.email)
+          .map((m) => {
+            const managerName = [m.firstName, m.lastName].filter(Boolean).join(" ") || m.email || "";
+            return sendAvailabilityUpdateEmail(m.email!, managerName, employeeName, appUrl);
+          });
+        await Promise.allSettled(emailPromises);
+      }).catch((err) => {
+        console.error("[Availability] Failed to notify managers:", err);
+      });
     } catch (error) {
       console.error("Error submitting availability:", error);
       res.status(500).json({ message: "Failed to submit availability" });

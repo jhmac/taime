@@ -669,6 +669,21 @@ export class NotificationService {
       ],
     });
   }
+
+  async sendAvailabilityUpdate(managerUserIds: string[], employeeName: string): Promise<void> {
+    const payload: NotificationPayload = {
+      title: '📅 Availability Updated',
+      body: `${employeeName} has updated their availability.`,
+      notificationType: 'availability_update',
+      data: { type: 'availability_update', employeeName, url: '/schedule' },
+      actions: [
+        { action: 'view_schedule', title: 'View Availability' },
+        { action: 'dismiss', title: 'Dismiss' },
+      ],
+    };
+    const promises = managerUserIds.map((userId) => this.sendToUser(userId, payload));
+    await Promise.allSettled(promises);
+  }
 }
 
 export const notificationService = new NotificationService();
