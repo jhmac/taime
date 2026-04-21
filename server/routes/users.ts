@@ -393,6 +393,48 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
         return res.status(403).json({ message: "Role management access required" });
       }
 
+      // Role hierarchy: lower number = higher authority. Owners/admins can manage anyone below them.
+      // Managers can only manage roles below their own level.
+      const ROLE_RANK: Record<string, number> = {
+        owner: 0,
+        admin: 1,
+        manager: 2,
+        assistant_manager: 3,
+        employee: 4,
+        stylist: 4,
+      };
+      const UNKNOWN_RANK = 99;
+
+      const requesterRoleName = req.user.role?.name ?? '';
+      const requesterRank = ROLE_RANK[requesterRoleName] ?? UNKNOWN_RANK;
+
+      // Owner and admin can assign any role — skip hierarchy check
+      if (requesterRoleName !== 'owner' && requesterRoleName !== 'admin') {
+        // Look up target user's current role and the new role being assigned
+        const [targetUser] = await db
+          .select({ roleId: users.roleId })
+          .from(users)
+          .where(eq(users.id, userId))
+          .limit(1);
+
+        const targetRoles = targetUser?.roleId
+          ? await db.select({ name: roles.name }).from(roles).where(eq(roles.id, targetUser.roleId)).limit(1)
+          : [];
+        const targetRoleName = targetRoles[0]?.name ?? '';
+        const targetRank = ROLE_RANK[targetRoleName] ?? UNKNOWN_RANK;
+
+        const newRoles = await db.select({ name: roles.name }).from(roles).where(eq(roles.id, roleId)).limit(1);
+        const newRoleName = newRoles[0]?.name ?? '';
+        const newRank = ROLE_RANK[newRoleName] ?? UNKNOWN_RANK;
+
+        if (targetRank <= requesterRank) {
+          return res.status(403).json({ message: "You cannot manage roles at or above your own level" });
+        }
+        if (newRank <= requesterRank) {
+          return res.status(403).json({ message: "You cannot assign a role at or above your own level" });
+        }
+      }
+
       const updatedUser = await storage.updateUserRole(userId, roleId);
       invalidatePermissionCache();
       res.json(updatedUser);

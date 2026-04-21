@@ -112,6 +112,18 @@ export default function Team() {
   const isAdminRole = currentUser?.role?.name === 'owner' || currentUser?.role?.name === 'admin' || currentUser?.role?.name === 'manager';
   const isOwnerOrAdmin = currentUser?.role?.name === 'owner' || currentUser?.role?.name === 'admin';
 
+  // Role hierarchy enforcement — lower number = higher authority
+  const ROLE_RANK: Record<string, number> = {
+    owner: 0,
+    admin: 1,
+    manager: 2,
+    assistant_manager: 3,
+    employee: 4,
+    stylist: 4,
+  };
+  const currentUserRoleName = currentUser?.role?.name ?? '';
+  const currentUserRank = ROLE_RANK[currentUserRoleName] ?? 0;
+
   const { data: workLocations = [] } = useQuery<WorkLocation[]>({
     queryKey: ["/api/work-locations"],
     enabled: isOwnerOrAdmin,
@@ -552,25 +564,31 @@ export default function Team() {
                       {member.locationName || "—"}
                     </td>
                     <td className="p-3" onClick={(e) => e.stopPropagation()}>
-                      {canEditRoles && roles.length > 0 ? (
-                        <Select
-                          value={member.roleId || ""}
-                          onValueChange={(val) => updateRoleMutation.mutate({ userId: member.id, roleId: val })}
-                        >
-                          <SelectTrigger className="w-[140px] h-8 text-xs border-none shadow-none text-violet-600 p-0 hover:underline">
-                            <SelectValue placeholder="Add role" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {roles.map((r) => (
-                              <SelectItem key={r.id} value={r.id}>{r.displayName}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      ) : role ? (
-                        <span className="text-violet-600">{role.displayName}</span>
-                      ) : (
-                        <span className="text-violet-600">Add role</span>
-                      )}
+                      {(() => {
+                        const memberRoleName = role?.name ?? '';
+                        const memberRank = ROLE_RANK[memberRoleName] ?? 99;
+                        const canEditThisMember = canEditRoles && (isOwnerOrAdmin || memberRank > currentUserRank);
+                        const assignableRoles = roles.filter(r => isOwnerOrAdmin || (ROLE_RANK[r.name] ?? 99) > currentUserRank);
+                        return canEditThisMember && assignableRoles.length > 0 ? (
+                          <Select
+                            value={member.roleId || ""}
+                            onValueChange={(val) => updateRoleMutation.mutate({ userId: member.id, roleId: val })}
+                          >
+                            <SelectTrigger className="w-[140px] h-8 text-xs border-none shadow-none text-violet-600 p-0 hover:underline">
+                              <SelectValue placeholder="Add role" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {assignableRoles.map((r) => (
+                                <SelectItem key={r.id} value={r.id}>{r.displayName}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : role ? (
+                          <span className="text-violet-600">{role.displayName}</span>
+                        ) : (
+                          <span className="text-violet-600">Add role</span>
+                        );
+                      })()}
                     </td>
                     {canViewPayRates && (
                       <td className="p-3" onClick={(e) => e.stopPropagation()}>

@@ -202,7 +202,7 @@ export default function ScheduleManagement() {
   const [aiResult, setAiResult] = useState<GenerateResult | null>(null);
   const [removedEntries, setRemovedEntries] = useState<Set<number>>(new Set());
 
-  const isAdmin = currentUser?.role?.name === 'admin' || currentUser?.role?.name === 'owner';
+  const isAdmin = ['owner', 'admin', 'manager'].includes(currentUser?.role?.name || '');
 
   const getWeekDates = (weekOffset: number) => {
     const today = new Date();
