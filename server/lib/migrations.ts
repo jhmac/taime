@@ -345,6 +345,29 @@ export async function runSchemaMigrations(): Promise<void> {
     console.warn("[Migration] users.location_id backfill failed (non-fatal):", pgErr?.message ?? err);
   }
 
+  // Fuzzy-match fallback: catch users whose location_name is a substring of a work location name
+  // (e.g., "Libby Story" → "Libby Story Ridgeland"). Runs only on rows still missing location_id
+  // after the exact-match pass above.
+  try {
+    const fuzzyResult = await db.execute(sql.raw(`
+      UPDATE users u
+      SET location_id = wl.id,
+          location_name = wl.name
+      FROM work_locations wl
+      WHERE u.location_id IS NULL
+        AND u.location_name IS NOT NULL
+        AND wl.is_active = true
+        AND wl.name ILIKE '%' || u.location_name || '%'
+    `));
+    const fuzzyCount = (fuzzyResult as { rowCount?: number }).rowCount ?? 0;
+    if (fuzzyCount > 0) {
+      console.log(`[Migration] Fuzzy-matched location_id for ${fuzzyCount} user(s) with partial location_name`);
+    }
+  } catch (err: unknown) {
+    const pgErr = err as { message?: string };
+    console.warn("[Migration] users.location_id fuzzy backfill failed (non-fatal):", pgErr?.message ?? err);
+  }
+
   // Backfill users.location_name from the linked work_locations.name.
   // Corrects any stale names on existing team profiles where the store was renamed
   // before the rename-sync fix (task #251) was deployed. Safe to run on every boot

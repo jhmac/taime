@@ -72,11 +72,6 @@ function getEmploymentTypeLabel(type?: string | null) {
   return map[type.toLowerCase()] || type;
 }
 
-function getAccessLevel(roleName?: string | null) {
-  if (!roleName) return "Employee";
-  const managerRoles = ["owner", "admin", "manager", "assistant_manager"];
-  return managerRoles.includes(roleName) ? "Manager" : "Employee";
-}
 
 export default function Team() {
   const { toast } = useToast();
@@ -508,7 +503,6 @@ export default function Team() {
                   </button>
                 </th>
                 <th className="text-left p-3 font-medium">Contact Information</th>
-                <th className="text-left p-3 font-medium">Access level</th>
                 <th className="text-left p-3 font-medium">Location</th>
                 <th className="text-left p-3 font-medium">Role</th>
                 {canViewPayRates && <th className="text-left p-3 font-medium">Wage</th>}
@@ -556,9 +550,6 @@ export default function Team() {
                           <p className="text-xs text-muted-foreground">{member.phone}</p>
                         )}
                       </div>
-                    </td>
-                    <td className="p-3 text-sm">
-                      {getAccessLevel(role?.name)}
                     </td>
                     <td className="p-3 text-sm">
                       {member.locationName || "—"}
