@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { useEffect, useRef } from "react";
+import { useAuth } from "@/hooks/useAuth";
 import { apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -79,6 +80,9 @@ const urgencyConfig = {
 export default function SmartSuggestionsCard() {
   const [, navigate] = useLocation();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const roleName = user?.role?.name;
+  const isAdminOrOwner = roleName === 'admin' || roleName === 'owner';
   const refreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const { data, isLoading, isError, refetch } = useQuery<{ success: boolean; data: SuggestionsResponse }>({
@@ -109,7 +113,7 @@ export default function SmartSuggestionsCard() {
   function handleTap(suggestion: TaskSuggestion) {
     switch (suggestion.type) {
       case "task":
-        navigate("/operations");
+        navigate(isAdminOrOwner ? "/operations" : "/tasks");
         break;
       case "sop":
         if (suggestion.entity_id) {

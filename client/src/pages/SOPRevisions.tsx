@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
+import { useAuth } from "@/hooks/useAuth";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -49,7 +50,7 @@ const PROPOSAL_TYPE_CONFIG: Record<string, { icon: typeof Plus; label: string; c
   general: { icon: Wrench, label: "General", color: "bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400" },
 };
 
-function ProposalCard({ proposal, onReview, onApproveAndEdit }: { proposal: Proposal; onReview: (id: string, status: "approved" | "rejected", notes?: string) => void; onApproveAndEdit: (id: string, templateId: string, notes?: string) => void }) {
+function ProposalCard({ proposal, onReview, onApproveAndEdit, canReview }: { proposal: Proposal; onReview: (id: string, status: "approved" | "rejected", notes?: string) => void; onApproveAndEdit: (id: string, templateId: string, notes?: string) => void; canReview: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const [reviewNotes, setReviewNotes] = useState("");
   const [, navigate] = useLocation();
@@ -107,7 +108,7 @@ function ProposalCard({ proposal, onReview, onApproveAndEdit }: { proposal: Prop
           </div>
         )}
 
-        {proposal.status === "pending" && (
+        {proposal.status === "pending" && canReview && (
           <div className="space-y-2 pt-1">
             <Textarea
               placeholder="Review notes (optional)..."
@@ -135,6 +136,9 @@ function ProposalCard({ proposal, onReview, onApproveAndEdit }: { proposal: Prop
             </div>
           </div>
         )}
+        {proposal.status === "pending" && !canReview && (
+          <p className="text-xs text-muted-foreground pt-1">Only admins and owners can approve or reject suggestions.</p>
+        )}
 
         {proposal.status === "approved" && (
           <div className="flex items-center gap-2 text-xs text-green-600 dark:text-green-400">
@@ -161,6 +165,8 @@ export default function SOPRevisions() {
   const [, navigate] = useLocation();
   const [statusFilter, setStatusFilter] = useState<string>("pending");
   const { toast } = useToast();
+  const { user } = useAuth();
+  const isAdminOrOwner = user?.role?.name === 'admin' || user?.role?.name === 'owner';
 
   const { data: stats } = useQuery<Stats>({
     queryKey: ["/api/sops/revisions/stats"],
@@ -272,6 +278,7 @@ export default function SOPRevisions() {
                 <ProposalCard
                   key={proposal.id}
                   proposal={proposal}
+                  canReview={isAdminOrOwner}
                   onReview={(id, status, notes) =>
                     reviewMutation.mutate({ id, status, notes })
                   }

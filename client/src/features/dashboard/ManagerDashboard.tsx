@@ -48,6 +48,8 @@ import { DELIVERY_FAILURE_HIGH_THRESHOLD } from '@/lib/notificationConstants';
 export default function ManagerDashboard() {
   const { user } = useAuth();
   const isMobile = useIsMobile();
+  const roleName = user?.role?.name;
+  const isAdminOrOwner = roleName === 'admin' || roleName === 'owner';
   const [, navigate] = useLocation();
   const [currentTime, setCurrentTime] = useState(new Date());
 
@@ -107,6 +109,7 @@ export default function ManagerDashboard() {
   const { data: deliveryStats } = useQuery<{ userId: string; total: number; failures: number }[]>({
     queryKey: ['/api/push/delivery-stats'],
     staleTime: 5 * 60 * 1000,
+    enabled: isAdminOrOwner,
   });
 
   const highRiskCount = (deliveryStats ?? []).filter(
@@ -293,7 +296,7 @@ export default function ManagerDashboard() {
         </DashboardErrorBoundary>
       </div>
 
-      {highRiskCount > 0 && (
+      {isAdminOrOwner && highRiskCount > 0 && (
         <div className={isMobile ? "px-4 pb-2" : "px-6 pb-2"}>
           <Card
             className="cursor-pointer hover:shadow-md transition-shadow border-amber-200 dark:border-amber-800/40 bg-amber-50/50 dark:bg-amber-950/10"
