@@ -85,6 +85,13 @@
       "when": 1776384000000,
       "tag": "0011_location_permissions",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1745245200000,
+      "tag": "0012_per_day_closing_time",
+      "breakpoints": true
     }
   ]
 }

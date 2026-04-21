@@ -37,7 +37,7 @@ export default function CashManagement() {
     refetchInterval: 30000,
   });
   const { data: settings, isLoading: settingsLoading } = useQuery<{
-    closingTime: string | null;
+    closingTime: Record<string, string | null> | null;
     defaultStartingCash: string;
     [key: string]: unknown;
   }>({ queryKey: ["/api/cash/settings"], enabled: accessCheck?.allowed });
@@ -155,16 +155,22 @@ export default function CashManagement() {
   const closingSessions = sessions.filter((s: any) => s.sessionType === "closing");
   const hasDeposit = deposits.length > 0;
 
-  const closingTimeStr = settings?.closingTime as string | undefined;
-  const closingTimeBlocked = (() => {
-    if (!closingTimeStr) return false;
-    const [h, m] = closingTimeStr.split(":").map(Number);
-    const now = new Date();
-    const nowMinutes = now.getHours() * 60 + now.getMinutes();
-    return nowMinutes < h * 60 + m;
+  const DAY_KEYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const;
+  const todayClosingTime = (() => {
+    const perDay = settings?.closingTime;
+    if (!perDay || typeof perDay !== "object" || Array.isArray(perDay)) return null;
+    const key = DAY_KEYS[new Date().getDay()];
+    const val = perDay[key];
+    return val && /^([01]\d|2[0-3]):[0-5]\d$/.test(val) ? val : null;
   })();
-  const closingTimeFormatted = closingTimeStr
-    ? new Date(0, 0, 0, ...closingTimeStr.split(":").map(Number) as [number, number]).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })
+  const closingTimeBlocked = (() => {
+    if (!todayClosingTime) return false;
+    const [h, m] = todayClosingTime.split(":").map(Number);
+    const now = new Date();
+    return now.getHours() * 60 + now.getMinutes() < h * 60 + m;
+  })();
+  const closingTimeFormatted = todayClosingTime
+    ? new Date(0, 0, 0, ...todayClosingTime.split(":").map(Number) as [number, number]).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })
     : null;
 
   const getRegisterStatus = (regName: string) => {
@@ -380,9 +386,24 @@ function OwnerSection({ selectedDate, ownerTab, setOwnerTab, deposits, settings 
 
   const [investigationData, setInvestigationData] = useState<any>(null);
   const [investigating, setInvestigating] = useState(false);
-  const [closingTimeInput, setClosingTimeInput] = useState(settings?.closingTime || "");
+  const DAYS_OF_WEEK = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const;
+  type DayKey = typeof DAYS_OF_WEEK[number];
+  const DAY_LABELS: Record<DayKey, string> = { sunday: "Sunday", monday: "Monday", tuesday: "Tuesday", wednesday: "Wednesday", thursday: "Thursday", friday: "Friday", saturday: "Saturday" };
+
+  const defaultClosingTimes = (): Record<DayKey, string> =>
+    Object.fromEntries(DAYS_OF_WEEK.map(d => [d, ""])) as Record<DayKey, string>;
+
+  const settingsToClosingInputs = (s: { closingTime?: Record<string, string | null> | null } | undefined): Record<DayKey, string> => {
+    const ct = s?.closingTime;
+    if (ct && typeof ct === "object" && !Array.isArray(ct)) {
+      return Object.fromEntries(DAYS_OF_WEEK.map(d => [d, ct[d] || ""])) as Record<DayKey, string>;
+    }
+    return defaultClosingTimes();
+  };
+
+  const [closingTimeInputs, setClosingTimeInputs] = useState<Record<DayKey, string>>(settingsToClosingInputs(settings));
   useEffect(() => {
-    setClosingTimeInput(settings?.closingTime || "");
+    setClosingTimeInputs(settingsToClosingInputs(settings));
   }, [settings?.closingTime]);
 
   const reviewMutation = useMutation({
@@ -602,36 +623,41 @@ function OwnerSection({ selectedDate, ownerTab, setOwnerTab, deposits, settings 
           <TabsContent value="settings" className="space-y-4 mt-3">
             <div className="space-y-3">
               <div>
-                <label className="text-sm font-medium">Closing Time</label>
-                <p className="text-xs text-muted-foreground mb-2">
-                  Employees cannot start a closing count before this time. Leave empty to allow at any time.
+                <label className="text-sm font-medium">Closing Times by Day</label>
+                <p className="text-xs text-muted-foreground mb-3">
+                  Employees cannot start a closing count before this time on the given day. Leave a day blank to allow closing counts at any time on that day.
                 </p>
-                <div className="flex gap-2 items-center">
-                  <Input
-                    type="time"
-                    value={closingTimeInput}
-                    onChange={(e) => setClosingTimeInput(e.target.value)}
-                    className="w-40"
-                  />
-                  {closingTimeInput && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setClosingTimeInput("")}
-                      className="text-muted-foreground"
-                    >
-                      <i className="fas fa-times mr-1" /> Clear
-                    </Button>
-                  )}
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {DAYS_OF_WEEK.map((day) => (
+                    <div key={day} className="flex items-center gap-2">
+                      <span className="text-sm w-24 shrink-0">{DAY_LABELS[day]}</span>
+                      <Input
+                        type="time"
+                        value={closingTimeInputs[day]}
+                        onChange={(e) => setClosingTimeInputs(prev => ({ ...prev, [day]: e.target.value }))}
+                        className="w-36"
+                      />
+                      {closingTimeInputs[day] && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setClosingTimeInputs(prev => ({ ...prev, [day]: "" }))}
+                          className="text-muted-foreground px-2"
+                        >
+                          <i className="fas fa-times" />
+                        </Button>
+                      )}
+                    </div>
+                  ))}
                 </div>
-                {closingTimeInput && (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Closing count will be available after {new Date(0, 0, 0, ...closingTimeInput.split(":").map(Number) as [number, number]).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })}
-                  </p>
-                )}
               </div>
               <Button
-                onClick={() => settingsMutation.mutate({ ...settings, closingTime: closingTimeInput || null })}
+                onClick={() => {
+                  const closingTime = Object.fromEntries(
+                    DAYS_OF_WEEK.map(d => [d, closingTimeInputs[d] || null])
+                  );
+                  settingsMutation.mutate({ ...settings, closingTime });
+                }}
                 disabled={settingsMutation.isPending}
                 size="sm"
               >

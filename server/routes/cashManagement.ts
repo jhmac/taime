@@ -129,11 +129,27 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
       const storeId = await getStoreId();
       const { defaultStartingCash, registers, overShortThreshold, requireDepositPhoto, requireOverShortExplanation, autoFlagThreshold, closingTime } = req.body;
 
-      if (closingTime !== undefined && closingTime !== null && closingTime !== "") {
-        if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(closingTime)) {
-          return res.status(400).json({ error: "closingTime must be in HH:MM 24-hour format (e.g. '21:00')" });
+      const DAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const;
+      const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+      if (closingTime !== undefined && closingTime !== null) {
+        if (typeof closingTime !== "object" || Array.isArray(closingTime)) {
+          return res.status(400).json({ error: "closingTime must be an object keyed by day name" });
+        }
+        for (const key of Object.keys(closingTime)) {
+          if (!(DAYS as readonly string[]).includes(key)) {
+            return res.status(400).json({ error: `Invalid day key: ${key}` });
+          }
+          const val = (closingTime as Record<string, unknown>)[key];
+          if (val !== null && val !== "" && (typeof val !== "string" || !TIME_RE.test(val))) {
+            return res.status(400).json({ error: `closingTime.${key} must be HH:MM or null/empty` });
+          }
         }
       }
+
+      const normalizedClosingTime = closingTime && typeof closingTime === "object" && !Array.isArray(closingTime)
+        ? Object.fromEntries(Object.entries(closingTime as Record<string, string | null>).map(([k, v]) => [k, v || null]))
+        : null;
 
       const [existing] = await db.select().from(cashManagementSettings)
         .where(eq(cashManagementSettings.storeId, storeId));
@@ -145,7 +161,7 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
             registers, overShortThreshold: overShortThreshold?.toString(),
             requireDepositPhoto, requireOverShortExplanation,
             autoFlagThreshold: autoFlagThreshold?.toString(),
-            closingTime: closingTime || null,
+            closingTime: normalizedClosingTime,
             updatedAt: new Date(),
           })
           .where(eq(cashManagementSettings.storeId, storeId))
@@ -160,7 +176,7 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
         overShortThreshold: overShortThreshold?.toString() || "5.00",
         requireDepositPhoto, requireOverShortExplanation,
         autoFlagThreshold: autoFlagThreshold?.toString() || "20.00",
-        closingTime: closingTime || null,
+        closingTime: normalizedClosingTime,
       }).returning();
 
       res.json(created);
@@ -188,14 +204,20 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
       if (sessionType === "closing") {
         const [storeSettings] = await db.select().from(cashManagementSettings)
           .where(eq(cashManagementSettings.storeId, storeId));
-        if (storeSettings?.closingTime) {
+        if (storeSettings?.closingTime && typeof storeSettings.closingTime === "object") {
+          const DAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const;
           const now = new Date();
-          const [closingHour, closingMinute] = storeSettings.closingTime.split(":").map(Number);
-          const closingMinutes = closingHour * 60 + closingMinute;
-          const nowMinutes = now.getHours() * 60 + now.getMinutes();
-          if (nowMinutes < closingMinutes) {
-            const formatted = new Date(0, 0, 0, closingHour, closingMinute).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
-            return res.status(403).json({ error: `Closing count is not available until ${formatted}`, closingTime: storeSettings.closingTime });
+          const todayKey = DAY_NAMES[now.getDay()];
+          const perDay = storeSettings.closingTime as Record<string, string | null>;
+          const todayClosingTime = perDay[todayKey];
+          if (todayClosingTime && /^([01]\d|2[0-3]):[0-5]\d$/.test(todayClosingTime)) {
+            const [closingHour, closingMinute] = todayClosingTime.split(":").map(Number);
+            const closingMinutes = closingHour * 60 + closingMinute;
+            const nowMinutes = now.getHours() * 60 + now.getMinutes();
+            if (nowMinutes < closingMinutes) {
+              const formatted = new Date(0, 0, 0, closingHour, closingMinute).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+              return res.status(403).json({ error: `Closing count is not available until ${formatted}`, closingTime: todayClosingTime });
+            }
           }
         }
       }
