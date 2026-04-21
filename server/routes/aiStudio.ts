@@ -360,6 +360,14 @@ export function registerAiStudioRoutes(
         imageMimeType: extracted.imageMimeType,
       }).then(async () => {
         try {
+          const processed = await storage.getKnowledgeDocument(doc.id);
+          if (!processed || processed.processingStatus !== "ready") {
+            logger.warn(
+              { docId: doc.id, status: processed?.processingStatus },
+              "ai-studio: skipping KB auto-enqueue — extraction did not finish successfully"
+            );
+            return;
+          }
           const [autoJob] = await db
             .insert(generationJobs)
             .values({
