@@ -78,10 +78,20 @@ export default function CashManagement() {
     return res.json();
   }});
 
-  // Seed lastSyncedAt from the most recent session record when data first loads
+  // Reset timestamp whenever the user switches to a different day
   useEffect(() => {
-    const syncedAt = (shopifySessions as any[])[0]?.syncedAt;
-    if (syncedAt) setLastSyncedAt(prev => prev ?? new Date(syncedAt));
+    setLastSyncedAt(null);
+  }, [selectedDate]);
+
+  // Seed lastSyncedAt from the most recent syncedAt across all returned sessions
+  useEffect(() => {
+    const sessions = shopifySessions as any[];
+    if (!sessions.length) return;
+    const maxSyncedAt = sessions.reduce((max: string | null, s: any) => {
+      if (!s.syncedAt) return max;
+      return !max || s.syncedAt > max ? s.syncedAt : max;
+    }, null);
+    if (maxSyncedAt) setLastSyncedAt(new Date(maxSyncedAt));
   }, [shopifySessions]);
 
   const createSessionMutation = useMutation({
