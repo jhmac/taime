@@ -367,6 +367,7 @@ export const availabilityTemplates = pgTable("availability_templates", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").references(() => users.id).notNull().unique(),
   slots: jsonb("slots").notNull().$type<Record<string, TemplateSlot>>(),
+  autoApplyTemplate: boolean("auto_apply_template").notNull().default(false),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 

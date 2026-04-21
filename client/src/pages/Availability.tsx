@@ -8,6 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Switch } from "@/components/ui/switch";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
@@ -330,6 +331,7 @@ export default function Availability() {
   // Default Week editor state
   const [templateSlots, setTemplateSlots] = useState<Record<string, DayTemplate>>(emptyWeekTemplateSlots);
   const [templateHasChanges, setTemplateHasChanges] = useState(false);
+  const [autoApplyTemplate, setAutoApplyTemplate] = useState(false);
   // Preset time range for quick-fill buttons
   const [presetStart, setPresetStart] = useState(DEFAULT_START);
   const [presetEnd, setPresetEnd] = useState(DEFAULT_END);
@@ -435,6 +437,7 @@ export default function Availability() {
       newSlots[String(i)] = parseDayTemplate(rawSlots[String(i)]);
     }
     setTemplateSlots(newSlots);
+    setAutoApplyTemplate(availabilityTemplate.autoApplyTemplate ?? false);
     setTemplateHasChanges(false);
   }, [availabilityTemplate]);
 
@@ -454,6 +457,7 @@ export default function Availability() {
     if (isWeekInPast) return;
     if (hasChanges) return; // User has already interacted with this week this session — do not overwrite
     if (!availabilityTemplate?.slots) return;
+    if (!availabilityTemplate.autoApplyTemplate) return; // Only auto-fill when the setting is enabled
 
     if (autoFilledWeeksRef.current.has(startParam)) return; // session guard: don't re-fill cleared weeks
 
@@ -494,7 +498,7 @@ export default function Availability() {
     setAutoFilledTimeRanges(timeRanges);
     setHasChanges(true);
     setWeekWasAutoFilled(true);
-    setShowAutoFilledPill(true);
+    // No banner when auto-apply is silently enabled
   }, [isLoading, weekHasNoAvailability, isWeekInPast, availabilityTemplate, weekDates, hasChanges, startParam]);
 
   // ── Mutations ────────────────────────────────────────────────────────────────
@@ -515,11 +519,11 @@ export default function Availability() {
   });
 
   const saveTemplateMutation = useMutation({
-    mutationFn: async (slots: Record<string, { available: boolean; startTime?: string; endTime?: string }>) => {
-      await apiRequest('POST', '/api/availability/template', { slots });
+    mutationFn: async ({ slots, autoApply }: { slots: Record<string, { available: boolean; startTime?: string; endTime?: string }>; autoApply: boolean }) => {
+      await apiRequest('POST', '/api/availability/template', { slots, autoApplyTemplate: autoApply });
     },
     onSuccess: () => {
-      toast({ title: "Default schedule saved", description: "Your default week will auto-fill empty weeks." });
+      toast({ title: "Default schedule saved", description: "Your default week has been updated." });
       queryClient.invalidateQueries({ queryKey: ['/api/availability/template'] });
       setTemplateHasChanges(false);
     },
@@ -717,7 +721,7 @@ export default function Availability() {
         endTime: slot.available ? slot.endTime : undefined,
       };
     }
-    saveTemplateMutation.mutate(slots);
+    saveTemplateMutation.mutate({ slots, autoApply: autoApplyTemplate });
   };
 
   const handleSubmitTimeOff = () => {
@@ -1187,7 +1191,27 @@ export default function Availability() {
                 })}
               </div>
 
-              <div className="mt-5 space-y-2">
+              {/* Auto-apply toggle */}
+              <div className="flex items-center justify-between rounded-lg border px-3 py-2.5 mt-4">
+                <div className="space-y-0.5">
+                  <Label htmlFor="auto-apply-toggle" className="text-sm font-medium cursor-pointer">
+                    Auto-fill new weeks
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Automatically apply this schedule to empty future weeks.
+                  </p>
+                </div>
+                <Switch
+                  id="auto-apply-toggle"
+                  checked={autoApplyTemplate}
+                  onCheckedChange={(checked) => {
+                    setAutoApplyTemplate(checked);
+                    setTemplateHasChanges(true);
+                  }}
+                />
+              </div>
+
+              <div className="mt-3 space-y-2">
                 <Button
                   onClick={handleSaveTemplate}
                   disabled={saveTemplateMutation.isPending || !templateHasChanges}
@@ -1201,7 +1225,9 @@ export default function Availability() {
                 </Button>
                 {availabilityTemplate?.slots && !templateHasChanges && (
                   <p className="text-center text-[11px] text-muted-foreground">
-                    Saved — auto-fills empty future weeks automatically.
+                    {availabilityTemplate.autoApplyTemplate
+                      ? "Saved — new empty weeks will be auto-filled."
+                      : "Saved — enable auto-fill above to apply automatically."}
                   </p>
                 )}
                 {!availabilityTemplate?.slots && !templateHasChanges && (

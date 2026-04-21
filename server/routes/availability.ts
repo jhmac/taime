@@ -420,7 +420,8 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
           }
         }
       }
-      const template = await storage.upsertAvailabilityTemplate(userId, slots);
+      const autoApplyTemplate = typeof req.body.autoApplyTemplate === 'boolean' ? req.body.autoApplyTemplate : undefined;
+      const template = await storage.upsertAvailabilityTemplate(userId, slots, autoApplyTemplate);
       res.json(template);
     } catch (error) {
       console.error("Error saving availability template:", error);

@@ -240,7 +240,7 @@ export interface IStorage {
   // Availability template operations
   getAvailabilityTemplate(userId: string): Promise<AvailabilityTemplate | undefined>;
   getAvailabilityTemplatesForUsers(userIds: string[]): Promise<AvailabilityTemplate[]>;
-  upsertAvailabilityTemplate(userId: string, slots: Record<string, import('@shared/schema').TemplateSlot>): Promise<AvailabilityTemplate>;
+  upsertAvailabilityTemplate(userId: string, slots: Record<string, import('@shared/schema').TemplateSlot>, autoApplyTemplate?: boolean): Promise<AvailabilityTemplate>;
 
   // Per-date availability override operations
   upsertAvailabilityOverride(userId: string, date: string, data: { startTime?: string | null; endTime?: string | null; unavailable: boolean }): Promise<UserAvailabilityOverride>;
@@ -993,14 +993,19 @@ export class DatabaseStorage implements IStorage {
 
   async upsertAvailabilityTemplate(
     userId: string,
-    slots: Record<string, import('@shared/schema').TemplateSlot>
+    slots: Record<string, import('@shared/schema').TemplateSlot>,
+    autoApplyTemplate?: boolean
   ): Promise<AvailabilityTemplate> {
+    const values: any = { userId, slots };
+    if (autoApplyTemplate !== undefined) values.autoApplyTemplate = autoApplyTemplate;
+    const setValues: any = { slots, updatedAt: new Date() };
+    if (autoApplyTemplate !== undefined) setValues.autoApplyTemplate = autoApplyTemplate;
     const [result] = await db
       .insert(availabilityTemplates)
-      .values({ userId, slots })
+      .values(values)
       .onConflictDoUpdate({
         target: availabilityTemplates.userId,
-        set: { slots, updatedAt: new Date() },
+        set: setValues,
       })
       .returning();
     return result;
