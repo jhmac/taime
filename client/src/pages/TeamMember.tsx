@@ -187,6 +187,15 @@ export default function TeamMember() {
     permissions?.some?.((p) => p.name === perm || p.name === "admin.manage_all") || isAdminRole || false;
   const canEdit = can("hr.edit_team");
 
+  // Role hierarchy: lower rank number = higher authority
+  const ROLE_RANK: Record<string, number> = {
+    owner: 0, admin: 1, manager: 2, assistant_manager: 3, employee: 4, stylist: 4,
+  };
+  const currentUserRank = ROLE_RANK[currentUser?.role?.name ?? ''] ?? 0;
+  const assignableRoles = allRoles.filter(r =>
+    isAdminRole || (ROLE_RANK[r.name] ?? 99) > currentUserRank
+  );
+
   const updateUserMutation = useMutation({
     mutationFn: async (data: Record<string, any>) => {
       const res = await apiRequest("PUT", `/api/users/${userId}`, data);
@@ -573,7 +582,7 @@ export default function TeamMember() {
                         <SelectValue placeholder="Select role" />
                       </SelectTrigger>
                       <SelectContent>
-                        {allRoles.map((r) => (
+                        {assignableRoles.map((r) => (
                           <SelectItem key={r.id} value={r.id}>{r.displayName}</SelectItem>
                         ))}
                       </SelectContent>

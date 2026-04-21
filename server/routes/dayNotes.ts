@@ -1,6 +1,11 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
 
+function isManagerOrAbove(req: any): boolean {
+  const role = req.user?.role?.name;
+  return role === 'owner' || role === 'admin' || role === 'manager';
+}
+
 export function registerDayNoteRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
   app.get('/api/day-notes', isAuthenticated, async (req: any, res) => {
     try {
@@ -8,9 +13,8 @@ export function registerDayNoteRoutes(app: Express, storage: IStorage, isAuthent
       if (!startDate || !endDate) {
         return res.status(400).json({ message: "startDate and endDate are required" });
       }
-      const isAdmin = req.user?.role?.name === 'admin' || req.user?.role?.name === 'owner';
 
-      if (isAdmin) {
+      if (isManagerOrAbove(req)) {
         const notes = await storage.getDayNotes(startDate as string, endDate as string);
         return res.json(notes);
       }
@@ -27,14 +31,13 @@ export function registerDayNoteRoutes(app: Express, storage: IStorage, isAuthent
     try {
       const { date, noteText, isManagerNote } = req.body;
       const userId = req.user.id;
-      const isAdmin = req.user?.role?.name === 'admin' || req.user?.role?.name === 'owner';
 
       if (!date || !noteText) {
         return res.status(400).json({ message: "date and noteText are required" });
       }
 
-      if (isManagerNote && !isAdmin) {
-        return res.status(403).json({ message: "Only managers can create manager notes" });
+      if (isManagerNote && !isManagerOrAbove(req)) {
+        return res.status(403).json({ message: "Only managers and above can create manager notes" });
       }
 
       const note = await storage.createDayNote({
@@ -55,7 +58,6 @@ export function registerDayNoteRoutes(app: Express, storage: IStorage, isAuthent
       const { id } = req.params;
       const { noteText } = req.body;
       const userId = req.user.id;
-      const isAdmin = req.user?.role?.name === 'admin' || req.user?.role?.name === 'owner';
 
       if (!noteText) {
         return res.status(400).json({ message: "noteText is required" });
@@ -66,7 +68,7 @@ export function registerDayNoteRoutes(app: Express, storage: IStorage, isAuthent
         return res.status(404).json({ message: "Note not found" });
       }
 
-      if (existing.userId !== userId && !isAdmin) {
+      if (existing.userId !== userId && !isManagerOrAbove(req)) {
         return res.status(403).json({ message: "Not authorized" });
       }
 
@@ -82,14 +84,13 @@ export function registerDayNoteRoutes(app: Express, storage: IStorage, isAuthent
     try {
       const { id } = req.params;
       const userId = req.user.id;
-      const isAdmin = req.user?.role?.name === 'admin' || req.user?.role?.name === 'owner';
 
       const existing = await storage.getDayNote(id);
       if (!existing) {
         return res.status(404).json({ message: "Note not found" });
       }
 
-      if (existing.userId !== userId && !isAdmin) {
+      if (existing.userId !== userId && !isManagerOrAbove(req)) {
         return res.status(403).json({ message: "Not authorized" });
       }
 

@@ -256,7 +256,20 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
 
   app.put('/api/users/:userId', isAuthenticated, async (req: any, res) => {
     try {
+      const requestingUserId = req.user.id;
       const { userId } = req.params;
+
+      // Users may update their own profile. Updating someone else requires hr.edit_team.
+      if (requestingUserId !== userId) {
+        const userPermissions = await storage.getUserPermissions(requestingUserId);
+        const canEditTeam = userPermissions.some(p => p.name === 'hr.edit_team' || p.name === 'admin.manage_all');
+        const requesterRole = req.user.role?.name;
+        const isOwnerOrAdmin = requesterRole === 'owner' || requesterRole === 'admin';
+        if (!canEditTeam && !isOwnerOrAdmin) {
+          return res.status(403).json({ message: "You don't have permission to update this user" });
+        }
+      }
+
       const updateData = { ...req.body };
 
       // When locationName is being set, resolve and persist the matching locationId so
