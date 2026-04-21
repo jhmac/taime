@@ -19,7 +19,7 @@ import {
   StickyNote, Plus, X, Umbrella, Thermometer, User, CalendarMinus,
   MoreHorizontal, MessageSquare, CalendarCheck, Save, Loader2, CalendarDays, Wand2
 } from "lucide-react";
-import type { UserAvailability, TimeOffRequest, AvailabilityTemplate } from "@shared/schema";
+import type { UserAvailability, TimeOffRequest, AvailabilityTemplate, TemplateSlot, TemplateSlotNew, TemplateSlotLegacy } from "@shared/schema";
 
 // ─── Time slot types (for the weekly grid — unchanged) ─────────────────────
 type TimeSlot = 'morning' | 'afternoon' | 'evening' | 'all_day';
@@ -69,31 +69,46 @@ function formatTimeShort(hhmm: string): string {
   return m === 0 ? `${h12} ${ampm}` : `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
 }
 
+// Type guards for the two slot shapes
+function isNewSlot(slot: TemplateSlot): slot is TemplateSlotNew {
+  return 'available' in slot;
+}
+function isLegacySlot(slot: TemplateSlot): slot is TemplateSlotLegacy {
+  return 'morning' in slot;
+}
+
 // Map a DayTemplate to morning/afternoon/evening slots for userAvailability
 function slotsFromDayTemplate(slot: DayTemplate): { morning: boolean; afternoon: boolean; evening: boolean; all_day: boolean } {
   if (!slot.available) return { morning: false, afternoon: false, evening: false, all_day: false };
-  const startH = parseInt(slot.startTime.split(':')[0]);
-  const endH = parseInt(slot.endTime.split(':')[0]);
-  const endM = parseInt(slot.endTime.split(':')[1]);
+  const [startH] = slot.startTime.split(':').map(Number);
+  const [endH, endM] = slot.endTime.split(':').map(Number);
+  // morning:   covers 6 AM – 12 PM slot; available if shift starts before noon
   const morning = startH < 12;
+  // afternoon: covers 12 PM – 6 PM; available if end is past noon and start is before 6 PM
   const afternoon = startH < 18 && (endH > 12 || (endH === 12 && endM > 0));
-  const evening = endH > 18 || endH === 0; // 0 = midnight
+  // evening:   covers 6 PM – close; available if end goes past 18:00 OR midnight (endH === 0)
+  const evening = endH > 18 || (endH === 18 && endM > 0) || endH === 0;
   return { morning, afternoon, evening, all_day: morning && afternoon && evening };
 }
 
-// Parse raw template slot (either new or legacy format) into a DayTemplate
-function parseDayTemplate(raw: any): DayTemplate {
+// Parse a raw TemplateSlot (new or legacy format) into the editor DayTemplate shape
+function parseDayTemplate(raw: TemplateSlot | undefined): DayTemplate {
   if (!raw) return { available: false, startTime: DEFAULT_START, endTime: DEFAULT_END };
-  if ('available' in raw) {
+  if (isNewSlot(raw)) {
     return {
-      available: !!raw.available,
-      startTime: raw.startTime || DEFAULT_START,
-      endTime: raw.endTime || DEFAULT_END,
+      available: raw.available,
+      startTime: raw.startTime ?? DEFAULT_START,
+      endTime: raw.endTime ?? DEFAULT_END,
     };
   }
-  // Legacy format: {morning, afternoon, evening}
-  const anyOn = !!(raw.morning || raw.afternoon || raw.evening);
-  return { available: anyOn, startTime: DEFAULT_START, endTime: DEFAULT_END };
+  if (isLegacySlot(raw)) {
+    return {
+      available: raw.morning || raw.afternoon || raw.evening,
+      startTime: DEFAULT_START,
+      endTime: DEFAULT_END,
+    };
+  }
+  return { available: false, startTime: DEFAULT_START, endTime: DEFAULT_END };
 }
 
 function emptyWeekTemplateSlots(): Record<string, DayTemplate> {
@@ -356,7 +371,7 @@ export default function Availability() {
   // Sync template from server → Default Week editor state
   useEffect(() => {
     if (!availabilityTemplate?.slots) return;
-    const rawSlots = availabilityTemplate.slots as Record<string, any>;
+    const rawSlots = availabilityTemplate.slots as Record<string, TemplateSlot>;
     const newSlots = emptyWeekTemplateSlots();
     for (let i = 0; i < 7; i++) {
       newSlots[String(i)] = parseDayTemplate(rawSlots[String(i)]);
@@ -387,7 +402,7 @@ export default function Availability() {
     if (autoFilledWeeksRef.current.has(startParam)) return;
     autoFilledWeeksRef.current.add(startParam);
 
-    const rawSlots = availabilityTemplate.slots as Record<string, any>;
+    const rawSlots = availabilityTemplate.slots as Record<string, TemplateSlot>;
     const newData: Record<string, Record<TimeSlot, boolean>> = {};
     const timeRanges: Record<string, { startTime: string; endTime: string } | null> = {};
 
@@ -399,8 +414,8 @@ export default function Availability() {
       const slots = slotsFromDayTemplate(tpl);
       newData[dateKey] = slots;
 
-      // Store time range for display if it's the new format and available
-      if (raw && 'available' in raw && raw.available && raw.startTime && raw.endTime) {
+      // Store time range for display — only for new-format slots that are available with explicit times
+      if (raw && isNewSlot(raw) && raw.available && raw.startTime && raw.endTime) {
         timeRanges[dateKey] = { startTime: raw.startTime, endTime: raw.endTime };
       } else {
         timeRanges[dateKey] = null;
@@ -558,6 +573,18 @@ export default function Availability() {
   };
 
   const handleSaveTemplate = () => {
+    // Validate time ranges before saving
+    for (let i = 0; i < 7; i++) {
+      const slot = templateSlots[String(i)];
+      if (slot.available && slot.startTime >= slot.endTime && slot.endTime !== '00:00') {
+        toast({
+          title: "Invalid time range",
+          description: `${DAY_NAMES[i]}: end time must be after start time.`,
+          variant: "destructive",
+        });
+        return;
+      }
+    }
     const slots: Record<string, { available: boolean; startTime?: string; endTime?: string }> = {};
     for (let i = 0; i < 7; i++) {
       const key = String(i);

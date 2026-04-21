@@ -16,7 +16,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useLocation } from "wouter";
 import { cn } from "@/lib/utils";
 import { apiRequest, queryClient as globalQueryClient } from "@/lib/queryClient";
-import type { User, Schedule, WorkLocation } from "@shared/schema";
+import type { User, Schedule, WorkLocation, AvailabilityTemplate, TemplateSlot, TemplateSlotNew } from "@shared/schema";
 import {
   ChevronLeft, ChevronRight, Plus, Trash2, Sparkles, Loader2,
   Check, X, Calendar, Clock, StickyNote, Bell, Pencil, Wand2, Users,
@@ -68,14 +68,18 @@ function formatSchedTimeShort(hhmm: string): string {
   return m === 0 ? `${h12} ${ampm}` : `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
 }
 
-function buildDefaultScheduleSummary(rawSlots: Record<string, any>): string {
+function isNewSlot(slot: TemplateSlot): slot is TemplateSlotNew {
+  return 'available' in slot;
+}
+
+function buildDefaultScheduleSummary(rawSlots: Record<string, TemplateSlot>): string {
   type DayInfo = { available: boolean; startTime?: string; endTime?: string };
   const days: DayInfo[] = Array.from({ length: 7 }, (_, i) => {
     const raw = rawSlots[String(i)];
     if (!raw) return { available: false };
-    if ('available' in raw) return { available: !!raw.available, startTime: raw.startTime, endTime: raw.endTime };
+    if (isNewSlot(raw)) return { available: raw.available, startTime: raw.startTime, endTime: raw.endTime };
     // Legacy format
-    return { available: !!(raw.morning || raw.afternoon || raw.evening) };
+    return { available: raw.morning || raw.afternoon || raw.evening };
   });
 
   const parts: string[] = [];
@@ -102,7 +106,7 @@ function buildDefaultScheduleSummary(rawSlots: Record<string, any>): string {
 function EmployeeDefaultSchedule({ userId }: { userId: string }) {
   const [expanded, setExpanded] = useState(false);
 
-  const { data: template, isLoading } = useQuery<any>({
+  const { data: template, isLoading } = useQuery<AvailabilityTemplate | null>({
     queryKey: ['/api/availability/template', userId],
     queryFn: async () => {
       const res = await fetch(`/api/availability/template?userId=${userId}`, { credentials: 'include' });
@@ -115,7 +119,7 @@ function EmployeeDefaultSchedule({ userId }: { userId: string }) {
 
   const summary = useMemo(() => {
     if (!template?.slots) return null;
-    return buildDefaultScheduleSummary(template.slots as Record<string, any>);
+    return buildDefaultScheduleSummary(template.slots as Record<string, TemplateSlot>);
   }, [template]);
 
   return (

@@ -167,6 +167,10 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
           if (v.endTime !== undefined && (typeof v.endTime !== 'string' || !TIME_RE.test(v.endTime as string))) {
             return res.status(400).json({ message: `slots.${key}.endTime must be HH:mm format` });
           }
+          // Reject invalid time ranges (end must be after start, unless end is midnight 00:00)
+          if (v.available && v.startTime && v.endTime && v.endTime !== '00:00' && (v.startTime as string) >= (v.endTime as string)) {
+            return res.status(400).json({ message: `slots.${key}: endTime must be after startTime` });
+          }
         } else {
           // Legacy format: { morning: boolean, afternoon: boolean, evening: boolean }
           if (typeof v.morning !== 'boolean' || typeof v.afternoon !== 'boolean' || typeof v.evening !== 'boolean') {
