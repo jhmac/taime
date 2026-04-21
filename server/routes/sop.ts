@@ -278,6 +278,7 @@ export function registerSopRoutes(app: Express, storage: IStorage, isAuthenticat
     try {
       const storeId = await tryResolveStoreIdForUser(req.user.id);
       const q = req.query.q as string | undefined;
+      const tag = req.query.tag as string | undefined;
 
       const [kbCat] = await db
         .select({ id: sopCategories.id })
@@ -291,18 +292,21 @@ export function registerSopRoutes(app: Express, storage: IStorage, isAuthenticat
         .limit(1);
 
       if (!kbCat) {
-        return res.json({ success: true, data: [] });
+        return res.json({ success: true, data: [], tags: [] });
       }
 
-      const conditions = [
+      const searchTerm = q ? q.trim() : "";
+      const whereClause = and(
         eq(sopDocuments.categoryId, kbCat.id),
         eq(sopDocuments.isPublished, true),
-      ];
-
-      if (q && q.trim()) {
-        const search = `%${q.trim()}%`;
-        conditions.push(or(ilike(sopDocuments.title, search), ilike(sopDocuments.summary, search), ilike(sopDocuments.content, search)) as any);
-      }
+        searchTerm
+          ? or(
+              ilike(sopDocuments.title, `%${searchTerm}%`),
+              ilike(sopDocuments.summary, `%${searchTerm}%`),
+              ilike(sopDocuments.content, `%${searchTerm}%`)
+            )
+          : undefined
+      );
 
       const articles = await db
         .select({
@@ -316,11 +320,25 @@ export function registerSopRoutes(app: Express, storage: IStorage, isAuthenticat
           createdAt: sopDocuments.createdAt,
         })
         .from(sopDocuments)
-        .where(and(...conditions))
+        .where(whereClause)
         .orderBy(desc(sopDocuments.updatedAt))
         .limit(100);
 
-      res.json({ success: true, data: articles });
+      const filtered = tag
+        ? articles.filter(a => Array.isArray(a.tags) && a.tags.includes(tag))
+        : articles;
+
+      const allTags = Array.from(
+        new Set(
+          articles.flatMap(a =>
+            (Array.isArray(a.tags) ? a.tags : []).filter(
+              t => t !== "ai-generated" && t !== "knowledge-base"
+            )
+          )
+        )
+      ).sort();
+
+      res.json({ success: true, data: filtered, tags: allTags });
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message });
     }
@@ -328,15 +346,25 @@ export function registerSopRoutes(app: Express, storage: IStorage, isAuthenticat
 
   app.get('/api/knowledge-base/:id', isAuthenticated, async (req: any, res) => {
     try {
+      const storeId = await tryResolveStoreIdForUser(req.user.id);
       const { id } = req.params;
+
       const [article] = await db
-        .select()
+        .select({
+          doc: sopDocuments,
+          catStoreId: sopCategories.storeId,
+        })
         .from(sopDocuments)
+        .innerJoin(sopCategories, eq(sopDocuments.categoryId, sopCategories.id))
         .where(and(eq(sopDocuments.id, id), eq(sopDocuments.isPublished, true)))
         .limit(1);
 
       if (!article) return res.status(404).json({ success: false, message: "Article not found" });
-      res.json({ success: true, data: article });
+      if (storeId && article.catStoreId && article.catStoreId !== storeId) {
+        return res.status(404).json({ success: false, message: "Article not found" });
+      }
+
+      res.json({ success: true, data: article.doc });
     } catch (error: any) {
       res.status(500).json({ success: false, message: error.message });
     }

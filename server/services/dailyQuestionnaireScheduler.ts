@@ -188,21 +188,20 @@ async function runDailyGenerationForStore(storeId: string, storage: IStorage): P
     return;
   }
 
-  const [kbDocs, scopedSopDocs] = await Promise.all([
-    storage.getKnowledgeDocuments(storeId),
-    db
-      .select({ id: sopDocuments.id, title: sopDocuments.title, content: sopDocuments.content })
-      .from(sopDocuments)
-      .innerJoin(sopCategories, eq(sopDocuments.categoryId, sopCategories.id))
-      .where(eq(sopCategories.storeId, storeId))
-      .limit(3),
-  ]);
+  const publishedDocs = await db
+    .select({ id: sopDocuments.id, title: sopDocuments.title, content: sopDocuments.content })
+    .from(sopDocuments)
+    .innerJoin(sopCategories, eq(sopDocuments.categoryId, sopCategories.id))
+    .where(
+      and(
+        eq(sopCategories.storeId, storeId),
+        eq(sopDocuments.isPublished, true)
+      )
+    )
+    .limit(8);
 
   let knowledgeContent = "";
-  for (const doc of kbDocs.slice(0, 5)) {
-    if (doc.content) knowledgeContent += `\n\n## ${doc.title}\n${doc.content}`;
-  }
-  for (const doc of scopedSopDocs) {
+  for (const doc of publishedDocs) {
     if (doc.content) knowledgeContent += `\n\n## ${doc.title}\n${doc.content}`;
   }
 

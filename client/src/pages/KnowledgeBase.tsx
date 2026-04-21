@@ -9,7 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Search, BookOpen, Tag, Clock, Sparkles, Library, FileText } from "lucide-react";
+import { Search, BookOpen, Tag, Clock, Sparkles, Library, FileText, X } from "lucide-react";
 import { useDebounce } from "@/hooks/useDebounce";
 
 interface KbArticle {
@@ -21,6 +21,12 @@ interface KbArticle {
   source: string | null;
   updatedAt: string | null;
   createdAt: string | null;
+}
+
+interface KbResponse {
+  success: boolean;
+  data: KbArticle[];
+  tags: string[];
 }
 
 function timeAgo(dateStr: string | null): string {
@@ -85,9 +91,7 @@ function ArticleModal({ article, onClose }: { article: KbArticle; onClose: () =>
     if (!content) return null;
     const lines = content.split("\n");
     return lines.map((line, i) => {
-      if (line.startsWith("# ")) {
-        return null;
-      }
+      if (line.startsWith("# ")) return null;
       if (line.startsWith("## ") || line.startsWith("### ")) {
         const text = line.replace(/^#{2,3}\s/, "");
         return <h3 key={i} className="text-sm font-bold text-foreground mt-4 mb-1">{text}</h3>;
@@ -144,19 +148,28 @@ function ArticleModal({ article, onClose }: { article: KbArticle; onClose: () =>
 
 export default function KnowledgeBase() {
   const [search, setSearch] = useState("");
+  const [activeTag, setActiveTag] = useState<string | null>(null);
   const [selectedArticle, setSelectedArticle] = useState<KbArticle | null>(null);
   const debouncedSearch = useDebounce(search, 350);
 
-  const { data, isLoading } = useQuery<{ success: boolean; data: KbArticle[] }>({
-    queryKey: ["/api/knowledge-base", debouncedSearch || undefined],
+  const { data, isLoading } = useQuery<KbResponse>({
+    queryKey: ["/api/knowledge-base", debouncedSearch || undefined, activeTag || undefined],
     queryFn: async () => {
-      const params = debouncedSearch ? `?q=${encodeURIComponent(debouncedSearch)}` : "";
-      const res = await fetch(`/api/knowledge-base${params}`, { credentials: "include" });
+      const params = new URLSearchParams();
+      if (debouncedSearch) params.set("q", debouncedSearch);
+      if (activeTag) params.set("tag", activeTag);
+      const qs = params.toString();
+      const res = await fetch(`/api/knowledge-base${qs ? `?${qs}` : ""}`, { credentials: "include" });
       return res.json();
     },
   });
 
   const articles = data?.data ?? [];
+  const tags = data?.tags ?? [];
+
+  const handleTagClick = (tag: string) => {
+    setActiveTag(prev => (prev === tag ? null : tag));
+  };
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-6 space-y-5">
@@ -180,6 +193,26 @@ export default function KnowledgeBase() {
         />
       </div>
 
+      {tags.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {tags.map(tag => (
+            <button
+              key={tag}
+              onClick={() => handleTagClick(tag)}
+              className={`inline-flex items-center gap-1 text-xs font-medium px-3 py-1 rounded-full border transition-colors ${
+                activeTag === tag
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-muted text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"
+              }`}
+            >
+              <Tag className="w-3 h-3" />
+              {tag}
+              {activeTag === tag && <X className="w-3 h-3 ml-0.5" />}
+            </button>
+          ))}
+        </div>
+      )}
+
       {isLoading ? (
         <div className="space-y-3">
           {[1, 2, 3, 4].map(i => (
@@ -192,19 +225,28 @@ export default function KnowledgeBase() {
             <BookOpen className="w-7 h-7 text-muted-foreground" />
           </div>
           <p className="font-semibold text-foreground">
-            {search ? "No articles matched your search" : "No knowledge base articles yet"}
+            {search || activeTag ? "No articles matched your filters" : "No knowledge base articles yet"}
           </p>
           <p className="text-sm text-muted-foreground max-w-xs mx-auto">
-            {search
-              ? "Try a different search term."
+            {search || activeTag
+              ? "Try clearing your search or selected filter."
               : "Upload documents in AI Studio and approve Knowledge Base items to populate this library."}
           </p>
+          {activeTag && (
+            <button
+              onClick={() => setActiveTag(null)}
+              className="text-xs text-primary underline-offset-2 hover:underline"
+            >
+              Clear filter
+            </button>
+          )}
         </div>
       ) : (
         <>
           <p className="text-xs text-muted-foreground font-medium">
             {articles.length} article{articles.length !== 1 ? "s" : ""}
             {search ? ` matching "${search}"` : ""}
+            {activeTag ? ` tagged "${activeTag}"` : ""}
           </p>
           <div className="space-y-2">
             {articles.map(article => (
