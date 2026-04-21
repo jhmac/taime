@@ -236,7 +236,7 @@ export interface IStorage {
 
   // Availability template operations
   getAvailabilityTemplate(userId: string): Promise<AvailabilityTemplate | undefined>;
-  upsertAvailabilityTemplate(userId: string, slots: Record<string, { morning: boolean; afternoon: boolean; evening: boolean }>): Promise<AvailabilityTemplate>;
+  upsertAvailabilityTemplate(userId: string, slots: Record<string, import('@shared/schema').TemplateSlot>): Promise<AvailabilityTemplate>;
 
   // Time-off request operations
   createTimeOffRequest(request: InsertTimeOffRequest): Promise<TimeOffRequest>;
@@ -975,7 +975,7 @@ export class DatabaseStorage implements IStorage {
 
   async upsertAvailabilityTemplate(
     userId: string,
-    slots: Record<string, { morning: boolean; afternoon: boolean; evening: boolean }>
+    slots: Record<string, import('@shared/schema').TemplateSlot>
   ): Promise<AvailabilityTemplate> {
     const [result] = await db
       .insert(availabilityTemplates)

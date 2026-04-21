@@ -111,12 +111,25 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
   // Availability template routes
   app.get('/api/availability/template', isAuthenticated, async (req: any, res) => {
     try {
+      const requestingUserId: string = req.user.id;
       const requestingRole = req.user?.role?.name;
       const isManagerOrAbove = ['owner', 'admin', 'manager', 'assistant_manager'].includes(requestingRole);
-      // Managers can view any employee's template via ?userId=
-      const targetUserId = (isManagerOrAbove && req.query.userId)
-        ? (req.query.userId as string)
-        : req.user.id;
+
+      let targetUserId = requestingUserId;
+
+      if (isManagerOrAbove && req.query.userId && req.query.userId !== requestingUserId) {
+        const requested = req.query.userId as string;
+        // Scope check: both the requester and the target must belong to the same store
+        const [requesterStoreId, targetStoreId] = await Promise.all([
+          tryResolveStoreIdForUser(requestingUserId),
+          tryResolveStoreIdForUser(requested),
+        ]);
+        if (!requesterStoreId || !targetStoreId || requesterStoreId !== targetStoreId) {
+          return res.status(403).json({ message: "Not authorized to view that employee's template" });
+        }
+        targetUserId = requested;
+      }
+
       const template = await storage.getAvailabilityTemplate(targetUserId);
       res.json(template || null);
     } catch (error) {

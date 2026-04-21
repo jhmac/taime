@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -268,9 +268,14 @@ export default function Availability() {
   const [calendarMonth, setCalendarMonth] = useState(new Date());
   const [availabilityData, setAvailabilityData] = useState<Record<string, Record<TimeSlot, boolean>>>({});
   const [hasChanges, setHasChanges] = useState(false);
-  const [autoFilled, setAutoFilled] = useState(false);
-  // Track time ranges applied from the template for display in the weekly grid
+  // showAutoFilledPill: controls the dismissible info pill; dismissed independently of labels
+  const [showAutoFilledPill, setShowAutoFilledPill] = useState(false);
+  // weekWasAutoFilled: true for the entire session on this week (not cleared on pill dismiss)
+  const [weekWasAutoFilled, setWeekWasAutoFilled] = useState(false);
+  // Per-day time ranges stored from template; shown regardless of pill visibility
   const [autoFilledTimeRanges, setAutoFilledTimeRanges] = useState<Record<string, { startTime: string; endTime: string } | null>>({});
+  // Session-level guard: track which week-start dates have been auto-filled this session
+  const autoFilledWeeksRef = useRef<Set<string>>(new Set());
 
   // Time-off form state
   const [showTimeOffForm, setShowTimeOffForm] = useState(false);
@@ -331,7 +336,7 @@ export default function Availability() {
   });
 
   // ── Effects: sync server data → local state ─────────────────────────────────
-  // Sync weekly availability from server (reset auto-fill when new data loads)
+  // Sync weekly availability from server (reset auto-fill UI state when new data loads)
   useEffect(() => {
     const availMap: Record<string, Record<TimeSlot, boolean>> = {};
     if (Array.isArray(currentAvailability)) {
@@ -343,7 +348,8 @@ export default function Availability() {
     }
     setAvailabilityData(availMap);
     setHasChanges(false);
-    setAutoFilled(false);
+    setShowAutoFilledPill(false);
+    setWeekWasAutoFilled(false);
     setAutoFilledTimeRanges({});
   }, [currentAvailability]);
 
@@ -373,7 +379,13 @@ export default function Availability() {
     if (isLoading) return;
     if (!weekHasNoAvailability) return;
     if (isWeekInPast) return;
+    if (hasChanges) return; // User has already interacted with this week this session — do not overwrite
     if (!availabilityTemplate?.slots) return;
+
+    // Session-level guard: each week start is auto-filled at most once per session,
+    // preventing re-application after the user navigates away and back to the same week
+    if (autoFilledWeeksRef.current.has(startParam)) return;
+    autoFilledWeeksRef.current.add(startParam);
 
     const rawSlots = availabilityTemplate.slots as Record<string, any>;
     const newData: Record<string, Record<TimeSlot, boolean>> = {};
@@ -398,8 +410,9 @@ export default function Availability() {
     setAvailabilityData(prev => ({ ...prev, ...newData }));
     setAutoFilledTimeRanges(timeRanges);
     setHasChanges(true);
-    setAutoFilled(true);
-  }, [isLoading, weekHasNoAvailability, isWeekInPast, availabilityTemplate, weekDates]);
+    setWeekWasAutoFilled(true);
+    setShowAutoFilledPill(true);
+  }, [isLoading, weekHasNoAvailability, isWeekInPast, availabilityTemplate, weekDates, hasChanges, startParam]);
 
   // ── Mutations ────────────────────────────────────────────────────────────────
   const submitAvailabilityMutation = useMutation({
@@ -410,7 +423,8 @@ export default function Availability() {
       toast({ title: "Availability saved", description: "Your availability has been updated." });
       queryClient.invalidateQueries({ queryKey: ['/api/availability'] });
       setHasChanges(false);
-      setAutoFilled(false);
+      setShowAutoFilledPill(false);
+      setWeekWasAutoFilled(false);
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to save availability.", variant: "destructive" });
@@ -643,15 +657,15 @@ export default function Availability() {
                 </Button>
               </div>
 
-              {/* Auto-filled pill */}
-              {autoFilled && (
+              {/* Auto-filled pill — dismissible; hides pill but keeps time-range labels */}
+              {showAutoFilledPill && (
                 <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg bg-primary/5 border border-primary/20">
                   <Wand2 className="h-3.5 w-3.5 text-primary shrink-0" />
                   <span className="text-xs text-muted-foreground flex-1">
                     Auto-filled from your default schedule — edit or save below.
                   </span>
                   <button
-                    onClick={() => setAutoFilled(false)}
+                    onClick={() => setShowAutoFilledPill(false)}
                     className="text-muted-foreground hover:text-foreground transition-colors"
                     aria-label="Dismiss"
                   >
@@ -689,7 +703,7 @@ export default function Availability() {
                       const isToday = date.toDateString() === new Date().toDateString();
                       const summary = getDayAvailabilitySummary(date);
                       const dateKey = formatDateKey(date);
-                      const timeRange = autoFilled ? autoFilledTimeRanges[dateKey] : null;
+                      const timeRange = weekWasAutoFilled ? autoFilledTimeRanges[dateKey] : null;
                       return (
                         <div key={date.toISOString()} className="text-center px-0.5">
                           <div className="text-[10px] text-muted-foreground uppercase tracking-wide">
@@ -704,8 +718,9 @@ export default function Availability() {
                           )}>
                             {date.getDate()}
                           </div>
-                          {/* Time range label when auto-filled */}
-                          {timeRange && (
+                          {/* Time range label — shown for the whole week session after auto-fill,
+                              persists even after the user dismisses the pill */}
+                          {weekWasAutoFilled && timeRange && (
                             <div className="text-[9px] text-primary leading-tight mt-0.5 truncate">
                               {formatTimeShort(timeRange.startTime)}–{formatTimeShort(timeRange.endTime)}
                             </div>
