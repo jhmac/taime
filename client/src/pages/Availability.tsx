@@ -318,8 +318,8 @@ export default function Availability() {
       };
     });
     setAvailabilityData(prev => ({ ...prev, ...newData }));
-    // Don't mark as changes — this is auto-fill, not a user edit
-    // But set it to trigger save if they actually submit
+    // Mark as changed so user can save the auto-applied template to this week
+    setHasChanges(true);
   }, [isLoading, weekHasNoAvailability, isWeekInPast, availabilityTemplate, weekDates]);
 
   const submitAvailabilityMutation = useMutation({
@@ -665,7 +665,7 @@ export default function Availability() {
               <div className="mt-4 flex gap-2 flex-wrap">
                 <Button
                   onClick={handleSaveAvailability}
-                  disabled={submitAvailabilityMutation.isPending}
+                  disabled={submitAvailabilityMutation.isPending || !hasChanges}
                   className="flex-1 gap-2 min-w-[140px]"
                 >
                   {submitAvailabilityMutation.isPending ? (

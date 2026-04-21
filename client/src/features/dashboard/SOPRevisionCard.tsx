@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Lightbulb, ChevronRight, CheckCircle2 } from "lucide-react";
 import ErrorWithRetry from "@/components/ErrorWithRetry";
 import { useOnlineRetry } from "@/hooks/useOnlineRetry";
+import { useAuth } from "@/hooks/useAuth";
 
 interface RevisionStats {
   pendingCount: number;
@@ -15,6 +16,9 @@ interface RevisionStats {
 
 export default function SOPRevisionCard() {
   const [, navigate] = useLocation();
+  const { user } = useAuth();
+  const roleName = user?.role?.name;
+  const isAdminOrOwner = roleName === 'owner' || roleName === 'admin';
 
   const { data: stats, isLoading, isError, refetch } = useQuery<RevisionStats>({
     queryKey: ["/api/sops/revisions/stats"],
@@ -76,7 +80,7 @@ export default function SOPRevisionCard() {
           </Badge>
         </div>
         <p className="text-xs text-muted-foreground mt-1.5">
-          MAinager has {stats.pendingCount} improvement suggestion{stats.pendingCount !== 1 ? "s" : ""} across {stats.affectedSOPs} SOP{stats.affectedSOPs !== 1 ? "s" : ""}.
+          AI found {stats.pendingCount} improvement suggestion{stats.pendingCount !== 1 ? "s" : ""} across {stats.affectedSOPs} SOP{stats.affectedSOPs !== 1 ? "s" : ""}.
         </p>
         <Button
           size="sm"
@@ -84,7 +88,8 @@ export default function SOPRevisionCard() {
           className="w-full mt-2.5 gap-1 text-xs"
           onClick={() => navigate("/sops/revisions")}
         >
-          Review Suggestions <ChevronRight className="h-3 w-3" />
+          {isAdminOrOwner ? "Review & Approve" : "View Suggestions"}
+          <ChevronRight className="h-3 w-3" />
         </Button>
       </CardContent>
     </Card>
