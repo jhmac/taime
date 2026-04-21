@@ -30,6 +30,7 @@ export default function CashManagement() {
   const [expandedDepositSlip, setExpandedDepositSlip] = useState<string | null>(null);
   const [activeDepositSessionId, setActiveDepositSessionId] = useState<string | null>(null);
   const [notesDraft, setNotesDraft] = useState<Record<string, string>>({});
+  const [expandedTenderBreakdown, setExpandedTenderBreakdown] = useState<Set<string>>(new Set());
 
   const { data: accessCheck, isLoading: accessLoading } = useQuery<{
     allowed: boolean;
@@ -418,19 +419,47 @@ export default function CashManagement() {
                     </div>
 
                     {shopify && (
-                      <div className="mt-3 pt-3 border-t grid grid-cols-3 gap-2 text-xs text-muted-foreground">
-                        <div>
-                          <p>Cash Sales</p>
-                          <p className="font-semibold text-foreground">${parseFloat(shopify.cashSales || "0").toFixed(2)}</p>
+                      <div className="mt-3 pt-3 border-t space-y-2">
+                        <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
+                          <div>
+                            <p>Cash Sales</p>
+                            <p className="font-semibold text-foreground">${parseFloat(shopify.cashSales || "0").toFixed(2)}</p>
+                          </div>
+                          <div>
+                            <p>Total Sales</p>
+                            <p className="font-semibold text-foreground">${parseFloat(shopify.totalSales || "0").toFixed(2)}</p>
+                          </div>
+                          <div>
+                            <p>Status</p>
+                            <p className="font-semibold text-foreground capitalize">{shopify.status?.toLowerCase() || "—"}</p>
+                          </div>
                         </div>
-                        <div>
-                          <p>Total Sales</p>
-                          <p className="font-semibold text-foreground">${parseFloat(shopify.totalSales || "0").toFixed(2)}</p>
-                        </div>
-                        <div>
-                          <p>Status</p>
-                          <p className="font-semibold text-foreground capitalize">{shopify.status?.toLowerCase() || "—"}</p>
-                        </div>
+                        {shopify.tenderBreakdown && shopify.tenderBreakdown.length > 0 && (
+                          <div>
+                            <button
+                              className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
+                              onClick={() => setExpandedTenderBreakdown(prev => {
+                                const key = reg.id ?? reg.name;
+                                const next = new Set(prev);
+                                next.has(key) ? next.delete(key) : next.add(key);
+                                return next;
+                              })}
+                            >
+                              <i className={`fas fa-chevron-${expandedTenderBreakdown.has(reg.id ?? reg.name) ? "up" : "down"} text-[10px]`} />
+                              Payment Breakdown
+                            </button>
+                            {expandedTenderBreakdown.has(reg.id ?? reg.name) && (
+                              <div className="mt-1.5 space-y-1 pl-1">
+                                {shopify.tenderBreakdown.map((t: any, i: number) => (
+                                  <div key={i} className="flex justify-between text-xs">
+                                    <span className="text-muted-foreground capitalize">{t.tenderType ? t.tenderType.toLowerCase().replace(/_/g, " ") : "unknown"}</span>
+                                    <span className="font-medium">${parseFloat(t.amount?.shopMoney?.amount || "0").toFixed(2)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
 
