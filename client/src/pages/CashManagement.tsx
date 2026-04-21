@@ -43,6 +43,7 @@ export default function CashManagement() {
   const [expandedTenderBreakdown, setExpandedTenderBreakdown] = useState<Set<string>>(new Set());
   const isFirstRender = useRef(true);
   const autoSyncRef = useRef(false);
+  const mountSyncDoneRef = useRef(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
   const [, setTick] = useState(0);
 
@@ -161,6 +162,14 @@ export default function CashManagement() {
     autoSyncRef.current = true;
     syncShopifyMutation.mutate();
   }, [selectedDate]);
+
+  useEffect(() => {
+    if (!accessCheck?.allowed) return;
+    if (mountSyncDoneRef.current) return;
+    mountSyncDoneRef.current = true;
+    autoSyncRef.current = true;
+    syncShopifyMutation.mutate();
+  }, [accessCheck?.allowed]);
 
   const notesMutation = useMutation({
     mutationFn: async ({ id, notes }: { id: string; notes: string }) => {
