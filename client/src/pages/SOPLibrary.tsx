@@ -7,8 +7,9 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useAuth } from '@/hooks/useAuth';
-import { Plus, Search, ClipboardList, Clock, CheckCircle2, ChevronRight, GraduationCap } from 'lucide-react';
+import { Plus, Search, ClipboardList, Clock, CheckCircle2, ChevronRight, GraduationCap, TriangleAlert, Settings } from 'lucide-react';
 
 interface SopTemplateListItem {
   id: string;
@@ -29,6 +30,13 @@ interface TemplateListResponse {
   success: boolean;
   data: SopTemplateListItem[];
   pagination: { total: number; limit: number; offset: number };
+}
+
+interface SopSignOffHealth {
+  healthy: boolean;
+  totalEligibleReviewers: number;
+  permissions: { permission: string; count: number }[];
+  warnings: string[];
 }
 
 const CATEGORIES = [
@@ -66,6 +74,11 @@ export default function SOPLibrary() {
   const [searchDebounced, setSearchDebounced] = useState('');
 
   const isAdmin = user?.role?.name === 'admin' || user?.role?.name === 'owner';
+
+  const { data: healthData } = useQuery<SopSignOffHealth>({
+    queryKey: ['/api/admin/health/sop-sign-off'],
+    enabled: isAdmin,
+  });
 
   const queryParams = new URLSearchParams();
   if (category !== 'all') queryParams.set('category', category);
@@ -136,6 +149,32 @@ export default function SOPLibrary() {
           </TabsList>
         </Tabs>
       </div>
+
+      {isAdmin && healthData && !healthData.healthy && (
+        <div className="px-4 pb-2">
+          <Alert variant="destructive" className="border-destructive/60 bg-destructive/10 text-destructive dark:bg-destructive/20">
+            <TriangleAlert className="h-4 w-4" />
+            <AlertTitle className="font-semibold">No one can approve checkpoint sign-offs</AlertTitle>
+            <AlertDescription className="mt-1 space-y-2">
+              <p className="text-sm">
+                No active users hold a sign-off permission (<code className="text-xs font-mono">admin.manage_all</code>,{' '}
+                <code className="text-xs font-mono">admin.role_management</code>, or{' '}
+                <code className="text-xs font-mono">admin.manage_payroll</code>). Checkpoint sign-off requests will be
+                silently dropped until at least one user is granted one of these permissions.
+              </p>
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                onClick={() => navigate('/settings')}
+              >
+                <Settings className="h-3.5 w-3.5" />
+                Go to Permissions Settings
+              </Button>
+            </AlertDescription>
+          </Alert>
+        </div>
+      )}
 
       <div className="flex-1 overflow-auto px-4 pb-4">
         {isLoading ? (
