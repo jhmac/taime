@@ -374,6 +374,26 @@ export const insertAvailabilityTemplateSchema = createInsertSchema(availabilityT
 export type AvailabilityTemplate = typeof availabilityTemplates.$inferSelect;
 export type InsertAvailabilityTemplate = z.infer<typeof insertAvailabilityTemplateSchema>;
 
+// Per-date availability overrides — "only this week/day" entries that take precedence over the template.
+// One row per (userId, date). date is stored as "YYYY-MM-DD".
+export const userAvailabilityOverrides = pgTable("user_availability_overrides", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  date: varchar("date", { length: 10 }).notNull(), // "YYYY-MM-DD"
+  startTime: varchar("start_time", { length: 5 }), // "HH:mm" — null when unavailable=true
+  endTime: varchar("end_time", { length: 5 }),     // "HH:mm"
+  unavailable: boolean("unavailable").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("idx_user_avail_overrides_user_date").on(table.userId, table.date),
+  index("idx_user_avail_overrides_date").on(table.date),
+]);
+
+export const insertUserAvailabilityOverrideSchema = createInsertSchema(userAvailabilityOverrides).omit({ id: true, createdAt: true, updatedAt: true });
+export type UserAvailabilityOverride = typeof userAvailabilityOverrides.$inferSelect;
+export type InsertUserAvailabilityOverride = z.infer<typeof insertUserAvailabilityOverrideSchema>;
+
 // Time-off requests
 export const timeOffRequests = pgTable("time_off_requests", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

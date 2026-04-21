@@ -10,8 +10,11 @@ import {
   payrollPeriods,
   userAvailability,
   availabilityTemplates,
+  userAvailabilityOverrides,
   type AvailabilityTemplate,
   type InsertAvailabilityTemplate,
+  type UserAvailabilityOverride,
+  type InsertUserAvailabilityOverride,
   payPeriodSettings,
   scheduleConfirmations,
   workflowLogs,
@@ -238,6 +241,12 @@ export interface IStorage {
   getAvailabilityTemplate(userId: string): Promise<AvailabilityTemplate | undefined>;
   getAvailabilityTemplatesForUsers(userIds: string[]): Promise<AvailabilityTemplate[]>;
   upsertAvailabilityTemplate(userId: string, slots: Record<string, import('@shared/schema').TemplateSlot>): Promise<AvailabilityTemplate>;
+
+  // Per-date availability override operations
+  upsertAvailabilityOverride(userId: string, date: string, data: { startTime?: string | null; endTime?: string | null; unavailable: boolean }): Promise<UserAvailabilityOverride>;
+  getAvailabilityOverrides(userId: string, startDate: string, endDate: string): Promise<UserAvailabilityOverride[]>;
+  getAvailabilityOverridesForUsers(userIds: string[], startDate: string, endDate: string): Promise<UserAvailabilityOverride[]>;
+  deleteAvailabilityOverride(userId: string, date: string): Promise<void>;
 
   // Time-off request operations
   createTimeOffRequest(request: InsertTimeOffRequest): Promise<TimeOffRequest>;
@@ -995,6 +1004,72 @@ export class DatabaseStorage implements IStorage {
       })
       .returning();
     return result;
+  }
+
+  // Per-date availability override operations
+  async upsertAvailabilityOverride(
+    userId: string,
+    date: string,
+    data: { startTime?: string | null; endTime?: string | null; unavailable: boolean }
+  ): Promise<UserAvailabilityOverride> {
+    const [result] = await db
+      .insert(userAvailabilityOverrides)
+      .values({
+        userId,
+        date,
+        startTime: data.startTime ?? null,
+        endTime: data.endTime ?? null,
+        unavailable: data.unavailable,
+      })
+      .onConflictDoUpdate({
+        target: [userAvailabilityOverrides.userId, userAvailabilityOverrides.date],
+        set: {
+          startTime: data.startTime ?? null,
+          endTime: data.endTime ?? null,
+          unavailable: data.unavailable,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    return result;
+  }
+
+  async getAvailabilityOverrides(userId: string, startDate: string, endDate: string): Promise<UserAvailabilityOverride[]> {
+    return await db
+      .select()
+      .from(userAvailabilityOverrides)
+      .where(
+        and(
+          eq(userAvailabilityOverrides.userId, userId),
+          sql`${userAvailabilityOverrides.date} >= ${startDate}`,
+          sql`${userAvailabilityOverrides.date} <= ${endDate}`
+        )
+      );
+  }
+
+  async getAvailabilityOverridesForUsers(userIds: string[], startDate: string, endDate: string): Promise<UserAvailabilityOverride[]> {
+    if (userIds.length === 0) return [];
+    return await db
+      .select()
+      .from(userAvailabilityOverrides)
+      .where(
+        and(
+          inArray(userAvailabilityOverrides.userId, userIds),
+          sql`${userAvailabilityOverrides.date} >= ${startDate}`,
+          sql`${userAvailabilityOverrides.date} <= ${endDate}`
+        )
+      );
+  }
+
+  async deleteAvailabilityOverride(userId: string, date: string): Promise<void> {
+    await db
+      .delete(userAvailabilityOverrides)
+      .where(
+        and(
+          eq(userAvailabilityOverrides.userId, userId),
+          eq(userAvailabilityOverrides.date, date)
+        )
+      );
   }
 
   // Time-off request operations

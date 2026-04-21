@@ -9,6 +9,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -18,9 +19,21 @@ import { cn } from "@/lib/utils";
 import {
   Sun, Sunset, Moon, Clock, Check, Minus, ChevronLeft, ChevronRight,
   StickyNote, Plus, X, Umbrella, Thermometer, User, CalendarMinus,
-  MoreHorizontal, MessageSquare, CalendarCheck, Save, Loader2, CalendarDays, Wand2
+  MoreHorizontal, MessageSquare, CalendarCheck, Save, Loader2, CalendarDays, Wand2,
+  Ban, RefreshCcw, Repeat
 } from "lucide-react";
 import type { UserAvailability, TimeOffRequest, AvailabilityTemplate, TemplateSlot, TemplateSlotNew, TemplateSlotLegacy } from "@shared/schema";
+
+// ─── Calendar day entry type (from merged API) ───────────────────────────────
+interface CalDayEntry {
+  date: string; // "YYYY-MM-DD"
+  source: 'override' | 'template' | 'time_off' | 'none';
+  available: boolean;
+  unavailable: boolean;
+  startTime: string | null;
+  endTime: string | null;
+  timeOff: { type: string; status: string } | null;
+}
 
 // ─── Time slot types (for the weekly grid — unchanged) ─────────────────────
 type TimeSlot = 'morning' | 'afternoon' | 'evening' | 'all_day';
@@ -282,7 +295,6 @@ export default function Availability() {
 
   // Weekly view state
   const [selectedWeek, setSelectedWeek] = useState(new Date());
-  const [calendarMonth, setCalendarMonth] = useState(new Date());
   const [availabilityData, setAvailabilityData] = useState<Record<string, Record<TimeSlot, boolean>>>({});
   const [hasChanges, setHasChanges] = useState(false);
   // showAutoFilledPill: controls the dismissible info pill; dismissed independently of labels
@@ -307,6 +319,15 @@ export default function Availability() {
   // Preset time range for quick-fill buttons
   const [presetStart, setPresetStart] = useState(DEFAULT_START);
   const [presetEnd, setPresetEnd] = useState(DEFAULT_END);
+
+  // ── New calendar state ──────────────────────────────────────────────────────
+  const [calViewMonth, setCalViewMonth] = useState(new Date());
+  const [editorDay, setEditorDay] = useState<string | null>(null);
+  const [editorStartTime, setEditorStartTime] = useState(DEFAULT_START);
+  const [editorEndTime, setEditorEndTime] = useState(DEFAULT_END);
+  const [editorUnavailable, setEditorUnavailable] = useState(false);
+  // 'override' = only this specific date; 'template' = update the recurring weekly template
+  const [editorScope, setEditorScope] = useState<'override' | 'template'>('override');
 
   // ── Derived values ──────────────────────────────────────────────────────────
   const weekDates = useMemo(() => getWeekDates(selectedWeek), [selectedWeek]);
@@ -351,6 +372,25 @@ export default function Availability() {
       return res.json();
     },
   });
+
+  // ── New: merged calendar query ───────────────────────────────────────────────
+  const calStart = formatDateKey(new Date(calViewMonth.getFullYear(), calViewMonth.getMonth(), 1));
+  const calEnd = formatDateKey(new Date(calViewMonth.getFullYear(), calViewMonth.getMonth() + 1, 0));
+
+  const { data: calendarData = [], isLoading: calendarLoading } = useQuery<CalDayEntry[]>({
+    queryKey: ['/api/availability/calendar', calStart, calEnd],
+    queryFn: async () => {
+      const res = await fetch(`/api/availability/calendar?start=${calStart}&end=${calEnd}`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to fetch calendar');
+      return res.json();
+    },
+  });
+
+  const calByDate = useMemo(() => {
+    const map: Record<string, CalDayEntry> = {};
+    for (const e of calendarData) map[e.date] = e;
+    return map;
+  }, [calendarData]);
 
   // ── Effects: sync server data → local state ─────────────────────────────────
   // Sync weekly availability from server (reset auto-fill UI state when new data loads)
@@ -500,6 +540,60 @@ export default function Availability() {
     },
   });
 
+  const saveDayOverrideMutation = useMutation({
+    mutationFn: async (body: { date: string; startTime?: string; endTime?: string; unavailable: boolean }) => {
+      await apiRequest('PATCH', '/api/availability/day', body);
+    },
+    onSuccess: () => {
+      toast({ title: "Availability saved" });
+      queryClient.invalidateQueries({ queryKey: ['/api/availability/calendar'] });
+      setEditorDay(null);
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to save.", variant: "destructive" });
+    },
+  });
+
+  const clearDayOverrideMutation = useMutation({
+    mutationFn: async (date: string) => {
+      await apiRequest('DELETE', `/api/availability/day?date=${date}`);
+    },
+    onSuccess: () => {
+      toast({ title: "Cleared", description: "Reverted to your default schedule." });
+      queryClient.invalidateQueries({ queryKey: ['/api/availability/calendar'] });
+      setEditorDay(null);
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to clear.", variant: "destructive" });
+    },
+  });
+
+  const saveTemplateDayMutation = useMutation({
+    mutationFn: async (body: { dow: number; startTime?: string; endTime?: string; unavailable: boolean }) => {
+      const currentSlots = availabilityTemplate?.slots
+        ? { ...(availabilityTemplate.slots as Record<string, { available: boolean; startTime?: string; endTime?: string }>) }
+        : {} as Record<string, { available: boolean; startTime?: string; endTime?: string }>;
+      for (let i = 0; i < 7; i++) {
+        if (!currentSlots[String(i)]) currentSlots[String(i)] = { available: false, startTime: DEFAULT_START, endTime: DEFAULT_END };
+      }
+      currentSlots[String(body.dow)] = {
+        available: !body.unavailable,
+        startTime: !body.unavailable ? body.startTime : undefined,
+        endTime: !body.unavailable ? body.endTime : undefined,
+      };
+      await apiRequest('POST', '/api/availability/template', { slots: currentSlots });
+    },
+    onSuccess: () => {
+      toast({ title: "Default schedule updated", description: "This day-of-week will now auto-fill every week." });
+      queryClient.invalidateQueries({ queryKey: ['/api/availability/template'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/availability/calendar'] });
+      setEditorDay(null);
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to save default schedule.", variant: "destructive" });
+    },
+  });
+
   // ── Handlers: weekly view ────────────────────────────────────────────────────
   const toggleSlot = (date: Date, slot: TimeSlot) => {
     const dateKey = formatDateKey(date);
@@ -623,6 +717,53 @@ export default function Availability() {
     });
   };
 
+  // ── Calendar day editor opener ──────────────────────────────────────────────
+  const openDayEditor = (dateStr: string) => {
+    const entry = calByDate[dateStr];
+    // Time-off days cannot be edited here
+    if (entry?.source === 'time_off') {
+      toast({ title: "Time off", description: "This day has an approved time-off request." });
+      return;
+    }
+    // Pre-fill from existing data
+    if (entry && entry.available) {
+      setEditorStartTime(entry.startTime || DEFAULT_START);
+      setEditorEndTime(entry.endTime || DEFAULT_END);
+      setEditorUnavailable(false);
+    } else if (entry && entry.unavailable) {
+      setEditorStartTime(DEFAULT_START);
+      setEditorEndTime(DEFAULT_END);
+      setEditorUnavailable(true);
+    } else {
+      setEditorStartTime(DEFAULT_START);
+      setEditorEndTime(DEFAULT_END);
+      setEditorUnavailable(false);
+    }
+    // If the day already has an override, default scope to override; else default to override too (most common case)
+    setEditorScope('override');
+    setEditorDay(dateStr);
+  };
+
+  const handleSaveDay = () => {
+    if (!editorDay) return;
+    if (editorScope === 'override') {
+      saveDayOverrideMutation.mutate({
+        date: editorDay,
+        startTime: editorUnavailable ? undefined : editorStartTime,
+        endTime: editorUnavailable ? undefined : editorEndTime,
+        unavailable: editorUnavailable,
+      });
+    } else {
+      const dateObj = new Date(editorDay + 'T12:00:00Z');
+      saveTemplateDayMutation.mutate({
+        dow: dateObj.getUTCDay(),
+        startTime: editorUnavailable ? undefined : editorStartTime,
+        endTime: editorUnavailable ? undefined : editorEndTime,
+        unavailable: editorUnavailable,
+      });
+    }
+  };
+
   // ── Computed summary helpers ─────────────────────────────────────────────────
   const getDayAvailabilitySummary = (date: Date): 'full' | 'partial' | 'none' => {
     const dateKey = formatDateKey(date);
@@ -632,10 +773,6 @@ export default function Availability() {
     return count === 3 ? 'full' : count > 0 ? 'partial' : 'none';
   };
 
-  const monthDays = useMemo(
-    () => getMonthDays(calendarMonth.getFullYear(), calendarMonth.getMonth()),
-    [calendarMonth]
-  );
 
   const myRequests = timeOffRequests.filter((r: TimeOffRequest) => r.userId === user?.id);
   const pendingCount = myRequests.filter(r => r.status === 'pending').length;
@@ -671,232 +808,237 @@ export default function Availability() {
         <TabsContent value="availability" className="space-y-4">
           <Card>
             <CardContent className="p-4">
-              {/* Week navigation + Default Schedule button */}
-              <div className="flex items-center justify-between mb-3">
-                <Button variant="ghost" size="icon" onClick={() => {
-                  const d = new Date(selectedWeek); d.setDate(d.getDate() - 7); setSelectedWeek(d);
-                }}>
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <div className="text-center">
-                  <h3 className="font-semibold text-sm">
-                    {weekDates[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                    {' – '}
-                    {weekDates[6].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                  </h3>
-                </div>
+              {/* Header: month nav + default schedule button */}
+              <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-1">
-                  <Button variant="ghost" size="sm" className="text-xs gap-1 px-2" onClick={() => setShowDefaultSchedule(true)}>
-                    <CalendarDays className="h-3.5 w-3.5" />
-                    Default
+                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() =>
+                    setCalViewMonth(new Date(calViewMonth.getFullYear(), calViewMonth.getMonth() - 1))
+                  }>
+                    <ChevronLeft className="h-4 w-4" />
                   </Button>
-                  <Button variant="ghost" size="icon" onClick={() => {
-                    const d = new Date(selectedWeek); d.setDate(d.getDate() + 7); setSelectedWeek(d);
-                  }}>
+                  <span className="text-sm font-semibold min-w-[130px] text-center">
+                    {calViewMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                  </span>
+                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() =>
+                    setCalViewMonth(new Date(calViewMonth.getFullYear(), calViewMonth.getMonth() + 1))
+                  }>
                     <ChevronRight className="h-4 w-4" />
                   </Button>
+                  <Button variant="ghost" size="sm" className="text-xs ml-1 text-muted-foreground" onClick={() => setCalViewMonth(new Date())}>
+                    Today
+                  </Button>
                 </div>
+                <Button variant="ghost" size="sm" className="text-xs gap-1 px-2" onClick={() => setShowDefaultSchedule(true)}>
+                  <CalendarDays className="h-3.5 w-3.5" />
+                  Default
+                </Button>
               </div>
 
-              {/* Auto-filled pill — dismissible; hides pill but keeps time-range labels */}
-              {showAutoFilledPill && (
-                <div className="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg bg-primary/5 border border-primary/20">
-                  <Wand2 className="h-3.5 w-3.5 text-primary shrink-0" />
-                  <span className="text-xs text-muted-foreground flex-1">
-                    Auto-filled from your default schedule — edit or save below.
-                  </span>
-                  <button
-                    onClick={() => setShowAutoFilledPill(false)}
-                    className="text-muted-foreground hover:text-foreground transition-colors"
-                    aria-label="Dismiss"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              )}
-
-              {/* Quick presets */}
-              <div className="flex gap-2 mb-4 flex-wrap">
-                {(
-                  [
-                    { key: 'weekdays', label: 'Weekdays' },
-                    { key: 'weekends', label: 'Weekends' },
-                    { key: 'all', label: 'All' },
-                    { key: 'clear', label: 'Clear' },
-                  ] as { key: 'weekdays' | 'weekends' | 'all' | 'clear'; label: string }[]
-                ).map(({ key, label }) => (
-                  <Button key={key} variant="outline" size="sm" className="text-xs" onClick={() => applyPreset(key)}>
-                    {label}
-                  </Button>
+              {/* Day-of-week header */}
+              <div className="grid grid-cols-7 gap-1 mb-1">
+                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+                  <div key={d} className="text-center text-[10px] text-muted-foreground font-medium py-0.5">{d}</div>
                 ))}
               </div>
 
-              {isLoading ? (
-                <div className="flex justify-center py-8">
+              {/* Calendar grid */}
+              {calendarLoading ? (
+                <div className="flex justify-center py-10">
                   <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                 </div>
               ) : (
-                <div className="space-y-0 overflow-x-auto">
-                  {/* Day headers */}
-                  <div className="grid grid-cols-[80px_repeat(7,1fr)] gap-0 mb-1 min-w-[420px]">
-                    <div />
-                    {weekDates.map(date => {
-                      const isToday = date.toDateString() === new Date().toDateString();
-                      const summary = getDayAvailabilitySummary(date);
-                      const dateKey = formatDateKey(date);
-                      const timeRange = weekWasAutoFilled ? autoFilledTimeRanges[dateKey] : null;
-                      return (
-                        <div key={date.toISOString()} className="text-center px-0.5">
-                          <div className="text-[10px] text-muted-foreground uppercase tracking-wide">
-                            {date.toLocaleDateString('en-US', { weekday: 'short' })}
-                          </div>
-                          <div className={cn(
-                            "w-8 h-8 mx-auto rounded-full flex items-center justify-center text-sm font-semibold",
-                            isToday && "bg-primary text-primary-foreground",
-                            !isToday && summary === 'full' && "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-                            !isToday && summary === 'partial' && "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
-                            !isToday && summary === 'none' && "text-muted-foreground"
-                          )}>
-                            {date.getDate()}
-                          </div>
-                          {/* Time range label — shown for the whole week session after auto-fill,
-                              persists even after the user dismisses the pill */}
-                          {weekWasAutoFilled && timeRange && (
-                            <div className="text-[9px] text-primary leading-tight mt-0.5 truncate">
-                              {formatTimeShort(timeRange.startTime)}–{formatTimeShort(timeRange.endTime)}
-                            </div>
-                          )}
-                          {user?.id && (
-                            <DayNoteButton date={date} notes={dayNotes} userId={user.id} />
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
+                <div className="grid grid-cols-7 gap-1">
+                  {getMonthDays(calViewMonth.getFullYear(), calViewMonth.getMonth()).map((day, i) => {
+                    if (!day) return <div key={`blank-${i}`} className="h-14" />;
+                    const dateStr = formatDateKey(day);
+                    const isToday = day.toDateString() === new Date().toDateString();
+                    const entry = calByDate[dateStr];
+                    const isTimeOff = entry?.source === 'time_off';
+                    const isUnavailable = entry?.unavailable && !isTimeOff;
+                    const isAvailable = entry?.available;
+                    const isTemplateOnly = entry?.source === 'template';
+                    const hasOverride = entry?.source === 'override';
 
-                  {/* Slot rows */}
-                  {timeSlots.map(({ value: slot, label, hours, Icon }) => (
-                    <div key={slot} className="grid grid-cols-[80px_repeat(7,1fr)] gap-0 items-center border-t border-border/60 py-2 min-w-[420px]">
-                      <div className="flex items-center gap-1.5 pr-2">
-                        <Icon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                        <div>
-                          <div className="text-xs font-medium leading-tight">{label}</div>
-                          <div className="text-[10px] text-muted-foreground leading-tight">{hours}</div>
-                        </div>
-                      </div>
-                      {weekDates.map(date => {
-                        const dateKey = formatDateKey(date);
-                        const dayData = availabilityData[dateKey] || emptyDaySlots();
-                        const isActive = slot === 'all_day' ? dayData.all_day : dayData[slot];
-                        return (
-                          <div key={`${dateKey}-${slot}`} className="flex justify-center">
-                            <button
-                              onClick={() => toggleSlot(date, slot)}
-                              className={cn(
-                                "w-8 h-8 rounded-lg flex items-center justify-center transition-all",
-                                isActive
-                                  ? "bg-green-500 text-white shadow-sm"
-                                  : "bg-muted/50 text-muted-foreground hover:bg-muted"
-                              )}
-                              aria-label={`Toggle ${label} on ${date.toLocaleDateString()}`}
-                            >
-                              {isActive ? <Check className="h-3.5 w-3.5" /> : <Minus className="h-3 w-3" />}
-                            </button>
+                    return (
+                      <button
+                        key={dateStr}
+                        onClick={() => openDayEditor(dateStr)}
+                        className={cn(
+                          "h-14 rounded-lg flex flex-col items-center justify-start pt-1 px-0.5 relative transition-all active:scale-95 select-none",
+                          "focus:outline-none focus:ring-2 focus:ring-primary/50",
+                          isTimeOff && "bg-red-50 dark:bg-red-950/20 cursor-default",
+                          isUnavailable && !isTimeOff && "bg-red-50 dark:bg-red-950/20",
+                          isAvailable && !isTimeOff && !isUnavailable && isTemplateOnly && "bg-emerald-50/60 dark:bg-emerald-950/20 border border-dashed border-emerald-300 dark:border-emerald-700",
+                          isAvailable && !isTimeOff && !isUnavailable && hasOverride && "bg-emerald-100 dark:bg-emerald-900/30",
+                          !isAvailable && !isTimeOff && !isUnavailable && "hover:bg-muted/60",
+                          isToday && "ring-2 ring-primary"
+                        )}
+                      >
+                        {/* Day number */}
+                        <span className={cn(
+                          "text-xs font-semibold leading-none",
+                          isToday && "text-primary",
+                          isTimeOff && "text-red-500",
+                          isUnavailable && !isTimeOff && "text-red-400",
+                          isAvailable && !isTimeOff && "text-emerald-700 dark:text-emerald-300",
+                          !isAvailable && !isTimeOff && !isUnavailable && "text-muted-foreground"
+                        )}>
+                          {day.getDate()}
+                        </span>
+
+                        {/* Status indicator */}
+                        {isTimeOff && (
+                          <div className="mt-0.5 flex flex-col items-center">
+                            <Umbrella className="h-3 w-3 text-red-400" />
+                            <span className="text-[9px] text-red-400 leading-none mt-0.5 truncate max-w-[36px]">{entry?.timeOff?.type || 'Off'}</span>
                           </div>
-                        );
-                      })}
-                    </div>
-                  ))}
+                        )}
+                        {isUnavailable && !isTimeOff && (
+                          <div className="mt-0.5">
+                            <Ban className="h-3 w-3 text-red-400" />
+                          </div>
+                        )}
+                        {isAvailable && !isTimeOff && (
+                          <div className="mt-0.5 text-[9px] text-emerald-600 dark:text-emerald-400 leading-none text-center px-0.5 truncate max-w-[48px]">
+                            {entry?.startTime && entry?.endTime
+                              ? `${formatTimeShort(entry.startTime)}–${formatTimeShort(entry.endTime)}`
+                              : 'Avail'}
+                          </div>
+                        )}
+                        {isTemplateOnly && isAvailable && (
+                          <Repeat className="absolute bottom-0.5 right-0.5 h-2 w-2 text-emerald-400 opacity-60" />
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
 
-              <div className="mt-4 flex gap-2 flex-wrap">
-                <Button
-                  onClick={handleSaveAvailability}
-                  disabled={submitAvailabilityMutation.isPending || !hasChanges}
-                  className="flex-1 gap-2 min-w-[140px]"
-                >
-                  {submitAvailabilityMutation.isPending ? (
-                    <><Loader2 className="h-4 w-4 animate-spin" />Saving…</>
-                  ) : (
-                    <><Save className="h-4 w-4" />Save Availability</>
-                  )}
-                </Button>
-                <Button variant="ghost" size="sm" className="text-xs" onClick={() => setSelectedWeek(new Date())}>
-                  Today
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Monthly overview */}
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-3">
-                <h4 className="text-sm font-semibold">Monthly Overview</h4>
-                <div className="flex items-center gap-1">
-                  <Button
-                    variant="ghost" size="icon" className="h-7 w-7"
-                    onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1))}
-                  >
-                    <ChevronLeft className="h-3.5 w-3.5" />
-                  </Button>
-                  <span className="text-sm font-medium min-w-[120px] text-center">
-                    {calendarMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-                  </span>
-                  <Button
-                    variant="ghost" size="icon" className="h-7 w-7"
-                    onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1))}
-                  >
-                    <ChevronRight className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              </div>
-              <div className="grid grid-cols-7 gap-1 mb-1">
-                {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
-                  <div key={i} className="text-center text-[10px] text-muted-foreground font-medium py-1">{d}</div>
-                ))}
-              </div>
-              <div className="grid grid-cols-7 gap-1">
-                {monthDays.map((day, i) => {
-                  if (!day) return <div key={`empty-${i}`} />;
-                  const isToday = day.toDateString() === new Date().toDateString();
-                  const summary = getDayAvailabilitySummary(day);
-                  const hasTimeOff = myRequests.some(r => {
-                    const start = new Date(r.startDate);
-                    const end = new Date(r.endDate);
-                    return day >= start && day <= end && r.status !== 'cancelled';
-                  });
-                  return (
-                    <button
-                      key={day.toISOString()}
-                      onClick={() => { setSelectedWeek(day); setActiveTab('availability'); }}
-                      className={cn(
-                        "h-8 rounded text-xs font-medium relative",
-                        isToday && "ring-1 ring-primary",
-                        summary === 'full' && "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-                        summary === 'partial' && "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
-                        summary === 'none' && "text-muted-foreground hover:bg-muted",
-                        hasTimeOff && "ring-1 ring-red-400"
-                      )}
-                    >
-                      {day.getDate()}
-                      {hasTimeOff && (
-                        <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-red-500" />
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-              <div className="flex flex-wrap items-center gap-3 mt-3 text-[10px] text-muted-foreground">
-                <div className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-green-100 dark:bg-green-900/30" />Available</div>
-                <div className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-amber-100 dark:bg-amber-900/30" />Partial</div>
+              {/* Legend */}
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-3 text-[10px] text-muted-foreground">
+                <div className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-emerald-100 dark:bg-emerald-900/30" />Available (saved)</div>
+                <div className="flex items-center gap-1"><div className="w-3 h-3 rounded border border-dashed border-emerald-300" />From default</div>
+                <div className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-red-50 dark:bg-red-950/20" />Unavailable / Time off</div>
                 <div className="flex items-center gap-1"><div className="w-3 h-3 rounded border" />Not set</div>
-                <div className="flex items-center gap-1"><div className="w-3 h-3 rounded ring-1 ring-red-400" />Time off</div>
               </div>
+
+              <p className="text-[11px] text-muted-foreground mt-2 text-center">
+                Tap any day to set your hours
+              </p>
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* ── Day Editor Sheet ────────────────────────────────────────────────── */}
+        <Sheet open={editorDay !== null} onOpenChange={(open) => { if (!open) setEditorDay(null); }}>
+          <SheetContent side="bottom" className="rounded-t-2xl pb-8 max-h-[85vh] overflow-y-auto px-4 pt-4">
+            {editorDay && (() => {
+              const editorDateObj = new Date(editorDay + 'T12:00:00Z');
+              const dow = editorDateObj.getUTCDay();
+              const DOW_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+              const entry = calByDate[editorDay];
+              const hasExistingOverride = entry?.source === 'override';
+              const isSaving = saveDayOverrideMutation.isPending || saveTemplateDayMutation.isPending;
+              const isClearing = clearDayOverrideMutation.isPending;
+              return (
+                <div>
+                  <SheetHeader className="mb-4">
+                    <SheetTitle className="text-lg">
+                      {DOW_NAMES[dow]}, {editorDateObj.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}
+                    </SheetTitle>
+                  </SheetHeader>
+
+                  {/* Unavailable toggle */}
+                  <div className="flex items-center justify-between py-3 border-b">
+                    <div className="flex items-center gap-2">
+                      <Ban className="h-4 w-4 text-red-400" />
+                      <div>
+                        <p className="text-sm font-medium">Unavailable this day</p>
+                        <p className="text-xs text-muted-foreground">Mark yourself as not available</p>
+                      </div>
+                    </div>
+                    <Switch checked={editorUnavailable} onCheckedChange={setEditorUnavailable} />
+                  </div>
+
+                  {/* Time range pickers */}
+                  {!editorUnavailable && (
+                    <div className="py-4 border-b space-y-3">
+                      <p className="text-sm font-medium flex items-center gap-2">
+                        <Clock className="h-4 w-4 text-muted-foreground" />Time range
+                      </p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <Label className="text-xs text-muted-foreground mb-1 block">Start</Label>
+                          <Input type="time" value={editorStartTime} onChange={e => setEditorStartTime(e.target.value)} className="text-sm" />
+                        </div>
+                        <div>
+                          <Label className="text-xs text-muted-foreground mb-1 block">End</Label>
+                          <Input type="time" value={editorEndTime} onChange={e => setEditorEndTime(e.target.value)} className="text-sm" />
+                        </div>
+                      </div>
+                      <div className="flex gap-2 flex-wrap">
+                        {[
+                          { label: '9–5', start: '09:00', end: '17:00' },
+                          { label: '10–6', start: '10:00', end: '18:00' },
+                          { label: '8–4', start: '08:00', end: '16:00' },
+                          { label: '12–8', start: '12:00', end: '20:00' },
+                        ].map(p => (
+                          <Button key={p.label} variant="outline" size="sm" className="text-xs h-7"
+                            onClick={() => { setEditorStartTime(p.start); setEditorEndTime(p.end); }}>
+                            {p.label}
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Scope: just this day vs. every week */}
+                  <div className="py-4 border-b">
+                    <p className="text-sm font-medium mb-3 flex items-center gap-2">
+                      <Repeat className="h-4 w-4 text-muted-foreground" />Apply to
+                    </p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button onClick={() => setEditorScope('override')}
+                        className={cn(
+                          "rounded-lg border px-3 py-2 text-left transition-all",
+                          editorScope === 'override' ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border hover:border-muted-foreground"
+                        )}>
+                        <p className="text-sm font-medium">{editorDateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} only</p>
+                        <p className="text-xs text-muted-foreground">Just this one day</p>
+                      </button>
+                      <button onClick={() => setEditorScope('template')}
+                        className={cn(
+                          "rounded-lg border px-3 py-2 text-left transition-all",
+                          editorScope === 'template' ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border hover:border-muted-foreground"
+                        )}>
+                        <p className="text-sm font-medium">Every {DOW_NAMES[dow]}</p>
+                        <p className="text-xs text-muted-foreground">Update default schedule</p>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex flex-col gap-2 pt-4">
+                    <Button className="w-full gap-2" onClick={handleSaveDay} disabled={isSaving}>
+                      {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                      {isSaving ? 'Saving…' : 'Save'}
+                    </Button>
+                    {hasExistingOverride && (
+                      <Button variant="ghost" size="sm" className="text-xs text-muted-foreground gap-1"
+                        onClick={() => clearDayOverrideMutation.mutate(editorDay!)} disabled={isClearing}>
+                        {isClearing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5" />}
+                        {isClearing ? 'Clearing…' : 'Revert to default'}
+                      </Button>
+                    )}
+                    <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" onClick={() => setEditorDay(null)}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              );
+            })()}
+          </SheetContent>
+        </Sheet>
 
         <Sheet open={showDefaultSchedule} onOpenChange={setShowDefaultSchedule}>
           <SheetContent side="bottom" className="max-h-[92vh] overflow-y-auto rounded-t-2xl px-4 pt-4 pb-8">

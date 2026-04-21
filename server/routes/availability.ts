@@ -108,6 +108,218 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
     }
   });
 
+  // ── New calendar API ─────────────────────────────────────────────────────────
+
+  // GET /api/availability/calendar — merged view for the current user: template + overrides + time-off blocks
+  app.get('/api/availability/calendar', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { start, end } = req.query;
+      if (!start || !end) {
+        return res.status(400).json({ message: "start and end query params are required (YYYY-MM-DD)" });
+      }
+      const startStr = start as string;
+      const endStr = end as string;
+
+      // Build an array of all dates in the range
+      const dates: string[] = [];
+      const cur = new Date(startStr + 'T12:00:00Z');
+      const endDate = new Date(endStr + 'T12:00:00Z');
+      while (cur <= endDate) {
+        dates.push(cur.toISOString().slice(0, 10));
+        cur.setUTCDate(cur.getUTCDate() + 1);
+      }
+
+      // Fetch template, overrides, and time-off in parallel
+      const [template, overrides, allTimeOff] = await Promise.all([
+        storage.getAvailabilityTemplate(userId),
+        storage.getAvailabilityOverrides(userId, startStr, endStr),
+        storage.getTimeOffRequests(userId),
+      ]);
+
+      const overridesByDate: Record<string, typeof overrides[0]> = {};
+      for (const o of overrides) {
+        overridesByDate[o.date] = o;
+      }
+
+      const rawSlots = (template?.slots ?? {}) as Record<string, { available?: boolean; startTime?: string; endTime?: string; morning?: boolean; afternoon?: boolean; evening?: boolean }>;
+
+      const result = dates.map(dateStr => {
+        // Check time-off (active = not cancelled)
+        const dateObj = new Date(dateStr + 'T12:00:00Z');
+        const activeTimeOff = allTimeOff.find(r => {
+          if (r.status === 'cancelled') return false;
+          const s = new Date(r.startDate);
+          const e = new Date(r.endDate);
+          return dateObj >= s && dateObj <= e;
+        });
+        if (activeTimeOff) {
+          return { date: dateStr, source: 'time_off', available: false, unavailable: true, startTime: null, endTime: null, timeOff: { type: activeTimeOff.type, status: activeTimeOff.status } };
+        }
+
+        // Override takes precedence over template
+        const override = overridesByDate[dateStr];
+        if (override) {
+          return { date: dateStr, source: 'override', available: !override.unavailable && !!override.startTime, unavailable: override.unavailable ?? false, startTime: override.startTime ?? null, endTime: override.endTime ?? null, timeOff: null };
+        }
+
+        // Fall back to template for this day-of-week
+        const dow = dateObj.getUTCDay().toString();
+        const slot = rawSlots[dow];
+        if (!slot) {
+          return { date: dateStr, source: 'none', available: false, unavailable: false, startTime: null, endTime: null, timeOff: null };
+        }
+        if ('available' in slot) {
+          return { date: dateStr, source: 'template', available: slot.available ?? false, unavailable: false, startTime: slot.startTime ?? null, endTime: slot.endTime ?? null, timeOff: null };
+        }
+        // Legacy slot
+        const legacyAvail = (slot.morning || slot.afternoon || slot.evening) ?? false;
+        return { date: dateStr, source: 'template', available: legacyAvail, unavailable: false, startTime: null, endTime: null, timeOff: null };
+      });
+
+      res.json(result);
+    } catch (error) {
+      console.error("Error fetching availability calendar:", error);
+      res.status(500).json({ message: "Failed to fetch availability calendar" });
+    }
+  });
+
+  // PATCH /api/availability/day — upsert a specific-date override
+  app.patch('/api/availability/day', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { date, startTime, endTime, unavailable } = req.body;
+
+      if (!date || typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return res.status(400).json({ message: "date must be a YYYY-MM-DD string" });
+      }
+      const isUnavailable = !!unavailable;
+      const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+      if (!isUnavailable) {
+        if (!startTime || !TIME_RE.test(startTime)) return res.status(400).json({ message: "startTime must be HH:mm" });
+        if (!endTime || !TIME_RE.test(endTime)) return res.status(400).json({ message: "endTime must be HH:mm" });
+        if (endTime !== '00:00' && startTime >= endTime) return res.status(400).json({ message: "endTime must be after startTime" });
+      }
+
+      const result = await storage.upsertAvailabilityOverride(userId, date, {
+        startTime: isUnavailable ? null : startTime,
+        endTime: isUnavailable ? null : endTime,
+        unavailable: isUnavailable,
+      });
+      res.json(result);
+    } catch (error) {
+      console.error("Error saving availability day override:", error);
+      res.status(500).json({ message: "Failed to save availability" });
+    }
+  });
+
+  // DELETE /api/availability/day — remove a specific-date override (reverts to template)
+  app.delete('/api/availability/day', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { date } = req.query;
+      if (!date || typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return res.status(400).json({ message: "date query param must be YYYY-MM-DD" });
+      }
+      await storage.deleteAvailabilityOverride(userId, date);
+      res.json({ message: "Override cleared" });
+    } catch (error) {
+      console.error("Error deleting availability override:", error);
+      res.status(500).json({ message: "Failed to clear availability" });
+    }
+  });
+
+  // GET /api/availability/calendar/team — manager view: merged availability for all store members
+  app.get('/api/availability/calendar/team', isAuthenticated, async (req: any, res) => {
+    try {
+      const requestingUserId: string = req.user.id;
+      const requestingRole = req.user?.role?.name;
+      const isManagerOrAbove = ['owner', 'admin', 'manager', 'assistant_manager'].includes(requestingRole);
+      if (!isManagerOrAbove) return res.status(403).json({ message: "Managers only" });
+
+      const { start, end } = req.query;
+      if (!start || !end) return res.status(400).json({ message: "start and end required" });
+      const startStr = start as string;
+      const endStr = end as string;
+
+      const { tryResolveStoreIdForUser } = await import('../lib/storeResolver');
+      const { getAllStoreUserIds } = await import('../lib/permissionUtils');
+
+      const storeId = await tryResolveStoreIdForUser(requestingUserId);
+      if (!storeId) return res.json([]);
+
+      const storeUserIds = await getAllStoreUserIds(storeId);
+      if (storeUserIds.length === 0) return res.json([]);
+
+      const [templates, overrides, allTimeOff] = await Promise.all([
+        storage.getAvailabilityTemplatesForUsers(storeUserIds),
+        storage.getAvailabilityOverridesForUsers(storeUserIds, startStr, endStr),
+        storage.getTimeOffRequests(),
+      ]);
+
+      // Build lookup maps
+      const templateByUser: Record<string, typeof templates[0]> = {};
+      for (const t of templates) templateByUser[t.userId] = t;
+
+      type OverrideRow = typeof overrides[0];
+      const overridesByUserDate: Record<string, OverrideRow> = {};
+      for (const o of overrides) overridesByUserDate[`${o.userId}:${o.date}`] = o;
+
+      // Build date list
+      const dates: string[] = [];
+      const cur = new Date(startStr + 'T12:00:00Z');
+      const endDateObj = new Date(endStr + 'T12:00:00Z');
+      while (cur <= endDateObj) {
+        dates.push(cur.toISOString().slice(0, 10));
+        cur.setUTCDate(cur.getUTCDate() + 1);
+      }
+
+      // Per date: collect available users with their time ranges
+      const byDate: Record<string, { userId: string; startTime: string | null; endTime: string | null }[]> = {};
+      for (const dateStr of dates) {
+        const dateObj = new Date(dateStr + 'T12:00:00Z');
+        const available: typeof byDate[string] = [];
+
+        for (const uid of storeUserIds) {
+          // Check time-off
+          const hasTimeOff = allTimeOff.some(r => {
+            if (r.status === 'cancelled' || r.userId !== uid) return false;
+            const s = new Date(r.startDate); const e = new Date(r.endDate);
+            return dateObj >= s && dateObj <= e;
+          });
+          if (hasTimeOff) continue;
+
+          const override = overridesByUserDate[`${uid}:${dateStr}`];
+          if (override) {
+            if (!override.unavailable && override.startTime) {
+              available.push({ userId: uid, startTime: override.startTime, endTime: override.endTime });
+            }
+            continue;
+          }
+
+          // Template fallback
+          const tmpl = templateByUser[uid];
+          const rawSlots = (tmpl?.slots ?? {}) as Record<string, { available?: boolean; startTime?: string; endTime?: string; morning?: boolean; afternoon?: boolean; evening?: boolean }>;
+          const dow = dateObj.getUTCDay().toString();
+          const slot = rawSlots[dow];
+          if (!slot) continue;
+
+          if ('available' in slot && slot.available) {
+            available.push({ userId: uid, startTime: slot.startTime ?? null, endTime: slot.endTime ?? null });
+          } else if (!('available' in slot) && (slot.morning || slot.afternoon || slot.evening)) {
+            available.push({ userId: uid, startTime: null, endTime: null });
+          }
+        }
+        byDate[dateStr] = available;
+      }
+
+      res.json(byDate);
+    } catch (error) {
+      console.error("Error fetching team availability calendar:", error);
+      res.status(500).json({ message: "Failed to fetch team availability" });
+    }
+  });
+
   // Availability template routes
 
   // GET /api/availability/templates/summary — manager-only: returns which store employees have a saved template
