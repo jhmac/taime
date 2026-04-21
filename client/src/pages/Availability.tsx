@@ -978,11 +978,11 @@ export default function Availability() {
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <Label className="text-xs text-muted-foreground mb-1 block">Start</Label>
-                      <Input type="time" value={editorStartTime} onChange={e => setEditorStartTime(e.target.value)} className="text-sm" />
+                      <Input type="time" step={1800} value={editorStartTime} onChange={e => setEditorStartTime(e.target.value)} className="text-sm" />
                     </div>
                     <div>
                       <Label className="text-xs text-muted-foreground mb-1 block">End</Label>
-                      <Input type="time" value={editorEndTime} onChange={e => setEditorEndTime(e.target.value)} className="text-sm" />
+                      <Input type="time" step={1800} value={editorEndTime} onChange={e => setEditorEndTime(e.target.value)} className="text-sm" />
                     </div>
                   </div>
                   <div className="flex gap-2 flex-wrap">
