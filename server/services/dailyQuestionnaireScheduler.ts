@@ -112,18 +112,33 @@ const FALLBACK_QUESTIONS: DQQuestion[] = [
   },
 ];
 
-function getTodayStr(): string {
-  return new Date().toISOString().slice(0, 10);
+function getStoreLocalDate(timezone: string | null): string {
+  const tz = timezone || "UTC";
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
+  } catch {
+    return new Date().toISOString().slice(0, 10);
+  }
 }
 
-function getMsUntilNext6AM(): number {
-  const now = new Date();
-  const next6AM = new Date(now);
-  next6AM.setHours(6, 0, 0, 0);
-  if (next6AM <= now) {
-    next6AM.setDate(next6AM.getDate() + 1);
+function getStoreLocalHour(timezone: string | null): number {
+  const tz = timezone || "UTC";
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      hour: "numeric",
+      hour12: false,
+    }).formatToParts(new Date());
+    const hourPart = parts.find(p => p.type === "hour");
+    return hourPart ? parseInt(hourPart.value, 10) : new Date().getHours();
+  } catch {
+    return new Date().getHours();
   }
-  return next6AM.getTime() - now.getTime();
 }
 
 async function generateQuestionsFromKB(knowledgeContent: string): Promise<DQQuestion[]> {
@@ -174,8 +189,12 @@ Rules:
   }));
 }
 
-async function runDailyGenerationForStore(storeId: string, storage: IStorage): Promise<void> {
-  const today = getTodayStr();
+async function runDailyGenerationForStore(
+  storeId: string,
+  timezone: string | null,
+  storage: IStorage
+): Promise<void> {
+  const today = getStoreLocalDate(timezone);
 
   const existing = await db
     .select({ id: dailyQuestionnaires.id })
@@ -188,20 +207,21 @@ async function runDailyGenerationForStore(storeId: string, storage: IStorage): P
     return;
   }
 
-  const publishedDocs = await db
+  const kbDocs = await db
     .select({ id: sopDocuments.id, title: sopDocuments.title, content: sopDocuments.content })
     .from(sopDocuments)
     .innerJoin(sopCategories, eq(sopDocuments.categoryId, sopCategories.id))
     .where(
       and(
         eq(sopCategories.storeId, storeId),
+        eq(sopCategories.name, "Knowledge Base"),
         eq(sopDocuments.isPublished, true)
       )
     )
     .limit(8);
 
   let knowledgeContent = "";
-  for (const doc of publishedDocs) {
+  for (const doc of kbDocs) {
     if (doc.content) knowledgeContent += `\n\n## ${doc.title}\n${doc.content}`;
   }
 
@@ -237,8 +257,10 @@ async function runDailyGenerationForStore(storeId: string, storage: IStorage): P
     });
     logger.info({ storeId, today, topic }, "Daily questionnaire scheduler: auto-generated questionnaire");
   } catch (dbErr: unknown) {
-    const code = (dbErr as any)?.code;
-    if (code === "23505") {
+    const pgCode = dbErr instanceof Error && "code" in dbErr
+      ? (dbErr as NodeJS.ErrnoException).code
+      : undefined;
+    if (pgCode === "23505") {
       logger.info({ storeId, today }, "Daily questionnaire scheduler: unique constraint — questionnaire already created by another process");
     } else {
       logger.error({ error: dbErr instanceof Error ? dbErr.message : String(dbErr), storeId }, "Daily questionnaire scheduler: failed to create questionnaire");
@@ -246,44 +268,50 @@ async function runDailyGenerationForStore(storeId: string, storage: IStorage): P
   }
 }
 
+const TICK_INTERVAL_MS = 15 * 60 * 1000;
+const TARGET_HOUR = 6;
+
 export function startDailyQuestionnaireScheduler(storage: IStorage): () => void {
   let stopped = false;
-  let timeoutId: ReturnType<typeof setTimeout> | null = null;
   let intervalId: ReturnType<typeof setInterval> | null = null;
 
-  async function runAll() {
+  async function tick() {
     if (stopped) return;
-    logger.info("Daily questionnaire scheduler: running generation for all active stores");
     try {
       const stores = await db
-        .select({ id: workLocations.id })
+        .select({ id: workLocations.id, timezone: workLocations.timezone })
         .from(workLocations)
         .where(eq(workLocations.isActive, true));
 
       for (const store of stores) {
+        const localHour = getStoreLocalHour(store.timezone);
+        if (localHour !== TARGET_HOUR) continue;
         try {
-          await runDailyGenerationForStore(store.id, storage);
+          await runDailyGenerationForStore(store.id, store.timezone, storage);
         } catch (err: unknown) {
-          logger.error({ error: err instanceof Error ? err.message : String(err), storeId: store.id }, "Daily questionnaire scheduler: error for store");
+          logger.error(
+            { error: err instanceof Error ? err.message : String(err), storeId: store.id },
+            "Daily questionnaire scheduler: error for store"
+          );
         }
       }
     } catch (err: unknown) {
-      logger.error({ error: err instanceof Error ? err.message : String(err) }, "Daily questionnaire scheduler: failed to fetch stores");
+      logger.error(
+        { error: err instanceof Error ? err.message : String(err) },
+        "Daily questionnaire scheduler: failed to fetch stores"
+      );
     }
   }
 
-  const msUntilFirst = getMsUntilNext6AM();
-  const hoursUntil = Math.round(msUntilFirst / 3600000 * 10) / 10;
-  logger.info({ hoursUntilFirst: hoursUntil }, "Daily questionnaire scheduler: started, first run at 6 AM");
+  logger.info(
+    { tickIntervalMinutes: TICK_INTERVAL_MS / 60000, targetHour: TARGET_HOUR },
+    "Daily questionnaire scheduler: started, checking every 15 minutes, runs at 6 AM store-local time"
+  );
 
-  timeoutId = setTimeout(() => {
-    runAll();
-    intervalId = setInterval(runAll, 24 * 60 * 60 * 1000);
-  }, msUntilFirst);
+  intervalId = setInterval(tick, TICK_INTERVAL_MS);
 
   return () => {
     stopped = true;
-    if (timeoutId) clearTimeout(timeoutId);
     if (intervalId) clearInterval(intervalId);
     logger.info("Daily questionnaire scheduler: stopped");
   };
