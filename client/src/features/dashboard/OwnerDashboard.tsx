@@ -490,11 +490,11 @@ export default function OwnerDashboard() {
         {myTasksForFooter.length === 0 ? (
           <p className="text-sm text-muted-foreground italic">All caught up!</p>
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-1">
             {myTasksForFooter.slice(0, tasksExpanded ? myTasksForFooter.length : 5).map((t: any) => {
               const isCompleting = completeTaskMutation.isPending && completeTaskMutation.variables === t.id;
               return (
-                <div key={t.id} className="flex items-center gap-2.5 min-w-0 min-h-[36px]">
+                <div key={t.id} className="flex items-center gap-2.5 min-w-0 min-h-[28px]">
                   <button
                     onClick={() => completeTaskMutation.mutate(t.id)}
                     disabled={isCompleting}

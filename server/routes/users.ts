@@ -701,7 +701,7 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
   // GET /api/users/me/pay-summary — Employee pay estimate for current pay period
   app.get('/api/users/me/pay-summary', isAuthenticated, async (req: any, res) => {
     try {
-      const userId: string = req.auth.userId;
+      const userId: string = req.user.id;
 
       // 1. Fetch user with deduction settings
       const [user] = await db.select({
@@ -818,7 +818,7 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
   // PATCH /api/users/:userId/withholding — Manager/admin updates employee deduction settings
   app.patch('/api/users/:userId/withholding', isAuthenticated, async (req: any, res) => {
     try {
-      const requesterId: string = req.auth.userId;
+      const requesterId: string = req.user.id;
       const { userId } = req.params;
 
       const userPermissions = await storage.getUserPermissions(requesterId);
