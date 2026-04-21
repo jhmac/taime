@@ -24,6 +24,20 @@ import {
 } from "lucide-react";
 import type { UserAvailability, TimeOffRequest, AvailabilityTemplate, TemplateSlot, TemplateSlotNew, TemplateSlotLegacy } from "@shared/schema";
 
+// ─── Responsive breakpoint hook ──────────────────────────────────────────────
+function useIsDesktop(): boolean {
+  const [isDesktop, setIsDesktop] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth >= 768 : true
+  );
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 768px)');
+    const handler = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+  return isDesktop;
+}
+
 // ─── Calendar day entry type (from merged API) ───────────────────────────────
 interface CalDayEntry {
   date: string; // "YYYY-MM-DD"
@@ -319,6 +333,8 @@ export default function Availability() {
   // Preset time range for quick-fill buttons
   const [presetStart, setPresetStart] = useState(DEFAULT_START);
   const [presetEnd, setPresetEnd] = useState(DEFAULT_END);
+
+  const isDesktop = useIsDesktop();
 
   // ── New calendar state ──────────────────────────────────────────────────────
   const [calViewMonth, setCalViewMonth] = useState(new Date());
@@ -929,116 +945,132 @@ export default function Availability() {
           </Card>
         </TabsContent>
 
-        {/* ── Day Editor Sheet ────────────────────────────────────────────────── */}
-        <Sheet open={editorDay !== null} onOpenChange={(open) => { if (!open) setEditorDay(null); }}>
-          <SheetContent side="bottom" className="rounded-t-2xl pb-8 max-h-[85vh] overflow-y-auto px-4 pt-4">
-            {editorDay && (() => {
-              const editorDateObj = new Date(editorDay + 'T12:00:00Z');
-              const dow = editorDateObj.getUTCDay();
-              const DOW_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-              const entry = calByDate[editorDay];
-              const hasExistingOverride = entry?.source === 'override';
-              const isSaving = saveDayOverrideMutation.isPending || saveTemplateDayMutation.isPending;
-              const isClearing = clearDayOverrideMutation.isPending;
-              return (
-                <div>
-                  <SheetHeader className="mb-4">
-                    <SheetTitle className="text-lg">
-                      {DOW_NAMES[dow]}, {editorDateObj.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}
-                    </SheetTitle>
-                  </SheetHeader>
+        {/* ── Day Editor (Sheet on mobile, Dialog on desktop) ──────────────── */}
+        {editorDay && (() => {
+          const editorDateObj = new Date(editorDay + 'T12:00:00Z');
+          const dow = editorDateObj.getUTCDay();
+          const DOW_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+          const entry = calByDate[editorDay];
+          const hasExistingOverride = entry?.source === 'override';
+          const isSaving = saveDayOverrideMutation.isPending || saveTemplateDayMutation.isPending;
+          const isClearing = clearDayOverrideMutation.isPending;
 
-                  {/* Unavailable toggle */}
-                  <div className="flex items-center justify-between py-3 border-b">
-                    <div className="flex items-center gap-2">
-                      <Ban className="h-4 w-4 text-red-400" />
-                      <div>
-                        <p className="text-sm font-medium">Unavailable this day</p>
-                        <p className="text-xs text-muted-foreground">Mark yourself as not available</p>
-                      </div>
-                    </div>
-                    <Switch checked={editorUnavailable} onCheckedChange={setEditorUnavailable} />
-                  </div>
-
-                  {/* Time range pickers */}
-                  {!editorUnavailable && (
-                    <div className="py-4 border-b space-y-3">
-                      <p className="text-sm font-medium flex items-center gap-2">
-                        <Clock className="h-4 w-4 text-muted-foreground" />Time range
-                      </p>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <Label className="text-xs text-muted-foreground mb-1 block">Start</Label>
-                          <Input type="time" value={editorStartTime} onChange={e => setEditorStartTime(e.target.value)} className="text-sm" />
-                        </div>
-                        <div>
-                          <Label className="text-xs text-muted-foreground mb-1 block">End</Label>
-                          <Input type="time" value={editorEndTime} onChange={e => setEditorEndTime(e.target.value)} className="text-sm" />
-                        </div>
-                      </div>
-                      <div className="flex gap-2 flex-wrap">
-                        {[
-                          { label: '9–5', start: '09:00', end: '17:00' },
-                          { label: '10–6', start: '10:00', end: '18:00' },
-                          { label: '8–4', start: '08:00', end: '16:00' },
-                          { label: '12–8', start: '12:00', end: '20:00' },
-                        ].map(p => (
-                          <Button key={p.label} variant="outline" size="sm" className="text-xs h-7"
-                            onClick={() => { setEditorStartTime(p.start); setEditorEndTime(p.end); }}>
-                            {p.label}
-                          </Button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Scope: just this day vs. every week */}
-                  <div className="py-4 border-b">
-                    <p className="text-sm font-medium mb-3 flex items-center gap-2">
-                      <Repeat className="h-4 w-4 text-muted-foreground" />Apply to
-                    </p>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button onClick={() => setEditorScope('override')}
-                        className={cn(
-                          "rounded-lg border px-3 py-2 text-left transition-all",
-                          editorScope === 'override' ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border hover:border-muted-foreground"
-                        )}>
-                        <p className="text-sm font-medium">{editorDateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} only</p>
-                        <p className="text-xs text-muted-foreground">Just this one day</p>
-                      </button>
-                      <button onClick={() => setEditorScope('template')}
-                        className={cn(
-                          "rounded-lg border px-3 py-2 text-left transition-all",
-                          editorScope === 'template' ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border hover:border-muted-foreground"
-                        )}>
-                        <p className="text-sm font-medium">Every {DOW_NAMES[dow]}</p>
-                        <p className="text-xs text-muted-foreground">Update default schedule</p>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Actions */}
-                  <div className="flex flex-col gap-2 pt-4">
-                    <Button className="w-full gap-2" onClick={handleSaveDay} disabled={isSaving}>
-                      {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                      {isSaving ? 'Saving…' : 'Save'}
-                    </Button>
-                    {hasExistingOverride && (
-                      <Button variant="ghost" size="sm" className="text-xs text-muted-foreground gap-1"
-                        onClick={() => clearDayOverrideMutation.mutate(editorDay!)} disabled={isClearing}>
-                        {isClearing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5" />}
-                        {isClearing ? 'Clearing…' : 'Revert to default'}
-                      </Button>
-                    )}
-                    <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" onClick={() => setEditorDay(null)}>
-                      Cancel
-                    </Button>
+          const editorBody = (
+            <div>
+              {/* Unavailable toggle */}
+              <div className="flex items-center justify-between py-3 border-b">
+                <div className="flex items-center gap-2">
+                  <Ban className="h-4 w-4 text-red-400" />
+                  <div>
+                    <p className="text-sm font-medium">Unavailable this day</p>
+                    <p className="text-xs text-muted-foreground">Mark yourself as not available</p>
                   </div>
                 </div>
-              );
-            })()}
-          </SheetContent>
-        </Sheet>
+                <Switch checked={editorUnavailable} onCheckedChange={setEditorUnavailable} />
+              </div>
+
+              {/* Time range pickers */}
+              {!editorUnavailable && (
+                <div className="py-4 border-b space-y-3">
+                  <p className="text-sm font-medium flex items-center gap-2">
+                    <Clock className="h-4 w-4 text-muted-foreground" />Time range
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-xs text-muted-foreground mb-1 block">Start</Label>
+                      <Input type="time" value={editorStartTime} onChange={e => setEditorStartTime(e.target.value)} className="text-sm" />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground mb-1 block">End</Label>
+                      <Input type="time" value={editorEndTime} onChange={e => setEditorEndTime(e.target.value)} className="text-sm" />
+                    </div>
+                  </div>
+                  <div className="flex gap-2 flex-wrap">
+                    {[
+                      { label: '9–5', start: '09:00', end: '17:00' },
+                      { label: '10–6', start: '10:00', end: '18:00' },
+                      { label: '8–4', start: '08:00', end: '16:00' },
+                      { label: '12–8', start: '12:00', end: '20:00' },
+                    ].map(p => (
+                      <Button key={p.label} variant="outline" size="sm" className="text-xs h-7"
+                        onClick={() => { setEditorStartTime(p.start); setEditorEndTime(p.end); }}>
+                        {p.label}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Scope */}
+              <div className="py-4 border-b">
+                <p className="text-sm font-medium mb-3 flex items-center gap-2">
+                  <Repeat className="h-4 w-4 text-muted-foreground" />Apply to
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button onClick={() => setEditorScope('override')}
+                    className={cn(
+                      "rounded-lg border px-3 py-2 text-left transition-all",
+                      editorScope === 'override' ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border hover:border-muted-foreground"
+                    )}>
+                    <p className="text-sm font-medium">{editorDateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} only</p>
+                    <p className="text-xs text-muted-foreground">Just this one day</p>
+                  </button>
+                  <button onClick={() => setEditorScope('template')}
+                    className={cn(
+                      "rounded-lg border px-3 py-2 text-left transition-all",
+                      editorScope === 'template' ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border hover:border-muted-foreground"
+                    )}>
+                    <p className="text-sm font-medium">Every {DOW_NAMES[dow]}</p>
+                    <p className="text-xs text-muted-foreground">Update default schedule</p>
+                  </button>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex flex-col gap-2 pt-4">
+                <Button className="w-full gap-2" onClick={handleSaveDay} disabled={isSaving}>
+                  {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  {isSaving ? 'Saving…' : 'Save'}
+                </Button>
+                {hasExistingOverride && (
+                  <Button variant="ghost" size="sm" className="text-xs text-muted-foreground gap-1"
+                    onClick={() => clearDayOverrideMutation.mutate(editorDay!)} disabled={isClearing}>
+                    {isClearing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5" />}
+                    {isClearing ? 'Clearing…' : 'Revert to default'}
+                  </Button>
+                )}
+                <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" onClick={() => setEditorDay(null)}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          );
+
+          const editorTitle = `${DOW_NAMES[dow]}, ${editorDateObj.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}`;
+
+          if (isDesktop) {
+            return (
+              <Dialog open={true} onOpenChange={(open) => { if (!open) setEditorDay(null); }}>
+                <DialogContent className="sm:max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>{editorTitle}</DialogTitle>
+                  </DialogHeader>
+                  {editorBody}
+                </DialogContent>
+              </Dialog>
+            );
+          }
+          return (
+            <Sheet open={true} onOpenChange={(open) => { if (!open) setEditorDay(null); }}>
+              <SheetContent side="bottom" className="rounded-t-2xl pb-8 max-h-[85vh] overflow-y-auto px-4 pt-4">
+                <SheetHeader className="mb-4">
+                  <SheetTitle className="text-lg">{editorTitle}</SheetTitle>
+                </SheetHeader>
+                {editorBody}
+              </SheetContent>
+            </Sheet>
+          );
+        })()}
 
         <Sheet open={showDefaultSchedule} onOpenChange={setShowDefaultSchedule}>
           <SheetContent side="bottom" className="max-h-[92vh] overflow-y-auto rounded-t-2xl px-4 pt-4 pb-8">

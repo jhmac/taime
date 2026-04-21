@@ -92,6 +92,13 @@
       "when": 1745245200000,
       "tag": "0012_per_day_closing_time",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1745503200000,
+      "tag": "0013_user_availability_overrides",
+      "breakpoints": true
     }
   ]
 }

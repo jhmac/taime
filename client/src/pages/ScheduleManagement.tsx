@@ -366,6 +366,17 @@ export default function ScheduleManagement() {
     enabled: isAdmin,
   });
 
+  // Team merged calendar availability (new — template + overrides + time-off per date)
+  const { data: teamCalendar = {} } = useQuery<Record<string, { userId: string; startTime: string | null; endTime: string | null }[]>>({
+    queryKey: ["/api/availability/calendar/team", startDateParam, endDateParam],
+    queryFn: async () => {
+      const res = await fetch(`/api/availability/calendar/team?start=${startDateParam}&end=${endDateParam}`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to fetch team calendar');
+      return res.json();
+    },
+    enabled: isAdmin,
+  });
+
   const activeShop = connectedShops.find((s: any) => s.isActive) || (connectedShops.length > 0 ? connectedShops[0] : null);
 
   const createScheduleMutation = useMutation({
@@ -899,6 +910,62 @@ export default function ScheduleManagement() {
             </tr>
           </thead>
           <tbody>
+            {/* ── Team Availability Summary Row ──────────────────────────── */}
+            <tr className="border-b bg-emerald-50/40 dark:bg-emerald-950/10">
+              <td className="sticky left-0 bg-emerald-50/60 dark:bg-emerald-950/20 z-[5] px-3 py-1.5 border-r">
+                <div className="flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-400 font-medium">
+                  <Users className="h-3 w-3 shrink-0" />
+                  Available
+                </div>
+              </td>
+              {weekDates.map((date, dayIdx) => {
+                const dateStr = formatLocalDate(date);
+                const dayAvail = teamCalendar[dateStr] ?? [];
+                const count = dayAvail.length;
+                const isToday = date.toDateString() === new Date().toDateString();
+                return (
+                  <td key={dayIdx} className={cn("text-center px-1 py-1 border-r last:border-r-0", isToday && "bg-primary/5")}>
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <button disabled={count === 0} className={cn(
+                          "text-xs font-semibold rounded px-1.5 py-0.5 transition-colors",
+                          count > 0 ? "text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-900/40 hover:bg-emerald-200 cursor-pointer" : "text-muted-foreground/40 cursor-default"
+                        )}>
+                          {count > 0 ? `${count} avail` : '—'}
+                        </button>
+                      </PopoverTrigger>
+                      {count > 0 && (
+                        <PopoverContent side="bottom" className="w-56 p-2">
+                          <div className="text-xs font-medium mb-1.5 text-muted-foreground">
+                            {date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+                          </div>
+                          <div className="space-y-1">
+                            {dayAvail.map((a: { userId: string; startTime: string | null; endTime: string | null }) => {
+                              const emp = users.find((u: User) => u.id === a.userId);
+                              if (!emp) return null;
+                              const empName = `${emp.firstName} ${emp.lastName}`;
+                              return (
+                                <div key={a.userId} className="flex items-center justify-between gap-2">
+                                  <span className="text-xs truncate">{empName}</span>
+                                  {a.startTime && a.endTime ? (
+                                    <span className="text-[10px] text-muted-foreground shrink-0">
+                                      {formatSchedTimeShort(a.startTime)}–{formatSchedTimeShort(a.endTime)}
+                                    </span>
+                                  ) : (
+                                    <span className="text-[10px] text-muted-foreground shrink-0">avail</span>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </PopoverContent>
+                      )}
+                    </Popover>
+                  </td>
+                );
+              })}
+            </tr>
+
             {activeEmployees.map(emp => {
               const stats = employeeStats[emp.id] || { hours: 0, wages: 0 };
               const name = `${emp.firstName} ${emp.lastName}`;
