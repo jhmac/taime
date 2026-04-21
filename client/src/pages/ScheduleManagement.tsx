@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { useLocation } from "wouter";
@@ -18,7 +19,7 @@ import { apiRequest, queryClient as globalQueryClient } from "@/lib/queryClient"
 import type { User, Schedule, WorkLocation } from "@shared/schema";
 import {
   ChevronLeft, ChevronRight, Plus, Trash2, Sparkles, Loader2,
-  Check, X, Calendar, Clock, StickyNote, Bell, Pencil
+  Check, X, Calendar, Clock, StickyNote, Bell, Pencil, Wand2, Users
 } from "lucide-react";
 
 interface DayNote {
@@ -195,6 +196,10 @@ export default function ScheduleManagement() {
   const [selectedWeek, setSelectedWeek] = useState(0);
   const [showCreateShift, setShowCreateShift] = useState(false);
   const [createShiftDefaults, setCreateShiftDefaults] = useState<{userId?: string, date?: string}>({});
+  const [filterByAvailability, setFilterByAvailability] = useState(true);
+  const [modalDate, setModalDate] = useState<string>('');
+  const [modalStartTime, setModalStartTime] = useState('09:00');
+  const [modalEndTime, setModalEndTime] = useState('17:00');
   const [shiftFilter, setShiftFilter] = useState<'my' | 'all' | 'open'>('my');
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   const [showAIPanel, setShowAIPanel] = useState(false);
@@ -276,6 +281,25 @@ export default function ScheduleManagement() {
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to create shift.", variant: "destructive" });
+    },
+  });
+
+  const autoAssignMutation = useMutation({
+    mutationFn: async (payload: { date: string; startTime?: string; endTime?: string }) => {
+      const res = await apiRequest('POST', '/api/schedules/auto-assign-day', payload);
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/schedules"] });
+      setShowCreateShift(false);
+      if (data.created === 0) {
+        toast({ title: "Auto-Assign", description: data.message });
+      } else {
+        toast({ title: `Auto-Assigned ${data.created} shift${data.created !== 1 ? 's' : ''}`, description: data.message });
+      }
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Auto-assign failed.", variant: "destructive" });
     },
   });
 
@@ -370,6 +394,18 @@ export default function ScheduleManagement() {
 
   const activeEmployees = users.filter(user => user.isActive !== false);
 
+  // Employees filtered for the Create Shift modal (respects the availability toggle)
+  const modalEmployees = useMemo(() => {
+    if (!filterByAvailability || !modalDate) return activeEmployees;
+    const dateStr = new Date(modalDate + 'T12:00:00').toDateString();
+    const availableIds = new Set(
+      (allAvailability as any[])
+        .filter((a: any) => a.isAvailable && new Date(a.date).toDateString() === dateStr)
+        .map((a: any) => a.userId)
+    );
+    return activeEmployees.filter(emp => availableIds.has(emp.id));
+  }, [activeEmployees, allAvailability, filterByAvailability, modalDate]);
+
   const formatWeekRange = () => {
     const start = weekDates[0];
     const end = weekDates[6];
@@ -432,10 +468,9 @@ export default function ScheduleManagement() {
   };
 
   const openCreateShift = (userId?: string, date?: Date) => {
-    setCreateShiftDefaults({
-      userId: userId || '',
-      date: date ? date.toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-    });
+    const dateStr = date ? date.toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+    setCreateShiftDefaults({ userId: userId || '', date: dateStr });
+    setModalDate(dateStr);
     setShowCreateShift(true);
   };
 
@@ -946,33 +981,78 @@ export default function ScheduleManagement() {
             </DialogTitle>
           </DialogHeader>
           <form onSubmit={handleCreateShift} className="space-y-3">
+            {/* Availability filter toggle */}
+            <div className="flex items-center justify-between rounded-lg border bg-muted/30 px-3 py-2">
+              <div className="flex items-center gap-2">
+                <Users className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="text-xs text-muted-foreground">
+                  Show available only
+                  {filterByAvailability && modalEmployees.length < activeEmployees.length && (
+                    <span className="ml-1 font-medium text-foreground">({modalEmployees.length} of {activeEmployees.length})</span>
+                  )}
+                </span>
+              </div>
+              <Switch
+                checked={filterByAvailability}
+                onCheckedChange={setFilterByAvailability}
+                className="scale-90"
+              />
+            </div>
+
             <div>
               <Label className="text-xs">Employee</Label>
               <Select name="userId" defaultValue={createShiftDefaults.userId} required>
                 <SelectTrigger className="h-8">
-                  <SelectValue placeholder="Select employee" />
+                  <SelectValue placeholder={modalEmployees.length === 0 ? "No available employees" : "Select employee"} />
                 </SelectTrigger>
                 <SelectContent>
-                  {activeEmployees.map(user => (
-                    <SelectItem key={user.id} value={user.id}>
-                      {user.firstName} {user.lastName}
-                    </SelectItem>
-                  ))}
+                  {modalEmployees.length === 0 ? (
+                    <div className="py-2 px-3 text-xs text-muted-foreground">
+                      No employees with availability for this date. Turn off the filter to see all.
+                    </div>
+                  ) : (
+                    modalEmployees.map(user => (
+                      <SelectItem key={user.id} value={user.id}>
+                        {user.firstName} {user.lastName}
+                      </SelectItem>
+                    ))
+                  )}
                 </SelectContent>
               </Select>
             </div>
             <div>
               <Label className="text-xs">Date</Label>
-              <Input name="startDate" type="date" className="h-8 text-sm" required defaultValue={createShiftDefaults.date} />
+              <Input
+                name="startDate"
+                type="date"
+                className="h-8 text-sm"
+                required
+                value={modalDate}
+                onChange={e => setModalDate(e.target.value)}
+              />
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <Label className="text-xs">Start Time</Label>
-                <Input name="startTime" type="time" className="h-8 text-sm" required defaultValue="09:00" />
+                <Input
+                  name="startTime"
+                  type="time"
+                  className="h-8 text-sm"
+                  required
+                  value={modalStartTime}
+                  onChange={e => setModalStartTime(e.target.value)}
+                />
               </div>
               <div>
                 <Label className="text-xs">End Time</Label>
-                <Input name="endTime" type="time" className="h-8 text-sm" required defaultValue="17:00" />
+                <Input
+                  name="endTime"
+                  type="time"
+                  className="h-8 text-sm"
+                  required
+                  value={modalEndTime}
+                  onChange={e => setModalEndTime(e.target.value)}
+                />
               </div>
             </div>
             <div>
@@ -996,7 +1076,29 @@ export default function ScheduleManagement() {
               <Label className="text-xs">Notes</Label>
               <Textarea name="description" className="text-sm" placeholder="Optional notes..." rows={2} />
             </div>
-            <div className="flex justify-end gap-2 pt-2">
+            {/* Auto-Assign section */}
+            <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5 space-y-2">
+              <p className="text-[11px] font-medium text-primary flex items-center gap-1.5">
+                <Wand2 className="h-3 w-3" />AI Auto-Assign
+              </p>
+              <p className="text-[10px] text-muted-foreground leading-relaxed">
+                Automatically fill the needed staffing slots for this day using top-scored available employees.
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="w-full border-primary/30 text-primary hover:bg-primary/10 gap-1.5 text-xs"
+                disabled={autoAssignMutation.isPending || !modalDate}
+                onClick={() => autoAssignMutation.mutate({ date: modalDate, startTime: modalStartTime, endTime: modalEndTime })}
+              >
+                {autoAssignMutation.isPending
+                  ? <><Loader2 className="h-3 w-3 animate-spin" />Assigning...</>
+                  : <><Wand2 className="h-3 w-3" />Auto-Assign Shifts</>}
+              </Button>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1">
               <Button type="button" variant="outline" size="sm" onClick={() => setShowCreateShift(false)}>Cancel</Button>
               <Button type="submit" size="sm" disabled={createScheduleMutation.isPending}>
                 {createScheduleMutation.isPending ? "Creating..." : "Create Shift"}

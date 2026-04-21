@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
-import { insertScheduleSchema, users, messageThreads, threadParticipants, threadMessages } from "@shared/schema";
-import { eq, and, inArray } from "drizzle-orm";
+import { insertScheduleSchema, users, messageThreads, threadParticipants, threadMessages, userAvailability, aiSchedulingSettings, scoreHistory, schedules as schedulesTable } from "@shared/schema";
+import { eq, and, inArray, gte, lte, desc } from "drizzle-orm";
 import { db } from "../db";
 import { notificationService } from "../services/notificationService";
 import { claudeService } from "../services/claudeService";
@@ -314,6 +314,116 @@ export function registerScheduleRoutes(
     } catch (error) {
       console.error("Error creating schedule from availability:", error);
       res.status(500).json({ message: "Failed to create schedule from availability" });
+    }
+  });
+
+  // Auto-assign top-scored available employees for a day
+  app.post('/api/schedules/auto-assign-day', isAuthenticated, async (req: any, res) => {
+    try {
+      const requestingUserId = req.user.id;
+      const requesterRole = req.user.role?.name;
+      const isManagerOrAbove = ['owner', 'admin', 'manager', 'assistant_manager'].includes(requesterRole);
+      if (!isManagerOrAbove) {
+        return res.status(403).json({ message: "Manager or above required" });
+      }
+
+      const { date, startTime, endTime } = req.body;
+      if (!date) return res.status(400).json({ message: "date is required" });
+
+      // Load AI scheduling settings (use sensible defaults if not configured)
+      const aiRows = await db.select().from(aiSchedulingSettings).limit(1);
+      const aiSettings = aiRows[0] as any | null;
+      const minimumStaffing: number = aiSettings?.minimumStaffing ?? 2;
+      const storeHoursConfig: any[] = aiSettings?.storeHours ?? [];
+
+      // Determine shift times from store hours for this day of week
+      const targetDate = new Date(date + 'T12:00:00'); // noon to avoid TZ boundary issues
+      const dayOfWeek = targetDate.getDay();
+      const storeHoursForDay = storeHoursConfig.find((h: any) => h.day === dayOfWeek);
+      const shiftStart = startTime || storeHoursForDay?.openTime || '09:00';
+      const shiftEnd = endTime || storeHoursForDay?.closeTime || '17:00';
+
+      // Find employees available on this date
+      const dateStart = new Date(date + 'T00:00:00');
+      const dateEnd = new Date(date + 'T23:59:59');
+
+      const availRecords = await db
+        .select({ userId: userAvailability.userId })
+        .from(userAvailability)
+        .where(
+          and(
+            gte(userAvailability.date, dateStart),
+            lte(userAvailability.date, dateEnd),
+            eq(userAvailability.isAvailable, true)
+          )
+        );
+
+      const availableUserIds = [...new Set(availRecords.map(r => r.userId))];
+
+      if (availableUserIds.length === 0) {
+        return res.json({
+          created: 0,
+          skipped: 0,
+          message: "No employees have marked themselves available for this date.",
+          schedules: [],
+        });
+      }
+
+      // Get most-recent overall score per available user
+      const recentScores = await db
+        .select({ userId: scoreHistory.userId, overallScore: scoreHistory.overallScore })
+        .from(scoreHistory)
+        .where(inArray(scoreHistory.userId, availableUserIds))
+        .orderBy(desc(scoreHistory.snapshotDate));
+
+      const scoreMap = new Map<string, number>();
+      for (const row of recentScores) {
+        if (!scoreMap.has(row.userId)) scoreMap.set(row.userId, row.overallScore ?? 0);
+      }
+
+      // Sort available users by score descending, take the top N needed
+      const ranked = availableUserIds
+        .map(id => ({ id, score: scoreMap.get(id) ?? 0 }))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, minimumStaffing);
+
+      // Skip any who are already scheduled that day
+      const existingOnDay = await db
+        .select({ userId: schedulesTable.userId })
+        .from(schedulesTable)
+        .where(and(gte(schedulesTable.startTime, dateStart), lte(schedulesTable.startTime, dateEnd)));
+      const alreadyScheduled = new Set(existingOnDay.map(r => r.userId));
+
+      const toCreate = ranked.filter(u => !alreadyScheduled.has(u.id));
+
+      const created: any[] = [];
+      for (const emp of toCreate) {
+        const startTimeDate = new Date(`${date}T${shiftStart}:00`);
+        const endTimeDate = new Date(`${date}T${shiftEnd}:00`);
+        const schedule = await storage.createSchedule({
+          userId: emp.id,
+          startTime: startTimeDate,
+          endTime: endTimeDate,
+          title: 'Auto-assigned',
+          description: `Auto-assigned by AI (score: ${emp.score})`,
+          createdBy: requestingUserId,
+        });
+        created.push(schedule);
+      }
+
+      res.json({
+        created: created.length,
+        skipped: ranked.length - toCreate.length,
+        needed: minimumStaffing,
+        availableCount: availableUserIds.length,
+        message: created.length > 0
+          ? `Created ${created.length} shift(s) for ${date}.`
+          : `All top-scored available employees are already scheduled.`,
+        schedules: created,
+      });
+    } catch (error) {
+      console.error('Error in auto-assign-day:', error);
+      res.status(500).json({ message: 'Failed to auto-assign shifts' });
     }
   });
 }
