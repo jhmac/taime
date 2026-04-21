@@ -278,8 +278,14 @@ export default function SOPExecution() {
       return await apiRequest('PUT', `/api/sops/executions/${executionId}/steps/${payload.stepId}`, payload);
     },
     onSuccess: async (res) => {
-      const result = await res.json() as { success: boolean; data: { executionCompleted: boolean } };
+      const result = await res.json() as { success: boolean; data: { executionCompleted: boolean; signOffNoReviewers?: boolean } };
       qc.invalidateQueries({ queryKey: ['/api/sops/executions', executionId] });
+      if (result.data.signOffNoReviewers) {
+        toast({
+          title: 'No approvers available',
+          description: 'Your sign-off request could not be delivered because no manager is currently available to review this step. Please contact your admin.',
+        });
+      }
       if (result.data.executionCompleted) {
         setShowCompletion(true);
         cleanupLocalStorage();
