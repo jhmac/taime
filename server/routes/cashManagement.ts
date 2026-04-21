@@ -20,6 +20,12 @@ import logger from "../lib/logger";
 import { ShopifyService } from "../services/shopifyService";
 import { decryptToken } from "../utils/tokenEncryption";
 
+function parseClosingTime(raw: string | null | undefined): Record<string, string | null> | null {
+  if (!raw) return null;
+  if (typeof raw === "object") return raw as Record<string, string | null>;
+  try { return JSON.parse(raw as string) as Record<string, string | null>; } catch { return null; }
+}
+
 async function requireManagerOrAbove(storage: IStorage, userId: string): Promise<boolean> {
   const user = await storage.getUserWithRole(userId);
   if (!user) throw new Error("User not found");
@@ -108,14 +114,14 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
       const [existing] = await db.select().from(cashManagementSettings)
         .where(eq(cashManagementSettings.storeId, storeId));
 
-      if (existing) return res.json(existing);
+      if (existing) return res.json({ ...existing, closingTime: parseClosingTime(existing.closingTime) });
 
       const [created] = await db.insert(cashManagementSettings).values({
         storeId,
         registers: [{ name: "Register 1", id: "register-1" }],
       }).returning();
 
-      res.json(created);
+      res.json({ ...created, closingTime: parseClosingTime(created.closingTime) });
     } catch (err: any) {
       logger.error({ error: err.message }, "[Cash] Failed to get settings");
       res.status(500).json({ error: "Failed to load settings" });
@@ -153,6 +159,7 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
       const normalizedClosingTime = closingTime && typeof closingTime === "object" && !Array.isArray(closingTime)
         ? Object.fromEntries(Object.entries(closingTime as Record<string, string | null>).map(([k, v]) => [k, v || null]))
         : null;
+      const closingTimeJson = normalizedClosingTime ? JSON.stringify(normalizedClosingTime) : null;
 
       const [existing] = await db.select().from(cashManagementSettings)
         .where(eq(cashManagementSettings.storeId, storeId));
@@ -164,12 +171,12 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
             registers, overShortThreshold: overShortThreshold?.toString(),
             requireDepositPhoto, requireOverShortExplanation,
             autoFlagThreshold: autoFlagThreshold?.toString(),
-            closingTime: normalizedClosingTime,
+            closingTime: closingTimeJson,
             updatedAt: new Date(),
           })
           .where(eq(cashManagementSettings.storeId, storeId))
           .returning();
-        return res.json(updated);
+        return res.json({ ...updated, closingTime: normalizedClosingTime });
       }
 
       const [created] = await db.insert(cashManagementSettings).values({
@@ -179,10 +186,10 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
         overShortThreshold: overShortThreshold?.toString() || "5.00",
         requireDepositPhoto, requireOverShortExplanation,
         autoFlagThreshold: autoFlagThreshold?.toString() || "20.00",
-        closingTime: normalizedClosingTime,
+        closingTime: closingTimeJson,
       }).returning();
 
-      res.json(created);
+      res.json({ ...created, closingTime: normalizedClosingTime });
     } catch (err: any) {
       logger.error({ error: err.message }, "[Cash] Failed to update settings");
       res.status(500).json({ error: "Failed to update settings" });
@@ -207,11 +214,12 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
       if (sessionType === "closing") {
         const [storeSettings] = await db.select().from(cashManagementSettings)
           .where(eq(cashManagementSettings.storeId, storeId));
-        if (storeSettings?.closingTime && typeof storeSettings.closingTime === "object") {
+        const parsedClosingTime = parseClosingTime(storeSettings?.closingTime);
+        if (parsedClosingTime) {
           const DAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const;
           const now = new Date();
           const todayKey = DAY_NAMES[now.getDay()];
-          const perDay = storeSettings.closingTime as Record<string, string | null>;
+          const perDay = parsedClosingTime;
           const todayClosingTime = perDay[todayKey];
           if (todayClosingTime && /^([01]\d|2[0-3]):[0-5]\d$/.test(todayClosingTime)) {
             const [closingHour, closingMinute] = todayClosingTime.split(":").map(Number);

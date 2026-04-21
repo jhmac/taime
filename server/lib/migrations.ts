@@ -366,37 +366,25 @@ export async function runSchemaMigrations(): Promise<void> {
     console.warn("[Migration] users.location_name backfill failed (non-fatal):", pgErr?.message ?? err);
   }
 
-  // Special step: convert cash_management_settings.closing_time from varchar → jsonb
-  // Old format: a single "HH:MM" string. New format: { sunday: "HH:MM", ..., saturday: "HH:MM" }
-  // Existing text values are spread across all seven days; NULL stays NULL.
+  // Special step: ensure cash_management_settings.closing_time is text (not jsonb or varchar with special cast)
+  // The column stores a JSON string representing { sunday: "HH:MM", ... }. Using text avoids auto-migration issues.
   try {
     const ctCheck = await db.execute(sql.raw(`
       SELECT data_type FROM information_schema.columns
       WHERE table_name = 'cash_management_settings' AND column_name = 'closing_time'
     `));
     const ctRows = ctCheck.rows as Array<{ data_type: string }>;
-    if (ctRows.length > 0 && ctRows[0].data_type === "character varying") {
+    if (ctRows.length > 0 && ctRows[0].data_type === "jsonb") {
       await db.execute(sql.raw(`
         ALTER TABLE cash_management_settings
-          ALTER COLUMN closing_time TYPE jsonb
-          USING CASE
-            WHEN closing_time IS NULL THEN NULL
-            ELSE json_build_object(
-              'sunday', closing_time,
-              'monday', closing_time,
-              'tuesday', closing_time,
-              'wednesday', closing_time,
-              'thursday', closing_time,
-              'friday', closing_time,
-              'saturday', closing_time
-            )
-          END
+          ALTER COLUMN closing_time TYPE text
+          USING closing_time::text
       `));
-      console.log("[Migration] Converted cash_management_settings.closing_time from varchar to jsonb");
+      console.log("[Migration] Converted cash_management_settings.closing_time from jsonb to text");
     }
   } catch (err: unknown) {
     const pgErr = err as { message?: string };
-    console.warn("[Migration] closing_time type conversion failed (non-fatal):", pgErr?.message ?? err);
+    console.warn("[Migration] closing_time type normalization failed (non-fatal):", pgErr?.message ?? err);
   }
 
   // Special step: rename company_ai_context.key_processes → goals if the old column name exists

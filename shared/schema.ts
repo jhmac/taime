@@ -1930,7 +1930,7 @@ export const cashManagementSettings = pgTable("cash_management_settings", {
   requireDepositPhoto: boolean("require_deposit_photo").default(true),
   requireOverShortExplanation: boolean("require_over_short_explanation").default(true),
   autoFlagThreshold: decimal("auto_flag_threshold", { precision: 10, scale: 2 }).default("20.00"),
-  closingTime: jsonb("closing_time"),
+  closingTime: text("closing_time"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
