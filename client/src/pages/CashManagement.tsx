@@ -585,6 +585,7 @@ function OwnerSection({ selectedDate, ownerTab, setOwnerTab, deposits, settings 
   };
 
   const [closingTimeInputs, setClosingTimeInputs] = useState<Record<DayKey, string>>(settingsToClosingInputs(settings));
+  const [applyAllTime, setApplyAllTime] = useState<string>("");
   useEffect(() => {
     setClosingTimeInputs(settingsToClosingInputs(settings));
   }, [settings?.closingTime]);
@@ -819,6 +820,25 @@ function OwnerSection({ selectedDate, ownerTab, setOwnerTab, deposits, settings 
                 <p className="text-xs text-muted-foreground mb-3">
                   Employees cannot start a closing count before this time on the given day. Leave a day blank to allow closing counts at any time on that day.
                 </p>
+                <div className="flex items-center gap-2 mb-3 p-2 rounded-md bg-muted/50">
+                  <span className="text-sm text-muted-foreground shrink-0">Apply to all days:</span>
+                  <Input
+                    type="time"
+                    value={applyAllTime}
+                    onChange={(e) => setApplyAllTime(e.target.value)}
+                    className="w-36"
+                  />
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={!applyAllTime}
+                    onClick={() => {
+                      setClosingTimeInputs(Object.fromEntries(DAYS_OF_WEEK.map(d => [d, applyAllTime])) as Record<DayKey, string>);
+                    }}
+                  >
+                    Apply to all
+                  </Button>
+                </div>
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {DAYS_OF_WEEK.map((day) => (
                     <div key={day} className="flex items-center gap-2">
