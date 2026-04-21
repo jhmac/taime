@@ -556,11 +556,6 @@ export default function ScheduleManagement() {
     });
   }, [weekDates, schedules, activeEmployees]);
 
-  const getAvailabilityForDay = (userId: string, date: Date) => {
-    const dateStr = date.toDateString();
-    return allAvailability.filter((a: any) => a.userId === userId && new Date(a.date).toDateString() === dateStr);
-  };
-
   const getInitials = (user: User) => {
     return ((user.firstName?.[0] || '') + (user.lastName?.[0] || '')).toUpperCase();
   };
@@ -997,10 +992,6 @@ export default function ScheduleManagement() {
                       .map((e, i) => ({ ...e, idx: i }))
                       .filter(e => e.employeeId === emp.id && e.date === date.toISOString().split('T')[0]) || [];
 
-                    const dayAvailability = getAvailabilityForDay(emp.id, date);
-                    const availBySlot: Record<string, any> = {};
-                    dayAvailability.forEach((a: any) => { availBySlot[a.timeSlot] = a; });
-
                     const dateStr = formatLocalDate(date);
                     const mergedAvail = (teamCalendar[dateStr] ?? []).find(
                       (a: { userId: string; startTime: string | null; endTime: string | null }) => a.userId === emp.id
@@ -1072,7 +1063,7 @@ export default function ScheduleManagement() {
                           })}
 
                           {/* Availability indicator — merged calendar (template + overrides + time-off) */}
-                          {mergedAvail ? (
+                          {mergedAvail && (
                             <div className="mt-1">
                               <span
                                 title={mergedAvail.startTime && mergedAvail.endTime
@@ -1085,29 +1076,7 @@ export default function ScheduleManagement() {
                                   : 'avail'}
                               </span>
                             </div>
-                          ) : dayAvailability.length > 0 ? (
-                            <div className="flex gap-0.5 flex-wrap mt-1">
-                              {(['morning', 'afternoon', 'evening'] as const).map(slot => {
-                                const entry = availBySlot[slot];
-                                if (!entry) return null;
-                                const label = slot === 'morning' ? 'AM' : slot === 'afternoon' ? 'PM' : 'Eve';
-                                return (
-                                  <span
-                                    key={slot}
-                                    title={`${slot}: ${entry.isAvailable ? 'available' : 'unavailable'}${entry.startTime ? ` ${entry.startTime}–${entry.endTime}` : ''}`}
-                                    className={cn(
-                                      "text-[9px] px-1 rounded font-medium leading-[14px]",
-                                      entry.isAvailable
-                                        ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300"
-                                        : "bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-300 line-through opacity-70"
-                                    )}
-                                  >
-                                    {label}
-                                  </span>
-                                );
-                              })}
-                            </div>
-                          ) : null}
+                          )}
 
                           {/* Add Shift Button */}
                           {daySchedules.length === 0 && aiEntries.length === 0 && (
