@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -275,6 +276,7 @@ export default function Availability() {
   const { user } = useAuth();
   const { toast } = useToast();
 
+  const [showDefaultSchedule, setShowDefaultSchedule] = useState(false);
   // Tabs
   const [activeTab, setActiveTab] = useState("availability");
 
@@ -289,10 +291,7 @@ export default function Availability() {
   const [weekWasAutoFilled, setWeekWasAutoFilled] = useState(false);
   // Per-day time ranges stored from template; shown regardless of pill visibility
   const [autoFilledTimeRanges, setAutoFilledTimeRanges] = useState<Record<string, { startTime: string; endTime: string } | null>>({});
-  // Session-level guard: track which week-start dates have been auto-filled this session.
-  // Once a week is auto-filled, it is added here so that if the user clears slots and
-  // navigates away without saving, the week remains cleared on return (no re-auto-fill).
-  // Different week-start keys auto-fill independently.
+  // Keyed by week-start: once a week is auto-filled, it won't re-fill after user clears slots.
   const autoFilledWeeksRef = useRef<Set<string>>(new Set());
 
   // Time-off form state
@@ -400,10 +399,7 @@ export default function Availability() {
     if (hasChanges) return; // User has already interacted with this week this session — do not overwrite
     if (!availabilityTemplate?.slots) return;
 
-    // Session-level guard: once auto-filled, a week is marked so that the user clearing slots
-    // and navigating away does not cause a re-auto-fill on return. New week-start keys each
-    // get their own independent auto-fill opportunity.
-    if (autoFilledWeeksRef.current.has(startParam)) return;
+    if (autoFilledWeeksRef.current.has(startParam)) return; // session guard: don't re-fill cleared weeks
 
     const rawSlots = availabilityTemplate.slots as Record<string, TemplateSlot>;
     const newData: Record<string, Record<TimeSlot, boolean>> = {};
@@ -436,7 +432,6 @@ export default function Availability() {
       }
     });
 
-    // Mark this week as auto-filled for the session before applying state changes
     autoFilledWeeksRef.current.add(startParam);
 
     setAvailabilityData(prev => ({ ...prev, ...newData }));
@@ -656,14 +651,10 @@ export default function Availability() {
   return (
     <div className="min-h-screen bg-background p-4 md:p-6">
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="grid w-full grid-cols-3 max-w-md">
+        <TabsList className="grid w-full grid-cols-2 max-w-sm">
           <TabsTrigger value="availability" className="text-sm flex items-center gap-1.5">
             <CalendarCheck className="h-3.5 w-3.5" />
             Availability
-          </TabsTrigger>
-          <TabsTrigger value="default" className="text-sm flex items-center gap-1.5">
-            <CalendarDays className="h-3.5 w-3.5" />
-            Default Week
           </TabsTrigger>
           <TabsTrigger value="time-off" className="text-sm relative flex items-center gap-1.5">
             <Umbrella className="h-3.5 w-3.5" />
@@ -680,7 +671,7 @@ export default function Availability() {
         <TabsContent value="availability" className="space-y-4">
           <Card>
             <CardContent className="p-4">
-              {/* Week navigation */}
+              {/* Week navigation + Default Schedule button */}
               <div className="flex items-center justify-between mb-3">
                 <Button variant="ghost" size="icon" onClick={() => {
                   const d = new Date(selectedWeek); d.setDate(d.getDate() - 7); setSelectedWeek(d);
@@ -694,11 +685,17 @@ export default function Availability() {
                     {weekDates[6].toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                   </h3>
                 </div>
-                <Button variant="ghost" size="icon" onClick={() => {
-                  const d = new Date(selectedWeek); d.setDate(d.getDate() + 7); setSelectedWeek(d);
-                }}>
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
+                <div className="flex items-center gap-1">
+                  <Button variant="ghost" size="sm" className="text-xs gap-1 px-2" onClick={() => setShowDefaultSchedule(true)}>
+                    <CalendarDays className="h-3.5 w-3.5" />
+                    Default
+                  </Button>
+                  <Button variant="ghost" size="icon" onClick={() => {
+                    const d = new Date(selectedWeek); d.setDate(d.getDate() + 7); setSelectedWeek(d);
+                  }}>
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
 
               {/* Auto-filled pill — dismissible; hides pill but keeps time-range labels */}
@@ -901,17 +898,18 @@ export default function Availability() {
           </Card>
         </TabsContent>
 
-        {/* ── Default Week Tab ──────────────────────────────────────────────── */}
-        <TabsContent value="default" className="space-y-4">
-          <Card>
-            <CardContent className="p-4">
-              <div className="mb-4">
-                <h3 className="font-semibold text-sm">My Default Schedule</h3>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Set the times you're typically available each day. New weeks without saved availability will auto-fill from this.
-                </p>
-              </div>
-
+        <Sheet open={showDefaultSchedule} onOpenChange={setShowDefaultSchedule}>
+          <SheetContent side="bottom" className="max-h-[92vh] overflow-y-auto rounded-t-2xl px-4 pt-4 pb-8">
+            <SheetHeader className="mb-4">
+              <SheetTitle className="text-base flex items-center gap-2">
+                <CalendarDays className="h-4 w-4 text-primary" />
+                My Default Schedule
+              </SheetTitle>
+              <p className="text-xs text-muted-foreground">
+                Set your typical hours for each day. Empty future weeks will auto-fill from this.
+              </p>
+            </SheetHeader>
+            <div className="space-y-4">
               {/* Quick presets + default time range */}
               <div className="space-y-2 mb-4">
                 <div className="flex gap-2 flex-wrap">
@@ -1038,9 +1036,9 @@ export default function Availability() {
                   </p>
                 )}
               </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
+            </div>
+          </SheetContent>
+        </Sheet>
 
         {/* ── Time Off Tab ──────────────────────────────────────────────────── */}
         <TabsContent value="time-off" className="space-y-4">
