@@ -4,7 +4,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
-import type { User, Role, Permission } from "@shared/schema";
+import type { User, Role, Permission, WorkLocation } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -39,6 +39,7 @@ import {
   Clock,
   Mail,
   Navigation,
+  MapPin,
 } from "lucide-react";
 
 function getInitials(firstName?: string | null, lastName?: string | null) {
@@ -95,6 +96,8 @@ export default function Team() {
   const [sortAsc, setSortAsc] = useState(true);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [invitedMember, setInvitedMember] = useState<{ name: string; email: string } | null>(null);
+  const [assignLocationUser, setAssignLocationUser] = useState<User | null>(null);
+  const [selectedLocationId, setSelectedLocationId] = useState<string>("");
 
   const { data: members = [], isLoading, error } = useQuery<User[]>({
     queryKey: ["/api/users", { includeAll: showTerminated }],
@@ -107,6 +110,12 @@ export default function Team() {
   });
 
   const isAdminRole = currentUser?.role?.name === 'owner' || currentUser?.role?.name === 'admin' || currentUser?.role?.name === 'manager';
+  const isOwnerOrAdmin = currentUser?.role?.name === 'owner' || currentUser?.role?.name === 'admin';
+
+  const { data: workLocations = [] } = useQuery<WorkLocation[]>({
+    queryKey: ["/api/work-locations"],
+    enabled: isOwnerOrAdmin,
+  });
 
   const { data: activeOffsiteSessions = [] } = useQuery<any[]>({
     queryKey: ["/api/offsite-sessions"],
@@ -238,11 +247,35 @@ export default function Team() {
     },
   });
 
+  const assignLocationMutation = useMutation({
+    mutationFn: async ({ userId, locationId }: { userId: string; locationId: string | null }) => {
+      const res = await apiRequest("PATCH", `/api/users/${userId}/assign-location`, { locationId });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+      setAssignLocationUser(null);
+      setSelectedLocationId("");
+      toast({ title: "Location assigned", description: "Store assignment has been updated." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
   const roleMap = useMemo(() => {
     const map: Record<string, Role> = {};
     roles.forEach((r) => (map[r.id] = r));
     return map;
   }, [roles]);
+
+  // Users who have a locationName (from before the locationId column existed) but whose
+  // locationId is still null — the startup backfill missed them (name mismatch, inactive store, etc.).
+  // Admins see all users, so we can compute this client-side.
+  const unassignedLocationUsers = useMemo(() => {
+    if (!isOwnerOrAdmin) return [];
+    return members.filter((m) => m.locationName && !m.locationId);
+  }, [members, isOwnerOrAdmin]);
 
   const filtered = useMemo(() => {
     let list = members;
@@ -391,6 +424,50 @@ export default function Team() {
           </Button>
         )}
       </div>
+
+      {isOwnerOrAdmin && unassignedLocationUsers.length > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+            <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+              {unassignedLocationUsers.length} team member{unassignedLocationUsers.length !== 1 ? "s" : ""} need{unassignedLocationUsers.length === 1 ? "s" : ""} a store assignment
+            </p>
+          </div>
+          <p className="text-xs text-amber-700 dark:text-amber-400">
+            These users have a location name on file but are missing the store ID link. Until fixed, managers at their store may not see them in team views.
+          </p>
+          <div className="space-y-2">
+            {unassignedLocationUsers.map((u) => (
+              <div key={u.id} className="flex items-center justify-between gap-3 rounded-md bg-white dark:bg-amber-950/40 border border-amber-200 dark:border-amber-700 px-3 py-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="h-7 w-7 rounded-full bg-violet-600 text-white flex items-center justify-center text-xs font-semibold shrink-0">
+                    {getInitials(u.firstName, u.lastName)}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">{u.firstName} {u.lastName}</p>
+                    <p className="text-xs text-muted-foreground truncate flex items-center gap-1">
+                      <MapPin className="h-2.5 w-2.5 shrink-0" />
+                      {u.locationName} (unlinked)
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="shrink-0 border-amber-400 text-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900"
+                  onClick={() => {
+                    setAssignLocationUser(u);
+                    setSelectedLocationId("");
+                  }}
+                >
+                  <MapPin className="h-3 w-3 mr-1" />
+                  Assign store
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {filtered.length === 0 && (
         <div className="flex flex-col items-center py-16 gap-3">
@@ -709,6 +786,59 @@ export default function Team() {
               </form>
             </>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!assignLocationUser} onOpenChange={(open) => { if (!open) { setAssignLocationUser(null); setSelectedLocationId(""); } }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Assign Store</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-muted-foreground">
+              Choose the store for <span className="font-medium text-foreground">{assignLocationUser?.firstName} {assignLocationUser?.lastName}</span>.
+              Their current location name on file is <span className="font-medium text-foreground">&ldquo;{assignLocationUser?.locationName}&rdquo;</span>.
+            </p>
+            <div className="space-y-1.5">
+              <Label>Store</Label>
+              {workLocations.length === 0 ? (
+                <p className="text-sm text-muted-foreground rounded-md border border-dashed p-3 text-center">
+                  No active stores configured. Add a store in Settings first.
+                </p>
+              ) : (
+                <Select value={selectedLocationId} onValueChange={setSelectedLocationId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a store" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {workLocations.map((loc) => (
+                      <SelectItem key={loc.id} value={loc.id}>{loc.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setAssignLocationUser(null); setSelectedLocationId(""); }}>
+              Cancel
+            </Button>
+            <Button
+              className="bg-violet-600 hover:bg-violet-700 text-white"
+              disabled={!selectedLocationId || assignLocationMutation.isPending}
+              onClick={() => {
+                if (assignLocationUser && selectedLocationId) {
+                  assignLocationMutation.mutate({ userId: assignLocationUser.id, locationId: selectedLocationId });
+                }
+              }}
+            >
+              {assignLocationMutation.isPending ? (
+                <><Loader2 className="h-4 w-4 animate-spin mr-1" />Saving...</>
+              ) : (
+                <><Check className="h-4 w-4 mr-1" />Save</>
+              )}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

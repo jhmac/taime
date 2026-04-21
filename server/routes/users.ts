@@ -289,6 +289,51 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
     }
   });
 
+  // Admin-only: directly set locationId for a user (bypass name-match requirement).
+  // Useful for users whose locationId is null despite having a locationName, e.g. due to
+  // store renames, inactive stores, or name-casing mismatches that the startup backfill missed.
+  app.patch('/api/users/:userId/assign-location', isAuthenticated, async (req: any, res) => {
+    try {
+      const requestingRole = req.user.role?.name;
+      const isOwnerOrAdmin = requestingRole === 'owner' || requestingRole === 'admin';
+      if (!isOwnerOrAdmin) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      const { userId } = req.params;
+      const { locationId } = req.body;
+
+      // If a locationId is provided, resolve the matching locationName so both fields stay in sync.
+      let locationName: string | null = null;
+      if (locationId) {
+        const [loc] = await db
+          .select({ name: workLocations.name })
+          .from(workLocations)
+          .where(eq(workLocations.id, locationId))
+          .limit(1);
+        if (!loc) {
+          return res.status(404).json({ message: "Work location not found" });
+        }
+        locationName = loc.name;
+      }
+
+      const [updated] = await db
+        .update(users)
+        .set({ locationId: locationId ?? null, locationName, updatedAt: new Date() })
+        .where(eq(users.id, userId))
+        .returning();
+
+      if (!updated) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      res.json(updated);
+    } catch (error) {
+      console.error("Error assigning location:", error);
+      res.status(500).json({ message: "Failed to assign location" });
+    }
+  });
+
   app.put('/api/users/:userId/pay-rate', isAuthenticated, async (req: any, res) => {
     try {
       const currentUserId = req.user.id;
