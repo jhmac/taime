@@ -60,7 +60,6 @@ export default function TimeClockWidget({ greetingSlot, footerSlot }: TimeClockW
     } | null;
   } | null>(null);
   const previousPositionRef = useRef<{ lat: number; lng: number } | null>(null);
-  const hasRequestedLocation = useRef(false);
   const exitAlertShown = useRef(false);
   const locationLostReported = useRef(false);
   const watchIdRef = useRef<number | null>(null);
@@ -71,6 +70,7 @@ export default function TimeClockWidget({ greetingSlot, footerSlot }: TimeClockW
   const lastMonitorTimeRef = useRef<number>(0);
   const prevActiveEntryRef = useRef<any>(null);
   const prevPermissionStateRef = useRef<string | null>(null);
+  const [hasAttemptedClockIn, setHasAttemptedClockIn] = useState(false);
   const [showDeniedBanner, setShowDeniedBanner] = useState(false);
   const [deniedBannerFading, setDeniedBannerFading] = useState(false);
   const [showPromptBanner, setShowPromptBanner] = useState(false);
@@ -120,56 +120,6 @@ export default function TimeClockWidget({ greetingSlot, footerSlot }: TimeClockW
   const offsiteSessionWithRoute = activeOffsiteSession?.routePolyline ? activeOffsiteSession : null;
   useOffsiteBreadcrumbReporter(offsiteSessionWithRoute?.id ?? null);
 
-  useEffect(() => {
-    // Auto-fetch location at mount, but ONLY when we can do so without
-    // triggering the browser's native permission dialog unexpectedly.
-    //
-    // On native (iOS/Android) the OS is the authority — trust our state.
-    // On web we first ask the Permissions API for the actual browser answer:
-    //   • 'granted'  → browser will return location silently, safe to call
-    //   • 'prompt'   → browser would show its dialog, wait for the user to
-    //                  click Clock In instead (expected context for the ask)
-    //   • 'denied'   → skip entirely
-    //
-    // This prevents the surprise browser popup that appeared every session
-    // when our localStorage said 'granted' but the browser needed to re-ask
-    // (e.g. after a URL change, cache clear, or browser permission reset).
-    if (!workLocations.length || hasRequestedLocation.current) return;
-    if (permissionState === 'denied') return;
-
-    if (Capacitor.isNativePlatform()) {
-      // Native: OS manages the dialog; our cached state is reliable.
-      if (permissionState !== 'prompt' || hadPreviousGrant) {
-        hasRequestedLocation.current = true;
-        getCurrentPosition().catch(() => {});
-      }
-      return;
-    }
-
-    // Web: verify with the real browser permission before calling anything.
-    if (navigator.permissions) {
-      navigator.permissions.query({ name: 'geolocation' }).then((result) => {
-        if (result.state === 'granted') {
-          // Browser will answer immediately with no dialog.
-          hasRequestedLocation.current = true;
-          getCurrentPosition().catch(() => {});
-        }
-        // 'prompt' or 'denied': don't auto-request — let the user initiate.
-      }).catch(() => {
-        // Permissions API failed; fall back to cached state.
-        if (permissionState !== 'prompt' || hadPreviousGrant) {
-          hasRequestedLocation.current = true;
-          getCurrentPosition().catch(() => {});
-        }
-      });
-    } else {
-      // No Permissions API (older browser): use cached state as before.
-      if (permissionState !== 'prompt' || hadPreviousGrant) {
-        hasRequestedLocation.current = true;
-        getCurrentPosition().catch(() => {});
-      }
-    }
-  }, [workLocations, permissionState, hadPreviousGrant]);
 
   useEffect(() => {
     if (permissionState === 'unknown') return;
@@ -422,13 +372,13 @@ export default function TimeClockWidget({ greetingSlot, footerSlot }: TimeClockW
     const prev = prevPermissionStateRef.current;
     prevPermissionStateRef.current = permissionState;
     if (prev === 'denied' && permissionState === 'granted') {
-      hasRequestedLocation.current = false;
       getCurrentPosition().catch(() => {});
     }
   }, [permissionState]);
 
   useEffect(() => {
     const isDenied =
+      hasAttemptedClockIn &&
       workLocations.length > 0 &&
       (permissionState === 'denied' || (locationError && !position)) &&
       !activeTimeEntry;
@@ -444,17 +394,18 @@ export default function TimeClockWidget({ greetingSlot, footerSlot }: TimeClockW
       }, 350);
       return () => clearTimeout(timer);
     }
-  }, [permissionState, locationError, position, activeTimeEntry, workLocations.length]);
+  }, [hasAttemptedClockIn, permissionState, locationError, position, activeTimeEntry, workLocations.length]);
 
   useEffect(() => {
     // Only show the in-app "Allow Location Access" nudge when:
+    // - the user has already tried to clock in (avoids showing this on passive login)
     // - work locations are configured
     // - the permission state is genuinely unresolved ('prompt')
     // - the user has NOT previously granted (hadPreviousGrant = false)
-    //   → returning users who already said Yes should never see this banner;
-    //     the auto-request fires silently for them instead.
+    //   → returning users who already said Yes should never see this banner
     // - not currently clocked in
     const shouldShow =
+      hasAttemptedClockIn &&
       workLocations.length > 0 &&
       permissionState === 'prompt' &&
       !hadPreviousGrant &&
@@ -473,7 +424,7 @@ export default function TimeClockWidget({ greetingSlot, footerSlot }: TimeClockW
       }, 350);
       return () => clearTimeout(timer);
     }
-  }, [permissionState, hadPreviousGrant, activeTimeEntry, workLocations.length]);
+  }, [hasAttemptedClockIn, permissionState, hadPreviousGrant, activeTimeEntry, workLocations.length]);
 
   useEffect(() => {
     const shouldShow = !activeTimeEntry && !!geofenceStatus && workLocations.length > 0;
@@ -666,6 +617,8 @@ export default function TimeClockWidget({ greetingSlot, footerSlot }: TimeClockW
         }
       });
     } else {
+      setHasAttemptedClockIn(true);
+
       if (workLocations.length === 0) {
         clockInMutation.mutate({
           locationId: '',
@@ -1028,7 +981,7 @@ export default function TimeClockWidget({ greetingSlot, footerSlot }: TimeClockW
               <p className="text-sm font-semibold text-foreground">Mobile clock-in only</p>
               <p className="text-xs text-muted-foreground">Use your phone to clock in</p>
             </div>
-          ) : requireLocationPermission && !activeTimeEntry && permissionState === 'denied' ? (
+          ) : hasAttemptedClockIn && requireLocationPermission && !activeTimeEntry && permissionState === 'denied' ? (
             <div className="flex flex-col items-center gap-3 rounded-2xl border border-destructive/30 bg-destructive/5 p-4 text-center" data-testid="location-required-block">
               <MapPin className="h-7 w-7 text-destructive" />
               <div>
@@ -1039,22 +992,22 @@ export default function TimeClockWidget({ greetingSlot, footerSlot }: TimeClockW
                 How to enable location
               </Button>
             </div>
-          ) : requireLocationPermission && !activeTimeEntry && permissionState === 'prompt' ? (
+          ) : hasAttemptedClockIn && requireLocationPermission && !activeTimeEntry && permissionState === 'prompt' ? (
             <div className="flex flex-col items-center gap-3 rounded-2xl border border-amber-300/50 bg-amber-50/50 dark:bg-amber-950/20 p-4 text-center" data-testid="location-prompt-block">
               <MapPin className="h-7 w-7 text-amber-600 dark:text-amber-400" />
               <div>
                 <p className="text-sm font-bold text-foreground">Location access needed</p>
                 <p className="text-xs text-muted-foreground mt-0.5">Your manager requires location permission to clock in. Tap below to grant access.</p>
               </div>
-              <Button size="sm" onClick={() => { hasRequestedLocation.current = true; getCurrentPosition(); }} className="text-xs">
+              <Button size="sm" onClick={() => { getCurrentPosition(); }} className="text-xs">
                 Grant Location Access
               </Button>
             </div>
-          ) : permissionState === 'prompt' && !activeTimeEntry && workLocations.length > 0 ? null : (
+          ) : (
             <Button
               key={showDeniedBanner ? 'denied' : 'enabled'}
               onClick={handleClockAction}
-              disabled={clockInMutation.isPending || clockOutMutation.isPending || activeEntryLoading || ((permissionState === 'denied' || showDeniedBanner) && workLocations.length > 0 && !activeTimeEntry)}
+              disabled={clockInMutation.isPending || clockOutMutation.isPending || activeEntryLoading || (hasAttemptedClockIn && (permissionState === 'denied' || showDeniedBanner) && workLocations.length > 0 && !activeTimeEntry)}
               className={`w-full text-base font-bold py-4 rounded-2xl transition-opacity duration-300 ${
                 activeTimeEntry
                   ? 'bg-destructive hover:bg-destructive/90 text-destructive-foreground'

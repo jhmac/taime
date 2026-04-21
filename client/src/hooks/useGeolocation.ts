@@ -64,11 +64,18 @@ export function useGeolocation() {
       setError(null);
       return (async () => {
         try {
-          let permStatus = await Geolocation.checkPermissions();
-          if (permStatus.location === 'prompt' || permStatus.location === 'prompt-with-rationale') {
-            permStatus = await Geolocation.requestPermissions({ permissions: ['location'] });
+          // If we already have a cached grant, skip the OS permission check so
+          // we don't flash a redundant dialog on every call.  Only query the OS
+          // when the cached state is unknown/prompt (first-time or revoked).
+          let permLocation: string = readCachedPermission();
+          if (permLocation !== 'granted') {
+            let permStatus = await Geolocation.checkPermissions();
+            if (permStatus.location === 'prompt' || permStatus.location === 'prompt-with-rationale') {
+              permStatus = await Geolocation.requestPermissions({ permissions: ['location'] });
+            }
+            permLocation = permStatus.location;
           }
-          if (permStatus.location === 'denied') {
+          if (permLocation === 'denied') {
             const geoError: GeolocationError = { code: 1, message: getErrorMessage(1) };
             setError(geoError);
             setPermissionState('denied');
@@ -265,6 +272,14 @@ export function useGeolocation() {
 
   useEffect(() => {
     if (Capacitor.isNativePlatform()) {
+      // Skip the OS round-trip entirely when we already have a cached grant —
+      // checkPermissions() does not show a dialog, but skipping it avoids any
+      // timing edge-case where the OS returns 'prompt' during app transitions
+      // (while the real state is still granted).  On denial or first-launch
+      // the cache is empty/denied, so we still ask the OS.
+      if (readCachedPermission() === 'granted') {
+        return;
+      }
       Geolocation.checkPermissions().then((result) => {
         const loc = result.location;
         if (loc === 'granted') {
@@ -273,14 +288,7 @@ export function useGeolocation() {
           setPermissionState('denied');
           setError({ code: 1, message: getErrorMessage(1) });
         } else {
-          // Don't downgrade a cached 'granted' to 'prompt' on native either.
-          // On iOS/Android the OS is the source of truth, but if checkPermissions
-          // returns 'prompt' while we have a cached grant (can happen during
-          // app transitions or permission dialog delays), keep the cached state
-          // so the in-app banner stays hidden while the auto-request fires.
-          if (readCachedPermission() !== 'granted') {
-            setPermissionState('prompt');
-          }
+          setPermissionState('prompt');
         }
       }).catch(() => {
         setPermissionState('unknown');
@@ -305,9 +313,10 @@ export function useGeolocation() {
         // Don't downgrade a previously-cached 'granted' to 'prompt'.
         // The Permissions API can return 'prompt' when the origin changes
         // (e.g. Replit preview URLs) or when the browser session is fresh,
-        // even though the user already explicitly allowed access.
-        // The silent auto-request in TimeClockWidget will fire and confirm
-        // or correct the real state without showing the banner unnecessarily.
+        // even though the user already explicitly allowed access.  Keeping
+        // the cached 'granted' prevents the in-app permission nudge banner
+        // from appearing; the actual browser grant is confirmed the next
+        // time the user triggers Clock In.
         if (result.state !== 'prompt' || readCachedPermission() !== 'granted') {
           setPermissionState(result.state);
         }
