@@ -1,6 +1,7 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
+import { useWebSocket } from '@/hooks/useWebSocket';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -16,6 +17,16 @@ export default function ChoresWidget() {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  // Real-time WebSocket: refresh my assignments when status changes
+  const { lastMessage } = useWebSocket();
+  useEffect(() => {
+    if (!lastMessage) return;
+    const t = lastMessage.type;
+    if (t === 'task_assignee_broadcast' || t === 'task_assignee_status_changed') {
+      queryClient.invalidateQueries({ queryKey: ['/api/tasks/my-assignments'] });
+    }
+  }, [lastMessage, queryClient]);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [completingId, setCompletingId] = useState<string | null>(null);
   const [completionNote, setCompletionNote] = useState('');

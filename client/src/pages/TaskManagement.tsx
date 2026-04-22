@@ -1,13 +1,15 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
+import { useWebSocket } from '@/hooks/useWebSocket';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -20,6 +22,7 @@ type VerificationItem = {
   assignee: TaskAssignee;
   task: Task;
   user: { id: string; firstName: string | null; lastName: string | null; profileImageUrl: string | null };
+  streak: number;
 };
 
 const DAYS_OF_WEEK = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
@@ -73,8 +76,23 @@ export default function TaskManagement() {
   const [rejectingItem, setRejectingItem] = useState<VerificationItem | null>(null);
   const [rejectionNote, setRejectionNote] = useState('');
   const [broadcastingTask, setBroadcastingTask] = useState<Task | null>(null);
+  const [broadcastAfterCreate, setBroadcastAfterCreate] = useState(false);
 
   const isAdmin = user?.role?.name === 'owner' || user?.role?.name === 'admin';
+
+  // Real-time WebSocket: invalidate verification queue and task list on assignment events
+  const { lastMessage } = useWebSocket();
+  useEffect(() => {
+    if (!lastMessage) return;
+    const t = lastMessage.type;
+    if (t === 'task_assignee_completed') {
+      queryClient.invalidateQueries({ queryKey: ['/api/tasks/verification-queue'] });
+    }
+    if (t === 'task_assignee_status_changed' || t === 'task_assignee_broadcast' || t === 'task_broadcast') {
+      queryClient.invalidateQueries({ queryKey: ['/api/tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/tasks/verification-queue'] });
+    }
+  }, [lastMessage, queryClient]);
 
   const { data: userPermissions = [] } = useQuery<Permission[]>({
     queryKey: ["/api/auth/permissions"],
@@ -102,15 +120,34 @@ export default function TaskManagement() {
   const createMutation = useMutation({
     mutationFn: async (data: any) => {
       const res = await apiRequest('POST', '/api/tasks', data);
-      return res.json();
+      return res.json() as Promise<Task>;
     },
-    onSuccess: () => {
+    onSuccess: async (createdTask) => {
       queryClient.invalidateQueries({ queryKey: ['/api/tasks'] });
       setShowCreateDialog(false);
       setForm(emptyForm);
-      toast({ title: "Task Created", description: "Task has been created successfully." });
+      if (broadcastAfterCreate) {
+        setBroadcastAfterCreate(false);
+        // Immediately broadcast to all clocked-in employees
+        try {
+          const bRes = await apiRequest('POST', `/api/tasks/${createdTask.id}/broadcast`, {});
+          const bData = await bRes.json() as { count?: number };
+          const count = bData.count ?? 0;
+          toast({
+            title: "Task Created & Broadcast!",
+            description: count === 0
+              ? "Task created, but no employees are currently clocked in."
+              : `Task created and assigned to ${count} clocked-in employee${count !== 1 ? 's' : ''}.`,
+          });
+        } catch {
+          toast({ title: "Task Created", description: "Task saved. Broadcast failed — try again from the task list." });
+        }
+      } else {
+        toast({ title: "Task Created", description: "Task has been created successfully." });
+      }
     },
     onError: (error) => {
+      setBroadcastAfterCreate(false);
       toast({ title: "Error", description: `Failed to create task: ${error.message}`, variant: "destructive" });
     },
   });
@@ -181,6 +218,17 @@ export default function TaskManagement() {
     queryKey: ['/api/tasks/verification-queue'],
     enabled: canManageTasks,
     refetchInterval: 15000,
+  });
+
+  // Broadcast progress for the currently viewed task (manager detail modal)
+  const { data: broadcastProgress } = useQuery<{ total: number; approved: number; completed: number; in_progress: number; pending: number; rejected: number }>({
+    queryKey: ['/api/tasks', viewingTask?.id, 'broadcast-progress'],
+    queryFn: async () => {
+      const res = await fetch(`/api/tasks/${viewingTask!.id}/broadcast-progress`, { credentials: 'include' });
+      return res.json();
+    },
+    enabled: !!viewingTask && canManageTasks,
+    refetchInterval: 10000,
   });
 
   const broadcastMutation = useMutation({
@@ -795,7 +843,7 @@ export default function TaskManagement() {
                   </Card>
                 ) : (
                   <div className="space-y-3">
-                    {verificationQueue.map(({ assignee, task, user: emp }) => {
+                    {verificationQueue.map(({ assignee, task, user: emp, streak }) => {
                       const completedMins = assignee.completedAt && assignee.startedAt
                         ? Math.round((new Date(assignee.completedAt).getTime() - new Date(assignee.startedAt).getTime()) / 60000)
                         : null;
@@ -813,7 +861,14 @@ export default function TaskManagement() {
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-start justify-between gap-2">
                                   <div>
-                                    <p className="font-medium text-sm">{emp.firstName} {emp.lastName}</p>
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <p className="font-medium text-sm">{emp.firstName} {emp.lastName}</p>
+                                      {streak >= 1 && (
+                                        <Badge className="text-[10px] bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 px-1.5">
+                                          🔥 {streak}× streak
+                                        </Badge>
+                                      )}
+                                    </div>
                                     <p className="text-xs text-muted-foreground">{task.title}</p>
                                     {completedMins !== null && (
                                       <p className="text-xs text-muted-foreground mt-0.5">
@@ -1084,10 +1139,23 @@ export default function TaskManagement() {
               </div>
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
             <Button variant="outline" onClick={() => { setShowCreateDialog(false); setEditingTask(null); setForm(emptyForm); }}>
               Cancel
             </Button>
+            {/* Broadcast shortcut — only shown for new tasks, only to managers */}
+            {!editingTask && canManageTasks && (
+              <Button
+                variant="outline"
+                className="border-primary/50 text-primary hover:bg-primary/10"
+                disabled={!form.title || createMutation.isPending}
+                onClick={() => { setBroadcastAfterCreate(true); handleCreateOrEdit(); }}
+                title={`Create and assign to all clocked-in (${clockedInCount})`}
+              >
+                <i className="fas fa-broadcast-tower mr-2 text-xs"></i>
+                Create & Broadcast ({clockedInCount})
+              </Button>
+            )}
             <Button
               onClick={handleCreateOrEdit}
               disabled={!form.title || createMutation.isPending || updateMutation.isPending}
@@ -1116,6 +1184,27 @@ export default function TaskManagement() {
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Title</p>
                 <p className="font-medium">{viewingTask.title}</p>
               </div>
+              {/* Broadcast progress bar — shown when there are broadcast assignees */}
+              {canManageTasks && broadcastProgress && broadcastProgress.total > 0 && (
+                <div className="p-3 bg-primary/5 border border-primary/20 rounded-lg">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <p className="text-xs font-medium text-primary">Broadcast Progress</p>
+                    <p className="text-xs text-muted-foreground">
+                      {broadcastProgress.approved} / {broadcastProgress.total} approved
+                    </p>
+                  </div>
+                  <Progress
+                    value={broadcastProgress.total > 0 ? (broadcastProgress.approved / broadcastProgress.total) * 100 : 0}
+                    className="h-2"
+                  />
+                  <div className="flex gap-3 mt-2 text-[10px] text-muted-foreground">
+                    {broadcastProgress.pending > 0 && <span><i className="fas fa-clock mr-0.5"></i>{broadcastProgress.pending} pending</span>}
+                    {broadcastProgress.in_progress > 0 && <span className="text-blue-600"><i className="fas fa-play mr-0.5"></i>{broadcastProgress.in_progress} in progress</span>}
+                    {broadcastProgress.completed > 0 && <span className="text-amber-600"><i className="fas fa-check-circle mr-0.5"></i>{broadcastProgress.completed} awaiting review</span>}
+                    {broadcastProgress.rejected > 0 && <span className="text-red-600"><i className="fas fa-redo-alt mr-0.5"></i>{broadcastProgress.rejected} redo required</span>}
+                  </div>
+                </div>
+              )}
               <div>
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Description</p>
                 <p className="text-muted-foreground">{viewingTask.description || 'No description'}</p>

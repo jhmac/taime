@@ -272,13 +272,33 @@ export function registerTaskRoutes(
     }
   });
 
-  // GET /api/tasks/:id/assignees — list all assignees for a broadcast task
+  // GET /api/tasks/:id/broadcast-progress — aggregate completion stats for a broadcast task
+  app.get('/api/tasks/:id/broadcast-progress', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const progress = await storage.getTaskBroadcastProgress(id);
+      res.json(progress);
+    } catch (error) {
+      console.error("Error fetching broadcast progress:", error);
+      res.status(500).json({ message: "Failed to fetch progress" });
+    }
+  });
+
+  // GET /api/tasks/:id/assignees — list all assignees; scoped to manager's location or own row
   app.get('/api/tasks/:id/assignees', isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
+      const callerId = req.user.id;
       const { broadcastGroupId } = req.query as { broadcastGroupId?: string };
-      const assignees = await storage.getTaskAssignees(id, broadcastGroupId);
-      res.json(assignees);
+
+      const userPermissions = await storage.getUserPermissions(callerId);
+      const isManager = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'hr.manage_employees');
+
+      const allAssignees = await storage.getTaskAssignees(id, broadcastGroupId);
+
+      // Non-managers can only see their own assignment row
+      const visible = isManager ? allAssignees : allAssignees.filter(a => a.userId === callerId);
+      res.json(visible);
     } catch (error) {
       console.error("Error fetching task assignees:", error);
       res.status(500).json({ message: "Failed to fetch assignees" });
@@ -362,13 +382,23 @@ export function registerTaskRoutes(
   // PATCH /api/tasks/:id/assignees/:assigneeId/approve — manager approves completion
   app.patch('/api/tasks/:id/assignees/:assigneeId/approve', isAuthenticated, async (req: any, res) => {
     try {
-      const { assigneeId } = req.params;
+      const { id: taskId, assigneeId } = req.params;
       const managerId = req.user.id;
 
       const userPermissions = await storage.getUserPermissions(managerId);
-      const isManager = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'hr.manage_employees');
+      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
+      const isManager = isAdmin || userPermissions.some(p => p.name === 'hr.manage_employees');
       if (!isManager) {
         return res.status(403).json({ message: "Managers only" });
+      }
+
+      // Location scope: non-admins can only approve tasks in their own location
+      if (!isAdmin) {
+        const managerLocationId = await tryResolveStoreIdForUser(managerId);
+        const task = await storage.getTask(taskId);
+        if (task?.locationId && managerLocationId && task.locationId !== managerLocationId) {
+          return res.status(403).json({ message: "Cannot approve tasks from a different location" });
+        }
       }
 
       const updated = await storage.updateTaskAssignee(assigneeId, {
@@ -403,14 +433,24 @@ export function registerTaskRoutes(
   // PATCH /api/tasks/:id/assignees/:assigneeId/reject — manager rejects, employee must redo
   app.patch('/api/tasks/:id/assignees/:assigneeId/reject', isAuthenticated, async (req: any, res) => {
     try {
-      const { assigneeId } = req.params;
+      const { id: taskId, assigneeId } = req.params;
       const managerId = req.user.id;
       const { rejectionNote } = req.body;
 
       const userPermissions = await storage.getUserPermissions(managerId);
-      const isManager = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'hr.manage_employees');
+      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
+      const isManager = isAdmin || userPermissions.some(p => p.name === 'hr.manage_employees');
       if (!isManager) {
         return res.status(403).json({ message: "Managers only" });
+      }
+
+      // Location scope: non-admins can only reject tasks in their own location
+      if (!isAdmin) {
+        const managerLocationId = await tryResolveStoreIdForUser(managerId);
+        const task = await storage.getTask(taskId);
+        if (task?.locationId && managerLocationId && task.locationId !== managerLocationId) {
+          return res.status(403).json({ message: "Cannot reject tasks from a different location" });
+        }
       }
 
       const updated = await storage.updateTaskAssignee(assigneeId, {

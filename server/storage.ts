@@ -228,8 +228,9 @@ export interface IStorage {
   getTaskAssignees(taskId: string, broadcastGroupId?: string): Promise<Array<TaskAssignee & { user: { id: string; firstName: string | null; lastName: string | null; profileImageUrl: string | null } }>>;
   getMyBroadcastAssignments(userId: string): Promise<Array<TaskAssignee & { task: Task }>>;
   updateTaskAssignee(assigneeId: string, updates: Partial<TaskAssignee>): Promise<TaskAssignee>;
-  getPendingVerifications(locationId?: string): Promise<Array<{ assignee: TaskAssignee; task: Task; user: { id: string; firstName: string | null; lastName: string | null; profileImageUrl: string | null } }>>;
-  getCompletionStreak(taskId: string, userId: string): Promise<number>;
+  getPendingVerifications(locationId?: string): Promise<Array<{ assignee: TaskAssignee; task: Task; user: { id: string; firstName: string | null; lastName: string | null; profileImageUrl: string | null }; streak: number }>>;
+  getCompletionStreak(taskId: string, userId: string, excludeId?: string): Promise<number>;
+  getTaskBroadcastProgress(taskId: string): Promise<{ total: number; approved: number; completed: number; in_progress: number; pending: number; rejected: number }>;
   getClockedInEmployeeCount(locationId?: string): Promise<number>;
   
   // Message operations
@@ -934,7 +935,7 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  async getPendingVerifications(locationId?: string): Promise<Array<{ assignee: TaskAssignee; task: Task; user: { id: string; firstName: string | null; lastName: string | null; profileImageUrl: string | null } }>> {
+  async getPendingVerifications(locationId?: string): Promise<Array<{ assignee: TaskAssignee; task: Task; user: { id: string; firstName: string | null; lastName: string | null; profileImageUrl: string | null }; streak: number }>> {
     const where = locationId
       ? and(eq(taskAssignees.status, "completed"), eq(tasks.locationId, locationId))
       : eq(taskAssignees.status, "completed");
@@ -945,30 +946,57 @@ export class DatabaseStorage implements IStorage {
       .innerJoin(users, eq(taskAssignees.userId, users.id))
       .where(where)
       .orderBy(desc(taskAssignees.completedAt));
-    return rows.map(r => ({ assignee: r.assignee, task: r.task, user: r.user }));
+    // Attach pre-existing streak (prior consecutive approvals, excluding current submission)
+    const result = await Promise.all(rows.map(async (r) => {
+      const streak = await this.getCompletionStreak(r.assignee.taskId, r.assignee.userId, r.assignee.id);
+      return { assignee: r.assignee, task: r.task, user: r.user, streak };
+    }));
+    return result;
   }
 
-  async getCompletionStreak(taskId: string, userId: string): Promise<number> {
-    const history = await db
-      .select({ status: taskAssignees.status })
+  // excludeId: skip a specific assignee row when counting the streak (used to get
+  // pre-existing streak for a 'completed' submission that is not yet approved)
+  async getCompletionStreak(taskId: string, userId: string, excludeId?: string): Promise<number> {
+    const rows = await db
+      .select({ id: taskAssignees.id, status: taskAssignees.status })
       .from(taskAssignees)
       .where(and(eq(taskAssignees.taskId, taskId), eq(taskAssignees.userId, userId)))
       .orderBy(desc(taskAssignees.createdAt));
     let streak = 0;
-    for (const row of history) {
+    for (const row of rows) {
+      if (excludeId && row.id === excludeId) continue;
       if (row.status === "approved") streak++;
       else break;
     }
     return streak;
   }
 
+  // Get aggregate broadcast progress for a task (across all assignees)
+  async getTaskBroadcastProgress(taskId: string): Promise<{ total: number; approved: number; completed: number; in_progress: number; pending: number; rejected: number }> {
+    const rows = await db
+      .select({ status: taskAssignees.status })
+      .from(taskAssignees)
+      .where(eq(taskAssignees.taskId, taskId));
+    const counts = { total: rows.length, approved: 0, completed: 0, in_progress: 0, pending: 0, rejected: 0 };
+    for (const r of rows) {
+      const k = r.status as keyof typeof counts;
+      if (k in counts && k !== 'total') counts[k]++;
+    }
+    return counts;
+  }
+
   async getClockedInEmployeeCount(locationId?: string): Promise<number> {
-    const where = locationId
-      ? and(isNull(timeEntries.clockOutTime), eq(timeEntries.locationId, locationId))
-      : isNull(timeEntries.clockOutTime);
+    const managerRoleNames = ['owner', 'admin', 'manager', 'assistant_manager'];
+    const where = and(
+      isNull(timeEntries.clockOutTime),
+      sql`${roles.name} NOT IN (${sql.join(managerRoleNames.map(n => sql`${n}`), sql`, `)})`,
+      ...(locationId ? [eq(timeEntries.locationId, locationId)] : []),
+    );
     const [row] = await db
       .select({ count: sql<number>`count(distinct ${timeEntries.userId})` })
       .from(timeEntries)
+      .innerJoin(users, eq(timeEntries.userId, users.id))
+      .innerJoin(roles, eq(users.roleId, roles.id))
       .where(where);
     return row?.count ?? 0;
   }
