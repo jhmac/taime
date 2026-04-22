@@ -891,8 +891,8 @@ export default function Availability() {
                   </Button>
                 </div>
                 <Button variant="ghost" size="sm" className="text-xs gap-1 px-2" onClick={() => setShowDefaultSchedule(true)}>
-                  <CalendarDays className="h-3.5 w-3.5" />
-                  Default
+                  <Repeat className="h-3.5 w-3.5" />
+                  Recurring
                 </Button>
               </div>
 
@@ -926,10 +926,12 @@ export default function Availability() {
                     const isToday = day.toDateString() === new Date().toDateString();
                     const entry = calByDate[dateStr];
                     const isTimeOff = entry?.source === 'time_off';
-                    const isUnavailable = entry?.unavailable && !isTimeOff;
-                    const isAvailable = entry?.available;
+                    const isUnavailable = !!(entry?.unavailable) && !isTimeOff;
+                    const isAvailable = !!(entry?.available) && !isTimeOff && !isUnavailable;
+                    const isDefaultOpen = !entry && !isTimeOff; // no entry = available by default
                     const isTemplateOnly = entry?.source === 'template';
                     const hasOverride = entry?.source === 'override';
+                    const hasHours = !isUnavailable && !isTimeOff && entry?.startTime && entry?.endTime;
 
                     return (
                       <button
@@ -938,11 +940,11 @@ export default function Availability() {
                         className={cn(
                           "h-14 rounded-lg flex flex-col items-center justify-start pt-1 px-0.5 relative transition-all active:scale-95 select-none",
                           "focus:outline-none focus:ring-2 focus:ring-primary/50",
-                          isTimeOff && "bg-red-50 dark:bg-red-950/20 cursor-default",
-                          isUnavailable && !isTimeOff && "bg-red-50 dark:bg-red-950/20",
-                          isAvailable && !isTimeOff && !isUnavailable && isTemplateOnly && "bg-emerald-50/60 dark:bg-emerald-950/20 border border-dashed border-emerald-300 dark:border-emerald-700",
-                          isAvailable && !isTimeOff && !isUnavailable && hasOverride && "bg-emerald-100 dark:bg-emerald-900/30",
-                          !isAvailable && !isTimeOff && !isUnavailable && "hover:bg-muted/60",
+                          isTimeOff && "bg-gray-100 dark:bg-gray-800/50 cursor-default",
+                          isUnavailable && "bg-red-50 dark:bg-red-950/20",
+                          isAvailable && isTemplateOnly && "bg-emerald-50/60 dark:bg-emerald-950/20 border border-dashed border-emerald-300 dark:border-emerald-700",
+                          isAvailable && hasOverride && "bg-emerald-100 dark:bg-emerald-900/30",
+                          isDefaultOpen && "bg-emerald-50/40 dark:bg-emerald-950/10 hover:bg-emerald-50/80 dark:hover:bg-emerald-950/20",
                           isToday && "ring-2 ring-primary"
                         )}
                       >
@@ -950,10 +952,9 @@ export default function Availability() {
                         <span className={cn(
                           "text-xs font-semibold leading-none",
                           isToday && "text-primary",
-                          isTimeOff && "text-red-500",
-                          isUnavailable && !isTimeOff && "text-red-400",
-                          isAvailable && !isTimeOff && "text-emerald-700 dark:text-emerald-300",
-                          !isAvailable && !isTimeOff && !isUnavailable && "text-muted-foreground"
+                          isTimeOff && "text-gray-500 dark:text-gray-400",
+                          isUnavailable && "text-red-500 dark:text-red-400",
+                          (isAvailable || isDefaultOpen) && !isToday && "text-emerald-700 dark:text-emerald-300"
                         )}>
                           {day.getDate()}
                         </span>
@@ -961,32 +962,27 @@ export default function Availability() {
                         {/* Status indicator */}
                         {isTimeOff && (
                           <div className="mt-0.5 flex flex-col items-center">
-                            <Umbrella className="h-3 w-3 text-red-400" />
-                            <span className="text-[9px] text-red-400 leading-none mt-0.5 truncate max-w-[36px]">{entry?.timeOff?.type || 'Off'}</span>
+                            <Umbrella className="h-3 w-3 text-gray-400" />
+                            <span className="text-[9px] text-gray-400 leading-none mt-0.5 truncate max-w-[36px]">{entry?.timeOff?.type || 'Off'}</span>
                           </div>
                         )}
-                        {isUnavailable && !isTimeOff && (
+                        {isUnavailable && (
                           <div className="mt-0.5">
                             <Ban className="h-3 w-3 text-red-400" />
                           </div>
                         )}
-                        {isAvailable && !isTimeOff && (
+                        {hasHours && (
                           <div className="mt-0.5 text-[9px] text-emerald-600 dark:text-emerald-400 leading-none text-center px-0.5 truncate max-w-[48px]">
-                            {entry?.startTime && entry?.endTime
-                              ? `${formatTimeShort(entry.startTime)}–${formatTimeShort(entry.endTime)}`
-                              : 'Avail'}
+                            {`${formatTimeShort(entry!.startTime!)}–${formatTimeShort(entry!.endTime!)}`}
                           </div>
                         )}
-                        {isTemplateOnly && isAvailable && (
-                          <Repeat className="absolute bottom-0.5 right-0.5 h-2 w-2 text-emerald-400 opacity-60" />
+                        {isDefaultOpen && !isToday && (
+                          <div className="mt-0.5">
+                            <Check className="h-2.5 w-2.5 text-emerald-400/60" />
+                          </div>
                         )}
-                        {autoFilledDateKeys.has(dateStr) && (
-                          <span
-                            title="Auto-filled from your default schedule"
-                            className="absolute top-0.5 right-0.5"
-                          >
-                            <Wand2 className="h-2.5 w-2.5 text-violet-400 opacity-70" />
-                          </span>
+                        {isTemplateOnly && (isAvailable || isUnavailable) && (
+                          <Repeat className="absolute bottom-0.5 right-0.5 h-2 w-2 text-emerald-400 opacity-60" />
                         )}
                       </button>
                     );
@@ -996,14 +992,14 @@ export default function Availability() {
 
               {/* Legend */}
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-3 text-[10px] text-muted-foreground">
-                <div className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-emerald-100 dark:bg-emerald-900/30" />Available (saved)</div>
-                <div className="flex items-center gap-1"><div className="w-3 h-3 rounded border border-dashed border-emerald-300" />From default</div>
-                <div className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-red-50 dark:bg-red-950/20" />Unavailable / Time off</div>
-                <div className="flex items-center gap-1"><div className="w-3 h-3 rounded border" />Not set</div>
+                <div className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-emerald-50/80 dark:bg-emerald-950/20 border border-emerald-200/50" />Open (default)</div>
+                <div className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-emerald-100 dark:bg-emerald-900/30" />Hours set</div>
+                <div className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-red-50 dark:bg-red-950/20" />Blocked</div>
+                <div className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-gray-100 dark:bg-gray-800/50" />Time off</div>
               </div>
 
               <p className="text-[11px] text-muted-foreground mt-2 text-center">
-                Tap any day to set your hours
+                Tap a day to block it or set specific hours
               </p>
             </CardContent>
           </Card>
@@ -1018,33 +1014,90 @@ export default function Availability() {
           const isSaving = saveDayOverrideMutation.isPending || saveTemplateDayMutation.isPending;
           const isClearing = clearDayOverrideMutation.isPending;
 
+          // Derive editor mode name for UX labeling
+          const isCurrentlyBlocked = entry?.unavailable === true;
+          const isCurrentlyHours = !!(entry?.available && entry?.startTime && entry?.endTime && !entry?.unavailable);
+          const isCurrentlyDefault = !isCurrentlyBlocked && !isCurrentlyHours; // covers no-entry + available-no-hours
+
           const editorBody = (
-            <div>
-              {/* Unavailable toggle */}
-              <div className="flex items-center justify-between py-3 border-b">
-                <div className="flex items-center gap-2">
-                  <Ban className="h-4 w-4 text-red-400" />
-                  <div>
-                    <p className="text-sm font-medium">Unavailable this day</p>
-                    <p className="text-xs text-muted-foreground">Mark yourself as not available</p>
-                  </div>
+            <div className="space-y-5">
+              {/* Current status banner */}
+              <div className={cn(
+                "rounded-lg p-3 flex items-center gap-2.5",
+                isCurrentlyBlocked && "bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800",
+                isCurrentlyHours && "bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800",
+                (isCurrentlyDefault) && "bg-emerald-50/50 dark:bg-emerald-950/10 border border-emerald-200/50 dark:border-emerald-800/30"
+              )}>
+                {isCurrentlyBlocked && <Ban className="h-4 w-4 text-red-500 shrink-0" />}
+                {isCurrentlyHours && <Clock className="h-4 w-4 text-emerald-600 shrink-0" />}
+                {isCurrentlyDefault && <Check className="h-4 w-4 text-emerald-500 shrink-0" />}
+                <div>
+                  {isCurrentlyBlocked && (
+                    <>
+                      <p className="text-sm font-medium text-red-700 dark:text-red-300">Blocked</p>
+                      <p className="text-xs text-red-500 dark:text-red-400">You're marked as unavailable this day</p>
+                    </>
+                  )}
+                  {isCurrentlyHours && (
+                    <>
+                      <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300">
+                        Available {formatTimeShort(entry!.startTime!)}–{formatTimeShort(entry!.endTime!)}
+                      </p>
+                      <p className="text-xs text-emerald-600 dark:text-emerald-400">Specific hours set for this day</p>
+                    </>
+                  )}
+                  {isCurrentlyDefault && (
+                    <>
+                      <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300">Open all day</p>
+                      <p className="text-xs text-emerald-600/70 dark:text-emerald-400/70">Available by default — no restrictions set</p>
+                    </>
+                  )}
                 </div>
-                <Switch checked={editorUnavailable} onCheckedChange={setEditorUnavailable} />
               </div>
 
-              {/* Time range pickers */}
+              {/* Mode selection */}
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">Change to</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => setEditorUnavailable(true)}
+                    className={cn(
+                      "rounded-xl border-2 px-3 py-3 text-center transition-all",
+                      editorUnavailable
+                        ? "border-red-400 bg-red-50 dark:bg-red-950/20"
+                        : "border-border hover:border-red-200 hover:bg-red-50/30"
+                    )}
+                  >
+                    <Ban className={cn("h-5 w-5 mx-auto mb-1", editorUnavailable ? "text-red-500" : "text-muted-foreground/50")} />
+                    <p className="text-xs font-semibold">Block all day</p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">Mark unavailable</p>
+                  </button>
+                  <button
+                    onClick={() => setEditorUnavailable(false)}
+                    className={cn(
+                      "rounded-xl border-2 px-3 py-3 text-center transition-all",
+                      !editorUnavailable
+                        ? "border-primary bg-primary/5"
+                        : "border-border hover:border-primary/30 hover:bg-primary/5"
+                    )}
+                  >
+                    <Clock className={cn("h-5 w-5 mx-auto mb-1", !editorUnavailable ? "text-primary" : "text-muted-foreground/50")} />
+                    <p className="text-xs font-semibold">Set hours</p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">Specific window</p>
+                  </button>
+                </div>
+              </div>
+
+              {/* Time pickers — only when setting hours mode */}
               {!editorUnavailable && (
-                <div className="py-4 border-b space-y-3">
-                  <p className="text-sm font-medium flex items-center gap-2">
-                    <Clock className="h-4 w-4 text-muted-foreground" />Time range
-                  </p>
+                <div className="space-y-3">
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <Label className="text-xs text-muted-foreground mb-1 block">Start</Label>
+                      <Label className="text-xs text-muted-foreground mb-1 block">Available from</Label>
                       <Input type="time" step={1800} value={editorStartTime} onChange={e => setEditorStartTime(e.target.value)} className="text-sm" />
                     </div>
                     <div>
-                      <Label className="text-xs text-muted-foreground mb-1 block">End</Label>
+                      <Label className="text-xs text-muted-foreground mb-1 block">Until</Label>
                       <Input type="time" step={1800} value={editorEndTime} onChange={e => setEditorEndTime(e.target.value)} className="text-sm" />
                     </div>
                   </div>
@@ -1064,11 +1117,9 @@ export default function Availability() {
                 </div>
               )}
 
-              {/* Scope */}
-              <div className="py-4 border-b">
-                <p className="text-sm font-medium mb-3 flex items-center gap-2">
-                  <Repeat className="h-4 w-4 text-muted-foreground" />Apply to
-                </p>
+              {/* Scope selector */}
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">Apply to</p>
                 <div className="grid grid-cols-2 gap-2">
                   <button onClick={() => setEditorScope('override')}
                     className={cn(
@@ -1084,22 +1135,22 @@ export default function Availability() {
                       editorScope === 'template' ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border hover:border-muted-foreground"
                     )}>
                     <p className="text-sm font-medium">Every {DAY_FULL[dow]}</p>
-                    <p className="text-xs text-muted-foreground">Update default schedule</p>
+                    <p className="text-xs text-muted-foreground">Recurring weekly</p>
                   </button>
                 </div>
               </div>
 
               {/* Actions */}
-              <div className="flex flex-col gap-2 pt-4">
+              <div className="flex flex-col gap-2">
                 <Button className="w-full gap-2" onClick={handleSaveDay} disabled={isSaving}>
                   {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                  {isSaving ? 'Saving…' : 'Save'}
+                  {isSaving ? 'Saving…' : 'Save changes'}
                 </Button>
                 {hasExistingOverride && (
                   <Button variant="ghost" size="sm" className="text-xs text-muted-foreground gap-1"
                     onClick={() => clearDayOverrideMutation.mutate(editorDay!)} disabled={isClearing}>
                     {isClearing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5" />}
-                    {isClearing ? 'Clearing…' : 'Revert to default'}
+                    {isClearing ? 'Clearing…' : 'Remove override (revert to default)'}
                   </Button>
                 )}
                 <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" onClick={() => setEditorDay(null)}>
@@ -1139,11 +1190,11 @@ export default function Availability() {
           <SheetContent side="bottom" className="max-h-[92vh] overflow-y-auto rounded-t-2xl px-4 pt-4 pb-8">
             <SheetHeader className="mb-4">
               <SheetTitle className="text-base flex items-center gap-2">
-                <CalendarDays className="h-4 w-4 text-primary" />
-                My Default Schedule
+                <Repeat className="h-4 w-4 text-primary" />
+                Recurring Availability
               </SheetTitle>
               <p className="text-xs text-muted-foreground">
-                Set your typical hours for each day. Empty future weeks will auto-fill from this.
+                Set your typical weekly pattern. Days marked unavailable will repeat every week. You can always override specific dates on the calendar.
               </p>
             </SheetHeader>
             <div className="space-y-4">

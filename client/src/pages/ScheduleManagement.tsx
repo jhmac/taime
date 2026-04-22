@@ -166,9 +166,12 @@ type CalendarDay = {
 
 type TeamCalendarEntry = {
   userId: string;
+  available: boolean;
+  unavailable: boolean;
   startTime: string | null;
   endTime: string | null;
   setByManagerId: string | null;
+  source: 'time_off' | 'override' | 'template' | 'default';
 };
 
 function AvailabilityOverrideDialog({
@@ -1170,39 +1173,56 @@ export default function ScheduleManagement() {
               {weekDates.map((date, dayIdx) => {
                 const dateStr = formatLocalDate(date);
                 const dayAvail = teamCalendar[dateStr] ?? [];
-                const count = dayAvail.length;
+                const availableEntries = dayAvail.filter((a: TeamCalendarEntry) => a.available);
+                const blockedEntries = dayAvail.filter((a: TeamCalendarEntry) => a.unavailable);
+                const count = availableEntries.length;
+                const totalCount = dayAvail.length;
                 const isToday = date.toDateString() === new Date().toDateString();
                 return (
                   <td key={dayIdx} className={cn("text-center px-1 py-1 border-r last:border-r-0", isToday && "bg-primary/5")}>
                     <Popover>
                       <PopoverTrigger asChild>
-                        <button disabled={count === 0} className={cn(
+                        <button disabled={totalCount === 0} className={cn(
                           "text-xs font-semibold rounded px-1.5 py-0.5 transition-colors",
                           count > 0 ? "text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-900/40 hover:bg-emerald-200 cursor-pointer" : "text-muted-foreground/40 cursor-default"
                         )}>
-                          {count > 0 ? `${count} avail` : '—'}
+                          {totalCount > 0 ? `${count}/${totalCount}` : '—'}
                         </button>
                       </PopoverTrigger>
-                      {count > 0 && (
-                        <PopoverContent side="bottom" className="w-56 p-2">
+                      {totalCount > 0 && (
+                        <PopoverContent side="bottom" className="w-60 p-2">
                           <div className="text-xs font-medium mb-1.5 text-muted-foreground">
                             {date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
                           </div>
                           <div className="space-y-1">
-                            {dayAvail.map((a: TeamCalendarEntry) => {
+                            {availableEntries.map((a: TeamCalendarEntry) => {
                               const emp = users.find((u: User) => u.id === a.userId);
                               if (!emp) return null;
-                              const empName = `${emp.firstName} ${emp.lastName}`;
                               return (
                                 <div key={a.userId} className="flex items-center justify-between gap-2">
-                                  <span className="text-xs truncate">{empName}</span>
+                                  <span className="text-xs truncate">{emp.firstName} {emp.lastName}</span>
                                   {a.startTime && a.endTime ? (
-                                    <span className="text-[10px] text-muted-foreground shrink-0">
+                                    <span className="text-[10px] text-emerald-600 shrink-0">
                                       {formatSchedTimeShort(a.startTime)}–{formatSchedTimeShort(a.endTime)}
                                     </span>
                                   ) : (
-                                    <span className="text-[10px] text-muted-foreground shrink-0">avail</span>
+                                    <span className="text-[10px] text-emerald-600 shrink-0">avail</span>
                                   )}
+                                </div>
+                              );
+                            })}
+                            {blockedEntries.length > 0 && availableEntries.length > 0 && (
+                              <div className="border-t my-1 pt-1" />
+                            )}
+                            {blockedEntries.map((a: TeamCalendarEntry) => {
+                              const emp = users.find((u: User) => u.id === a.userId);
+                              if (!emp) return null;
+                              return (
+                                <div key={a.userId} className="flex items-center justify-between gap-2 opacity-50">
+                                  <span className="text-xs truncate line-through">{emp.firstName} {emp.lastName}</span>
+                                  <span className="text-[10px] text-red-500 shrink-0">
+                                    {a.source === 'time_off' ? 'time off' : 'blocked'}
+                                  </span>
                                 </div>
                               );
                             })}
@@ -1316,35 +1336,52 @@ export default function ScheduleManagement() {
                             );
                           })}
 
-                          {/* Availability indicator — merged calendar (template + overrides + time-off) */}
+                          {/* Availability indicator — unavailability-first: green = available (default), red = blocked */}
                           <div className="mt-1 flex items-center gap-0.5">
                             {mergedAvail ? (
-                              <button
-                                title={
-                                  mergedAvail.setByManagerId
-                                    ? (isAdmin ? "Manager override — click to edit" : "Availability set by management")
-                                    : (isAdmin ? "Click to edit availability" : (mergedAvail.startTime && mergedAvail.endTime
-                                        ? `Available ${formatSchedTimeShort(mergedAvail.startTime)}–${formatSchedTimeShort(mergedAvail.endTime)}`
-                                        : 'Available'))
-                                }
-                                onClick={() => isAdmin && setAvailabilityEditTarget({ userId: emp.id, date: dateStr, empName: `${emp.firstName} ${emp.lastName}` })}
-                                className={cn(
-                                  "text-[9px] px-1.5 py-0.5 rounded-sm font-medium leading-[14px] inline-flex items-center gap-0.5",
-                                  mergedAvail.setByManagerId
-                                    ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
-                                    : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
-                                  isAdmin && mergedAvail.setByManagerId && "hover:bg-amber-200 dark:hover:bg-amber-900/60 cursor-pointer",
-                                  isAdmin && !mergedAvail.setByManagerId && "hover:bg-emerald-200 dark:hover:bg-emerald-900/60 cursor-pointer"
-                                )}
-                              >
-                                {mergedAvail.startTime && mergedAvail.endTime
-                                  ? `${formatSchedTimeShort(mergedAvail.startTime)}–${formatSchedTimeShort(mergedAvail.endTime)}`
-                                  : 'avail'}
-                                {mergedAvail.setByManagerId
-                                  ? <UserCog className="h-2 w-2 ml-0.5 opacity-70" />
-                                  : isAdmin && <Pencil className="h-2 w-2 ml-0.5 opacity-60" />}
-                              </button>
+                              mergedAvail.unavailable ? (
+                                // Explicitly blocked (time-off or unavailable override)
+                                <button
+                                  title={mergedAvail.source === 'time_off' ? 'Time off' : (isAdmin ? "Blocked — click to override" : 'Not available')}
+                                  onClick={() => isAdmin && mergedAvail.source !== 'time_off' && setAvailabilityEditTarget({ userId: emp.id, date: dateStr, empName: `${emp.firstName} ${emp.lastName}` })}
+                                  className={cn(
+                                    "text-[9px] px-1.5 py-0.5 rounded-sm font-medium leading-[14px] inline-flex items-center gap-0.5",
+                                    "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400",
+                                    isAdmin && mergedAvail.source !== 'time_off' && "hover:bg-red-200 cursor-pointer"
+                                  )}
+                                >
+                                  {mergedAvail.source === 'time_off' ? 'time off' : 'blocked'}
+                                </button>
+                              ) : (
+                                // Available — show green with optional time range
+                                <button
+                                  title={
+                                    mergedAvail.setByManagerId
+                                      ? (isAdmin ? "Manager override — click to edit" : "Availability set by management")
+                                      : (isAdmin ? "Click to edit availability" : (mergedAvail.startTime && mergedAvail.endTime
+                                          ? `Available ${formatSchedTimeShort(mergedAvail.startTime)}–${formatSchedTimeShort(mergedAvail.endTime)}`
+                                          : 'Available'))
+                                  }
+                                  onClick={() => isAdmin && setAvailabilityEditTarget({ userId: emp.id, date: dateStr, empName: `${emp.firstName} ${emp.lastName}` })}
+                                  className={cn(
+                                    "text-[9px] px-1.5 py-0.5 rounded-sm font-medium leading-[14px] inline-flex items-center gap-0.5",
+                                    mergedAvail.setByManagerId
+                                      ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                                      : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
+                                    isAdmin && mergedAvail.setByManagerId && "hover:bg-amber-200 dark:hover:bg-amber-900/60 cursor-pointer",
+                                    isAdmin && !mergedAvail.setByManagerId && "hover:bg-emerald-200 dark:hover:bg-emerald-900/60 cursor-pointer"
+                                  )}
+                                >
+                                  {mergedAvail.startTime && mergedAvail.endTime
+                                    ? `${formatSchedTimeShort(mergedAvail.startTime)}–${formatSchedTimeShort(mergedAvail.endTime)}`
+                                    : 'avail'}
+                                  {mergedAvail.setByManagerId
+                                    ? <UserCog className="h-2 w-2 ml-0.5 opacity-70" />
+                                    : isAdmin && <Pencil className="h-2 w-2 ml-0.5 opacity-60" />}
+                                </button>
+                              )
                             ) : isAdmin ? (
+                              // Fallback: no data at all (shouldn't happen with new backend, but keep as safety)
                               <button
                                 title="Set availability for this day"
                                 onClick={() => setAvailabilityEditTarget({ userId: emp.id, date: dateStr, empName: `${emp.firstName} ${emp.lastName}` })}

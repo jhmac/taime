@@ -334,12 +334,24 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
   });
 
   // GET /api/availability/calendar/team — manager view: merged availability for all store members
+  // Unavailability-first: "no entry" = available by default; only explicit blocks show as unavailable.
   app.get('/api/availability/calendar/team', isAuthenticated, async (req: any, res) => {
     try {
       const requestingUserId: string = req.user.id;
       const requestingRole = req.user?.role?.name;
-      const isManagerOrAbove = ['owner', 'admin', 'manager', 'assistant_manager'].includes(requestingRole);
-      if (!isManagerOrAbove) return res.status(403).json({ message: "Managers only" });
+      const legacyManagerRoles = ['owner', 'admin', 'manager', 'assistant_manager'];
+      const isManagerOrAbove = legacyManagerRoles.includes(requestingRole);
+      // Also allow users with any scheduling/admin permission (covers custom roles like "Store Manager")
+      let hasPermission = isManagerOrAbove;
+      if (!hasPermission) {
+        const schedPerms = ['schedule.view_all', 'schedule.create', 'schedule.edit_all', 'admin.manage_all'];
+        const { getUserIdsWithPermission } = await import('../lib/permissionUtils');
+        for (const perm of schedPerms) {
+          const ids = await getUserIdsWithPermission(perm);
+          if (ids.includes(requestingUserId)) { hasPermission = true; break; }
+        }
+      }
+      if (!hasPermission) return res.status(403).json({ message: "Managers only" });
 
       const { start, end } = req.query;
       if (!start || !end) return res.status(400).json({ message: "start and end required" });
@@ -350,10 +362,10 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
       const { getAllStoreUserIds } = await import('../lib/permissionUtils');
 
       const storeId = await tryResolveStoreIdForUser(requestingUserId);
-      if (!storeId) return res.json([]);
+      if (!storeId) return res.json({});
 
       const storeUserIds = await getAllStoreUserIds(storeId);
-      if (storeUserIds.length === 0) return res.json([]);
+      if (storeUserIds.length === 0) return res.json({});
 
       const [templates, overrides, allTimeOff] = await Promise.all([
         storage.getAvailabilityTemplatesForUsers(storeUserIds),
@@ -378,43 +390,76 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
         cur.setUTCDate(cur.getUTCDate() + 1);
       }
 
-      // Per date: collect available users with their time ranges
-      const byDate: Record<string, { userId: string; startTime: string | null; endTime: string | null; setByManagerId: string | null }[]> = {};
+      type EntryRow = {
+        userId: string;
+        available: boolean;
+        unavailable: boolean;
+        startTime: string | null;
+        endTime: string | null;
+        setByManagerId: string | null;
+        source: 'time_off' | 'override' | 'template' | 'default';
+      };
+
+      // Per date: return ALL store users with their computed status
+      // "No template entry" = available by default (unavailability-first paradigm)
+      const byDate: Record<string, EntryRow[]> = {};
       for (const dateStr of dates) {
         const dateObj = new Date(dateStr + 'T12:00:00Z');
-        const available: typeof byDate[string] = [];
+        const entries: EntryRow[] = [];
 
         for (const uid of storeUserIds) {
-          // Check time-off
+          // Highest priority: approved/pending time-off request
           const hasTimeOff = allTimeOff.some(r => {
             if (r.status === 'cancelled' || r.userId !== uid) return false;
             const s = new Date(r.startDate); const e = new Date(r.endDate);
             return dateObj >= s && dateObj <= e;
           });
-          if (hasTimeOff) continue;
-
-          const override = overridesByUserDate[`${uid}:${dateStr}`];
-          if (override) {
-            if (!override.unavailable && override.startTime) {
-              available.push({ userId: uid, startTime: override.startTime, endTime: override.endTime, setByManagerId: override.setByManagerId ?? null });
-            }
+          if (hasTimeOff) {
+            entries.push({ userId: uid, available: false, unavailable: true, startTime: null, endTime: null, setByManagerId: null, source: 'time_off' });
             continue;
           }
 
-          // Template fallback
+          // Date-specific override
+          const override = overridesByUserDate[`${uid}:${dateStr}`];
+          if (override) {
+            entries.push({
+              userId: uid,
+              available: !override.unavailable,
+              unavailable: !!override.unavailable,
+              startTime: !override.unavailable ? (override.startTime ?? null) : null,
+              endTime: !override.unavailable ? (override.endTime ?? null) : null,
+              setByManagerId: override.setByManagerId ?? null,
+              source: 'override',
+            });
+            continue;
+          }
+
+          // Weekly template fallback
           const tmpl = templateByUser[uid];
           const rawSlots = (tmpl?.slots ?? {}) as Record<string, { available?: boolean; startTime?: string; endTime?: string; morning?: boolean; afternoon?: boolean; evening?: boolean }>;
           const dow = dateObj.getUTCDay().toString();
           const slot = rawSlots[dow];
-          if (!slot) continue;
 
-          if ('available' in slot && slot.available) {
-            available.push({ userId: uid, startTime: slot.startTime ?? null, endTime: slot.endTime ?? null, setByManagerId: null });
-          } else if (!('available' in slot) && (slot.morning || slot.afternoon || slot.evening)) {
-            available.push({ userId: uid, startTime: null, endTime: null, setByManagerId: null });
+          if (!slot) {
+            // No template entry → available by default (unavailability-first model)
+            entries.push({ userId: uid, available: true, unavailable: false, startTime: null, endTime: null, setByManagerId: null, source: 'default' });
+          } else if ('available' in slot) {
+            entries.push({
+              userId: uid,
+              available: !!slot.available,
+              unavailable: !slot.available,
+              startTime: slot.available ? (slot.startTime ?? null) : null,
+              endTime: slot.available ? (slot.endTime ?? null) : null,
+              setByManagerId: null,
+              source: 'template',
+            });
+          } else {
+            // Legacy morning/afternoon/evening slots
+            const isAvail = !!(slot.morning || slot.afternoon || slot.evening);
+            entries.push({ userId: uid, available: isAvail, unavailable: !isAvail, startTime: null, endTime: null, setByManagerId: null, source: 'template' });
           }
         }
-        byDate[dateStr] = available;
+        byDate[dateStr] = entries;
       }
 
       res.json(byDate);
