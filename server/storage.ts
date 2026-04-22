@@ -870,26 +870,29 @@ export class DatabaseStorage implements IStorage {
     if (eligibleUsers.length === 0) return { assignees: [], count: 0 };
 
     // For each eligible user, find their last approved completion image for photo comparison
+    // Fetch the task-level most recently approved photo (regardless of which employee submitted it)
+    // This provides the "gold standard" comparison image for the task.
+    const [taskLevelApproved] = await db
+      .select({ completionImageUrl: taskAssignees.completionImageUrl })
+      .from(taskAssignees)
+      .where(and(
+        eq(taskAssignees.taskId, taskId),
+        eq(taskAssignees.status, "approved"),
+        sql`${taskAssignees.completionImageUrl} IS NOT NULL`,
+      ))
+      .orderBy(desc(taskAssignees.createdAt))
+      .limit(1);
+    const taskPreviousImageUrl = taskLevelApproved?.completionImageUrl ?? null;
+
     const result: TaskAssignee[] = [];
     for (const u of eligibleUsers) {
-      const [lastApproved] = await db
-        .select({ completionImageUrl: taskAssignees.completionImageUrl })
-        .from(taskAssignees)
-        .where(and(
-          eq(taskAssignees.taskId, taskId),
-          eq(taskAssignees.userId, u.id),
-          eq(taskAssignees.status, "approved")
-        ))
-        .orderBy(desc(taskAssignees.createdAt))
-        .limit(1);
-
       const [created] = await db.insert(taskAssignees).values({
         taskId,
         userId: u.id,
         assignedBy: managerId,
         broadcastGroupId,
         status: "pending",
-        previousImageUrl: lastApproved?.completionImageUrl ?? null,
+        previousImageUrl: taskPreviousImageUrl,
       }).returning();
       result.push(created);
     }

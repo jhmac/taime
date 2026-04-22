@@ -273,9 +273,14 @@ export function registerTaskRoutes(
     }
   });
 
-  // GET /api/tasks/broadcast-summary — progress summary for ALL tasks with assignees (single call for list view)
+  // GET /api/tasks/broadcast-summary — manager-only; progress summary for all tasks (used in list view)
   app.get('/api/tasks/broadcast-summary', isAuthenticated, async (req: any, res) => {
     try {
+      const callerId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(callerId);
+      const isManager = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'hr.manage_employees');
+      if (!isManager) return res.status(403).json({ message: "Managers only" });
+
       const summary = await storage.getAllTaskBroadcastSummary();
       res.json(summary);
     } catch (error) {
@@ -284,10 +289,26 @@ export function registerTaskRoutes(
     }
   });
 
-  // GET /api/tasks/:id/broadcast-progress — aggregate completion stats for a broadcast task
+  // GET /api/tasks/:id/broadcast-progress — manager-only; detailed completion stats for a broadcast task
   app.get('/api/tasks/:id/broadcast-progress', isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
+      const callerId = req.user.id;
+
+      const userPermissions = await storage.getUserPermissions(callerId);
+      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
+      const isManager = isAdmin || userPermissions.some(p => p.name === 'hr.manage_employees');
+      if (!isManager) return res.status(403).json({ message: "Managers only" });
+
+      // Location scope: non-admins can only view progress for tasks in their location
+      if (!isAdmin) {
+        const managerLocationId = await tryResolveStoreIdForUser(callerId);
+        const task = await storage.getTask(id);
+        if (task?.locationId && managerLocationId && task.locationId !== managerLocationId) {
+          return res.status(403).json({ message: "Cannot view progress for tasks from a different location" });
+        }
+      }
+
       const progress = await storage.getTaskBroadcastProgress(id);
       res.json(progress);
     } catch (error) {
@@ -296,7 +317,7 @@ export function registerTaskRoutes(
     }
   });
 
-  // GET /api/tasks/:id/assignees — list all assignees; scoped to manager's location or own row
+  // GET /api/tasks/:id/assignees — manager sees all in their location; employees see only own row
   app.get('/api/tasks/:id/assignees', isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
@@ -304,13 +325,26 @@ export function registerTaskRoutes(
       const { broadcastGroupId } = req.query as { broadcastGroupId?: string };
 
       const userPermissions = await storage.getUserPermissions(callerId);
-      const isManager = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'hr.manage_employees');
+      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
+      const isManager = isAdmin || userPermissions.some(p => p.name === 'hr.manage_employees');
 
       const allAssignees = await storage.getTaskAssignees(id, broadcastGroupId);
 
-      // Non-managers can only see their own assignment row
-      const visible = isManager ? allAssignees : allAssignees.filter(a => a.userId === callerId);
-      res.json(visible);
+      if (!isManager) {
+        // Employees can only see their own assignment row
+        return res.json(allAssignees.filter(a => a.userId === callerId));
+      }
+
+      // Non-admin managers: restrict to tasks in their own location
+      if (!isAdmin) {
+        const managerLocationId = await tryResolveStoreIdForUser(callerId);
+        const task = await storage.getTask(id);
+        if (task?.locationId && managerLocationId && task.locationId !== managerLocationId) {
+          return res.status(403).json({ message: "Cannot view assignees for tasks from a different location" });
+        }
+      }
+
+      res.json(allAssignees);
     } catch (error) {
       console.error("Error fetching task assignees:", error);
       res.status(500).json({ message: "Failed to fetch assignees" });
