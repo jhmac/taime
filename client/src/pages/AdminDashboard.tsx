@@ -124,7 +124,7 @@ export default function AdminDashboard() {
                 {getGreeting()}, {(user as any)?.firstName || 'Admin'}!
               </h1>
               <p className="text-sm opacity-80">
-                {currentTime.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+                {currentTime.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} &bull; {formatTime(currentTime)}
               </p>
             </div>
             <Button

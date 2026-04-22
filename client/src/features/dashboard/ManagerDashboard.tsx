@@ -227,7 +227,7 @@ export default function ManagerDashboard() {
                 {getGreeting()}, {(user as any)?.firstName || 'Manager'}!
               </h1>
               <p className="text-sm opacity-80">
-                {currentTime.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+                {currentTime.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} &bull; {formatTime(currentTime)}
               </p>
             </div>
             <Button
