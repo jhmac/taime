@@ -80,17 +80,19 @@ export default function TaskManagement() {
 
   const isAdmin = user?.role?.name === 'owner' || user?.role?.name === 'admin';
 
-  // Real-time WebSocket: invalidate verification queue and task list on assignment events
+  // Real-time WebSocket: invalidate task list, verification queue, and broadcast progress on assignment events
   const { lastMessage } = useWebSocket();
   useEffect(() => {
     if (!lastMessage) return;
     const t = lastMessage.type;
     if (t === 'task_assignee_completed') {
       queryClient.invalidateQueries({ queryKey: ['/api/tasks/verification-queue'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/tasks/broadcast-summary'] });
     }
     if (t === 'task_assignee_status_changed' || t === 'task_assignee_broadcast' || t === 'task_broadcast') {
       queryClient.invalidateQueries({ queryKey: ['/api/tasks'] });
       queryClient.invalidateQueries({ queryKey: ['/api/tasks/verification-queue'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/tasks/broadcast-summary'] });
     }
   }, [lastMessage, queryClient]);
 
@@ -101,6 +103,11 @@ export default function TaskManagement() {
 
   const canManageTasks = userPermissions?.some?.(p =>
     p.name === 'tasks.edit_all' || p.name === 'tasks.create' || p.name === 'admin.manage_all'
+  ) || isAdmin || false;
+
+  // Stricter check matching backend manager guards: admin.manage_all OR hr.manage_employees
+  const canBroadcast = userPermissions?.some?.(p =>
+    p.name === 'admin.manage_all' || p.name === 'hr.manage_employees'
   ) || isAdmin || false;
 
   const canDeleteTasks = userPermissions?.some?.(p =>
@@ -211,19 +218,19 @@ export default function TaskManagement() {
     queryKey: ['/api/tasks/clocked-in-count'],
     select: (d: any) => d?.count ?? 0,
     refetchInterval: 30000,
-    enabled: canManageTasks,
+    enabled: canBroadcast,
   });
 
   const { data: verificationQueue = [], refetch: refetchQueue } = useQuery<VerificationItem[]>({
     queryKey: ['/api/tasks/verification-queue'],
-    enabled: canManageTasks,
+    enabled: canBroadcast,
     refetchInterval: 15000,
   });
 
-  // Broadcast summary for ALL tasks — used to show progress bars in the task list
+  // Broadcast summary for ALL tasks — used to show progress bars in the task list (managers only)
   const { data: broadcastSummary = {} } = useQuery<Record<string, { total: number; approved: number }>>({
     queryKey: ['/api/tasks/broadcast-summary'],
-    enabled: canManageTasks,
+    enabled: canBroadcast,
     refetchInterval: 15000,
   });
 
@@ -234,7 +241,7 @@ export default function TaskManagement() {
       const res = await fetch(`/api/tasks/${viewingTask!.id}/broadcast-progress`, { credentials: 'include' });
       return res.json();
     },
-    enabled: !!viewingTask && canManageTasks,
+    enabled: !!viewingTask && canBroadcast,
     refetchInterval: 10000,
   });
 
@@ -514,12 +521,12 @@ export default function TaskManagement() {
         )}
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className={`grid w-full ${canManageTasks ? 'grid-cols-5' : 'grid-cols-4'}`}>
+          <TabsList className={`grid w-full ${canBroadcast ? 'grid-cols-5' : 'grid-cols-4'}`}>
             <TabsTrigger value="all">All Tasks</TabsTrigger>
             <TabsTrigger value="recurring">Recurring</TabsTrigger>
             <TabsTrigger value="one-time">One-Time</TabsTrigger>
             <TabsTrigger value="my-tasks">My Tasks</TabsTrigger>
-            {canManageTasks && (
+            {canBroadcast && (
               <TabsTrigger value="verification" className="relative">
                 Verify
                 {verificationQueue.length > 0 && (
@@ -596,8 +603,11 @@ export default function TaskManagement() {
               </Select>
             </div>
 
+            {activeTab !== 'verification' && (
             <p className="text-sm text-muted-foreground">{filteredTasks.length} tasks found</p>
+            )}
 
+            {activeTab !== 'verification' && (
             <TabsContent value={activeTab} className="mt-0">
               <div className="space-y-2">
                 {filteredTasks.length === 0 ? (
@@ -672,7 +682,7 @@ export default function TaskManagement() {
                                   </div>
                                 )}
                                 {/* Compact broadcast progress bar — shown when this task has been broadcast */}
-                                {canManageTasks && broadcastSummary[task.id] && broadcastSummary[task.id].total > 0 && (
+                                {canBroadcast && broadcastSummary[task.id] && broadcastSummary[task.id].total > 0 && (
                                   <div className="mt-2" onClick={e => e.stopPropagation()}>
                                     <div className="flex items-center justify-between mb-0.5">
                                       <span className="text-[10px] text-primary font-medium">Broadcast</span>
@@ -688,7 +698,7 @@ export default function TaskManagement() {
                                 )}
                               </div>
                               <div className="flex items-center gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
-                                {canManageTasks && (
+                                {canBroadcast && (
                                   <Button
                                     variant="outline"
                                     size="sm"
@@ -853,8 +863,9 @@ export default function TaskManagement() {
                 )}
               </div>
             </TabsContent>
+            )}
 
-            {canManageTasks && (
+            {canBroadcast && (
               <TabsContent value="verification" className="mt-0">
                 {verificationQueue.length === 0 ? (
                   <Card>
@@ -1207,7 +1218,7 @@ export default function TaskManagement() {
                 <p className="font-medium">{viewingTask.title}</p>
               </div>
               {/* Broadcast progress bar — shown when there are broadcast assignees */}
-              {canManageTasks && broadcastProgress && broadcastProgress.total > 0 && (
+              {canBroadcast && broadcastProgress && broadcastProgress.total > 0 && (
                 <div className="p-3 bg-primary/5 border border-primary/20 rounded-lg">
                   <div className="flex items-center justify-between mb-1.5">
                     <p className="text-xs font-medium text-primary">Broadcast Progress</p>
