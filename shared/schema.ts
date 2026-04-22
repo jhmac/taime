@@ -209,6 +209,11 @@ export const schedules = pgTable("schedules", {
 // Task/Chore status enum
 export const taskStatusEnum = pgEnum("task_status", ["pending", "in_progress", "completed", "cancelled"]);
 
+// Task assignee status enum (per-employee broadcast assignment lifecycle)
+export const taskAssigneeStatusEnum = pgEnum("task_assignee_status", [
+  "pending", "in_progress", "completed", "approved", "rejected"
+]);
+
 // Tasks/Chores
 export const tasks = pgTable("tasks", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -241,6 +246,38 @@ export const tasks = pgTable("tasks", {
   index("idx_tasks_due_date").on(table.dueDate),
   index("idx_tasks_assigned_created").on(table.assignedTo, table.createdAt),
 ]);
+
+// Per-employee broadcast task assignments — one row per (task, employee, broadcast event)
+// broadcastGroupId groups all rows created in the same broadcast action.
+// Photo history accumulates: multiple rows can exist for the same (taskId, userId)
+// across different broadcast rounds.
+export const taskAssignees = pgTable("task_assignees", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  taskId: varchar("task_id").references(() => tasks.id, { onDelete: 'cascade' }).notNull(),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  assignedBy: varchar("assigned_by").references(() => users.id).notNull(),
+  broadcastGroupId: varchar("broadcast_group_id").notNull(),
+  status: taskAssigneeStatusEnum("status").default("pending"),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  completionNote: text("completion_note"),
+  completionImageUrl: text("completion_image_url"),
+  previousImageUrl: text("previous_image_url"), // last approved image for same (task, user)
+  managerApprovedAt: timestamp("manager_approved_at"),
+  approvedBy: varchar("approved_by").references(() => users.id),
+  rejectedAt: timestamp("rejected_at"),
+  rejectionNote: text("rejection_note"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_task_assignees_task_id").on(table.taskId),
+  index("idx_task_assignees_user_id").on(table.userId),
+  index("idx_task_assignees_broadcast_group").on(table.broadcastGroupId),
+  index("idx_task_assignees_status").on(table.status),
+]);
+
+export const insertTaskAssigneeSchema = createInsertSchema(taskAssignees).omit({ id: true, createdAt: true });
+export type TaskAssignee = typeof taskAssignees.$inferSelect;
+export type InsertTaskAssignee = z.infer<typeof insertTaskAssigneeSchema>;
 
 // Chat groups for group messaging
 export const chatGroups = pgTable("chat_groups", {

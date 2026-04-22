@@ -5,7 +5,13 @@ import { notificationService } from "../services/notificationService";
 import { tryResolveStoreIdForUser } from "../lib/storeResolver";
 import { runAutoAssign } from "./ai";
 
-export function registerTaskRoutes(app: Express, storage: IStorage, isAuthenticated: any, broadcastToAll: (data: any) => void) {
+export function registerTaskRoutes(
+  app: Express,
+  storage: IStorage,
+  isAuthenticated: any,
+  broadcastToAll: (data: any) => void,
+  sendToUsers?: (userIds: string[], data: any) => void,
+) {
   app.post('/api/tasks', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
@@ -168,6 +174,234 @@ export function registerTaskRoutes(app: Express, storage: IStorage, isAuthentica
     } catch (error) {
       console.error("Error deleting task:", error);
       res.status(400).json({ message: (error as Error).message });
+    }
+  });
+
+  // ──────────────────────────────────────────────────────
+  // Broadcast task assignment routes
+  // ──────────────────────────────────────────────────────
+
+  // GET /api/tasks/clocked-in-count — how many employees are clocked in right now
+  app.get('/api/tasks/clocked-in-count', isAuthenticated, async (req: any, res) => {
+    try {
+      const count = await storage.getClockedInEmployeeCount();
+      res.json({ count });
+    } catch (error) {
+      console.error("Error getting clocked-in count:", error);
+      res.status(500).json({ message: "Failed to get count" });
+    }
+  });
+
+  // GET /api/tasks/verification-queue — pending completions awaiting manager sign-off
+  app.get('/api/tasks/verification-queue', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const isManager = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'hr.manage_employees');
+      if (!isManager) {
+        return res.status(403).json({ message: "Managers only" });
+      }
+      const locationId = await tryResolveStoreIdForUser(userId);
+      const queue = await storage.getPendingVerifications(locationId || undefined);
+      res.json(queue);
+    } catch (error) {
+      console.error("Error fetching verification queue:", error);
+      res.status(500).json({ message: "Failed to fetch verification queue" });
+    }
+  });
+
+  // GET /api/tasks/my-assignments — broadcast tasks assigned to the current user
+  app.get('/api/tasks/my-assignments', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const assignments = await storage.getMyBroadcastAssignments(userId);
+      res.json(assignments);
+    } catch (error) {
+      console.error("Error fetching my assignments:", error);
+      res.status(500).json({ message: "Failed to fetch assignments" });
+    }
+  });
+
+  // POST /api/tasks/:id/broadcast — manager broadcasts task to all clocked-in employees
+  app.post('/api/tasks/:id/broadcast', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.id;
+
+      const userPermissions = await storage.getUserPermissions(userId);
+      const isManager = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'hr.manage_employees');
+      if (!isManager) {
+        return res.status(403).json({ message: "Only managers can broadcast tasks" });
+      }
+
+      const task = await storage.getTask(id);
+      if (!task) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+
+      const locationId = await tryResolveStoreIdForUser(userId);
+      const { assignees, count } = await storage.broadcastTask(id, userId, locationId || undefined);
+
+      if (count === 0) {
+        return res.status(200).json({ assignees: [], count: 0, message: "No employees currently clocked in" });
+      }
+
+      // Notify each assigned employee via push notification
+      for (const assignee of assignees) {
+        notificationService.sendTaskAssignment(assignee.userId, task.title, 'Broadcast assignment').catch(() => {});
+      }
+
+      // WebSocket: send task_assignee_broadcast to each recipient
+      const recipientIds = assignees.map(a => a.userId);
+      if (sendToUsers && recipientIds.length > 0) {
+        sendToUsers(recipientIds, {
+          type: 'task_assignee_broadcast',
+          data: { taskId: id, taskTitle: task.title, assigneeCount: count },
+        });
+      }
+
+      broadcastToAll({
+        type: 'task_broadcast',
+        data: { taskId: id, count },
+      });
+
+      res.json({ assignees, count });
+    } catch (error) {
+      console.error("Error broadcasting task:", error);
+      res.status(500).json({ message: "Failed to broadcast task" });
+    }
+  });
+
+  // GET /api/tasks/:id/assignees — list all assignees for a broadcast task
+  app.get('/api/tasks/:id/assignees', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { broadcastGroupId } = req.query as { broadcastGroupId?: string };
+      const assignees = await storage.getTaskAssignees(id, broadcastGroupId);
+      res.json(assignees);
+    } catch (error) {
+      console.error("Error fetching task assignees:", error);
+      res.status(500).json({ message: "Failed to fetch assignees" });
+    }
+  });
+
+  // PATCH /api/tasks/:id/assignees/:assigneeId/start — employee starts the task
+  app.patch('/api/tasks/:id/assignees/:assigneeId/start', isAuthenticated, async (req: any, res) => {
+    try {
+      const { assigneeId } = req.params;
+      const updated = await storage.updateTaskAssignee(assigneeId, {
+        status: "in_progress",
+        startedAt: new Date(),
+      });
+
+      if (sendToUsers) {
+        sendToUsers([updated.assignedBy], {
+          type: 'task_assignee_status_changed',
+          data: { assigneeId, status: 'in_progress', taskId: updated.taskId },
+        });
+      }
+
+      res.json(updated);
+    } catch (error) {
+      console.error("Error starting task assignee:", error);
+      res.status(500).json({ message: "Failed to start task" });
+    }
+  });
+
+  // PATCH /api/tasks/:id/assignees/:assigneeId/complete — employee marks done (with photo)
+  app.patch('/api/tasks/:id/assignees/:assigneeId/complete', isAuthenticated, async (req: any, res) => {
+    try {
+      const { assigneeId } = req.params;
+      const { completionImageUrl, completionNote } = req.body;
+
+      const updated = await storage.updateTaskAssignee(assigneeId, {
+        status: "completed",
+        completedAt: new Date(),
+        completionImageUrl: completionImageUrl || null,
+        completionNote: completionNote || null,
+      });
+
+      // Notify the manager who broadcast this task
+      if (sendToUsers) {
+        sendToUsers([updated.assignedBy], {
+          type: 'task_assignee_completed',
+          data: { assigneeId, taskId: updated.taskId, userId: updated.userId },
+        });
+      }
+
+      res.json(updated);
+    } catch (error) {
+      console.error("Error completing task assignee:", error);
+      res.status(500).json({ message: "Failed to complete task" });
+    }
+  });
+
+  // PATCH /api/tasks/:id/assignees/:assigneeId/approve — manager approves completion
+  app.patch('/api/tasks/:id/assignees/:assigneeId/approve', isAuthenticated, async (req: any, res) => {
+    try {
+      const { assigneeId } = req.params;
+      const managerId = req.user.id;
+
+      const userPermissions = await storage.getUserPermissions(managerId);
+      const isManager = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'hr.manage_employees');
+      if (!isManager) {
+        return res.status(403).json({ message: "Managers only" });
+      }
+
+      const updated = await storage.updateTaskAssignee(assigneeId, {
+        status: "approved",
+        managerApprovedAt: new Date(),
+        approvedBy: managerId,
+      });
+
+      // Notify the employee
+      if (sendToUsers) {
+        sendToUsers([updated.userId], {
+          type: 'task_assignee_status_changed',
+          data: { assigneeId, status: 'approved', taskId: updated.taskId },
+        });
+      }
+
+      const streak = await storage.getCompletionStreak(updated.taskId, updated.userId);
+
+      res.json({ assignee: updated, streak });
+    } catch (error) {
+      console.error("Error approving task assignee:", error);
+      res.status(500).json({ message: "Failed to approve" });
+    }
+  });
+
+  // PATCH /api/tasks/:id/assignees/:assigneeId/reject — manager rejects, employee must redo
+  app.patch('/api/tasks/:id/assignees/:assigneeId/reject', isAuthenticated, async (req: any, res) => {
+    try {
+      const { assigneeId } = req.params;
+      const managerId = req.user.id;
+      const { rejectionNote } = req.body;
+
+      const userPermissions = await storage.getUserPermissions(managerId);
+      const isManager = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'hr.manage_employees');
+      if (!isManager) {
+        return res.status(403).json({ message: "Managers only" });
+      }
+
+      const updated = await storage.updateTaskAssignee(assigneeId, {
+        status: "rejected",
+        rejectedAt: new Date(),
+        rejectionNote: rejectionNote || null,
+      });
+
+      // Notify employee they need to redo
+      if (sendToUsers) {
+        sendToUsers([updated.userId], {
+          type: 'task_assignee_status_changed',
+          data: { assigneeId, status: 'rejected', taskId: updated.taskId, rejectionNote },
+        });
+      }
+
+      res.json(updated);
+    } catch (error) {
+      console.error("Error rejecting task assignee:", error);
+      res.status(500).json({ message: "Failed to reject" });
     }
   });
 }

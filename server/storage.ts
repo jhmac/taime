@@ -177,6 +177,9 @@ import {
   type InsertMileageReimbursement,
   type KnowledgeDocument,
   type InsertKnowledgeDocument,
+  taskAssignees,
+  type TaskAssignee,
+  type InsertTaskAssignee,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, gte, lte, isNull, sql, or, inArray } from "drizzle-orm";
@@ -219,6 +222,15 @@ export interface IStorage {
   signOffChore(choreId: string, userId: string, isManager: boolean): Promise<Task>;
   getWeeklyChoreSchedule(): Promise<Record<string, Task[]>>;
   getChoresByZone(zone: string): Promise<Task[]>;
+
+  // Task broadcast / assignee operations
+  broadcastTask(taskId: string, managerId: string, locationId?: string): Promise<{ assignees: TaskAssignee[]; count: number }>;
+  getTaskAssignees(taskId: string, broadcastGroupId?: string): Promise<Array<TaskAssignee & { user: { id: string; firstName: string | null; lastName: string | null; profileImageUrl: string | null } }>>;
+  getMyBroadcastAssignments(userId: string): Promise<Array<TaskAssignee & { task: Task }>>;
+  updateTaskAssignee(assigneeId: string, updates: Partial<TaskAssignee>): Promise<TaskAssignee>;
+  getPendingVerifications(locationId?: string): Promise<Array<{ assignee: TaskAssignee; task: Task; user: { id: string; firstName: string | null; lastName: string | null; profileImageUrl: string | null } }>>;
+  getCompletionStreak(taskId: string, userId: string): Promise<number>;
+  getClockedInEmployeeCount(locationId?: string): Promise<number>;
   
   // Message operations
   createMessage(message: InsertMessage): Promise<Message>;
@@ -814,6 +826,117 @@ export class DatabaseStorage implements IStorage {
       .from(tasks)
       .where(eq(tasks.choreZone, zone))
       .orderBy(tasks.dayOfWeek, tasks.timeOfDay);
+  }
+
+  // Task broadcast / assignee operations
+  async broadcastTask(taskId: string, managerId: string, locationId?: string): Promise<{ assignees: TaskAssignee[]; count: number }> {
+    const { randomUUID } = await import("crypto");
+    const broadcastGroupId = randomUUID();
+
+    // Get all currently clocked-in employees (exclude manager themselves)
+    const clockedInQuery = db
+      .selectDistinct({ id: users.id, firstName: users.firstName, lastName: users.lastName })
+      .from(timeEntries)
+      .innerJoin(users, eq(timeEntries.userId, users.id))
+      .where(and(isNull(timeEntries.clockOutTime), sql`${users.id} != ${managerId}`));
+    const clockedInUsers = await clockedInQuery;
+
+    if (clockedInUsers.length === 0) return { assignees: [], count: 0 };
+
+    // For each user, find their last approved completion image for this task (photo history)
+    const result: TaskAssignee[] = [];
+    for (const u of clockedInUsers) {
+      const [lastApproved] = await db
+        .select({ completionImageUrl: taskAssignees.completionImageUrl })
+        .from(taskAssignees)
+        .where(and(
+          eq(taskAssignees.taskId, taskId),
+          eq(taskAssignees.userId, u.id),
+          eq(taskAssignees.status, "approved")
+        ))
+        .orderBy(desc(taskAssignees.createdAt))
+        .limit(1);
+
+      const [created] = await db.insert(taskAssignees).values({
+        taskId,
+        userId: u.id,
+        assignedBy: managerId,
+        broadcastGroupId,
+        status: "pending",
+        previousImageUrl: lastApproved?.completionImageUrl ?? null,
+      }).returning();
+      result.push(created);
+    }
+
+    return { assignees: result, count: result.length };
+  }
+
+  async getTaskAssignees(taskId: string, broadcastGroupId?: string): Promise<Array<TaskAssignee & { user: { id: string; firstName: string | null; lastName: string | null; profileImageUrl: string | null } }>> {
+    const condition = broadcastGroupId
+      ? and(eq(taskAssignees.taskId, taskId), eq(taskAssignees.broadcastGroupId, broadcastGroupId))
+      : eq(taskAssignees.taskId, taskId);
+    const rows = await db
+      .select({
+        assignee: taskAssignees,
+        user: { id: users.id, firstName: users.firstName, lastName: users.lastName, profileImageUrl: users.profileImageUrl },
+      })
+      .from(taskAssignees)
+      .innerJoin(users, eq(taskAssignees.userId, users.id))
+      .where(condition)
+      .orderBy(desc(taskAssignees.createdAt));
+    return rows.map(r => ({ ...r.assignee, user: r.user }));
+  }
+
+  async getMyBroadcastAssignments(userId: string): Promise<Array<TaskAssignee & { task: Task }>> {
+    const rows = await db
+      .select({ assignee: taskAssignees, task: tasks })
+      .from(taskAssignees)
+      .innerJoin(tasks, eq(taskAssignees.taskId, tasks.id))
+      .where(and(eq(taskAssignees.userId, userId), sql`${taskAssignees.status} NOT IN ('approved', 'rejected')`))
+      .orderBy(desc(taskAssignees.createdAt));
+    return rows.map(r => ({ ...r.assignee, task: r.task }));
+  }
+
+  async updateTaskAssignee(assigneeId: string, updates: Partial<TaskAssignee>): Promise<TaskAssignee> {
+    const [updated] = await db
+      .update(taskAssignees)
+      .set(updates)
+      .where(eq(taskAssignees.id, assigneeId))
+      .returning();
+    return updated;
+  }
+
+  async getPendingVerifications(locationId?: string): Promise<Array<{ assignee: TaskAssignee; task: Task; user: { id: string; firstName: string | null; lastName: string | null; profileImageUrl: string | null } }>> {
+    const rows = await db
+      .select({ assignee: taskAssignees, task: tasks, user: { id: users.id, firstName: users.firstName, lastName: users.lastName, profileImageUrl: users.profileImageUrl } })
+      .from(taskAssignees)
+      .innerJoin(tasks, eq(taskAssignees.taskId, tasks.id))
+      .innerJoin(users, eq(taskAssignees.userId, users.id))
+      .where(eq(taskAssignees.status, "completed"))
+      .orderBy(desc(taskAssignees.completedAt));
+    return rows.map(r => ({ assignee: r.assignee, task: r.task, user: r.user }));
+  }
+
+  async getCompletionStreak(taskId: string, userId: string): Promise<number> {
+    const history = await db
+      .select({ status: taskAssignees.status })
+      .from(taskAssignees)
+      .where(and(eq(taskAssignees.taskId, taskId), eq(taskAssignees.userId, userId)))
+      .orderBy(desc(taskAssignees.createdAt));
+    let streak = 0;
+    for (const row of history) {
+      if (row.status === "approved") streak++;
+      else break;
+    }
+    return streak;
+  }
+
+  async getClockedInEmployeeCount(locationId?: string): Promise<number> {
+    const [row] = await db
+      .select({ count: sql<number>`count(distinct ${timeEntries.userId})` })
+      .from(timeEntries)
+      .where(isNull(timeEntries.clockOutTime));
+    return row?.count ?? 0;
   }
 
   // Message operations

@@ -14,7 +14,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import type { Task, User, Permission } from '@shared/schema';
+import type { Task, User, Permission, TaskAssignee } from '@shared/schema';
+
+type VerificationItem = {
+  assignee: TaskAssignee;
+  task: Task;
+  user: { id: string; firstName: string | null; lastName: string | null; profileImageUrl: string | null };
+};
 
 const DAYS_OF_WEEK = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 const TIME_PERIODS = ['morning', 'afternoon', 'evening'];
@@ -64,6 +70,9 @@ export default function TaskManagement() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('all');
   const [viewingTask, setViewingTask] = useState<Task | null>(null);
+  const [rejectingItem, setRejectingItem] = useState<VerificationItem | null>(null);
+  const [rejectionNote, setRejectionNote] = useState('');
+  const [broadcastingTask, setBroadcastingTask] = useState<Task | null>(null);
 
   const isAdmin = user?.role?.name === 'owner' || user?.role?.name === 'admin';
 
@@ -159,6 +168,63 @@ export default function TaskManagement() {
       queryClient.invalidateQueries({ queryKey: ['/api/tasks'] });
       toast({ title: "Task Assigned" });
     },
+  });
+
+  const { data: clockedInCount = 0 } = useQuery<number>({
+    queryKey: ['/api/tasks/clocked-in-count'],
+    select: (d: any) => d?.count ?? 0,
+    refetchInterval: 30000,
+    enabled: canManageTasks,
+  });
+
+  const { data: verificationQueue = [], refetch: refetchQueue } = useQuery<VerificationItem[]>({
+    queryKey: ['/api/tasks/verification-queue'],
+    enabled: canManageTasks,
+    refetchInterval: 15000,
+  });
+
+  const broadcastMutation = useMutation({
+    mutationFn: async (taskId: string) => {
+      const res = await apiRequest('POST', `/api/tasks/${taskId}/broadcast`, {});
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      setBroadcastingTask(null);
+      const count = data.count ?? 0;
+      if (count === 0) {
+        toast({ title: "No one clocked in", description: "No employees are currently clocked in." });
+      } else {
+        toast({ title: "Task Broadcast!", description: `Assigned to ${count} clocked-in employee${count !== 1 ? 's' : ''}.` });
+      }
+      refetchQueue();
+    },
+    onError: (err: Error) => toast({ title: "Broadcast Failed", description: err.message, variant: "destructive" }),
+  });
+
+  const approveMutation = useMutation({
+    mutationFn: async ({ taskId, assigneeId }: { taskId: string; assigneeId: string }) => {
+      const res = await apiRequest('PATCH', `/api/tasks/${taskId}/assignees/${assigneeId}/approve`, {});
+      return res.json();
+    },
+    onSuccess: () => {
+      refetchQueue();
+      toast({ title: "Approved!", description: "Task completion approved." });
+    },
+    onError: (err: Error) => toast({ title: "Approval Failed", description: err.message, variant: "destructive" }),
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: async ({ taskId, assigneeId, note }: { taskId: string; assigneeId: string; note: string }) => {
+      const res = await apiRequest('PATCH', `/api/tasks/${taskId}/assignees/${assigneeId}/reject`, { rejectionNote: note });
+      return res.json();
+    },
+    onSuccess: () => {
+      setRejectingItem(null);
+      setRejectionNote('');
+      refetchQueue();
+      toast({ title: "Rejected", description: "Employee notified to redo the task." });
+    },
+    onError: (err: Error) => toast({ title: "Reject Failed", description: err.message, variant: "destructive" }),
   });
 
   const aiAssignMutation = useMutation({
@@ -387,11 +453,21 @@ export default function TaskManagement() {
         )}
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className={`grid w-full ${canManageTasks ? 'grid-cols-5' : 'grid-cols-4'}`}>
             <TabsTrigger value="all">All Tasks</TabsTrigger>
             <TabsTrigger value="recurring">Recurring</TabsTrigger>
             <TabsTrigger value="one-time">One-Time</TabsTrigger>
             <TabsTrigger value="my-tasks">My Tasks</TabsTrigger>
+            {canManageTasks && (
+              <TabsTrigger value="verification" className="relative">
+                Verify
+                {verificationQueue.length > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] rounded-full min-w-[16px] h-4 flex items-center justify-center px-1">
+                    {verificationQueue.length}
+                  </span>
+                )}
+              </TabsTrigger>
+            )}
           </TabsList>
 
           <div className="mt-4 space-y-3">
@@ -536,6 +612,21 @@ export default function TaskManagement() {
                                 )}
                               </div>
                               <div className="flex items-center gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
+                                {canManageTasks && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 px-2 text-primary border-primary/40 hover:bg-primary/10"
+                                    disabled={broadcastMutation.isPending && broadcastingTask?.id === task.id}
+                                    onClick={() => setBroadcastingTask(task)}
+                                    title={`Assign to all clocked-in (${clockedInCount})`}
+                                  >
+                                    {broadcastMutation.isPending && broadcastingTask?.id === task.id
+                                      ? <i className="fas fa-spinner fa-spin"></i>
+                                      : <><i className="fas fa-broadcast-tower mr-1 text-xs"></i><span className="text-xs">{clockedInCount}</span></>
+                                    }
+                                  </Button>
+                                )}
                                 {task.assignedTo === user?.id && task.status !== 'completed' && (
                                   <Button
                                     variant="outline"
@@ -686,9 +777,177 @@ export default function TaskManagement() {
                 )}
               </div>
             </TabsContent>
+
+            {canManageTasks && (
+              <TabsContent value="verification" className="mt-0">
+                {verificationQueue.length === 0 ? (
+                  <Card>
+                    <CardContent className="p-8 text-center">
+                      <i className="fas fa-clipboard-check text-4xl text-muted-foreground/30 mb-3"></i>
+                      <p className="text-muted-foreground">No completions awaiting verification.</p>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <div className="space-y-3">
+                    {verificationQueue.map(({ assignee, task, user: emp }) => {
+                      const completedMins = assignee.completedAt && assignee.startedAt
+                        ? Math.round((new Date(assignee.completedAt).getTime() - new Date(assignee.startedAt).getTime()) / 60000)
+                        : null;
+                      return (
+                        <Card key={assignee.id} className="border-amber-200 dark:border-amber-800/50">
+                          <CardContent className="p-4">
+                            <div className="flex items-start gap-3">
+                              {emp.profileImageUrl ? (
+                                <img src={emp.profileImageUrl} alt="" className="w-10 h-10 rounded-full object-cover flex-shrink-0" />
+                              ) : (
+                                <div className="w-10 h-10 rounded-full bg-primary/15 flex items-center justify-center flex-shrink-0">
+                                  <i className="fas fa-user text-primary text-sm"></i>
+                                </div>
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-start justify-between gap-2">
+                                  <div>
+                                    <p className="font-medium text-sm">{emp.firstName} {emp.lastName}</p>
+                                    <p className="text-xs text-muted-foreground">{task.title}</p>
+                                    {completedMins !== null && (
+                                      <p className="text-xs text-muted-foreground mt-0.5">
+                                        <i className="fas fa-clock mr-1"></i>{completedMins}m to complete
+                                      </p>
+                                    )}
+                                    {assignee.completionNote && (
+                                      <p className="text-xs italic text-muted-foreground mt-1">"{assignee.completionNote}"</p>
+                                    )}
+                                  </div>
+                                  <div className="flex gap-2 flex-shrink-0">
+                                    <Button
+                                      size="sm"
+                                      className="h-8 bg-green-600 hover:bg-green-700 text-white"
+                                      disabled={approveMutation.isPending}
+                                      onClick={() => approveMutation.mutate({ taskId: task.id, assigneeId: assignee.id })}
+                                    >
+                                      <i className="fas fa-check mr-1"></i>Approve
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="destructive"
+                                      className="h-8"
+                                      onClick={() => { setRejectingItem({ assignee, task, user: emp }); setRejectionNote(''); }}
+                                    >
+                                      <i className="fas fa-times mr-1"></i>Redo
+                                    </Button>
+                                  </div>
+                                </div>
+
+                                {(assignee.completionImageUrl || assignee.previousImageUrl) && (
+                                  <div className="mt-3 grid grid-cols-2 gap-2">
+                                    {assignee.previousImageUrl && (
+                                      <div>
+                                        <p className="text-[10px] text-muted-foreground mb-1 text-center">Last Approved</p>
+                                        <img
+                                          src={assignee.previousImageUrl}
+                                          alt="Last approved"
+                                          className="w-full h-28 object-cover rounded-lg border opacity-80 cursor-pointer hover:opacity-100"
+                                          onClick={() => window.open(assignee.previousImageUrl!, '_blank')}
+                                        />
+                                      </div>
+                                    )}
+                                    {assignee.completionImageUrl && (
+                                      <div>
+                                        <p className="text-[10px] text-muted-foreground mb-1 text-center">Just Submitted</p>
+                                        <img
+                                          src={assignee.completionImageUrl}
+                                          alt="Completion"
+                                          className="w-full h-28 object-cover rounded-lg border cursor-pointer hover:opacity-80"
+                                          onClick={() => window.open(assignee.completionImageUrl!, '_blank')}
+                                        />
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
+                  </div>
+                )}
+              </TabsContent>
+            )}
           </div>
         </Tabs>
       </div>
+
+      {/* Broadcast confirmation dialog */}
+      <Dialog open={!!broadcastingTask} onOpenChange={(open) => { if (!open) setBroadcastingTask(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <i className="fas fa-broadcast-tower text-primary"></i>
+              Broadcast Task
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm">Assign <strong>{broadcastingTask?.title}</strong> to all currently clocked-in employees?</p>
+            <div className="bg-primary/5 border border-primary/20 rounded-lg p-3 text-center">
+              <p className="text-2xl font-bold text-primary">{clockedInCount}</p>
+              <p className="text-xs text-muted-foreground">employees clocked in right now</p>
+            </div>
+            {clockedInCount === 0 && (
+              <p className="text-sm text-amber-600 bg-amber-50 dark:bg-amber-900/20 p-2 rounded">
+                <i className="fas fa-exclamation-triangle mr-1"></i>No employees are currently clocked in.
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBroadcastingTask(null)}>Cancel</Button>
+            <Button
+              onClick={() => broadcastingTask && broadcastMutation.mutate(broadcastingTask.id)}
+              disabled={broadcastMutation.isPending || clockedInCount === 0}
+              className="bg-primary"
+            >
+              {broadcastMutation.isPending
+                ? <><i className="fas fa-spinner fa-spin mr-2"></i>Broadcasting...</>
+                : <><i className="fas fa-broadcast-tower mr-2"></i>Assign to All ({clockedInCount})</>
+              }
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reject / Redo dialog */}
+      <Dialog open={!!rejectingItem} onOpenChange={(open) => { if (!open) { setRejectingItem(null); setRejectionNote(''); } }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Request Redo</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Tell <strong>{rejectingItem?.user.firstName}</strong> what needs to be improved on <strong>{rejectingItem?.task.title}</strong>.
+            </p>
+            <Textarea
+              placeholder="e.g. Shelves still have dust, please redo..."
+              value={rejectionNote}
+              onChange={e => setRejectionNote(e.target.value)}
+              rows={3}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setRejectingItem(null); setRejectionNote(''); }}>Cancel</Button>
+            <Button
+              variant="destructive"
+              disabled={rejectMutation.isPending}
+              onClick={() => rejectingItem && rejectMutation.mutate({
+                taskId: rejectingItem.task.id,
+                assigneeId: rejectingItem.assignee.id,
+                note: rejectionNote,
+              })}
+            >
+              {rejectMutation.isPending ? 'Sending...' : 'Request Redo'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={showCreateDialog || !!editingTask} onOpenChange={(open) => {
         if (!open) { setShowCreateDialog(false); setEditingTask(null); setForm(emptyForm); }

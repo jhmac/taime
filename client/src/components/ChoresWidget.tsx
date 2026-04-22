@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,16 +8,28 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
 import { isUnauthorizedError } from '@/lib/authUtils';
-import type { Task } from '@shared/schema';
+import type { Task, TaskAssignee } from '@shared/schema';
+
+type BroadcastAssignment = TaskAssignee & { task: Task };
 
 export default function ChoresWidget() {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [completingId, setCompletingId] = useState<string | null>(null);
+  const [completionNote, setCompletionNote] = useState('');
+  const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data: tasks, isLoading } = useQuery<Task[]>({
     queryKey: ['/api/tasks'],
+  });
+
+  const { data: broadcastAssignments = [], refetch: refetchAssignments } = useQuery<BroadcastAssignment[]>({
+    queryKey: ['/api/tasks/my-assignments'],
+    refetchInterval: 20000,
+    enabled: !!user,
   });
 
   const updateTaskMutation = useMutation({
@@ -45,6 +57,29 @@ export default function ChoresWidget() {
         variant: "destructive",
       });
     },
+  });
+
+  const startAssigneeMutation = useMutation({
+    mutationFn: async ({ taskId, assigneeId }: { taskId: string; assigneeId: string }) => {
+      const res = await apiRequest('PATCH', `/api/tasks/${taskId}/assignees/${assigneeId}/start`, {});
+      return res.json();
+    },
+    onSuccess: () => refetchAssignments(),
+  });
+
+  const completeAssigneeMutation = useMutation({
+    mutationFn: async ({ taskId, assigneeId, completionImageUrl, note }: { taskId: string; assigneeId: string; completionImageUrl?: string; note?: string }) => {
+      const res = await apiRequest('PATCH', `/api/tasks/${taskId}/assignees/${assigneeId}/complete`, { completionImageUrl, completionNote: note });
+      return res.json();
+    },
+    onSuccess: () => {
+      refetchAssignments();
+      setCompletingId(null);
+      setCompletionNote('');
+      setCapturedImage(null);
+      toast({ title: "Submitted!", description: "Awaiting manager approval." });
+    },
+    onError: (err: Error) => toast({ title: "Submit Failed", description: err.message, variant: "destructive" }),
   });
 
   const userTasks = tasks?.filter((task) => task.assignedTo === user?.id) || [];
@@ -240,6 +275,158 @@ export default function ChoresWidget() {
         )}
       </CardContent>
     </Card>
+
+    {/* Broadcast assignments card */}
+    {broadcastAssignments.length > 0 && (
+      <Card className="border-primary/30" data-testid="broadcast-assignments-widget">
+        <CardHeader className="pb-2 flex flex-row items-center gap-2">
+          <i className="fas fa-broadcast-tower text-primary"></i>
+          <CardTitle className="text-base flex-1">
+            Assigned Tasks
+            <Badge className="ml-2 bg-primary/10 text-primary">{broadcastAssignments.length}</Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {broadcastAssignments.map((assignment) => {
+            const isExpanded = completingId === assignment.id;
+            const statusColor = assignment.status === 'in_progress' ? 'bg-blue-50 border-blue-200 dark:bg-blue-900/20 dark:border-blue-800/50'
+              : assignment.status === 'completed' ? 'bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-800/50'
+              : 'bg-amber-50 border-amber-200 dark:bg-amber-900/20 dark:border-amber-800/50';
+            return (
+              <div key={assignment.id} className={`rounded-lg border p-3 transition-colors ${statusColor}`}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-sm">{assignment.task.title}</p>
+                    {assignment.task.description && (
+                      <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{assignment.task.description}</p>
+                    )}
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <Badge className={`text-[10px] ${
+                        assignment.status === 'pending' ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400'
+                        : assignment.status === 'in_progress' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
+                        : 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
+                      }`}>
+                        {assignment.status === 'in_progress' ? 'In Progress' : assignment.status === 'completed' ? 'Submitted' : 'Assigned'}
+                      </Badge>
+                      {assignment.task.estimatedMinutes && (
+                        <span className="text-[10px] text-muted-foreground">
+                          <i className="fas fa-hourglass-half mr-0.5"></i>{assignment.task.estimatedMinutes}m
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex gap-1.5 flex-shrink-0">
+                    {assignment.status === 'pending' && (
+                      <Button
+                        size="sm"
+                        className="h-8 bg-blue-600 hover:bg-blue-700 text-white text-xs"
+                        disabled={startAssigneeMutation.isPending}
+                        onClick={() => startAssigneeMutation.mutate({ taskId: assignment.taskId, assigneeId: assignment.id })}
+                      >
+                        <i className="fas fa-play mr-1"></i>Start
+                      </Button>
+                    )}
+                    {assignment.status === 'in_progress' && !isExpanded && (
+                      <Button
+                        size="sm"
+                        className="h-8 bg-green-600 hover:bg-green-700 text-white text-xs"
+                        onClick={() => { setCompletingId(assignment.id); setCapturedImage(null); setCompletionNote(''); }}
+                      >
+                        <i className="fas fa-check mr-1"></i>Done
+                      </Button>
+                    )}
+                    {isExpanded && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-8 text-xs"
+                        onClick={() => setCompletingId(null)}
+                      >
+                        Cancel
+                      </Button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Expand completion form inline */}
+                {isExpanded && (
+                  <div className="mt-3 space-y-2 border-t pt-3">
+                    <p className="text-xs text-muted-foreground">Take a completion photo to submit for approval:</p>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        const reader = new FileReader();
+                        reader.onloadend = () => setCapturedImage(reader.result as string);
+                        reader.readAsDataURL(file);
+                      }}
+                    />
+                    {capturedImage ? (
+                      <div className="relative">
+                        <img src={capturedImage} alt="Captured" className="w-full h-32 object-cover rounded-lg border" />
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="absolute top-1 right-1 h-6 px-2 text-xs bg-black/50 text-white hover:bg-black/70"
+                          onClick={() => { setCapturedImage(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}
+                        >
+                          Retake
+                        </Button>
+                      </div>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full h-20 border-dashed flex-col gap-1"
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                        <i className="fas fa-camera text-lg text-muted-foreground"></i>
+                        <span className="text-xs text-muted-foreground">Tap to take photo</span>
+                      </Button>
+                    )}
+                    <textarea
+                      placeholder="Optional note..."
+                      value={completionNote}
+                      onChange={e => setCompletionNote(e.target.value)}
+                      className="w-full text-xs border rounded-md p-2 min-h-[56px] resize-none bg-background"
+                    />
+                    <Button
+                      className="w-full bg-green-600 hover:bg-green-700 text-white"
+                      size="sm"
+                      disabled={completeAssigneeMutation.isPending}
+                      onClick={() => completeAssigneeMutation.mutate({
+                        taskId: assignment.taskId,
+                        assigneeId: assignment.id,
+                        completionImageUrl: capturedImage || undefined,
+                        note: completionNote || undefined,
+                      })}
+                    >
+                      {completeAssigneeMutation.isPending
+                        ? <><i className="fas fa-spinner fa-spin mr-2"></i>Submitting...</>
+                        : <><i className="fas fa-paper-plane mr-2"></i>Submit for Approval</>
+                      }
+                    </Button>
+                  </div>
+                )}
+
+                {/* Show submitted state */}
+                {assignment.status === 'completed' && assignment.completionImageUrl && (
+                  <div className="mt-2">
+                    <img src={assignment.completionImageUrl} alt="Completion" className="w-full h-24 object-cover rounded-lg border opacity-75" />
+                    <p className="text-xs text-muted-foreground text-center mt-1">Awaiting manager review</p>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </CardContent>
+      </Card>
+    )}
 
     {showScheduleModal && (
       <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
