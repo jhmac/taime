@@ -20,8 +20,11 @@ import type { User, Schedule, WorkLocation, AvailabilityTemplate, TemplateSlot, 
 import {
   ChevronLeft, ChevronRight, Plus, Trash2, Sparkles, Loader2,
   Check, X, Calendar, Clock, StickyNote, Bell, Pencil, Wand2, Users,
-  ChevronDown, ChevronUp, CalendarDays, UserCog
+  ChevronDown, ChevronUp, CalendarDays, UserCog, PanelRightOpen, PanelRightClose
 } from "lucide-react";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import AvailabilityCommandPanel from "@/components/AvailabilityCommandPanel";
+import SuggestedScheduleReview from "@/components/SuggestedScheduleReview";
 
 interface DayNote {
   id: string;
@@ -549,6 +552,20 @@ export default function ScheduleManagement() {
   const [aiResult, setAiResult] = useState<GenerateResult | null>(null);
   const [removedEntries, setRemovedEntries] = useState<Set<number>>(new Set());
   const [availabilityEditTarget, setAvailabilityEditTarget] = useState<{ userId: string; date: string; empName: string } | null>(null);
+  const [showCommandPanel, setShowCommandPanel] = useState(() => {
+    try { return localStorage.getItem('schedMgmt_showCommandPanel') !== 'false'; } catch { return true; }
+  });
+  const [isMobilePanel, setIsMobilePanel] = useState(false);
+  const [showMobileSheet, setShowMobileSheet] = useState(false);
+
+  useEffect(() => {
+    const check = () => setIsMobilePanel(window.innerWidth < 1024);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
+  const [showSuggestedReview, setShowSuggestedReview] = useState(false);
+  const [suggestedData, setSuggestedData] = useState<any>(null);
 
   const { data: userPermissions = [] } = useQuery<Permission[]>({
     queryKey: ["/api/auth/permissions"],
@@ -722,6 +739,20 @@ export default function ScheduleManagement() {
     },
   });
 
+  const suggestMutation = useMutation({
+    mutationFn: async (date: string) => {
+      const res = await apiRequest('POST', '/api/schedules/suggest', { date });
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      setSuggestedData(data);
+      setShowSuggestedReview(true);
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to generate suggestions.", variant: "destructive" });
+    },
+  });
+
   const applyMutation = useMutation({
     mutationFn: async () => {
       if (!aiResult) throw new Error('No schedule');
@@ -847,6 +878,36 @@ export default function ScheduleManagement() {
     const startDate = weekDates[0].toISOString().split('T')[0];
     const endDate = weekDates[6].toISOString().split('T')[0];
     generateMutation.mutate({ startDate, endDate });
+  };
+
+  const handleCommandPanelToggle = () => {
+    if (isMobilePanel) {
+      setShowMobileSheet(v => !v);
+    } else {
+      setShowCommandPanel(v => {
+        const next = !v;
+        try { localStorage.setItem('schedMgmt_showCommandPanel', String(next)); } catch {}
+        return next;
+      });
+    }
+  };
+
+  const todayDateStr = formatLocalDate(new Date());
+
+  const handleQuickAdd = (member: any, startTime: string, endTime: string) => {
+    setCreateShiftDefaults({ userId: member.userId, date: todayDateStr });
+    setModalDate(todayDateStr);
+    setModalStartTime(startTime);
+    setModalEndTime(endTime);
+    setShowCreateShift(true);
+  };
+
+  const handleGapClick = (startTime: string, endTime: string, topMember: any) => {
+    setCreateShiftDefaults({ userId: topMember?.userId || '', date: todayDateStr });
+    setModalDate(todayDateStr);
+    setModalStartTime(startTime);
+    setModalEndTime(endTime);
+    setShowCreateShift(true);
   };
 
   if (schedulesLoading || usersLoading) {
@@ -1011,7 +1072,7 @@ export default function ScheduleManagement() {
 
   // ===== ADMIN VIEW - Homebase-style Grid =====
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background flex flex-col">
       {/* Top Navigation Bar */}
       <div className="sticky top-0 z-10 bg-background border-b px-4 py-3">
         <div className="flex items-center justify-between gap-4 flex-wrap">
@@ -1033,12 +1094,27 @@ export default function ScheduleManagement() {
           </div>
           <div className="flex items-center gap-2">
             <Button
-              variant="outline"
+              variant={(isMobilePanel ? showMobileSheet : showCommandPanel) ? "default" : "outline"}
               size="sm"
               className="gap-1.5 text-xs"
-              onClick={() => setShowAIPanel(!showAIPanel)}
+              onClick={handleCommandPanelToggle}
+              title="Toggle Today's Team Intelligence panel"
             >
-              <Sparkles className="h-3.5 w-3.5" />
+              {(isMobilePanel ? showMobileSheet : showCommandPanel) ? <PanelRightClose className="h-3.5 w-3.5" /> : <PanelRightOpen className="h-3.5 w-3.5" />}
+              <span className="hidden sm:inline">Today's Team</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 text-xs border-violet-300 text-violet-700 dark:border-violet-700 dark:text-violet-300 hover:bg-violet-50 dark:hover:bg-violet-900/20"
+              onClick={() => suggestMutation.mutate(todayDateStr)}
+              disabled={suggestMutation.isPending}
+            >
+              {suggestMutation.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5" />
+              )}
               AI Auto-Schedule
             </Button>
             <Button
@@ -1064,69 +1140,10 @@ export default function ScheduleManagement() {
         </div>
       </div>
 
-      {/* AI Auto-Schedule Panel */}
-      {showAIPanel && (
-        <div className="border-b bg-violet-50 dark:bg-violet-950/20 px-4 py-3">
-          <div className="flex items-center justify-between gap-4 flex-wrap">
-            <div className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-violet-600" />
-              <span className="text-sm font-medium">AI Auto-Schedule</span>
-              <span className="text-xs text-muted-foreground">
-                Generate optimized schedules for {formatWeekRange()}
-                {!activeShop && ' (no Shopify data — using minimum staffing)'}
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              {!aiResult ? (
-                <Button
-                  size="sm"
-                  className="gap-1.5"
-                  onClick={handleAIGenerate}
-                  disabled={generateMutation.isPending}
-                >
-                  {generateMutation.isPending ? (
-                    <><Loader2 className="h-3.5 w-3.5 animate-spin" />Generating...</>
-                  ) : (
-                    <><Sparkles className="h-3.5 w-3.5" />Generate</>
-                  )}
-                </Button>
-              ) : (
-                <>
-                  <span className="text-xs text-muted-foreground">
-                    {aiResult.generatedSchedule.length - removedEntries.size} shifts ready
-                  </span>
-                  <Button size="sm" variant="outline" onClick={() => { setAiResult(null); setRemovedEntries(new Set()); }}>
-                    <X className="h-3.5 w-3.5 mr-1" />Discard
-                  </Button>
-                  <Button
-                    size="sm"
-                    className="gap-1.5"
-                    onClick={() => applyMutation.mutate()}
-                    disabled={applyMutation.isPending}
-                  >
-                    {applyMutation.isPending ? (
-                      <><Loader2 className="h-3.5 w-3.5 animate-spin" />Applying...</>
-                    ) : (
-                      <><Check className="h-3.5 w-3.5" />Apply Schedule</>
-                    )}
-                  </Button>
-                </>
-              )}
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => { setShowAIPanel(false); setAiResult(null); }}>
-                <X className="h-3.5 w-3.5" />
-              </Button>
-            </div>
-          </div>
-          {aiResult && aiResult.warnings && aiResult.warnings.length > 0 && (
-            <div className="mt-2 text-xs text-amber-700 dark:text-amber-300">
-              {aiResult.warnings.map((w, i) => <span key={i} className="block">{w}</span>)}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Schedule Grid */}
-      <div className="overflow-x-auto">
+      {/* Main Content: Schedule Grid + Command Panel */}
+      <div className="flex flex-1 min-h-0">
+        {/* Schedule Grid */}
+        <div className="flex-1 overflow-x-auto min-w-0">
         <table className="w-full border-collapse min-w-[900px]">
           <thead>
             <tr className="border-b">
@@ -1430,7 +1447,50 @@ export default function ScheduleManagement() {
             </tr>
           </tfoot>
         </table>
+        </div>
+
+        {/* Today's Intelligence Command Panel — desktop sidebar */}
+        {showCommandPanel && (
+          <div className="w-72 min-w-[17rem] max-w-[17rem] border-l bg-background flex-shrink-0 flex-col overflow-hidden hidden lg:flex">
+            <AvailabilityCommandPanel
+              date={todayDateStr}
+              onQuickAdd={handleQuickAdd}
+              onGapClick={handleGapClick}
+              onAIAutoSchedule={() => suggestMutation.mutate(todayDateStr)}
+            />
+          </div>
+        )}
       </div>
+
+      {/* Today's Intelligence Command Panel — mobile/tablet bottom sheet */}
+      <Sheet open={showMobileSheet} onOpenChange={setShowMobileSheet}>
+        <SheetContent side="right" className="w-[min(22rem,100vw)] p-0 flex flex-col lg:hidden">
+          <SheetHeader className="sr-only">
+            <SheetTitle>Today's Intelligence</SheetTitle>
+          </SheetHeader>
+          <AvailabilityCommandPanel
+            date={todayDateStr}
+            onQuickAdd={(member, start, end) => { setShowMobileSheet(false); handleQuickAdd(member, start, end); }}
+            onGapClick={(start, end, top) => { setShowMobileSheet(false); handleGapClick(start, end, top); }}
+            onAIAutoSchedule={() => { setShowMobileSheet(false); suggestMutation.mutate(todayDateStr); }}
+          />
+        </SheetContent>
+      </Sheet>
+
+      {/* Suggested Schedule Review */}
+      {showSuggestedReview && (
+        <SuggestedScheduleReview
+          data={suggestedData}
+          isLoading={suggestMutation.isPending}
+          onClose={() => { setShowSuggestedReview(false); setSuggestedData(null); }}
+          onApproveAll={(shifts) => {
+            setSuggestedData(null);
+            queryClient.invalidateQueries({ queryKey: ["/api/schedules"] });
+            queryClient.invalidateQueries({ queryKey: ['/api/schedules/today-availability', todayDateStr] });
+          }}
+          onEditShift={undefined}
+        />
+      )}
 
       {/* Create Shift Dialog */}
       <Dialog open={showCreateShift} onOpenChange={setShowCreateShift}>
