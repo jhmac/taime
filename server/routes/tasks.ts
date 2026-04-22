@@ -198,8 +198,19 @@ export function registerTaskRoutes(
   // GET /api/tasks/clocked-in-count — eligible (non-manager) employees clocked in for this location
   app.get('/api/tasks/clocked-in-count', isAuthenticated, async (req: any, res) => {
     try {
-      const locationId = await requireManagerLocation(req.user.id, res);
-      if (!locationId) return; // 403 already sent
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const isAdmin = userPermissions.some((p: any) => p.name === 'admin.manage_all');
+      const isManager = isAdmin || userPermissions.some((p: any) => p.name === 'hr.manage_employees');
+      if (!isManager) return res.status(403).json({ message: "Managers only" });
+
+      // Non-admin managers must have a resolvable location (fail-closed)
+      let locationId: string | undefined;
+      if (!isAdmin) {
+        const resolved = await requireManagerLocation(userId, res);
+        if (!resolved) return; // 403 already sent
+        locationId = resolved;
+      }
       const count = await storage.getClockedInEmployeeCount(locationId);
       res.json({ count });
     } catch (error) {
