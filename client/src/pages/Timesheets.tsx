@@ -42,6 +42,7 @@ import {
   Download,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   ChevronUp,
   AlertTriangle,
@@ -59,6 +60,12 @@ import {
   LogOut,
   TrendingDown,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface OffsiteSessionInfo {
   id: string;
@@ -686,6 +693,34 @@ function getDiscrepancyLabel(type: string) {
   }
 }
 
+function formatDuration(hours: number): string {
+  const totalMinutes = Math.round(hours * 60);
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  if (h === 0) return `${m} min`;
+  if (m === 0) return `${h} hr${h !== 1 ? "s" : ""}`;
+  return `${h} hr${h !== 1 ? "s" : ""} ${m} min`;
+}
+
+function IssueBadge({ type }: { type: string }) {
+  const configs: Record<string, { label: string; className: string }> = {
+    no_show: { label: "No show", className: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400 border-red-200 dark:border-red-800" },
+    missing_clock_out: { label: "Missing clock-out", className: "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400 border-orange-200 dark:border-orange-800" },
+    unscheduled_shift: { label: "Unscheduled shift", className: "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400 border-orange-200 dark:border-orange-800" },
+    early_departure: { label: "Early departure", className: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-400 border-yellow-200 dark:border-yellow-800" },
+    short_shift: { label: "Short shift", className: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-400 border-yellow-200 dark:border-yellow-800" },
+    long_shift: { label: "Long shift", className: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400 border-blue-200 dark:border-blue-800" },
+  };
+  const cfg = configs[type] || { label: getDiscrepancyLabel(type), className: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400 border-amber-200 dark:border-amber-800" };
+  const Icon = getDiscrepancyIcon(type);
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full border ${cfg.className}`}>
+      {Icon}
+      {cfg.label}
+    </span>
+  );
+}
+
 function ResolveDiscrepancyDialog({
   open,
   onOpenChange,
@@ -912,10 +947,12 @@ function NeedsReviewBanner({
 function PayPeriodReviewTab({
   data,
   isLoading,
+  isError,
   onEntryClick,
 }: {
   data: TimesheetReviewData | undefined;
   isLoading: boolean;
+  isError: boolean;
   onEntryClick?: (entry: DailyEntry, date: string, employee: EmployeeReview) => void;
 }) {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
@@ -955,6 +992,18 @@ function PayPeriodReviewTab({
           <Skeleton key={i} className="h-12 w-full" />
         ))}
       </div>
+    );
+  }
+
+  if (isError && !data) {
+    return (
+      <Card>
+        <CardContent className="py-12 text-center">
+          <AlertTriangle className="h-12 w-12 mx-auto text-amber-500 mb-3" />
+          <p className="font-medium text-sm">Unable to load timesheet data</p>
+          <p className="text-xs text-muted-foreground mt-1">Check your permissions or try refreshing</p>
+        </CardContent>
+      </Card>
     );
   }
 
@@ -1071,112 +1120,330 @@ function OffsiteLiveBadge({ activeOffsite }: { activeOffsite: ActiveOffsite }) {
   );
 }
 
-function DailyReviewTab({ startDate, onEntryClick }: { startDate: string; onEntryClick?: (entry: DailyEntry, date: string, employee: EmployeeReview) => void }) {
+function DailyReviewTab({ onEntryClick }: { onEntryClick?: (entry: DailyEntry, date: string, employee: EmployeeReview) => void }) {
   const today = new Date().toISOString().split("T")[0];
+  const [selectedDate, setSelectedDate] = useState(today);
+  const [filter, setFilter] = useState<"all" | "needs-review">("all");
+  const [resolveOpen, setResolveOpen] = useState(false);
+  const [resolveAlert, setResolveAlert] = useState<DiscrepancyAlert | null>(null);
+  const [addTimeCardOpen, setAddTimeCardOpen] = useState(false);
+  const [addTimeCardEmpId, setAddTimeCardEmpId] = useState<string | undefined>();
 
-  const { data, isLoading } = useQuery<TimesheetReviewData>({
-    queryKey: [`/api/timesheets/review?startDate=${today}&endDate=${today}`],
+  const { data, isLoading, isError } = useQuery<TimesheetReviewData>({
+    queryKey: [`/api/timesheets/review?startDate=${selectedDate}&endDate=${selectedDate}`],
   });
 
-  if (isLoading) {
-    return (
-      <div className="space-y-3">
-        {Array.from({ length: 3 }).map((_, i) => (
-          <Skeleton key={i} className="h-16 w-full" />
-        ))}
-      </div>
-    );
-  }
+  const navigateDate = (direction: "prev" | "next") => {
+    const d = new Date(selectedDate + "T12:00:00");
+    d.setDate(d.getDate() + (direction === "prev" ? -1 : 1));
+    const next = d.toISOString().split("T")[0];
+    if (next <= today) setSelectedDate(next);
+  };
 
-  if (!data || data.employees.length === 0) {
-    return (
-      <Card>
-        <CardContent className="py-12 text-center">
-          <Clock className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
-          <p className="text-muted-foreground">No entries for today.</p>
-        </CardContent>
-      </Card>
-    );
-  }
+  const formattedDate = new Date(selectedDate + "T12:00:00").toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+
+  const dayEmployees = useMemo(() => {
+    if (!data) return [];
+    return data.employees.filter((emp) => {
+      const day = emp.dailyBreakdown.find((d) => d.date === selectedDate);
+      return day && (day.entries.length > 0 || (day.scheduledHours ?? 0) > 0);
+    });
+  }, [data, selectedDate]);
+
+  const filteredEmployees = useMemo(() => {
+    if (filter === "needs-review") {
+      return dayEmployees.filter((emp) =>
+        (emp.discrepancyAlerts || []).some((a) => a.date === selectedDate)
+      );
+    }
+    return dayEmployees;
+  }, [dayEmployees, filter, selectedDate]);
+
+  const needsReviewCount = useMemo(
+    () => dayEmployees.filter((emp) =>
+      (emp.discrepancyAlerts || []).some((a) => a.date === selectedDate)
+    ).length,
+    [dayEmployees, selectedDate]
+  );
 
   return (
-    <Card>
-      <CardContent className="p-0">
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Employee</TableHead>
-                <TableHead>Clock In</TableHead>
-                <TableHead>Clock Out</TableHead>
-                <TableHead className="text-right">Hours</TableHead>
-                <TableHead className="text-right">Breaks</TableHead>
-                <TableHead className="text-right">Status</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {data.employees.map((emp) => {
-                const initials =
-                  ((emp.firstName?.[0] || "") + (emp.lastName?.[0] || "")).toUpperCase() || "?";
-                const fullName =
-                  [emp.firstName, emp.lastName].filter(Boolean).join(" ") || "Unknown";
-                const todayEntries = emp.dailyBreakdown[0]?.entries || [];
-                const latestEntry = todayEntries[todayEntries.length - 1];
+    <div className="space-y-4">
+      {/* Date navigation + filters */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
+        <div className="flex items-center gap-1">
+          <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => navigateDate("prev")}>
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <div className="flex items-center gap-2 px-2 min-w-[240px]">
+            <Calendar className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+            <span className="font-medium text-sm">{formattedDate}</span>
+          </div>
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => navigateDate("next")}
+            disabled={selectedDate >= today}
+          >
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant={filter === "all" ? "default" : "outline"}
+            size="sm"
+            className="h-8"
+            onClick={() => setFilter("all")}
+          >
+            All
+          </Button>
+          <Button
+            variant={filter === "needs-review" ? "default" : "outline"}
+            size="sm"
+            className={cn("h-8", filter === "needs-review" && "bg-amber-500 hover:bg-amber-600 text-white border-amber-500")}
+            onClick={() => setFilter("needs-review")}
+          >
+            Needs review
+            {needsReviewCount > 0 && (
+              <Badge className="ml-1.5 h-4 min-w-[16px] px-1 text-[10px] bg-amber-600 hover:bg-amber-600">
+                {needsReviewCount}
+              </Badge>
+            )}
+          </Button>
+        </div>
+      </div>
 
-                return (
-                  <TableRow
-                    key={emp.userId}
-                    className="cursor-pointer hover:bg-muted/50 transition-colors"
-                    onClick={() => {
-                      if (latestEntry) {
-                        onEntryClick?.(latestEntry, today, emp);
-                      }
-                    }}
-                  >
-                    <TableCell>
-                      <div className="flex items-center gap-3">
-                        <Avatar className="h-8 w-8">
-                          <AvatarImage src={emp.profileImageUrl || undefined} />
-                          <AvatarFallback className="text-xs">{initials}</AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <p className="font-medium text-sm">{fullName}</p>
-                          <div className="flex flex-wrap gap-1 mt-0.5">
-                            {!latestEntry?.clockOutTime && (
-                              <Badge variant="outline" className="text-[10px] px-1 py-0 border-green-500 text-green-600">
-                                Clocked In
+      {isLoading && (
+        <div className="space-y-2">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-16 w-full rounded-xl" />
+          ))}
+        </div>
+      )}
+
+      {isError && !isLoading && (
+        <Card>
+          <CardContent className="py-12 text-center">
+            <AlertTriangle className="h-12 w-12 mx-auto text-amber-500 mb-3" />
+            <p className="font-medium text-sm">Unable to load timesheet data</p>
+            <p className="text-xs text-muted-foreground mt-1">Check your permissions or try refreshing</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {!isLoading && !isError && filteredEmployees.length === 0 && (
+        <Card>
+          <CardContent className="py-12 text-center">
+            <Clock className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
+            <p className="text-muted-foreground text-sm">
+              {filter === "needs-review"
+                ? "No entries needing review for this day."
+                : "No scheduled or worked shifts for this day."}
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {!isLoading && !isError && filteredEmployees.length > 0 && (
+        <Card className="overflow-hidden">
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/40 hover:bg-muted/40">
+                  <TableHead className="w-[200px] font-semibold text-xs uppercase tracking-wide">Team member</TableHead>
+                  <TableHead className="font-semibold text-xs uppercase tracking-wide">Worked</TableHead>
+                  <TableHead className="text-center font-semibold text-xs uppercase tracking-wide w-[110px]">Total breaks</TableHead>
+                  <TableHead className="font-semibold text-xs uppercase tracking-wide w-[220px]">Issues</TableHead>
+                  <TableHead className="text-right font-semibold text-xs uppercase tracking-wide w-[160px]">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredEmployees.map((emp) => {
+                  const initials = ((emp.firstName?.[0] || "") + (emp.lastName?.[0] || "")).toUpperCase() || "?";
+                  const fullName = [emp.firstName, emp.lastName].filter(Boolean).join(" ") || "Unknown";
+                  const day = emp.dailyBreakdown.find((d) => d.date === selectedDate);
+                  const entries = day?.entries || [];
+                  const schedule = day?.schedules?.[0];
+                  const scheduledHours = day?.scheduledHours ?? 0;
+                  const breakMins = entries.reduce((sum, e) => sum + e.breakMinutes, 0);
+                  const issues = (emp.discrepancyAlerts || []).filter((a) => a.date === selectedDate);
+                  const isNoShow = entries.length === 0 && scheduledHours > 0;
+                  const actualHours = entries.reduce((sum, e) => sum + e.hours, 0);
+                  const underScheduleMinutes = scheduledHours > 0
+                    ? Math.round((scheduledHours - actualHours) * 60)
+                    : 0;
+
+                  return (
+                    <TableRow
+                      key={emp.userId}
+                      className={cn(
+                        "align-top border-b",
+                        isNoShow && "bg-red-50/60 dark:bg-red-950/20",
+                        !isNoShow && issues.length > 0 && "bg-amber-50/60 dark:bg-amber-950/20",
+                      )}
+                    >
+                      {/* Team member */}
+                      <TableCell className="py-4">
+                        <div className="flex items-center gap-2.5">
+                          <Avatar className="h-9 w-9 flex-shrink-0">
+                            <AvatarImage src={emp.profileImageUrl || undefined} />
+                            <AvatarFallback className="text-xs font-semibold bg-primary/10 text-primary">
+                              {initials}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div>
+                            <p className="font-semibold text-sm leading-tight">{fullName}</p>
+                            {entries.length > 0 && !entries[entries.length - 1]?.clockOutTime && (
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 mt-0.5 h-4 border-green-500 text-green-600">
+                                Clocked in
                               </Badge>
                             )}
-                            {emp.activeOffsite && (
-                              <OffsiteLiveBadge activeOffsite={emp.activeOffsite} />
-                            )}
+                            {emp.activeOffsite && <OffsiteLiveBadge activeOffsite={emp.activeOffsite} />}
                           </div>
                         </div>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-sm">
-                      {latestEntry ? formatTime(latestEntry.clockInTime) : "—"}
-                    </TableCell>
-                    <TableCell className="text-sm">
-                      {latestEntry ? formatTime(latestEntry.clockOutTime) : "—"}
-                    </TableCell>
-                    <TableCell className="text-right font-mono text-sm">
-                      {emp.actualHours.toFixed(2)}
-                    </TableCell>
-                    <TableCell className="text-right text-sm">
-                      {todayEntries.reduce((sum, e) => sum + e.breakMinutes, 0)}m
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <StatusBadge status={emp.status} />
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </div>
-      </CardContent>
-    </Card>
+                      </TableCell>
+
+                      {/* Worked */}
+                      <TableCell className="py-4">
+                        {isNoShow ? (
+                          <div>
+                            <p className="text-muted-foreground/50 text-sm font-mono tracking-widest">— — — — — —</p>
+                            {schedule && (
+                              <p className="text-xs text-muted-foreground mt-0.5">
+                                Scheduled: {formatTime(schedule.startTime)} – {formatTime(schedule.endTime)}
+                              </p>
+                            )}
+                          </div>
+                        ) : entries.length > 0 ? (
+                          <div className="space-y-2">
+                            {entries.map((entry) => (
+                              <div key={entry.id}>
+                                <button
+                                  className="text-sm font-medium hover:text-primary hover:underline cursor-pointer transition-colors text-left"
+                                  onClick={() => onEntryClick?.(entry, selectedDate, emp)}
+                                >
+                                  {formatTime(entry.clockInTime)} –{" "}
+                                  {entry.clockOutTime
+                                    ? formatTime(entry.clockOutTime)
+                                    : <span className="text-green-600 dark:text-green-400">active</span>}
+                                </button>
+                                {entry.clockOutTime && (
+                                  <p className="text-xs text-muted-foreground">Total: {formatDuration(entry.hours)}</p>
+                                )}
+                                {underScheduleMinutes > 15 && entries.length === 1 && entry.clockOutTime && (
+                                  <p className="text-xs text-blue-600 dark:text-blue-400">
+                                    {underScheduleMinutes} min under scheduled time
+                                  </p>
+                                )}
+                              </div>
+                            ))}
+                            {schedule && (
+                              <p className="text-xs text-muted-foreground/50">
+                                Scheduled: {formatTime(schedule.startTime)} – {formatTime(schedule.endTime)}
+                              </p>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground/40 text-sm">—</span>
+                        )}
+                      </TableCell>
+
+                      {/* Total breaks */}
+                      <TableCell className="py-4 text-center">
+                        <span className="text-sm text-muted-foreground">
+                          {breakMins > 0 ? `${breakMins} min` : "0 min"}
+                        </span>
+                      </TableCell>
+
+                      {/* Issues */}
+                      <TableCell className="py-4">
+                        {issues.length > 0 ? (
+                          <div className="flex flex-col gap-1">
+                            {issues.map((issue, idx) => (
+                              <IssueBadge key={idx} type={issue.type} />
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground/40">—</span>
+                        )}
+                      </TableCell>
+
+                      {/* Actions */}
+                      <TableCell className="py-4 text-right">
+                        {issues.length > 0 ? (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="outline" size="sm" className="text-xs h-8 gap-1 font-medium">
+                                Resolve issues
+                                <ChevronDown className="h-3 w-3" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-52">
+                              {issues.map((issue, idx) => (
+                                <DropdownMenuItem
+                                  key={idx}
+                                  onClick={() => { setResolveAlert(issue); setResolveOpen(true); }}
+                                  className="cursor-pointer gap-2"
+                                >
+                                  {getDiscrepancyIcon(issue.type)}
+                                  Resolve: {getDiscrepancyLabel(issue.type)}
+                                </DropdownMenuItem>
+                              ))}
+                              {isNoShow && (
+                                <DropdownMenuItem
+                                  onClick={() => { setAddTimeCardEmpId(emp.userId); setAddTimeCardOpen(true); }}
+                                  className="cursor-pointer gap-2"
+                                >
+                                  <Plus className="h-4 w-4" />
+                                  Add time card
+                                </DropdownMenuItem>
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        ) : entries.length > 0 && entries.every((e) => e.isApproved) ? (
+                          <span className="inline-flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+                            <CheckCircle2 className="h-3.5 w-3.5" /> Approved
+                          </span>
+                        ) : entries.length > 0 ? (
+                          <span className="text-xs text-muted-foreground">Pending</span>
+                        ) : null}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        </Card>
+      )}
+
+      <ResolveDiscrepancyDialog
+        open={resolveOpen}
+        onOpenChange={setResolveOpen}
+        alert={resolveAlert}
+        employees={data?.employees || []}
+        onResolved={() => { setResolveAlert(null); setResolveOpen(false); }}
+      />
+
+      <AddTimeCardDialog
+        open={addTimeCardOpen}
+        onOpenChange={setAddTimeCardOpen}
+        preselectedEmployeeId={addTimeCardEmpId}
+        employees={
+          data?.employees?.map((e) => ({
+            id: e.userId,
+            firstName: e.firstName,
+            lastName: e.lastName,
+            email: e.email,
+          })) || []
+        }
+      />
+    </div>
   );
 }
 
@@ -1257,7 +1524,7 @@ export default function Timesheets() {
   const [startDate, setStartDate] = useState(defaults.startDate);
   const [endDate, setEndDate] = useState(defaults.endDate);
   const [periodInitialized, setPeriodInitialized] = useState(false);
-  const [activeTab, setActiveTab] = useState("pay-period");
+  const [activeTab, setActiveTab] = useState("daily");
   const [showOTPanel, setShowOTPanel] = useState(false);
   const [timeCardModalOpen, setTimeCardModalOpen] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState<DailyEntry | null>(null);
@@ -1284,7 +1551,7 @@ export default function Timesheets() {
     }
   }, [currentPeriod, periodInitialized]);
 
-  const { data, isLoading, refetch } = useQuery<TimesheetReviewData>({
+  const { data, isLoading, isError, refetch } = useQuery<TimesheetReviewData>({
     queryKey: [`/api/timesheets/review?startDate=${startDate}&endDate=${endDate}`],
   });
 
@@ -1456,16 +1723,23 @@ export default function Timesheets() {
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
-          <TabsTrigger value="pay-period">Pay Period Review</TabsTrigger>
-          <TabsTrigger value="daily">Daily Review</TabsTrigger>
+          <TabsTrigger value="daily" className="gap-1.5">
+            Daily review
+            {data && data.totalNeedsReview > 0 && (
+              <Badge className="h-4 min-w-[16px] px-1 text-[10px] bg-amber-500 hover:bg-amber-500 text-white">
+                {data.totalNeedsReview}
+              </Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="pay-period">Pay period review</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="pay-period" className="mt-4">
-          <PayPeriodReviewTab data={data} isLoading={isLoading} onEntryClick={handleEntryClick} />
+        <TabsContent value="daily" className="mt-4">
+          <DailyReviewTab onEntryClick={handleEntryClick} />
         </TabsContent>
 
-        <TabsContent value="daily" className="mt-4">
-          <DailyReviewTab startDate={startDate} onEntryClick={handleEntryClick} />
+        <TabsContent value="pay-period" className="mt-4">
+          <PayPeriodReviewTab data={data} isLoading={isLoading} isError={isError} onEntryClick={handleEntryClick} />
         </TabsContent>
       </Tabs>
 

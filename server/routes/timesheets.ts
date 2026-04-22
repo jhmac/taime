@@ -174,17 +174,13 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
         }
       }
 
-      // Fetch all resolutions for the date range and index by "userId:date:type"
+      // Fetch all resolutions for the date range in a single batch query
       const resolvedKeys = new Set<string>();
       const activeUsers = allUsers.filter((u: any) => u.isActive !== false);
-      await Promise.all(
-        activeUsers.map(async (user: any) => {
-          const resolutions = await storage.getDiscrepancyResolutions(user.id, startDateStr, endDateStr);
-          for (const r of resolutions) {
-            resolvedKeys.add(`${r.userId}:${r.date}:${r.discrepancyType}`);
-          }
-        })
-      );
+      const allResolutions = await storage.getAllDiscrepancyResolutions(startDateStr, endDateStr);
+      for (const r of allResolutions) {
+        resolvedKeys.add(`${r.userId}:${r.date}:${r.discrepancyType}`);
+      }
 
       const offsiteByTimeEntry = new Map<string, any[]>();
       const offsiteByUser = new Map<string, any[]>();

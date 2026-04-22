@@ -415,6 +415,7 @@ export interface IStorage {
   // Discrepancy resolutions
   createDiscrepancyResolution(resolution: InsertDiscrepancyResolution): Promise<DiscrepancyResolution>;
   getDiscrepancyResolutions(userId: string, startDate: string, endDate: string): Promise<DiscrepancyResolution[]>;
+  getAllDiscrepancyResolutions(startDate: string, endDate: string): Promise<DiscrepancyResolution[]>;
 
   // Off-site allowance rules
   createOffsiteRule(rule: InsertOffsiteAllowanceRule): Promise<OffsiteAllowanceRule>;
@@ -2252,6 +2253,19 @@ export class DatabaseStorage implements IStorage {
       .where(
         and(
           eq(discrepancyResolutions.userId, userId),
+          sql`${discrepancyResolutions.date} >= ${startDate}`,
+          sql`${discrepancyResolutions.date} <= ${endDate}`,
+        )
+      )
+      .orderBy(desc(discrepancyResolutions.resolvedAt));
+  }
+
+  async getAllDiscrepancyResolutions(startDate: string, endDate: string): Promise<DiscrepancyResolution[]> {
+    return await db
+      .select()
+      .from(discrepancyResolutions)
+      .where(
+        and(
           sql`${discrepancyResolutions.date} >= ${startDate}`,
           sql`${discrepancyResolutions.date} <= ${endDate}`,
         )
