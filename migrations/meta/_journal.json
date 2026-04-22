@@ -113,6 +113,13 @@
       "when": 1745590800000,
       "tag": "0015_add_set_by_manager_id_to_availability_overrides",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1745676000000,
+      "tag": "0016_add_break_start_time",
+      "breakpoints": true
     }
   ]
 }

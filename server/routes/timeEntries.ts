@@ -256,4 +256,111 @@ export function registerTimeEntryRoutes(
       res.status(400).json({ message: (error as Error).message });
     }
   });
+
+  app.post('/api/time-entries/:id/break-start', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.id;
+
+      const existing = await storage.getTimeEntry(id);
+      if (!existing) {
+        return res.status(404).json({ message: "Time entry not found" });
+      }
+      if (existing.userId !== userId) {
+        return res.status(403).json({ message: "You can only manage breaks on your own time entry" });
+      }
+      if (existing.clockOutTime) {
+        return res.status(400).json({ message: "Cannot start a break on a completed time entry" });
+      }
+      if (existing.breakStartTime) {
+        return res.status(409).json({ message: "A break is already in progress" });
+      }
+
+      const now = new Date();
+      const timeEntry = await storage.updateTimeEntry(id, { breakStartTime: now });
+
+      const timeEntryRecipients = await computeTimeEntryRecipients(userId, getUserIdsWithPermission);
+      sendToUsers(timeEntryRecipients, {
+        type: 'time_entry_updated',
+        data: { timeEntry },
+      });
+
+      logBreakClockEvent(storage, userId, id, 'break-start', { breakStartTime: now.toISOString() });
+
+      res.json(timeEntry);
+    } catch (error) {
+      console.error("Error starting break:", error);
+      res.status(500).json({ message: (error as Error).message });
+    }
+  });
+
+  app.post('/api/time-entries/:id/break-end', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.id;
+
+      const existing = await storage.getTimeEntry(id);
+      if (!existing) {
+        return res.status(404).json({ message: "Time entry not found" });
+      }
+      if (existing.userId !== userId) {
+        return res.status(403).json({ message: "You can only manage breaks on your own time entry" });
+      }
+      if (existing.clockOutTime) {
+        return res.status(400).json({ message: "Cannot end a break on a completed time entry" });
+      }
+      if (!existing.breakStartTime) {
+        return res.status(400).json({ message: "No break is currently in progress" });
+      }
+
+      const now = new Date();
+      const elapsedMinutes = Math.floor((now.getTime() - existing.breakStartTime.getTime()) / 60000);
+      const newBreakMinutes = (existing.breakMinutes ?? 0) + elapsedMinutes;
+
+      const companySettings = await storage.getCompanySettings();
+      const rule1Minutes = companySettings?.breakRule1Minutes ?? 10;
+      const rule2Minutes = companySettings?.breakRule2Minutes ?? 30;
+      const maxRuleMinutes = Math.max(rule1Minutes, rule2Minutes);
+      const eventType = elapsedMinutes > maxRuleMinutes ? 'break-overrun' : 'break-end-on-time';
+
+      const timeEntry = await storage.updateTimeEntry(id, {
+        breakMinutes: newBreakMinutes,
+        breakStartTime: null,
+      });
+
+      const timeEntryRecipients = await computeTimeEntryRecipients(userId, getUserIdsWithPermission);
+      sendToUsers(timeEntryRecipients, {
+        type: 'time_entry_updated',
+        data: { timeEntry },
+      });
+
+      logBreakClockEvent(storage, userId, id, eventType, { elapsedMinutes, totalBreakMinutes: newBreakMinutes });
+
+      res.json(timeEntry);
+    } catch (error) {
+      console.error("Error ending break:", error);
+      res.status(500).json({ message: (error as Error).message });
+    }
+  });
+}
+
+function logBreakClockEvent(
+  storage: IStorage,
+  userId: string,
+  timeEntryId: string,
+  eventType: string,
+  metadata: Record<string, unknown>,
+): void {
+  const BREAK_EVENT_DEFAULTS: Record<string, number> = {
+    'break-start': 0,
+    'break-end-on-time': 5,
+    'break-overrun': -5,
+  };
+  storage.getPerformanceScoreSettings().then(scoreSettings => {
+    const setting = scoreSettings.find(s => s.eventType === eventType);
+    const pointValue = (setting?.isActive ? setting.pointValue : null) ?? BREAK_EVENT_DEFAULTS[eventType] ?? 0;
+    return storage.createClockEvent({ userId, timeEntryId, eventType, pointValue, metadata });
+  }).catch(err => {
+    logger.warn({ error: err?.message, eventType }, '[BreakClock] Failed to log break clock event (non-fatal)');
+  });
 }

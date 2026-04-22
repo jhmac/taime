@@ -174,6 +174,7 @@ export const timeEntries = pgTable("time_entries", {
   clockInTime: timestamp("clock_in_time").notNull(),
   clockOutTime: timestamp("clock_out_time"),
   breakMinutes: integer("break_minutes").default(0),
+  breakStartTime: timestamp("break_start_time"),
   notes: text("notes"),
   clockInSource: varchar("clock_in_source").default("shift-start"),
   clockOutSource: varchar("clock_out_source").default("shift-end"),

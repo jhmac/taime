@@ -303,6 +303,11 @@ export async function runSchemaMigrations(): Promise<void> {
       table: "user_availability_overrides",
       sql: `ALTER TABLE user_availability_overrides ADD COLUMN IF NOT EXISTS set_by_manager_id varchar REFERENCES users(id)`,
     },
+    // Task #281 — employee break clock (Start/End Break)
+    {
+      table: "time_entries",
+      sql: `ALTER TABLE time_entries ADD COLUMN IF NOT EXISTS break_start_time TIMESTAMP`,
+    },
   ];
 
   let altered = 0;

@@ -12,7 +12,7 @@ import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
 import { isUnauthorizedError } from '@/lib/authUtils';
 import type { TimeEntry, WorkLocation, CompanySettings } from '@shared/schema';
-import { MapPin, Shield, AlertTriangle, CheckCircle2, XCircle, Wifi, ExternalLink, Smartphone } from 'lucide-react';
+import { MapPin, Shield, AlertTriangle, CheckCircle2, XCircle, Wifi, ExternalLink, Smartphone, Coffee } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
 import { App as CapacitorApp } from '@capacitor/app';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
@@ -63,6 +63,8 @@ export default function TimeClockWidget({ greetingSlot, footerSlot }: TimeClockW
   const exitAlertShown = useRef(false);
   const locationLostReported = useRef(false);
   const watchIdRef = useRef<number | null>(null);
+  const [breakElapsed, setBreakElapsed] = useState(0);
+  const breakTimerRef = useRef<number | null>(null);
   const [countdownSeconds, setCountdownSeconds] = useState<number | null>(null);
   const countdownRef = useRef<number | null>(null);
   const totalGraceSecondsRef = useRef<number>(0);
@@ -212,6 +214,61 @@ export default function TimeClockWidget({ greetingSlot, footerSlot }: TimeClockW
       });
     },
   });
+
+  const breakStartMutation = useMutation({
+    mutationFn: async (timeEntryId: string) => {
+      const res = await apiRequest('POST', `/api/time-entries/${timeEntryId}/break-start`, {});
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/time-entries/active'] });
+      queryClient.refetchQueries({ queryKey: ['/api/time-entries/active'] });
+      toast({ title: "Break Started", description: "Enjoy your break!" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Break Failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const breakEndMutation = useMutation({
+    mutationFn: async (timeEntryId: string) => {
+      const res = await apiRequest('POST', `/api/time-entries/${timeEntryId}/break-end`, {});
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/time-entries/active'] });
+      queryClient.refetchQueries({ queryKey: ['/api/time-entries/active'] });
+      toast({ title: "Break Ended", description: "Welcome back!" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "End Break Failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const isOnBreak = !!(activeTimeEntry?.breakStartTime);
+
+  useEffect(() => {
+    if (isOnBreak && activeTimeEntry?.breakStartTime) {
+      const start = new Date(activeTimeEntry.breakStartTime).getTime();
+      const tick = () => {
+        setBreakElapsed(Math.floor((Date.now() - start) / 1000));
+      };
+      tick();
+      breakTimerRef.current = window.setInterval(tick, 1000);
+    } else {
+      setBreakElapsed(0);
+      if (breakTimerRef.current) {
+        clearInterval(breakTimerRef.current);
+        breakTimerRef.current = null;
+      }
+    }
+    return () => {
+      if (breakTimerRef.current) {
+        clearInterval(breakTimerRef.current);
+        breakTimerRef.current = null;
+      }
+    };
+  }, [isOnBreak, activeTimeEntry?.breakStartTime]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -845,13 +902,16 @@ export default function TimeClockWidget({ greetingSlot, footerSlot }: TimeClockW
             <div className="flex items-center justify-center gap-2">
               <span
                 className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
+                  isOnBreak ? 'bg-amber-500 animate-pulse' :
                   geofenceStatus?.isInWorkLocation === false ? 'bg-red-500' : 'bg-green-500 animate-pulse'
                 }`}
               />
               <span className="text-base font-semibold text-foreground">
-                {geofenceStatus?.isInWorkLocation === false
-                  ? `Outside zone · ${getOutsideDuration() ?? getActiveWorkDuration()}`
-                  : `On shift · ${getActiveWorkDuration()}`}
+                {isOnBreak
+                  ? `On break · ${Math.floor(breakElapsed / 60)}m ${breakElapsed % 60}s`
+                  : geofenceStatus?.isInWorkLocation === false
+                    ? `Outside zone · ${getOutsideDuration() ?? getActiveWorkDuration()}`
+                    : `On shift · ${getActiveWorkDuration()}`}
               </span>
             </div>
           )}
@@ -1003,26 +1063,59 @@ export default function TimeClockWidget({ greetingSlot, footerSlot }: TimeClockW
                 Grant Location Access
               </Button>
             </div>
+          ) : isOnBreak && activeTimeEntry ? (
+            <div className="space-y-3">
+              <div className="rounded-2xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 p-3 text-center">
+                <div className="flex items-center justify-center gap-2 mb-1">
+                  <Coffee className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+                  <span className="text-sm font-bold text-amber-800 dark:text-amber-200">On Break</span>
+                </div>
+                <p className="text-2xl font-extrabold tabular-nums text-amber-700 dark:text-amber-300">
+                  {String(Math.floor(breakElapsed / 60)).padStart(2, '0')}:{String(breakElapsed % 60).padStart(2, '0')}
+                </p>
+              </div>
+              <Button
+                onClick={() => breakEndMutation.mutate(activeTimeEntry.id)}
+                disabled={breakEndMutation.isPending}
+                className="w-full text-base font-bold py-4 rounded-2xl bg-amber-500 hover:bg-amber-600 text-white"
+                data-testid="break-end-button"
+              >
+                {breakEndMutation.isPending ? 'Ending break…' : '▶  End Break'}
+              </Button>
+            </div>
           ) : (
-            <Button
-              key={showDeniedBanner ? 'denied' : 'enabled'}
-              onClick={handleClockAction}
-              disabled={clockInMutation.isPending || clockOutMutation.isPending || activeEntryLoading || (hasAttemptedClockIn && (permissionState === 'denied' || showDeniedBanner) && workLocations.length > 0 && !activeTimeEntry)}
-              className={`w-full text-base font-bold py-4 rounded-2xl transition-opacity duration-300 ${
-                activeTimeEntry
-                  ? 'bg-destructive hover:bg-destructive/90 text-destructive-foreground'
-                  : 'bg-primary hover:bg-primary/90 text-primary-foreground'
-              } ${!showDeniedBanner && !activeTimeEntry && workLocations.length > 0 ? 'animate-fade-in' : ''}`}
-              data-testid="clock-action-button"
-            >
-              {clockInMutation.isPending || clockOutMutation.isPending
-                ? 'Processing…'
-                : activeTimeEntry
-                  ? '■  Clock Out'
-                  : locationLoading
-                    ? 'Getting location…'
-                    : '▶  Clock In'}
-            </Button>
+            <div className={activeTimeEntry ? 'flex gap-2' : ''}>
+              {activeTimeEntry && (
+                <Button
+                  onClick={() => breakStartMutation.mutate(activeTimeEntry.id)}
+                  disabled={breakStartMutation.isPending || clockOutMutation.isPending}
+                  variant="outline"
+                  className="flex-1 text-base font-bold py-4 rounded-2xl border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-400 dark:hover:bg-amber-950/30"
+                  data-testid="break-start-button"
+                >
+                  {breakStartMutation.isPending ? '…' : <><Coffee className="h-4 w-4 mr-1.5" />Start Break</>}
+                </Button>
+              )}
+              <Button
+                key={showDeniedBanner ? 'denied' : 'enabled'}
+                onClick={handleClockAction}
+                disabled={clockInMutation.isPending || clockOutMutation.isPending || activeEntryLoading || (hasAttemptedClockIn && (permissionState === 'denied' || showDeniedBanner) && workLocations.length > 0 && !activeTimeEntry)}
+                className={`${activeTimeEntry ? 'flex-1' : 'w-full'} text-base font-bold py-4 rounded-2xl transition-opacity duration-300 ${
+                  activeTimeEntry
+                    ? 'bg-destructive hover:bg-destructive/90 text-destructive-foreground'
+                    : 'bg-primary hover:bg-primary/90 text-primary-foreground'
+                } ${!showDeniedBanner && !activeTimeEntry && workLocations.length > 0 ? 'animate-fade-in' : ''}`}
+                data-testid="clock-action-button"
+              >
+                {clockInMutation.isPending || clockOutMutation.isPending
+                  ? 'Processing…'
+                  : activeTimeEntry
+                    ? '■  Clock Out'
+                    : locationLoading
+                      ? 'Getting location…'
+                      : '▶  Clock In'}
+              </Button>
+            </div>
           )}
 
           {/* Geofence status pill — clocked in, normal */}
@@ -1050,10 +1143,14 @@ export default function TimeClockWidget({ greetingSlot, footerSlot }: TimeClockW
                 <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Today</p>
                 <p className="text-xl font-extrabold text-foreground" data-testid="today-hours">{todayTotalDisplay}</p>
               </div>
-              {activeTimeEntry && (activeTimeEntry.breakMinutes ?? 0) > 0 && (
+              {activeTimeEntry && ((activeTimeEntry.breakMinutes ?? 0) > 0 || isOnBreak) && (
                 <div className="text-center">
                   <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Break</p>
-                  <p className="text-xl font-extrabold text-foreground" data-testid="break-time">{activeTimeEntry.breakMinutes}m</p>
+                  <p className="text-xl font-extrabold text-foreground" data-testid="break-time">
+                    {isOnBreak
+                      ? `${(activeTimeEntry.breakMinutes ?? 0) + Math.floor(breakElapsed / 60)}m`
+                      : `${activeTimeEntry.breakMinutes}m`}
+                  </p>
                 </div>
               )}
             </div>
