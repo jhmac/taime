@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
 import { notificationService } from "../services/notificationService";
-import { sendAvailabilityUpdateEmail, resolveAppUrl } from "../services/emailService";
+import { sendAvailabilityUpdateEmail, sendAvailabilityOverrideEmail, resolveAppUrl } from "../services/emailService";
 import { getUserIdsWithPermission, getAllStoreUserIds } from "../lib/permissionUtils";
 import { tryResolveStoreIdForUser } from "../lib/storeResolver";
 
@@ -245,6 +245,30 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
         setByManagerId: isManagerOverride ? requestingUserId : null,
       });
       res.json(result);
+
+      if (isManagerOverride) {
+        const requestHost = req.headers["host"] as string | undefined;
+        Promise.resolve().then(async () => {
+          const [manager, employee] = await Promise.all([
+            storage.getUser(requestingUserId),
+            storage.getUser(userId),
+          ]);
+          const managerName = manager ? ([manager.firstName, manager.lastName].filter(Boolean).join(" ") || manager.email || "Your manager") : "Your manager";
+          const employeeName = employee ? ([employee.firstName, employee.lastName].filter(Boolean).join(" ") || employee.email || "An employee") : "An employee";
+          const changeDescription = isUnavailable
+            ? "marked you as unavailable"
+            : `set your availability to ${startTime}–${endTime}`;
+
+          await notificationService.sendAvailabilityOverrideNotification(userId, managerName, date, changeDescription);
+
+          if (employee?.email) {
+            const appUrl = resolveAppUrl(requestHost);
+            await sendAvailabilityOverrideEmail(employee.email, employeeName, managerName, date, changeDescription, appUrl);
+          }
+        }).catch((err) => {
+          console.error("[Availability] Failed to notify employee of override:", err);
+        });
+      }
     } catch (error) {
       console.error("Error saving availability day override:", error);
       res.status(500).json({ message: "Failed to save availability" });
@@ -277,8 +301,32 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
       if (!date || typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
         return res.status(400).json({ message: "date query param must be YYYY-MM-DD" });
       }
+
+      const isManagerOverride = isManagerOrAbove && req.query.userId && req.query.userId !== requestingUserId;
       await storage.deleteAvailabilityOverride(userId, date);
       res.json({ message: "Override cleared" });
+
+      if (isManagerOverride) {
+        const requestHost = req.headers["host"] as string | undefined;
+        Promise.resolve().then(async () => {
+          const [manager, employee] = await Promise.all([
+            storage.getUser(requestingUserId),
+            storage.getUser(userId),
+          ]);
+          const managerName = manager ? ([manager.firstName, manager.lastName].filter(Boolean).join(" ") || manager.email || "Your manager") : "Your manager";
+          const employeeName = employee ? ([employee.firstName, employee.lastName].filter(Boolean).join(" ") || employee.email || "An employee") : "An employee";
+          const changeDescription = "cleared your availability override";
+
+          await notificationService.sendAvailabilityOverrideNotification(userId, managerName, date, changeDescription);
+
+          if (employee?.email) {
+            const appUrl = resolveAppUrl(requestHost);
+            await sendAvailabilityOverrideEmail(employee.email, employeeName, managerName, date, changeDescription, appUrl);
+          }
+        }).catch((err) => {
+          console.error("[Availability] Failed to notify employee of override clear:", err);
+        });
+      }
     } catch (error) {
       console.error("Error deleting availability override:", error);
       res.status(500).json({ message: "Failed to clear availability" });

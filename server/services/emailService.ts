@@ -268,6 +268,99 @@ export async function sendAvailabilityUpdateEmail(
   }
 }
 
+export async function sendAvailabilityOverrideEmail(
+  employeeEmail: string,
+  employeeName: string,
+  managerName: string,
+  date: string,
+  changeDescription: string,
+  appUrl: string,
+): Promise<boolean> {
+  const sendgridKey = process.env.SENDGRID_API_KEY;
+  if (!sendgridKey) {
+    return false;
+  }
+
+  sgMail.setApiKey(sendgridKey);
+
+  const firstName = (employeeName || employeeEmail).split(" ")[0] || employeeName;
+  const formattedDate = (() => {
+    try {
+      return new Date(date + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' });
+    } catch {
+      return date;
+    }
+  })();
+  const availabilityUrl = `${appUrl}/availability`;
+
+  const htmlBody = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Your Availability Was Updated</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f4f4f8;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f8;padding:40px 16px;">
+    <tr>
+      <td align="center">
+        <table width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;">
+          <tr>
+            <td style="padding:0 0 24px 0;text-align:center;">
+              <div style="display:inline-block;background:linear-gradient(135deg,#6c63ff,#9b8fff);border-radius:16px;padding:14px 24px;">
+                <span style="color:#ffffff;font-size:22px;font-weight:800;letter-spacing:-0.5px;">Taime</span>
+              </div>
+              <p style="color:#888;font-size:12px;margin:8px 0 0 0;letter-spacing:1px;text-transform:uppercase;">AI Boutique Manager</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="background:#ffffff;border-radius:20px;padding:36px 36px 32px 36px;box-shadow:0 4px 24px rgba(108,99,255,0.08);">
+              <div style="text-align:center;margin-bottom:24px;">
+                <div style="width:56px;height:56px;background:linear-gradient(135deg,#6c63ff,#9b8fff);border-radius:50%;display:inline-flex;align-items:center;justify-content:center;margin:0 auto;">
+                  <span style="color:#fff;font-size:26px;line-height:56px;">📅</span>
+                </div>
+              </div>
+              <h1 style="color:#1a1a2e;font-size:22px;font-weight:700;margin:0 0 8px 0;text-align:center;">Your Availability Was Updated</h1>
+              <p style="color:#555;font-size:15px;line-height:1.6;margin:0 0 20px 0;text-align:center;">
+                Hi ${firstName}, <strong style="color:#1a1a2e;">${managerName}</strong> has updated your availability for <strong style="color:#1a1a2e;">${formattedDate}</strong>: ${changeDescription}.
+              </p>
+              <div style="text-align:center;margin-bottom:20px;">
+                <a href="${availabilityUrl}" style="display:inline-block;background:linear-gradient(135deg,#6c63ff,#9b8fff);color:#ffffff;padding:14px 36px;border-radius:12px;text-decoration:none;font-size:15px;font-weight:700;box-shadow:0 4px 14px rgba(108,99,255,0.35);">
+                  View My Availability &rarr;
+                </a>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:24px 0 0 0;text-align:center;">
+              <p style="color:#aaa;font-size:12px;margin:0;line-height:1.6;">
+                You received this because a manager updated your availability in Taime.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  `;
+
+  try {
+    await sgMail.send({
+      to: employeeEmail,
+      from: process.env.SENDGRID_FROM_EMAIL || "noreply@taime.app",
+      subject: `Your availability on ${formattedDate} was updated`,
+      html: htmlBody,
+    });
+    return true;
+  } catch (error) {
+    console.error("[Availability] Failed to send availability override email:", error);
+    return false;
+  }
+}
+
 export async function sendShopifyAnalyticsReport(
   recipientEmail: string,
   shopDomain: string,

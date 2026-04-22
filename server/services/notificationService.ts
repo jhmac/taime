@@ -684,6 +684,31 @@ export class NotificationService {
     const promises = managerUserIds.map((userId) => this.sendToUser(userId, payload));
     await Promise.allSettled(promises);
   }
+
+  async sendAvailabilityOverrideNotification(
+    employeeUserId: string,
+    managerName: string,
+    date: string,
+    changeDescription: string,
+  ): Promise<void> {
+    const formattedDate = (() => {
+      try {
+        return new Date(date + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
+      } catch {
+        return date;
+      }
+    })();
+    await this.sendToUser(employeeUserId, {
+      title: '📅 Availability Changed',
+      body: `${managerName} ${changeDescription} on ${formattedDate}.`,
+      notificationType: 'availability_override',
+      data: { type: 'availability_override', managerName, date, url: '/availability' },
+      actions: [
+        { action: 'view_availability', title: 'View Availability' },
+        { action: 'dismiss', title: 'Dismiss' },
+      ],
+    });
+  }
 }
 
 export const notificationService = new NotificationService();
