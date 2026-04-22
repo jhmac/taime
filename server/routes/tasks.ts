@@ -5,6 +5,20 @@ import { notificationService } from "../services/notificationService";
 import { tryResolveStoreIdForUser } from "../lib/storeResolver";
 import { runAutoAssign } from "./ai";
 
+/**
+ * Resolves the store/location for a non-admin manager and responds 403 if it cannot be determined.
+ * Callers MUST return immediately when this returns null (the 403 is already sent).
+ * This prevents fail-open cross-location access on misconfigured accounts.
+ */
+async function requireManagerLocation(userId: string, res: any): Promise<string | null> {
+  const locationId = await tryResolveStoreIdForUser(userId);
+  if (!locationId) {
+    res.status(403).json({ message: "Manager location could not be determined. Contact an administrator." });
+    return null;
+  }
+  return locationId;
+}
+
 export function registerTaskRoutes(
   app: Express,
   storage: IStorage,
@@ -184,8 +198,9 @@ export function registerTaskRoutes(
   // GET /api/tasks/clocked-in-count — eligible (non-manager) employees clocked in for this location
   app.get('/api/tasks/clocked-in-count', isAuthenticated, async (req: any, res) => {
     try {
-      const locationId = await tryResolveStoreIdForUser(req.user.id);
-      const count = await storage.getClockedInEmployeeCount(locationId || undefined);
+      const locationId = await requireManagerLocation(req.user.id, res);
+      if (!locationId) return; // 403 already sent
+      const count = await storage.getClockedInEmployeeCount(locationId);
       res.json({ count });
     } catch (error) {
       console.error("Error getting clocked-in count:", error);
@@ -198,12 +213,19 @@ export function registerTaskRoutes(
     try {
       const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
-      const isManager = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'hr.manage_employees');
+      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
+      const isManager = isAdmin || userPermissions.some(p => p.name === 'hr.manage_employees');
       if (!isManager) {
         return res.status(403).json({ message: "Managers only" });
       }
-      const locationId = await tryResolveStoreIdForUser(userId);
-      const queue = await storage.getPendingVerifications(locationId || undefined);
+      // Admins see all locations; non-admin managers must have a resolvable location (fail-closed)
+      let locationId: string | undefined;
+      if (!isAdmin) {
+        const resolved = await requireManagerLocation(userId, res);
+        if (!resolved) return; // 403 already sent
+        locationId = resolved;
+      }
+      const queue = await storage.getPendingVerifications(locationId);
       res.json(queue);
     } catch (error) {
       console.error("Error fetching verification queue:", error);
@@ -241,13 +263,18 @@ export function registerTaskRoutes(
         return res.status(404).json({ message: "Task not found" });
       }
 
-      // Non-admin managers can only broadcast tasks within their own location
-      const locationId = await tryResolveStoreIdForUser(userId);
-      if (!isAdmin && task.locationId && locationId && task.locationId !== locationId) {
-        return res.status(403).json({ message: "Cannot broadcast a task from a different location" });
+      // Non-admin managers must have a resolvable location (fail-closed); admins can broadcast globally
+      let locationId: string | undefined;
+      if (!isAdmin) {
+        const resolved = await requireManagerLocation(userId, res);
+        if (!resolved) return; // 403 already sent
+        locationId = resolved;
+        if (task.locationId && task.locationId !== locationId) {
+          return res.status(403).json({ message: "Cannot broadcast a task from a different location" });
+        }
       }
 
-      const { assignees, count } = await storage.broadcastTask(id, userId, locationId || undefined);
+      const { assignees, count } = await storage.broadcastTask(id, userId, locationId);
 
       if (count === 0) {
         return res.status(200).json({ assignees: [], count: 0, message: "No employees currently clocked in" });
@@ -288,8 +315,13 @@ export function registerTaskRoutes(
       const isManager = isAdmin || userPermissions.some(p => p.name === 'hr.manage_employees');
       if (!isManager) return res.status(403).json({ message: "Managers only" });
 
-      // Non-admin managers: scope to their own location (consistent with other manager endpoints)
-      const locationId = isAdmin ? undefined : (await tryResolveStoreIdForUser(callerId)) ?? undefined;
+      // Admins see all locations; non-admin managers must have a resolvable location (fail-closed)
+      let locationId: string | undefined;
+      if (!isAdmin) {
+        const resolved = await requireManagerLocation(callerId, res);
+        if (!resolved) return; // 403 already sent
+        locationId = resolved;
+      }
       const summary = await storage.getAllTaskBroadcastSummary(locationId);
       res.json(summary);
     } catch (error) {
