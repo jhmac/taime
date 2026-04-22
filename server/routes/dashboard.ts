@@ -649,12 +649,12 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
 
       const companySettings = await storage.getCompanySettings();
 
-      // Enforce toggle: only managers/owners/admins may access this endpoint, and
-      // only when the company has enabled showPaySummaryToManagers.
+      // Allow any manager/owner/admin to view their own pay summary in the header stats bar.
+      // The showPaySummaryToManagers toggle controls additional UI widgets, not this endpoint.
       const callerRole = (req.user as any)?.role?.name as string | undefined;
-      const isManagerOrAbove = callerRole === 'manager' || callerRole === 'owner' || callerRole === 'admin';
-      if (!isManagerOrAbove || !companySettings?.showPaySummaryToManagers) {
-        return res.status(403).json({ message: 'Pay summary not enabled for this role.' });
+      const isManagerOrAbove = callerRole === 'manager' || callerRole === 'owner' || callerRole === 'admin' || callerRole === 'assistant_manager';
+      if (!isManagerOrAbove) {
+        return res.status(403).json({ message: 'Access denied.' });
       }
 
       const hourlyRate = parseFloat(userRow?.hourlyRate ?? '0');

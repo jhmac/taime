@@ -78,10 +78,10 @@ export default function ManagerDashboard() {
 
   const showPaySummary = companySettings?.showPaySummaryToManagers ?? false;
 
-  // Manager pay summary — fetched only when the feature toggle is on
+  // Manager pay summary — always fetch for the header stats bar (period hrs + estimated pay)
   const { data: myPaySummary } = useQuery<{ periodStart: string; totalHours: number; hourlyRate: number; estimatedPay: number }>({
     queryKey: ['/api/dashboard/my-pay-summary'],
-    enabled: showPaySummary,
+    enabled: true,
     staleTime: 5 * 60 * 1000,
   });
 
