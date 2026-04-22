@@ -16,8 +16,11 @@ import DailyQuoteCard from '@/components/DailyQuoteCard';
 import MiddayPulseCard from '@/components/MiddayPulseCard';
 import KudosWidget from '@/components/KudosWidget';
 import SurfacedSOPBanner from '@/components/SurfacedSOPBanner';
-import { Sun, TrendingUp, AlertTriangle, Users } from 'lucide-react';
+import { Sun, AlertTriangle, Users, Bot, CalendarDays, CircleAlert, ChevronRight } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
 import SuppliesCard from '@/components/SuppliesCard';
+import DailyTrainingManagerWidget from '@/features/dashboard/DailyTrainingManagerWidget';
+import { DashboardErrorBoundary } from '@/features/dashboard/DashboardErrorBoundary';
 
 export default function AdminDashboard() {
   const { user } = useAuth();
@@ -35,6 +38,14 @@ export default function AdminDashboard() {
   const { data: insights } = useQuery({ queryKey: ['/api/insights'] });
   const { data: users } = useQuery({ queryKey: ['/api/users'] });
   const { data: dailyGoal } = useQuery<any>({ queryKey: ['/api/dashboard/daily-goal'], staleTime: 60_000 });
+  const { data: companySettings } = useQuery<any>({ queryKey: ['/api/company-settings'], staleTime: 5 * 60_000 });
+  const showPaySummary = companySettings?.showPaySummaryToManagers ?? false;
+  const { data: myPaySummary } = useQuery<{ periodStart: string; totalHours: number; hourlyRate: number; estimatedPay: number }>({
+    queryKey: ['/api/dashboard/my-pay-summary'],
+    enabled: showPaySummary,
+    staleTime: 5 * 60_000,
+  });
+  const { data: issues, isLoading: issuesLoading } = useQuery<any[]>({ queryKey: ['/api/issues'], staleTime: 60_000 });
 
   const getUserName = (userId: string) => {
     const u = (users as any[])?.find((u: any) => u.id === userId);
@@ -66,7 +77,7 @@ export default function AdminDashboard() {
   });
 
   useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    const timer = setInterval(() => setCurrentTime(new Date()), 60000);
     return () => clearInterval(timer);
   }, []);
 
@@ -85,6 +96,14 @@ export default function AdminDashboard() {
     (t: any) => t.status !== 'completed' && t.status !== 'cancelled' && t.dueDate && new Date(t.dueDate) < now
   ) ?? [];
 
+  const openIssues = (issues || []).filter((i: any) => i.status === 'open' || i.status === 'in_progress');
+  const issueCounts = {
+    urgent: openIssues.filter((i: any) => i.priority === 'urgent').length,
+    high: openIssues.filter((i: any) => i.priority === 'high').length,
+    medium: openIssues.filter((i: any) => i.priority === 'medium').length,
+    low: openIssues.filter((i: any) => i.priority === 'low').length,
+  };
+
   const formatTime = (date: Date) =>
     date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
 
@@ -97,90 +116,88 @@ export default function AdminDashboard() {
 
   return (
     <div className="min-h-full bg-background">
+      {/* ── Header ── */}
       <section className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground p-5 md:p-6 md:rounded-xl md:m-6 md:mt-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-lg md:text-xl font-bold">
-              {getGreeting()}, {(user as any)?.firstName || 'Admin'}!
-            </h1>
-            <p className="text-sm opacity-80">
-              {currentTime.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} &bull; {formatTime(currentTime)}
-            </p>
+        {isMobile ? (
+          /* Mobile: original compact header — greeting + date/time on left, action button on right */
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-lg font-bold">
+                {getGreeting()}, {(user as any)?.firstName || 'Admin'}!
+              </h1>
+              <p className="text-sm opacity-80">
+                {currentTime.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} &bull; {formatTime(currentTime)}
+              </p>
+            </div>
+            <Button
+              onClick={() => window.dispatchEvent(new Event("open-ask-mainager"))}
+              size="icon"
+              className="bg-white/20 hover:bg-white/30 text-white rounded-full h-10 w-10"
+              data-testid="admin-ai-assistant"
+            >
+              <Bot className="h-5 w-5" />
+            </Button>
           </div>
-          <Button
-            onClick={() => window.dispatchEvent(new Event("open-ask-mainager"))}
-            size="icon"
-            className="bg-white/20 hover:bg-white/30 text-white rounded-full h-10 w-10"
-            data-testid="admin-ai-assistant"
-          >
-            <i className="fas fa-robot"></i>
-          </Button>
-        </div>
+        ) : (
+          /* Desktop: 3-column header — greeting+date | centered clock | action button */
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <h1 className="text-xl font-bold truncate">
+                {getGreeting()}, {(user as any)?.firstName || 'Admin'}!
+              </h1>
+              <p className="text-sm opacity-80">
+                {currentTime.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+              </p>
+            </div>
+            <div className="flex-1 flex justify-center">
+              <p className="text-3xl font-bold tabular-nums tracking-tight leading-none">
+                {formatTime(currentTime)}
+              </p>
+            </div>
+            <Button
+              onClick={() => window.dispatchEvent(new Event("open-ask-mainager"))}
+              size="icon"
+              className="bg-white/20 hover:bg-white/30 text-white rounded-full h-10 w-10 flex-shrink-0"
+              data-testid="admin-ai-assistant"
+            >
+              <Bot className="h-5 w-5" />
+            </Button>
+          </div>
+        )}
       </section>
 
       <div className={isMobile ? "px-4 py-3" : "px-6 py-4"}>
-        <div className={isMobile ? "grid grid-cols-2 gap-3" : "grid grid-cols-3 gap-4"}>
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center flex-shrink-0">
-                  <TrendingUp className="h-5 w-5 text-green-600 dark:text-green-400" />
-                </div>
-                <div className="min-w-0">
-                  {dailyGoal?.hasGoal ? (
-                    <>
-                      <p className="text-2xl font-bold tabular-nums">
-                        {dailyGoal.progress ?? 0}%
+        {/* ── Today Card (replaces stat cards) ── */}
+        <Card>
+          <CardHeader className="pb-2 pt-3 px-4">
+            <div className="flex items-center justify-between flex-wrap gap-x-3 gap-y-1">
+              {/* Left: icon + label + live time */}
+              <div className="flex items-center gap-2">
+                <CalendarDays className="h-4 w-4 text-primary shrink-0" />
+                <span className="text-sm font-semibold">Today</span>
+                <span className="text-sm font-bold tabular-nums text-primary">
+                  {formatTime(currentTime)}
+                </span>
+              </div>
+
+              {/* Right: pay period summary (conditional) */}
+              {showPaySummary && myPaySummary && (
+                <div className="flex items-center gap-3 text-right">
+                  <div className="text-xs">
+                    <p className="font-semibold tabular-nums">{myPaySummary.totalHours.toFixed(1)} hrs</p>
+                    <p className="text-muted-foreground">this period</p>
+                  </div>
+                  {myPaySummary.hourlyRate > 0 && (
+                    <div className="text-xs">
+                      <p className="font-semibold tabular-nums text-green-600 dark:text-green-400">
+                        ${myPaySummary.estimatedPay.toFixed(0)} est.
                       </p>
-                      <p className="text-xs text-muted-foreground truncate">Revenue vs. Goal</p>
-                      <p className="text-[10px] text-muted-foreground tabular-nums truncate">
-                        ${Number(dailyGoal.current?.revenue ?? 0).toFixed(0)} / ${Number(dailyGoal.goal?.revenue ?? 0).toFixed(0)}
-                      </p>
-                    </>
-                  ) : (
-                    <>
-                      <p className="text-2xl font-bold">—</p>
-                      <p className="text-xs text-muted-foreground truncate">Revenue vs. Goal</p>
-                    </>
+                      <p className="text-muted-foreground">paycheck</p>
+                    </div>
                   )}
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${overdueTasks.length > 0 ? 'bg-red-100 dark:bg-red-900/30' : 'bg-muted'}`}>
-                  <AlertTriangle className={`h-5 w-5 ${overdueTasks.length > 0 ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground'}`} />
-                </div>
-                <div className="min-w-0">
-                  <p className={`text-2xl font-bold tabular-nums ${overdueTasks.length > 0 ? 'text-red-600 dark:text-red-400' : ''}`}>
-                    {tasksLoading ? '…' : overdueTasks.length}
-                  </p>
-                  <p className="text-xs text-muted-foreground truncate">Overdue Tasks</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setShowTasksPopup(true)}>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center flex-shrink-0">
-                  <i className="fas fa-tasks text-purple-600 dark:text-purple-400"></i>
-                </div>
-                <div className="min-w-0">
-                  <p className="text-2xl font-bold">{completedToday}/{todayTasks.length}</p>
-                  <p className="text-xs text-muted-foreground truncate">Tasks Done</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Today Section */}
-        <Card className="mt-3">
-          <CardHeader className="pb-2 pt-3 px-4">
-            <CardTitle className="text-sm font-semibold">Today</CardTitle>
+              )}
+            </div>
           </CardHeader>
           <CardContent className="px-4 pb-3">
             <div className={isMobile ? "space-y-3" : "flex gap-6"}>
@@ -240,6 +257,53 @@ export default function AdminDashboard() {
 
       <div className={isMobile ? "px-4 pb-2" : "px-6 pb-3"}>
         <SurfacedSOPBanner />
+      </div>
+
+      {/* ── Training + Open Issues row (matches ManagerDashboard layout) ── */}
+      <div className={isMobile ? "px-4 pb-2 space-y-3" : "px-6 pb-3"}>
+        <div className={isMobile ? "space-y-3" : "grid grid-cols-2 gap-6"}>
+          <DashboardErrorBoundary fallback="Daily training widget failed to load">
+            <DailyTrainingManagerWidget />
+          </DashboardErrorBoundary>
+
+          <DashboardErrorBoundary fallback="Could not load open issues">
+            <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => navigate('/issues')}>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <CircleAlert className="h-4 w-4 text-red-500" />
+                    Open Issues ({openIssues.length})
+                  </CardTitle>
+                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                </div>
+              </CardHeader>
+              <CardContent className="pt-0">
+                {issuesLoading ? (
+                  <div className="space-y-2">
+                    {[1, 2].map(i => <Skeleton key={i} className="h-6 w-full" />)}
+                  </div>
+                ) : openIssues.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">No open issues</p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {issueCounts.urgent > 0 && (
+                      <Badge className="bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400 border-0">{issueCounts.urgent} Urgent</Badge>
+                    )}
+                    {issueCounts.high > 0 && (
+                      <Badge className="bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400 border-0">{issueCounts.high} High</Badge>
+                    )}
+                    {issueCounts.medium > 0 && (
+                      <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400 border-0">{issueCounts.medium} Medium</Badge>
+                    )}
+                    {issueCounts.low > 0 && (
+                      <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400 border-0">{issueCounts.low} Low</Badge>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </DashboardErrorBoundary>
+        </div>
       </div>
 
       <div className={isMobile ? "px-4 pb-2 space-y-3" : "px-6 pb-3 space-y-3"}>

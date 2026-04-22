@@ -551,6 +551,7 @@ export const companySettings = pgTable("company_settings", {
   salesGoalIncreaseType: varchar("sales_goal_increase_type").default("percentage"),
   salesGoalIncreaseValue: decimal("sales_goal_increase_value", { precision: 10, scale: 2 }).default("0"),
   showPaySummaryToEmployees: boolean("show_pay_summary_to_employees").default(false),
+  showPaySummaryToManagers: boolean("show_pay_summary_to_managers").default(false),
   version: integer("version").default(1).notNull(),
 });
 

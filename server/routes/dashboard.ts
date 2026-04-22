@@ -633,4 +633,94 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
       res.status(500).json({ message: "Failed to fetch upcoming shifts" });
     }
   });
+
+  /**
+   * GET /api/dashboard/my-pay-summary
+   * Returns the logged-in user's pay-period hours worked and estimated gross pay.
+   * Used by the manager dashboard Today card header.
+   */
+  app.get('/api/dashboard/my-pay-summary', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId: string = req.user.id;
+
+      const [userRow] = await db.select({
+        hourlyRate: users.hourlyRate,
+      }).from(users).where(eq(users.id, userId)).limit(1);
+
+      const companySettings = await storage.getCompanySettings();
+
+      // Enforce toggle: only managers/owners/admins may access this endpoint, and
+      // only when the company has enabled showPaySummaryToManagers.
+      const callerRole = (req.user as any)?.role?.name as string | undefined;
+      const isManagerOrAbove = callerRole === 'manager' || callerRole === 'owner' || callerRole === 'admin';
+      if (!isManagerOrAbove || !companySettings?.showPaySummaryToManagers) {
+        return res.status(403).json({ message: 'Pay summary not enabled for this role.' });
+      }
+
+      const hourlyRate = parseFloat(userRow?.hourlyRate ?? '0');
+
+      // Determine current pay period start
+      const now = new Date();
+      const freq = companySettings?.payScheduleFrequency ?? 'every_two_weeks';
+      const nextPayrollDateStr = companySettings?.nextPayrollDate;
+
+      let periodStart: Date;
+
+      if (freq === 'semi_monthly') {
+        // Semi-monthly: periods are 1st–15th and 16th–end-of-month.
+        // Calendar-based so it never drifts from actual pay dates.
+        const day = now.getDate();
+        periodStart = day <= 15
+          ? new Date(now.getFullYear(), now.getMonth(), 1)
+          : new Date(now.getFullYear(), now.getMonth(), 16);
+      } else if (freq === 'monthly') {
+        // Monthly: always starts on the 1st of the current month.
+        periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      } else if (nextPayrollDateStr) {
+        // weekly / every_two_weeks: anchor-based walk-back from next payroll date.
+        const nextPayroll = new Date(nextPayrollDateStr);
+        const periodDays = freq === 'weekly' ? 7 : 14;
+        let cursor = new Date(nextPayroll);
+        while (cursor > now) {
+          cursor = new Date(cursor.getTime() - periodDays * 86400000);
+        }
+        periodStart = cursor;
+      } else {
+        // Fallback: start of current month.
+        periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      }
+
+      const entries = await db.select({
+        clockInTime: timeEntries.clockInTime,
+        clockOutTime: timeEntries.clockOutTime,
+        breakMinutes: timeEntries.breakMinutes,
+      }).from(timeEntries).where(
+        and(
+          eq(timeEntries.userId, userId),
+          gte(timeEntries.clockInTime, periodStart),
+        )
+      );
+
+      let totalHours = 0;
+      for (const entry of entries) {
+        const clockOut = entry.clockOutTime ? new Date(entry.clockOutTime) : now;
+        const rawMs = clockOut.getTime() - new Date(entry.clockInTime).getTime();
+        const breakMs = (entry.breakMinutes ?? 0) * 60000;
+        totalHours += Math.max(0, rawMs - breakMs) / 3600000;
+      }
+      totalHours = Math.round(totalHours * 100) / 100;
+
+      const estimatedPay = Math.round(totalHours * hourlyRate * 100) / 100;
+
+      res.json({
+        periodStart: periodStart.toISOString(),
+        totalHours,
+        hourlyRate,
+        estimatedPay,
+      });
+    } catch (error) {
+      console.error("Error fetching pay summary:", error);
+      res.status(500).json({ message: "Failed to fetch pay summary" });
+    }
+  });
 }

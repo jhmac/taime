@@ -24,9 +24,6 @@ import TimeClockWidget from '@/components/TimeClockWidget';
 import TeamStatusWidget from '@/features/dashboard/TeamStatusWidget';
 import {
   Users,
-  UserCheck,
-  CalendarDays,
-  CheckSquare,
   Sun,
   Check,
   AlertTriangle,
@@ -42,6 +39,8 @@ import {
   ArrowRight,
   Video,
   Timer,
+  CalendarDays,
+  DollarSign,
 } from 'lucide-react';
 import { DELIVERY_FAILURE_HIGH_THRESHOLD } from '@/lib/notificationConstants';
 
@@ -69,6 +68,27 @@ export default function ManagerDashboard() {
   const { data: partialErrors } = useQuery<{ gamificationError: boolean; todaySummaryError: boolean }>({
     queryKey: ['/api/dashboard/partial-errors'],
     enabled: false,
+  });
+
+  // Company settings — used for showPaySummaryToManagers toggle
+  const { data: companySettings } = useQuery<any>({
+    queryKey: ['/api/company-settings'],
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const showPaySummary = companySettings?.showPaySummaryToManagers ?? false;
+
+  // Manager pay summary — fetched only when the feature toggle is on
+  const { data: myPaySummary } = useQuery<{ periodStart: string; totalHours: number; hourlyRate: number; estimatedPay: number }>({
+    queryKey: ['/api/dashboard/my-pay-summary'],
+    enabled: showPaySummary,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // Daily goal / revenue data
+  const { data: dailyGoal } = useQuery<any>({
+    queryKey: ['/api/dashboard/daily-goal'],
+    staleTime: 60_000,
   });
 
   // Defer non-critical list queries until after first paint so the initial
@@ -126,12 +146,9 @@ export default function ManagerDashboard() {
   const today = new Date();
   const todayStr = today.toDateString();
 
-  // Prefer pre-hydrated summary stats (from /api/dashboard/init), fall back to
-  // computed values once the full list queries arrive.
+  // Prefer pre-hydrated summary stats, fall back to computed values
   const activeEntries = todaySummary?.activeEntries ?? (timeEntries || []).filter((e: any) => !e.clockOutTime);
   const totalClockedIn = todaySummary?.totalClockedIn ?? activeEntries.length;
-  const totalScheduled = todaySummary?.totalScheduled ?? (schedules || []).filter((s: any) => new Date(s.startTime).toDateString() === todayStr).length;
-  const totalEmployees = (users || []).length;
   const todaySchedules = (schedules || []).filter((s: any) => new Date(s.startTime).toDateString() === todayStr);
   const todayTasks = (tasks || []).filter((t: any) => new Date(t.createdAt).toDateString() === todayStr);
   const completedToday = todayTasks.filter((t: any) => t.status === 'completed').length;
@@ -201,98 +218,154 @@ export default function ManagerDashboard() {
 
   return (
     <div className="min-h-full bg-background">
+      {/* ── Header ── */}
       <DashboardErrorBoundary fallback="Could not load header">
         <section className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground p-5 md:p-6 md:rounded-xl md:m-6 md:mt-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-lg md:text-xl font-bold">
-                {getGreeting()}, {(user as any)?.firstName || 'Manager'}!
-              </h1>
-              <p className="text-sm opacity-80">
-                {currentTime.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} &bull; {formatTime(currentTime)}
-              </p>
+          {isMobile ? (
+            /* Mobile: original compact header — greeting + date/time on left, action button on right */
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-lg font-bold">
+                  {getGreeting()}, {(user as any)?.firstName || 'Manager'}!
+                </h1>
+                <p className="text-sm opacity-80">
+                  {currentTime.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} &bull; {formatTime(currentTime)}
+                </p>
+              </div>
+              <Button
+                onClick={() => window.dispatchEvent(new Event("open-ask-mainager"))}
+                size="icon"
+                className="bg-white/20 hover:bg-white/30 text-white rounded-full h-10 w-10"
+              >
+                <Bot className="h-5 w-5" />
+              </Button>
             </div>
-            <Button
-              onClick={() => window.dispatchEvent(new Event("open-ask-mainager"))}
-              size="icon"
-              className="bg-white/20 hover:bg-white/30 text-white rounded-full h-10 w-10"
-            >
-              <Bot className="h-5 w-5" />
-            </Button>
-          </div>
+          ) : (
+            /* Desktop: 3-column header — greeting+date | centered clock | action button */
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <h1 className="text-xl font-bold truncate">
+                  {getGreeting()}, {(user as any)?.firstName || 'Manager'}!
+                </h1>
+                <p className="text-sm opacity-80">
+                  {currentTime.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+                </p>
+              </div>
+              <div className="flex-1 flex justify-center">
+                <p className="text-3xl font-bold tabular-nums tracking-tight leading-none">
+                  {formatTime(currentTime)}
+                </p>
+              </div>
+              <Button
+                onClick={() => window.dispatchEvent(new Event("open-ask-mainager"))}
+                size="icon"
+                className="bg-white/20 hover:bg-white/30 text-white rounded-full h-10 w-10 flex-shrink-0"
+              >
+                <Bot className="h-5 w-5" />
+              </Button>
+            </div>
+          )}
         </section>
       </DashboardErrorBoundary>
 
       <div className={isMobile ? "px-4 py-3" : "px-6 py-4"}>
+        {/* Personal time clock widget */}
         <DashboardErrorBoundary fallback="Time clock failed to load">
           <TimeClockWidget />
         </DashboardErrorBoundary>
 
-        <DashboardErrorBoundary fallback="Could not load metrics">
-          <div className={isMobile ? "grid grid-cols-2 gap-3" : "grid grid-cols-4 gap-4"}>
-            <Card>
-              <CardContent className="p-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center flex-shrink-0">
-                    <UserCheck className="h-5 w-5 text-green-600 dark:text-green-400" />
+        {/* ── Today Card (replaces the 4 stat cards) ── */}
+        <DashboardErrorBoundary fallback="Today card failed to load">
+          <Card className="mt-3">
+            <CardHeader className="pb-2 pt-3 px-4">
+              <div className="flex items-center justify-between flex-wrap gap-x-3 gap-y-1">
+                {/* Left: icon + label + live time */}
+                <div className="flex items-center gap-2">
+                  <CalendarDays className="h-4 w-4 text-primary shrink-0" />
+                  <span className="text-sm font-semibold">Today</span>
+                  <span className="text-sm font-bold tabular-nums text-primary">
+                    {formatTime(currentTime)}
+                  </span>
+                </div>
+
+                {/* Right: pay period summary (conditional) */}
+                {showPaySummary && myPaySummary && (
+                  <div className="flex items-center gap-3 text-right">
+                    <div className="text-xs">
+                      <p className="font-semibold tabular-nums">{myPaySummary.totalHours.toFixed(1)} hrs</p>
+                      <p className="text-muted-foreground">this period</p>
+                    </div>
+                    {myPaySummary.hourlyRate > 0 && (
+                      <div className="text-xs">
+                        <p className="font-semibold tabular-nums text-green-600 dark:text-green-400">
+                          ${myPaySummary.estimatedPay.toFixed(0)} est.
+                        </p>
+                        <p className="text-muted-foreground">paycheck</p>
+                      </div>
+                    )}
                   </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1">
-                      <p className="text-2xl font-bold">{totalClockedIn}</p>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent className="px-4 pb-3">
+              <div className={isMobile ? "space-y-3" : "flex gap-6"}>
+                {/* Revenue column */}
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold mb-1">Revenue</p>
+                  {dailyGoal?.current?.revenue !== undefined ? (
+                    <div>
+                      <p className="text-2xl font-bold text-green-600 dark:text-green-400 tabular-nums leading-tight">
+                        ${Number(dailyGoal.current.revenue).toFixed(0)}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {dailyGoal.current.orders ?? 0} {dailyGoal.current.orders === 1 ? 'order' : 'orders'}
+                        {dailyGoal.hasGoal && (
+                          <> &bull; {dailyGoal.progress ?? 0}% of goal</>
+                        )}
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground italic">No data yet</p>
+                  )}
+                </div>
+
+                {!isMobile && <div className="w-px bg-border self-stretch" />}
+
+                {/* Clocked-In column */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">Clocked In</p>
+                    <span className="text-[10px] font-semibold text-green-600 dark:text-green-400">
+                      {totalClockedIn}
                       {partialErrors?.todaySummaryError && !todaySummary && (
-                        <AlertTriangle size={13} className="text-amber-500 shrink-0" title="Attendance data may be unavailable" />
+                        <AlertTriangle size={10} className="inline ml-1 text-amber-500" title="Attendance data may be unavailable" />
+                      )}
+                    </span>
+                  </div>
+                  {activeEntries.length === 0 ? (
+                    <div className="flex items-center gap-1.5 text-muted-foreground">
+                      <Users className="h-3.5 w-3.5 shrink-0" />
+                      <span className="text-xs italic">No one clocked in</span>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto">
+                      {activeEntries.slice(0, 8).map((entry: any) => (
+                        <span
+                          key={entry.id || entry.timeEntryId}
+                          className="inline-flex items-center gap-1 bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800/40 rounded-full px-2 py-0.5 text-[11px] font-medium text-green-700 dark:text-green-300"
+                        >
+                          {getUserName(entry.userId)}
+                        </span>
+                      ))}
+                      {activeEntries.length > 8 && (
+                        <span className="text-[11px] text-muted-foreground py-0.5">+{activeEntries.length - 8} more</span>
                       )}
                     </div>
-                    <p className="text-xs text-muted-foreground truncate">Clocked In</p>
-                  </div>
+                  )}
                 </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center flex-shrink-0">
-                    <Users className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-2xl font-bold">{totalEmployees}</p>
-                    <p className="text-xs text-muted-foreground truncate">Team Size</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center flex-shrink-0">
-                    <CalendarDays className="h-5 w-5 text-amber-600 dark:text-amber-400" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1">
-                      <p className="text-2xl font-bold">{totalScheduled}</p>
-                      {partialErrors?.todaySummaryError && !todaySummary && (
-                        <AlertTriangle size={13} className="text-amber-500 shrink-0" title="Schedule data may be unavailable" />
-                      )}
-                    </div>
-                    <p className="text-xs text-muted-foreground truncate">Shifts Today</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="p-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center flex-shrink-0">
-                    <CheckSquare className="h-5 w-5 text-purple-600 dark:text-purple-400" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-2xl font-bold">{completedToday}/{todayTasks.length}</p>
-                    <p className="text-xs text-muted-foreground truncate">Tasks Done</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+              </div>
+            </CardContent>
+          </Card>
         </DashboardErrorBoundary>
       </div>
 
@@ -333,6 +406,60 @@ export default function ManagerDashboard() {
       </div>
 
       <div className={isMobile ? "px-4 pb-4 space-y-4" : "px-6 pb-6"}>
+        {/* ── Training + Open Issues row (moved up, before AI/huddle) ── */}
+        <div className={isMobile ? "space-y-4" : "grid grid-cols-2 gap-6 mb-6"}>
+          <DashboardErrorBoundary fallback="Daily training widget failed to load">
+            <DailyTrainingManagerWidget />
+          </DashboardErrorBoundary>
+
+          <DashboardErrorBoundary fallback="Could not load open issues">
+            <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => navigate('/issues')}>
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <CircleAlert className="h-4 w-4 text-red-500" />
+                    Open Issues ({openIssues.length})
+                  </CardTitle>
+                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                </div>
+              </CardHeader>
+              <CardContent className="pt-0">
+                {issuesLoading ? (
+                  <div className="space-y-2">
+                    {[1,2].map(i => <Skeleton key={i} className="h-6 w-full" />)}
+                  </div>
+                ) : openIssues.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">No open issues</p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {issueCounts.urgent > 0 && (
+                      <Badge className="bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400 border-0">
+                        {issueCounts.urgent} Urgent
+                      </Badge>
+                    )}
+                    {issueCounts.high > 0 && (
+                      <Badge className="bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400 border-0">
+                        {issueCounts.high} High
+                      </Badge>
+                    )}
+                    {issueCounts.medium > 0 && (
+                      <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400 border-0">
+                        {issueCounts.medium} Medium
+                      </Badge>
+                    )}
+                    {issueCounts.low > 0 && (
+                      <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400 border-0">
+                        {issueCounts.low} Low
+                      </Badge>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </DashboardErrorBoundary>
+        </div>
+
+        {/* ── AI questions + Morning huddle ── */}
         <div className={isMobile ? "space-y-4" : "grid grid-cols-2 gap-6"}>
           <DashboardErrorBoundary fallback="AI questions card failed to load">
             <Card
@@ -401,56 +528,6 @@ export default function ManagerDashboard() {
             <TeamStatusWidget />
           </DashboardErrorBoundary>
 
-          <DashboardErrorBoundary fallback="Could not load open issues">
-            <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => navigate('/issues')}>
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <CircleAlert className="h-4 w-4 text-red-500" />
-                    Open Issues ({openIssues.length})
-                  </CardTitle>
-                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                </div>
-              </CardHeader>
-              <CardContent className="pt-0">
-                {issuesLoading ? (
-                  <div className="space-y-2">
-                    {[1,2].map(i => <Skeleton key={i} className="h-6 w-full" />)}
-                  </div>
-                ) : openIssues.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-4">No open issues</p>
-                ) : (
-                  <div className="flex flex-wrap gap-2">
-                    {issueCounts.urgent > 0 && (
-                      <Badge className="bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400 border-0">
-                        {issueCounts.urgent} Urgent
-                      </Badge>
-                    )}
-                    {issueCounts.high > 0 && (
-                      <Badge className="bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400 border-0">
-                        {issueCounts.high} High
-                      </Badge>
-                    )}
-                    {issueCounts.medium > 0 && (
-                      <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400 border-0">
-                        {issueCounts.medium} Medium
-                      </Badge>
-                    )}
-                    {issueCounts.low > 0 && (
-                      <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400 border-0">
-                        {issueCounts.low} Low
-                      </Badge>
-                    )}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </DashboardErrorBoundary>
-
-          <DashboardErrorBoundary fallback="Daily training widget failed to load">
-            <DailyTrainingManagerWidget />
-          </DashboardErrorBoundary>
-
           <DashboardErrorBoundary fallback="Tasks & Operations failed to load">
             <Card className="col-span-full">
               <CardHeader className="pb-2">
@@ -485,16 +562,12 @@ export default function ManagerDashboard() {
                     {tasksLoading ? (
                       <Skeleton className="h-6 w-10 mx-auto bg-white/30" />
                     ) : (
-                      <p className="text-xl font-bold text-white">
-                        {(tasks || []).length > 0
-                          ? Math.round(((tasks || []).filter((t: any) => t.status === 'completed').length / (tasks || []).length) * 100)
-                          : 0}%
-                      </p>
+                      <p className="text-xl font-bold text-white">{completedToday}/{todayTasks.length}</p>
                     )}
                     <p className="text-[10px] text-white/80 mt-0.5">Tasks</p>
                   </button>
 
-                  {/* Inbox */}
+                  {/* GTD Inbox */}
                   <button
                     onClick={() => navigate('/gtd/inbox')}
                     className="bg-blue-500 dark:bg-blue-600 rounded-2xl p-3 text-center transition-transform active:scale-95 hover:brightness-110 cursor-pointer"

@@ -284,6 +284,10 @@ export async function runSchemaMigrations(): Promise<void> {
       table: "company_settings",
       sql: `ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS show_pay_summary_to_employees boolean DEFAULT false`,
     },
+    {
+      table: "company_settings",
+      sql: `ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS show_pay_summary_to_managers boolean DEFAULT false`,
+    },
     // users.location_id: proper FK to work_locations replacing fragile name-based matching
     {
       table: "users",

@@ -86,18 +86,33 @@ export default function PayrollSection({ settingsForm, updateForm }: SettingsSec
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium">Show pay summary to employees</p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                When enabled, each employee sees a "Pay This Period" card on their home page showing
-                gross pay, estimated deductions, and projected net pay.
-              </p>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium">Show pay summary to employees</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  When enabled, each employee sees a "Pay This Period" card on their home page showing
+                  gross pay, estimated deductions, and projected net pay.
+                </p>
+              </div>
+              <Switch
+                checked={settingsForm.showPaySummaryToEmployees ?? false}
+                onCheckedChange={val => updateForm('showPaySummaryToEmployees', val)}
+              />
             </div>
-            <Switch
-              checked={settingsForm.showPaySummaryToEmployees ?? false}
-              onCheckedChange={val => updateForm('showPaySummaryToEmployees', val)}
-            />
+            <div className="border-t pt-4 flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium">Show pay summary to managers</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  When enabled, managers and owners see their pay period hours worked and estimated paycheck
+                  at the top of their dashboard.
+                </p>
+              </div>
+              <Switch
+                checked={settingsForm.showPaySummaryToManagers ?? false}
+                onCheckedChange={val => updateForm('showPaySummaryToManagers', val)}
+              />
+            </div>
           </div>
         </CardContent>
       </Card>

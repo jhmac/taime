@@ -256,6 +256,7 @@ export default function AdminSettings() {
         salesGoalIncreaseType: settings.salesGoalIncreaseType || 'percentage',
         salesGoalIncreaseValue: settings.salesGoalIncreaseValue ?? 0,
         showPaySummaryToEmployees: settings.showPaySummaryToEmployees ?? false,
+        showPaySummaryToManagers: settings.showPaySummaryToManagers ?? false,
       });
     }
   }, [settings]);
