@@ -288,7 +288,15 @@ export function registerTaskRoutes(
   // PATCH /api/tasks/:id/assignees/:assigneeId/start — employee starts the task
   app.patch('/api/tasks/:id/assignees/:assigneeId/start', isAuthenticated, async (req: any, res) => {
     try {
-      const { assigneeId } = req.params;
+      const { id: taskId, assigneeId } = req.params;
+      const callerId = req.user.id;
+
+      // Fetch the assignee row to verify ownership (IDOR protection)
+      const assignees = await storage.getTaskAssignees(taskId);
+      const assigneeRow = assignees.find(a => a.id === assigneeId);
+      if (!assigneeRow) return res.status(404).json({ message: "Assignment not found" });
+      if (assigneeRow.userId !== callerId) return res.status(403).json({ message: "You can only start your own assignments" });
+
       const updated = await storage.updateTaskAssignee(assigneeId, {
         status: "in_progress",
         startedAt: new Date(),
@@ -311,8 +319,15 @@ export function registerTaskRoutes(
   // PATCH /api/tasks/:id/assignees/:assigneeId/complete — employee marks done (with photo)
   app.patch('/api/tasks/:id/assignees/:assigneeId/complete', isAuthenticated, async (req: any, res) => {
     try {
-      const { assigneeId } = req.params;
+      const { id: taskId, assigneeId } = req.params;
+      const callerId = req.user.id;
       const { completionImageUrl, completionNote } = req.body;
+
+      // Fetch the assignee row to verify ownership (IDOR protection)
+      const assignees = await storage.getTaskAssignees(taskId);
+      const assigneeRow = assignees.find(a => a.id === assigneeId);
+      if (!assigneeRow) return res.status(404).json({ message: "Assignment not found" });
+      if (assigneeRow.userId !== callerId) return res.status(403).json({ message: "You can only complete your own assignments" });
 
       const updated = await storage.updateTaskAssignee(assigneeId, {
         status: "completed",
@@ -321,12 +336,20 @@ export function registerTaskRoutes(
         completionNote: completionNote || null,
       });
 
-      // Notify the manager who broadcast this task
+      // Notify the manager who broadcast this task (WS + push)
       if (sendToUsers) {
         sendToUsers([updated.assignedBy], {
           type: 'task_assignee_completed',
           data: { assigneeId, taskId: updated.taskId, userId: updated.userId },
         });
+      }
+      const task = await storage.getTask(taskId);
+      if (task) {
+        notificationService.sendToUser(updated.assignedBy, {
+          title: "Task Ready to Review",
+          body: `${req.user.firstName || 'An employee'} completed "${task.title}" and needs your approval.`,
+          data: { url: "/tasks" },
+        }).catch(() => {});
       }
 
       res.json(updated);
@@ -354,13 +377,19 @@ export function registerTaskRoutes(
         approvedBy: managerId,
       });
 
-      // Notify the employee
+      // Notify the employee via WS + push
       if (sendToUsers) {
         sendToUsers([updated.userId], {
           type: 'task_assignee_status_changed',
           data: { assigneeId, status: 'approved', taskId: updated.taskId },
         });
       }
+      const task = await storage.getTask(updated.taskId);
+      notificationService.sendToUser(updated.userId, {
+        title: "Task Approved!",
+        body: `Great job! Your completion of "${task?.title || 'the task'}" was approved.`,
+        data: { url: "/tasks" },
+      }).catch(() => {});
 
       const streak = await storage.getCompletionStreak(updated.taskId, updated.userId);
 
@@ -390,13 +419,21 @@ export function registerTaskRoutes(
         rejectionNote: rejectionNote || null,
       });
 
-      // Notify employee they need to redo
+      // Notify employee via WS + push
       if (sendToUsers) {
         sendToUsers([updated.userId], {
           type: 'task_assignee_status_changed',
           data: { assigneeId, status: 'rejected', taskId: updated.taskId, rejectionNote },
         });
       }
+      const task = await storage.getTask(updated.taskId);
+      notificationService.sendToUser(updated.userId, {
+        title: "Redo Required",
+        body: rejectionNote
+          ? `"${task?.title || 'Task'}" was sent back: ${rejectionNote}`
+          : `"${task?.title || 'Task'}" needs to be redone. Check the app for details.`,
+        data: { url: "/tasks" },
+      }).catch(() => {});
 
       res.json(updated);
     } catch (error) {

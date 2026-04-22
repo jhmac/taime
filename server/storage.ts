@@ -833,19 +833,43 @@ export class DatabaseStorage implements IStorage {
     const { randomUUID } = await import("crypto");
     const broadcastGroupId = randomUUID();
 
-    // Get all currently clocked-in employees (exclude manager themselves)
-    const clockedInQuery = db
+    // Manager role names to exclude from broadcast targets
+    const managerRoleNames = ['owner', 'admin', 'manager', 'assistant_manager'];
+
+    // Get clocked-in non-manager employees (excluding the broadcasting manager)
+    const baseWhere = and(
+      isNull(timeEntries.clockOutTime),
+      sql`${users.id} != ${managerId}`,
+      sql`${roles.name} NOT IN (${sql.join(managerRoleNames.map(n => sql`${n}`), sql`, `)})`,
+      ...(locationId ? [eq(timeEntries.locationId, locationId)] : []),
+    );
+
+    const clockedInUsers = await db
       .selectDistinct({ id: users.id, firstName: users.firstName, lastName: users.lastName })
       .from(timeEntries)
       .innerJoin(users, eq(timeEntries.userId, users.id))
-      .where(and(isNull(timeEntries.clockOutTime), sql`${users.id} != ${managerId}`));
-    const clockedInUsers = await clockedInQuery;
+      .innerJoin(roles, eq(users.roleId, roles.id))
+      .where(baseWhere);
 
     if (clockedInUsers.length === 0) return { assignees: [], count: 0 };
 
-    // For each user, find their last approved completion image for this task (photo history)
+    // Find users who already have an active (non-approved, non-rejected) assignment for this task
+    const activeAssignees = await db
+      .select({ userId: taskAssignees.userId })
+      .from(taskAssignees)
+      .where(and(
+        eq(taskAssignees.taskId, taskId),
+        sql`${taskAssignees.status} NOT IN ('approved', 'rejected')`
+      ));
+    const alreadyAssignedIds = new Set(activeAssignees.map(a => a.userId));
+
+    // Only assign to eligible users not already holding an active assignment
+    const eligibleUsers = clockedInUsers.filter(u => !alreadyAssignedIds.has(u.id));
+    if (eligibleUsers.length === 0) return { assignees: [], count: 0 };
+
+    // For each eligible user, find their last approved completion image for photo comparison
     const result: TaskAssignee[] = [];
-    for (const u of clockedInUsers) {
+    for (const u of eligibleUsers) {
       const [lastApproved] = await db
         .select({ completionImageUrl: taskAssignees.completionImageUrl })
         .from(taskAssignees)
@@ -887,12 +911,16 @@ export class DatabaseStorage implements IStorage {
     return rows.map(r => ({ ...r.assignee, user: r.user }));
   }
 
+  // Returns active broadcast assignments for the employee — includes rejected so they can see "Redo Required"
   async getMyBroadcastAssignments(userId: string): Promise<Array<TaskAssignee & { task: Task }>> {
     const rows = await db
       .select({ assignee: taskAssignees, task: tasks })
       .from(taskAssignees)
       .innerJoin(tasks, eq(taskAssignees.taskId, tasks.id))
-      .where(and(eq(taskAssignees.userId, userId), sql`${taskAssignees.status} NOT IN ('approved', 'rejected')`))
+      .where(and(
+        eq(taskAssignees.userId, userId),
+        sql`${taskAssignees.status} NOT IN ('approved')`
+      ))
       .orderBy(desc(taskAssignees.createdAt));
     return rows.map(r => ({ ...r.assignee, task: r.task }));
   }
@@ -907,12 +935,15 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getPendingVerifications(locationId?: string): Promise<Array<{ assignee: TaskAssignee; task: Task; user: { id: string; firstName: string | null; lastName: string | null; profileImageUrl: string | null } }>> {
+    const where = locationId
+      ? and(eq(taskAssignees.status, "completed"), eq(tasks.locationId, locationId))
+      : eq(taskAssignees.status, "completed");
     const rows = await db
       .select({ assignee: taskAssignees, task: tasks, user: { id: users.id, firstName: users.firstName, lastName: users.lastName, profileImageUrl: users.profileImageUrl } })
       .from(taskAssignees)
       .innerJoin(tasks, eq(taskAssignees.taskId, tasks.id))
       .innerJoin(users, eq(taskAssignees.userId, users.id))
-      .where(eq(taskAssignees.status, "completed"))
+      .where(where)
       .orderBy(desc(taskAssignees.completedAt));
     return rows.map(r => ({ assignee: r.assignee, task: r.task, user: r.user }));
   }
@@ -932,10 +963,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getClockedInEmployeeCount(locationId?: string): Promise<number> {
+    const where = locationId
+      ? and(isNull(timeEntries.clockOutTime), eq(timeEntries.locationId, locationId))
+      : isNull(timeEntries.clockOutTime);
     const [row] = await db
       .select({ count: sql<number>`count(distinct ${timeEntries.userId})` })
       .from(timeEntries)
-      .where(isNull(timeEntries.clockOutTime));
+      .where(where);
     return row?.count ?? 0;
   }
 

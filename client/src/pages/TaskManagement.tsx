@@ -204,11 +204,17 @@ export default function TaskManagement() {
   const approveMutation = useMutation({
     mutationFn: async ({ taskId, assigneeId }: { taskId: string; assigneeId: string }) => {
       const res = await apiRequest('PATCH', `/api/tasks/${taskId}/assignees/${assigneeId}/approve`, {});
-      return res.json();
+      return res.json() as Promise<{ assignee: TaskAssignee; streak: number }>;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       refetchQueue();
-      toast({ title: "Approved!", description: "Task completion approved." });
+      const streak = data?.streak ?? 0;
+      toast({
+        title: streak >= 2 ? `🔥 ${streak}× Streak! Approved!` : "Approved!",
+        description: streak >= 2
+          ? `They've completed this task perfectly ${streak} times in a row.`
+          : "Task completion approved.",
+      });
     },
     onError: (err: Error) => toast({ title: "Approval Failed", description: err.message, variant: "destructive" }),
   });

@@ -289,11 +289,23 @@ export default function ChoresWidget() {
         <CardContent className="space-y-3">
           {broadcastAssignments.map((assignment) => {
             const isExpanded = completingId === assignment.id;
-            const statusColor = assignment.status === 'in_progress' ? 'bg-blue-50 border-blue-200 dark:bg-blue-900/20 dark:border-blue-800/50'
+            const statusColor = assignment.status === 'rejected' ? 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800/50'
+              : assignment.status === 'in_progress' ? 'bg-blue-50 border-blue-200 dark:bg-blue-900/20 dark:border-blue-800/50'
               : assignment.status === 'completed' ? 'bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-800/50'
               : 'bg-amber-50 border-amber-200 dark:bg-amber-900/20 dark:border-amber-800/50';
             return (
               <div key={assignment.id} className={`rounded-lg border p-3 transition-colors ${statusColor}`}>
+                {/* Redo Required banner */}
+                {assignment.status === 'rejected' && (
+                  <div className="mb-2 p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/50 rounded-md">
+                    <p className="text-xs font-medium text-red-700 dark:text-red-400 flex items-center gap-1">
+                      <i className="fas fa-redo-alt"></i>Redo Required
+                    </p>
+                    {assignment.rejectionNote && (
+                      <p className="text-xs text-red-600 dark:text-red-300 mt-0.5 italic">"{assignment.rejectionNote}"</p>
+                    )}
+                  </div>
+                )}
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-sm">{assignment.task.title}</p>
@@ -302,11 +314,15 @@ export default function ChoresWidget() {
                     )}
                     <div className="flex items-center gap-1.5 mt-1">
                       <Badge className={`text-[10px] ${
-                        assignment.status === 'pending' ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400'
+                        assignment.status === 'rejected' ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
+                        : assignment.status === 'pending' ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400'
                         : assignment.status === 'in_progress' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
                         : 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
                       }`}>
-                        {assignment.status === 'in_progress' ? 'In Progress' : assignment.status === 'completed' ? 'Submitted' : 'Assigned'}
+                        {assignment.status === 'rejected' ? 'Redo Required'
+                        : assignment.status === 'in_progress' ? 'In Progress'
+                        : assignment.status === 'completed' ? 'Submitted'
+                        : 'Assigned'}
                       </Badge>
                       {assignment.task.estimatedMinutes && (
                         <span className="text-[10px] text-muted-foreground">
@@ -316,14 +332,15 @@ export default function ChoresWidget() {
                     </div>
                   </div>
                   <div className="flex gap-1.5 flex-shrink-0">
-                    {assignment.status === 'pending' && (
+                    {(assignment.status === 'pending' || assignment.status === 'rejected') && (
                       <Button
                         size="sm"
                         className="h-8 bg-blue-600 hover:bg-blue-700 text-white text-xs"
                         disabled={startAssigneeMutation.isPending}
                         onClick={() => startAssigneeMutation.mutate({ taskId: assignment.taskId, assigneeId: assignment.id })}
                       >
-                        <i className="fas fa-play mr-1"></i>Start
+                        <i className={`fas ${assignment.status === 'rejected' ? 'fa-redo-alt' : 'fa-play'} mr-1`}></i>
+                        {assignment.status === 'rejected' ? 'Redo' : 'Start'}
                       </Button>
                     )}
                     {assignment.status === 'in_progress' && !isExpanded && (
