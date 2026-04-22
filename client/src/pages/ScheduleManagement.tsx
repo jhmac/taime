@@ -16,7 +16,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useLocation } from "wouter";
 import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
-import type { User, Schedule, WorkLocation, AvailabilityTemplate, TemplateSlot, TemplateSlotNew } from "@shared/schema";
+import type { User, Schedule, WorkLocation, AvailabilityTemplate, TemplateSlot, TemplateSlotNew, Permission } from "@shared/schema";
 import {
   ChevronLeft, ChevronRight, Plus, Trash2, Sparkles, Loader2,
   Check, X, Calendar, Clock, StickyNote, Bell, Pencil, Wand2, Users,
@@ -547,7 +547,19 @@ export default function ScheduleManagement() {
   const [removedEntries, setRemovedEntries] = useState<Set<number>>(new Set());
   const [availabilityEditTarget, setAvailabilityEditTarget] = useState<{ userId: string; date: string; empName: string } | null>(null);
 
-  const isAdmin = ['owner', 'admin', 'manager', 'assistant_manager'].includes(currentUser?.role?.name || '');
+  const { data: userPermissions = [] } = useQuery<Permission[]>({
+    queryKey: ["/api/auth/permissions"],
+    enabled: !!currentUser,
+  });
+
+  const isAdmin =
+    userPermissions.some(p =>
+      p.name === 'schedule.view_all' ||
+      p.name === 'schedule.create' ||
+      p.name === 'schedule.edit_all' ||
+      p.name === 'admin.manage_all'
+    ) ||
+    ['owner', 'admin', 'manager', 'assistant_manager'].includes(currentUser?.role?.name || '');
 
   const getWeekDates = (weekOffset: number) => {
     const today = new Date();

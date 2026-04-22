@@ -338,9 +338,12 @@ export function registerScheduleRoutes(
     try {
       const requestingUserId = req.user.id;
       const requesterRole = req.user.role?.name;
-      const isManagerOrAbove = ['owner', 'admin', 'manager', 'assistant_manager'].includes(requesterRole);
-      if (!isManagerOrAbove) {
-        return res.status(403).json({ message: "Manager or above required" });
+      const requesterPerms = await storage.getUserPermissions(requestingUserId);
+      const hasScheduleAccess =
+        requesterPerms.some(p => p.name === 'schedule.create' || p.name === 'schedule.edit_all' || p.name === 'admin.manage_all') ||
+        ['owner', 'admin', 'manager', 'assistant_manager'].includes(requesterRole);
+      if (!hasScheduleAccess) {
+        return res.status(403).json({ message: "Schedule management permission required" });
       }
 
       const { date, startTime, endTime } = req.body;
