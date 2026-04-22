@@ -36,9 +36,11 @@ interface TimeClockWidgetProps {
   greetingSlot?: React.ReactNode;
   /** Appended inside the card after a divider */
   footerSlot?: React.ReactNode;
+  /** When true, hides the standalone large time display (avoids redundancy when time is shown in a parent header) */
+  hideClock?: boolean;
 }
 
-export default function TimeClockWidget({ greetingSlot, footerSlot }: TimeClockWidgetProps = {}) {
+export default function TimeClockWidget({ greetingSlot, footerSlot, hideClock = false }: TimeClockWidgetProps = {}) {
   const { user } = useAuth();
   const isMobile = useIsMobile();
   const { position, getCurrentPosition, watchPosition, clearWatch, loading: locationLoading, error: locationError, permissionState, hadPreviousGrant } = useGeolocation();
@@ -877,24 +879,26 @@ export default function TimeClockWidget({ greetingSlot, footerSlot }: TimeClockW
       {!showCountdown && (
         <CardContent className="p-5 text-center space-y-4">
 
-          {/* Time — side-by-side with greeting if greetingSlot provided */}
-          {greetingSlot ? (
-            <div className="flex items-center justify-between gap-3 text-left">
-              <div className="flex-1 min-w-0">{greetingSlot}</div>
+          {/* Time — hidden when parent already shows it to avoid redundancy */}
+          {!hideClock && (
+            greetingSlot ? (
+              <div className="flex items-center justify-between gap-3 text-left">
+                <div className="flex-1 min-w-0">{greetingSlot}</div>
+                <div
+                  className="text-4xl font-extrabold tabular-nums text-foreground tracking-tight shrink-0"
+                  data-testid="current-time"
+                >
+                  {formatTime(currentTime)}
+                </div>
+              </div>
+            ) : (
               <div
-                className="text-4xl font-extrabold tabular-nums text-foreground tracking-tight shrink-0"
+                className="text-4xl font-extrabold tabular-nums text-foreground tracking-tight"
                 data-testid="current-time"
               >
                 {formatTime(currentTime)}
               </div>
-            </div>
-          ) : (
-            <div
-              className="text-4xl font-extrabold tabular-nums text-foreground tracking-tight"
-              data-testid="current-time"
-            >
-              {formatTime(currentTime)}
-            </div>
+            )
           )}
 
           {/* Clocked-in status — single clean line */}

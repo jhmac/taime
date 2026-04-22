@@ -118,40 +118,13 @@ export default function AdminDashboard() {
     <div className="min-h-full bg-background">
       {/* ── Header ── */}
       <section className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground p-5 md:p-6 md:rounded-xl md:m-6 md:mt-4">
-        {isMobile ? (
-          /* Mobile: original compact header — greeting + date/time on left, action button on right */
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-lg font-bold">
-                {getGreeting()}, {(user as any)?.firstName || 'Admin'}!
-              </h1>
-              <p className="text-sm opacity-80">
-                {currentTime.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} &bull; {formatTime(currentTime)}
-              </p>
-            </div>
-            <Button
-              onClick={() => window.dispatchEvent(new Event("open-ask-mainager"))}
-              size="icon"
-              className="bg-white/20 hover:bg-white/30 text-white rounded-full h-10 w-10"
-              data-testid="admin-ai-assistant"
-            >
-              <Bot className="h-5 w-5" />
-            </Button>
-          </div>
-        ) : (
-          /* Desktop: 3-column header — greeting+date | centered clock | action button */
           <div className="flex items-center justify-between gap-2">
             <div className="min-w-0">
-              <h1 className="text-xl font-bold truncate">
+              <h1 className={`font-bold truncate ${isMobile ? 'text-lg' : 'text-xl'}`}>
                 {getGreeting()}, {(user as any)?.firstName || 'Admin'}!
               </h1>
               <p className="text-sm opacity-80">
                 {currentTime.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-              </p>
-            </div>
-            <div className="flex-1 flex justify-center">
-              <p className="text-3xl font-bold tabular-nums tracking-tight leading-none">
-                {formatTime(currentTime)}
               </p>
             </div>
             <Button
@@ -163,7 +136,6 @@ export default function AdminDashboard() {
               <Bot className="h-5 w-5" />
             </Button>
           </div>
-        )}
       </section>
 
       <div className={isMobile ? "px-4 py-3" : "px-6 py-4"}>
@@ -171,13 +143,10 @@ export default function AdminDashboard() {
         <Card>
           <CardHeader className="pb-2 pt-3 px-4">
             <div className="flex items-center justify-between flex-wrap gap-x-3 gap-y-1">
-              {/* Left: icon + label + live time */}
+              {/* Left: icon + label */}
               <div className="flex items-center gap-2">
                 <CalendarDays className="h-4 w-4 text-primary shrink-0" />
                 <span className="text-sm font-semibold">Today</span>
-                <span className="text-sm font-bold tabular-nums text-primary">
-                  {formatTime(currentTime)}
-                </span>
               </div>
 
               {/* Right: pay period summary (conditional) */}
