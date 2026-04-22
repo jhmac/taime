@@ -1013,7 +1013,6 @@ export default function Availability() {
         {editorDay && (() => {
           const editorDateObj = new Date(editorDay + 'T12:00:00Z');
           const dow = editorDateObj.getUTCDay();
-          const DOW_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
           const entry = calByDate[editorDay];
           const hasExistingOverride = entry?.source === 'override';
           const isSaving = saveDayOverrideMutation.isPending || saveTemplateDayMutation.isPending;
@@ -1084,7 +1083,7 @@ export default function Availability() {
                       "rounded-lg border px-3 py-2 text-left transition-all",
                       editorScope === 'template' ? "border-primary bg-primary/5 ring-1 ring-primary" : "border-border hover:border-muted-foreground"
                     )}>
-                    <p className="text-sm font-medium">Every {DOW_NAMES[dow]}</p>
+                    <p className="text-sm font-medium">Every {DAY_FULL[dow]}</p>
                     <p className="text-xs text-muted-foreground">Update default schedule</p>
                   </button>
                 </div>
@@ -1110,7 +1109,7 @@ export default function Availability() {
             </div>
           );
 
-          const editorTitle = `${DOW_NAMES[dow]}, ${editorDateObj.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}`;
+          const editorTitle = `${DAY_FULL[dow]}, ${editorDateObj.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}`;
 
           if (isDesktop) {
             return (

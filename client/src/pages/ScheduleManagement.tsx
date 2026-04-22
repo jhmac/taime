@@ -15,7 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { useLocation } from "wouter";
 import { cn } from "@/lib/utils";
-import { apiRequest, queryClient as globalQueryClient } from "@/lib/queryClient";
+import { apiRequest } from "@/lib/queryClient";
 import type { User, Schedule, WorkLocation, AvailabilityTemplate, TemplateSlot, TemplateSlotNew } from "@shared/schema";
 import {
   ChevronLeft, ChevronRight, Plus, Trash2, Sparkles, Loader2,
@@ -162,6 +162,13 @@ type CalendarDay = {
   startTime: string | null;
   endTime: string | null;
   timeOff: { type: string; status: string } | null;
+};
+
+type TeamCalendarEntry = {
+  userId: string;
+  startTime: string | null;
+  endTime: string | null;
+  setByManagerId: string | null;
 };
 
 function AvailabilityOverrideDialog({
@@ -394,6 +401,7 @@ function DayNoteAdminCell({ date, notes, currentUserId, isAdmin }: {
   isAdmin: boolean;
 }) {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const dateStr = formatLocalDate(date);
   const managerNote = notes.find(n => n.date === dateStr && n.isManagerNote);
   const employeeNotes = notes.filter(n => n.date === dateStr && !n.isManagerNote);
@@ -413,7 +421,7 @@ function DayNoteAdminCell({ date, notes, currentUserId, isAdmin }: {
       }
     },
     onSuccess: () => {
-      globalQueryClient.invalidateQueries({ queryKey: ['/api/day-notes'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/day-notes'] });
       setOpen(false);
       toast({ title: "Manager note saved" });
     },
@@ -427,7 +435,7 @@ function DayNoteAdminCell({ date, notes, currentUserId, isAdmin }: {
       return apiRequest('DELETE', `/api/day-notes/${id}`);
     },
     onSuccess: () => {
-      globalQueryClient.invalidateQueries({ queryKey: ['/api/day-notes'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/day-notes'] });
       toast({ title: "Note deleted" });
     },
     onError: () => {
@@ -601,7 +609,7 @@ export default function ScheduleManagement() {
   });
 
   // Team merged calendar availability (new — template + overrides + time-off per date)
-  const { data: teamCalendar = {} } = useQuery<Record<string, { userId: string; startTime: string | null; endTime: string | null; setByManagerId: string | null }[]>>({
+  const { data: teamCalendar = {} } = useQuery<Record<string, TeamCalendarEntry[]>>({
     queryKey: ["/api/availability/calendar/team", startDateParam, endDateParam],
     queryFn: async () => {
       const res = await fetch(`/api/availability/calendar/team?start=${startDateParam}&end=${endDateParam}`, { credentials: 'include' });
@@ -1169,7 +1177,7 @@ export default function ScheduleManagement() {
                             {date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
                           </div>
                           <div className="space-y-1">
-                            {dayAvail.map((a: { userId: string; startTime: string | null; endTime: string | null }) => {
+                            {dayAvail.map((a: TeamCalendarEntry) => {
                               const emp = users.find((u: User) => u.id === a.userId);
                               if (!emp) return null;
                               const empName = `${emp.firstName} ${emp.lastName}`;
@@ -1228,7 +1236,7 @@ export default function ScheduleManagement() {
 
                     const dateStr = formatLocalDate(date);
                     const mergedAvail = (teamCalendar[dateStr] ?? []).find(
-                      (a: { userId: string; startTime: string | null; endTime: string | null; setByManagerId: string | null }) => a.userId === emp.id
+                      (a: TeamCalendarEntry) => a.userId === emp.id
                     );
 
                     return (

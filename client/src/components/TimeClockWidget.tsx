@@ -1099,7 +1099,7 @@ export default function TimeClockWidget({ greetingSlot, footerSlot }: TimeClockW
               <Button
                 key={showDeniedBanner ? 'denied' : 'enabled'}
                 onClick={handleClockAction}
-                disabled={clockInMutation.isPending || clockOutMutation.isPending || activeEntryLoading || (hasAttemptedClockIn && (permissionState === 'denied' || showDeniedBanner) && workLocations.length > 0 && !activeTimeEntry)}
+                disabled={clockInMutation.isPending || clockOutMutation.isPending || breakStartMutation.isPending || activeEntryLoading || (hasAttemptedClockIn && (permissionState === 'denied' || showDeniedBanner) && workLocations.length > 0 && !activeTimeEntry)}
                 className={`${activeTimeEntry ? 'flex-1' : 'w-full'} text-base font-bold py-4 rounded-2xl transition-opacity duration-300 ${
                   activeTimeEntry
                     ? 'bg-destructive hover:bg-destructive/90 text-destructive-foreground'
