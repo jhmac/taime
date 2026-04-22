@@ -613,15 +613,6 @@ export default function ScheduleManagement() {
     enabled: isAdmin,
   });
 
-  const { data: allAvailability = [] } = useQuery<any[]>({
-    queryKey: ["/api/availability/all", startDateParam, endDateParam],
-    queryFn: async () => {
-      const res = await fetch(`/api/availability/all?startDate=${startDateParam}&endDate=${endDateParam}`);
-      if (!res.ok) throw new Error('Failed to fetch availability');
-      return res.json();
-    },
-    enabled: isAdmin,
-  });
 
   // Team merged calendar availability (new — template + overrides + time-off per date)
   const { data: teamCalendar = {} } = useQuery<Record<string, TeamCalendarEntry[]>>({
@@ -761,16 +752,17 @@ export default function ScheduleManagement() {
   const activeEmployees = users.filter(user => user.isActive !== false);
 
   // Employees filtered for the Create Shift modal (respects the availability toggle)
+  // Uses teamCalendar (new template+overrides system). "No entry" = available by default.
   const modalEmployees = useMemo(() => {
     if (!filterByAvailability || !modalDate) return activeEmployees;
-    const dateStr = new Date(modalDate + 'T12:00:00').toDateString();
+    const dateEntries: TeamCalendarEntry[] = teamCalendar[modalDate] ?? [];
+    // If no team calendar data for this date (e.g. outside fetched week), don't filter
+    if (dateEntries.length === 0) return activeEmployees;
     const availableIds = new Set(
-      (allAvailability as any[])
-        .filter((a: any) => a.isAvailable && new Date(a.date).toDateString() === dateStr)
-        .map((a: any) => a.userId)
+      dateEntries.filter((a: TeamCalendarEntry) => a.available).map((a: TeamCalendarEntry) => a.userId)
     );
     return activeEmployees.filter(emp => availableIds.has(emp.id));
-  }, [activeEmployees, allAvailability, filterByAvailability, modalDate]);
+  }, [activeEmployees, teamCalendar, filterByAvailability, modalDate]);
 
   const formatWeekRange = () => {
     const start = weekDates[0];
@@ -1455,8 +1447,10 @@ export default function ScheduleManagement() {
                 <Users className="h-3.5 w-3.5 text-muted-foreground" />
                 <span className="text-xs text-muted-foreground">
                   Show available only
-                  {filterByAvailability && modalEmployees.length < activeEmployees.length && (
-                    <span className="ml-1 font-medium text-foreground">({modalEmployees.length} of {activeEmployees.length})</span>
+                  {filterByAvailability && (
+                    <span className={`ml-1 font-medium ${modalEmployees.length === 0 ? 'text-red-500' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                      ({modalEmployees.length} of {activeEmployees.length})
+                    </span>
                   )}
                 </span>
               </div>
