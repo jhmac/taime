@@ -2703,3 +2703,24 @@ export const unansweredQuestions = pgTable("unanswered_questions", {
 export const insertUnansweredQuestionSchema = createInsertSchema(unansweredQuestions).omit({ id: true, createdAt: true, askedAt: true });
 export type UnansweredQuestion = typeof unansweredQuestions.$inferSelect;
 export type InsertUnansweredQuestion = z.infer<typeof insertUnansweredQuestionSchema>;
+
+// ── Supply Requests (owner/admin dashboard supply tracker) ────────────────────
+
+export const supplies = pgTable("supplies", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name").notNull(),
+  notes: text("notes"),
+  requestedBy: varchar("requested_by").references(() => users.id).notNull(),
+  companyId: varchar("company_id").references(() => companies.id),
+  requestedAt: timestamp("requested_at").defaultNow(),
+  purchased: boolean("purchased").default(false),
+  purchasedAt: timestamp("purchased_at"),
+}, (table) => [
+  index("idx_supplies_company_id").on(table.companyId),
+  index("idx_supplies_requested_at").on(table.requestedAt),
+  index("idx_supplies_purchased").on(table.purchased),
+]);
+
+export const insertSupplySchema = createInsertSchema(supplies).omit({ id: true, requestedAt: true, purchasedAt: true });
+export type Supply = typeof supplies.$inferSelect;
+export type InsertSupply = z.infer<typeof insertSupplySchema>;

@@ -20,6 +20,7 @@ import SOPRevisionCard from '@/features/dashboard/SOPRevisionCard';
 import CashStatusCard from '@/features/dashboard/CashStatusCard';
 import TimeClockWidget from '@/components/TimeClockWidget';
 import DailyQuoteCard from '@/components/DailyQuoteCard';
+import SuppliesCard from '@/components/SuppliesCard';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -722,6 +723,10 @@ export default function OwnerDashboard() {
               </div>{/* end flex container */}
             </CardContent>
           </Card>
+        </DashboardErrorBoundary>
+
+        <DashboardErrorBoundary fallback="Supplies failed to load">
+          <SuppliesCard />
         </DashboardErrorBoundary>
 
         <DashboardErrorBoundary fallback="Tasks & Operations failed to load">

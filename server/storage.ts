@@ -11,6 +11,9 @@ import {
   userAvailability,
   availabilityTemplates,
   userAvailabilityOverrides,
+  supplies,
+  type Supply,
+  type InsertSupply,
   type AvailabilityTemplate,
   type InsertAvailabilityTemplate,
   type UserAvailabilityOverride,
@@ -515,6 +518,11 @@ export interface IStorage {
   getUserBadges(userId: string): Promise<UserBadge[]>;
   getStoreBadges(storeId: string): Promise<UserBadge[]>;
   createUserBadge(data: InsertUserBadge): Promise<UserBadge>;
+
+  // Supply request operations
+  getSupplies(companyId: string, since?: Date): Promise<Supply[]>;
+  createSupply(data: InsertSupply): Promise<Supply>;
+  updateSupply(id: string, companyId: string, updates: Partial<Supply>): Promise<Supply>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -2767,6 +2775,25 @@ export class DatabaseStorage implements IStorage {
 
   async createUserBadge(data: InsertUserBadge): Promise<UserBadge> {
     const [row] = await db.insert(userBadges).values(data).returning();
+    return row;
+  }
+
+  async getSupplies(companyId: string, since?: Date): Promise<Supply[]> {
+    const conditions = [eq(supplies.companyId, companyId)];
+    if (since) conditions.push(gte(supplies.requestedAt, since));
+    return db.select().from(supplies).where(and(...conditions)).orderBy(desc(supplies.requestedAt));
+  }
+
+  async createSupply(data: InsertSupply): Promise<Supply> {
+    const [row] = await db.insert(supplies).values(data).returning();
+    return row;
+  }
+
+  async updateSupply(id: string, companyId: string, updates: Partial<Supply>): Promise<Supply> {
+    const [row] = await db.update(supplies).set(updates)
+      .where(and(eq(supplies.id, id), eq(supplies.companyId, companyId)))
+      .returning();
+    if (!row) throw new Error('Supply not found or access denied');
     return row;
   }
 }

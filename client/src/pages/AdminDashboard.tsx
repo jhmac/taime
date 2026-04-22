@@ -16,7 +16,8 @@ import DailyQuoteCard from '@/components/DailyQuoteCard';
 import MiddayPulseCard from '@/components/MiddayPulseCard';
 import KudosWidget from '@/components/KudosWidget';
 import SurfacedSOPBanner from '@/components/SurfacedSOPBanner';
-import { Sun } from 'lucide-react';
+import { Sun, TrendingUp, AlertTriangle, Users } from 'lucide-react';
+import SuppliesCard from '@/components/SuppliesCard';
 
 export default function AdminDashboard() {
   const { user } = useAuth();
@@ -33,6 +34,7 @@ export default function AdminDashboard() {
   const { data: tasks, isLoading: tasksLoading } = useQuery({ queryKey: ['/api/tasks'] });
   const { data: insights } = useQuery({ queryKey: ['/api/insights'] });
   const { data: users } = useQuery({ queryKey: ['/api/users'] });
+  const { data: dailyGoal } = useQuery<any>({ queryKey: ['/api/dashboard/daily-goal'], staleTime: 60_000 });
 
   const getUserName = (userId: string) => {
     const u = (users as any[])?.find((u: any) => u.id === userId);
@@ -78,6 +80,11 @@ export default function AdminDashboard() {
     return new Date(s.startTime).toDateString() === today.toDateString();
   }) || [];
 
+  const now = new Date();
+  const overdueTasks = (tasks as any[])?.filter(
+    (t: any) => t.status !== 'completed' && t.status !== 'cancelled' && t.dueDate && new Date(t.dueDate) < now
+  ) ?? [];
+
   const formatTime = (date: Date) =>
     date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
 
@@ -112,16 +119,30 @@ export default function AdminDashboard() {
       </section>
 
       <div className={isMobile ? "px-4 py-3" : "px-6 py-4"}>
-        <div className={isMobile ? "grid grid-cols-2 gap-3" : "grid grid-cols-4 gap-4"}>
+        <div className={isMobile ? "grid grid-cols-2 gap-3" : "grid grid-cols-3 gap-4"}>
           <Card>
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center flex-shrink-0">
-                  <i className="fas fa-user-check text-green-600 dark:text-green-400"></i>
+                  <TrendingUp className="h-5 w-5 text-green-600 dark:text-green-400" />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-2xl font-bold">{activeEntries.length}</p>
-                  <p className="text-xs text-muted-foreground truncate">Clocked In</p>
+                  {dailyGoal?.hasGoal ? (
+                    <>
+                      <p className="text-2xl font-bold tabular-nums">
+                        {dailyGoal.progress ?? 0}%
+                      </p>
+                      <p className="text-xs text-muted-foreground truncate">Revenue vs. Goal</p>
+                      <p className="text-[10px] text-muted-foreground tabular-nums truncate">
+                        ${Number(dailyGoal.current?.revenue ?? 0).toFixed(0)} / ${Number(dailyGoal.goal?.revenue ?? 0).toFixed(0)}
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-2xl font-bold">—</p>
+                      <p className="text-xs text-muted-foreground truncate">Revenue vs. Goal</p>
+                    </>
+                  )}
                 </div>
               </div>
             </CardContent>
@@ -129,25 +150,14 @@ export default function AdminDashboard() {
           <Card>
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center flex-shrink-0">
-                  <i className="fas fa-users text-blue-600 dark:text-blue-400"></i>
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${overdueTasks.length > 0 ? 'bg-red-100 dark:bg-red-900/30' : 'bg-muted'}`}>
+                  <AlertTriangle className={`h-5 w-5 ${overdueTasks.length > 0 ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground'}`} />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-2xl font-bold">{totalEmployees}</p>
-                  <p className="text-xs text-muted-foreground truncate">Team Size</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center flex-shrink-0">
-                  <i className="fas fa-calendar-day text-amber-600 dark:text-amber-400"></i>
-                </div>
-                <div className="min-w-0">
-                  <p className="text-2xl font-bold">{todaySchedules.length}</p>
-                  <p className="text-xs text-muted-foreground truncate">Shifts Today</p>
+                  <p className={`text-2xl font-bold tabular-nums ${overdueTasks.length > 0 ? 'text-red-600 dark:text-red-400' : ''}`}>
+                    {tasksLoading ? '…' : overdueTasks.length}
+                  </p>
+                  <p className="text-xs text-muted-foreground truncate">Overdue Tasks</p>
                 </div>
               </div>
             </CardContent>
@@ -166,6 +176,66 @@ export default function AdminDashboard() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Today Section */}
+        <Card className="mt-3">
+          <CardHeader className="pb-2 pt-3 px-4">
+            <CardTitle className="text-sm font-semibold">Today</CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-3">
+            <div className={isMobile ? "space-y-3" : "flex gap-6"}>
+              {/* Left: Revenue + Orders */}
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold mb-1">Revenue</p>
+                {dailyGoal?.current?.revenue !== undefined ? (
+                  <div>
+                    <p className="text-2xl font-bold text-green-600 dark:text-green-400 tabular-nums leading-tight">
+                      ${Number(dailyGoal.current.revenue).toFixed(0)}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {dailyGoal.current.orders ?? 0} {dailyGoal.current.orders === 1 ? 'order' : 'orders'}
+                      {dailyGoal.hasGoal && (
+                        <> &bull; {dailyGoal.progress ?? 0}% of goal</>
+                      )}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground italic">No data yet</p>
+                )}
+              </div>
+
+              {/* Divider */}
+              {!isMobile && <div className="w-px bg-border self-stretch" />}
+
+              {/* Right: Clocked-In Employees */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">Clocked In</p>
+                  <span className="text-[10px] font-semibold text-green-600 dark:text-green-400">
+                    {activeEntries.length}
+                  </span>
+                </div>
+                {activeEntries.length === 0 ? (
+                  <div className="flex items-center gap-1.5 text-muted-foreground">
+                    <Users className="h-3.5 w-3.5 shrink-0" />
+                    <span className="text-xs italic">No shifts scheduled today</span>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto">
+                    {activeEntries.map((entry: any) => (
+                      <span
+                        key={entry.id}
+                        className="inline-flex items-center gap-1 bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800/40 rounded-full px-2 py-0.5 text-[11px] font-medium text-green-700 dark:text-green-300"
+                      >
+                        {getUserName(entry.userId)}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       <div className={isMobile ? "px-4 pb-2" : "px-6 pb-3"}>
@@ -536,6 +606,8 @@ export default function AdminDashboard() {
             </div>
           </TabsContent>
         </Tabs>
+
+        <SuppliesCard />
       </div>
 
       <Dialog open={showTasksPopup} onOpenChange={setShowTasksPopup}>
