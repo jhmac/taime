@@ -148,6 +148,89 @@ export function registerTimeEntryRoutes(
     }
   });
 
+  // GET /api/time-entries/my-summary — today, week, and period hours plus approximate pay for the current user
+  app.get('/api/time-entries/my-summary', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const user = await storage.getUser(userId);
+      const now = new Date();
+
+      // today's entries
+      const todayStart = new Date(now);
+      todayStart.setHours(0, 0, 0, 0);
+      const todayEnd = new Date(now);
+      todayEnd.setHours(23, 59, 59, 999);
+      const todayEntries = await storage.getUserTimeEntries(userId, todayStart, todayEnd);
+
+      // this week (Sunday start)
+      const weekStart = new Date(now);
+      weekStart.setDate(now.getDate() - now.getDay());
+      weekStart.setHours(0, 0, 0, 0);
+      const weekEntries = await storage.getUserTimeEntries(userId, weekStart);
+
+      // current pay period — use payroll settings if available, else default biweekly
+      let periodStart: Date;
+      let periodEnd: Date;
+      try {
+        const settings = await storage.getPayPeriodSettings();
+        if (settings?.nextPeriodStart) {
+          // Walk back from nextPeriodStart to find the period that contains today
+          const freq = settings.frequency || 'biweekly';
+          const periodDays = freq === 'weekly' ? 7 : freq === 'semimonthly' ? 15 : 14;
+          const next = new Date(settings.nextPeriodStart);
+          periodEnd = new Date(next);
+          periodEnd.setDate(periodEnd.getDate() - 1);
+          periodStart = new Date(periodEnd);
+          periodStart.setDate(periodStart.getDate() - (periodDays - 1));
+          // Ensure today is within this period; if not, adjust by one period back
+          if (now < periodStart) {
+            periodEnd = new Date(periodStart);
+            periodEnd.setDate(periodEnd.getDate() - 1);
+            periodStart = new Date(periodEnd);
+            periodStart.setDate(periodStart.getDate() - (periodDays - 1));
+          }
+        } else {
+          throw new Error('no settings');
+        }
+      } catch {
+        // Fallback: biweekly starting from a fixed anchor (2025-01-05)
+        const anchor = new Date('2025-01-05T00:00:00.000Z');
+        const msSinceAnchor = now.getTime() - anchor.getTime();
+        const periodIndex = Math.floor(msSinceAnchor / (14 * 24 * 60 * 60 * 1000));
+        periodStart = new Date(anchor.getTime() + periodIndex * 14 * 24 * 60 * 60 * 1000);
+        periodEnd = new Date(periodStart.getTime() + 14 * 24 * 60 * 60 * 1000 - 1);
+      }
+
+      const periodEntries = await storage.getUserTimeEntries(userId, periodStart, periodEnd);
+
+      function sumHours(entries: any[]): number {
+        let totalMs = 0;
+        for (const e of entries) {
+          const start = new Date(e.clockInTime);
+          const end = e.clockOutTime ? new Date(e.clockOutTime) : now;
+          const breakMs = (e.breakMinutes || 0) * 60 * 1000;
+          totalMs += Math.max(0, end.getTime() - start.getTime() - breakMs);
+        }
+        return totalMs / (1000 * 60 * 60);
+      }
+
+      const todayHours = sumHours(todayEntries);
+      const weekHours = sumHours(weekEntries);
+      const periodHours = sumHours(periodEntries);
+      const hourlyRate = user?.hourlyRate ? parseFloat(user.hourlyRate as string) : null;
+      const approximatePay = hourlyRate != null ? (() => {
+        const reg = Math.min(40, periodHours);
+        const ot = Math.max(0, periodHours - 40);
+        return reg * hourlyRate + ot * hourlyRate * 1.5;
+      })() : null;
+
+      res.json({ todayHours, weekHours, periodHours, hourlyRate, approximatePay });
+    } catch (error) {
+      console.error('Error fetching my hours summary:', error);
+      res.status(500).json({ message: 'Failed to fetch hours summary' });
+    }
+  });
+
   app.get('/api/time-entries/active', isAuthenticated, async (req: any, res) => {
     try {
       res.setHeader('Cache-Control', 'no-store');

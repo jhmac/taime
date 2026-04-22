@@ -21,6 +21,7 @@ import SurfacedSOPBanner from '@/components/SurfacedSOPBanner';
 import ImprovementFeedWidget from '@/components/ImprovementFeedWidget';
 import type { UserWithRole, Schedule } from '@shared/schema';
 import { Calendar, Users, DollarSign, MessageSquare, Clock, Bot, Sun, ClipboardList } from 'lucide-react';
+import DashboardHoursBar from '@/components/DashboardHoursBar';
 
 export default function Dashboard() {
   const { user } = useAuth() as { user: UserWithRole | undefined, isLoading: boolean, isAuthenticated: boolean, error: any };
@@ -265,6 +266,12 @@ export default function Dashboard() {
             </Card>
           </div>
 
+          <div className="px-6 pb-3">
+            <Card>
+              <DashboardHoursBar />
+            </Card>
+          </div>
+
           <div className="grid grid-cols-12 gap-6 px-6 pb-6">
             <div className="col-span-7 space-y-6">
               <TodaySchedulePanel />
@@ -344,6 +351,12 @@ export default function Dashboard() {
         </>
       ) : (
         <>
+          <div className="px-6 pb-3">
+            <Card>
+              <DashboardHoursBar />
+            </Card>
+          </div>
+
           <div className="grid grid-cols-2 gap-6 p-6">
             <div className="space-y-6">
               <TimeClockWidget />
