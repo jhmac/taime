@@ -372,25 +372,35 @@ export function registerTaskRoutes(
       if (!assigneeRow) return res.status(404).json({ message: "Assignment not found" });
       if (assigneeRow.userId !== callerId) return res.status(403).json({ message: "You can only start your own assignments" });
 
-      // State transition guard: start is only valid from pending or rejected (not approved/completed/in_progress)
-      const allowedFromStart: typeof assigneeRow.status[] = ['pending', 'rejected'];
-      if (!allowedFromStart.includes(assigneeRow.status as any)) {
+      // State transition guard: start is only valid from pending or rejected.
+      // Approved/completed/in_progress rows must not be mutated.
+      type AllowedStartStatus = 'pending' | 'rejected';
+      const allowedFromStart: AllowedStartStatus[] = ['pending', 'rejected'];
+      if (!assigneeRow.status || !(allowedFromStart as string[]).includes(assigneeRow.status)) {
         return res.status(409).json({ message: `Cannot start an assignment in '${assigneeRow.status}' state` });
       }
 
-      const updated = await storage.updateTaskAssignee(assigneeId, {
-        status: "in_progress",
-        startedAt: new Date(),
-      });
-
-      if (sendToUsers) {
-        sendToUsers([updated.assignedBy], {
-          type: 'task_assignee_status_changed',
-          data: { assigneeId, status: 'in_progress', taskId: updated.taskId },
+      let result;
+      if (assigneeRow.status === 'rejected') {
+        // Redo path: create a fresh row to preserve the rejected submission as immutable history.
+        // The new row captures the old photo in previousImageUrl for side-by-side comparison.
+        result = await storage.createRedoAssignment(assigneeId);
+      } else {
+        // Pending path: simply transition in place
+        result = await storage.updateTaskAssignee(assigneeId, {
+          status: "in_progress",
+          startedAt: new Date(),
         });
       }
 
-      res.json(updated);
+      if (sendToUsers) {
+        sendToUsers([result.assignedBy], {
+          type: 'task_assignee_status_changed',
+          data: { assigneeId: result.id, status: 'in_progress', taskId: result.taskId },
+        });
+      }
+
+      res.json(result);
     } catch (error) {
       console.error("Error starting task assignee:", error);
       res.status(500).json({ message: "Failed to start task" });

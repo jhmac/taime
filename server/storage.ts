@@ -228,6 +228,7 @@ export interface IStorage {
   getTaskAssignees(taskId: string, broadcastGroupId?: string): Promise<Array<TaskAssignee & { user: { id: string; firstName: string | null; lastName: string | null; profileImageUrl: string | null } }>>;
   getMyBroadcastAssignments(userId: string): Promise<Array<TaskAssignee & { task: Task }>>;
   updateTaskAssignee(assigneeId: string, updates: Partial<TaskAssignee>): Promise<TaskAssignee>;
+  createRedoAssignment(rejectedAssigneeId: string): Promise<TaskAssignee>;
   getPendingVerifications(locationId?: string): Promise<Array<{ assignee: TaskAssignee; task: Task; user: { id: string; firstName: string | null; lastName: string | null; profileImageUrl: string | null }; streak: number }>>;
   getCompletionStreak(taskId: string, userId: string, excludeId?: string): Promise<number>;
   getTaskBroadcastProgress(taskId: string): Promise<{ total: number; approved: number; completed: number; in_progress: number; pending: number; rejected: number }>;
@@ -937,6 +938,29 @@ export class DatabaseStorage implements IStorage {
       .where(eq(taskAssignees.id, assigneeId))
       .returning();
     return updated;
+  }
+
+  // Creates a new assignment row for a redo attempt, preserving the rejected row as immutable history.
+  // The new row captures the rejected submission's image in previousImageUrl for side-by-side comparison.
+  async createRedoAssignment(rejectedAssigneeId: string): Promise<TaskAssignee> {
+    const [rejectedRow] = await db
+      .select()
+      .from(taskAssignees)
+      .where(eq(taskAssignees.id, rejectedAssigneeId))
+      .limit(1);
+    if (!rejectedRow) throw new Error(`Assignee row ${rejectedAssigneeId} not found`);
+    if (rejectedRow.status !== 'rejected') throw new Error(`Assignment is not in rejected state`);
+
+    const [newRow] = await db.insert(taskAssignees).values({
+      taskId: rejectedRow.taskId,
+      userId: rejectedRow.userId,
+      assignedBy: rejectedRow.assignedBy,
+      broadcastGroupId: rejectedRow.broadcastGroupId,
+      status: 'in_progress' as const,
+      startedAt: new Date(),
+      previousImageUrl: rejectedRow.completionImageUrl ?? rejectedRow.previousImageUrl ?? null,
+    }).returning();
+    return newRow;
   }
 
   async getPendingVerifications(locationId?: string): Promise<Array<{ assignee: TaskAssignee; task: Task; user: { id: string; firstName: string | null; lastName: string | null; profileImageUrl: string | null }; streak: number }>> {
