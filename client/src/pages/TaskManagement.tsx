@@ -1030,7 +1030,7 @@ export default function TaskManagement() {
             <Button variant="outline" onClick={() => { setRejectingItem(null); setRejectionNote(''); }}>Cancel</Button>
             <Button
               variant="destructive"
-              disabled={rejectMutation.isPending}
+              disabled={rejectMutation.isPending || !rejectionNote.trim()}
               onClick={() => rejectingItem && rejectMutation.mutate({
                 taskId: rejectingItem.task.id,
                 assigneeId: rejectingItem.assignee.id,

@@ -871,7 +871,7 @@ export class DatabaseStorage implements IStorage {
 
     // For each eligible user, find their last approved completion image for photo comparison
     // Fetch the task-level most recently approved photo (regardless of which employee submitted it)
-    // This provides the "gold standard" comparison image for the task.
+    // Order by managerApprovedAt DESC NULLS LAST so we always get the most recently signed-off image.
     const [taskLevelApproved] = await db
       .select({ completionImageUrl: taskAssignees.completionImageUrl })
       .from(taskAssignees)
@@ -880,7 +880,7 @@ export class DatabaseStorage implements IStorage {
         eq(taskAssignees.status, "approved"),
         sql`${taskAssignees.completionImageUrl} IS NOT NULL`,
       ))
-      .orderBy(desc(taskAssignees.createdAt))
+      .orderBy(sql`${taskAssignees.managerApprovedAt} DESC NULLS LAST`)
       .limit(1);
     const taskPreviousImageUrl = taskLevelApproved?.completionImageUrl ?? null;
 

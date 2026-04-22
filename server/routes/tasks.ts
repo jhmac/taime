@@ -230,7 +230,8 @@ export function registerTaskRoutes(
       const userId = req.user.id;
 
       const userPermissions = await storage.getUserPermissions(userId);
-      const isManager = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'hr.manage_employees');
+      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
+      const isManager = isAdmin || userPermissions.some(p => p.name === 'hr.manage_employees');
       if (!isManager) {
         return res.status(403).json({ message: "Only managers can broadcast tasks" });
       }
@@ -240,7 +241,12 @@ export function registerTaskRoutes(
         return res.status(404).json({ message: "Task not found" });
       }
 
+      // Non-admin managers can only broadcast tasks within their own location
       const locationId = await tryResolveStoreIdForUser(userId);
+      if (!isAdmin && task.locationId && locationId && task.locationId !== locationId) {
+        return res.status(403).json({ message: "Cannot broadcast a task from a different location" });
+      }
+
       const { assignees, count } = await storage.broadcastTask(id, userId, locationId || undefined);
 
       if (count === 0) {
@@ -489,6 +495,9 @@ export function registerTaskRoutes(
       const { id: taskId, assigneeId } = req.params;
       const managerId = req.user.id;
       const { rejectionNote } = req.body;
+      if (!rejectionNote || !String(rejectionNote).trim()) {
+        return res.status(400).json({ message: "A rejection note is required to explain what needs to be redone" });
+      }
 
       const userPermissions = await storage.getUserPermissions(managerId);
       const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
