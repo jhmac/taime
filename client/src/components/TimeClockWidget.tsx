@@ -38,9 +38,11 @@ interface TimeClockWidgetProps {
   footerSlot?: React.ReactNode;
   /** When true, hides the standalone large time display (avoids redundancy when time is shown in a parent header) */
   hideClock?: boolean;
+  /** When true, hides the "TODAY X hrs" total at the bottom (avoids redundancy when hours are shown in a parent card header) */
+  hideTodayTotal?: boolean;
 }
 
-export default function TimeClockWidget({ greetingSlot, footerSlot, hideClock = false }: TimeClockWidgetProps = {}) {
+export default function TimeClockWidget({ greetingSlot, footerSlot, hideClock = false, hideTodayTotal = false }: TimeClockWidgetProps = {}) {
   const { user } = useAuth();
   const isMobile = useIsMobile();
   const { position, getCurrentPosition, watchPosition, clearWatch, loading: locationLoading, error: locationError, permissionState, hadPreviousGrant } = useGeolocation();
@@ -1140,8 +1142,8 @@ export default function TimeClockWidget({ greetingSlot, footerSlot, hideClock = 
             </div>
           )}
 
-          {/* Today's hours — hidden when footerSlot replaces it */}
-          {!footerSlot && (
+          {/* Today's hours — hidden when footerSlot replaces it or hideTodayTotal is set */}
+          {!footerSlot && !hideTodayTotal && (
             <div className="flex items-center justify-center gap-6 pt-1">
               <div className="text-center">
                 <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Today</p>

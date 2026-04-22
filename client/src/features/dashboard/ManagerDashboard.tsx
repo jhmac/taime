@@ -270,62 +270,36 @@ export default function ManagerDashboard() {
       </DashboardErrorBoundary>
 
       <div className={isMobile ? "px-4 py-3" : "px-6 py-4"}>
-        {/* Personal time clock widget — large clock hidden since header shows date+time */}
+        {/* Personal time clock widget — large clock + today total hidden (stats live in Today card header) */}
         <DashboardErrorBoundary fallback="Time clock failed to load">
-          <TimeClockWidget hideClock />
+          <TimeClockWidget hideClock hideTodayTotal />
         </DashboardErrorBoundary>
-
-        {/* ── Personal hours stats bar ── */}
-        <div className="flex items-center gap-0 overflow-x-auto mt-2 rounded-lg border bg-muted/20 divide-x divide-border">
-          <div className="flex flex-col items-center px-3 py-2 shrink-0 min-w-0">
-            <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">Today</span>
-            <span className="text-sm font-bold tabular-nums">{myTodayHours.toFixed(1)} hrs</span>
-          </div>
-          <div className="flex flex-col items-center px-3 py-2 shrink-0 min-w-0">
-            <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">This Week</span>
-            <span className="text-sm font-bold tabular-nums">{myWeekHours.toFixed(1)} hrs</span>
-          </div>
-          {myPaySummary && (
-            <div className="flex flex-col items-center px-3 py-2 shrink-0 min-w-0">
-              <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">This Period</span>
-              <span className="text-sm font-bold tabular-nums">{myPaySummary.totalHours.toFixed(1)} hrs</span>
-            </div>
-          )}
-          {myPaySummary && myPaySummary.hourlyRate > 0 && (
-            <div className="flex flex-col items-center px-3 py-2 shrink-0 min-w-0">
-              <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">Est. Pay</span>
-              <span className="text-sm font-bold tabular-nums text-green-600 dark:text-green-400">${myPaySummary.estimatedPay.toFixed(2)}</span>
-            </div>
-          )}
-        </div>
 
         {/* ── Today Card (replaces the 4 stat cards) ── */}
         <DashboardErrorBoundary fallback="Today card failed to load">
           <Card className="mt-3">
+            {/* Header row doubles as the personal hours stats bar */}
             <CardHeader className="pb-2 pt-3 px-4">
-              <div className="flex items-center justify-between flex-wrap gap-x-3 gap-y-1">
-                {/* Left: icon + label */}
-                <div className="flex items-center gap-2">
-                  <CalendarDays className="h-4 w-4 text-primary shrink-0" />
-                  <span className="text-sm font-semibold">Today</span>
-                </div>
-
-                {/* Right: pay period summary (conditional) */}
-                {showPaySummary && myPaySummary && (
-                  <div className="flex items-center gap-3 text-right">
-                    <div className="text-xs">
-                      <p className="font-semibold tabular-nums">{myPaySummary.totalHours.toFixed(1)} hrs</p>
-                      <p className="text-muted-foreground">this period</p>
-                    </div>
-                    {myPaySummary.hourlyRate > 0 && (
-                      <div className="text-xs">
-                        <p className="font-semibold tabular-nums text-green-600 dark:text-green-400">
-                          ${myPaySummary.estimatedPay.toFixed(0)} est.
-                        </p>
-                        <p className="text-muted-foreground">paycheck</p>
-                      </div>
-                    )}
-                  </div>
+              <div className="flex items-center gap-2 overflow-x-auto flex-nowrap">
+                <CalendarDays className="h-4 w-4 text-primary shrink-0" />
+                <span className="text-sm font-semibold shrink-0">Today</span>
+                <span className="text-sm font-bold tabular-nums shrink-0">{myTodayHours.toFixed(1)} hrs</span>
+                <span className="text-muted-foreground/40 shrink-0 text-xs">|</span>
+                <span className="text-xs text-muted-foreground shrink-0">This week</span>
+                <span className="text-xs font-bold tabular-nums shrink-0">{myWeekHours.toFixed(1)} hrs</span>
+                {myPaySummary && (
+                  <>
+                    <span className="text-muted-foreground/40 shrink-0 text-xs">|</span>
+                    <span className="text-xs text-muted-foreground shrink-0">This Period</span>
+                    <span className="text-xs font-bold tabular-nums shrink-0">{myPaySummary.totalHours.toFixed(1)} hrs</span>
+                  </>
+                )}
+                {myPaySummary && myPaySummary.hourlyRate > 0 && (
+                  <>
+                    <span className="text-muted-foreground/40 shrink-0 text-xs">|</span>
+                    <span className="text-xs text-muted-foreground shrink-0">Estimated Pay</span>
+                    <span className="text-xs font-bold tabular-nums text-green-600 dark:text-green-400 shrink-0">${myPaySummary.estimatedPay.toFixed(2)}</span>
+                  </>
                 )}
               </div>
             </CardHeader>
