@@ -341,11 +341,12 @@ export function registerTaskRoutes(
       const isManager = isAdmin || userPermissions.some(p => p.name === 'hr.manage_employees');
       if (!isManager) return res.status(403).json({ message: "Managers only" });
 
-      // Location scope: non-admins can only view progress for tasks in their location
+      // Location scope: non-admins must have a resolvable location (fail-closed)
       if (!isAdmin) {
-        const managerLocationId = await tryResolveStoreIdForUser(callerId);
+        const managerLocationId = await requireManagerLocation(callerId, res);
+        if (!managerLocationId) return; // 403 already sent
         const task = await storage.getTask(id);
-        if (task?.locationId && managerLocationId && task.locationId !== managerLocationId) {
+        if (task?.locationId && task.locationId !== managerLocationId) {
           return res.status(403).json({ message: "Cannot view progress for tasks from a different location" });
         }
       }
@@ -376,11 +377,12 @@ export function registerTaskRoutes(
         return res.json(allAssignees.filter(a => a.userId === callerId));
       }
 
-      // Non-admin managers: restrict to tasks in their own location
+      // Non-admin managers: must have a resolvable location (fail-closed)
       if (!isAdmin) {
-        const managerLocationId = await tryResolveStoreIdForUser(callerId);
+        const managerLocationId = await requireManagerLocation(callerId, res);
+        if (!managerLocationId) return; // 403 already sent
         const task = await storage.getTask(id);
-        if (task?.locationId && managerLocationId && task.locationId !== managerLocationId) {
+        if (task?.locationId && task.locationId !== managerLocationId) {
           return res.status(403).json({ message: "Cannot view assignees for tasks from a different location" });
         }
       }
@@ -511,11 +513,12 @@ export function registerTaskRoutes(
       if (assigneeRow.taskId !== taskId) return res.status(403).json({ message: "Assignment does not belong to this task" });
       if (assigneeRow.status !== 'completed') return res.status(409).json({ message: "Only completed assignments can be approved" });
 
-      // Location scope: non-admins can only approve tasks in their own location
+      // Location scope: non-admins must have a resolvable location (fail-closed)
       if (!isAdmin) {
-        const managerLocationId = await tryResolveStoreIdForUser(managerId);
+        const managerLocationId = await requireManagerLocation(managerId, res);
+        if (!managerLocationId) return; // 403 already sent
         const task = await storage.getTask(taskId);
-        if (task?.locationId && managerLocationId && task.locationId !== managerLocationId) {
+        if (task?.locationId && task.locationId !== managerLocationId) {
           return res.status(403).json({ message: "Cannot approve tasks from a different location" });
         }
       }
@@ -573,11 +576,12 @@ export function registerTaskRoutes(
       if (assigneeRow.taskId !== taskId) return res.status(403).json({ message: "Assignment does not belong to this task" });
       if (assigneeRow.status !== 'completed') return res.status(409).json({ message: "Only completed assignments can be rejected" });
 
-      // Location scope: non-admins can only reject tasks in their own location
+      // Location scope: non-admins must have a resolvable location (fail-closed)
       if (!isAdmin) {
-        const managerLocationId = await tryResolveStoreIdForUser(managerId);
+        const managerLocationId = await requireManagerLocation(managerId, res);
+        if (!managerLocationId) return; // 403 already sent
         const task = await storage.getTask(taskId);
-        if (task?.locationId && managerLocationId && task.locationId !== managerLocationId) {
+        if (task?.locationId && task.locationId !== managerLocationId) {
           return res.status(403).json({ message: "Cannot reject tasks from a different location" });
         }
       }
