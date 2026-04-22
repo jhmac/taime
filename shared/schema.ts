@@ -377,6 +377,7 @@ export type InsertAvailabilityTemplate = z.infer<typeof insertAvailabilityTempla
 
 // Per-date availability overrides — "only this week/day" entries that take precedence over the template.
 // One row per (userId, date). date is stored as "YYYY-MM-DD".
+// setByManagerId is non-null when a manager (rather than the employee) set the override.
 export const userAvailabilityOverrides = pgTable("user_availability_overrides", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").references(() => users.id).notNull(),
@@ -384,6 +385,7 @@ export const userAvailabilityOverrides = pgTable("user_availability_overrides", 
   startTime: varchar("start_time", { length: 5 }), // "HH:mm" — null when unavailable=true
   endTime: varchar("end_time", { length: 5 }),     // "HH:mm"
   unavailable: boolean("unavailable").default(false),
+  setByManagerId: varchar("set_by_manager_id").references(() => users.id), // null = employee set it
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [

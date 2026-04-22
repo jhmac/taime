@@ -601,7 +601,7 @@ export default function ScheduleManagement() {
   });
 
   // Team merged calendar availability (new — template + overrides + time-off per date)
-  const { data: teamCalendar = {} } = useQuery<Record<string, { userId: string; startTime: string | null; endTime: string | null }[]>>({
+  const { data: teamCalendar = {} } = useQuery<Record<string, { userId: string; startTime: string | null; endTime: string | null; setByManagerId: string | null }[]>>({
     queryKey: ["/api/availability/calendar/team", startDateParam, endDateParam],
     queryFn: async () => {
       const res = await fetch(`/api/availability/calendar/team?start=${startDateParam}&end=${endDateParam}`, { credentials: 'include' });
@@ -1228,7 +1228,7 @@ export default function ScheduleManagement() {
 
                     const dateStr = formatLocalDate(date);
                     const mergedAvail = (teamCalendar[dateStr] ?? []).find(
-                      (a: { userId: string; startTime: string | null; endTime: string | null }) => a.userId === emp.id
+                      (a: { userId: string; startTime: string | null; endTime: string | null; setByManagerId: string | null }) => a.userId === emp.id
                     );
 
                     return (
@@ -1300,19 +1300,29 @@ export default function ScheduleManagement() {
                           <div className="mt-1 flex items-center gap-0.5">
                             {mergedAvail ? (
                               <button
-                                title={isAdmin ? "Click to edit availability" : (mergedAvail.startTime && mergedAvail.endTime
-                                  ? `Available ${formatSchedTimeShort(mergedAvail.startTime)}–${formatSchedTimeShort(mergedAvail.endTime)}`
-                                  : 'Available')}
+                                title={
+                                  mergedAvail.setByManagerId
+                                    ? (isAdmin ? "Manager override — click to edit" : "Availability set by management")
+                                    : (isAdmin ? "Click to edit availability" : (mergedAvail.startTime && mergedAvail.endTime
+                                        ? `Available ${formatSchedTimeShort(mergedAvail.startTime)}–${formatSchedTimeShort(mergedAvail.endTime)}`
+                                        : 'Available'))
+                                }
                                 onClick={() => isAdmin && setAvailabilityEditTarget({ userId: emp.id, date: dateStr, empName: `${emp.firstName} ${emp.lastName}` })}
                                 className={cn(
-                                  "text-[9px] px-1.5 py-0.5 rounded-sm font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 leading-[14px] inline-flex items-center gap-0.5",
-                                  isAdmin && "hover:bg-emerald-200 dark:hover:bg-emerald-900/60 cursor-pointer"
+                                  "text-[9px] px-1.5 py-0.5 rounded-sm font-medium leading-[14px] inline-flex items-center gap-0.5",
+                                  mergedAvail.setByManagerId
+                                    ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                                    : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
+                                  isAdmin && mergedAvail.setByManagerId && "hover:bg-amber-200 dark:hover:bg-amber-900/60 cursor-pointer",
+                                  isAdmin && !mergedAvail.setByManagerId && "hover:bg-emerald-200 dark:hover:bg-emerald-900/60 cursor-pointer"
                                 )}
                               >
                                 {mergedAvail.startTime && mergedAvail.endTime
                                   ? `${formatSchedTimeShort(mergedAvail.startTime)}–${formatSchedTimeShort(mergedAvail.endTime)}`
                                   : 'avail'}
-                                {isAdmin && <Pencil className="h-2 w-2 ml-0.5 opacity-60" />}
+                                {mergedAvail.setByManagerId
+                                  ? <UserCog className="h-2 w-2 ml-0.5 opacity-70" />
+                                  : isAdmin && <Pencil className="h-2 w-2 ml-0.5 opacity-60" />}
                               </button>
                             ) : isAdmin ? (
                               <button

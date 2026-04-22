@@ -298,6 +298,11 @@ export async function runSchemaMigrations(): Promise<void> {
       table: "cash_deposits",
       sql: `ALTER TABLE cash_deposits ADD COLUMN IF NOT EXISTS drawer_session_id varchar`,
     },
+    // Task #297 — manager override indicator in schedule grid
+    {
+      table: "user_availability_overrides",
+      sql: `ALTER TABLE user_availability_overrides ADD COLUMN IF NOT EXISTS set_by_manager_id varchar REFERENCES users(id)`,
+    },
   ];
 
   let altered = 0;

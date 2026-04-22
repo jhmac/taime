@@ -243,7 +243,7 @@ export interface IStorage {
   upsertAvailabilityTemplate(userId: string, slots: Record<string, import('@shared/schema').TemplateSlot>, autoApplyTemplate?: boolean): Promise<AvailabilityTemplate>;
 
   // Per-date availability override operations
-  upsertAvailabilityOverride(userId: string, date: string, data: { startTime?: string | null; endTime?: string | null; unavailable: boolean }): Promise<UserAvailabilityOverride>;
+  upsertAvailabilityOverride(userId: string, date: string, data: { startTime?: string | null; endTime?: string | null; unavailable: boolean; setByManagerId?: string | null }): Promise<UserAvailabilityOverride>;
   getAvailabilityOverrides(userId: string, startDate: string, endDate: string): Promise<UserAvailabilityOverride[]>;
   getAvailabilityOverridesForUsers(userIds: string[], startDate: string, endDate: string): Promise<UserAvailabilityOverride[]>;
   deleteAvailabilityOverride(userId: string, date: string): Promise<void>;
@@ -1015,7 +1015,7 @@ export class DatabaseStorage implements IStorage {
   async upsertAvailabilityOverride(
     userId: string,
     date: string,
-    data: { startTime?: string | null; endTime?: string | null; unavailable: boolean }
+    data: { startTime?: string | null; endTime?: string | null; unavailable: boolean; setByManagerId?: string | null }
   ): Promise<UserAvailabilityOverride> {
     const [result] = await db
       .insert(userAvailabilityOverrides)
@@ -1025,6 +1025,7 @@ export class DatabaseStorage implements IStorage {
         startTime: data.startTime ?? null,
         endTime: data.endTime ?? null,
         unavailable: data.unavailable,
+        setByManagerId: data.setByManagerId ?? null,
       })
       .onConflictDoUpdate({
         target: [userAvailabilityOverrides.userId, userAvailabilityOverrides.date],
@@ -1032,6 +1033,7 @@ export class DatabaseStorage implements IStorage {
           startTime: data.startTime ?? null,
           endTime: data.endTime ?? null,
           unavailable: data.unavailable,
+          setByManagerId: data.setByManagerId ?? null,
           updatedAt: new Date(),
         },
       })

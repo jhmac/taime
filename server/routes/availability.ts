@@ -237,10 +237,12 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
         if (endTime !== '00:00' && startTime >= endTime) return res.status(400).json({ message: "endTime must be after startTime" });
       }
 
+      const isManagerOverride = isManagerOrAbove && req.body.userId && req.body.userId !== requestingUserId;
       const result = await storage.upsertAvailabilityOverride(userId, date, {
         startTime: isUnavailable ? null : startTime,
         endTime: isUnavailable ? null : endTime,
         unavailable: isUnavailable,
+        setByManagerId: isManagerOverride ? requestingUserId : null,
       });
       res.json(result);
     } catch (error) {
@@ -329,7 +331,7 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
       }
 
       // Per date: collect available users with their time ranges
-      const byDate: Record<string, { userId: string; startTime: string | null; endTime: string | null }[]> = {};
+      const byDate: Record<string, { userId: string; startTime: string | null; endTime: string | null; setByManagerId: string | null }[]> = {};
       for (const dateStr of dates) {
         const dateObj = new Date(dateStr + 'T12:00:00Z');
         const available: typeof byDate[string] = [];
@@ -346,7 +348,7 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
           const override = overridesByUserDate[`${uid}:${dateStr}`];
           if (override) {
             if (!override.unavailable && override.startTime) {
-              available.push({ userId: uid, startTime: override.startTime, endTime: override.endTime });
+              available.push({ userId: uid, startTime: override.startTime, endTime: override.endTime, setByManagerId: override.setByManagerId ?? null });
             }
             continue;
           }
@@ -359,9 +361,9 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
           if (!slot) continue;
 
           if ('available' in slot && slot.available) {
-            available.push({ userId: uid, startTime: slot.startTime ?? null, endTime: slot.endTime ?? null });
+            available.push({ userId: uid, startTime: slot.startTime ?? null, endTime: slot.endTime ?? null, setByManagerId: null });
           } else if (!('available' in slot) && (slot.morning || slot.afternoon || slot.evening)) {
-            available.push({ userId: uid, startTime: null, endTime: null });
+            available.push({ userId: uid, startTime: null, endTime: null, setByManagerId: null });
           }
         }
         byDate[dateStr] = available;

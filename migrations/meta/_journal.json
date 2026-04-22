@@ -106,6 +106,13 @@
       "when": 1745330400000,
       "tag": "0014_auto_apply_template",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1745590800000,
+      "tag": "0015_add_set_by_manager_id_to_availability_overrides",
+      "breakpoints": true
     }
   ]
 }
