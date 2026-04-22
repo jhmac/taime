@@ -1176,8 +1176,8 @@ export default function TaskManagement() {
             <Button variant="outline" onClick={() => { setShowCreateDialog(false); setEditingTask(null); setForm(emptyForm); }}>
               Cancel
             </Button>
-            {/* Broadcast shortcut — only shown for new tasks, only to managers */}
-            {!editingTask && canManageTasks && (
+            {/* Broadcast shortcut — only shown for new tasks, only to broadcast-capable managers */}
+            {!editingTask && canBroadcast && (
               <Button
                 variant="outline"
                 className="border-primary/50 text-primary hover:bg-primary/10"

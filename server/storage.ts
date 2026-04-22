@@ -919,15 +919,17 @@ export class DatabaseStorage implements IStorage {
 
   // Returns active broadcast assignments for the employee — includes rejected so they can see "Redo Required"
   async getMyBroadcastAssignments(userId: string): Promise<Array<TaskAssignee & { task: Task }>> {
+    // Return only the latest row per (taskId, broadcastGroupId) so redo rows don't leave stale
+    // rejected cards visible alongside a new in_progress row for the same broadcast cycle.
     const rows = await db
-      .select({ assignee: taskAssignees, task: tasks })
+      .selectDistinctOn([taskAssignees.taskId, taskAssignees.broadcastGroupId], { assignee: taskAssignees, task: tasks })
       .from(taskAssignees)
       .innerJoin(tasks, eq(taskAssignees.taskId, tasks.id))
       .where(and(
         eq(taskAssignees.userId, userId),
         sql`${taskAssignees.status} NOT IN ('approved')`
       ))
-      .orderBy(desc(taskAssignees.createdAt));
+      .orderBy(taskAssignees.taskId, taskAssignees.broadcastGroupId, desc(taskAssignees.createdAt));
     return rows.map(r => ({ ...r.assignee, task: r.task }));
   }
 
@@ -941,7 +943,8 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Creates a new assignment row for a redo attempt, preserving the rejected row as immutable history.
-  // The new row captures the rejected submission's image in previousImageUrl for side-by-side comparison.
+  // previousImageUrl is sourced from the latest approved image for the task (not the rejected submission),
+  // so the comparison always shows "what the approved benchmark looks like" vs the fresh attempt.
   async createRedoAssignment(rejectedAssigneeId: string): Promise<TaskAssignee> {
     const [rejectedRow] = await db
       .select()
@@ -951,6 +954,18 @@ export class DatabaseStorage implements IStorage {
     if (!rejectedRow) throw new Error(`Assignee row ${rejectedAssigneeId} not found`);
     if (rejectedRow.status !== 'rejected') throw new Error(`Assignment is not in rejected state`);
 
+    // Find the most recently approved image for this task to use as the comparison baseline
+    const [taskApproved] = await db
+      .select({ completionImageUrl: taskAssignees.completionImageUrl })
+      .from(taskAssignees)
+      .where(and(
+        eq(taskAssignees.taskId, rejectedRow.taskId),
+        eq(taskAssignees.status, 'approved'),
+        sql`${taskAssignees.completionImageUrl} IS NOT NULL`,
+      ))
+      .orderBy(sql`${taskAssignees.managerApprovedAt} DESC NULLS LAST`)
+      .limit(1);
+
     const [newRow] = await db.insert(taskAssignees).values({
       taskId: rejectedRow.taskId,
       userId: rejectedRow.userId,
@@ -958,7 +973,7 @@ export class DatabaseStorage implements IStorage {
       broadcastGroupId: rejectedRow.broadcastGroupId,
       status: 'in_progress' as const,
       startedAt: new Date(),
-      previousImageUrl: rejectedRow.completionImageUrl ?? rejectedRow.previousImageUrl ?? null,
+      previousImageUrl: taskApproved?.completionImageUrl ?? null,
     }).returning();
     return newRow;
   }
@@ -1001,10 +1016,25 @@ export class DatabaseStorage implements IStorage {
 
   // Get aggregate broadcast progress for a task (across all assignees)
   async getTaskBroadcastProgress(taskId: string): Promise<{ total: number; approved: number; completed: number; in_progress: number; pending: number; rejected: number }> {
-    const rows = await db
-      .select({ status: taskAssignees.status })
+    // Find the latest broadcastGroupId for this task (most recently created row wins)
+    const [latestGroup] = await db
+      .selectDistinctOn([taskAssignees.taskId], { broadcastGroupId: taskAssignees.broadcastGroupId })
       .from(taskAssignees)
-      .where(eq(taskAssignees.taskId, taskId));
+      .where(eq(taskAssignees.taskId, taskId))
+      .orderBy(taskAssignees.taskId, desc(taskAssignees.createdAt));
+
+    if (!latestGroup) return { total: 0, approved: 0, completed: 0, in_progress: 0, pending: 0, rejected: 0 };
+
+    // Within the current broadcast group, count only the latest row per user (redo rows supersede rejected rows)
+    const rows = await db
+      .selectDistinctOn([taskAssignees.userId], { status: taskAssignees.status })
+      .from(taskAssignees)
+      .where(and(
+        eq(taskAssignees.taskId, taskId),
+        eq(taskAssignees.broadcastGroupId, latestGroup.broadcastGroupId),
+      ))
+      .orderBy(taskAssignees.userId, desc(taskAssignees.createdAt));
+
     const counts = { total: rows.length, approved: 0, completed: 0, in_progress: 0, pending: 0, rejected: 0 };
     for (const r of rows) {
       const k = r.status as keyof typeof counts;
@@ -1013,22 +1043,41 @@ export class DatabaseStorage implements IStorage {
     return counts;
   }
 
-  // Get broadcast progress summary for all tasks that have at least one assignee
+  // Get broadcast progress summary for all tasks (scoped to latest broadcast group per task).
+  // Only the latest row per (taskId, userId) within each task's current broadcast group is counted,
+  // so redo rows supersede rejected historical rows in the denominator.
   async getAllTaskBroadcastSummary(locationId?: string): Promise<Record<string, { total: number; approved: number }>> {
-    const query = db
-      .select({ taskId: taskAssignees.taskId, status: taskAssignees.status })
+    // Step 1: find the latest broadcastGroupId per task
+    const latestGroupQuery = db
+      .selectDistinctOn([taskAssignees.taskId], {
+        taskId: taskAssignees.taskId,
+        broadcastGroupId: taskAssignees.broadcastGroupId,
+      })
       .from(taskAssignees)
-      .innerJoin(tasks, eq(taskAssignees.taskId, tasks.id));
+      .innerJoin(tasks, eq(taskAssignees.taskId, tasks.id))
+      .orderBy(taskAssignees.taskId, desc(taskAssignees.createdAt));
 
-    const rows = locationId
-      ? await query.where(eq(tasks.locationId, locationId))
-      : await query;
+    const latestGroups = locationId
+      ? await latestGroupQuery.where(eq(tasks.locationId, locationId))
+      : await latestGroupQuery;
 
+    if (latestGroups.length === 0) return {};
+
+    // Step 2: for each task's latest group, count latest row per user
     const map: Record<string, { total: number; approved: number }> = {};
-    for (const r of rows) {
-      if (!map[r.taskId]) map[r.taskId] = { total: 0, approved: 0 };
-      map[r.taskId].total++;
-      if (r.status === 'approved') map[r.taskId].approved++;
+    for (const { taskId, broadcastGroupId } of latestGroups) {
+      const userRows = await db
+        .selectDistinctOn([taskAssignees.userId], { status: taskAssignees.status })
+        .from(taskAssignees)
+        .where(and(
+          eq(taskAssignees.taskId, taskId),
+          eq(taskAssignees.broadcastGroupId, broadcastGroupId),
+        ))
+        .orderBy(taskAssignees.userId, desc(taskAssignees.createdAt));
+
+      if (userRows.length > 0) {
+        map[taskId] = { total: userRows.length, approved: userRows.filter(r => r.status === 'approved').length };
+      }
     }
     return map;
   }
