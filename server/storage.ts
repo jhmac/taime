@@ -231,6 +231,7 @@ export interface IStorage {
   getPendingVerifications(locationId?: string): Promise<Array<{ assignee: TaskAssignee; task: Task; user: { id: string; firstName: string | null; lastName: string | null; profileImageUrl: string | null }; streak: number }>>;
   getCompletionStreak(taskId: string, userId: string, excludeId?: string): Promise<number>;
   getTaskBroadcastProgress(taskId: string): Promise<{ total: number; approved: number; completed: number; in_progress: number; pending: number; rejected: number }>;
+  getAllTaskBroadcastSummary(): Promise<Record<string, { total: number; approved: number }>>;
   getClockedInEmployeeCount(locationId?: string): Promise<number>;
   
   // Message operations
@@ -983,6 +984,20 @@ export class DatabaseStorage implements IStorage {
       if (k in counts && k !== 'total') counts[k]++;
     }
     return counts;
+  }
+
+  // Get broadcast progress summary for all tasks that have at least one assignee
+  async getAllTaskBroadcastSummary(): Promise<Record<string, { total: number; approved: number }>> {
+    const rows = await db
+      .select({ taskId: taskAssignees.taskId, status: taskAssignees.status })
+      .from(taskAssignees);
+    const map: Record<string, { total: number; approved: number }> = {};
+    for (const r of rows) {
+      if (!map[r.taskId]) map[r.taskId] = { total: 0, approved: 0 };
+      map[r.taskId].total++;
+      if (r.status === 'approved') map[r.taskId].approved++;
+    }
+    return map;
   }
 
   async getClockedInEmployeeCount(locationId?: string): Promise<number> {

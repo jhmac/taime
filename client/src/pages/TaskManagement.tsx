@@ -220,7 +220,14 @@ export default function TaskManagement() {
     refetchInterval: 15000,
   });
 
-  // Broadcast progress for the currently viewed task (manager detail modal)
+  // Broadcast summary for ALL tasks — used to show progress bars in the task list
+  const { data: broadcastSummary = {} } = useQuery<Record<string, { total: number; approved: number }>>({
+    queryKey: ['/api/tasks/broadcast-summary'],
+    enabled: canManageTasks,
+    refetchInterval: 15000,
+  });
+
+  // Broadcast progress for the currently viewed task (manager detail modal — detailed breakdown)
   const { data: broadcastProgress } = useQuery<{ total: number; approved: number; completed: number; in_progress: number; pending: number; rejected: number }>({
     queryKey: ['/api/tasks', viewingTask?.id, 'broadcast-progress'],
     queryFn: async () => {
@@ -664,6 +671,21 @@ export default function TaskManagement() {
                                     />
                                   </div>
                                 )}
+                                {/* Compact broadcast progress bar — shown when this task has been broadcast */}
+                                {canManageTasks && broadcastSummary[task.id] && broadcastSummary[task.id].total > 0 && (
+                                  <div className="mt-2" onClick={e => e.stopPropagation()}>
+                                    <div className="flex items-center justify-between mb-0.5">
+                                      <span className="text-[10px] text-primary font-medium">Broadcast</span>
+                                      <span className="text-[10px] text-muted-foreground">
+                                        {broadcastSummary[task.id].approved}/{broadcastSummary[task.id].total} approved
+                                      </span>
+                                    </div>
+                                    <Progress
+                                      value={(broadcastSummary[task.id].approved / broadcastSummary[task.id].total) * 100}
+                                      className="h-1"
+                                    />
+                                  </div>
+                                )}
                               </div>
                               <div className="flex items-center gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
                                 {canManageTasks && (
@@ -863,7 +885,7 @@ export default function TaskManagement() {
                                   <div>
                                     <div className="flex items-center gap-2 flex-wrap">
                                       <p className="font-medium text-sm">{emp.firstName} {emp.lastName}</p>
-                                      {streak >= 1 && (
+                                      {streak >= 2 && (
                                         <Badge className="text-[10px] bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 px-1.5">
                                           🔥 {streak}× streak
                                         </Badge>

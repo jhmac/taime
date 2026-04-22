@@ -181,10 +181,11 @@ export function registerTaskRoutes(
   // Broadcast task assignment routes
   // ──────────────────────────────────────────────────────
 
-  // GET /api/tasks/clocked-in-count — how many employees are clocked in right now
+  // GET /api/tasks/clocked-in-count — eligible (non-manager) employees clocked in for this location
   app.get('/api/tasks/clocked-in-count', isAuthenticated, async (req: any, res) => {
     try {
-      const count = await storage.getClockedInEmployeeCount();
+      const locationId = await tryResolveStoreIdForUser(req.user.id);
+      const count = await storage.getClockedInEmployeeCount(locationId || undefined);
       res.json({ count });
     } catch (error) {
       console.error("Error getting clocked-in count:", error);
@@ -269,6 +270,17 @@ export function registerTaskRoutes(
     } catch (error) {
       console.error("Error broadcasting task:", error);
       res.status(500).json({ message: "Failed to broadcast task" });
+    }
+  });
+
+  // GET /api/tasks/broadcast-summary — progress summary for ALL tasks with assignees (single call for list view)
+  app.get('/api/tasks/broadcast-summary', isAuthenticated, async (req: any, res) => {
+    try {
+      const summary = await storage.getAllTaskBroadcastSummary();
+      res.json(summary);
+    } catch (error) {
+      console.error("Error fetching broadcast summary:", error);
+      res.status(500).json({ message: "Failed to fetch broadcast summary" });
     }
   });
 
@@ -392,6 +404,13 @@ export function registerTaskRoutes(
         return res.status(403).json({ message: "Managers only" });
       }
 
+      // Fetch the assignee row and verify it belongs to this task and is in 'completed' state
+      const assignees = await storage.getTaskAssignees(taskId);
+      const assigneeRow = assignees.find(a => a.id === assigneeId);
+      if (!assigneeRow) return res.status(404).json({ message: "Assignment not found for this task" });
+      if (assigneeRow.taskId !== taskId) return res.status(403).json({ message: "Assignment does not belong to this task" });
+      if (assigneeRow.status !== 'completed') return res.status(409).json({ message: "Only completed assignments can be approved" });
+
       // Location scope: non-admins can only approve tasks in their own location
       if (!isAdmin) {
         const managerLocationId = await tryResolveStoreIdForUser(managerId);
@@ -443,6 +462,13 @@ export function registerTaskRoutes(
       if (!isManager) {
         return res.status(403).json({ message: "Managers only" });
       }
+
+      // Verify assignee belongs to this task and is in 'completed' state (IDOR + state guard)
+      const assignees = await storage.getTaskAssignees(taskId);
+      const assigneeRow = assignees.find(a => a.id === assigneeId);
+      if (!assigneeRow) return res.status(404).json({ message: "Assignment not found for this task" });
+      if (assigneeRow.taskId !== taskId) return res.status(403).json({ message: "Assignment does not belong to this task" });
+      if (assigneeRow.status !== 'completed') return res.status(409).json({ message: "Only completed assignments can be rejected" });
 
       // Location scope: non-admins can only reject tasks in their own location
       if (!isAdmin) {
