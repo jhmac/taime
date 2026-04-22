@@ -279,15 +279,18 @@ export function registerTaskRoutes(
     }
   });
 
-  // GET /api/tasks/broadcast-summary — manager-only; progress summary for all tasks (used in list view)
+  // GET /api/tasks/broadcast-summary — manager-only; scoped to manager's location for non-admins
   app.get('/api/tasks/broadcast-summary', isAuthenticated, async (req: any, res) => {
     try {
       const callerId = req.user.id;
       const userPermissions = await storage.getUserPermissions(callerId);
-      const isManager = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'hr.manage_employees');
+      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
+      const isManager = isAdmin || userPermissions.some(p => p.name === 'hr.manage_employees');
       if (!isManager) return res.status(403).json({ message: "Managers only" });
 
-      const summary = await storage.getAllTaskBroadcastSummary();
+      // Non-admin managers: scope to their own location (consistent with other manager endpoints)
+      const locationId = isAdmin ? undefined : (await tryResolveStoreIdForUser(callerId)) ?? undefined;
+      const summary = await storage.getAllTaskBroadcastSummary(locationId);
       res.json(summary);
     } catch (error) {
       console.error("Error fetching broadcast summary:", error);
@@ -369,6 +372,12 @@ export function registerTaskRoutes(
       if (!assigneeRow) return res.status(404).json({ message: "Assignment not found" });
       if (assigneeRow.userId !== callerId) return res.status(403).json({ message: "You can only start your own assignments" });
 
+      // State transition guard: start is only valid from pending or rejected (not approved/completed/in_progress)
+      const allowedFromStart: typeof assigneeRow.status[] = ['pending', 'rejected'];
+      if (!allowedFromStart.includes(assigneeRow.status as any)) {
+        return res.status(409).json({ message: `Cannot start an assignment in '${assigneeRow.status}' state` });
+      }
+
       const updated = await storage.updateTaskAssignee(assigneeId, {
         status: "in_progress",
         startedAt: new Date(),
@@ -400,6 +409,15 @@ export function registerTaskRoutes(
       const assigneeRow = assignees.find(a => a.id === assigneeId);
       if (!assigneeRow) return res.status(404).json({ message: "Assignment not found" });
       if (assigneeRow.userId !== callerId) return res.status(403).json({ message: "You can only complete your own assignments" });
+
+      // State transition guard: complete is only valid from in_progress.
+      // Approved rows are immutable — must not be overwritten with new photos/notes.
+      if (assigneeRow.status === 'approved') {
+        return res.status(409).json({ message: "Approved assignments are immutable and cannot be re-completed" });
+      }
+      if (assigneeRow.status !== 'in_progress') {
+        return res.status(409).json({ message: `Cannot complete an assignment in '${assigneeRow.status}' state — start it first` });
+      }
 
       const updated = await storage.updateTaskAssignee(assigneeId, {
         status: "completed",

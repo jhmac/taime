@@ -925,7 +925,7 @@ export default function TaskManagement() {
                                       size="sm"
                                       variant="destructive"
                                       className="h-8"
-                                      onClick={() => { setRejectingItem({ assignee, task, user: emp }); setRejectionNote(''); }}
+                                      onClick={() => { setRejectingItem({ assignee, task, user: emp, streak }); setRejectionNote(''); }}
                                     >
                                       <i className="fas fa-times mr-1"></i>Redo
                                     </Button>
