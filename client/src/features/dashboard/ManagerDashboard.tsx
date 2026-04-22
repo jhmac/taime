@@ -216,18 +216,46 @@ export default function ManagerDashboard() {
     (v: any) => new Date(v.createdAt) >= startOfThisWeek
   ).length;
 
+  // My personal hours (for the stats bar)
+  const myEntriesToday = (timeEntries || []).filter((e: any) =>
+    e.userId === user?.id && new Date(e.clockInTime).toDateString() === todayStr
+  );
+  const myTodayHours = myEntriesToday.reduce((sum: number, e: any) => {
+    const start = new Date(e.clockInTime).getTime();
+    const end = e.clockOutTime ? new Date(e.clockOutTime).getTime() : Date.now();
+    return sum + (end - start) / 3600000;
+  }, 0);
+
+  const myEntriesThisWeek = (timeEntries || []).filter((e: any) =>
+    e.userId === user?.id && new Date(e.clockInTime) >= startOfThisWeek
+  );
+  const myWeekHours = myEntriesThisWeek.reduce((sum: number, e: any) => {
+    const start = new Date(e.clockInTime).getTime();
+    const end = e.clockOutTime ? new Date(e.clockOutTime).getTime() : Date.now();
+    return sum + (end - start) / 3600000;
+  }, 0);
+
+  const formatHeaderDateTime = (date: Date) =>
+    date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) +
+    ' ' + date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+
   return (
     <div className="min-h-full bg-background">
       {/* ── Header ── */}
       <DashboardErrorBoundary fallback="Could not load header">
         <section className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground p-5 md:p-6 md:rounded-xl md:m-6 md:mt-4">
           <div className="flex items-center justify-between gap-2">
-            <div className="min-w-0">
-              <h1 className={`font-bold truncate ${isMobile ? 'text-lg' : 'text-xl'}`}>
+            <div className="min-w-0 shrink-0">
+              <h1 className={`font-bold truncate ${isMobile ? 'text-base' : 'text-lg'}`}>
                 {getGreeting()}, {(user as any)?.firstName || 'Manager'}!
               </h1>
-              <p className="text-sm opacity-80">
-                {currentTime.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} &bull; {formatTime(currentTime)}
+              <p className="text-xs opacity-70">
+                {currentTime.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+              </p>
+            </div>
+            <div className="flex-1 flex justify-center px-2">
+              <p className={`font-bold tabular-nums tracking-tight leading-none text-center ${isMobile ? 'text-xl' : 'text-3xl'}`}>
+                {formatHeaderDateTime(currentTime)}
               </p>
             </div>
             <Button
@@ -242,10 +270,34 @@ export default function ManagerDashboard() {
       </DashboardErrorBoundary>
 
       <div className={isMobile ? "px-4 py-3" : "px-6 py-4"}>
-        {/* Personal time clock widget — large clock hidden (shown in TimeClockWidget only) */}
+        {/* Personal time clock widget — large clock hidden since header shows date+time */}
         <DashboardErrorBoundary fallback="Time clock failed to load">
           <TimeClockWidget hideClock />
         </DashboardErrorBoundary>
+
+        {/* ── Personal hours stats bar ── */}
+        <div className="flex items-center gap-0 overflow-x-auto mt-2 rounded-lg border bg-muted/20 divide-x divide-border">
+          <div className="flex flex-col items-center px-3 py-2 shrink-0 min-w-0">
+            <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">Today</span>
+            <span className="text-sm font-bold tabular-nums">{myTodayHours.toFixed(1)} hrs</span>
+          </div>
+          <div className="flex flex-col items-center px-3 py-2 shrink-0 min-w-0">
+            <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">This Week</span>
+            <span className="text-sm font-bold tabular-nums">{myWeekHours.toFixed(1)} hrs</span>
+          </div>
+          {myPaySummary && (
+            <div className="flex flex-col items-center px-3 py-2 shrink-0 min-w-0">
+              <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">This Period</span>
+              <span className="text-sm font-bold tabular-nums">{myPaySummary.totalHours.toFixed(1)} hrs</span>
+            </div>
+          )}
+          {myPaySummary && myPaySummary.hourlyRate > 0 && (
+            <div className="flex flex-col items-center px-3 py-2 shrink-0 min-w-0">
+              <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">Est. Pay</span>
+              <span className="text-sm font-bold tabular-nums text-green-600 dark:text-green-400">${myPaySummary.estimatedPay.toFixed(2)}</span>
+            </div>
+          )}
+        </div>
 
         {/* ── Today Card (replaces the 4 stat cards) ── */}
         <DashboardErrorBoundary fallback="Today card failed to load">
@@ -301,35 +353,23 @@ export default function ManagerDashboard() {
 
                 {!isMobile && <div className="w-px bg-border self-stretch" />}
 
-                {/* Clocked-In column */}
+                {/* Scheduled Today column */}
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">Clocked In</p>
-                    <span className="text-[10px] font-semibold text-green-600 dark:text-green-400">
-                      {totalClockedIn}
-                      {partialErrors?.todaySummaryError && !todaySummary && (
-                        <AlertTriangle size={10} className="inline ml-1 text-amber-500" title="Attendance data may be unavailable" />
-                      )}
-                    </span>
-                  </div>
-                  {activeEntries.length === 0 ? (
+                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold mb-1">Scheduled Today</p>
+                  {todaySchedules.length === 0 ? (
                     <div className="flex items-center gap-1.5 text-muted-foreground">
                       <Users className="h-3.5 w-3.5 shrink-0" />
-                      <span className="text-xs italic">No one clocked in</span>
+                      <span className="text-xs italic">No shifts scheduled today</span>
                     </div>
                   ) : (
-                    <div className="flex flex-wrap gap-1.5 max-h-20 overflow-y-auto">
-                      {activeEntries.slice(0, 8).map((entry: any) => (
-                        <span
-                          key={entry.id || entry.timeEntryId}
-                          className="inline-flex items-center gap-1 bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800/40 rounded-full px-2 py-0.5 text-[11px] font-medium text-green-700 dark:text-green-300"
-                        >
-                          {getUserName(entry.userId)}
-                        </span>
-                      ))}
-                      {activeEntries.length > 8 && (
-                        <span className="text-[11px] text-muted-foreground py-0.5">+{activeEntries.length - 8} more</span>
-                      )}
+                    <div>
+                      <p className="text-2xl font-bold tabular-nums leading-tight">{todaySchedules.length}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {todaySchedules.length === 1 ? 'shift' : 'shifts'} &bull; {totalClockedIn} clocked in
+                        {partialErrors?.todaySummaryError && !todaySummary && (
+                          <AlertTriangle size={10} className="inline ml-1 text-amber-500" title="Attendance data may be unavailable" />
+                        )}
+                      </p>
                     </div>
                   )}
                 </div>
