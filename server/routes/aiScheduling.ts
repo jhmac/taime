@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
 import { aiSchedulingSettings, shopifyDailySales, shopifyOrders, users, userAvailability, availabilityTemplates, schedules, shops, userShops, roles, workPatternTemplates, userWorkPatterns, clockEvents } from "@shared/schema";
-import { eq, and, gte, lte, desc, inArray, sql, count } from "drizzle-orm";
+import { eq, and, gte, lte, desc, inArray, sql, count, isNull, or } from "drizzle-orm";
 import { db } from "../db";
 import Anthropic from '@anthropic-ai/sdk';
 import rateLimit from "express-rate-limit";
@@ -1492,6 +1492,47 @@ Required JSON structure:
       ));
       const alreadyScheduledSet = new Set(todayScheds2.map(s => s.userId));
 
+      // ── Work-pattern fetch — must happen before availableMembers is built ────────
+      // Required employees must bypass availability filtering, so we resolve status first.
+      type WorkPatternStatus = 'required' | 'available' | 'preferred_off' | 'hard_off';
+      interface WorkPatternRow {
+        userId: string;
+        dayOfWeek: number;
+        status: WorkPatternStatus;
+        effectiveFrom: Date;
+      }
+
+      // Fetch active records effective on the requested date.
+      // day_of_week and status are real DB columns selected via sql<> (not in TS schema).
+      const workPatternsForDay: WorkPatternRow[] = await db.select({
+        userId: userWorkPatterns.userId,
+        dayOfWeek: sql<number>`"user_work_patterns"."day_of_week"`,
+        status: sql<WorkPatternStatus>`"user_work_patterns"."status"`,
+        effectiveFrom: userWorkPatterns.effectiveFrom,
+      }).from(userWorkPatterns).where(and(
+        inArray(userWorkPatterns.userId, storeUserIds),
+        eq(userWorkPatterns.isActive, true),
+        lte(userWorkPatterns.effectiveFrom, dateObj),
+        or(
+          isNull(userWorkPatterns.effectiveTo),
+          gte(userWorkPatterns.effectiveTo, dateObj),
+        ),
+      ));
+
+      // Resolve one status per user for today's day-of-week (most-recent effectiveFrom wins).
+      const workPatternStatusMap: Record<string, WorkPatternStatus> = {};
+      const wpBestByUser: Record<string, WorkPatternRow> = {};
+      for (const wp of workPatternsForDay) {
+        if (wp.dayOfWeek !== dow) continue;
+        const prev = wpBestByUser[wp.userId];
+        if (!prev || new Date(wp.effectiveFrom) > new Date(prev.effectiveFrom)) {
+          wpBestByUser[wp.userId] = wp;
+        }
+      }
+      for (const [wpUserId, wp] of Object.entries(wpBestByUser)) {
+        workPatternStatusMap[wpUserId] = wp.status;
+      }
+
       // Build ranked members list using exact same algorithm as today-availability
       const availableMembers: any[] = [];
       for (const u of storeUsers) {
@@ -1537,8 +1578,17 @@ Required JSON structure:
           if (!availEnd) availEnd = storeClose2;
         }
 
-        // Skip unavailable or already scheduled
-        if (!isAvailable || alreadyScheduledSet.has(uid)) continue;
+        // Required employees bypass unavailability — they must always appear in roster.
+        // Exception: already-scheduled employees are skipped regardless (no duplicates).
+        const isRequired = workPatternStatusMap[uid] === 'required';
+        if (alreadyScheduledSet.has(uid)) continue;
+        if (!isAvailable && !isRequired) continue;
+        // Required-but-unavailable: default to full store-hour window
+        if (!isAvailable && isRequired) {
+          isAvailable = true;
+          availStart = storeOpen2;
+          availEnd = storeClose2;
+        }
 
         // Overlap with store hours (same formula as today-availability)
         const aStartMins = Math.max(timeToMinutes2(availStart!), storeOpenMins2);
@@ -1572,6 +1622,69 @@ Required JSON structure:
         });
       }
       availableMembers.sort((a, b) => b.compositeScore - a.compositeScore);
+
+      // workPatternStatusMap resolved above (before availableMembers loop) so Required users
+      // are included in availableMembers even when their template marks them unavailable.
+
+      // Remove Day Off (hard_off) employees — they must never be scheduled
+      const filteredMembers = availableMembers.filter(m => {
+        const pattern = workPatternStatusMap[m.userId];
+        return pattern !== 'hard_off';
+      });
+      interface RosterMember {
+        userId: string;
+        name: string;
+        firstName: string | null;
+        lastName: string | null;
+        profileImageUrl: string | null;
+        availableFrom: string | null;
+        availableTo: string | null;
+        overlapHours: number;
+        compositeScore: number;
+        workPatternStatus: WorkPatternStatus;
+        targetWeeklyHours: number | null;
+        scheduledHoursThisWeek: number;
+        hoursRemaining: number | null;
+      }
+
+      const enrichMember = (m: typeof availableMembers[0]): RosterMember => {
+        const rawStatus = workPatternStatusMap[m.userId];
+        const workPatternStatus: WorkPatternStatus =
+          rawStatus === 'required' || rawStatus === 'preferred_off' || rawStatus === 'hard_off'
+            ? rawStatus
+            : 'available';
+        const targetHoursRaw = storeUsers.find(u => u.id === m.userId)?.targetWeeklyHours;
+        const scheduledHrs = scheduledHoursMap2[m.userId] || 0;
+        const targetHrsNum = targetHoursRaw ? parseFloat(targetHoursRaw) : null;
+        return {
+          userId: m.userId,
+          name: m.name,
+          firstName: m.firstName ?? null,
+          lastName: m.lastName ?? null,
+          profileImageUrl: m.profileImageUrl ?? null,
+          availableFrom: m.availableFrom,
+          availableTo: m.availableTo,
+          overlapHours: m.overlapHours,
+          compositeScore: m.compositeScore,
+          workPatternStatus,
+          targetWeeklyHours: targetHrsNum,
+          scheduledHoursThisWeek: Math.round(scheduledHrs * 10) / 10,
+          hoursRemaining: targetHrsNum !== null ? Math.max(0, Math.round((targetHrsNum - scheduledHrs) * 10) / 10) : null,
+        };
+      };
+
+      // Required employees must always appear in the roster regardless of composite score.
+      // Fill remaining slots (up to 30) with non-required members sorted by composite score.
+      const MAX_ROSTER = 30;
+      const requiredInFiltered = filteredMembers.filter(m => workPatternStatusMap[m.userId] === 'required');
+      const nonRequiredInFiltered = filteredMembers.filter(m => workPatternStatusMap[m.userId] !== 'required');
+      const rosterMembers: RosterMember[] = [
+        ...requiredInFiltered.map(enrichMember),
+        ...nonRequiredInFiltered.slice(0, Math.max(0, MAX_ROSTER - requiredInFiltered.length)).map(enrichMember),
+      ];
+
+      // Pull shiftOverlapMinutes from settings (default 0 for suggest endpoint — handoff overlap)
+      const shiftOverlapMinutes2: number = settings2?.shiftOverlapMinutes ?? 0;
 
       // ── Get historical sales: backfill from Shopify GraphQL if needed ────────
       const oneYearAgo2 = new Date(dateObj);
@@ -1719,9 +1832,18 @@ Required JSON structure:
           ? hourlyData.map((h: any) => `  ${h.label}: $${h.revenue} revenue${h.isPeak ? ' [PEAK]' : ''} → ${h.suggestedStaff} staff needed`).join('\n')
           : '  No historical sales data — use minimum staffing defaults.';
 
-        const teamRoster = availableMembers.slice(0, 30).map((m: any) =>
-          `  - ${m.name} (id:${m.userId}) | available ${m.availableFrom}–${m.availableTo} | score:${m.compositeScore}/100`
-        ).join('\n');
+        const requiredMembers = rosterMembers.filter(m => m.workPatternStatus === 'required');
+        const preferredOffMembers = rosterMembers.filter(m => m.workPatternStatus === 'preferred_off');
+
+        const teamRoster = rosterMembers.map(m => {
+          const patternNote = m.workPatternStatus === 'required' ? ' [REQUIRED — must be scheduled]'
+            : m.workPatternStatus === 'preferred_off' ? ' [prefers day off — schedule only if needed]'
+            : '';
+          const hoursNote = m.hoursRemaining !== null
+            ? ` | target ${m.targetWeeklyHours}h/wk, ${m.hoursRemaining}h remaining`
+            : '';
+          return `  - ${m.name} (id:${m.userId}) | available ${m.availableFrom}–${m.availableTo} | score:${m.compositeScore}/100${hoursNote}${patternNote}`;
+        }).join('\n');
 
         const shiftBlockSummary = shiftBlocks.map((b: any) => {
           const blockHrs = hourlyData.filter((h: any) => {
@@ -1734,6 +1856,10 @@ Required JSON structure:
           return `  ${b.name} (${b.startTime}–${b.endTime}): $${Math.round(blockRev)} revenue → ${maxStaff} staff recommended`;
         }).join('\n');
 
+        const overlapNote = shiftOverlapMinutes2 > 0
+          ? `SHIFT HANDOFF OVERLAP: ${shiftOverlapMinutes2} minutes — when one shift block ends and another begins, extend the outgoing shift end time by ${shiftOverlapMinutes2} minutes so the two employees overlap during handoff. For example, if Morning ends at 14:00 and Afternoon starts at 14:00, the Morning employee's endTime should be 14:${String(shiftOverlapMinutes2).padStart(2,'0')} and the Afternoon employee's startTime should remain 14:00.`
+          : 'SHIFT HANDOFF OVERLAP: none configured — use exact shift block start/end times.';
+
         const claudePrompt = `You are an expert retail staffing scheduler for Libby Story boutique. Generate a specific shift schedule for ${dayLabel}.
 
 STORE HOURS: ${storeOpen2} – ${storeClose2}
@@ -1745,16 +1871,24 @@ ${hourlyBreakdown}
 SHIFT BLOCKS:
 ${shiftBlockSummary}
 
-AVAILABLE TEAM MEMBERS (ranked by availability+performance+hours):
+${overlapNote}
+
+AVAILABLE TEAM MEMBERS (ranked by availability+performance+hours remaining toward target):
 ${teamRoster || '  No available employees found.'}
+${requiredMembers.length > 0 ? `\nREQUIRED employees (must appear in schedule): ${requiredMembers.map(m => m.name).join(', ')}` : ''}
+${preferredOffMembers.length > 0 ? `PREFER DAY OFF (schedule only if needed to meet staffing minimums): ${preferredOffMembers.map(m => m.name).join(', ')}` : ''}
 
 RULES:
 1. Assign real employees from the roster above to each shift block
-2. Match employees to blocks where they are available (check their available hours)
-3. Prioritize higher-scored employees for peak revenue hours
-4. Do not assign the same employee to two overlapping blocks
-5. Each shift block needs the recommended number of staff (see SHIFT BLOCKS above)
-6. If no historical data, use the minimum staffing of ${minimumStaffing2} per block
+2. REQUIRED employees MUST be assigned to a shift — do not omit them
+3. Employees with more hours remaining toward their weekly target should be prioritized first
+4. Match employees to blocks where they are available (check their available hours)
+5. Prioritize higher-scored employees for peak revenue hours
+6. Do not assign the same employee to two overlapping blocks
+7. Each shift block needs the recommended number of staff (see SHIFT BLOCKS above)
+8. If no historical data, use the minimum staffing of ${minimumStaffing2} per block
+9. Apply the configured shift handoff overlap to shift end/start times as described above
+10. Only schedule "prefers day off" employees if the staffing minimum cannot otherwise be met
 
 Respond ONLY with a valid JSON object (no markdown, no explanation) in this exact format:
 {
@@ -1762,10 +1896,10 @@ Respond ONLY with a valid JSON object (no markdown, no explanation) in this exac
     {
       "employeeId": "<exact id from roster>",
       "employeeName": "<exact name from roster>",
-      "startTime": "<HH:MM from shift block>",
-      "endTime": "<HH:MM from shift block>",
+      "startTime": "<HH:MM>",
+      "endTime": "<HH:MM>",
       "shiftBlock": "<block name>",
-      "rationale": "<1 sentence: why this person for this block, referencing revenue if available>"
+      "rationale": "<1 sentence: why this person for this block, referencing revenue and hours remaining if available>"
     }
   ]
 }`;
@@ -1783,7 +1917,7 @@ Respond ONLY with a valid JSON object (no markdown, no explanation) in this exac
           const shifts: any[] = parsed.proposedShifts || [];
           if (shifts.length > 0) {
             for (const s of shifts) {
-              const member = availableMembers.find((m: any) => m.userId === s.employeeId);
+              const member = filteredMembers.find((m: any) => m.userId === s.employeeId);
               if (!member) continue;
               // Find the matching shift block for revenue
               const block = shiftBlocks.find((b: any) => b.name === s.shiftBlock);
@@ -1827,14 +1961,35 @@ Respond ONLY with a valid JSON object (no markdown, no explanation) in this exac
           const peakLabel = peakHours.length > 0
             ? `Peak ${peakHours[0].label}–${peakHours[peakHours.length - 1].label}`
             : block.name;
-          const blockMembers = availableMembers.filter(m => {
+          const blockMembers = filteredMembers.filter(m => {
             if (!m.availableFrom || !m.availableTo) return true;
             const [mStartH] = m.availableFrom.split(':').map(Number);
             const [mEndH] = m.availableTo.split(':').map(Number);
             return mStartH <= blockStartH && mEndH >= blockEndH;
           });
+
+          // Sort: Required first, then by hours remaining (more = schedule first), then composite score
+          blockMembers.sort((a, b) => {
+            const aReq = workPatternStatusMap[a.userId] === 'required' ? 1 : 0;
+            const bReq = workPatternStatusMap[b.userId] === 'required' ? 1 : 0;
+            if (bReq !== aReq) return bReq - aReq;
+            const aUser = storeUsers.find(u => u.id === a.userId);
+            const bUser = storeUsers.find(u => u.id === b.userId);
+            const aTarget = aUser?.targetWeeklyHours ? parseFloat(aUser.targetWeeklyHours) : 0;
+            const bTarget = bUser?.targetWeeklyHours ? parseFloat(bUser.targetWeeklyHours) : 0;
+            const aRemaining = Math.max(0, aTarget - (scheduledHoursMap2[a.userId] || 0));
+            const bRemaining = Math.max(0, bTarget - (scheduledHoursMap2[b.userId] || 0));
+            if (bRemaining !== aRemaining) return bRemaining - aRemaining;
+            return b.compositeScore - a.compositeScore;
+          });
+
+          // Only use preferred_off employees if we still need more staff after exhausting others
+          const nonPrefOff = blockMembers.filter(m => workPatternStatusMap[m.userId] !== 'preferred_off');
+          const prefOff = blockMembers.filter(m => workPatternStatusMap[m.userId] === 'preferred_off');
+          const orderedMembers = [...nonPrefOff, ...prefOff];
+
           let assigned = 0;
-          for (const member of blockMembers) {
+          for (const member of orderedMembers) {
             if (assigned >= maxStaff) break;
             const existing = assignedMemberShifts[member.userId] || [];
             if (existing.includes(block.name)) continue;
@@ -1842,6 +1997,7 @@ Respond ONLY with a valid JSON object (no markdown, no explanation) in this exac
             const rationaleRevenue = blockRevenue > 0
               ? `$${Math.round(blockRevenue).toLocaleString()} in ${block.name.toLowerCase()} window`
               : `${block.name} shift`;
+            const prefNote = workPatternStatusMap[member.userId] === 'preferred_off' ? ' (prefers day off — included to meet staffing minimum)' : '';
             proposedShiftShape.push({
               employeeId: member.userId,
               employeeName: member.name,
@@ -1849,10 +2005,73 @@ Respond ONLY with a valid JSON object (no markdown, no explanation) in this exac
               startTime: block.startTime,
               endTime: block.endTime,
               shiftBlock: block.name,
-              rationale: `${peakLabel}: ${rationaleRevenue} → ${maxStaff} staff recommended`,
+              rationale: `${peakLabel}: ${rationaleRevenue} → ${maxStaff} staff recommended${prefNote}`,
               revenue: Math.round(blockRevenue * 100) / 100,
             });
             assigned++;
+          }
+        }
+      }
+
+      // ── Post-processing: enforce Required employees ───────────────────────────
+      // Any rosterMember with workPatternStatus === 'required' must appear in the output.
+      // If Claude or the fallback omitted them, add them to the best-fitting shift block.
+      const requiredRosterMembers = rosterMembers.filter(m => m.workPatternStatus === 'required');
+      for (const rm of requiredRosterMembers) {
+        const alreadyIncluded = proposedShiftShape.some(s => s.employeeId === rm.userId);
+        if (alreadyIncluded) continue;
+        // Find a shift block that fits within the employee's availability window
+        const bestBlock: { name: string; startTime: string; endTime: string } | undefined =
+          shiftBlocks.find((b: { startTime: string; endTime: string }) => {
+            if (!rm.availableFrom || !rm.availableTo) return true;
+            const [mS] = rm.availableFrom.split(':').map(Number);
+            const [mE] = rm.availableTo.split(':').map(Number);
+            const [bS] = b.startTime.split(':').map(Number);
+            const [bE] = b.endTime.split(':').map(Number);
+            return mS <= bS && mE >= bE;
+          }) ?? shiftBlocks[0];
+        if (!bestBlock) continue;
+        const blockHrs = hourlyData.filter((h: { hour: number }) => {
+          const [bS] = bestBlock.startTime.split(':').map(Number);
+          const [bE] = bestBlock.endTime.split(':').map(Number);
+          return h.hour >= bS && h.hour < bE;
+        });
+        const blockRevenue = blockHrs.reduce((s: number, h: { revenue: number }) => s + h.revenue, 0);
+        proposedShiftShape.push({
+          employeeId: rm.userId,
+          employeeName: rm.name,
+          profileImageUrl: rm.profileImageUrl || null,
+          startTime: bestBlock.startTime,
+          endTime: bestBlock.endTime,
+          shiftBlock: bestBlock.name,
+          rationale: `Required work pattern for this day — must be scheduled`,
+          revenue: Math.round(blockRevenue * 100) / 100,
+        });
+        logger.info("[suggest] forced Required employee into schedule", { userId: rm.userId, block: bestBlock.name });
+      }
+
+      // ── Post-processing: apply shift handoff overlap to adjacent block boundaries ──
+      // When shiftOverlapMinutes > 0 and two consecutive blocks share a boundary (A.end == B.start),
+      // extend the outgoing (A) employee shifts by the overlap duration so handoffs are built in.
+      if (shiftOverlapMinutes2 > 0 && shiftBlocks.length > 1) {
+        type ShiftBlock = { name: string; startTime: string; endTime: string };
+        const sortedBlocks = ([...shiftBlocks] as ShiftBlock[]).sort((a, b) =>
+          timeToMinutes2(a.startTime) - timeToMinutes2(b.startTime)
+        );
+        for (let bi = 0; bi < sortedBlocks.length - 1; bi++) {
+          const curBlock = sortedBlocks[bi];
+          const nextBlock = sortedBlocks[bi + 1];
+          // Only apply when blocks are adjacent
+          if (curBlock.endTime !== nextBlock.startTime) continue;
+          const extEndMins = timeToMinutes2(curBlock.endTime) + shiftOverlapMinutes2;
+          const extH = Math.floor(extEndMins / 60);
+          const extM = extEndMins % 60;
+          const extEndTime = `${String(extH).padStart(2, '0')}:${String(extM).padStart(2, '0')}`;
+          // Extend any proposed shift assigned to curBlock whose endTime matches the block boundary
+          for (const s of proposedShiftShape) {
+            if (s.shiftBlock === curBlock.name && s.endTime === curBlock.endTime) {
+              s.endTime = extEndTime;
+            }
           }
         }
       }

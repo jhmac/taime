@@ -160,7 +160,7 @@ function ShiftBlock({
       title={title}
       style={{ top: `${topPct}%`, height: `${heightPct}%` }}
       className={cn(
-        "absolute left-1 right-1 rounded-md px-1.5 py-0.5 text-left transition-all overflow-hidden group",
+        "absolute inset-x-0.5 rounded-md px-1.5 py-0.5 text-left transition-all overflow-hidden group",
         isExcluded
           ? "bg-muted/60 border border-dashed border-border opacity-50"
           : hasConflict
@@ -379,7 +379,7 @@ function DayTimeline({
         </div>
       ) : (
         <div className="flex gap-2">
-          {/* Hour labels */}
+          {/* Hour labels axis */}
           <div
             className="relative flex-shrink-0 w-8"
             style={{ height: Math.max(160, Math.min(300, totalMin * 0.6)) }}
@@ -398,36 +398,42 @@ function DayTimeline({
               );
             })}
           </div>
-          {/* Timeline body */}
+          {/* Timeline body: one column per shift */}
           <div
-            className="relative flex-1 border border-border/50 rounded-lg bg-muted/20"
+            className="relative flex flex-1 border border-border/50 rounded-lg bg-muted/20 overflow-hidden"
             style={{ height: Math.max(160, Math.min(300, totalMin * 0.6)) }}
           >
-            {/* Hour grid lines */}
-            {hourLabels.map((h) => {
-              const topPct = ((h * 60 - openMin) / totalMin) * 100;
-              if (topPct <= 0 || topPct >= 100) return null;
-              return (
-                <div
-                  key={h}
-                  style={{ top: `${topPct}%` }}
-                  className="absolute left-0 right-0 border-t border-border/30"
-                />
-              );
-            })}
-            {/* Shift blocks */}
+            {/* Hour grid lines — span all columns */}
+            <div className="absolute inset-0 pointer-events-none z-0">
+              {hourLabels.map((h) => {
+                const topPct = ((h * 60 - openMin) / totalMin) * 100;
+                if (topPct <= 0 || topPct >= 100) return null;
+                return (
+                  <div
+                    key={h}
+                    style={{ top: `${topPct}%` }}
+                    className="absolute left-0 right-0 border-t border-border/30"
+                  />
+                );
+              })}
+            </div>
+            {/* One column per shift */}
             {shifts.map((shift, idx) => (
-              <ShiftBlock
+              <div
                 key={idx}
-                shift={shift}
-                openMin={openMin}
-                closeMin={closeMin}
-                isSelected={selectedIdx === idx}
-                isExcluded={excludedIdxs.has(idx)}
-                onClick={() => onSelectShift(shift, idx)}
-                onToggleExclude={(e) => { e.stopPropagation(); onToggleExclude(idx); }}
-                hasConflict={conflictingEmployeeIds.has(shift.employeeId)}
-              />
+                className="relative flex-1 min-w-[52px] border-l border-border/20 first:border-l-0 z-10"
+              >
+                <ShiftBlock
+                  shift={shift}
+                  openMin={openMin}
+                  closeMin={closeMin}
+                  isSelected={selectedIdx === idx}
+                  isExcluded={excludedIdxs.has(idx)}
+                  onClick={() => onSelectShift(shift, idx)}
+                  onToggleExclude={(e) => { e.stopPropagation(); onToggleExclude(idx); }}
+                  hasConflict={conflictingEmployeeIds.has(shift.employeeId)}
+                />
+              </div>
             ))}
           </div>
         </div>
