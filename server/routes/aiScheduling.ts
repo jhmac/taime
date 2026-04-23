@@ -1239,11 +1239,16 @@ Required JSON structure:
   app.post("/api/schedules/suggest", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
+      logger.info("[suggest] request received", { userId, body: req.body });
+
       const userPermissions = await storage.getUserPermissions(userId);
       const isAdmin = userPermissions.some((p: any) =>
         p.name === 'admin.manage_all' || p.name === 'schedule.view_all' || p.name === 'schedule.create'
       );
-      if (!isAdmin) return res.status(403).json({ message: "Manager access required" });
+      if (!isAdmin) {
+        logger.warn("[suggest] 403 — missing permission", { userId });
+        return res.status(403).json({ message: "Manager access required" });
+      }
 
       const { date } = req.body;
       const dateParam = date || new Date().toISOString().split('T')[0];
@@ -1253,8 +1258,12 @@ Required JSON structure:
       const { getAllStoreUserIds } = await import('../lib/permissionUtils');
 
       const storeId = await tryResolveStoreIdForUser(userId);
-      if (!storeId) return res.status(403).json({ message: "No store associated with your account" });
+      if (!storeId) {
+        logger.warn("[suggest] 403 — no store for user", { userId });
+        return res.status(403).json({ message: "No store associated with your account" });
+      }
       const storeUserIds = await getAllStoreUserIds(storeId);
+      logger.info("[suggest] store resolved", { storeId, userCount: storeUserIds.length, dateParam });
       if (storeUserIds.length === 0) return res.json({ date: dateParam, proposedShifts: [], historicalDate: '', dataSource: 'synthetic', hourlyData: [], storeHours: { open: '09:00', close: '21:00' } });
 
       // ── Mirror today-availability data gathering exactly ─────────────────────
@@ -1593,6 +1602,12 @@ Required JSON structure:
         }
       }
 
+      logger.info("[suggest] responding", {
+        dateParam,
+        proposedShifts: proposedShifts.length,
+        dataSource: salesData.dataSource,
+        availableMembers: availableMembers.length,
+      });
       res.json({
         date: dateParam,
         proposedShifts,
@@ -1602,8 +1617,9 @@ Required JSON structure:
         storeHours: salesData.storeHours,
       });
     } catch (error) {
+      logger.error("[suggest] unhandled error", { error: String(error) });
       console.error("Error generating suggested schedule:", error);
-      res.status(500).json({ message: "Failed to generate suggested schedule" });
+      res.status(500).json({ message: "Failed to generate suggested schedule", detail: String(error) });
     }
   });
 }

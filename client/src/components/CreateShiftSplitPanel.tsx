@@ -232,7 +232,8 @@ function SalesChart({
     return (
       <div className="mb-4 rounded-lg border border-dashed border-border bg-muted/30 p-4 text-center">
         <TrendingUp className="h-6 w-6 text-muted-foreground mx-auto mb-1" />
-        <p className="text-xs text-muted-foreground">No sales data available for this date.</p>
+        <p className="text-xs text-muted-foreground font-medium">No historical sales data for this date</p>
+        <p className="text-[10px] text-muted-foreground mt-0.5">AI suggestions will use minimum staffing defaults.</p>
       </div>
     );
   }
@@ -308,6 +309,8 @@ function SalesChart({
 function DayTimeline({
   suggestData,
   isLoading,
+  isError,
+  errorMsg,
   storeHours,
   selectedIdx,
   onSelectShift,
@@ -317,6 +320,8 @@ function DayTimeline({
 }: {
   suggestData: SuggestData | null | undefined;
   isLoading: boolean;
+  isError?: boolean;
+  errorMsg?: string;
   storeHours: { open: string; close: string } | null;
   selectedIdx: number | null;
   onSelectShift: (shift: ProposedShift, idx: number) => void;
@@ -359,10 +364,18 @@ function DayTimeline({
         )}
       </div>
       {shifts.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-border bg-muted/30 p-3 text-center">
-          <p className="text-xs text-muted-foreground">
-            {suggestData ? "No shifts suggested. Add employees or adjust availability." : "Loading suggestions…"}
-          </p>
+        <div className={`rounded-lg border border-dashed p-3 text-center ${isError ? "border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-900/20" : "border-border bg-muted/30"}`}>
+          {isError ? (
+            <>
+              <AlertTriangle className="h-5 w-5 text-red-500 mx-auto mb-1" />
+              <p className="text-xs text-red-600 dark:text-red-400 font-medium">Failed to load suggestions</p>
+              {errorMsg && <p className="text-[10px] text-red-500 dark:text-red-500 mt-0.5 max-w-[180px] mx-auto">{errorMsg}</p>}
+            </>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              {suggestData ? "No shifts suggested. Add employees or adjust availability." : "Loading suggestions…"}
+            </p>
+          )}
         </div>
       ) : (
         <div className="flex gap-2">
@@ -491,36 +504,31 @@ export default function CreateShiftSplitPanel({
   const { data: salesData, isLoading: salesLoading } = useQuery<HistoricalSalesData>({
     queryKey: ["/api/schedules/historical-sales", modalDate],
     queryFn: async () => {
-      const res = await fetch(`/api/schedules/historical-sales?date=${modalDate}`, {
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to fetch sales data");
+      const res = await apiRequest("GET", `/api/schedules/historical-sales?date=${modalDate}`);
       return res.json();
     },
     enabled: open && !!modalDate,
+    retry: 1,
   });
 
   const {
     data: suggestData,
     isLoading: suggestLoading,
     isFetching: suggestFetching,
+    isError: suggestError,
+    error: suggestErrorObj,
     dataUpdatedAt: suggestUpdatedAt,
     refetch: refetchSuggest,
   } = useQuery<SuggestData>({
     queryKey: ["/api/schedules/suggest", modalDate],
     queryFn: async () => {
-      const res = await fetch("/api/schedules/suggest", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ date: modalDate }),
-      });
-      if (!res.ok) throw new Error("Failed to fetch suggestions");
+      const res = await apiRequest("POST", "/api/schedules/suggest", { date: modalDate });
       return res.json();
     },
     enabled: open && !!modalDate,
     staleTime: 5 * 60_000,
     gcTime: 10 * 60_000,
+    retry: 1,
   });
 
   const approveMutation = useMutation({
@@ -726,6 +734,8 @@ export default function CreateShiftSplitPanel({
               <DayTimeline
                 suggestData={suggestData}
                 isLoading={suggestLoading && !!modalDate}
+                isError={suggestError}
+                errorMsg={suggestError ? (suggestErrorObj as Error)?.message : undefined}
                 storeHours={storeHours}
                 selectedIdx={selectedShiftIdx}
                 onSelectShift={handleSelectShift}
