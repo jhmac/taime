@@ -14,7 +14,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 import {
   Clock, Users, Loader2, TrendingUp, Sparkles, AlertTriangle,
-  ChevronDown, ChevronUp, Wand2, Check, X
+  ChevronDown, ChevronUp, Wand2, Check, X, RefreshCw
 } from "lucide-react";
 
 interface HourlyData {
@@ -500,7 +500,13 @@ export default function CreateShiftSplitPanel({
     enabled: open && !!modalDate,
   });
 
-  const { data: suggestData, isLoading: suggestLoading } = useQuery<SuggestData>({
+  const {
+    data: suggestData,
+    isLoading: suggestLoading,
+    isFetching: suggestFetching,
+    dataUpdatedAt: suggestUpdatedAt,
+    refetch: refetchSuggest,
+  } = useQuery<SuggestData>({
     queryKey: ["/api/schedules/suggest", modalDate],
     queryFn: async () => {
       const res = await fetch("/api/schedules/suggest", {
@@ -513,7 +519,8 @@ export default function CreateShiftSplitPanel({
       return res.json();
     },
     enabled: open && !!modalDate,
-    staleTime: 60_000,
+    staleTime: 5 * 60_000,
+    gcTime: 10 * 60_000,
   });
 
   const approveMutation = useMutation({
@@ -632,6 +639,26 @@ export default function CreateShiftSplitPanel({
                 >
                   {leftCollapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
                 </button>
+                {/* Refresh button */}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1 text-xs h-8"
+                  disabled={suggestFetching || !modalDate}
+                  title={
+                    suggestUpdatedAt
+                      ? `Last fetched ${new Date(suggestUpdatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} — click to refresh`
+                      : "Refresh AI suggestions"
+                  }
+                  onClick={() => refetchSuggest()}
+                >
+                  <RefreshCw className={cn("h-3 w-3", suggestFetching && "animate-spin")} />
+                  {suggestUpdatedAt && !suggestFetching ? (
+                    <span className="hidden sm:inline">
+                      {new Date(suggestUpdatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                  ) : null}
+                </Button>
                 <Button
                   size="sm"
                   className={cn(
