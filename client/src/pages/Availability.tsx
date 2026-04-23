@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, queryClient, invalidatePrefix } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -604,7 +604,7 @@ export default function Availability() {
     },
     onSuccess: () => {
       toast({ title: "Availability saved" });
-      queryClient.invalidateQueries({ queryKey: ['/api/availability/calendar', calStart, calEnd] });
+      invalidatePrefix('/api/availability/calendar');
       setEditorDay(null);
       setWeekWasAutoFilled(false);
     },
@@ -619,7 +619,7 @@ export default function Availability() {
     },
     onSuccess: () => {
       toast({ title: "Cleared", description: "Reverted to your default schedule." });
-      queryClient.invalidateQueries({ queryKey: ['/api/availability/calendar', calStart, calEnd] });
+      invalidatePrefix('/api/availability/calendar');
       setEditorDay(null);
     },
     onError: () => {
@@ -645,7 +645,7 @@ export default function Availability() {
     onSuccess: () => {
       toast({ title: "Default schedule updated", description: "This day-of-week will now auto-fill every week." });
       queryClient.invalidateQueries({ queryKey: ['/api/availability/template'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/availability/calendar', calStart, calEnd] });
+      invalidatePrefix('/api/availability/calendar');
       setEditorDay(null);
     },
     onError: () => {
