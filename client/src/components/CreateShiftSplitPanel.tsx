@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { BarChart, Bar, ResponsiveContainer, Tooltip, Cell } from "recharts";
+import { BarChart, Bar, ResponsiveContainer, Tooltip, Cell, XAxis } from "recharts";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -252,17 +252,20 @@ function SalesChart({
     : "";
 
   return (
-    <div className="mb-4">
+    <div className="mb-3">
       <div className="flex items-center justify-between mb-1">
         <span className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
           <TrendingUp className="h-3 w-3" />
           Projected Revenue
         </span>
-        <span className="text-[11px] font-semibold text-foreground">{dailyFmt} total</span>
+        <div className="flex items-center gap-2">
+          <span className="text-[9px] text-muted-foreground italic">Based on {historicalLabel}</span>
+          <span className="text-[11px] font-semibold text-foreground">{dailyFmt} total</span>
+        </div>
       </div>
-      <div className="h-20 w-full">
+      <div className="h-28 w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data.hourlyData} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
+          <BarChart data={data.hourlyData} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
             <Tooltip
               cursor={false}
               content={({ active, payload }) => {
@@ -271,12 +274,20 @@ function SalesChart({
                 return (
                   <div className="bg-popover border border-border rounded px-2 py-1 text-[10px] shadow">
                     <div className="font-medium">{d.label}</div>
-                    <div>${Math.round(d.revenue).toLocaleString()}{d.isPeak ? " · peak" : ""}</div>
+                    <div className="text-muted-foreground">${Math.round(d.revenue).toLocaleString()}{d.isPeak ? " · peak" : ""}</div>
+                    <div className="text-muted-foreground">{d.suggestedStaff} staff recommended</div>
                   </div>
                 );
               }}
             />
-            <Bar dataKey="revenue" radius={[2, 2, 0, 0]} maxBarSize={20}>
+            <XAxis
+              dataKey="label"
+              tick={{ fontSize: 8, fill: '#94a3b8' }}
+              axisLine={false}
+              tickLine={false}
+              interval={0}
+            />
+            <Bar dataKey="revenue" radius={[2, 2, 0, 0]} maxBarSize={22}>
               {data.hourlyData.map((entry, i) => (
                 <Cell
                   key={i}
@@ -287,14 +298,7 @@ function SalesChart({
           </BarChart>
         </ResponsiveContainer>
       </div>
-      <div className="flex items-center justify-between mt-0.5">
-        <span className="text-[9px] text-muted-foreground">{data.hourlyData[0]?.label}</span>
-        <span className="text-[9px] text-muted-foreground italic">
-          Based on {historicalLabel}
-        </span>
-        <span className="text-[9px] text-muted-foreground">{data.hourlyData[data.hourlyData.length - 1]?.label}</span>
-      </div>
-      <div className="flex items-center gap-3 mt-1">
+      <div className="flex items-center gap-3 mt-0.5">
         <span className="flex items-center gap-1 text-[9px] text-muted-foreground">
           <span className="inline-block w-3 h-2 rounded-sm bg-amber-400" />peak
         </span>
