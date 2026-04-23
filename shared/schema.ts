@@ -99,6 +99,7 @@ export const users = pgTable("users", {
   pin: varchar("pin"),
   showInSchedule: boolean("show_in_schedule").default(true),
   targetWeeklyHours: decimal("target_weekly_hours", { precision: 5, scale: 1 }),
+  schedulingClassifications: jsonb("scheduling_classifications").default(sql`'[]'::jsonb`).$type<string[]>(),
   sendLocationAlerts: boolean("send_location_alerts").default(true),
   includeInTimeClockErrors: boolean("include_in_time_clock_errors").default(true),
   eligibleForOpenShifts: boolean("eligible_for_open_shifts").default(true),
@@ -825,6 +826,18 @@ export const aiSchedulingSettings = pgTable("ai_scheduling_settings", {
   storeHours: jsonb("store_hours").default(sql`'[]'::jsonb`),
   shiftOverlapMinutes: integer("shift_overlap_minutes").default(60),
   overlapBudgetLimit: decimal("overlap_budget_limit", { precision: 10, scale: 2 }),
+  customAiInstructions: text("custom_ai_instructions"),
+});
+
+// AI Scheduling Rules — structured coverage rules (scoped per store/tenant)
+export const aiSchedulingRules = pgTable("ai_scheduling_rules", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id"),
+  ruleType: varchar("rule_type").notNull(),
+  params: jsonb("params").default(sql`'{}'::jsonb`).$type<Record<string, string | number | boolean>>(),
+  isEnabled: boolean("is_enabled").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 // Work pattern templates
@@ -1203,6 +1216,9 @@ export const insertEmployeeTrainingProgressSchema = createInsertSchema(employeeT
 export const insertCommuteAlertSchema = createInsertSchema(commuteAlerts).omit({ id: true, createdAt: true });
 export const insertShoutoutSchema = createInsertSchema(shoutouts).omit({ id: true, createdAt: true });
 export const insertAiSchedulingSettingsSchema = createInsertSchema(aiSchedulingSettings).omit({ id: true, updatedAt: true });
+export const insertAiSchedulingRuleSchema = createInsertSchema(aiSchedulingRules).omit({ id: true, createdAt: true, updatedAt: true });
+export type AiSchedulingRule = typeof aiSchedulingRules.$inferSelect;
+export type InsertAiSchedulingRule = z.infer<typeof insertAiSchedulingRuleSchema>;
 export const insertWorkPatternTemplateSchema = createInsertSchema(workPatternTemplates).omit({ id: true, createdAt: true });
 export const insertUserWorkPatternSchema = createInsertSchema(userWorkPatterns).omit({ id: true, createdAt: true });
 export const insertTimeEntryEditSchema = createInsertSchema(timeEntryEdits).omit({ id: true, editedAt: true });

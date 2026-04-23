@@ -134,6 +134,13 @@
       "when": 1745848800000,
       "tag": "0018_add_task_assignees",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1745935200000,
+      "tag": "0019_ai_scheduling_rules",
+      "breakpoints": true
     }
   ]
 }

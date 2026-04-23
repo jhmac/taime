@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
-import { aiSchedulingSettings, shopifyDailySales, shopifyOrders, users, userAvailability, availabilityTemplates, schedules, shops, userShops, roles, workPatternTemplates, userWorkPatterns, clockEvents, workLocations } from "@shared/schema";
+import { aiSchedulingSettings, aiSchedulingRules, shopifyDailySales, shopifyOrders, users, userAvailability, availabilityTemplates, schedules, shops, userShops, roles, workPatternTemplates, userWorkPatterns, clockEvents, workLocations } from "@shared/schema";
 import { eq, and, gte, lte, desc, inArray, sql, count, isNull, or } from "drizzle-orm";
 import { db } from "../db";
 import Anthropic from '@anthropic-ai/sdk';
@@ -17,6 +17,13 @@ import {
 import logger from "../lib/logger";
 
 const anthropic = new Anthropic({ apiKey: config.anthropic.apiKey });
+
+// Typed params shape for AI scheduling rules — avoids `as any` in prompt generation
+interface AiRuleParams {
+  count?: number;
+  classification?: string;
+  text?: string;
+}
 
 const aiRateLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -474,6 +481,20 @@ export function registerAiSchedulingRoutes(app: Express, storage: IStorage, isAu
         scoreMap[s.userId] = s.totalPoints;
       }
 
+      // Fetch active coverage rules and custom instructions for prompt injection.
+      // Both are stored in ai_scheduling_rules (store-scoped via storeId) — custom instructions
+      // use ruleType='custom_instructions' as a singleton row to avoid unscoped settings reads.
+      const { tryResolveStoreIdForUser } = await import('../lib/storeResolver');
+      const promptStoreId = await tryResolveStoreIdForUser(userId);
+      const allPromptRules = promptStoreId
+        ? await db.select().from(aiSchedulingRules).where(and(eq(aiSchedulingRules.storeId, promptStoreId), eq(aiSchedulingRules.isEnabled, true)))
+        : [];
+      const instructionsSingleton = allPromptRules.find(r => r.ruleType === 'custom_instructions');
+      const activeRules = allPromptRules.filter(r => r.ruleType !== 'custom_instructions');
+      const customAiInstructions = instructionsSingleton
+        ? String((instructionsSingleton.params as AiRuleParams).text || '')
+        : '';
+
       const employeeList = allUsers
         .filter(u => u.showInSchedule !== false)
         .map(u => {
@@ -497,12 +518,14 @@ export function registerAiSchedulingRoutes(app: Express, storage: IStorage, isAu
               userAvail[day.date] = 'available';
             }
           }
+          const classifications = u.schedulingClassifications as string[] | null;
           return {
             id: u.id,
             name: `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.email || 'Unknown',
             availability: userAvail,
             targetWeeklyHours: u.targetWeeklyHours ? parseFloat(u.targetWeeklyHours) : null,
             performanceScore: scoreMap[u.id] ?? 0,
+            classifications: classifications && classifications.length > 0 ? classifications : [],
           };
         });
 
@@ -537,8 +560,17 @@ EMPLOYEES:
 ${employeeList.map(e => {
   const targetInfo = e.targetWeeklyHours ? ` [TARGET: ${e.targetWeeklyHours}hrs/wk]` : '';
   const scoreInfo = ` [SCORE: ${e.performanceScore}]`;
-  return `${e.name} (${e.id})${targetInfo}${scoreInfo}: ${Object.entries(e.availability).map(([date, status]) => `${date}=${status}`).join(', ')}`;
+  const classInfo = e.classifications.length > 0 ? ` [ROLES: ${e.classifications.join(', ')}]` : '';
+  return `${e.name} (${e.id})${targetInfo}${scoreInfo}${classInfo}: ${Object.entries(e.availability).map(([date, status]) => `${date}=${status}`).join(', ')}`;
 }).join('\n')}
+
+EMPLOYEE ROLE CLASSIFICATIONS:
+Employee roles describe their scheduling qualifications. Use these to satisfy coverage rules below.
+- Opener: Qualified to open the store and run opening procedures
+- Closer: Qualified to close the store and run closing procedures
+- Key Holder: Has a store key and can open/close independently
+- Trainer: Can train and supervise New Hires
+- New Hire: Recently onboarded and should be paired with a Trainer when possible
 
 AVAILABILITY STATUS KEY:
 - REQUIRED = employee MUST be scheduled this day (their recurring work pattern demands it)
@@ -559,6 +591,29 @@ RULES:
 7. NEVER schedule anyone on days the store is closed.
 8. preferred_off employees should only be scheduled as a last resort to fill minimum staffing.
 9. When multiple employees are equally available for the same shift, prefer employees with higher SCORE values. Higher scores mean better attendance, task completion, and reliability. Use scores as a tiebreaker after availability, REQUIRED status, and target hours priorities are satisfied.
+${activeRules.length > 0 ? `
+COVERAGE RULES (treat as hard constraints, just below availability):
+${activeRules.map((r, i) => {
+  const p: AiRuleParams = (r.params as AiRuleParams) || {};
+  switch (r.ruleType) {
+    case 'opening_requires_classification':
+      return `${i + 1}. Opening shift must include at least ${p.count || 1} employee(s) with the [${p.classification || 'Key Holder'}] role.`;
+    case 'closing_requires_classification':
+      return `${i + 1}. Closing shift must include at least ${p.count || 1} employee(s) with the [${p.classification || 'Closer'}] role.`;
+    case 'new_hire_paired_with_trainer':
+      return `${i + 1}. Any New Hire scheduled for a shift MUST be on the same shift as at least one Trainer.`;
+    case 'no_clopening':
+      return `${i + 1}. Avoid "clopening" — do not schedule the same employee to close one day and open the next.`;
+    case 'min_classification_per_shift':
+      return `${i + 1}. Every shift must have at least ${p.count || 1} employee(s) with the [${p.classification || 'Key Holder'}] role.`;
+    default:
+      return `${i + 1}. ${r.ruleType}: ${JSON.stringify(p)}`;
+  }
+}).join('\n')}
+` : ''}${customAiInstructions ? `
+CUSTOM INSTRUCTIONS FROM ADMIN:
+${customAiInstructions}
+` : ''}
 
 OUTPUT INSTRUCTIONS: Return ONLY a single JSON object. Do NOT include any text, markdown formatting, or code fences. The response must start with { and end with }.
 
@@ -820,6 +875,191 @@ Required JSON structure:
     } catch (error) {
       console.error("Error updating roster entry:", error);
       res.status(500).json({ message: "Failed to update employee scheduling settings" });
+    }
+  });
+
+  // ── Employee Classifications API ────────────────────────────────────────────
+
+  app.get("/api/ai-scheduling/classifications", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
+      if (!isAdmin) return res.status(403).json({ message: "Admin access required" });
+
+      // Scope to the requester's store to prevent cross-tenant data exposure
+      const { tryResolveStoreIdForUser } = await import('../lib/storeResolver');
+      const { getAllStoreUserIds } = await import('../lib/permissionUtils');
+      const storeId = await tryResolveStoreIdForUser(userId);
+      if (!storeId) return res.status(403).json({ message: "No store associated with your account" });
+      const authorizedUserIds = await getAllStoreUserIds(storeId);
+
+      const allUsers = await db.select({
+        id: users.id,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        email: users.email,
+        isActive: users.isActive,
+        showInSchedule: users.showInSchedule,
+        schedulingClassifications: users.schedulingClassifications,
+      }).from(users).where(and(eq(users.isActive, true), inArray(users.id, authorizedUserIds)));
+
+      const classifications = allUsers.map(u => ({
+        id: u.id,
+        name: `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.email || 'Unknown',
+        email: u.email,
+        showInSchedule: u.showInSchedule ?? true,
+        classifications: (u.schedulingClassifications as string[] | null) || [],
+      }));
+
+      res.json(classifications);
+    } catch (error) {
+      console.error("Error fetching classifications:", error);
+      res.status(500).json({ message: "Failed to fetch classifications" });
+    }
+  });
+
+  app.patch("/api/ai-scheduling/classifications/:employeeId", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
+      if (!isAdmin) return res.status(403).json({ message: "Admin access required" });
+
+      const { employeeId } = req.params;
+
+      // Scope: verify the target employee belongs to the requester's store
+      const { tryResolveStoreIdForUser } = await import('../lib/storeResolver');
+      const { getAllStoreUserIds } = await import('../lib/permissionUtils');
+      const storeId = await tryResolveStoreIdForUser(userId);
+      if (!storeId) return res.status(403).json({ message: "No store associated with your account" });
+      const authorizedUserIds = await getAllStoreUserIds(storeId);
+      if (!authorizedUserIds.includes(employeeId)) {
+        return res.status(403).json({ message: "Employee not found in your store" });
+      }
+
+      const { classifications } = req.body;
+
+      if (!Array.isArray(classifications)) {
+        return res.status(400).json({ message: "classifications must be an array of strings" });
+      }
+
+      const sanitized = classifications
+        .filter(c => typeof c === 'string')
+        .map(c => c.trim())
+        .filter(c => c.length > 0 && c.length <= 100)
+        .slice(0, 20);
+
+      await db.update(users)
+        .set({ schedulingClassifications: sanitized })
+        .where(eq(users.id, employeeId));
+
+      res.json({ success: true, classifications: sanitized });
+    } catch (error) {
+      console.error("Error updating classifications:", error);
+      res.status(500).json({ message: "Failed to update classifications" });
+    }
+  });
+
+  // ── AI Scheduling Rules & Custom Instructions API ───────────────────────────
+
+  app.get("/api/ai-scheduling/rules", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
+      if (!isAdmin) return res.status(403).json({ message: "Admin access required" });
+
+      const { tryResolveStoreIdForUser } = await import('../lib/storeResolver');
+      const storeId = await tryResolveStoreIdForUser(userId);
+      if (!storeId) return res.status(403).json({ message: "No store associated with your account" });
+
+      const allStoreRows = await db.select().from(aiSchedulingRules)
+        .where(eq(aiSchedulingRules.storeId, storeId))
+        .orderBy(aiSchedulingRules.createdAt);
+
+      // Custom instructions are stored as a special singleton row (ruleType='custom_instructions')
+      // so they stay within the same store-scoped table and require no separate unscoped read.
+      const instructionsRow = allStoreRows.find(r => r.ruleType === 'custom_instructions');
+      const coverageRules = allStoreRows.filter(r => r.ruleType !== 'custom_instructions');
+      const customAiInstructions = instructionsRow
+        ? String((instructionsRow.params as AiRuleParams).text || '')
+        : '';
+
+      res.json({ rules: coverageRules, customAiInstructions });
+    } catch (error) {
+      console.error("Error fetching AI rules:", error);
+      res.status(500).json({ message: "Failed to fetch AI rules" });
+    }
+  });
+
+  app.put("/api/ai-scheduling/rules", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
+      if (!isAdmin) return res.status(403).json({ message: "Admin access required" });
+
+      const { tryResolveStoreIdForUser } = await import('../lib/storeResolver');
+      const storeId = await tryResolveStoreIdForUser(userId);
+      if (!storeId) return res.status(403).json({ message: "No store associated with your account" });
+
+      const { rules, customAiInstructions } = req.body;
+
+      // Build the replacement rows list
+      const toInsert: (typeof aiSchedulingRules.$inferInsert)[] = [];
+
+      if (Array.isArray(rules)) {
+        for (const r of rules) {
+          if (!r.ruleType || typeof r.ruleType !== 'string') continue;
+          const typedParams: AiRuleParams = {
+            count: typeof r.params?.count === 'number' ? r.params.count : undefined,
+            classification: typeof r.params?.classification === 'string' ? r.params.classification : undefined,
+          };
+          toInsert.push({
+            storeId,
+            ruleType: String(r.ruleType).slice(0, 100),
+            params: typedParams as Record<string, string | number | boolean>,
+            isEnabled: typeof r.isEnabled === 'boolean' ? r.isEnabled : true,
+          });
+        }
+      }
+
+      // Store custom instructions as a store-scoped singleton row (no separate unscoped table)
+      if (typeof customAiInstructions === 'string') {
+        const sanitizedText = customAiInstructions.slice(0, 5000);
+        const instructionsParams: AiRuleParams = { text: sanitizedText };
+        toInsert.push({
+          storeId,
+          ruleType: 'custom_instructions',
+          params: instructionsParams as Record<string, string | number | boolean>,
+          isEnabled: true,
+        });
+      }
+
+      // Atomically replace all rows for this store so a mid-request failure cannot
+      // leave the store without rules (delete-then-insert wrapped in a transaction).
+      await db.transaction(async (tx) => {
+        await tx.delete(aiSchedulingRules).where(eq(aiSchedulingRules.storeId, storeId));
+        if (toInsert.length > 0) {
+          await tx.insert(aiSchedulingRules).values(toInsert);
+        }
+      });
+
+      const updatedRows = await db.select().from(aiSchedulingRules)
+        .where(eq(aiSchedulingRules.storeId, storeId))
+        .orderBy(aiSchedulingRules.createdAt);
+
+      const instructionsRow = updatedRows.find(r => r.ruleType === 'custom_instructions');
+      const coverageRules = updatedRows.filter(r => r.ruleType !== 'custom_instructions');
+      const savedInstructions = instructionsRow
+        ? String((instructionsRow.params as AiRuleParams).text || '')
+        : '';
+
+      res.json({ rules: coverageRules, customAiInstructions: savedInstructions });
+    } catch (error) {
+      console.error("Error saving AI rules:", error);
+      res.status(500).json({ message: "Failed to save AI rules" });
     }
   });
 

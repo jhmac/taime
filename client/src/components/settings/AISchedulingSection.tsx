@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
@@ -11,7 +11,10 @@ import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Plus, Trash2, Clock, DollarSign, Users, Save, UserCheck, UserX, Target, Store, Copy, Wand2, CalendarCheck, Loader2 } from 'lucide-react';
+import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Plus, Trash2, Clock, DollarSign, Users, Save, UserCheck, UserX, Target, Store, Copy, Wand2, CalendarCheck, Loader2, Tag, ShieldCheck, BookOpen, X, ChevronDown } from 'lucide-react';
 
 interface ShiftBlock {
   name: string;
@@ -32,6 +35,21 @@ interface StoreHourEntry {
   isClosed: boolean;
 }
 
+interface CoverageRule {
+  id?: string;
+  ruleType: string;
+  params: Record<string, string | number | boolean>;
+  isEnabled: boolean;
+}
+
+interface EmployeeClassification {
+  id: string;
+  name: string;
+  email: string | null;
+  showInSchedule: boolean;
+  classifications: string[];
+}
+
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const DAY_ABBREV = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -41,6 +59,481 @@ const DEFAULT_STORE_HOURS: StoreHourEntry[] = DAY_NAMES.map((_, i) => ({
   closeTime: '21:00',
   isClosed: i === 0,
 }));
+
+const BUILT_IN_CLASSIFICATIONS = ['Opener', 'Closer', 'Key Holder', 'Trainer', 'New Hire'];
+
+const CLASSIFICATION_COLORS: Record<string, string> = {
+  'Opener': 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
+  'Closer': 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300',
+  'Key Holder': 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300',
+  'Trainer': 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
+  'New Hire': 'bg-pink-100 text-pink-800 dark:bg-pink-900/30 dark:text-pink-300',
+};
+
+const RULE_TEMPLATES = [
+  {
+    ruleType: 'opening_requires_classification',
+    label: 'Opening shift requires a classification',
+    description: 'The first shift of the day must include at least N employees with a specific role.',
+    defaultParams: { count: 1, classification: 'Key Holder' },
+  },
+  {
+    ruleType: 'closing_requires_classification',
+    label: 'Closing shift requires a classification',
+    description: 'The last shift of the day must include at least N employees with a specific role.',
+    defaultParams: { count: 1, classification: 'Closer' },
+  },
+  {
+    ruleType: 'min_classification_per_shift',
+    label: 'Every shift must include a classification',
+    description: 'All shift blocks must have at least N employees with a specific role present.',
+    defaultParams: { count: 1, classification: 'Key Holder' },
+  },
+  {
+    ruleType: 'new_hire_paired_with_trainer',
+    label: 'New Hire must be paired with a Trainer',
+    description: 'Any New Hire on a shift must always be scheduled alongside at least one Trainer.',
+    defaultParams: {},
+  },
+  {
+    ruleType: 'no_clopening',
+    label: 'No clopening shifts',
+    description: 'Avoid scheduling the same employee to close one night and open the next morning.',
+    defaultParams: {},
+  },
+];
+
+function ruleDescription(rule: CoverageRule): string {
+  const p = rule.params || {};
+  switch (rule.ruleType) {
+    case 'opening_requires_classification':
+      return `Opening shift must include at least ${p.count || 1} employee with [${p.classification || 'Key Holder'}] role`;
+    case 'closing_requires_classification':
+      return `Closing shift must include at least ${p.count || 1} employee with [${p.classification || 'Closer'}] role`;
+    case 'min_classification_per_shift':
+      return `Every shift must have at least ${p.count || 1} employee with [${p.classification || 'Key Holder'}] role`;
+    case 'new_hire_paired_with_trainer':
+      return 'Any New Hire on a shift must be scheduled alongside at least one Trainer';
+    case 'no_clopening':
+      return 'Do not schedule the same employee to close one night and open the next morning';
+    default:
+      return rule.ruleType;
+  }
+}
+
+function ClassificationBadge({ tag }: { tag: string }) {
+  const colorClass = CLASSIFICATION_COLORS[tag] || 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300';
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${colorClass}`}>
+      {tag}
+    </span>
+  );
+}
+
+function EmployeeClassificationRow({ employee, onUpdate }: {
+  employee: EmployeeClassification;
+  onUpdate: (id: string, classifications: string[]) => void;
+}) {
+  const [customTagInput, setCustomTagInput] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const toggleBuiltIn = (tag: string) => {
+    const current = employee.classifications;
+    const updated = current.includes(tag)
+      ? current.filter(c => c !== tag)
+      : [...current, tag];
+    onUpdate(employee.id, updated);
+  };
+
+  const addCustomTag = () => {
+    const tag = customTagInput.trim();
+    if (!tag || employee.classifications.includes(tag)) {
+      setCustomTagInput('');
+      return;
+    }
+    onUpdate(employee.id, [...employee.classifications, tag]);
+    setCustomTagInput('');
+  };
+
+  const removeTag = (tag: string) => {
+    onUpdate(employee.id, employee.classifications.filter(c => c !== tag));
+  };
+
+  const customTags = employee.classifications.filter(c => !BUILT_IN_CLASSIFICATIONS.includes(c));
+
+  return (
+    <div className="p-3 rounded-lg bg-muted/40 space-y-2.5">
+      <div className="flex items-center gap-2">
+        <span className="text-sm font-medium">{employee.name}</span>
+        {!employee.showInSchedule && (
+          <Badge variant="secondary" className="text-[10px] px-1.5 py-0 bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 border-0">
+            Back Office
+          </Badge>
+        )}
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {BUILT_IN_CLASSIFICATIONS.map(tag => {
+          const active = employee.classifications.includes(tag);
+          const colorClass = active ? CLASSIFICATION_COLORS[tag] : 'bg-muted text-muted-foreground hover:bg-muted/80';
+          return (
+            <button
+              key={tag}
+              onClick={() => toggleBuiltIn(tag)}
+              className={`inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full border transition-all ${
+                active
+                  ? `${colorClass} border-transparent`
+                  : 'border-border hover:border-muted-foreground/40'
+              }`}
+            >
+              {active && <span className="text-xs">✓</span>}
+              {tag}
+            </button>
+          );
+        })}
+      </div>
+      <div className="flex items-center gap-2 flex-wrap">
+        {customTags.map(tag => (
+          <span key={tag} className="inline-flex items-center gap-1 text-xs bg-muted px-2 py-0.5 rounded-full border">
+            {tag}
+            <button onClick={() => removeTag(tag)} className="text-muted-foreground hover:text-foreground ml-0.5">
+              <X className="h-3 w-3" />
+            </button>
+          </span>
+        ))}
+        <div className="flex items-center gap-1">
+          <Input
+            ref={inputRef}
+            value={customTagInput}
+            onChange={e => setCustomTagInput(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addCustomTag(); } }}
+            placeholder="Custom skill..."
+            className="h-7 text-xs w-36"
+          />
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={addCustomTag} disabled={!customTagInput.trim()}>
+            <Plus className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CoverageRuleRow({ rule, index, onChange, onDelete }: {
+  rule: CoverageRule;
+  index: number;
+  onChange: (index: number, updated: CoverageRule) => void;
+  onDelete: (index: number) => void;
+}) {
+  const template = RULE_TEMPLATES.find(t => t.ruleType === rule.ruleType);
+  const hasCount = ['opening_requires_classification', 'closing_requires_classification', 'min_classification_per_shift'].includes(rule.ruleType);
+  const hasClassification = ['opening_requires_classification', 'closing_requires_classification', 'min_classification_per_shift'].includes(rule.ruleType);
+
+  return (
+    <div className={`p-3 rounded-lg border transition-opacity ${rule.isEnabled ? 'bg-muted/40 border-border' : 'bg-muted/20 border-border/50 opacity-60'}`}>
+      <div className="flex items-start gap-3">
+        <Switch
+          checked={rule.isEnabled}
+          onCheckedChange={v => onChange(index, { ...rule, isEnabled: v })}
+          className="mt-0.5 shrink-0"
+        />
+        <div className="flex-1 min-w-0 space-y-2">
+          <div className="text-sm font-medium">{template?.label || rule.ruleType}</div>
+          <p className="text-xs text-muted-foreground">{ruleDescription(rule)}</p>
+          <div className="flex items-center gap-2 flex-wrap">
+            {hasCount && (
+              <div className="flex items-center gap-1.5">
+                <Label className="text-xs text-muted-foreground">Count:</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={rule.params.count || 1}
+                  onChange={e => onChange(index, { ...rule, params: { ...rule.params, count: parseInt(e.target.value) || 1 } })}
+                  className="h-7 w-16 text-xs"
+                />
+              </div>
+            )}
+            {hasClassification && (
+              <div className="flex items-center gap-1.5">
+                <Label className="text-xs text-muted-foreground">Role:</Label>
+                <Select
+                  value={rule.params.classification || 'Key Holder'}
+                  onValueChange={v => onChange(index, { ...rule, params: { ...rule.params, classification: v } })}
+                >
+                  <SelectTrigger className="h-7 w-36 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {BUILT_IN_CLASSIFICATIONS.map(c => (
+                      <SelectItem key={c} value={c}>{c}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 text-destructive hover:text-destructive shrink-0"
+          onClick={() => onDelete(index)}
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function AIRulesTab() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const { data: classificationsData, isLoading: classLoading } = useQuery<EmployeeClassification[]>({
+    queryKey: ['/api/ai-scheduling/classifications'],
+  });
+
+  const { data: rulesData, isLoading: rulesLoading } = useQuery<{ rules: CoverageRule[]; customAiInstructions: string }>({
+    queryKey: ['/api/ai-scheduling/rules'],
+  });
+
+  const [localClassifications, setLocalClassifications] = useState<EmployeeClassification[]>([]);
+  const [coverageRules, setCoverageRules] = useState<CoverageRule[]>([]);
+  const [customInstructions, setCustomInstructions] = useState('');
+  const [showRuleDropdown, setShowRuleDropdown] = useState(false);
+
+  useEffect(() => {
+    if (classificationsData) setLocalClassifications(classificationsData);
+  }, [classificationsData]);
+
+  useEffect(() => {
+    if (rulesData) {
+      setCoverageRules(rulesData.rules || []);
+      setCustomInstructions(rulesData.customAiInstructions || '');
+    }
+  }, [rulesData]);
+
+  const classificationMutation = useMutation({
+    mutationFn: async ({ employeeId, classifications }: { employeeId: string; classifications: string[] }) => {
+      const res = await apiRequest('PATCH', `/api/ai-scheduling/classifications/${employeeId}`, { classifications });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/ai-scheduling/classifications'] });
+    },
+    onError: () => {
+      toast({ title: 'Error', description: 'Failed to update classifications.', variant: 'destructive' });
+    },
+  });
+
+  const saveRulesMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest('PUT', '/api/ai-scheduling/rules', {
+        rules: coverageRules,
+        customAiInstructions: customInstructions,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/ai-scheduling/rules'] });
+      toast({ title: 'Saved', description: 'AI rules and instructions saved successfully.' });
+    },
+    onError: () => {
+      toast({ title: 'Error', description: 'Failed to save AI rules.', variant: 'destructive' });
+    },
+  });
+
+  const handleClassificationUpdate = (id: string, classifications: string[]) => {
+    setLocalClassifications(prev => prev.map(e => e.id === id ? { ...e, classifications } : e));
+    classificationMutation.mutate({ employeeId: id, classifications });
+  };
+
+  const addRule = (template: typeof RULE_TEMPLATES[number]) => {
+    setCoverageRules(prev => [...prev, {
+      ruleType: template.ruleType,
+      params: { ...template.defaultParams },
+      isEnabled: true,
+    }]);
+    setShowRuleDropdown(false);
+  };
+
+  const updateRule = (index: number, updated: CoverageRule) => {
+    setCoverageRules(prev => prev.map((r, i) => i === index ? updated : r));
+  };
+
+  const deleteRule = (index: number) => {
+    setCoverageRules(prev => prev.filter((_, i) => i !== index));
+  };
+
+  if (classLoading || rulesLoading) {
+    return <div className="p-4 text-sm text-muted-foreground">Loading AI rules...</div>;
+  }
+
+  const salesFloorEmployees = localClassifications.filter(e => e.showInSchedule);
+  const backOfficeEmployees = localClassifications.filter(e => !e.showInSchedule);
+
+  return (
+    <div className="space-y-6">
+      {/* Employee Classifications */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Tag className="h-4 w-4" />
+            Employee Scheduling Classifications
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Assign scheduling roles to each employee. The AI uses these tags to satisfy coverage rules — for example, ensuring an Opener is always present for the first shift.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {localClassifications.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No active employees found.</p>
+          ) : (
+            <>
+              {salesFloorEmployees.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-1">Sales Floor</p>
+                  {salesFloorEmployees.map(emp => (
+                    <EmployeeClassificationRow
+                      key={emp.id}
+                      employee={emp}
+                      onUpdate={handleClassificationUpdate}
+                    />
+                  ))}
+                </div>
+              )}
+              {backOfficeEmployees.length > 0 && (
+                <div className="space-y-2 mt-4">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-1">Back Office (not scheduled)</p>
+                  {backOfficeEmployees.map(emp => (
+                    <EmployeeClassificationRow
+                      key={emp.id}
+                      employee={emp}
+                      onUpdate={handleClassificationUpdate}
+                    />
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+          <div className="flex flex-wrap gap-2 pt-2 border-t">
+            {BUILT_IN_CLASSIFICATIONS.map(tag => (
+              <span key={tag} className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${CLASSIFICATION_COLORS[tag]}`}>
+                {tag}
+              </span>
+            ))}
+            <span className="text-xs text-muted-foreground self-center">+ any custom skill tags you type in</span>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Coverage Rules */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <ShieldCheck className="h-4 w-4" />
+            Coverage Rules
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Structured rules the AI treats as hard constraints when building the schedule. Rules are satisfied after availability and target hours, but before performance score tiebreaking.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {coverageRules.length === 0 && (
+            <p className="text-sm text-muted-foreground italic">No coverage rules added yet. Use the button below to add your first rule.</p>
+          )}
+          {coverageRules.map((rule, index) => (
+            <CoverageRuleRow
+              key={index}
+              rule={rule}
+              index={index}
+              onChange={updateRule}
+              onDelete={deleteRule}
+            />
+          ))}
+          <div className="relative">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => setShowRuleDropdown(v => !v)}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Add Rule
+              <ChevronDown className="h-3 w-3 ml-0.5" />
+            </Button>
+            {showRuleDropdown && (
+              <div className="absolute left-0 top-full mt-1 z-50 bg-popover border rounded-lg shadow-md w-80 p-1">
+                {RULE_TEMPLATES.map(template => {
+                  const alreadyAdded = template.ruleType === 'new_hire_paired_with_trainer' || template.ruleType === 'no_clopening'
+                    ? coverageRules.some(r => r.ruleType === template.ruleType)
+                    : false;
+                  return (
+                    <button
+                      key={template.ruleType}
+                      onClick={() => !alreadyAdded && addRule(template)}
+                      disabled={alreadyAdded}
+                      className={`w-full text-left px-3 py-2.5 rounded-md transition-colors ${
+                        alreadyAdded
+                          ? 'opacity-50 cursor-not-allowed'
+                          : 'hover:bg-muted'
+                      }`}
+                    >
+                      <div className="text-sm font-medium">{template.label}</div>
+                      <div className="text-xs text-muted-foreground mt-0.5">{template.description}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Custom AI Instructions */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <BookOpen className="h-4 w-4" />
+            Custom AI Instructions
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Write plain-English instructions that are appended directly to the AI prompt. Use this for nuanced rules that don't fit the structured templates above.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Textarea
+            value={customInstructions}
+            onChange={e => setCustomInstructions(e.target.value)}
+            placeholder={`Examples:\n• Always schedule the top performer on Saturday afternoons.\n• Avoid back-to-back doubles for part-time employees.\n• Prefer scheduling Maria on morning shifts — she opens the cash registers.\n• Never schedule Alex and Jordan on the same shift.`}
+            className="min-h-[160px] text-sm font-mono resize-y"
+            maxLength={5000}
+          />
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-muted-foreground">
+              These instructions are sent verbatim to the AI. Be specific and concise.
+            </p>
+            <span className="text-xs text-muted-foreground tabular-nums">
+              {customInstructions.length} / 5000
+            </span>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="flex justify-end">
+        <Button
+          onClick={() => saveRulesMutation.mutate()}
+          disabled={saveRulesMutation.isPending}
+          className="gap-2"
+        >
+          <Save className="h-4 w-4" />
+          {saveRulesMutation.isPending ? 'Saving...' : 'Save AI Rules'}
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 export default function AISchedulingSection() {
   const { toast } = useToast();
@@ -220,7 +713,7 @@ export default function AISchedulingSection() {
     return <div className="p-4">Loading settings...</div>;
   }
 
-  return (
+  const settingsContent = (
     <div className="space-y-6">
       <Card>
         <CardHeader>
@@ -716,5 +1209,20 @@ export default function AISchedulingSection() {
         </Button>
       </div>
     </div>
+  );
+
+  return (
+    <Tabs defaultValue="settings" className="w-full">
+      <TabsList className="mb-6">
+        <TabsTrigger value="settings">Settings</TabsTrigger>
+        <TabsTrigger value="ai-rules">AI Rules</TabsTrigger>
+      </TabsList>
+      <TabsContent value="settings">
+        {settingsContent}
+      </TabsContent>
+      <TabsContent value="ai-rules">
+        <AIRulesTab />
+      </TabsContent>
+    </Tabs>
   );
 }
