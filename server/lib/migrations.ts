@@ -312,6 +312,11 @@ export async function runSchemaMigrations(): Promise<void> {
       table: "time_entries",
       sql: `ALTER TABLE time_entries ADD COLUMN IF NOT EXISTS break_start_time TIMESTAMP`,
     },
+    // Task #331 — availability_templates.auto_apply_template: missing from runtime runner despite having SQL migration file
+    {
+      table: "availability_templates",
+      sql: `ALTER TABLE availability_templates ADD COLUMN IF NOT EXISTS auto_apply_template boolean NOT NULL DEFAULT false`,
+    },
   ];
 
   let altered = 0;
