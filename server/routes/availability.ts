@@ -469,6 +469,91 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
     }
   });
 
+  // GET /api/availability/today/summary — manager-only: returns count of available vs total employees for today
+  app.get('/api/availability/today/summary', isAuthenticated, async (req: any, res) => {
+    try {
+      const requestingUserId: string = req.user.id;
+      const requestingRole = req.user?.role?.name;
+      const legacyManagerRoles = ['owner', 'admin', 'manager', 'assistant_manager'];
+      const isManagerOrAbove = legacyManagerRoles.includes(requestingRole);
+      let hasPermission = isManagerOrAbove;
+      if (!hasPermission) {
+        const schedPerms = ['schedule.view_all', 'schedule.create', 'schedule.edit_all', 'admin.manage_all'];
+        const { getUserIdsWithPermission } = await import('../lib/permissionUtils');
+        for (const perm of schedPerms) {
+          const ids = await getUserIdsWithPermission(perm);
+          if (ids.includes(requestingUserId)) { hasPermission = true; break; }
+        }
+      }
+      if (!hasPermission) return res.status(403).json({ message: "Managers only" });
+
+      const { tryResolveStoreIdForUser } = await import('../lib/storeResolver');
+      const { getAllStoreUserIds } = await import('../lib/permissionUtils');
+
+      const storeId = await tryResolveStoreIdForUser(requestingUserId);
+      if (!storeId) return res.json({ availableCount: 0, totalCount: 0 });
+
+      const storeUserIds = await getAllStoreUserIds(storeId);
+      if (storeUserIds.length === 0) return res.json({ availableCount: 0, totalCount: 0 });
+
+      const todayStr = new Date().toISOString().slice(0, 10);
+
+      const [templates, overrides, allTimeOff] = await Promise.all([
+        storage.getAvailabilityTemplatesForUsers(storeUserIds),
+        storage.getAvailabilityOverridesForUsers(storeUserIds, todayStr, todayStr),
+        storage.getTimeOffRequests(),
+      ]);
+
+      const templateByUser: Record<string, typeof templates[0]> = {};
+      for (const t of templates) templateByUser[t.userId] = t;
+
+      const overrideByUser: Record<string, typeof overrides[0]> = {};
+      for (const o of overrides) overrideByUser[o.userId] = o;
+
+      const dateObj = new Date(todayStr + 'T12:00:00Z');
+      const dow = dateObj.getUTCDay().toString();
+
+      let availableCount = 0;
+      for (const uid of storeUserIds) {
+        // Priority 1: approved/pending time-off
+        const hasTimeOff = allTimeOff.some(r => {
+          if (r.status === 'cancelled' || r.userId !== uid) return false;
+          const s = new Date(r.startDate);
+          const e = new Date(r.endDate);
+          return dateObj >= s && dateObj <= e;
+        });
+        if (hasTimeOff) continue; // unavailable
+
+        // Priority 2: date-specific override
+        const override = overrideByUser[uid];
+        if (override) {
+          if (!override.unavailable) availableCount++;
+          continue;
+        }
+
+        // Priority 3: weekly template
+        const tmpl = templateByUser[uid];
+        const rawSlots = (tmpl?.slots ?? {}) as Record<string, { available?: boolean; startTime?: string; endTime?: string; morning?: boolean; afternoon?: boolean; evening?: boolean }>;
+        const slot = rawSlots[dow];
+
+        if (!slot) {
+          // No template entry → available by default
+          availableCount++;
+        } else if ('available' in slot) {
+          if (slot.available) availableCount++;
+        } else {
+          // Legacy morning/afternoon/evening
+          if (slot.morning || slot.afternoon || slot.evening) availableCount++;
+        }
+      }
+
+      res.json({ availableCount, totalCount: storeUserIds.length });
+    } catch (error) {
+      console.error("Error fetching today availability summary:", error);
+      res.status(500).json({ message: "Failed to fetch today availability summary" });
+    }
+  });
+
   // Availability template routes
 
   // GET /api/availability/templates/summary — manager-only: returns which store employees have a saved template

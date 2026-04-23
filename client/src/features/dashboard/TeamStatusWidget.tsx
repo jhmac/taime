@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useUser } from '@clerk/clerk-react';
 import { Skeleton } from '@/components/ui/skeleton';
-import { AlertTriangle, CalendarDays, MapPinOff, X } from 'lucide-react';
+import { AlertTriangle, CalendarDays, MapPinOff, Users, X } from 'lucide-react';
 import ErrorWithRetry from '@/components/ErrorWithRetry';
 import { useOnlineRetry } from '@/hooks/useOnlineRetry';
 import { readShopifyConnectionCache, writeShopifyConnectionCache } from '@/lib/shopifyConnectionCache';
@@ -135,6 +135,14 @@ export default function TeamStatusWidget({ hoursStats }: { hoursStats?: HoursSta
   const { data: shopifyData, isLoading: shopifyLoading } = useQuery<ShopifyData>({
     queryKey: ['/api/shopify/sales-data'],
     staleTime: 60_000,
+  });
+
+  const { data: availabilitySummary } = useQuery<{ availableCount: number; totalCount: number }>({
+    queryKey: ['/api/availability/today/summary'],
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+    enabled: !!hoursStats,
+    retry: false,
   });
 
   const shopifyCacheKey = clerkUser?.id ? `shopify_connected:${clerkUser.id}` : null;
@@ -379,6 +387,14 @@ export default function TeamStatusWidget({ hoursStats }: { hoursStats?: HoursSta
                 <span className="text-muted-foreground/40 shrink-0 text-xs">|</span>
                 <span className="text-xs text-muted-foreground shrink-0">Estimated Pay</span>
                 <span className="text-xs font-bold tabular-nums text-green-600 dark:text-green-400 shrink-0">${hoursStats.estimatedPay.toFixed(2)}</span>
+              </>
+            )}
+            {availabilitySummary && (
+              <>
+                <span className="text-muted-foreground/40 shrink-0 text-xs">|</span>
+                <Users className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                <span className="text-xs font-bold tabular-nums shrink-0">{availabilitySummary.availableCount}</span>
+                <span className="text-xs text-muted-foreground shrink-0">available</span>
               </>
             )}
           </div>
