@@ -956,6 +956,104 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
     }
   });
 
+  // ── Backfill a single calendar day from Shopify GraphQL ─────────────────────
+  app.post("/api/shopify/backfill-day", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.id || req.auth?.userId;
+      const { shopDomain: domain, date } = req.body as { shopDomain?: string; date?: string };
+      if (!domain || !date) {
+        return res.status(400).json({ error: "shopDomain and date (YYYY-MM-DD) required" });
+      }
+      if (!(await assertUserShopAccess(userId, domain))) {
+        return res.status(403).json({ error: "No access to this shop" });
+      }
+      const credentials = await getShopifyCredentials(domain);
+      if (!credentials) {
+        return res.status(400).json({ error: "No credentials found for this shop" });
+      }
+
+      const service = new ShopifyService(credentials.shopDomain, credentials.accessToken);
+      const startIso = `${date}T00:00:00Z`;
+      const endIso   = `${date}T23:59:59Z`;
+
+      const orders = await service.getOrders({ first: 250, createdAtMin: startIso, createdAtMax: endIso, maxPages: 5 });
+
+      if (orders.length === 0) {
+        return res.json({ ordersFound: 0, dayRevenue: 0, date });
+      }
+
+      let dayRevenue = 0;
+      let itemCount  = 0;
+      const normalizedDomain = credentials.shopDomain;
+      const dateObj = new Date(`${date}T00:00:00Z`);
+
+      for (const order of orders) {
+        const rawId   = (order as any).id ?? '';
+        const orderId = rawId.includes('/') ? rawId.split('/').pop()! : rawId;
+        const orderPrice = parseFloat((order as any).totalPriceSet?.shopMoney?.amount ?? '0');
+        dayRevenue += orderPrice;
+        const lineItems = (order as any).lineItems?.nodes ?? [];
+        for (const li of lineItems) itemCount += li.quantity || 1;
+        const orderCreatedAt = (order as any).createdAt ? new Date((order as any).createdAt) : dateObj;
+
+        const existing = await db.select({ id: shopifyOrders.id })
+          .from(shopifyOrders)
+          .where(and(eq(shopifyOrders.shopDomain, normalizedDomain), eq(shopifyOrders.orderId, orderId)))
+          .limit(1);
+
+        if (existing.length > 0) {
+          await db.update(shopifyOrders).set({
+            totalPrice: String(Math.round(orderPrice * 100) / 100),
+            financialStatus: (order as any).displayFinancialStatus ?? null,
+            fulfillmentStatus: (order as any).displayFulfillmentStatus ?? null,
+            lineItems: lineItems as any,
+            orderCreatedAt,
+            updatedAt: new Date(),
+          }).where(eq(shopifyOrders.id, existing[0].id));
+        } else {
+          await db.insert(shopifyOrders).values({
+            shopDomain: normalizedDomain,
+            orderId,
+            orderNumber: (order as any).name ?? null,
+            totalPrice: String(Math.round(orderPrice * 100) / 100),
+            currency: (order as any).totalPriceSet?.shopMoney?.currencyCode ?? 'USD',
+            financialStatus: (order as any).displayFinancialStatus ?? null,
+            fulfillmentStatus: (order as any).displayFulfillmentStatus ?? null,
+            lineItems: lineItems as any,
+            customerData: null,
+            orderCreatedAt,
+          });
+        }
+      }
+
+      // Upsert daily aggregate
+      const dayOfWeek = dateObj.getUTCDay();
+      const avgOrderValue = orders.length > 0 ? Math.round((dayRevenue / orders.length) * 100) / 100 : 0;
+      const existingDay = await db.select({ id: shopifyDailySales.id })
+        .from(shopifyDailySales)
+        .where(and(eq(shopifyDailySales.shopDomain, normalizedDomain), eq(shopifyDailySales.date, dateObj)))
+        .limit(1);
+
+      if (existingDay.length > 0) {
+        await db.update(shopifyDailySales).set({
+          orderCount: orders.length, totalRevenue: String(Math.round(dayRevenue * 100) / 100),
+          itemCount, averageOrderValue: String(avgOrderValue), dayOfWeek,
+        }).where(eq(shopifyDailySales.id, existingDay[0].id));
+      } else {
+        await db.insert(shopifyDailySales).values({
+          shopDomain: normalizedDomain, date: dateObj, dayOfWeek,
+          orderCount: orders.length, totalRevenue: String(Math.round(dayRevenue * 100) / 100),
+          itemCount, averageOrderValue: String(avgOrderValue),
+        });
+      }
+
+      res.json({ ordersFound: orders.length, dayRevenue: Math.round(dayRevenue * 100) / 100, date });
+    } catch (error) {
+      console.error("Error in backfill-day:", error);
+      res.status(500).json({ message: "Failed to backfill day orders", detail: String(error) });
+    }
+  });
+
   app.get("/api/shopify/sales-data", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user?.id || req.auth?.userId;

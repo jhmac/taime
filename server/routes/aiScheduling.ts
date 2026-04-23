@@ -1,10 +1,12 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
-import { aiSchedulingSettings, shopifyDailySales, users, userAvailability, availabilityTemplates, schedules, shops, userShops, roles, workPatternTemplates, userWorkPatterns, clockEvents } from "@shared/schema";
-import { eq, and, gte, lte, desc, inArray, sql } from "drizzle-orm";
+import { aiSchedulingSettings, shopifyDailySales, shopifyOrders, users, userAvailability, availabilityTemplates, schedules, shops, userShops, roles, workPatternTemplates, userWorkPatterns, clockEvents } from "@shared/schema";
+import { eq, and, gte, lte, desc, inArray, sql, count } from "drizzle-orm";
 import { db } from "../db";
 import Anthropic from '@anthropic-ai/sdk';
 import rateLimit from "express-rate-limit";
+import { ShopifyService } from "../services/shopifyService";
+import { decryptToken } from "../utils/tokenEncryption";
 
 import { config } from "../lib/config";
 import {
@@ -62,6 +64,125 @@ function getStaffingForRevenue(revenue: number, tiers: Array<{ minRevenue: numbe
   }
 
   return minimumStaffing;
+}
+
+// ── Shopify helpers (shared across suggest + backfill-day) ────────────────────
+
+async function getShopCredentialsForUser(userId: string): Promise<{ shopDomain: string; accessToken: string; service: ShopifyService } | null> {
+  const links = await db.select({ shopDomain: userShops.shopDomain })
+    .from(userShops).where(eq(userShops.userId, userId)).limit(1);
+  const shopDomain = links[0]?.shopDomain;
+  if (!shopDomain) return null;
+
+  const shopRows = await db.select({ shopDomain: shops.shopDomain, accessToken: shops.accessToken })
+    .from(shops).where(eq(shops.shopDomain, shopDomain)).limit(1);
+  if (!shopRows[0]?.accessToken) return null;
+
+  let token = shopRows[0].accessToken;
+  try { token = decryptToken(token); } catch { /* not encrypted */ }
+
+  return { shopDomain: shopRows[0].shopDomain, accessToken: token, service: new ShopifyService(shopRows[0].shopDomain, token) };
+}
+
+/**
+ * Fetches orders from Shopify GraphQL for a specific calendar date,
+ * upserts each order into shopify_orders (preserving per-hour timestamps),
+ * and upserts the daily aggregate into shopify_daily_sales.
+ * Returns { ordersFound, dayRevenue }.
+ */
+async function backfillDayOrdersFromShopify(
+  shopDomain: string,
+  service: ShopifyService,
+  dateStr: string,
+): Promise<{ ordersFound: number; dayRevenue: number }> {
+  const startIso = `${dateStr}T00:00:00Z`;
+  const endIso   = `${dateStr}T23:59:59Z`;
+
+  const orders = await service.getOrders({
+    first: 250,
+    createdAtMin: startIso,
+    createdAtMax: endIso,
+    maxPages: 5,
+  });
+
+  if (orders.length === 0) return { ordersFound: 0, dayRevenue: 0 };
+
+  let dayRevenue = 0;
+  let itemCount  = 0;
+
+  for (const order of orders) {
+    const rawId = order.id ?? '';
+    // Shopify uses "gid://shopify/Order/1234567890" — extract the numeric part as orderId
+    const orderId = rawId.includes('/') ? rawId.split('/').pop()! : rawId;
+    const orderPrice = parseFloat(order.totalPriceSet?.shopMoney?.amount ?? '0');
+    dayRevenue += orderPrice;
+    const lineItems = order.lineItems?.nodes ?? [];
+    for (const li of lineItems) itemCount += li.quantity || 1;
+    const orderCreatedAt = order.createdAt ? new Date(order.createdAt) : new Date(startIso);
+
+    const existing = await db.select({ id: shopifyOrders.id })
+      .from(shopifyOrders)
+      .where(and(eq(shopifyOrders.shopDomain, shopDomain), eq(shopifyOrders.orderId, orderId)))
+      .limit(1);
+
+    if (existing.length > 0) {
+      await db.update(shopifyOrders)
+        .set({
+          totalPrice: String(Math.round(orderPrice * 100) / 100),
+          financialStatus: (order as any).displayFinancialStatus ?? null,
+          fulfillmentStatus: (order as any).displayFulfillmentStatus ?? null,
+          lineItems: lineItems as any,
+          orderCreatedAt,
+          updatedAt: new Date(),
+        })
+        .where(eq(shopifyOrders.id, existing[0].id));
+    } else {
+      await db.insert(shopifyOrders).values({
+        shopDomain,
+        orderId,
+        orderNumber: (order as any).name ?? null,
+        totalPrice: String(Math.round(orderPrice * 100) / 100),
+        currency: order.totalPriceSet?.shopMoney?.currencyCode ?? 'USD',
+        financialStatus: (order as any).displayFinancialStatus ?? null,
+        fulfillmentStatus: (order as any).displayFulfillmentStatus ?? null,
+        lineItems: lineItems as any,
+        customerData: null,
+        orderCreatedAt,
+      });
+    }
+  }
+
+  // Upsert daily aggregate
+  const dateObj = new Date(`${dateStr}T00:00:00Z`);
+  const dayOfWeek = dateObj.getUTCDay();
+  const avgOrderValue = orders.length > 0 ? Math.round((dayRevenue / orders.length) * 100) / 100 : 0;
+
+  const existingDay = await db.select({ id: shopifyDailySales.id })
+    .from(shopifyDailySales)
+    .where(and(eq(shopifyDailySales.shopDomain, shopDomain), eq(shopifyDailySales.date, dateObj)))
+    .limit(1);
+
+  if (existingDay.length > 0) {
+    await db.update(shopifyDailySales).set({
+      orderCount: orders.length,
+      totalRevenue: String(Math.round(dayRevenue * 100) / 100),
+      itemCount,
+      averageOrderValue: String(avgOrderValue),
+      dayOfWeek,
+    }).where(eq(shopifyDailySales.id, existingDay[0].id));
+  } else {
+    await db.insert(shopifyDailySales).values({
+      shopDomain,
+      date: dateObj,
+      dayOfWeek,
+      orderCount: orders.length,
+      totalRevenue: String(Math.round(dayRevenue * 100) / 100),
+      itemCount,
+      averageOrderValue: String(avgOrderValue),
+    });
+  }
+
+  return { ordersFound: orders.length, dayRevenue: Math.round(dayRevenue * 100) / 100 };
 }
 
 export function registerAiSchedulingRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
@@ -1436,7 +1557,7 @@ Required JSON structure:
       }
       availableMembers.sort((a, b) => b.compositeScore - a.compositeScore);
 
-      // ── Get historical sales directly from DB (mirrors /historical-sales date logic) ──
+      // ── Get historical sales: backfill from Shopify GraphQL if needed ────────
       const oneYearAgo2 = new Date(dateObj);
       oneYearAgo2.setUTCFullYear(oneYearAgo2.getUTCFullYear() - 1);
       const exactHistoricalDateStr2 = oneYearAgo2.toISOString().slice(0, 10);
@@ -1450,36 +1571,55 @@ Required JSON structure:
 
       let historicalDateStr2 = exactHistoricalDateStr2;
 
-      const userShopLinks2 = await db.select({ shopDomain: userShops.shopDomain })
-        .from(userShops).where(eq(userShops.userId, userId)).limit(1);
-      const shopDomain2 = userShopLinks2[0]?.shopDomain;
+      // Resolve Shopify shop credentials for this user
+      const shopCreds = await getShopCredentialsForUser(userId);
+      const shopDomain2 = shopCreds?.shopDomain ?? null;
 
       let hourlyRevenue2: number[] = new Array(24).fill(0);
       let dataSource2 = 'synthetic';
 
-      if (shopDomain2) {
-        const { shopifyOrders: shopifyOrdersTable } = await import('@shared/schema');
+      if (shopDomain2 && shopCreds) {
         const weights2 = [0,0,0,0,0,0,0.01,0.02,0.05,0.08,0.09,0.10,0.10,0.09,0.08,0.07,0.07,0.06,0.06,0.05,0.04,0.03,0.01,0];
 
         const tryFetchRevenue2 = async (dateStr: string): Promise<{ found: boolean; source: 'actual' | 'estimated' }> => {
           const start = new Date(dateStr + 'T00:00:00Z');
           const end = new Date(dateStr + 'T23:59:59Z');
-          const orders2Inner = await db.select({
-            totalPrice: shopifyOrdersTable.totalPrice,
-            orderCreatedAt: shopifyOrdersTable.orderCreatedAt,
-          }).from(shopifyOrdersTable).where(and(
-            eq(shopifyOrdersTable.shopDomain, shopDomain2),
-            gte(shopifyOrdersTable.orderCreatedAt, start),
-            lte(shopifyOrdersTable.orderCreatedAt, end),
+
+          // ── Auto-backfill: if shopify_orders has no rows for this date, pull from Shopify GraphQL ──
+          const existingOrderCount = await db.select({ cnt: count() })
+            .from(shopifyOrders)
+            .where(and(
+              eq(shopifyOrders.shopDomain, shopDomain2),
+              gte(shopifyOrders.orderCreatedAt, start),
+              lte(shopifyOrders.orderCreatedAt, end),
+            ));
+          if ((existingOrderCount[0]?.cnt ?? 0) === 0) {
+            try {
+              logger.info("[suggest] auto-backfill: fetching Shopify orders for", { dateStr, shopDomain: shopDomain2 });
+              await backfillDayOrdersFromShopify(shopDomain2, shopCreds.service, dateStr);
+            } catch (backfillErr) {
+              logger.warn("[suggest] auto-backfill failed (non-fatal)", { dateStr, error: String(backfillErr) });
+            }
+          }
+
+          // Now query orders (may have just been populated)
+          const ordersInner = await db.select({
+            totalPrice: shopifyOrders.totalPrice,
+            orderCreatedAt: shopifyOrders.orderCreatedAt,
+          }).from(shopifyOrders).where(and(
+            eq(shopifyOrders.shopDomain, shopDomain2),
+            gte(shopifyOrders.orderCreatedAt, start),
+            lte(shopifyOrders.orderCreatedAt, end),
           ));
-          if (orders2Inner.length > 0) {
-            for (const o of orders2Inner) {
+          if (ordersInner.length > 0) {
+            for (const o of ordersInner) {
               if (!o.orderCreatedAt || !o.totalPrice) continue;
               const h = new Date(o.orderCreatedAt).getUTCHours();
               hourlyRevenue2[h] += parseFloat(o.totalPrice);
             }
             return { found: true, source: 'actual' };
           }
+          // Fall back to shopify_daily_sales aggregate (estimated distribution)
           const dailySalesRows2 = await db.select({ totalRevenue: shopifyDailySales.totalRevenue })
             .from(shopifyDailySales)
             .where(and(eq(shopifyDailySales.shopDomain, shopDomain2), eq(shopifyDailySales.date, start)))
@@ -1534,13 +1674,13 @@ Required JSON structure:
         hourlyData,
       };
 
-      // Group hours into shift windows (use settings2 queried above, avoid duplicate round-trip)
+      // Group hours into shift windows
       const shiftBlocks: any[] = ((settings2?.shiftBlocks as any[]) || [
         { name: 'Morning', startTime: '09:00', endTime: '14:00' },
         { name: 'Afternoon', startTime: '14:00', endTime: '21:00' },
       ]);
 
-      const proposedShifts: Array<{
+      const proposedShiftShape: Array<{
         employeeId: string;
         employeeName: string;
         profileImageUrl: string | null;
@@ -1551,56 +1691,157 @@ Required JSON structure:
         revenue: number;
       }> = [];
 
-      const assignedMemberShifts: Record<string, string[]> = {};
+      // ── Claude AI schedule generation ─────────────────────────────────────────
+      let claudeSucceeded = false;
+      try {
+        const dayLabel = dateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+        const historicalDateLabel = historicalDateStr2
+          ? new Date(historicalDateStr2 + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+          : 'N/A';
 
-      for (const block of shiftBlocks) {
-        const [blockStartH] = block.startTime.split(':').map(Number);
-        const [blockEndH] = block.endTime.split(':').map(Number);
+        const hourlyBreakdown = hourlyData.length > 0
+          ? hourlyData.map((h: any) => `  ${h.label}: $${h.revenue} revenue${h.isPeak ? ' [PEAK]' : ''} → ${h.suggestedStaff} staff needed`).join('\n')
+          : '  No historical sales data — use minimum staffing defaults.';
 
-        // Find max staffing needed in this block window
-        const blockHours = hourlyData.filter(h => h.hour >= blockStartH && h.hour < blockEndH);
-        if (blockHours.length === 0) continue;
+        const teamRoster = availableMembers.slice(0, 30).map((m: any) =>
+          `  - ${m.name} (id:${m.userId}) | available ${m.availableFrom}–${m.availableTo} | score:${m.compositeScore}/100`
+        ).join('\n');
 
-        const maxStaff = Math.max(...blockHours.map((h: any) => h.suggestedStaff));
-        const blockRevenue = blockHours.reduce((s: number, h: any) => s + h.revenue, 0);
-        const peakHours = blockHours.filter((h: any) => h.isPeak);
-        const peakLabel = peakHours.length > 0
-          ? `Peak ${peakHours[0].label}–${peakHours[peakHours.length - 1].label}`
-          : block.name;
+        const shiftBlockSummary = shiftBlocks.map((b: any) => {
+          const blockHrs = hourlyData.filter((h: any) => {
+            const [bS] = b.startTime.split(':').map(Number);
+            const [bE] = b.endTime.split(':').map(Number);
+            return h.hour >= bS && h.hour < bE;
+          });
+          const blockRev = blockHrs.reduce((s: number, h: any) => s + h.revenue, 0);
+          const maxStaff = blockHrs.length > 0 ? Math.max(...blockHrs.map((h: any) => h.suggestedStaff)) : minimumStaffing2;
+          return `  ${b.name} (${b.startTime}–${b.endTime}): $${Math.round(blockRev)} revenue → ${maxStaff} staff recommended`;
+        }).join('\n');
 
-        // Pick top-ranked available members for this block
-        const blockMembers = availableMembers.filter(m => {
-          if (!m.availableFrom || !m.availableTo) return true;
-          const [mStartH] = m.availableFrom.split(':').map(Number);
-          const [mEndH] = m.availableTo.split(':').map(Number);
-          return mStartH <= blockStartH && mEndH >= blockEndH;
+        const claudePrompt = `You are an expert retail staffing scheduler for Libby Story boutique. Generate a specific shift schedule for ${dayLabel}.
+
+STORE HOURS: ${storeOpen2} – ${storeClose2}
+DATA SOURCE: Sales from ${historicalDateLabel} (${dataSource2 === 'synthetic' ? 'no historical data — use minimum staffing' : dataSource2 === 'actual' ? 'real Shopify orders' : 'estimated from daily total'})
+
+HOURLY SALES BREAKDOWN (from ${historicalDateLabel}):
+${hourlyBreakdown}
+
+SHIFT BLOCKS:
+${shiftBlockSummary}
+
+AVAILABLE TEAM MEMBERS (ranked by availability+performance+hours):
+${teamRoster || '  No available employees found.'}
+
+RULES:
+1. Assign real employees from the roster above to each shift block
+2. Match employees to blocks where they are available (check their available hours)
+3. Prioritize higher-scored employees for peak revenue hours
+4. Do not assign the same employee to two overlapping blocks
+5. Each shift block needs the recommended number of staff (see SHIFT BLOCKS above)
+6. If no historical data, use the minimum staffing of ${minimumStaffing2} per block
+
+Respond ONLY with a valid JSON object (no markdown, no explanation) in this exact format:
+{
+  "proposedShifts": [
+    {
+      "employeeId": "<exact id from roster>",
+      "employeeName": "<exact name from roster>",
+      "startTime": "<HH:MM from shift block>",
+      "endTime": "<HH:MM from shift block>",
+      "shiftBlock": "<block name>",
+      "rationale": "<1 sentence: why this person for this block, referencing revenue if available>"
+    }
+  ]
+}`;
+
+        const claudeResponse = await anthropic.messages.create({
+          model: 'claude-opus-4-5',
+          max_tokens: 1500,
+          messages: [{ role: 'user', content: claudePrompt }],
         });
 
-        let assigned = 0;
-        for (const member of blockMembers) {
-          if (assigned >= maxStaff) break;
-          const existing = assignedMemberShifts[member.userId] || [];
-          // Don't double-assign same block
-          if (existing.includes(block.name)) continue;
-          assignedMemberShifts[member.userId] = [...existing, block.name];
+        const rawText = claudeResponse.content[0]?.type === 'text' ? claudeResponse.content[0].text : '';
+        const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          const shifts: any[] = parsed.proposedShifts || [];
+          if (shifts.length > 0) {
+            for (const s of shifts) {
+              const member = availableMembers.find((m: any) => m.userId === s.employeeId);
+              if (!member) continue;
+              // Find the matching shift block for revenue
+              const block = shiftBlocks.find((b: any) => b.name === s.shiftBlock);
+              const blockHrs = block ? hourlyData.filter((h: any) => {
+                const [bS] = block.startTime.split(':').map(Number);
+                const [bE] = block.endTime.split(':').map(Number);
+                return h.hour >= bS && h.hour < bE;
+              }) : [];
+              const blockRevenue = blockHrs.reduce((sum: number, h: any) => sum + h.revenue, 0);
+              proposedShiftShape.push({
+                employeeId: member.userId,
+                employeeName: member.name,
+                profileImageUrl: member.profileImageUrl || null,
+                startTime: s.startTime || block?.startTime || storeOpen2,
+                endTime: s.endTime || block?.endTime || storeClose2,
+                shiftBlock: s.shiftBlock || 'Shift',
+                rationale: s.rationale || `Assigned by AI`,
+                revenue: Math.round(blockRevenue * 100) / 100,
+              });
+            }
+            claudeSucceeded = proposedShiftShape.length > 0;
+            logger.info("[suggest] Claude generated shifts", { count: proposedShiftShape.length, dateParam });
+          }
+        }
+      } catch (claudeErr) {
+        logger.warn("[suggest] Claude call failed, falling back to algorithm", { error: String(claudeErr) });
+      }
 
-          const rationaleRevenue = blockRevenue > 0
-            ? `$${Math.round(blockRevenue).toLocaleString()} in ${block.name.toLowerCase()} window`
-            : `${block.name} shift`;
-
-          proposedShifts.push({
-            employeeId: member.userId,
-            employeeName: member.name,
-            profileImageUrl: member.profileImageUrl || null,
-            startTime: block.startTime,
-            endTime: block.endTime,
-            shiftBlock: block.name,
-            rationale: `${peakLabel}: ${rationaleRevenue} → ${maxStaff} staff recommended`,
-            revenue: Math.round(blockRevenue * 100) / 100,
+      // ── Fallback: algorithmic shift assignment if Claude failed or returned nothing ──
+      if (!claudeSucceeded) {
+        logger.info("[suggest] using algorithmic fallback", { dateParam });
+        const assignedMemberShifts: Record<string, string[]> = {};
+        for (const block of shiftBlocks) {
+          const [blockStartH] = block.startTime.split(':').map(Number);
+          const [blockEndH] = block.endTime.split(':').map(Number);
+          const blockHours = hourlyData.filter(h => h.hour >= blockStartH && h.hour < blockEndH);
+          if (blockHours.length === 0) continue;
+          const maxStaff = Math.max(...blockHours.map((h: any) => h.suggestedStaff));
+          const blockRevenue = blockHours.reduce((s: number, h: any) => s + h.revenue, 0);
+          const peakHours = blockHours.filter((h: any) => h.isPeak);
+          const peakLabel = peakHours.length > 0
+            ? `Peak ${peakHours[0].label}–${peakHours[peakHours.length - 1].label}`
+            : block.name;
+          const blockMembers = availableMembers.filter(m => {
+            if (!m.availableFrom || !m.availableTo) return true;
+            const [mStartH] = m.availableFrom.split(':').map(Number);
+            const [mEndH] = m.availableTo.split(':').map(Number);
+            return mStartH <= blockStartH && mEndH >= blockEndH;
           });
-          assigned++;
+          let assigned = 0;
+          for (const member of blockMembers) {
+            if (assigned >= maxStaff) break;
+            const existing = assignedMemberShifts[member.userId] || [];
+            if (existing.includes(block.name)) continue;
+            assignedMemberShifts[member.userId] = [...existing, block.name];
+            const rationaleRevenue = blockRevenue > 0
+              ? `$${Math.round(blockRevenue).toLocaleString()} in ${block.name.toLowerCase()} window`
+              : `${block.name} shift`;
+            proposedShiftShape.push({
+              employeeId: member.userId,
+              employeeName: member.name,
+              profileImageUrl: member.profileImageUrl || null,
+              startTime: block.startTime,
+              endTime: block.endTime,
+              shiftBlock: block.name,
+              rationale: `${peakLabel}: ${rationaleRevenue} → ${maxStaff} staff recommended`,
+              revenue: Math.round(blockRevenue * 100) / 100,
+            });
+            assigned++;
+          }
         }
       }
+
+      const proposedShifts = proposedShiftShape;
 
       logger.info("[suggest] responding", {
         dateParam,
