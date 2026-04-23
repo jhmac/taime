@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { BarChart, Bar, ResponsiveContainer, Tooltip, Cell } from "recharts";
 import { Button } from "@/components/ui/button";
@@ -130,6 +130,7 @@ function ShiftBlock({
   isSelected,
   isExcluded,
   onToggleExclude,
+  hasConflict,
 }: {
   shift: ProposedShift;
   openMin: number;
@@ -138,6 +139,7 @@ function ShiftBlock({
   isSelected: boolean;
   isExcluded: boolean;
   onToggleExclude: (e: React.MouseEvent) => void;
+  hasConflict: boolean;
 }) {
   const totalMin = closeMin - openMin;
   if (totalMin <= 0) return null;
@@ -148,23 +150,33 @@ function ShiftBlock({
   if (heightPct <= 0) return null;
   const color = getShiftColor(shift.employeeName);
 
+  let title = shift.rationale;
+  if (isExcluded) title = "Click to restore this shift";
+  else if (hasConflict) title = `${shift.employeeName} already has a shift scheduled on this day`;
+
   return (
     <button
       onClick={isExcluded ? onToggleExclude : onClick}
-      title={isExcluded ? "Click to restore this shift" : shift.rationale}
+      title={title}
       style={{ top: `${topPct}%`, height: `${heightPct}%` }}
       className={cn(
         "absolute left-1 right-1 rounded-md px-1.5 py-0.5 text-left transition-all overflow-hidden group",
         isExcluded
           ? "bg-muted/60 border border-dashed border-border opacity-50"
+          : hasConflict
+          ? "bg-amber-100 dark:bg-amber-900/40 border-2 border-amber-500"
           : color,
         isExcluded
           ? "text-muted-foreground text-[10px] font-medium leading-tight"
+          : hasConflict
+          ? "text-amber-900 dark:text-amber-200 text-[10px] font-medium leading-tight"
           : "text-white text-[10px] font-medium leading-tight",
         !isExcluded && isSelected
-          ? "ring-2 ring-white ring-offset-1 opacity-100"
+          ? hasConflict
+            ? "ring-2 ring-amber-400 ring-offset-1 opacity-100"
+            : "ring-2 ring-white ring-offset-1 opacity-100"
           : !isExcluded
-          ? "opacity-80 hover:opacity-100"
+          ? "opacity-90 hover:opacity-100"
           : ""
       )}
     >
@@ -172,9 +184,14 @@ function ShiftBlock({
       <div className={cn("truncate opacity-80", isExcluded && "line-through")}>
         {fmt12(shift.startTime)}–{fmt12(shift.endTime)}
       </div>
-      {!isExcluded && shift.rationale && (
+      {!isExcluded && hasConflict ? (
+        <div className="flex items-center gap-0.5 text-amber-600 dark:text-amber-400 text-[9px] font-semibold">
+          <AlertTriangle className="h-2.5 w-2.5 shrink-0" />
+          Already scheduled
+        </div>
+      ) : !isExcluded && shift.rationale ? (
         <div className="truncate opacity-70 text-[9px]">{shift.rationale}</div>
-      )}
+      ) : null}
       {!isExcluded && (
         <span
           role="button"
@@ -296,6 +313,7 @@ function DayTimeline({
   onSelectShift,
   excludedIdxs,
   onToggleExclude,
+  conflictingEmployeeIds,
 }: {
   suggestData: SuggestData | null | undefined;
   isLoading: boolean;
@@ -304,6 +322,7 @@ function DayTimeline({
   onSelectShift: (shift: ProposedShift, idx: number) => void;
   excludedIdxs: Set<number>;
   onToggleExclude: (idx: number) => void;
+  conflictingEmployeeIds: Set<string>;
 }) {
   const open = storeHours?.open || suggestData?.storeHours?.open || "09:00";
   const close = storeHours?.close || suggestData?.storeHours?.close || "21:00";
@@ -394,15 +413,24 @@ function DayTimeline({
                 isExcluded={excludedIdxs.has(idx)}
                 onClick={() => onSelectShift(shift, idx)}
                 onToggleExclude={(e) => { e.stopPropagation(); onToggleExclude(idx); }}
+                hasConflict={conflictingEmployeeIds.has(shift.employeeId)}
               />
             ))}
           </div>
         </div>
       )}
       {shifts.length > 0 && (
-        <p className="text-[9px] text-muted-foreground mt-1.5">
-          Click a block to pre-fill the form →
-        </p>
+        <div className="flex items-center justify-between mt-1.5">
+          <p className="text-[9px] text-muted-foreground">
+            Click a block to pre-fill the form →
+          </p>
+          {conflictingEmployeeIds.size > 0 && (
+            <span className="flex items-center gap-0.5 text-[9px] text-amber-600 dark:text-amber-400 font-medium">
+              <span className="inline-block w-3 h-2 rounded-sm border-2 border-amber-500 bg-amber-100 dark:bg-amber-900/40" />
+              Already scheduled
+            </span>
+          )}
+        </div>
       )}
     </div>
   );
@@ -543,6 +571,25 @@ export default function CreateShiftSplitPanel({
   const activeShifts = proposedShifts.filter((_, i) => !excludedIdxs.has(i));
   const storeHours = salesData?.storeHours ?? suggestData?.storeHours ?? null;
 
+  const conflictingEmployeeIds = useMemo<Set<string>>(() => {
+    if (!modalDate || proposedShifts.length === 0) return new Set();
+    const allCached = queryClient.getQueriesData<Array<{ userId: string; startTime: string }>>({
+      queryKey: ["/api/schedules"],
+    });
+    const scheduledOnDate = new Set<string>();
+    for (const [, data] of allCached) {
+      if (!data) continue;
+      for (const s of data) {
+        if (!s.startTime) continue;
+        const sDate = new Date(s.startTime).toISOString().slice(0, 10);
+        if (sDate === modalDate) scheduledOnDate.add(s.userId);
+      }
+    }
+    return new Set(proposedShifts.filter((s) => scheduledOnDate.has(s.employeeId)).map((s) => s.employeeId));
+  }, [modalDate, proposedShifts, queryClient]);
+
+  const conflictCount = activeShifts.filter((s) => conflictingEmployeeIds.has(s.employeeId)).length;
+
   const dateLabel = modalDate
     ? new Date(modalDate + "T12:00:00Z").toLocaleDateString("en-US", {
         weekday: "long",
@@ -587,16 +634,28 @@ export default function CreateShiftSplitPanel({
                 </button>
                 <Button
                   size="sm"
-                  className="bg-orange-500 hover:bg-orange-600 text-white gap-1.5 text-xs h-8"
+                  className={cn(
+                    "gap-1.5 text-xs h-8 text-white",
+                    conflictCount > 0
+                      ? "bg-amber-500 hover:bg-amber-600"
+                      : "bg-orange-500 hover:bg-orange-600"
+                  )}
                   disabled={
                     approveMutation.isPending ||
                     activeShifts.length === 0 ||
                     suggestLoading
                   }
                   onClick={() => approveMutation.mutate(activeShifts)}
+                  title={
+                    conflictCount > 0
+                      ? `${conflictCount} active shift${conflictCount !== 1 ? "s" : ""} conflict with existing schedules`
+                      : undefined
+                  }
                 >
                   {approveMutation.isPending ? (
                     <><Loader2 className="h-3 w-3 animate-spin" />Approving…</>
+                  ) : conflictCount > 0 ? (
+                    <><AlertTriangle className="h-3 w-3" />Approve ({activeShifts.length}) · {conflictCount} conflict{conflictCount !== 1 ? "s" : ""}</>
                   ) : (
                     <><Check className="h-3 w-3" />Approve ({activeShifts.length})</>
                   )}
@@ -619,6 +678,17 @@ export default function CreateShiftSplitPanel({
                 </div>
               )}
 
+              {/* Conflict warning */}
+              {conflictCount > 0 && (
+                <div className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                  <span>
+                    <span className="font-semibold">{conflictCount} suggested shift{conflictCount !== 1 ? "s" : ""}</span>
+                    {" "}conflict with shifts already scheduled on this day. Approving will create duplicate shifts for those employees.
+                  </span>
+                </div>
+              )}
+
               {/* Sales chart */}
               <SalesChart data={salesData} isLoading={salesLoading && !!modalDate} />
 
@@ -634,6 +704,7 @@ export default function CreateShiftSplitPanel({
                 onSelectShift={handleSelectShift}
                 excludedIdxs={excludedIdxs}
                 onToggleExclude={handleToggleExclude}
+                conflictingEmployeeIds={conflictingEmployeeIds}
               />
             </div>
           </div>
