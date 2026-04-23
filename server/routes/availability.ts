@@ -188,11 +188,12 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
           return { date: dateStr, source: 'none', available: false, unavailable: false, startTime: null, endTime: null, timeOff: null };
         }
         if ('available' in slot) {
-          return { date: dateStr, source: 'template', available: slot.available ?? false, unavailable: false, startTime: slot.startTime ?? null, endTime: slot.endTime ?? null, timeOff: null };
+          const avail = slot.available ?? false;
+          return { date: dateStr, source: 'template', available: avail, unavailable: !avail, startTime: avail ? (slot.startTime ?? null) : null, endTime: avail ? (slot.endTime ?? null) : null, timeOff: null };
         }
         // Legacy slot
-        const legacyAvail = (slot.morning || slot.afternoon || slot.evening) ?? false;
-        return { date: dateStr, source: 'template', available: legacyAvail, unavailable: false, startTime: null, endTime: null, timeOff: null };
+        const legacyAvail = !!(slot.morning || slot.afternoon || slot.evening);
+        return { date: dateStr, source: 'template', available: legacyAvail, unavailable: !legacyAvail, startTime: null, endTime: null, timeOff: null };
       });
 
       res.json(result);

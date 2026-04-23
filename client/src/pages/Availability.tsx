@@ -403,8 +403,7 @@ export default function Availability() {
   const { data: calendarData = [], isLoading: calendarLoading } = useQuery<CalDayEntry[]>({
     queryKey: ['/api/availability/calendar', calStart, calEnd],
     queryFn: async () => {
-      const res = await fetch(`/api/availability/calendar?start=${calStart}&end=${calEnd}`, { credentials: 'include' });
-      if (!res.ok) throw new Error('Failed to fetch calendar');
+      const res = await apiRequest("GET", `/api/availability/calendar?start=${calStart}&end=${calEnd}`);
       return res.json();
     },
   });
@@ -605,7 +604,7 @@ export default function Availability() {
     },
     onSuccess: () => {
       toast({ title: "Availability saved" });
-      queryClient.invalidateQueries({ queryKey: ['/api/availability/calendar'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/availability/calendar', calStart, calEnd] });
       setEditorDay(null);
       setWeekWasAutoFilled(false);
     },
@@ -620,7 +619,7 @@ export default function Availability() {
     },
     onSuccess: () => {
       toast({ title: "Cleared", description: "Reverted to your default schedule." });
-      queryClient.invalidateQueries({ queryKey: ['/api/availability/calendar'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/availability/calendar', calStart, calEnd] });
       setEditorDay(null);
     },
     onError: () => {
@@ -646,7 +645,7 @@ export default function Availability() {
     onSuccess: () => {
       toast({ title: "Default schedule updated", description: "This day-of-week will now auto-fill every week." });
       queryClient.invalidateQueries({ queryKey: ['/api/availability/template'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/availability/calendar'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/availability/calendar', calStart, calEnd] });
       setEditorDay(null);
     },
     onError: () => {
