@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
-import { aiSchedulingSettings, shopifyDailySales, shopifyOrders, users, userAvailability, availabilityTemplates, schedules, shops, userShops, roles, workPatternTemplates, userWorkPatterns, clockEvents } from "@shared/schema";
+import { aiSchedulingSettings, shopifyDailySales, shopifyOrders, users, userAvailability, availabilityTemplates, schedules, shops, userShops, roles, workPatternTemplates, userWorkPatterns, clockEvents, workLocations } from "@shared/schema";
 import { eq, and, gte, lte, desc, inArray, sql, count, isNull, or } from "drizzle-orm";
 import { db } from "../db";
 import Anthropic from '@anthropic-ai/sdk';
@@ -23,6 +23,35 @@ const aiRateLimiter = rateLimit({
   max: 5,
   message: { message: "Too many AI scheduling requests, please try again later" },
 });
+
+/**
+ * Returns the local hour (0-23) for a UTC timestamp in the given IANA timezone.
+ * Falls back to UTC hours if the timezone is invalid.
+ */
+function getLocalHourInTz(timestamp: Date, timezone: string): number {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      hour: 'numeric',
+      hour12: false,
+    }).formatToParts(timestamp);
+    const h = parts.find(p => p.type === 'hour')?.value;
+    return parseInt(h ?? '0', 10) % 24;
+  } catch {
+    return timestamp.getUTCHours();
+  }
+}
+
+/**
+ * Computes the historical comparison date: 52 weeks ago (364 days) from the target date.
+ * This guarantees the same day of the week (e.g. Thursday → Thursday) and correctly
+ * captures seasonal context (e.g. "week before Easter" last year).
+ */
+function historicalComparisonDate(targetDate: Date): Date {
+  const d = new Date(targetDate);
+  d.setUTCDate(d.getUTCDate() - 364); // 52 × 7 = 364
+  return d;
+}
 
 function findClosestDayOfWeekDate(targetDate: Date, salesDates: Array<{ date: Date; dayOfWeek: number; totalRevenue: string }>): { date: Date; totalRevenue: string } | null {
   const targetDow = targetDate.getDay();
@@ -1224,23 +1253,20 @@ Required JSON structure:
       const targetDate = new Date(dateParam + 'T12:00:00Z');
       const targetDow = targetDate.getUTCDay();
 
-      // Compute both candidate dates: exact calendar year-ago first, same-weekday fallback
-      const oneYearAgo = new Date(targetDate);
-      oneYearAgo.setUTCFullYear(oneYearAgo.getUTCFullYear() - 1);
-      const exactHistoricalDateStr = oneYearAgo.toISOString().slice(0, 10);
-
-      // Same-weekday fallback (shift forward to match target day of week)
-      const sameWeekdayDate = new Date(oneYearAgo);
-      const hisDow = sameWeekdayDate.getUTCDay();
-      const weekdayDiff = (targetDow - hisDow + 7) % 7;
-      sameWeekdayDate.setUTCDate(sameWeekdayDate.getUTCDate() + weekdayDiff);
-      const sameWeekdayDateStr = sameWeekdayDate.toISOString().slice(0, 10);
-
-      // historicalDateStr will be resolved below: exact first, weekday fallback only if no data
-      let historicalDateStr = exactHistoricalDateStr;
+      // Use 52 weeks ago (same day of week) as the historical comparison date.
+      // 364 days = 52 × 7, guaranteeing the same weekday as today and capturing the
+      // same seasonal context (e.g. "week before Easter" last year).
+      const historicalDate = historicalComparisonDate(targetDate);
+      let historicalDateStr = historicalDate.toISOString().slice(0, 10);
 
       // Resolve Shopify credentials for this user (enables auto-backfill)
       const shopCreds = await getShopCredentialsForUser(userId);
+
+      // Fetch store timezone for accurate local-time hour bucketing
+      const tzRow = await db.select({ timezone: workLocations.timezone })
+        .from(users).innerJoin(workLocations, eq(users.locationId, workLocations.id))
+        .where(eq(users.id, userId)).limit(1);
+      const storeTimezone = tzRow[0]?.timezone ?? 'America/Chicago';
       const shopDomain = shopCreds?.shopDomain ?? null;
 
       let hourlyRevenue: number[] = new Array(24).fill(0);
@@ -1282,7 +1308,8 @@ Required JSON structure:
           if (orders.length > 0) {
             for (const order of orders) {
               if (!order.orderCreatedAt || !order.totalPrice) continue;
-              const h = new Date(order.orderCreatedAt).getUTCHours();
+              // Use store's local timezone so hours align with what the team observes
+              const h = getLocalHourInTz(new Date(order.orderCreatedAt), storeTimezone);
               hourlyRevenue[h] += parseFloat(order.totalPrice);
             }
             return { found: true, source: 'actual' };
@@ -1301,18 +1328,9 @@ Required JSON structure:
           return { found: false, source: 'estimated' };
         };
 
-        // 1. Try exact calendar date one year prior
-        const exactResult = await tryFetchRevenue(exactHistoricalDateStr);
-        if (exactResult.found) {
-          historicalDateStr = exactHistoricalDateStr;
-          dataSource = exactResult.source;
-        } else {
-          // 2. Fall back to nearest same weekday if exact date has no data
-          hourlyRevenue = new Array(24).fill(0);
-          const weekdayResult = await tryFetchRevenue(sameWeekdayDateStr);
-          historicalDateStr = sameWeekdayDateStr;
-          dataSource = weekdayResult.found ? weekdayResult.source : 'synthetic';
-        }
+        // Fetch and process the 52-week comparison date
+        const result = await tryFetchRevenue(historicalDateStr);
+        dataSource = result.found ? result.source : 'synthetic';
       }
 
       // Get AI scheduling settings for staffing tiers
@@ -1687,22 +1705,19 @@ Required JSON structure:
       const shiftOverlapMinutes2: number = settings2?.shiftOverlapMinutes ?? 0;
 
       // ── Get historical sales: backfill from Shopify GraphQL if needed ────────
-      const oneYearAgo2 = new Date(dateObj);
-      oneYearAgo2.setUTCFullYear(oneYearAgo2.getUTCFullYear() - 1);
-      const exactHistoricalDateStr2 = oneYearAgo2.toISOString().slice(0, 10);
-
-      // Same-weekday fallback
-      const sameWeekdayDate2 = new Date(oneYearAgo2);
-      const hisDow2 = sameWeekdayDate2.getUTCDay();
-      const weekdayDiff2 = (dow - hisDow2 + 7) % 7;
-      sameWeekdayDate2.setUTCDate(sameWeekdayDate2.getUTCDate() + weekdayDiff2);
-      const sameWeekdayDateStr2 = sameWeekdayDate2.toISOString().slice(0, 10);
-
-      let historicalDateStr2 = exactHistoricalDateStr2;
+      // Use 52 weeks ago (same day of week, 364 days) for like-for-like comparison
+      const historicalDate2 = historicalComparisonDate(dateObj);
+      let historicalDateStr2 = historicalDate2.toISOString().slice(0, 10);
 
       // Resolve Shopify shop credentials for this user
       const shopCreds = await getShopCredentialsForUser(userId);
       const shopDomain2 = shopCreds?.shopDomain ?? null;
+
+      // Fetch store timezone for accurate local-time hourly bucketing
+      const tzRow2 = await db.select({ timezone: workLocations.timezone })
+        .from(users).innerJoin(workLocations, eq(users.locationId, workLocations.id))
+        .where(eq(users.id, userId)).limit(1);
+      const storeTimezone2 = tzRow2[0]?.timezone ?? 'America/Chicago';
 
       let hourlyRevenue2: number[] = new Array(24).fill(0);
       let dataSource2 = 'synthetic';
@@ -1743,7 +1758,8 @@ Required JSON structure:
           if (ordersInner.length > 0) {
             for (const o of ordersInner) {
               if (!o.orderCreatedAt || !o.totalPrice) continue;
-              const h = new Date(o.orderCreatedAt).getUTCHours();
+              // Use store's local timezone so hours align with what the team observes
+              const h = getLocalHourInTz(new Date(o.orderCreatedAt), storeTimezone2);
               hourlyRevenue2[h] += parseFloat(o.totalPrice);
             }
             return { found: true, source: 'actual' };
@@ -1761,18 +1777,9 @@ Required JSON structure:
           return { found: false, source: 'estimated' as const };
         };
 
-        // 1. Try exact calendar date one year prior
-        const exactResult2 = await tryFetchRevenue2(exactHistoricalDateStr2);
-        if (exactResult2.found) {
-          historicalDateStr2 = exactHistoricalDateStr2;
-          dataSource2 = exactResult2.source;
-        } else {
-          // 2. Fall back to nearest same weekday if exact date has no data
-          hourlyRevenue2 = new Array(24).fill(0);
-          const weekdayResult2 = await tryFetchRevenue2(sameWeekdayDateStr2);
-          historicalDateStr2 = sameWeekdayDateStr2;
-          dataSource2 = weekdayResult2.found ? weekdayResult2.source : 'synthetic';
-        }
+        // Fetch and process the 52-week comparison date
+        const result2 = await tryFetchRevenue2(historicalDateStr2);
+        dataSource2 = result2.found ? result2.source : 'synthetic';
       }
 
       // Build hourly data using settings2 queried above (no duplicate round-trip)

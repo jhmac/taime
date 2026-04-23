@@ -335,11 +335,10 @@ export default function AISchedulingSection() {
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <UserCheck className="h-4 w-4" />
-            Employee Scheduling Roster
+            Sales Floor Roster
           </CardTitle>
           <p className="text-sm text-muted-foreground">
-            Choose which employees appear on the AI-generated schedule. Owners, admins, or other non-floor staff
-            can be excluded. Set target weekly hours for full-time employees so the AI prioritizes giving them enough shifts.
+            Toggle employees between <strong>Sales Floor</strong> (included in AI shift suggestions) and <strong>Back Office</strong> (never scheduled on the floor). Set target weekly hours so the AI prioritizes getting full-time employees to their goal.
           </p>
         </CardHeader>
         <CardContent>
@@ -351,18 +350,23 @@ export default function AISchedulingSection() {
             <div className="space-y-2">
               <div className="grid grid-cols-[1fr_auto_auto_auto] gap-4 text-xs font-medium text-muted-foreground px-3 pb-1">
                 <div>Employee</div>
-                <div className="text-center w-24">On Schedule</div>
+                <div className="text-center w-24">Sales Floor</div>
                 <div className="text-center w-28">Target Hrs/Wk</div>
                 <div className="w-8"></div>
               </div>
               {roster.map((emp) => (
-                <div key={emp.id} className={`grid grid-cols-[1fr_auto_auto_auto] gap-4 items-center p-3 rounded-lg ${emp.showInSchedule ? 'bg-muted/50' : 'bg-muted/20 opacity-70'}`}>
+                <div key={emp.id} className={`grid grid-cols-[1fr_auto_auto_auto] gap-4 items-center p-3 rounded-lg ${emp.showInSchedule ? 'bg-muted/50' : 'bg-muted/20 opacity-60'}`}>
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium">{emp.name}</span>
                       <Badge variant="outline" className="text-[10px] px-1.5 py-0">
                         {emp.roleName}
                       </Badge>
+                      {!emp.showInSchedule && (
+                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0 bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 border-0">
+                          Back Office
+                        </Badge>
+                      )}
                     </div>
                     <div className="text-xs text-muted-foreground">{emp.email} · {emp.employmentType || 'Not set'}</div>
                   </div>
@@ -393,7 +397,7 @@ export default function AISchedulingSection() {
                       />
                     ) : (
                       <span className="text-xs text-muted-foreground flex items-center gap-1">
-                        <UserX className="h-3 w-3" /> Excluded
+                        <UserX className="h-3 w-3" /> Back Office
                       </span>
                     )}
                   </div>
@@ -405,8 +409,8 @@ export default function AISchedulingSection() {
                 </div>
               ))}
               <p className="text-xs text-muted-foreground mt-2 px-1">
-                Employees with "On Schedule" turned off will never appear in AI-generated schedules.
-                Target hours tell the AI to prioritize giving that employee enough shifts to reach their goal each week.
+                Employees with <strong>Sales Floor</strong> off are marked <strong>Back Office</strong> and never appear in AI shift suggestions.
+                Target hours tell the AI to prioritize giving that employee enough shifts to reach their weekly goal.
               </p>
             </div>
           )}
