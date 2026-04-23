@@ -178,7 +178,21 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
         // Override takes precedence over template
         const override = overridesByDate[dateStr];
         if (override) {
-          return { date: dateStr, source: 'override', available: !override.unavailable && !!override.startTime, unavailable: override.unavailable ?? false, startTime: override.startTime ?? null, endTime: override.endTime ?? null, timeOff: null };
+          // Also capture what the template would have said (if anything) so the UI can show a "customized" indicator
+          const dow = dateObj.getUTCDay().toString();
+          const templateSlot = rawSlots[dow];
+          let templateDefault: { available: boolean; startTime: string | null; endTime: string | null } | null = null;
+          if (templateSlot) {
+            if ('available' in templateSlot) {
+              const avail = templateSlot.available ?? false;
+              templateDefault = { available: avail, startTime: avail ? (templateSlot.startTime ?? null) : null, endTime: avail ? (templateSlot.endTime ?? null) : null };
+            } else {
+              // Legacy slot
+              const legacyAvail = !!(templateSlot.morning || templateSlot.afternoon || templateSlot.evening);
+              templateDefault = { available: legacyAvail, startTime: null, endTime: null };
+            }
+          }
+          return { date: dateStr, source: 'override', available: !override.unavailable && !!override.startTime, unavailable: override.unavailable ?? false, startTime: override.startTime ?? null, endTime: override.endTime ?? null, timeOff: null, templateDefault };
         }
 
         // Fall back to template for this day-of-week

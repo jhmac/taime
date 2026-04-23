@@ -20,7 +20,7 @@ import {
   Sun, Sunset, Moon, Clock, Check, Minus, ChevronLeft, ChevronRight,
   StickyNote, Plus, X, Umbrella, Thermometer, User, CalendarMinus,
   MoreHorizontal, MessageSquare, CalendarCheck, Save, Loader2, CalendarDays, Wand2,
-  Ban, RefreshCcw, Repeat
+  Ban, RefreshCcw, Repeat, Sparkles
 } from "lucide-react";
 import type { UserAvailability, TimeOffRequest, AvailabilityTemplate, TemplateSlot, TemplateSlotNew, TemplateSlotLegacy } from "@shared/schema";
 
@@ -39,6 +39,12 @@ function useIsDesktop(): boolean {
 }
 
 // ─── Calendar day entry type (from merged API) ───────────────────────────────
+interface CalDayTemplateDefault {
+  available: boolean;
+  startTime: string | null;
+  endTime: string | null;
+}
+
 interface CalDayEntry {
   date: string; // "YYYY-MM-DD"
   source: 'override' | 'template' | 'time_off' | 'none';
@@ -47,6 +53,8 @@ interface CalDayEntry {
   startTime: string | null;
   endTime: string | null;
   timeOff: { type: string; status: string } | null;
+  /** Only present when source === 'override' and the day also has a recurring template rule */
+  templateDefault?: CalDayTemplateDefault | null;
 }
 
 // ─── Time slot types (for the weekly grid — unchanged) ─────────────────────
@@ -931,59 +939,119 @@ export default function Availability() {
                     const isTemplateOnly = entry?.source === 'template';
                     const hasOverride = entry?.source === 'override';
                     const hasHours = !isUnavailable && !isTimeOff && entry?.startTime && entry?.endTime;
+                    const templateDefault = (hasOverride && entry?.templateDefault) || null;
+                    const isOverridingTemplate = hasOverride && !!templateDefault;
+
+                    // Human-readable description of the template default
+                    const templateDesc = templateDefault
+                      ? templateDefault.available
+                        ? templateDefault.startTime && templateDefault.endTime
+                          ? `Available ${formatTimeShort(templateDefault.startTime)}–${formatTimeShort(templateDefault.endTime)}`
+                          : 'Available'
+                        : 'Blocked'
+                      : null;
+
+                    // Human-readable description of the override
+                    const overrideDesc = hasOverride
+                      ? entry!.unavailable
+                        ? 'Blocked'
+                        : entry!.startTime && entry!.endTime
+                          ? `Available ${formatTimeShort(entry!.startTime)}–${formatTimeShort(entry!.endTime)}`
+                          : 'Available'
+                      : null;
 
                     return (
-                      <button
-                        key={dateStr}
-                        onClick={() => openDayEditor(dateStr)}
-                        className={cn(
-                          "h-14 rounded-lg flex flex-col items-center justify-start pt-1 px-0.5 relative transition-all active:scale-95 select-none",
-                          "focus:outline-none focus:ring-2 focus:ring-primary/50",
-                          isTimeOff && "bg-gray-100 dark:bg-gray-800/50 cursor-default",
-                          isUnavailable && "bg-red-50 dark:bg-red-950/20",
-                          isAvailable && isTemplateOnly && "bg-emerald-50/60 dark:bg-emerald-950/20 border border-dashed border-emerald-300 dark:border-emerald-700",
-                          isAvailable && hasOverride && "bg-emerald-100 dark:bg-emerald-900/30",
-                          isDefaultOpen && "bg-emerald-50/40 dark:bg-emerald-950/10 hover:bg-emerald-50/80 dark:hover:bg-emerald-950/20",
-                          isToday && "ring-2 ring-primary"
-                        )}
-                      >
-                        {/* Day number */}
-                        <span className={cn(
-                          "text-xs font-semibold leading-none",
-                          isToday && "text-primary",
-                          isTimeOff && "text-gray-500 dark:text-gray-400",
-                          isUnavailable && "text-red-500 dark:text-red-400",
-                          (isAvailable || isDefaultOpen) && !isToday && "text-emerald-700 dark:text-emerald-300"
-                        )}>
-                          {day.getDate()}
-                        </span>
+                      <div key={dateStr} className="relative group/cal">
+                        <button
+                          onClick={() => openDayEditor(dateStr)}
+                          className={cn(
+                            "h-14 w-full rounded-lg flex flex-col items-center justify-start pt-1 px-0.5 relative transition-all active:scale-95 select-none",
+                            "focus:outline-none focus:ring-2 focus:ring-primary/50",
+                            isTimeOff && "bg-gray-100 dark:bg-gray-800/50 cursor-default",
+                            isUnavailable && "bg-red-50 dark:bg-red-950/20",
+                            isAvailable && isTemplateOnly && "bg-emerald-50/60 dark:bg-emerald-950/20 border border-dashed border-emerald-300 dark:border-emerald-700",
+                            isAvailable && hasOverride && "bg-emerald-100 dark:bg-emerald-900/30",
+                            isDefaultOpen && "bg-emerald-50/40 dark:bg-emerald-950/10 hover:bg-emerald-50/80 dark:hover:bg-emerald-950/20",
+                            isToday && "ring-2 ring-primary"
+                          )}
+                        >
+                          {/* Day number */}
+                          <span className={cn(
+                            "text-xs font-semibold leading-none",
+                            isToday && "text-primary",
+                            isTimeOff && "text-gray-500 dark:text-gray-400",
+                            isUnavailable && "text-red-500 dark:text-red-400",
+                            (isAvailable || isDefaultOpen) && !isToday && "text-emerald-700 dark:text-emerald-300"
+                          )}>
+                            {day.getDate()}
+                          </span>
 
-                        {/* Status indicator */}
-                        {isTimeOff && (
-                          <div className="mt-0.5 flex flex-col items-center">
-                            <Umbrella className="h-3 w-3 text-gray-400" />
-                            <span className="text-[9px] text-gray-400 leading-none mt-0.5 truncate max-w-[36px]">{entry?.timeOff?.type || 'Off'}</span>
+                          {/* Status indicator */}
+                          {isTimeOff && (
+                            <div className="mt-0.5 flex flex-col items-center">
+                              <Umbrella className="h-3 w-3 text-gray-400" />
+                              <span className="text-[9px] text-gray-400 leading-none mt-0.5 truncate max-w-[36px]">{entry?.timeOff?.type || 'Off'}</span>
+                            </div>
+                          )}
+                          {isUnavailable && (
+                            <div className="mt-0.5">
+                              <Ban className="h-3 w-3 text-red-400" />
+                            </div>
+                          )}
+                          {hasHours && (
+                            <div className="mt-0.5 text-[9px] text-emerald-600 dark:text-emerald-400 leading-none text-center px-0.5 truncate max-w-[48px]">
+                              {`${formatTimeShort(entry!.startTime!)}–${formatTimeShort(entry!.endTime!)}`}
+                            </div>
+                          )}
+                          {isDefaultOpen && !isToday && (
+                            <div className="mt-0.5">
+                              <Check className="h-2.5 w-2.5 text-emerald-400/60" />
+                            </div>
+                          )}
+                          {isTemplateOnly && (isAvailable || isUnavailable) && (
+                            <Repeat className="absolute bottom-0.5 right-0.5 h-2 w-2 text-emerald-400 opacity-60" />
+                          )}
+
+                          {/* Custom override indicator dot */}
+                          {isOverridingTemplate && (
+                            <span className="absolute top-0.5 right-0.5 flex items-center justify-center">
+                              <Sparkles className="h-2.5 w-2.5 text-amber-400" />
+                            </span>
+                          )}
+                        </button>
+
+                        {/* Hover tooltip for override-over-template days */}
+                        {isOverridingTemplate && (
+                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 z-50 invisible group-hover/cal:visible opacity-0 group-hover/cal:opacity-100 transition-opacity duration-150 pointer-events-none w-44">
+                            <div className="bg-popover text-popover-foreground rounded-md border shadow-md p-2 text-[10px]">
+                              <div className="flex items-center gap-1 text-amber-500 font-semibold mb-1.5">
+                                <Sparkles className="h-2.5 w-2.5" />
+                                <span>Custom override</span>
+                              </div>
+                              <div className="space-y-1">
+                                <div className="flex items-start gap-1.5">
+                                  <Repeat className="h-2.5 w-2.5 text-muted-foreground mt-0.5 shrink-0" />
+                                  <div>
+                                    <span className="text-muted-foreground">Template: </span>
+                                    <span className="font-medium">{templateDesc}</span>
+                                  </div>
+                                </div>
+                                <div className="flex items-start gap-1.5">
+                                  <Sparkles className="h-2.5 w-2.5 text-amber-400 mt-0.5 shrink-0" />
+                                  <div>
+                                    <span className="text-muted-foreground">This day: </span>
+                                    <span className="font-medium">{overrideDesc}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                            {/* Arrow */}
+                            <div className="flex justify-center">
+                              <div className="w-2 h-2 bg-popover border-r border-b rotate-45 -mt-1 border-border" />
+                            </div>
                           </div>
                         )}
-                        {isUnavailable && (
-                          <div className="mt-0.5">
-                            <Ban className="h-3 w-3 text-red-400" />
-                          </div>
-                        )}
-                        {hasHours && (
-                          <div className="mt-0.5 text-[9px] text-emerald-600 dark:text-emerald-400 leading-none text-center px-0.5 truncate max-w-[48px]">
-                            {`${formatTimeShort(entry!.startTime!)}–${formatTimeShort(entry!.endTime!)}`}
-                          </div>
-                        )}
-                        {isDefaultOpen && !isToday && (
-                          <div className="mt-0.5">
-                            <Check className="h-2.5 w-2.5 text-emerald-400/60" />
-                          </div>
-                        )}
-                        {isTemplateOnly && (isAvailable || isUnavailable) && (
-                          <Repeat className="absolute bottom-0.5 right-0.5 h-2 w-2 text-emerald-400 opacity-60" />
-                        )}
-                      </button>
+                      </div>
                     );
                   })}
                 </div>
@@ -995,6 +1063,7 @@ export default function Availability() {
                 <div className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-emerald-100 dark:bg-emerald-900/30" />Hours set</div>
                 <div className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-red-50 dark:bg-red-950/20" />Blocked</div>
                 <div className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-gray-100 dark:bg-gray-800/50" />Time off</div>
+                <div className="flex items-center gap-1"><Sparkles className="h-2.5 w-2.5 text-amber-400" />Custom override</div>
               </div>
 
               <p className="text-[11px] text-muted-foreground mt-2 text-center">
