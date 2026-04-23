@@ -14,7 +14,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 import {
   Clock, Users, Loader2, TrendingUp, Sparkles, AlertTriangle,
-  ChevronDown, ChevronUp, Wand2, Check
+  ChevronDown, ChevronUp, Wand2, Check, X
 } from "lucide-react";
 
 interface HourlyData {
@@ -128,12 +128,16 @@ function ShiftBlock({
   closeMin,
   onClick,
   isSelected,
+  isExcluded,
+  onToggleExclude,
 }: {
   shift: ProposedShift;
   openMin: number;
   closeMin: number;
   onClick: () => void;
   isSelected: boolean;
+  isExcluded: boolean;
+  onToggleExclude: (e: React.MouseEvent) => void;
 }) {
   const totalMin = closeMin - openMin;
   if (totalMin <= 0) return null;
@@ -146,24 +150,40 @@ function ShiftBlock({
 
   return (
     <button
-      onClick={onClick}
-      title={shift.rationale}
+      onClick={isExcluded ? onToggleExclude : onClick}
+      title={isExcluded ? "Click to restore this shift" : shift.rationale}
       style={{ top: `${topPct}%`, height: `${heightPct}%` }}
       className={cn(
-        "absolute left-1 right-1 rounded-md px-1.5 py-0.5 text-left transition-all overflow-hidden",
-        color,
-        "text-white text-[10px] font-medium leading-tight",
-        isSelected
+        "absolute left-1 right-1 rounded-md px-1.5 py-0.5 text-left transition-all overflow-hidden group",
+        isExcluded
+          ? "bg-muted/60 border border-dashed border-border opacity-50"
+          : color,
+        isExcluded
+          ? "text-muted-foreground text-[10px] font-medium leading-tight"
+          : "text-white text-[10px] font-medium leading-tight",
+        !isExcluded && isSelected
           ? "ring-2 ring-white ring-offset-1 opacity-100"
-          : "opacity-80 hover:opacity-100"
+          : !isExcluded
+          ? "opacity-80 hover:opacity-100"
+          : ""
       )}
     >
-      <div className="truncate">{shift.employeeName}</div>
-      <div className="truncate opacity-80">
+      <div className={cn("truncate", isExcluded && "line-through")}>{shift.employeeName}</div>
+      <div className={cn("truncate opacity-80", isExcluded && "line-through")}>
         {fmt12(shift.startTime)}–{fmt12(shift.endTime)}
       </div>
-      {shift.rationale && (
+      {!isExcluded && shift.rationale && (
         <div className="truncate opacity-70 text-[9px]">{shift.rationale}</div>
+      )}
+      {!isExcluded && (
+        <span
+          role="button"
+          title="Exclude this shift"
+          onClick={onToggleExclude}
+          className="absolute top-0.5 right-0.5 hidden group-hover:flex items-center justify-center w-4 h-4 rounded-full bg-black/30 hover:bg-black/50 text-white"
+        >
+          <X className="h-2.5 w-2.5" />
+        </span>
       )}
     </button>
   );
@@ -274,12 +294,16 @@ function DayTimeline({
   storeHours,
   selectedIdx,
   onSelectShift,
+  excludedIdxs,
+  onToggleExclude,
 }: {
   suggestData: SuggestData | null | undefined;
   isLoading: boolean;
   storeHours: { open: string; close: string } | null;
   selectedIdx: number | null;
   onSelectShift: (shift: ProposedShift, idx: number) => void;
+  excludedIdxs: Set<number>;
+  onToggleExclude: (idx: number) => void;
 }) {
   const open = storeHours?.open || suggestData?.storeHours?.open || "09:00";
   const close = storeHours?.close || suggestData?.storeHours?.close || "21:00";
@@ -302,6 +326,7 @@ function DayTimeline({
   }
 
   const shifts = suggestData?.proposedShifts ?? [];
+  const activeCount = shifts.filter((_, i) => !excludedIdxs.has(i)).length;
 
   return (
     <div>
@@ -309,7 +334,9 @@ function DayTimeline({
         <Sparkles className="h-3 w-3" />
         AI-Recommended Shifts
         {shifts.length > 0 && (
-          <span className="ml-1 text-foreground font-semibold">({shifts.length})</span>
+          <span className="ml-1 text-foreground font-semibold">
+            ({activeCount}{excludedIdxs.size > 0 ? ` of ${shifts.length}` : ""})
+          </span>
         )}
       </div>
       {shifts.length === 0 ? (
@@ -364,7 +391,9 @@ function DayTimeline({
                 openMin={openMin}
                 closeMin={closeMin}
                 isSelected={selectedIdx === idx}
+                isExcluded={excludedIdxs.has(idx)}
                 onClick={() => onSelectShift(shift, idx)}
+                onToggleExclude={(e) => { e.stopPropagation(); onToggleExclude(idx); }}
               />
             ))}
           </div>
@@ -405,6 +434,7 @@ export default function CreateShiftSplitPanel({
   const [selectedUserId, setSelectedUserId] = useState(defaultUserId || "");
   const [selectedShiftIdx, setSelectedShiftIdx] = useState<number | null>(null);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
+  const [excludedIdxs, setExcludedIdxs] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     if (open) {
@@ -413,8 +443,22 @@ export default function CreateShiftSplitPanel({
       setModalEndTime(defaultEndTime || "17:00");
       setSelectedUserId(defaultUserId || "");
       setSelectedShiftIdx(null);
+      setExcludedIdxs(new Set());
     }
   }, [open, defaultDate, defaultUserId, defaultStartTime, defaultEndTime]);
+
+  const handleToggleExclude = (idx: number) => {
+    setExcludedIdxs((prev) => {
+      const next = new Set(prev);
+      if (next.has(idx)) {
+        next.delete(idx);
+      } else {
+        next.add(idx);
+        if (selectedShiftIdx === idx) setSelectedShiftIdx(null);
+      }
+      return next;
+    });
+  };
 
   const { data: salesData, isLoading: salesLoading } = useQuery<HistoricalSalesData>({
     queryKey: ["/api/schedules/historical-sales", modalDate],
@@ -496,6 +540,7 @@ export default function CreateShiftSplitPanel({
   };
 
   const proposedShifts = suggestData?.proposedShifts ?? [];
+  const activeShifts = proposedShifts.filter((_, i) => !excludedIdxs.has(i));
   const storeHours = salesData?.storeHours ?? suggestData?.storeHours ?? null;
 
   const dateLabel = modalDate
@@ -545,15 +590,15 @@ export default function CreateShiftSplitPanel({
                   className="bg-orange-500 hover:bg-orange-600 text-white gap-1.5 text-xs h-8"
                   disabled={
                     approveMutation.isPending ||
-                    proposedShifts.length === 0 ||
+                    activeShifts.length === 0 ||
                     suggestLoading
                   }
-                  onClick={() => approveMutation.mutate(proposedShifts)}
+                  onClick={() => approveMutation.mutate(activeShifts)}
                 >
                   {approveMutation.isPending ? (
                     <><Loader2 className="h-3 w-3 animate-spin" />Approving…</>
                   ) : (
-                    <><Check className="h-3 w-3" />Approve ({proposedShifts.length})</>
+                    <><Check className="h-3 w-3" />Approve ({activeShifts.length})</>
                   )}
                 </Button>
               </div>
@@ -587,6 +632,8 @@ export default function CreateShiftSplitPanel({
                 storeHours={storeHours}
                 selectedIdx={selectedShiftIdx}
                 onSelectShift={handleSelectShift}
+                excludedIdxs={excludedIdxs}
+                onToggleExclude={handleToggleExclude}
               />
             </div>
           </div>
@@ -664,6 +711,7 @@ export default function CreateShiftSplitPanel({
                   onChange={(e) => {
                     setModalDate(e.target.value);
                     setSelectedShiftIdx(null);
+                    setExcludedIdxs(new Set());
                     onDateChange?.(e.target.value);
                   }}
                 />
