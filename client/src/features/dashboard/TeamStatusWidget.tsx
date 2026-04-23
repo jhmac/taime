@@ -14,6 +14,14 @@ interface ShopifyData {
   orderCount?: number;
 }
 
+interface HoursStats {
+  todayHours: number;
+  weekHours: number;
+  periodHours?: number;
+  estimatedPay?: number;
+  hourlyRate?: number;
+}
+
 interface ClockedInMember {
   userId: string;
   firstName: string | null;
@@ -83,7 +91,7 @@ interface ScheduleEntry {
   isClockedIn: boolean;
 }
 
-export default function TeamStatusWidget() {
+export default function TeamStatusWidget({ hoursStats }: { hoursStats?: HoursStats } = {}) {
   const [filterLocationBlocked, setFilterLocationBlocked] = useState(false);
   const [filterLate, setFilterLate] = useState(false);
   const { user: clerkUser } = useUser();
@@ -351,13 +359,38 @@ export default function TeamStatusWidget() {
     <div className="rounded-3xl bg-card border border-border overflow-hidden">
       {/* Header */}
       <div className="px-4 pt-4 pb-3">
-        <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-2xl flex items-center justify-center flex-shrink-0"
-            style={{ background: 'hsl(var(--primary) / 0.12)' }}>
-            <CalendarDays className="h-4.5 w-4.5 text-primary" style={{ width: '18px', height: '18px' }} />
+        {hoursStats ? (
+          <div className="flex items-center gap-2 overflow-x-auto flex-nowrap">
+            <CalendarDays className="h-4 w-4 text-primary shrink-0" />
+            <span className="text-sm font-semibold shrink-0">Today</span>
+            <span className="text-sm font-bold tabular-nums shrink-0">{hoursStats.todayHours.toFixed(1)} hrs</span>
+            <span className="text-muted-foreground/40 shrink-0 text-xs">|</span>
+            <span className="text-xs text-muted-foreground shrink-0">This week</span>
+            <span className="text-xs font-bold tabular-nums shrink-0">{hoursStats.weekHours.toFixed(1)} hrs</span>
+            {hoursStats.periodHours !== undefined && (
+              <>
+                <span className="text-muted-foreground/40 shrink-0 text-xs">|</span>
+                <span className="text-xs text-muted-foreground shrink-0">This Period</span>
+                <span className="text-xs font-bold tabular-nums shrink-0">{hoursStats.periodHours.toFixed(1)} hrs</span>
+              </>
+            )}
+            {hoursStats.estimatedPay !== undefined && (hoursStats.hourlyRate ?? 0) > 0 && (
+              <>
+                <span className="text-muted-foreground/40 shrink-0 text-xs">|</span>
+                <span className="text-xs text-muted-foreground shrink-0">Estimated Pay</span>
+                <span className="text-xs font-bold tabular-nums text-green-600 dark:text-green-400 shrink-0">${hoursStats.estimatedPay.toFixed(2)}</span>
+              </>
+            )}
           </div>
-          <h3 className="text-base font-extrabold text-foreground">Today</h3>
-        </div>
+        ) : (
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-2xl flex items-center justify-center flex-shrink-0"
+              style={{ background: 'hsl(var(--primary) / 0.12)' }}>
+              <CalendarDays className="h-4.5 w-4.5 text-primary" style={{ width: '18px', height: '18px' }} />
+            </div>
+            <h3 className="text-base font-extrabold text-foreground">Today</h3>
+          </div>
+        )}
         {(totalLate > 0 || totalLocationBlocked > 0) && (
           <div className="flex items-center gap-2 mt-2 ml-0.5 flex-wrap">
             {totalLate > 0 && (

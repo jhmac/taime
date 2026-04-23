@@ -23,7 +23,6 @@ import DailyTrainingManagerWidget from '@/features/dashboard/DailyTrainingManage
 import TimeClockWidget from '@/components/TimeClockWidget';
 import TeamStatusWidget from '@/features/dashboard/TeamStatusWidget';
 import {
-  Users,
   Sun,
   Check,
   AlertTriangle,
@@ -39,8 +38,6 @@ import {
   ArrowRight,
   Video,
   Timer,
-  CalendarDays,
-  DollarSign,
 } from 'lucide-react';
 import { DELIVERY_FAILURE_HIGH_THRESHOLD } from '@/lib/notificationConstants';
 
@@ -83,12 +80,6 @@ export default function ManagerDashboard() {
     queryKey: ['/api/dashboard/my-pay-summary'],
     enabled: true,
     staleTime: 5 * 60 * 1000,
-  });
-
-  // Daily goal / revenue data
-  const { data: dailyGoal } = useQuery<any>({
-    queryKey: ['/api/dashboard/daily-goal'],
-    staleTime: 60_000,
   });
 
   // Defer non-critical list queries until after first paint so the initial
@@ -274,89 +265,18 @@ export default function ManagerDashboard() {
         <DashboardErrorBoundary fallback="Time clock failed to load">
           <TimeClockWidget hideClock hideTodayTotal />
         </DashboardErrorBoundary>
-
-        {/* ── Today Card (replaces the 4 stat cards) ── */}
-        <DashboardErrorBoundary fallback="Today card failed to load">
-          <Card className="mt-3">
-            {/* Header row doubles as the personal hours stats bar */}
-            <CardHeader className="pb-2 pt-3 px-4">
-              <div className="flex items-center gap-2 overflow-x-auto flex-nowrap">
-                <CalendarDays className="h-4 w-4 text-primary shrink-0" />
-                <span className="text-sm font-semibold shrink-0">Today</span>
-                <span className="text-sm font-bold tabular-nums shrink-0">{myTodayHours.toFixed(1)} hrs</span>
-                <span className="text-muted-foreground/40 shrink-0 text-xs">|</span>
-                <span className="text-xs text-muted-foreground shrink-0">This week</span>
-                <span className="text-xs font-bold tabular-nums shrink-0">{myWeekHours.toFixed(1)} hrs</span>
-                {myPaySummary && (
-                  <>
-                    <span className="text-muted-foreground/40 shrink-0 text-xs">|</span>
-                    <span className="text-xs text-muted-foreground shrink-0">This Period</span>
-                    <span className="text-xs font-bold tabular-nums shrink-0">{myPaySummary.totalHours.toFixed(1)} hrs</span>
-                  </>
-                )}
-                {myPaySummary && myPaySummary.hourlyRate > 0 && (
-                  <>
-                    <span className="text-muted-foreground/40 shrink-0 text-xs">|</span>
-                    <span className="text-xs text-muted-foreground shrink-0">Estimated Pay</span>
-                    <span className="text-xs font-bold tabular-nums text-green-600 dark:text-green-400 shrink-0">${myPaySummary.estimatedPay.toFixed(2)}</span>
-                  </>
-                )}
-              </div>
-            </CardHeader>
-            <CardContent className="px-4 pb-3">
-              <div className={isMobile ? "space-y-3" : "flex gap-6"}>
-                {/* Revenue column */}
-                <div className="flex-1 min-w-0">
-                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold mb-1">Revenue</p>
-                  {dailyGoal?.current?.revenue !== undefined ? (
-                    <div>
-                      <p className="text-2xl font-bold text-green-600 dark:text-green-400 tabular-nums leading-tight">
-                        ${Number(dailyGoal.current.revenue).toFixed(0)}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {dailyGoal.current.orders ?? 0} {dailyGoal.current.orders === 1 ? 'order' : 'orders'}
-                        {dailyGoal.hasGoal && (
-                          <> &bull; {dailyGoal.progress ?? 0}% of goal</>
-                        )}
-                      </p>
-                    </div>
-                  ) : (
-                    <p className="text-sm text-muted-foreground italic">No data yet</p>
-                  )}
-                </div>
-
-                {!isMobile && <div className="w-px bg-border self-stretch" />}
-
-                {/* Scheduled Today column */}
-                <div className="flex-1 min-w-0">
-                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold mb-1">Scheduled Today</p>
-                  {todaySchedules.length === 0 ? (
-                    <div className="flex items-center gap-1.5 text-muted-foreground">
-                      <Users className="h-3.5 w-3.5 shrink-0" />
-                      <span className="text-xs italic">No shifts scheduled today</span>
-                    </div>
-                  ) : (
-                    <div>
-                      <p className="text-2xl font-bold tabular-nums leading-tight">{todaySchedules.length}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {todaySchedules.length === 1 ? 'shift' : 'shifts'} &bull; {totalClockedIn} clocked in
-                        {partialErrors?.todaySummaryError && !todaySummary && (
-                          <AlertTriangle size={10} className="inline ml-1 text-amber-500" title="Attendance data may be unavailable" />
-                        )}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </DashboardErrorBoundary>
       </div>
 
-      {/* ── Team Status — clocked-in team with admin clock-out, right below personal status ── */}
+      {/* ── Today Card — hours stats bar merged with real Shopify revenue + team schedule ── */}
       <div className={isMobile ? "px-4 pb-2" : "px-6 pb-2"}>
         <DashboardErrorBoundary fallback="Could not load team status">
-          <TeamStatusWidget />
+          <TeamStatusWidget hoursStats={{
+            todayHours: myTodayHours,
+            weekHours: myWeekHours,
+            periodHours: myPaySummary?.totalHours,
+            estimatedPay: myPaySummary?.estimatedPay,
+            hourlyRate: myPaySummary?.hourlyRate,
+          }} />
         </DashboardErrorBoundary>
       </div>
 
