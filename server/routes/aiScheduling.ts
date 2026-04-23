@@ -1239,24 +1239,38 @@ Required JSON structure:
       // historicalDateStr will be resolved below: exact first, weekday fallback only if no data
       let historicalDateStr = exactHistoricalDateStr;
 
-      // Find the shop associated with the requesting user (multi-tenant scoped)
-      const userShopLinks = await db.select({ shopDomain: userShops.shopDomain })
-        .from(userShops)
-        .where(eq(userShops.userId, userId))
-        .limit(1);
-      const shopDomain = userShopLinks[0]?.shopDomain;
+      // Resolve Shopify credentials for this user (enables auto-backfill)
+      const shopCreds = await getShopCredentialsForUser(userId);
+      const shopDomain = shopCreds?.shopDomain ?? null;
 
       let hourlyRevenue: number[] = new Array(24).fill(0);
       let dataSource = 'synthetic';
 
       if (shopDomain) {
-        const { shopifyOrders } = await import('@shared/schema');
         const weights = [0,0,0,0,0,0,0.01,0.02,0.05,0.08,0.09,0.10,0.10,0.09,0.08,0.07,0.07,0.06,0.06,0.05,0.04,0.03,0.01,0];
 
-        // Helper: try exact date, then same-weekday fallback
         const tryFetchRevenue = async (dateStr: string): Promise<{ found: boolean; source: 'actual' | 'estimated' }> => {
           const start = new Date(dateStr + 'T00:00:00Z');
           const end = new Date(dateStr + 'T23:59:59Z');
+
+          // Auto-backfill: pull from Shopify GraphQL if no per-order rows exist for this date
+          const existingCount = await db.select({ cnt: count() })
+            .from(shopifyOrders)
+            .where(and(
+              eq(shopifyOrders.shopDomain, shopDomain),
+              gte(shopifyOrders.orderCreatedAt, start),
+              lte(shopifyOrders.orderCreatedAt, end),
+            ));
+          if ((existingCount[0]?.cnt ?? 0) === 0 && shopCreds) {
+            try {
+              console.log(`[historical-sales] auto-backfill: fetching Shopify orders for ${dateStr}`);
+              await backfillDayOrdersFromShopify(shopDomain, shopCreds.service, dateStr);
+            } catch (backfillErr) {
+              console.warn(`[historical-sales] auto-backfill failed (non-fatal): ${backfillErr}`);
+            }
+          }
+
+          // Query orders (may have just been populated by backfill)
           const orders = await db.select({
             totalPrice: shopifyOrders.totalPrice,
             orderCreatedAt: shopifyOrders.orderCreatedAt,
@@ -1273,6 +1287,8 @@ Required JSON structure:
             }
             return { found: true, source: 'actual' };
           }
+
+          // Fall back to daily aggregate (estimated hour distribution)
           const dailySales = await db.select({ totalRevenue: shopifyDailySales.totalRevenue })
             .from(shopifyDailySales)
             .where(and(eq(shopifyDailySales.shopDomain, shopDomain), eq(shopifyDailySales.date, start)))
