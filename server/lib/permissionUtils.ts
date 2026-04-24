@@ -37,10 +37,14 @@ export async function getAllStoreUserIds(storeId: string): Promise<string[]> {
     return cached.result;
   }
 
+  const { or, isNull } = await import("drizzle-orm");
   const rows = await db
     .select({ id: users.id })
     .from(users)
-    .where(and(eq(users.locationId, storeId), eq(users.isActive, true)));
+    .where(and(
+      or(eq(users.locationId, storeId), isNull(users.locationId)),
+      eq(users.isActive, true)
+    ));
 
   const result = rows.map((r) => r.id);
   storeUserCache.set(cacheKey, { result, expiresAt: now + CACHE_TTL_MS });

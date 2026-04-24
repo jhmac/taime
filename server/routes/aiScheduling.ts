@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
-import { aiSchedulingSettings, aiSchedulingRules, shopifyDailySales, shopifyOrders, users, userAvailability, availabilityTemplates, schedules, shops, userShops, roles, workPatternTemplates, userWorkPatterns, clockEvents, workLocations } from "@shared/schema";
+import { aiSchedulingSettings, aiSchedulingRules, shopifyDailySales, shopifyOrders, users, userAvailability, availabilityTemplates, schedules, shops, userShops, roles, workPatternTemplates, userWorkPatterns, clockEvents, workLocations, aiSuggestedSchedules } from "@shared/schema";
 import { eq, and, gte, lte, desc, inArray, sql, count, isNull, or } from "drizzle-orm";
 import { db } from "../db";
 import Anthropic from '@anthropic-ai/sdk';
@@ -1631,6 +1631,43 @@ Required JSON structure:
   });
 
   // ── Suggested Schedule Generation ──────────────────────────────────────────
+  // GET /api/schedules/suggest — load a previously saved AI-generated schedule
+  app.get("/api/schedules/suggest", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const dateParam = (req.query.date as string) || new Date().toISOString().split('T')[0];
+      const { tryResolveStoreIdForUser } = await import('../lib/storeResolver');
+      const storeId = await tryResolveStoreIdForUser(userId);
+      if (!storeId) return res.json(null);
+      const rows = await db.select()
+        .from(aiSuggestedSchedules)
+        .where(and(eq(aiSuggestedSchedules.storeId, storeId), eq(aiSuggestedSchedules.date, dateParam)))
+        .limit(1);
+      if (rows.length === 0) return res.json(null);
+      return res.json(rows[0].scheduleData);
+    } catch (err) {
+      console.error("[suggest GET] error:", err);
+      return res.json(null);
+    }
+  });
+
+  // DELETE /api/schedules/suggest — clear a saved schedule so it can be regenerated
+  app.delete("/api/schedules/suggest", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const dateParam = (req.query.date as string) || new Date().toISOString().split('T')[0];
+      const { tryResolveStoreIdForUser } = await import('../lib/storeResolver');
+      const storeId = await tryResolveStoreIdForUser(userId);
+      if (!storeId) return res.json({ success: false });
+      await db.delete(aiSuggestedSchedules)
+        .where(and(eq(aiSuggestedSchedules.storeId, storeId), eq(aiSuggestedSchedules.date, dateParam)));
+      return res.json({ success: true });
+    } catch (err) {
+      console.error("[suggest DELETE] error:", err);
+      return res.json({ success: false });
+    }
+  });
+
   app.post("/api/schedules/suggest", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
@@ -2331,14 +2368,31 @@ Respond ONLY with a valid JSON object (no markdown, no explanation) in this exac
         dataSource: salesData.dataSource,
         availableMembers: availableMembers.length,
       });
-      res.json({
+
+      const responsePayload = {
         date: dateParam,
         proposedShifts,
         historicalDate: salesData.historicalDate,
         dataSource: salesData.dataSource,
         hourlyData,
         storeHours: salesData.storeHours,
-      });
+      };
+
+      // Persist generated schedule so it won't need to be regenerated on next view
+      if (storeId) {
+        try {
+          await db.insert(aiSuggestedSchedules)
+            .values({ storeId, date: dateParam, scheduleData: responsePayload as any })
+            .onConflictDoUpdate({
+              target: [aiSuggestedSchedules.storeId, aiSuggestedSchedules.date],
+              set: { scheduleData: responsePayload as any, generatedAt: new Date() },
+            });
+        } catch (saveErr) {
+          logger.warn("[suggest] failed to persist schedule (non-fatal):", { saveErr: String(saveErr) });
+        }
+      }
+
+      res.json(responsePayload);
     } catch (error) {
       logger.error("[suggest] unhandled error", { error: String(error) });
       console.error("Error generating suggested schedule:", error);

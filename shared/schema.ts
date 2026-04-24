@@ -2778,3 +2778,19 @@ export const supplies = pgTable("supplies", {
 export const insertSupplySchema = createInsertSchema(supplies).omit({ id: true, requestedAt: true, purchasedAt: true });
 export type Supply = typeof supplies.$inferSelect;
 export type InsertSupply = z.infer<typeof insertSupplySchema>;
+
+// ── AI Suggested Schedules (persisted to avoid regenerating) ─────────────────
+
+export const aiSuggestedSchedules = pgTable("ai_suggested_schedules", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => workLocations.id).notNull(),
+  date: varchar("date", { length: 10 }).notNull(),
+  scheduleData: jsonb("schedule_data").notNull(),
+  generatedAt: timestamp("generated_at").defaultNow(),
+}, (t) => [
+  uniqueIndex("ai_sched_store_date_idx").on(t.storeId, t.date),
+]);
+
+export const insertAiSuggestedScheduleSchema = createInsertSchema(aiSuggestedSchedules).omit({ id: true, generatedAt: true });
+export type AiSuggestedSchedule = typeof aiSuggestedSchedules.$inferSelect;
+export type InsertAiSuggestedSchedule = z.infer<typeof insertAiSuggestedScheduleSchema>;

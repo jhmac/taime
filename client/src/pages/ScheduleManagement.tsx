@@ -742,6 +742,14 @@ export default function ScheduleManagement() {
 
   const suggestMutation = useMutation({
     mutationFn: async (date: string) => {
+      // Check for a previously saved schedule first — avoids unnecessary AI calls
+      try {
+        const savedRes = await fetch(`/api/schedules/suggest?date=${date}`, { credentials: 'include' });
+        if (savedRes.ok) {
+          const saved = await savedRes.json();
+          if (saved && saved.proposedShifts) return { ...saved, _fromCache: true };
+        }
+      } catch { /* fall through to generate */ }
       const res = await apiRequest('POST', '/api/schedules/suggest', { date });
       return res.json();
     },
@@ -753,6 +761,12 @@ export default function ScheduleManagement() {
       toast({ title: "Error", description: "Failed to generate suggestions.", variant: "destructive" });
     },
   });
+
+  const clearSuggestCache = async (date: string) => {
+    try {
+      await fetch(`/api/schedules/suggest?date=${date}`, { method: 'DELETE', credentials: 'include' });
+    } catch { /* non-fatal */ }
+  };
 
   const applyMutation = useMutation({
     mutationFn: async () => {
@@ -850,6 +864,24 @@ export default function ScheduleManagement() {
     let hash = 0;
     for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
     return colors[Math.abs(hash) % colors.length];
+  };
+
+  const shiftColorMap: Record<string, { block: string; text: string; textSub: string; hover: string }> = {
+    'bg-violet-500': { block: 'bg-violet-100 dark:bg-violet-900/40 border-violet-200 dark:border-violet-800', text: 'text-violet-800 dark:text-violet-200', textSub: 'text-violet-600 dark:text-violet-400', hover: 'hover:bg-violet-200 dark:hover:bg-violet-900/60' },
+    'bg-blue-500':   { block: 'bg-blue-100 dark:bg-blue-900/40 border-blue-200 dark:border-blue-800',         text: 'text-blue-800 dark:text-blue-200',     textSub: 'text-blue-600 dark:text-blue-400',     hover: 'hover:bg-blue-200 dark:hover:bg-blue-900/60' },
+    'bg-emerald-500':{ block: 'bg-emerald-100 dark:bg-emerald-900/40 border-emerald-200 dark:border-emerald-800', text: 'text-emerald-800 dark:text-emerald-200', textSub: 'text-emerald-600 dark:text-emerald-400', hover: 'hover:bg-emerald-200 dark:hover:bg-emerald-900/60' },
+    'bg-amber-500':  { block: 'bg-amber-100 dark:bg-amber-900/40 border-amber-200 dark:border-amber-800',     text: 'text-amber-800 dark:text-amber-200',     textSub: 'text-amber-600 dark:text-amber-400',     hover: 'hover:bg-amber-200 dark:hover:bg-amber-900/60' },
+    'bg-rose-500':   { block: 'bg-rose-100 dark:bg-rose-900/40 border-rose-200 dark:border-rose-800',         text: 'text-rose-800 dark:text-rose-200',     textSub: 'text-rose-600 dark:text-rose-400',     hover: 'hover:bg-rose-200 dark:hover:bg-rose-900/60' },
+    'bg-cyan-500':   { block: 'bg-cyan-100 dark:bg-cyan-900/40 border-cyan-200 dark:border-cyan-800',         text: 'text-cyan-800 dark:text-cyan-200',     textSub: 'text-cyan-600 dark:text-cyan-400',     hover: 'hover:bg-cyan-200 dark:hover:bg-cyan-900/60' },
+    'bg-pink-500':   { block: 'bg-pink-100 dark:bg-pink-900/40 border-pink-200 dark:border-pink-800',         text: 'text-pink-800 dark:text-pink-200',     textSub: 'text-pink-600 dark:text-pink-400',     hover: 'hover:bg-pink-200 dark:hover:bg-pink-900/60' },
+    'bg-indigo-500': { block: 'bg-indigo-100 dark:bg-indigo-900/40 border-indigo-200 dark:border-indigo-800', text: 'text-indigo-800 dark:text-indigo-200', textSub: 'text-indigo-600 dark:text-indigo-400', hover: 'hover:bg-indigo-200 dark:hover:bg-indigo-900/60' },
+    'bg-teal-500':   { block: 'bg-teal-100 dark:bg-teal-900/40 border-teal-200 dark:border-teal-800',         text: 'text-teal-800 dark:text-teal-200',     textSub: 'text-teal-600 dark:text-teal-400',     hover: 'hover:bg-teal-200 dark:hover:bg-teal-900/60' },
+    'bg-orange-500': { block: 'bg-orange-100 dark:bg-orange-900/40 border-orange-200 dark:border-orange-800', text: 'text-orange-800 dark:text-orange-200', textSub: 'text-orange-600 dark:text-orange-400', hover: 'hover:bg-orange-200 dark:hover:bg-orange-900/60' },
+  };
+
+  const getShiftColors = (name: string) => {
+    const key = getInitialColor(name);
+    return shiftColorMap[key] || shiftColorMap['bg-indigo-500'];
   };
 
   const openCreateShift = (userId?: string, date?: Date) => {
@@ -1125,8 +1157,19 @@ export default function ScheduleManagement() {
         </div>
       </div>
 
-      {/* Main Content: Schedule Grid + Command Panel */}
+      {/* Main Content: Command Panel (left) + Schedule Grid */}
       <div className="flex flex-1 min-h-0">
+        {/* Today's Intelligence Command Panel — desktop sidebar LEFT */}
+        {showCommandPanel && isAdmin && (
+          <div className="w-72 min-w-[17rem] max-w-[17rem] border-r bg-background flex-shrink-0 flex-col overflow-hidden hidden lg:flex">
+            <AvailabilityCommandPanel
+              date={todayDateStr}
+              onQuickAdd={handleQuickAdd}
+              onGapClick={handleGapClick}
+              onAIAutoSchedule={() => suggestMutation.mutate(todayDateStr)}
+            />
+          </div>
+        )}
         {/* Schedule Grid */}
         <div className="flex-1 overflow-x-auto min-w-0">
         <table className="w-full border-collapse min-w-[900px]">
@@ -1276,17 +1319,19 @@ export default function ScheduleManagement() {
                         showRedBg && "bg-red-50 dark:bg-red-950/25"
                       )}>
                         <div className="space-y-0.5 min-h-[48px]">
-                          {daySchedules.map(schedule => (
+                          {daySchedules.map(schedule => {
+                            const sc = getShiftColors(name);
+                            return (
                             <div
                               key={schedule.id}
                               onClick={() => setEditingSchedule(schedule)}
-                              className="group/shift bg-indigo-100 dark:bg-indigo-900/40 border border-indigo-200 dark:border-indigo-800 rounded px-1.5 py-1 text-xs relative cursor-pointer hover:bg-indigo-200 dark:hover:bg-indigo-900/60 transition-colors"
+                              className={cn("group/shift border rounded px-1.5 py-1 text-xs relative cursor-pointer transition-colors", sc.block, sc.hover)}
                             >
-                              <div className="font-medium text-indigo-800 dark:text-indigo-200 leading-tight">
+                              <div className={cn("font-medium leading-tight", sc.text)}>
                                 {formatTime(schedule.startTime)}–{formatTime(schedule.endTime)}
                               </div>
                               {schedule.title && (
-                                <div className="text-[10px] text-indigo-600 dark:text-indigo-400 truncate">{schedule.title}</div>
+                                <div className={cn("text-[10px] truncate", sc.textSub)}>{schedule.title}</div>
                               )}
                               <button
                                 onClick={e => { e.stopPropagation(); deleteScheduleMutation.mutate(schedule.id); }}
@@ -1296,7 +1341,8 @@ export default function ScheduleManagement() {
                                 <Trash2 className="h-3 w-3 text-red-500" />
                               </button>
                             </div>
-                          ))}
+                          );
+                          })}
 
                           {/* AI Generated Preview Entries */}
                           {aiEntries.map(entry => {
@@ -1415,17 +1461,6 @@ export default function ScheduleManagement() {
         </table>
         </div>
 
-        {/* Today's Intelligence Command Panel — desktop sidebar */}
-        {showCommandPanel && (
-          <div className="w-72 min-w-[17rem] max-w-[17rem] border-l bg-background flex-shrink-0 flex-col overflow-hidden hidden lg:flex">
-            <AvailabilityCommandPanel
-              date={todayDateStr}
-              onQuickAdd={handleQuickAdd}
-              onGapClick={handleGapClick}
-              onAIAutoSchedule={() => suggestMutation.mutate(todayDateStr)}
-            />
-          </div>
-        )}
       </div>
 
       {/* Today's Intelligence Command Panel — mobile/tablet bottom sheet */}
@@ -1448,11 +1483,19 @@ export default function ScheduleManagement() {
         <SuggestedScheduleReview
           data={suggestedData}
           isLoading={suggestMutation.isPending}
+          fromCache={!!(suggestedData as any)?._fromCache}
           onClose={() => { setShowSuggestedReview(false); setSuggestedData(null); }}
           onApproveAll={(shifts) => {
             setSuggestedData(null);
             queryClient.invalidateQueries({ queryKey: ["/api/schedules"] });
             queryClient.invalidateQueries({ queryKey: ['/api/schedules/today-availability', todayDateStr] });
+          }}
+          onRegenerate={() => {
+            clearSuggestCache(todayDateStr).then(() => {
+              setShowSuggestedReview(false);
+              setSuggestedData(null);
+              suggestMutation.mutate(todayDateStr);
+            });
           }}
           onEditShift={undefined}
         />

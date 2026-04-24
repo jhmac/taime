@@ -44,6 +44,8 @@ interface Props {
   onClose: () => void;
   onApproveAll?: (shifts: ProposedShift[]) => void;
   onEditShift?: (shift: ProposedShift & { index: number }) => void;
+  onRegenerate?: () => void;
+  fromCache?: boolean;
 }
 
 function SalesSpark({ hourlyData, storeHours }: { hourlyData: HourlyData[]; storeHours: { open: string; close: string } }) {
@@ -109,7 +111,7 @@ function formatTime(t: string) {
   return m === 0 ? `${h12}${ampm}` : `${h12}:${String(m).padStart(2, '0')}${ampm}`;
 }
 
-export default function SuggestedScheduleReview({ data, isLoading, onClose, onApproveAll, onEditShift }: Props) {
+export default function SuggestedScheduleReview({ data, isLoading, onClose, onApproveAll, onEditShift, onRegenerate, fromCache }: Props) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [removedIndices, setRemovedIndices] = useState<Set<number>>(new Set());
@@ -194,12 +196,23 @@ export default function SuggestedScheduleReview({ data, isLoading, onClose, onAp
             <Sparkles className="h-5 w-5 text-violet-600" />
             <div>
               <h2 className="font-semibold text-sm">AI Suggested Schedule</h2>
-              <p className="text-xs text-muted-foreground">{dateLabel}</p>
+              <p className="text-xs text-muted-foreground">{dateLabel}{fromCache && ' · saved'}</p>
             </div>
           </div>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
-            <X className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            {fromCache && onRegenerate && (
+              <button
+                onClick={onRegenerate}
+                className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
+                title="Clear saved schedule and generate a fresh one"
+              >
+                Regenerate
+              </button>
+            )}
+            <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
         {/* Body */}
