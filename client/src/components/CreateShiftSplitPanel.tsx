@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { BarChart, Bar, ResponsiveContainer, Tooltip, Cell, XAxis } from "recharts";
 import { Button } from "@/components/ui/button";
@@ -131,6 +131,7 @@ function ShiftBlock({
   isExcluded,
   onToggleExclude,
   hasConflict,
+  onResizeStart,
 }: {
   shift: ProposedShift;
   openMin: number;
@@ -140,6 +141,7 @@ function ShiftBlock({
   isExcluded: boolean;
   onToggleExclude: (e: React.MouseEvent) => void;
   hasConflict: boolean;
+  onResizeStart?: (e: React.PointerEvent, type: 'top' | 'bottom') => void;
 }) {
   const totalMin = closeMin - openMin;
   if (totalMin <= 0) return null;
@@ -155,54 +157,72 @@ function ShiftBlock({
   else if (hasConflict) title = `${shift.employeeName} already has a shift scheduled on this day`;
 
   return (
-    <button
-      onClick={isExcluded ? onToggleExclude : onClick}
-      title={title}
+    <div
       style={{ top: `${topPct}%`, height: `${heightPct}%` }}
-      className={cn(
-        "absolute inset-x-0.5 rounded-md px-1.5 py-0.5 text-left transition-all overflow-hidden group",
-        isExcluded
-          ? "bg-muted/60 border border-dashed border-border opacity-50"
-          : hasConflict
-          ? "bg-amber-100 dark:bg-amber-900/40 border-2 border-amber-500"
-          : color,
-        isExcluded
-          ? "text-muted-foreground text-[10px] font-medium leading-tight"
-          : hasConflict
-          ? "text-amber-900 dark:text-amber-200 text-[10px] font-medium leading-tight"
-          : "text-white text-[10px] font-medium leading-tight",
-        !isExcluded && isSelected
-          ? hasConflict
-            ? "ring-2 ring-amber-400 ring-offset-1 opacity-100"
-            : "ring-2 ring-white ring-offset-1 opacity-100"
-          : !isExcluded
-          ? "opacity-90 hover:opacity-100"
-          : ""
-      )}
+      className="absolute inset-x-0.5"
     >
-      <div className={cn("truncate", isExcluded && "line-through")}>{shift.employeeName}</div>
-      <div className={cn("truncate opacity-80", isExcluded && "line-through")}>
-        {fmt12(shift.startTime)}–{fmt12(shift.endTime)}
-      </div>
-      {!isExcluded && hasConflict ? (
-        <div className="flex items-center gap-0.5 text-amber-600 dark:text-amber-400 text-[9px] font-semibold">
-          <AlertTriangle className="h-2.5 w-2.5 shrink-0" />
-          Already scheduled
-        </div>
-      ) : !isExcluded && shift.rationale ? (
-        <div className="truncate opacity-70 text-[9px]">{shift.rationale}</div>
-      ) : null}
-      {!isExcluded && (
-        <span
-          role="button"
-          title="Exclude this shift"
-          onClick={onToggleExclude}
-          className="absolute top-0.5 right-0.5 hidden group-hover:flex items-center justify-center w-4 h-4 rounded-full bg-black/30 hover:bg-black/50 text-white"
-        >
-          <X className="h-2.5 w-2.5" />
-        </span>
+      {/* Top resize handle */}
+      {!isExcluded && onResizeStart && (
+        <div
+          className="absolute top-0 left-0 right-0 h-2 cursor-ns-resize z-20 rounded-t-md hover:bg-black/25 select-none"
+          onPointerDown={(e) => { e.stopPropagation(); onResizeStart(e, 'top'); }}
+        />
       )}
-    </button>
+      <button
+        onClick={isExcluded ? onToggleExclude : onClick}
+        title={title}
+        className={cn(
+          "w-full h-full rounded-md px-1.5 py-0.5 text-left transition-all overflow-hidden group",
+          isExcluded
+            ? "bg-muted/60 border border-dashed border-border opacity-50"
+            : hasConflict
+            ? "bg-amber-100 dark:bg-amber-900/40 border-2 border-amber-500"
+            : color,
+          isExcluded
+            ? "text-muted-foreground text-[10px] font-medium leading-tight"
+            : hasConflict
+            ? "text-amber-900 dark:text-amber-200 text-[10px] font-medium leading-tight"
+            : "text-white text-[10px] font-medium leading-tight",
+          !isExcluded && isSelected
+            ? hasConflict
+              ? "ring-2 ring-amber-400 ring-offset-1 opacity-100"
+              : "ring-2 ring-white ring-offset-1 opacity-100"
+            : !isExcluded
+            ? "opacity-90 hover:opacity-100"
+            : ""
+        )}
+      >
+        <div className={cn("truncate pt-1", isExcluded && "line-through")}>{shift.employeeName}</div>
+        <div className={cn("truncate opacity-80", isExcluded && "line-through")}>
+          {fmt12(shift.startTime)}–{fmt12(shift.endTime)}
+        </div>
+        {!isExcluded && hasConflict ? (
+          <div className="flex items-center gap-0.5 text-amber-600 dark:text-amber-400 text-[9px] font-semibold">
+            <AlertTriangle className="h-2.5 w-2.5 shrink-0" />
+            Already scheduled
+          </div>
+        ) : !isExcluded && shift.rationale ? (
+          <div className="truncate opacity-70 text-[9px]">{shift.rationale}</div>
+        ) : null}
+        {!isExcluded && (
+          <span
+            role="button"
+            title="Exclude this shift"
+            onClick={onToggleExclude}
+            className="absolute top-0.5 right-0.5 hidden group-hover:flex items-center justify-center w-4 h-4 rounded-full bg-black/30 hover:bg-black/50 text-white"
+          >
+            <X className="h-2.5 w-2.5" />
+          </span>
+        )}
+      </button>
+      {/* Bottom resize handle */}
+      {!isExcluded && onResizeStart && (
+        <div
+          className="absolute bottom-0 left-0 right-0 h-2 cursor-ns-resize z-20 rounded-b-md hover:bg-black/25 select-none"
+          onPointerDown={(e) => { e.stopPropagation(); onResizeStart(e, 'bottom'); }}
+        />
+      )}
+    </div>
   );
 }
 
@@ -321,6 +341,7 @@ function DayTimeline({
   excludedIdxs,
   onToggleExclude,
   conflictingEmployeeIds,
+  onShiftEdit,
 }: {
   suggestData: SuggestData | null | undefined;
   isLoading: boolean;
@@ -332,12 +353,52 @@ function DayTimeline({
   excludedIdxs: Set<number>;
   onToggleExclude: (idx: number) => void;
   conflictingEmployeeIds: Set<string>;
+  onShiftEdit?: (idx: number, updates: { startTime?: string; endTime?: string }) => void;
 }) {
   const open = storeHours?.open || suggestData?.storeHours?.open || "09:00";
   const close = storeHours?.close || suggestData?.storeHours?.close || "21:00";
   const openMin = timeToMin(open);
   const closeMin = timeToMin(close);
   const totalMin = closeMin - openMin;
+  const containerRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ idx: number; type: 'top' | 'bottom' } | null>(null);
+
+  const minsToStr = (mins: number) =>
+    `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+
+  const handleResizeStart = useCallback((e: React.PointerEvent, idx: number, type: 'top' | 'bottom') => {
+    if (!containerRef.current) return;
+    e.preventDefault();
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    dragRef.current = { idx, type };
+  }, []);
+
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    if (!dragRef.current || !containerRef.current || !onShiftEdit) return;
+    const { idx, type } = dragRef.current;
+    const rect = containerRef.current.getBoundingClientRect();
+    const relY = Math.max(0, Math.min(e.clientY - rect.top, rect.height));
+    const rawMin = openMin + (relY / rect.height) * totalMin;
+    const snapped = Math.round(rawMin / 15) * 15;
+    const shifts = suggestData?.proposedShifts ?? [];
+    const shift = shifts[idx];
+    if (!shift) return;
+    if (type === 'bottom') {
+      const startMin = timeToMin(shift.startTime);
+      if (snapped > startMin + 15 && snapped <= closeMin) {
+        onShiftEdit(idx, { endTime: minsToStr(snapped) });
+      }
+    } else {
+      const endMin = timeToMin(shift.endTime);
+      if (snapped < endMin - 15 && snapped >= openMin) {
+        onShiftEdit(idx, { startTime: minsToStr(snapped) });
+      }
+    }
+  }, [openMin, totalMin, closeMin, suggestData, onShiftEdit]);
+
+  const handlePointerUp = useCallback(() => {
+    dragRef.current = null;
+  }, []);
 
   const hourLabels: number[] = [];
   for (let h = Math.ceil(openMin / 60); h <= Math.floor(closeMin / 60); h++) {
@@ -404,8 +465,12 @@ function DayTimeline({
           </div>
           {/* Timeline body: one column per shift */}
           <div
-            className="relative flex flex-1 border border-border/50 rounded-lg bg-muted/20 overflow-hidden"
+            ref={containerRef}
+            className="relative flex flex-1 border border-border/50 rounded-lg bg-muted/20 overflow-hidden touch-none"
             style={{ height: Math.max(160, Math.min(300, totalMin * 0.6)) }}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerLeave={handlePointerUp}
           >
             {/* Hour grid lines — span all columns */}
             <div className="absolute inset-0 pointer-events-none z-0">
@@ -436,6 +501,7 @@ function DayTimeline({
                   onClick={() => onSelectShift(shift, idx)}
                   onToggleExclude={(e) => { e.stopPropagation(); onToggleExclude(idx); }}
                   hasConflict={conflictingEmployeeIds.has(shift.employeeId)}
+                  onResizeStart={onShiftEdit ? (e, type) => handleResizeStart(e, idx, type) : undefined}
                 />
               </div>
             ))}
@@ -445,7 +511,7 @@ function DayTimeline({
       {shifts.length > 0 && (
         <div className="flex items-center justify-between mt-1.5">
           <p className="text-[9px] text-muted-foreground">
-            Click a block to pre-fill the form →
+            Click a block to pre-fill · drag top/bottom edge to resize
           </p>
           {conflictingEmployeeIds.size > 0 && (
             <span className="flex items-center gap-0.5 text-[9px] text-amber-600 dark:text-amber-400 font-medium">
@@ -486,6 +552,8 @@ export default function CreateShiftSplitPanel({
   const [selectedShiftIdx, setSelectedShiftIdx] = useState<number | null>(null);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [excludedIdxs, setExcludedIdxs] = useState<Set<number>>(new Set());
+  const [editedShifts, setEditedShifts] = useState<Record<number, { startTime?: string; endTime?: string }>>({});
+  const forceRegenRef = useRef(false);
 
   useEffect(() => {
     if (open) {
@@ -495,8 +563,19 @@ export default function CreateShiftSplitPanel({
       setSelectedUserId(defaultUserId || "");
       setSelectedShiftIdx(null);
       setExcludedIdxs(new Set());
+      setEditedShifts({});
+      forceRegenRef.current = false;
     }
   }, [open, defaultDate, defaultUserId, defaultStartTime, defaultEndTime]);
+
+  const handleShiftEdit = useCallback((idx: number, updates: { startTime?: string; endTime?: string }) => {
+    setEditedShifts((prev) => ({ ...prev, [idx]: { ...prev[idx], ...updates } }));
+    // Keep the form inputs in sync if this shift is currently selected
+    if (selectedShiftIdx === idx) {
+      if (updates.startTime) setModalStartTime(updates.startTime);
+      if (updates.endTime) setModalEndTime(updates.endTime);
+    }
+  }, [selectedShiftIdx]);
 
   const handleToggleExclude = (idx: number) => {
     setExcludedIdxs((prev) => {
@@ -532,6 +611,21 @@ export default function CreateShiftSplitPanel({
   } = useQuery<SuggestData>({
     queryKey: ["/api/schedules/suggest", modalDate],
     queryFn: async () => {
+      const skipCache = forceRegenRef.current;
+      forceRegenRef.current = false;
+      if (!skipCache) {
+        // First check if a saved suggestion exists for this date
+        try {
+          const getRes = await apiRequest("GET", `/api/schedules/suggest?date=${modalDate}`);
+          const saved = await getRes.json();
+          if (saved?.proposedShifts?.length > 0) {
+            return saved;
+          }
+        } catch {
+          // no saved suggestion — fall through to generate
+        }
+      }
+      // Generate a fresh AI suggestion and save it to DB
       const res = await apiRequest("POST", "/api/schedules/suggest", { date: modalDate });
       return res.json();
     },
@@ -592,7 +686,12 @@ export default function CreateShiftSplitPanel({
     });
   };
 
-  const proposedShifts = suggestData?.proposedShifts ?? [];
+  const proposedShifts = (suggestData?.proposedShifts ?? []).map((shift, idx) =>
+    editedShifts[idx] ? { ...shift, ...editedShifts[idx] } : shift
+  );
+  const mergedSuggestData = suggestData
+    ? { ...suggestData, proposedShifts }
+    : suggestData;
   const activeShifts = proposedShifts.filter((_, i) => !excludedIdxs.has(i));
   const storeHours = salesData?.storeHours ?? suggestData?.storeHours ?? null;
 
@@ -668,7 +767,7 @@ export default function CreateShiftSplitPanel({
                       ? `Last fetched ${new Date(suggestUpdatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} — click to refresh`
                       : "Refresh AI suggestions"
                   }
-                  onClick={() => refetchSuggest()}
+                  onClick={() => { forceRegenRef.current = true; setEditedShifts({}); refetchSuggest(); }}
                 >
                   <RefreshCw className={cn("h-3 w-3", suggestFetching && "animate-spin")} />
                   {suggestUpdatedAt && !suggestFetching ? (
@@ -742,7 +841,7 @@ export default function CreateShiftSplitPanel({
 
               {/* Day-view timeline */}
               <DayTimeline
-                suggestData={suggestData}
+                suggestData={mergedSuggestData}
                 isLoading={suggestLoading && !!modalDate}
                 isError={suggestError}
                 errorMsg={suggestError ? (suggestErrorObj as Error)?.message : undefined}
@@ -752,6 +851,7 @@ export default function CreateShiftSplitPanel({
                 excludedIdxs={excludedIdxs}
                 onToggleExclude={handleToggleExclude}
                 conflictingEmployeeIds={conflictingEmployeeIds}
+                onShiftEdit={handleShiftEdit}
               />
             </div>
           </div>

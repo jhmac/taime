@@ -1590,8 +1590,23 @@ Required JSON structure:
       const [openH] = storeOpen.split(':').map(Number);
       const [closeH] = storeClose.split(':').map(Number);
 
-      // Total daily revenue for threshold calculation
-      const dailyTotal = hourlyRevenue.reduce((s, v) => s + v, 0);
+      // Use shopify_daily_sales.total_revenue as the authoritative net daily total
+      // (individual orders include gross amounts before refunds; daily aggregate reflects
+      // the net figure as reported by Shopify analytics).
+      let dailyTotal = hourlyRevenue.reduce((s, v) => s + v, 0);
+      if (shopDomain && dailyTotal > 0) {
+        const netRow = await db.select({ totalRevenue: shopifyDailySales.totalRevenue })
+          .from(shopifyDailySales)
+          .where(and(
+            eq(shopifyDailySales.shopDomain, shopDomain),
+            eq(shopifyDailySales.date, new Date(historicalDateStr + 'T00:00:00Z')),
+          ))
+          .limit(1);
+        if (netRow[0]?.totalRevenue) {
+          const netTotal = parseFloat(netRow[0].totalRevenue);
+          if (netTotal > 0) dailyTotal = netTotal;
+        }
+      }
       const avgHourlyRevenue = dailyTotal / Math.max(1, closeH - openH);
 
       // Build hourly breakdown for store hours only

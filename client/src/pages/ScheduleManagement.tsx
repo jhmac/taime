@@ -1385,7 +1385,7 @@ export default function ScheduleManagement() {
                             );
                           })}
 
-                          {/* Availability indicator — only show pill for explicitly blocked days */}
+                          {/* Availability indicator — blocked */}
                           {mergedAvail?.unavailable && (
                             <div className="mt-1 flex items-center gap-0.5">
                               <button
@@ -1401,8 +1401,26 @@ export default function ScheduleManagement() {
                               </button>
                             </div>
                           )}
-                          {/* Admin: show ghost "set avail" when no data at all (null) */}
-                          {!mergedAvail && isAdmin && !isPast && (
+                          {/* Availability indicator — available with explicit time window or override */}
+                          {mergedAvail && !mergedAvail.unavailable && mergedAvail.source !== 'default' && (
+                            <div className="mt-1 flex items-center gap-0.5">
+                              <button
+                                title={isAdmin ? "Available — click to edit" : "Available"}
+                                onClick={() => isAdmin && setAvailabilityEditTarget({ userId: emp.id, date: dateStr, empName: `${emp.firstName} ${emp.lastName}` })}
+                                className={cn(
+                                  "text-[9px] px-1.5 py-0.5 rounded-sm font-medium leading-[14px] inline-flex items-center gap-0.5",
+                                  "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300",
+                                  isAdmin && "hover:bg-emerald-200 cursor-pointer"
+                                )}
+                              >
+                                {mergedAvail.startTime && mergedAvail.endTime
+                                  ? `${formatSchedTimeShort(mergedAvail.startTime)}–${formatSchedTimeShort(mergedAvail.endTime)}`
+                                  : 'available'}
+                              </button>
+                            </div>
+                          )}
+                          {/* Admin: show ghost "set avail" when no data at all (null) or source is default */}
+                          {(!mergedAvail || mergedAvail.source === 'default') && isAdmin && !isPast && (
                             <div className="mt-1 flex items-center gap-0.5">
                               <button
                                 title="Set availability for this day"
