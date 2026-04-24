@@ -19,7 +19,7 @@ import { apiRequest } from "@/lib/queryClient";
 import type { User, Schedule, WorkLocation, AvailabilityTemplate, TemplateSlot, TemplateSlotNew, Permission } from "@shared/schema";
 import {
   ChevronLeft, ChevronRight, Plus, Trash2, Sparkles, Loader2,
-  Check, X, Calendar, Clock, StickyNote, Bell, Pencil, Wand2, Users,
+  Check, X, Calendar, Clock, StickyNote, Bell, Wand2, Users,
   ChevronDown, ChevronUp, CalendarDays, UserCog, PanelRightOpen, PanelRightClose,
   LayoutGrid, CalendarRange
 } from "lucide-react";
@@ -727,6 +727,7 @@ export default function ScheduleManagement() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/schedules"] });
       setEditingSchedule(null);
+      setShowCreateShift(false);
       toast({ title: "Shift updated", description: "Changes saved." });
     },
     onError: () => {
@@ -916,6 +917,18 @@ export default function ScheduleManagement() {
     const dateStr = formatLocalDate(date ?? new Date());
     setCreateShiftDefaults({ userId: userId || '', date: dateStr });
     setModalDate(dateStr);
+    setEditingSchedule(null);
+    setShowCreateShift(true);
+  };
+
+  const openEditShift = (schedule: Schedule) => {
+    const dt = new Date(schedule.startTime);
+    const dateStr = formatLocalDate(dt);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    setModalDate(dateStr);
+    setModalStartTime(`${pad(dt.getHours())}:${pad(dt.getMinutes())}`);
+    setCreateShiftDefaults({ userId: schedule.userId, date: dateStr });
+    setEditingSchedule(schedule);
     setShowCreateShift(true);
   };
 
@@ -1241,7 +1254,7 @@ export default function ScheduleManagement() {
             weekDates={weekDates}
             selectedWeek={selectedWeek}
             onWeekChange={setSelectedWeek}
-            onEditSchedule={setEditingSchedule}
+            onEditSchedule={openEditShift}
             onCreateShift={(date, startTime) => {
               setModalDate(date);
               setModalStartTime(startTime);
@@ -1407,7 +1420,7 @@ export default function ScheduleManagement() {
                             return (
                             <div
                               key={schedule.id}
-                              onClick={() => setEditingSchedule(schedule)}
+                              onClick={() => openEditShift(schedule)}
                               className={cn("group/shift border rounded px-1.5 py-1 text-xs relative cursor-pointer transition-colors", sc.block, sc.hover)}
                             >
                               <div className={cn("font-medium leading-tight", sc.text)}>
@@ -1606,7 +1619,7 @@ export default function ScheduleManagement() {
       {/* Create Shift Split-Panel Dialog */}
       <CreateShiftSplitPanel
         open={showCreateShift}
-        onOpenChange={setShowCreateShift}
+        onOpenChange={(open) => { setShowCreateShift(open); if (!open) setEditingSchedule(null); }}
         defaultDate={modalDate}
         defaultUserId={createShiftDefaults.userId}
         defaultStartTime={modalStartTime}
@@ -1621,6 +1634,11 @@ export default function ScheduleManagement() {
         isCreating={createScheduleMutation.isPending}
         autoAssignMutation={autoAssignMutation}
         isAdmin={isAdmin}
+        editingSchedule={editingSchedule}
+        onUpdateSchedule={(data) => updateScheduleMutation.mutate({ id: data.id, data })}
+        onDeleteSchedule={(id) => { deleteScheduleMutation.mutate(id); setShowCreateShift(false); setEditingSchedule(null); }}
+        isUpdating={updateScheduleMutation.isPending}
+        isDeleting={deleteScheduleMutation.isPending}
       />
 
       {/* Availability Override Dialog */}
@@ -1631,105 +1649,6 @@ export default function ScheduleManagement() {
         />
       )}
 
-      {/* Edit Shift Dialog */}
-      <Dialog open={!!editingSchedule} onOpenChange={open => { if (!open) setEditingSchedule(null); }}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="text-sm flex items-center gap-2">
-              <Pencil className="h-4 w-4" />Edit Shift
-            </DialogTitle>
-          </DialogHeader>
-          {editingSchedule && (() => {
-            const empName = (() => {
-              const u = activeEmployees.find(e => e.id === editingSchedule.userId);
-              return u ? `${u.firstName} ${u.lastName}` : 'Employee';
-            })();
-            const pad = (n: number) => String(n).padStart(2, '0');
-            const dt = new Date(editingSchedule.startTime);
-            const dtEnd = new Date(editingSchedule.endTime);
-            const defaultDate = `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())}`;
-            const defaultStartTime = `${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
-            const defaultEndTime = `${pad(dtEnd.getHours())}:${pad(dtEnd.getMinutes())}`;
-            return (
-              <form
-                onSubmit={e => {
-                  e.preventDefault();
-                  const fd = new FormData(e.currentTarget);
-                  const date = fd.get('startDate') as string;
-                  const startTime = fd.get('startTime') as string;
-                  const endTime = fd.get('endTime') as string;
-                  updateScheduleMutation.mutate({
-                    id: editingSchedule.id,
-                    data: {
-                      startTime: new Date(`${date}T${startTime}`),
-                      endTime: new Date(`${date}T${endTime}`),
-                      title: (fd.get('title') as string) || null,
-                      description: (fd.get('description') as string) || null,
-                      locationId: (fd.get('locationId') as string) || null,
-                    },
-                  });
-                }}
-                className="space-y-3"
-              >
-                <div className="text-sm font-medium text-muted-foreground">{empName}</div>
-                <div>
-                  <Label className="text-xs">Date</Label>
-                  <Input name="startDate" type="date" className="h-8 text-sm" required defaultValue={defaultDate} />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <Label className="text-xs">Start Time</Label>
-                    <Input name="startTime" type="time" className="h-8 text-sm" required defaultValue={defaultStartTime} />
-                  </div>
-                  <div>
-                    <Label className="text-xs">End Time</Label>
-                    <Input name="endTime" type="time" className="h-8 text-sm" required defaultValue={defaultEndTime} />
-                  </div>
-                </div>
-                <div>
-                  <Label className="text-xs">Title (optional)</Label>
-                  <Input name="title" className="h-8 text-sm" placeholder="e.g. Opening, Closing..." defaultValue={editingSchedule.title ?? ''} />
-                </div>
-                {locations.length > 0 && (
-                  <div>
-                    <Label className="text-xs">Location</Label>
-                    <Select name="locationId" defaultValue={editingSchedule.locationId ?? ''}>
-                      <SelectTrigger className="h-8">
-                        <SelectValue placeholder="No location" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {locations.map(loc => (
-                          <SelectItem key={loc.id} value={loc.id}>{loc.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-                <div>
-                  <Label className="text-xs">Notes</Label>
-                  <Textarea name="description" className="text-sm" placeholder="Optional notes..." rows={2} defaultValue={editingSchedule.description ?? ''} />
-                </div>
-                <div className="flex justify-between gap-2 pt-2">
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    size="sm"
-                    onClick={() => { deleteScheduleMutation.mutate(editingSchedule.id); setEditingSchedule(null); }}
-                  >
-                    <Trash2 className="h-3.5 w-3.5 mr-1" />Delete
-                  </Button>
-                  <div className="flex gap-2">
-                    <Button type="button" variant="outline" size="sm" onClick={() => setEditingSchedule(null)}>Cancel</Button>
-                    <Button type="submit" size="sm" disabled={updateScheduleMutation.isPending}>
-                      {updateScheduleMutation.isPending ? "Saving..." : "Save Changes"}
-                    </Button>
-                  </div>
-                </div>
-              </form>
-            );
-          })()}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

@@ -15,8 +15,9 @@ import { cn } from "@/lib/utils";
 import {
   Clock, Users, Loader2, TrendingUp, Sparkles, AlertTriangle,
   ChevronDown, ChevronUp, Wand2, Check, X, RefreshCw,
-  Maximize2, Minimize2, Pencil, Save,
+  Maximize2, Minimize2, Pencil, Save, Trash2,
 } from "lucide-react";
+import type { Schedule } from "@shared/schema";
 
 interface HourlyData {
   hour: number;
@@ -93,6 +94,19 @@ interface Props {
     isPending: boolean;
   };
   isAdmin?: boolean;
+  editingSchedule?: Schedule | null;
+  onUpdateSchedule?: (data: {
+    id: string;
+    userId: string;
+    startTime: Date;
+    endTime: Date;
+    title?: string | null;
+    locationId?: string | null;
+    description?: string | null;
+  }) => void;
+  onDeleteSchedule?: (id: string) => void;
+  isUpdating?: boolean;
+  isDeleting?: boolean;
 }
 
 function fmt12(t: string) {
@@ -668,6 +682,11 @@ export default function CreateShiftSplitPanel({
   isCreating,
   autoAssignMutation,
   isAdmin = false,
+  editingSchedule,
+  onUpdateSchedule,
+  onDeleteSchedule,
+  isUpdating = false,
+  isDeleting = false,
 }: Props) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -698,6 +717,23 @@ export default function CreateShiftSplitPanel({
       forceRegenRef.current = false;
     }
   }, [open, defaultDate, defaultUserId, defaultStartTime, defaultEndTime]);
+
+  // When editing an existing saved schedule, pre-fill the form with its data
+  useEffect(() => {
+    if (!open || !editingSchedule) return;
+    const dt = new Date(editingSchedule.startTime);
+    const dtEnd = new Date(editingSchedule.endTime);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const dateStr = `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`;
+    const startStr = `${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+    const endStr = `${pad(dtEnd.getHours())}:${pad(dtEnd.getMinutes())}`;
+    setModalDate(dateStr);
+    setModalStartTime(startStr);
+    setModalEndTime(endStr);
+    setSelectedUserId(editingSchedule.userId);
+    setSelectedShiftIdx(null);
+    if (onDateChange) onDateChange(dateStr);
+  }, [open, editingSchedule]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reset custom dimensions when switching preset sizes
   const cycleSize = () => {
@@ -901,14 +937,26 @@ export default function CreateShiftSplitPanel({
     const startDate = formData.get("startDate") as string;
     const startTime = formData.get("startTime") as string;
     const endTime = formData.get("endTime") as string;
-    onCreateShift({
-      userId,
-      startTime: new Date(`${startDate}T${startTime}`),
-      endTime: new Date(`${startDate}T${endTime}`),
-      title: (formData.get("title") as string) || undefined,
-      locationId: (formData.get("locationId") as string) || undefined,
-      description: (formData.get("description") as string) || undefined,
-    });
+    if (editingSchedule && onUpdateSchedule) {
+      onUpdateSchedule({
+        id: editingSchedule.id,
+        userId,
+        startTime: new Date(`${startDate}T${startTime}`),
+        endTime: new Date(`${startDate}T${endTime}`),
+        title: (formData.get("title") as string) || null,
+        locationId: (formData.get("locationId") as string) || null,
+        description: (formData.get("description") as string) || null,
+      });
+    } else {
+      onCreateShift({
+        userId,
+        startTime: new Date(`${startDate}T${startTime}`),
+        endTime: new Date(`${startDate}T${endTime}`),
+        title: (formData.get("title") as string) || undefined,
+        locationId: (formData.get("locationId") as string) || undefined,
+        description: (formData.get("description") as string) || undefined,
+      });
+    }
   };
 
   const proposedShifts = (suggestData?.proposedShifts ?? []).map((shift, idx) =>
@@ -976,7 +1024,7 @@ export default function CreateShiftSplitPanel({
         <DialogHeader className="px-5 py-3 border-b flex-shrink-0">
           <DialogTitle className="text-sm flex items-center gap-2">
             <Clock className="h-4 w-4" />
-            Create Shift
+            {editingSchedule ? 'Edit Shift' : 'Create Shift'}
             <button
               type="button"
               onClick={cycleSize}
@@ -1269,9 +1317,11 @@ export default function CreateShiftSplitPanel({
               <div>
                 <Label className="text-xs">Role/Title (optional)</Label>
                 <Input
+                  key={`title-${editingSchedule?.id ?? 'new'}`}
                   name="title"
                   className="h-8 text-sm"
                   placeholder="e.g., Opener, Closer"
+                  defaultValue={editingSchedule?.title ?? ''}
                 />
               </div>
 
@@ -1279,8 +1329,8 @@ export default function CreateShiftSplitPanel({
                 <Label className="text-xs">Location</Label>
                 <Select
                   name="locationId"
-                  key={`loc-${open}-${locations[0]?.id}`}
-                  defaultValue={locations[0]?.id ?? ""}
+                  key={`loc-${editingSchedule?.id ?? 'new'}-${open}`}
+                  defaultValue={editingSchedule?.locationId ?? locations[0]?.id ?? ""}
                 >
                   <SelectTrigger className="h-8">
                     <SelectValue placeholder="Select location (optional)" />
@@ -1298,10 +1348,12 @@ export default function CreateShiftSplitPanel({
               <div>
                 <Label className="text-xs">Notes</Label>
                 <Textarea
+                  key={`notes-${editingSchedule?.id ?? 'new'}`}
                   name="description"
                   className="text-sm"
                   placeholder="Optional notes..."
                   rows={2}
+                  defaultValue={editingSchedule?.description ?? ''}
                 />
               </div>
 
@@ -1339,34 +1391,62 @@ export default function CreateShiftSplitPanel({
                 </div>
               )}
 
-              <div className="flex justify-end gap-2 pt-1 pb-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => isEditingBlock ? setSelectedShiftIdx(null) : onOpenChange(false)}
-                >
-                  {isEditingBlock ? "Deselect" : "Cancel"}
-                </Button>
-                {isEditingBlock ? (
+              <div className="flex justify-between gap-2 pt-1 pb-2">
+                {/* Delete button — only when editing an existing saved schedule */}
+                {editingSchedule && onDeleteSchedule ? (
                   <Button
                     type="button"
+                    variant="destructive"
                     size="sm"
-                    disabled={saveShiftMutation.isPending}
-                    onClick={handleSaveShiftEdit}
+                    disabled={isDeleting}
+                    onClick={() => onDeleteSchedule(editingSchedule.id)}
                     className="gap-1.5"
                   >
-                    {saveShiftMutation.isPending ? (
-                      <><Loader2 className="h-3 w-3 animate-spin" />Saving…</>
+                    {isDeleting ? (
+                      <><Loader2 className="h-3 w-3 animate-spin" />Deleting…</>
                     ) : (
-                      <><Save className="h-3 w-3" />Save Changes</>
+                      <><Trash2 className="h-3 w-3" />Delete</>
                     )}
                   </Button>
-                ) : (
-                  <Button type="submit" size="sm" disabled={isCreating}>
-                    {isCreating ? "Creating..." : "Create Shift"}
+                ) : <div />}
+
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => isEditingBlock ? setSelectedShiftIdx(null) : onOpenChange(false)}
+                  >
+                    {isEditingBlock ? "Deselect" : "Cancel"}
                   </Button>
-                )}
+                  {isEditingBlock ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={saveShiftMutation.isPending}
+                      onClick={handleSaveShiftEdit}
+                      className="gap-1.5"
+                    >
+                      {saveShiftMutation.isPending ? (
+                        <><Loader2 className="h-3 w-3 animate-spin" />Saving…</>
+                      ) : (
+                        <><Save className="h-3 w-3" />Save Changes</>
+                      )}
+                    </Button>
+                  ) : editingSchedule ? (
+                    <Button type="submit" size="sm" disabled={isUpdating} className="gap-1.5">
+                      {isUpdating ? (
+                        <><Loader2 className="h-3 w-3 animate-spin" />Saving…</>
+                      ) : (
+                        <><Save className="h-3 w-3" />Save Changes</>
+                      )}
+                    </Button>
+                  ) : (
+                    <Button type="submit" size="sm" disabled={isCreating}>
+                      {isCreating ? "Creating..." : "Create Shift"}
+                    </Button>
+                  )}
+                </div>
               </div>
             </form>
           </div>
