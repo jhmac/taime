@@ -1014,8 +1014,9 @@ export default function CreateShiftSplitPanel({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
+        key={editingSchedule ? `edit-${editingSchedule.id}` : 'create'}
         data-dialog-resizable
-        className={cn(dialogWidthClass, "max-h-[92vh] flex flex-col p-0 gap-0 overflow-hidden transition-[width,height] duration-200 relative")}
+        className={cn(dialogWidthClass, "max-h-[92vh] !flex flex-col p-0 gap-0 overflow-hidden transition-[width,height] duration-200 relative")}
         style={dialogStyle}
         onPointerMove={handleGripPointerMove}
         onPointerUp={handleGripPointerUp}

@@ -1256,6 +1256,7 @@ export default function ScheduleManagement() {
             onWeekChange={setSelectedWeek}
             onEditSchedule={openEditShift}
             onCreateShift={(date, startTime) => {
+              setEditingSchedule(null);
               setModalDate(date);
               setModalStartTime(startTime);
               setCreateShiftDefaults({ date });
