@@ -1537,6 +1537,7 @@ export default function ScheduleManagement() {
         onCreateShift={(data) => createScheduleMutation.mutate(data)}
         isCreating={createScheduleMutation.isPending}
         autoAssignMutation={autoAssignMutation}
+        isAdmin={isAdmin}
       />
 
       {/* Availability Override Dialog */}

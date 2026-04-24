@@ -92,6 +92,7 @@ interface Props {
     mutate: (payload: { date: string; startTime?: string; endTime?: string }) => void;
     isPending: boolean;
   };
+  isAdmin?: boolean;
 }
 
 function fmt12(t: string) {
@@ -507,12 +508,18 @@ function DayTimeline({
   }, [openMin, totalMin, closeMin, suggestData, onShiftEdit]);
 
   const handlePointerUp = useCallback(() => {
+    const wasMove = dragRef.current?.type === 'move';
     dragRef.current = null;
-    // Reset suppress ref after click event fires (click fires after pointerup)
-    requestAnimationFrame(() => {
-      // Only clear if it was a move drag - resize drags don't suppress clicks
-      // blockClickSuppressRef is reset inside handleBlockClick
-    });
+    if (wasMove) {
+      // Click fires after pointerup. handleBlockClick clears the ref on receipt.
+      // Safety net: if the pointer was released outside the element (no click fires),
+      // clear the suppress ref after two animation frames so future clicks aren't blocked.
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          blockClickSuppressRef.current = false;
+        });
+      });
+    }
   }, []);
 
   const hourLabels: number[] = [];
@@ -660,6 +667,7 @@ export default function CreateShiftSplitPanel({
   onCreateShift,
   isCreating,
   autoAssignMutation,
+  isAdmin = false,
 }: Props) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -673,7 +681,9 @@ export default function CreateShiftSplitPanel({
   const [excludedIdxs, setExcludedIdxs] = useState<Set<number>>(new Set());
   const [editedShifts, setEditedShifts] = useState<Record<number, ShiftEdit>>({});
   const [dialogSize, setDialogSize] = useState<DialogSize>('normal');
+  const [dialogDims, setDialogDims] = useState<{ width: number; height: number } | null>(null);
   const forceRegenRef = useRef(false);
+  const resizeGripRef = useRef<{ startX: number; startY: number; startW: number; startH: number } | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -684,9 +694,44 @@ export default function CreateShiftSplitPanel({
       setSelectedShiftIdx(null);
       setExcludedIdxs(new Set());
       setEditedShifts({});
+      setDialogDims(null);
       forceRegenRef.current = false;
     }
   }, [open, defaultDate, defaultUserId, defaultStartTime, defaultEndTime]);
+
+  // Reset custom dimensions when switching preset sizes
+  const cycleSize = () => {
+    setDialogSize((s) => s === 'normal' ? 'wide' : s === 'wide' ? 'full' : 'normal');
+    setDialogDims(null);
+  };
+
+  const handleGripPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    // Get dialog dimensions from the grip's parent
+    const dialog = (e.target as HTMLElement).closest('[data-dialog-resizable]') as HTMLElement | null;
+    if (!dialog) return;
+    resizeGripRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startW: dialog.offsetWidth,
+      startH: dialog.offsetHeight,
+    };
+  }, []);
+
+  const handleGripPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!resizeGripRef.current) return;
+    const { startX, startY, startW, startH } = resizeGripRef.current;
+    // Dialog is centered — dragging right by dx means right edge moves dx, so width grows 2dx
+    const newW = Math.max(560, Math.min(window.innerWidth * 0.96, startW + (e.clientX - startX) * 2));
+    const newH = Math.max(300, Math.min(window.innerHeight * 0.92, startH + (e.clientY - startY) * 2));
+    setDialogDims({ width: Math.round(newW), height: Math.round(newH) });
+  }, []);
+
+  const handleGripPointerUp = useCallback(() => {
+    resizeGripRef.current = null;
+  }, []);
 
   const handleShiftEdit = useCallback((idx: number, updates: ShiftEdit) => {
     setEditedShifts((prev) => ({ ...prev, [idx]: { ...prev[idx], ...updates } }));
@@ -912,13 +957,20 @@ export default function CreateShiftSplitPanel({
       ? 'w-[96vw] max-w-[1200px]'
       : 'w-[96vw] max-w-[920px]';
 
-  const cycleSize = () => {
-    setDialogSize((s) => s === 'normal' ? 'wide' : s === 'wide' ? 'full' : 'normal');
-  };
+  const dialogStyle = dialogDims
+    ? { width: dialogDims.width, height: dialogDims.height, maxWidth: 'none', maxHeight: 'none' }
+    : undefined;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={cn(dialogWidthClass, "max-h-[92vh] flex flex-col p-0 gap-0 overflow-hidden transition-all duration-200")}>
+      <DialogContent
+        data-dialog-resizable
+        className={cn(dialogWidthClass, "max-h-[92vh] flex flex-col p-0 gap-0 overflow-hidden transition-[width,height] duration-200 relative")}
+        style={dialogStyle}
+        onPointerMove={handleGripPointerMove}
+        onPointerUp={handleGripPointerUp}
+        onPointerLeave={handleGripPointerUp}
+      >
         <DialogHeader className="px-5 py-3 border-b flex-shrink-0">
           <DialogTitle className="text-sm flex items-center gap-2">
             <Clock className="h-4 w-4" />
@@ -1039,9 +1091,9 @@ export default function CreateShiftSplitPanel({
               <SalesChart
                 data={salesData}
                 isLoading={salesLoading && !!modalDate}
-                onCorrect={(historicalDate, newTotal) =>
+                onCorrect={isAdmin ? (historicalDate, newTotal) =>
                   correctRevenueMutation.mutate({ historicalDate, totalRevenue: newTotal })
-                }
+                : undefined}
                 isCorrecting={correctRevenueMutation.isPending}
               />
 
@@ -1309,6 +1361,18 @@ export default function CreateShiftSplitPanel({
               </div>
             </form>
           </div>
+        </div>
+
+        {/* ── Resize grip (bottom-right corner) ── */}
+        <div
+          title="Drag to resize"
+          className="absolute bottom-1 right-1 w-5 h-5 cursor-nwse-resize z-50 flex items-end justify-end p-0.5 opacity-30 hover:opacity-70 transition-opacity select-none"
+          onPointerDown={handleGripPointerDown}
+        >
+          <svg viewBox="0 0 10 10" className="w-3.5 h-3.5 text-muted-foreground fill-current">
+            <rect x="6" y="0" width="2" height="10" rx="1" />
+            <rect x="0" y="6" width="10" height="2" rx="1" />
+          </svg>
         </div>
       </DialogContent>
     </Dialog>
