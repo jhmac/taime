@@ -334,9 +334,12 @@ export default function SuggestedScheduleReview({ data, isLoading, onClose, onAp
               {activeShifts.length} shift{activeShifts.length !== 1 ? 's' : ''} will be created
               {removedIndices.size > 0 && ` (${removedIndices.size} removed)`}
             </span>
-            <div className="flex gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] text-muted-foreground hidden sm:inline">
+                Suggestion saved · apply later anytime
+              </span>
               <Button variant="outline" size="sm" onClick={onClose}>
-                Discard
+                Cancel
               </Button>
               <Button
                 size="sm"

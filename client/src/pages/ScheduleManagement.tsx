@@ -1256,6 +1256,16 @@ export default function ScheduleManagement() {
             onWeekChange={setSelectedWeek}
             onEditSchedule={openEditShift}
             onCreateShift={(date, startTime) => {
+              // If no shifts exist for this date, use AI to suggest a schedule
+              const dateHasShifts = schedules.some(
+                s => formatLocalDate(new Date(s.startTime)) === date
+              );
+              if (!dateHasShifts && isAdmin) {
+                setShowSuggestedReview(true);
+                suggestMutation.mutate(date);
+                return;
+              }
+              // Date already has shifts — open the manual create panel
               setEditingSchedule(null);
               setModalDate(date);
               setModalStartTime(startTime);
@@ -1602,15 +1612,18 @@ export default function ScheduleManagement() {
           fromCache={!!(suggestedData as any)?._fromCache}
           onClose={() => { setShowSuggestedReview(false); setSuggestedData(null); }}
           onApproveAll={(shifts) => {
+            const appliedDate = (suggestedData as any)?.date || todayDateStr;
             setSuggestedData(null);
             queryClient.invalidateQueries({ queryKey: ["/api/schedules"] });
-            queryClient.invalidateQueries({ queryKey: ['/api/schedules/today-availability', todayDateStr] });
+            queryClient.invalidateQueries({ queryKey: ['/api/schedules/today-availability', appliedDate] });
           }}
           onRegenerate={() => {
-            clearSuggestCache(todayDateStr).then(() => {
+            const regenerateDate = (suggestedData as any)?.date || todayDateStr;
+            clearSuggestCache(regenerateDate).then(() => {
               setShowSuggestedReview(false);
               setSuggestedData(null);
-              suggestMutation.mutate(todayDateStr);
+              setShowSuggestedReview(true);
+              suggestMutation.mutate(regenerateDate);
             });
           }}
           onEditShift={undefined}
