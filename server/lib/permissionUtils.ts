@@ -1,6 +1,6 @@
 import { db } from "../db";
 import { users, permissions, rolePermissions, userPermissionOverrides } from "@shared/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, or, isNull } from "drizzle-orm";
 
 const CACHE_TTL_MS = 60_000;
 
@@ -37,7 +37,6 @@ export async function getAllStoreUserIds(storeId: string): Promise<string[]> {
     return cached.result;
   }
 
-  const { or, isNull } = await import("drizzle-orm");
   const rows = await db
     .select({ id: users.id })
     .from(users)

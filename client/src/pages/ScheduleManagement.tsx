@@ -537,7 +537,7 @@ function DayNoteAdminCell({ date, notes, currentUserId, isAdmin }: {
 export default function ScheduleManagement() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, isLoading: authLoading } = useAuth();
   const [, navigate] = useLocation();
   const [selectedWeek, setSelectedWeek] = useState(0);
   const [showCreateShift, setShowCreateShift] = useState(false);
@@ -568,7 +568,7 @@ export default function ScheduleManagement() {
   const [showSuggestedReview, setShowSuggestedReview] = useState(false);
   const [suggestedData, setSuggestedData] = useState<any>(null);
 
-  const { data: userPermissions = [] } = useQuery<Permission[]>({
+  const { data: userPermissions = [], isLoading: permissionsLoading } = useQuery<Permission[]>({
     queryKey: ["/api/auth/permissions"],
     enabled: !!currentUser,
   });
@@ -927,7 +927,7 @@ export default function ScheduleManagement() {
     setShowCreateShift(true);
   };
 
-  if (schedulesLoading || usersLoading) {
+  if (authLoading || (currentUser && permissionsLoading) || schedulesLoading || usersLoading) {
     return (
       <div className="min-h-screen bg-background p-4 md:p-6">
         <div className="max-w-lg mx-auto space-y-4">
