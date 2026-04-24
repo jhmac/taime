@@ -20,12 +20,14 @@ import type { User, Schedule, WorkLocation, AvailabilityTemplate, TemplateSlot, 
 import {
   ChevronLeft, ChevronRight, Plus, Trash2, Sparkles, Loader2,
   Check, X, Calendar, Clock, StickyNote, Bell, Pencil, Wand2, Users,
-  ChevronDown, ChevronUp, CalendarDays, UserCog, PanelRightOpen, PanelRightClose
+  ChevronDown, ChevronUp, CalendarDays, UserCog, PanelRightOpen, PanelRightClose,
+  LayoutGrid, CalendarRange
 } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import AvailabilityCommandPanel from "@/components/AvailabilityCommandPanel";
 import SuggestedScheduleReview from "@/components/SuggestedScheduleReview";
 import CreateShiftSplitPanel from "@/components/CreateShiftSplitPanel";
+import ScheduleTimelineView, { type ScheduleSubView } from "@/components/ScheduleTimelineView";
 
 interface DayNote {
   id: string;
@@ -558,6 +560,31 @@ export default function ScheduleManagement() {
   });
   const [isMobilePanel, setIsMobilePanel] = useState(false);
   const [showMobileSheet, setShowMobileSheet] = useState(false);
+
+  // View toggle: 'roster' | 'timeline'
+  const [scheduleView, setScheduleView] = useState<'roster' | 'timeline'>(() => {
+    try {
+      const stored = localStorage.getItem('scheduleView');
+      return (stored === 'roster' || stored === 'timeline') ? stored : 'roster';
+    } catch { return 'roster'; }
+  });
+  // Sub-view: 'day' | 'week' | 'month' | 'year'
+  const [scheduleSubView, setScheduleSubView] = useState<ScheduleSubView>(() => {
+    try {
+      const stored = localStorage.getItem('scheduleSubView');
+      const valid: ScheduleSubView[] = ['day', 'week', 'month', 'year'];
+      return (valid.includes(stored as ScheduleSubView) ? stored : 'week') as ScheduleSubView;
+    } catch { return 'week'; }
+  });
+
+  const handleViewChange = (view: 'roster' | 'timeline') => {
+    setScheduleView(view);
+    try { localStorage.setItem('scheduleView', view); } catch {}
+  };
+  const handleSubViewChange = (sv: ScheduleSubView) => {
+    setScheduleSubView(sv);
+    try { localStorage.setItem('scheduleSubView', sv); } catch {}
+  };
 
   useEffect(() => {
     const check = () => setIsMobilePanel(window.innerWidth < 1024);
@@ -1095,20 +1122,52 @@ export default function ScheduleManagement() {
       <div className="sticky top-0 z-10 bg-background border-b px-4 py-3">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" className="text-xs font-medium" onClick={() => setSelectedWeek(0)}>
-              Today
-            </Button>
-            <div className="flex items-center gap-1 bg-muted rounded-md px-3 py-1.5">
-              <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="text-sm font-medium">{formatWeekRange()}</span>
+            {scheduleView !== 'timeline' && (<>
+              <Button variant="outline" size="sm" className="text-xs font-medium" onClick={() => setSelectedWeek(0)}>
+                Today
+              </Button>
+              <div className="flex items-center gap-1 bg-muted rounded-md px-3 py-1.5">
+                <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="text-sm font-medium">{formatWeekRange()}</span>
+              </div>
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setSelectedWeek(selectedWeek - 1)}>
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setSelectedWeek(selectedWeek + 1)}>
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+              <Badge variant="secondary" className="text-xs">Week</Badge>
+            </>)}
+
+            {/* Roster / Timeline toggle */}
+            <div className="flex items-center rounded-md border overflow-hidden ml-2">
+              <button
+                onClick={() => handleViewChange('roster')}
+                className={cn(
+                  "flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium border-r transition-colors",
+                  scheduleView === 'roster'
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-background text-muted-foreground hover:bg-muted"
+                )}
+                title="Roster view"
+              >
+                <LayoutGrid className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Roster</span>
+              </button>
+              <button
+                onClick={() => handleViewChange('timeline')}
+                className={cn(
+                  "flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium transition-colors",
+                  scheduleView === 'timeline'
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-background text-muted-foreground hover:bg-muted"
+                )}
+                title="Timeline view"
+              >
+                <CalendarRange className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Timeline</span>
+              </button>
             </div>
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setSelectedWeek(selectedWeek - 1)}>
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setSelectedWeek(selectedWeek + 1)}>
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-            <Badge variant="secondary" className="text-xs">Week</Badge>
           </div>
           <div className="flex items-center gap-2">
             <Button
@@ -1160,8 +1219,8 @@ export default function ScheduleManagement() {
 
       {/* Main Content: Command Panel (left) + Schedule Grid */}
       <div className="flex flex-1 min-h-0">
-        {/* Today's Intelligence Command Panel — desktop sidebar LEFT */}
-        {showCommandPanel && isAdmin && (
+        {/* Today's Intelligence Command Panel — desktop sidebar LEFT (roster view only) */}
+        {showCommandPanel && isAdmin && scheduleView === 'roster' && (
           <div className="w-72 min-w-[17rem] max-w-[17rem] border-r bg-background flex-shrink-0 flex-col overflow-hidden hidden lg:flex">
             <AvailabilityCommandPanel
               date={todayDateStr}
@@ -1171,7 +1230,30 @@ export default function ScheduleManagement() {
             />
           </div>
         )}
-        {/* Schedule Grid */}
+
+        {/* Timeline View */}
+        {scheduleView === 'timeline' && (
+          <ScheduleTimelineView
+            subView={scheduleSubView}
+            onSubViewChange={handleSubViewChange}
+            schedules={schedules}
+            users={activeEmployees}
+            weekDates={weekDates}
+            selectedWeek={selectedWeek}
+            onWeekChange={setSelectedWeek}
+            onEditSchedule={setEditingSchedule}
+            onCreateShift={(date, startTime) => {
+              setModalDate(date);
+              setModalStartTime(startTime);
+              setCreateShiftDefaults({ date });
+              setShowCreateShift(true);
+            }}
+            isAdmin={isAdmin}
+          />
+        )}
+
+        {/* Schedule Grid (Roster view) */}
+        {scheduleView === 'roster' && (
         <div className="flex-1 overflow-x-auto min-w-0">
         <table className="w-full border-collapse min-w-[900px]">
           <thead>
@@ -1479,6 +1561,7 @@ export default function ScheduleManagement() {
           </tfoot>
         </table>
         </div>
+        )}
 
       </div>
 
