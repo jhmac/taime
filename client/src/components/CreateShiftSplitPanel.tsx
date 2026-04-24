@@ -14,7 +14,8 @@ import { apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 import {
   Clock, Users, Loader2, TrendingUp, Sparkles, AlertTriangle,
-  ChevronDown, ChevronUp, Wand2, Check, X, RefreshCw
+  ChevronDown, ChevronUp, Wand2, Check, X, RefreshCw,
+  Maximize2, Minimize2, Pencil, Save,
 } from "lucide-react";
 
 interface HourlyData {
@@ -132,6 +133,7 @@ function ShiftBlock({
   onToggleExclude,
   hasConflict,
   onResizeStart,
+  onBodyPointerDown,
 }: {
   shift: ProposedShift;
   openMin: number;
@@ -142,6 +144,7 @@ function ShiftBlock({
   onToggleExclude: (e: React.MouseEvent) => void;
   hasConflict: boolean;
   onResizeStart?: (e: React.PointerEvent, type: 'top' | 'bottom') => void;
+  onBodyPointerDown?: (e: React.PointerEvent) => void;
 }) {
   const totalMin = closeMin - openMin;
   if (totalMin <= 0) return null;
@@ -169,6 +172,7 @@ function ShiftBlock({
         />
       )}
       <button
+        onPointerDown={!isExcluded ? onBodyPointerDown : undefined}
         onClick={isExcluded ? onToggleExclude : onClick}
         title={title}
         className={cn(
@@ -229,10 +233,17 @@ function ShiftBlock({
 function SalesChart({
   data,
   isLoading,
+  onCorrect,
+  isCorrecting,
 }: {
   data: HistoricalSalesData | null | undefined;
   isLoading: boolean;
+  onCorrect?: (historicalDate: string, newTotal: number) => void;
+  isCorrecting?: boolean;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [correctionVal, setCorrectionVal] = useState("");
+
   if (isLoading) {
     return (
       <div className="mb-4 space-y-2">
@@ -258,7 +269,6 @@ function SalesChart({
     );
   }
 
-  const maxRev = Math.max(...data.hourlyData.map((h) => h.revenue), 1);
   const dailyFmt = data.dailyTotal >= 1000
     ? `$${(data.dailyTotal / 1000).toFixed(1)}k`
     : `$${Math.round(data.dailyTotal)}`;
@@ -271,6 +281,14 @@ function SalesChart({
       })
     : "";
 
+  const handleSaveCorrection = () => {
+    const val = parseFloat(correctionVal.replace(/[^0-9.]/g, ""));
+    if (isNaN(val) || val < 0) return;
+    onCorrect?.(data.historicalDate, val);
+    setEditing(false);
+    setCorrectionVal("");
+  };
+
   return (
     <div className="mb-3">
       <div className="flex items-center justify-between mb-1">
@@ -280,7 +298,50 @@ function SalesChart({
         </span>
         <div className="flex items-center gap-2">
           <span className="text-[9px] text-muted-foreground italic">Based on {historicalLabel}</span>
-          <span className="text-[11px] font-semibold text-foreground">{dailyFmt} total</span>
+          {editing ? (
+            <div className="flex items-center gap-1">
+              <span className="text-[11px] text-muted-foreground">$</span>
+              <Input
+                autoFocus
+                className="h-6 w-24 text-[11px] px-1 py-0"
+                value={correctionVal}
+                onChange={(e) => setCorrectionVal(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleSaveCorrection();
+                  if (e.key === "Escape") { setEditing(false); setCorrectionVal(""); }
+                }}
+                placeholder={String(Math.round(data.dailyTotal))}
+              />
+              <button
+                onClick={handleSaveCorrection}
+                disabled={isCorrecting}
+                className="text-emerald-600 hover:text-emerald-700 disabled:opacity-50"
+                title="Save correction"
+              >
+                {isCorrecting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+              </button>
+              <button
+                onClick={() => { setEditing(false); setCorrectionVal(""); }}
+                className="text-muted-foreground hover:text-foreground"
+                title="Cancel"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1 group">
+              <span className="text-[11px] font-semibold text-foreground">{dailyFmt} total</span>
+              {onCorrect && (
+                <button
+                  onClick={() => { setEditing(true); setCorrectionVal(String(Math.round(data.dailyTotal))); }}
+                  title="Correct this revenue total"
+                  className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
+                >
+                  <Pencil className="h-2.5 w-2.5" />
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
       <div className="h-28 w-full">
@@ -325,10 +386,20 @@ function SalesChart({
         <span className="flex items-center gap-1 text-[9px] text-muted-foreground">
           <span className="inline-block w-3 h-2 rounded-sm bg-slate-400" />standard
         </span>
+        {onCorrect && (
+          <span className="text-[9px] text-muted-foreground italic ml-auto">Hover total to correct</span>
+        )}
       </div>
     </div>
   );
 }
+
+type DragState = {
+  idx: number;
+  type: 'top' | 'bottom' | 'move';
+  offsetPct?: number;
+  initialY?: number;
+} | null;
 
 function DayTimeline({
   suggestData,
@@ -361,7 +432,8 @@ function DayTimeline({
   const closeMin = timeToMin(close);
   const totalMin = closeMin - openMin;
   const containerRef = useRef<HTMLDivElement>(null);
-  const dragRef = useRef<{ idx: number; type: 'top' | 'bottom' } | null>(null);
+  const dragRef = useRef<DragState>(null);
+  const blockClickSuppressRef = useRef(false);
 
   const minsToStr = (mins: number) =>
     `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
@@ -373,6 +445,28 @@ function DayTimeline({
     dragRef.current = { idx, type };
   }, []);
 
+  const handleBodyPointerDown = useCallback((e: React.PointerEvent, idx: number) => {
+    if (!containerRef.current || !onShiftEdit) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const relY = (e.clientY - rect.top) / rect.height;
+    const shifts = suggestData?.proposedShifts ?? [];
+    const shift = shifts[idx];
+    if (!shift) return;
+    const startMin = timeToMin(shift.startTime);
+    const offsetPct = relY - (startMin - openMin) / totalMin;
+    dragRef.current = { idx, type: 'move', offsetPct, initialY: e.clientY };
+    // Capture on the container so all move/up events bubble there
+    containerRef.current.setPointerCapture(e.pointerId);
+  }, [openMin, totalMin, suggestData, onShiftEdit]);
+
+  const handleBlockClick = useCallback((shift: ProposedShift, idx: number) => {
+    if (blockClickSuppressRef.current) {
+      blockClickSuppressRef.current = false;
+      return;
+    }
+    onSelectShift(shift, idx);
+  }, [onSelectShift]);
+
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (!dragRef.current || !containerRef.current || !onShiftEdit) return;
     const { idx, type } = dragRef.current;
@@ -383,21 +477,42 @@ function DayTimeline({
     const shifts = suggestData?.proposedShifts ?? [];
     const shift = shifts[idx];
     if (!shift) return;
+
     if (type === 'bottom') {
       const startMin = timeToMin(shift.startTime);
       if (snapped > startMin + 15 && snapped <= closeMin) {
         onShiftEdit(idx, { endTime: minsToStr(snapped) });
       }
-    } else {
+    } else if (type === 'top') {
       const endMin = timeToMin(shift.endTime);
       if (snapped < endMin - 15 && snapped >= openMin) {
         onShiftEdit(idx, { startTime: minsToStr(snapped) });
+      }
+    } else if (type === 'move') {
+      const initialY = dragRef.current.initialY ?? e.clientY;
+      if (Math.abs(e.clientY - initialY) > 5) {
+        blockClickSuppressRef.current = true;
+        const offsetPct = dragRef.current.offsetPct ?? 0;
+        const rawStartMin = openMin + ((relY / rect.height) - offsetPct) * totalMin;
+        const snappedStart = Math.round(rawStartMin / 15) * 15;
+        const duration = timeToMin(shift.endTime) - timeToMin(shift.startTime);
+        const clampedStart = Math.max(openMin, Math.min(closeMin - duration, snappedStart));
+        const newStart = minsToStr(clampedStart);
+        const newEnd = minsToStr(clampedStart + duration);
+        if (newStart !== shift.startTime || newEnd !== shift.endTime) {
+          onShiftEdit(idx, { startTime: newStart, endTime: newEnd });
+        }
       }
     }
   }, [openMin, totalMin, closeMin, suggestData, onShiftEdit]);
 
   const handlePointerUp = useCallback(() => {
     dragRef.current = null;
+    // Reset suppress ref after click event fires (click fires after pointerup)
+    requestAnimationFrame(() => {
+      // Only clear if it was a move drag - resize drags don't suppress clicks
+      // blockClickSuppressRef is reset inside handleBlockClick
+    });
   }, []);
 
   const hourLabels: number[] = [];
@@ -498,10 +613,11 @@ function DayTimeline({
                   closeMin={closeMin}
                   isSelected={selectedIdx === idx}
                   isExcluded={excludedIdxs.has(idx)}
-                  onClick={() => onSelectShift(shift, idx)}
+                  onClick={() => handleBlockClick(shift, idx)}
                   onToggleExclude={(e) => { e.stopPropagation(); onToggleExclude(idx); }}
                   hasConflict={conflictingEmployeeIds.has(shift.employeeId)}
-                  onResizeStart={onShiftEdit ? (e, type) => handleResizeStart(e, idx, type) : undefined}
+                  onResizeStart={onShiftEdit && !excludedIdxs.has(idx) ? (e, type) => handleResizeStart(e, idx, type) : undefined}
+                  onBodyPointerDown={onShiftEdit && !excludedIdxs.has(idx) ? (e) => handleBodyPointerDown(e, idx) : undefined}
                 />
               </div>
             ))}
@@ -511,7 +627,7 @@ function DayTimeline({
       {shifts.length > 0 && (
         <div className="flex items-center justify-between mt-1.5">
           <p className="text-[9px] text-muted-foreground">
-            Click a block to pre-fill · drag top/bottom edge to resize
+            Click to select · drag body to move · drag edge to resize
           </p>
           {conflictingEmployeeIds.size > 0 && (
             <span className="flex items-center gap-0.5 text-[9px] text-amber-600 dark:text-amber-400 font-medium">
@@ -524,6 +640,9 @@ function DayTimeline({
     </div>
   );
 }
+
+type DialogSize = 'normal' | 'wide' | 'full';
+type ShiftEdit = { startTime?: string; endTime?: string; employeeId?: string; employeeName?: string };
 
 export default function CreateShiftSplitPanel({
   open,
@@ -552,7 +671,8 @@ export default function CreateShiftSplitPanel({
   const [selectedShiftIdx, setSelectedShiftIdx] = useState<number | null>(null);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [excludedIdxs, setExcludedIdxs] = useState<Set<number>>(new Set());
-  const [editedShifts, setEditedShifts] = useState<Record<number, { startTime?: string; endTime?: string }>>({});
+  const [editedShifts, setEditedShifts] = useState<Record<number, ShiftEdit>>({});
+  const [dialogSize, setDialogSize] = useState<DialogSize>('normal');
   const forceRegenRef = useRef(false);
 
   useEffect(() => {
@@ -568,12 +688,12 @@ export default function CreateShiftSplitPanel({
     }
   }, [open, defaultDate, defaultUserId, defaultStartTime, defaultEndTime]);
 
-  const handleShiftEdit = useCallback((idx: number, updates: { startTime?: string; endTime?: string }) => {
+  const handleShiftEdit = useCallback((idx: number, updates: ShiftEdit) => {
     setEditedShifts((prev) => ({ ...prev, [idx]: { ...prev[idx], ...updates } }));
-    // Keep the form inputs in sync if this shift is currently selected
     if (selectedShiftIdx === idx) {
       if (updates.startTime) setModalStartTime(updates.startTime);
       if (updates.endTime) setModalEndTime(updates.endTime);
+      if (updates.employeeId) setSelectedUserId(updates.employeeId);
     }
   }, [selectedShiftIdx]);
 
@@ -614,7 +734,6 @@ export default function CreateShiftSplitPanel({
       const skipCache = forceRegenRef.current;
       forceRegenRef.current = false;
       if (!skipCache) {
-        // First check if a saved suggestion exists for this date
         try {
           const getRes = await apiRequest("GET", `/api/schedules/suggest?date=${modalDate}`);
           const saved = await getRes.json();
@@ -625,7 +744,6 @@ export default function CreateShiftSplitPanel({
           // no saved suggestion — fall through to generate
         }
       }
-      // Generate a fresh AI suggestion and save it to DB
       const res = await apiRequest("POST", "/api/schedules/suggest", { date: modalDate });
       return res.json();
     },
@@ -633,6 +751,44 @@ export default function CreateShiftSplitPanel({
     staleTime: 5 * 60_000,
     gcTime: 10 * 60_000,
     retry: 1,
+  });
+
+  // Mutation to persist a single edited shift back to DB
+  const saveShiftMutation = useMutation({
+    mutationFn: async ({ idx, edit }: { idx: number; edit: ShiftEdit }) => {
+      const shift = suggestData?.proposedShifts[idx];
+      const res = await apiRequest("PUT", "/api/schedules/suggest", {
+        date: modalDate,
+        shiftIndex: idx,
+        startTime: edit.startTime ?? shift?.startTime,
+        endTime: edit.endTime ?? shift?.endTime,
+        employeeId: edit.employeeId ?? shift?.employeeId,
+        employeeName: edit.employeeName ?? shift?.employeeName,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/schedules/suggest", modalDate] });
+      toast({ title: "Shift saved", description: "Changes persisted to the suggested schedule." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to save shift changes.", variant: "destructive" });
+    },
+  });
+
+  // Mutation to correct a historical revenue total
+  const correctRevenueMutation = useMutation({
+    mutationFn: async ({ historicalDate, totalRevenue }: { historicalDate: string; totalRevenue: number }) => {
+      const res = await apiRequest("POST", "/api/schedules/historical-sales/correct", { date: historicalDate, totalRevenue });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/schedules/historical-sales", modalDate] });
+      toast({ title: "Revenue corrected", description: "The historical total has been updated." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to correct revenue total.", variant: "destructive" });
+    },
   });
 
   const approveMutation = useMutation({
@@ -663,10 +819,34 @@ export default function CreateShiftSplitPanel({
   });
 
   const handleSelectShift = (shift: ProposedShift, idx: number) => {
-    setSelectedShiftIdx(idx === selectedShiftIdx ? null : idx);
+    if (idx === selectedShiftIdx) {
+      // Deselect
+      setSelectedShiftIdx(null);
+      return;
+    }
+    setSelectedShiftIdx(idx);
     setSelectedUserId(shift.employeeId);
     setModalStartTime(shift.startTime);
     setModalEndTime(shift.endTime);
+  };
+
+  const handleSaveShiftEdit = () => {
+    if (selectedShiftIdx === null) return;
+    const currentEdit = editedShifts[selectedShiftIdx] ?? {};
+    // Merge in any form-level changes
+    const mergedEdit: ShiftEdit = {
+      ...currentEdit,
+      startTime: modalStartTime,
+      endTime: modalEndTime,
+      employeeId: selectedUserId || currentEdit.employeeId,
+      employeeName: selectedUserId !== (suggestData?.proposedShifts[selectedShiftIdx]?.employeeId ?? "")
+        ? employees.find((e) => e.id === selectedUserId)
+            ? `${employees.find((e) => e.id === selectedUserId)?.firstName ?? ""} ${employees.find((e) => e.id === selectedUserId)?.lastName ?? ""}`.trim()
+            : currentEdit.employeeName
+        : currentEdit.employeeName,
+    };
+    setEditedShifts((prev) => ({ ...prev, [selectedShiftIdx]: mergedEdit }));
+    saveShiftMutation.mutate({ idx: selectedShiftIdx, edit: mergedEdit });
   };
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
@@ -722,13 +902,35 @@ export default function CreateShiftSplitPanel({
       })
     : "";
 
+  const selectedShift = selectedShiftIdx !== null ? proposedShifts[selectedShiftIdx] : null;
+  const isEditingBlock = selectedShiftIdx !== null && selectedShift !== undefined;
+
+  const dialogWidthClass =
+    dialogSize === 'full'
+      ? 'w-[99vw] max-w-none'
+      : dialogSize === 'wide'
+      ? 'w-[96vw] max-w-[1200px]'
+      : 'w-[96vw] max-w-[920px]';
+
+  const cycleSize = () => {
+    setDialogSize((s) => s === 'normal' ? 'wide' : s === 'wide' ? 'full' : 'normal');
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[96vw] max-w-[920px] max-h-[92vh] flex flex-col p-0 gap-0 overflow-hidden">
+      <DialogContent className={cn(dialogWidthClass, "max-h-[92vh] flex flex-col p-0 gap-0 overflow-hidden transition-all duration-200")}>
         <DialogHeader className="px-5 py-3 border-b flex-shrink-0">
           <DialogTitle className="text-sm flex items-center gap-2">
             <Clock className="h-4 w-4" />
             Create Shift
+            <button
+              type="button"
+              onClick={cycleSize}
+              title={dialogSize === 'normal' ? 'Expand dialog' : dialogSize === 'wide' ? 'Full width' : 'Shrink dialog'}
+              className="ml-auto text-muted-foreground hover:text-foreground transition-colors"
+            >
+              {dialogSize === 'full' ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+            </button>
           </DialogTitle>
         </DialogHeader>
 
@@ -834,7 +1036,14 @@ export default function CreateShiftSplitPanel({
               )}
 
               {/* Sales chart */}
-              <SalesChart data={salesData} isLoading={salesLoading && !!modalDate} />
+              <SalesChart
+                data={salesData}
+                isLoading={salesLoading && !!modalDate}
+                onCorrect={(historicalDate, newTotal) =>
+                  correctRevenueMutation.mutate({ historicalDate, totalRevenue: newTotal })
+                }
+                isCorrecting={correctRevenueMutation.isPending}
+              />
 
               {/* Divider */}
               <div className="border-t border-border/40" />
@@ -858,6 +1067,25 @@ export default function CreateShiftSplitPanel({
 
           {/* ── RIGHT PANEL ── */}
           <div className="md:w-[45%] flex flex-col min-h-0 overflow-y-auto">
+            {/* Edit mode banner when a block is selected */}
+            {isEditingBlock && (
+              <div className="px-4 pt-3 pb-0 flex-shrink-0">
+                <div className="flex items-center justify-between rounded-lg border border-primary/30 bg-primary/5 px-3 py-2">
+                  <span className="text-xs font-medium text-primary flex items-center gap-1.5">
+                    <Pencil className="h-3 w-3" />
+                    Editing {selectedShift.employeeName}&apos;s shift
+                  </span>
+                  <button
+                    onClick={() => setSelectedShiftIdx(null)}
+                    className="text-muted-foreground hover:text-foreground"
+                    title="Cancel edit"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
+
             <form onSubmit={handleSubmit} className="px-4 py-3 space-y-3 flex-1">
               {/* Availability filter toggle */}
               <div className="flex items-center justify-between rounded-lg border bg-muted/30 px-3 py-2">
@@ -890,7 +1118,14 @@ export default function CreateShiftSplitPanel({
                 <Select
                   name="userId"
                   value={selectedUserId}
-                  onValueChange={setSelectedUserId}
+                  onValueChange={(v) => {
+                    setSelectedUserId(v);
+                    if (isEditingBlock) {
+                      const emp = employees.find((e) => e.id === v);
+                      const empName = emp ? `${emp.firstName ?? ""} ${emp.lastName ?? ""}`.trim() : "";
+                      handleShiftEdit(selectedShiftIdx!, { employeeId: v, employeeName: empName });
+                    }
+                  }}
                   required
                 >
                   <SelectTrigger className="h-8">
@@ -944,7 +1179,12 @@ export default function CreateShiftSplitPanel({
                     className="h-8 text-sm"
                     required
                     value={modalStartTime}
-                    onChange={(e) => setModalStartTime(e.target.value)}
+                    onChange={(e) => {
+                      setModalStartTime(e.target.value);
+                      if (isEditingBlock) {
+                        handleShiftEdit(selectedShiftIdx!, { startTime: e.target.value });
+                      }
+                    }}
                   />
                 </div>
                 <div>
@@ -955,7 +1195,12 @@ export default function CreateShiftSplitPanel({
                     className="h-8 text-sm"
                     required
                     value={modalEndTime}
-                    onChange={(e) => setModalEndTime(e.target.value)}
+                    onChange={(e) => {
+                      setModalEndTime(e.target.value);
+                      if (isEditingBlock) {
+                        handleShiftEdit(selectedShiftIdx!, { endTime: e.target.value });
+                      }
+                    }}
                   />
                 </div>
               </div>
@@ -1000,49 +1245,67 @@ export default function CreateShiftSplitPanel({
               </div>
 
               {/* AI Auto-Assign */}
-              <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5 space-y-2">
-                <p className="text-[11px] font-medium text-primary flex items-center gap-1.5">
-                  <Wand2 className="h-3 w-3" />
-                  AI Auto-Assign
-                </p>
-                <p className="text-[10px] text-muted-foreground leading-relaxed">
-                  Automatically fill the needed staffing slots for this day using
-                  top-scored available employees.
-                </p>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="w-full border-primary/30 text-primary hover:bg-primary/10 gap-1.5 text-xs"
-                  disabled={autoAssignMutation.isPending || !modalDate}
-                  onClick={() =>
-                    autoAssignMutation.mutate({
-                      date: modalDate,
-                      startTime: modalStartTime,
-                      endTime: modalEndTime,
-                    })
-                  }
-                >
-                  {autoAssignMutation.isPending ? (
-                    <><Loader2 className="h-3 w-3 animate-spin" />Assigning…</>
-                  ) : (
-                    <><Wand2 className="h-3 w-3" />Auto-Assign Shifts</>
-                  )}
-                </Button>
-              </div>
+              {!isEditingBlock && (
+                <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5 space-y-2">
+                  <p className="text-[11px] font-medium text-primary flex items-center gap-1.5">
+                    <Wand2 className="h-3 w-3" />
+                    AI Auto-Assign
+                  </p>
+                  <p className="text-[10px] text-muted-foreground leading-relaxed">
+                    Automatically fill the needed staffing slots for this day using
+                    top-scored available employees.
+                  </p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="w-full border-primary/30 text-primary hover:bg-primary/10 gap-1.5 text-xs"
+                    disabled={autoAssignMutation.isPending || !modalDate}
+                    onClick={() =>
+                      autoAssignMutation.mutate({
+                        date: modalDate,
+                        startTime: modalStartTime,
+                        endTime: modalEndTime,
+                      })
+                    }
+                  >
+                    {autoAssignMutation.isPending ? (
+                      <><Loader2 className="h-3 w-3 animate-spin" />Assigning…</>
+                    ) : (
+                      <><Wand2 className="h-3 w-3" />Auto-Assign Shifts</>
+                    )}
+                  </Button>
+                </div>
+              )}
 
               <div className="flex justify-end gap-2 pt-1 pb-2">
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => onOpenChange(false)}
+                  onClick={() => isEditingBlock ? setSelectedShiftIdx(null) : onOpenChange(false)}
                 >
-                  Cancel
+                  {isEditingBlock ? "Deselect" : "Cancel"}
                 </Button>
-                <Button type="submit" size="sm" disabled={isCreating}>
-                  {isCreating ? "Creating..." : "Create Shift"}
-                </Button>
+                {isEditingBlock ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={saveShiftMutation.isPending}
+                    onClick={handleSaveShiftEdit}
+                    className="gap-1.5"
+                  >
+                    {saveShiftMutation.isPending ? (
+                      <><Loader2 className="h-3 w-3 animate-spin" />Saving…</>
+                    ) : (
+                      <><Save className="h-3 w-3" />Save Changes</>
+                    )}
+                  </Button>
+                ) : (
+                  <Button type="submit" size="sm" disabled={isCreating}>
+                    {isCreating ? "Creating..." : "Create Shift"}
+                  </Button>
+                )}
               </div>
             </form>
           </div>

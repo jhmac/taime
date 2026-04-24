@@ -1683,6 +1683,103 @@ Required JSON structure:
     }
   });
 
+  // PUT /api/schedules/suggest — patch a single shift in the saved suggestion
+  app.put("/api/schedules/suggest", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const isAdmin = userPermissions.some((p: any) =>
+        p.name === 'admin.manage_all' || p.name === 'schedule.view_all' || p.name === 'schedule.create'
+      );
+      if (!isAdmin) return res.status(403).json({ message: "Manager access required" });
+
+      const { date, shiftIndex, startTime, endTime, employeeId, employeeName } = req.body;
+      if (!date || typeof shiftIndex !== 'number') {
+        return res.status(400).json({ message: "date and shiftIndex are required" });
+      }
+
+      const { tryResolveStoreIdForUser } = await import('../lib/storeResolver');
+      const storeId = await tryResolveStoreIdForUser(userId);
+      if (!storeId) return res.status(403).json({ message: "No store associated with your account" });
+
+      const rows = await db.select()
+        .from(aiSuggestedSchedules)
+        .where(and(eq(aiSuggestedSchedules.storeId, storeId), eq(aiSuggestedSchedules.date, date)))
+        .limit(1);
+
+      if (rows.length === 0) return res.status(404).json({ message: "No saved suggestion found for this date" });
+
+      const scheduleData = rows[0].scheduleData as any;
+      if (!scheduleData?.proposedShifts?.[shiftIndex]) {
+        return res.status(404).json({ message: "Shift index out of range" });
+      }
+
+      const shift = scheduleData.proposedShifts[shiftIndex];
+      if (startTime) shift.startTime = startTime;
+      if (endTime) shift.endTime = endTime;
+      if (employeeId) shift.employeeId = employeeId;
+      if (employeeName) shift.employeeName = employeeName;
+
+      await db.update(aiSuggestedSchedules)
+        .set({ scheduleData })
+        .where(and(eq(aiSuggestedSchedules.storeId, storeId), eq(aiSuggestedSchedules.date, date)));
+
+      return res.json({ success: true, shift });
+    } catch (err) {
+      console.error("[suggest PUT] error:", err);
+      return res.status(500).json({ message: "Failed to update shift" });
+    }
+  });
+
+  // POST /api/schedules/historical-sales/correct — admin override for a daily revenue total
+  app.post("/api/schedules/historical-sales/correct", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const isAdmin = userPermissions.some((p: any) =>
+        p.name === 'admin.manage_all' || p.name === 'schedule.view_all' || p.name === 'schedule.create'
+      );
+      if (!isAdmin) return res.status(403).json({ message: "Manager access required" });
+
+      const { date, totalRevenue } = req.body;
+      if (!date || typeof totalRevenue !== 'number' || totalRevenue < 0) {
+        return res.status(400).json({ message: "date and non-negative totalRevenue are required" });
+      }
+
+      const shopCreds = await getShopCredentialsForUser(userId);
+      if (!shopCreds?.shopDomain) return res.status(400).json({ message: "No Shopify shop linked" });
+
+      const shopDomain = shopCreds.shopDomain;
+      const dateObj = new Date(date + 'T00:00:00Z');
+
+      // Upsert the daily sales row
+      const existing = await db.select({ id: shopifyDailySales.id })
+        .from(shopifyDailySales)
+        .where(and(eq(shopifyDailySales.shopDomain, shopDomain), eq(shopifyDailySales.date, dateObj)))
+        .limit(1);
+
+      if (existing.length > 0) {
+        await db.update(shopifyDailySales)
+          .set({ totalRevenue: String(totalRevenue) })
+          .where(and(eq(shopifyDailySales.shopDomain, shopDomain), eq(shopifyDailySales.date, dateObj)));
+      } else {
+        await db.insert(shopifyDailySales).values({
+          shopDomain,
+          date: dateObj,
+          totalRevenue: String(totalRevenue),
+          orderCount: 0,
+        });
+      }
+
+      // Invalidate the cached historical-sales response by busting the TanStack query key
+      // (client will refetch automatically)
+      return res.json({ success: true, date, totalRevenue });
+    } catch (err) {
+      console.error("[historical-sales/correct] error:", err);
+      return res.status(500).json({ message: "Failed to correct revenue total" });
+    }
+  });
+
   app.post("/api/schedules/suggest", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
