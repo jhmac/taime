@@ -1019,11 +1019,15 @@ export default function CreateShiftSplitPanel({
       ? 'w-[96vw] max-w-[1200px]'
       : 'w-[96vw] max-w-[920px]';
 
-  const dialogStyle = dialogDims
-    ? { width: dialogDims.width, height: dialogDims.height, maxWidth: 'none', maxHeight: 'none' }
-    : dialogSize === 'full'
-    ? { maxHeight: '98vh', height: '98vh' }
-    : undefined;
+  const dialogStyle = {
+    display: 'flex',
+    flexDirection: 'column',
+    ...(dialogDims
+      ? { width: dialogDims.width, height: dialogDims.height, maxWidth: 'none', maxHeight: 'none' }
+      : dialogSize === 'full'
+      ? { maxHeight: '98vh', height: '98vh' }
+      : { maxHeight: '92vh', height: '92vh' }),
+  };
 
   return (
     <>
@@ -1031,7 +1035,7 @@ export default function CreateShiftSplitPanel({
       <DialogContent
         key={editingSchedule ? `edit-${editingSchedule.id}` : 'create'}
         data-dialog-resizable
-        className={cn(dialogWidthClass, "max-h-[92vh] !flex flex-col p-0 gap-0 overflow-hidden transition-[width,height] duration-200 relative")}
+        className={cn(dialogWidthClass, "max-h-[92vh] flex flex-col p-0 gap-0 overflow-hidden transition-[width,height] duration-200 relative")}
         style={dialogStyle}
         onPointerMove={handleGripPointerMove}
         onPointerUp={handleGripPointerUp}
