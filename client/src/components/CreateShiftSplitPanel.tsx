@@ -959,6 +959,8 @@ export default function CreateShiftSplitPanel({
 
   const dialogStyle = dialogDims
     ? { width: dialogDims.width, height: dialogDims.height, maxWidth: 'none', maxHeight: 'none' }
+    : dialogSize === 'full'
+    ? { maxHeight: '98vh', height: '98vh' }
     : undefined;
 
   return (
@@ -1067,6 +1069,7 @@ export default function CreateShiftSplitPanel({
                 "flex-1 overflow-y-auto px-4 py-3 space-y-4",
                 leftCollapsed && "hidden md:block"
               )}
+              onClick={() => setSelectedShiftIdx(null)}
             >
               {/* Synthetic warning */}
               {suggestData?.dataSource === "synthetic" && (
@@ -1100,20 +1103,23 @@ export default function CreateShiftSplitPanel({
               {/* Divider */}
               <div className="border-t border-border/40" />
 
-              {/* Day-view timeline */}
-              <DayTimeline
-                suggestData={mergedSuggestData}
-                isLoading={suggestLoading && !!modalDate}
-                isError={suggestError}
-                errorMsg={suggestError ? (suggestErrorObj as Error)?.message : undefined}
-                storeHours={storeHours}
-                selectedIdx={selectedShiftIdx}
-                onSelectShift={handleSelectShift}
-                excludedIdxs={excludedIdxs}
-                onToggleExclude={handleToggleExclude}
-                conflictingEmployeeIds={conflictingEmployeeIds}
-                onShiftEdit={handleShiftEdit}
-              />
+              {/* Day-view timeline — stop bubble so empty-space clicks on the */}
+              {/* scrollable area (above) deselect while block clicks don't.   */}
+              <div onClick={(e) => e.stopPropagation()}>
+                <DayTimeline
+                  suggestData={mergedSuggestData}
+                  isLoading={suggestLoading && !!modalDate}
+                  isError={suggestError}
+                  errorMsg={suggestError ? (suggestErrorObj as Error)?.message : undefined}
+                  storeHours={storeHours}
+                  selectedIdx={selectedShiftIdx}
+                  onSelectShift={handleSelectShift}
+                  excludedIdxs={excludedIdxs}
+                  onToggleExclude={handleToggleExclude}
+                  conflictingEmployeeIds={conflictingEmployeeIds}
+                  onShiftEdit={handleShiftEdit}
+                />
+              </div>
             </div>
           </div>
 
@@ -1138,7 +1144,10 @@ export default function CreateShiftSplitPanel({
               </div>
             )}
 
-            <form onSubmit={handleSubmit} className="px-4 py-3 space-y-3 flex-1">
+            <form
+              onSubmit={isEditingBlock ? (e) => { e.preventDefault(); handleSaveShiftEdit(); } : handleSubmit}
+              className="px-4 py-3 space-y-3 flex-1"
+            >
               {/* Availability filter toggle */}
               <div className="flex items-center justify-between rounded-lg border bg-muted/30 px-3 py-2">
                 <div className="flex items-center gap-2">
