@@ -561,6 +561,15 @@ export default function ScheduleManagement() {
   const [isMobilePanel, setIsMobilePanel] = useState(false);
   const [showMobileSheet, setShowMobileSheet] = useState(false);
 
+  const [draggedShift, setDraggedShift] = useState<Schedule | null>(null);
+  const [dragOverCell, setDragOverCell] = useState<{ empId: string; dayIdx: number } | null>(null);
+  const [pendingReschedule, setPendingReschedule] = useState<{
+    schedule: Schedule;
+    newStartTime: Date;
+    newEndTime: Date;
+    conflictingShift: Schedule | null;
+  } | null>(null);
+
   // View toggle: 'roster' | 'timeline'
   const [scheduleView, setScheduleView] = useState<'roster' | 'timeline'>(() => {
     try {
@@ -586,11 +595,15 @@ export default function ScheduleManagement() {
     try { localStorage.setItem('scheduleSubView', sv); } catch {}
   };
 
+  const [isTouchDevice, setIsTouchDevice] = useState(false);
   useEffect(() => {
     const check = () => setIsMobilePanel(window.innerWidth < 1024);
     check();
     window.addEventListener('resize', check);
     return () => window.removeEventListener('resize', check);
+  }, []);
+  useEffect(() => {
+    setIsTouchDevice(window.matchMedia('(hover: none) and (pointer: coarse)').matches);
   }, []);
   const [showSuggestedReview, setShowSuggestedReview] = useState(false);
   const [suggestedData, setSuggestedData] = useState<any>(null);
@@ -734,6 +747,60 @@ export default function ScheduleManagement() {
       toast({ title: "Error", description: "Failed to update shift.", variant: "destructive" });
     },
   });
+
+  const rescheduleShiftMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: { startTime: string; endTime: string } }) => {
+      const res = await apiRequest('PATCH', `/api/schedules/${id}`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/schedules"] });
+      setPendingReschedule(null);
+      toast({ title: "Shift rescheduled", description: "The shift has been moved." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to reschedule shift.", variant: "destructive" });
+    },
+  });
+
+  const GRID_START_HOUR = 6;
+  const GRID_END_HOUR = 23;
+  const GRID_TOTAL_MIN = (GRID_END_HOUR - GRID_START_HOUR) * 60;
+  const GRID_CELL_HEIGHT_PX = 140;
+
+  const handleDropOnCell = (empId: string, targetDate: Date, clientY: number, cellTop: number, cellHeight: number) => {
+    if (!draggedShift) return;
+    if (draggedShift.userId !== empId) return;
+
+    const origStart = new Date(draggedShift.startTime);
+    const origEnd = new Date(draggedShift.endTime);
+    const durationMs = origEnd.getTime() - origStart.getTime();
+    const durationMin = Math.round(durationMs / 60000);
+
+    const relY = Math.max(0, Math.min(cellHeight, clientY - cellTop));
+    const rawMin = GRID_START_HOUR * 60 + (relY / cellHeight) * GRID_TOTAL_MIN;
+    const snappedMin = Math.round(rawMin / 15) * 15;
+    const clampedMin = Math.max(GRID_START_HOUR * 60, Math.min(GRID_END_HOUR * 60 - durationMin, snappedMin));
+
+    const newStart = new Date(targetDate);
+    newStart.setHours(Math.floor(clampedMin / 60), clampedMin % 60, 0, 0);
+    const newEnd = new Date(newStart.getTime() + durationMs);
+
+    if (newStart.getTime() === origStart.getTime()) {
+      setDraggedShift(null);
+      return;
+    }
+
+    const conflict = schedules.find(s =>
+      s.userId === empId &&
+      s.id !== draggedShift.id &&
+      new Date(s.startTime) < newEnd &&
+      new Date(s.endTime) > newStart
+    ) || null;
+
+    setPendingReschedule({ schedule: draggedShift, newStartTime: newStart, newEndTime: newEnd, conflictingShift: conflict });
+    setDraggedShift(null);
+  };
 
   const notifyTeamMutation = useMutation({
     mutationFn: async () => {
@@ -1419,26 +1486,80 @@ export default function ScheduleManagement() {
                     // Red cell = no availability record for this day OR explicitly blocked
                     const showRedBg = !isPast && (!mergedAvail || mergedAvail.unavailable);
 
+                    const isDropTarget = dragOverCell?.empId === emp.id && dragOverCell?.dayIdx === dayIdx;
                     return (
-                      <td key={dayIdx} className={cn(
-                        "px-1 py-1 border-r last:border-r-0 align-top min-h-[60px] relative",
-                        isToday && !showRedBg && "bg-primary/5",
-                        showRedBg && "bg-red-50 dark:bg-red-950/25"
-                      )}>
-                        <div className="space-y-0.5 min-h-[48px]">
+                      <td
+                        key={dayIdx}
+                        className={cn(
+                          "px-1 py-1 border-r last:border-r-0 align-top min-h-[60px] relative transition-colors",
+                          isToday && !showRedBg && "bg-primary/5",
+                          showRedBg && "bg-red-50 dark:bg-red-950/25",
+                          isDropTarget && draggedShift?.userId === emp.id && "ring-2 ring-inset ring-primary/50 bg-primary/10"
+                        )}
+                        onDragOver={(e) => {
+                          if (draggedShift?.userId === emp.id) {
+                            e.preventDefault();
+                            setDragOverCell({ empId: emp.id, dayIdx });
+                          }
+                        }}
+                        onDragLeave={(e) => {
+                          if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                            setDragOverCell(null);
+                          }
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          setDragOverCell(null);
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          handleDropOnCell(emp.id, date, e.clientY, rect.top, rect.height);
+                        }}
+                      >
+                        <div className="relative" style={{ height: `${GRID_CELL_HEIGHT_PX}px` }}>
+                          {/* Hourly gridlines */}
+                          {Array.from({ length: GRID_END_HOUR - GRID_START_HOUR + 1 }, (_, i) => (
+                            <div
+                              key={i}
+                              className="absolute w-full border-t border-border/30 pointer-events-none"
+                              style={{ top: `${(i / (GRID_END_HOUR - GRID_START_HOUR)) * 100}%` }}
+                            />
+                          ))}
                           {daySchedules.map(schedule => {
                             const sc = getShiftColors(name);
+                            const isBeingDragged = draggedShift?.id === schedule.id;
+                            const canDrag = isAdmin && !isTouchDevice;
+                            const sStart = new Date(schedule.startTime);
+                            const sEnd = new Date(schedule.endTime);
+                            const startMin = sStart.getHours() * 60 + sStart.getMinutes();
+                            const endMin = sEnd.getHours() * 60 + sEnd.getMinutes();
+                            const topPct = Math.max(0, ((startMin - GRID_START_HOUR * 60) / GRID_TOTAL_MIN) * 100);
+                            const heightPct = Math.max(4, ((endMin - startMin) / GRID_TOTAL_MIN) * 100);
                             return (
                             <div
                               key={schedule.id}
+                              draggable={canDrag}
+                              onDragStart={canDrag ? (e) => {
+                                setDraggedShift(schedule);
+                                e.dataTransfer.effectAllowed = 'move';
+                                e.dataTransfer.setData('text/plain', schedule.id);
+                              } : undefined}
+                              onDragEnd={canDrag ? () => {
+                                setDraggedShift(null);
+                                setDragOverCell(null);
+                              } : undefined}
                               onClick={() => openEditShift(schedule)}
-                              className={cn("group/shift border rounded px-1.5 py-1 text-xs relative cursor-pointer transition-colors", sc.block, sc.hover)}
+                              style={{ position: 'absolute', top: `${topPct}%`, height: `${heightPct}%`, left: '2px', right: '2px', minHeight: '18px' }}
+                              className={cn(
+                                "group/shift border rounded px-1 py-0.5 text-xs overflow-hidden transition-opacity",
+                                sc.block, sc.hover,
+                                canDrag ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
+                                isBeingDragged && "opacity-30"
+                              )}
                             >
-                              <div className={cn("font-medium leading-tight", sc.text)}>
+                              <div className={cn("font-medium leading-tight truncate", sc.text)}>
                                 {formatTime(schedule.startTime)}–{formatTime(schedule.endTime)}
                               </div>
                               {schedule.title && (
-                                <div className={cn("text-[10px] truncate", sc.textSub)}>{schedule.title}</div>
+                                <div className={cn("text-[9px] truncate leading-tight", sc.textSub)}>{schedule.title}</div>
                               )}
                               <button
                                 onClick={e => { e.stopPropagation(); deleteScheduleMutation.mutate(schedule.id); }}
@@ -1451,6 +1572,28 @@ export default function ScheduleManagement() {
                           );
                           })}
 
+                          {/* Add Shift ghost button (absolute, centered in time grid) */}
+                          {daySchedules.length === 0 && aiEntries.length === 0 && (
+                            <button
+                              onClick={() => openCreateShift(emp.id, date)}
+                              className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-primary"
+                              title="Add shift"
+                            >
+                              <Plus className="h-4 w-4" />
+                            </button>
+                          )}
+                          {(daySchedules.length > 0 || aiEntries.length > 0) && (
+                            <button
+                              onClick={() => openCreateShift(emp.id, date)}
+                              className="absolute bottom-0.5 right-0.5 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-primary"
+                              title="Add another shift"
+                            >
+                              <Plus className="h-3 w-3" />
+                            </button>
+                          )}
+                        </div>
+                        {/* Below time-grid: AI preview entries + availability badges */}
+                        <div className="px-1 py-0.5 space-y-0.5">
                           {/* AI Generated Preview Entries */}
                           {aiEntries.map(entry => {
                             const isRemoved = removedEntries.has(entry.idx);
@@ -1493,7 +1636,7 @@ export default function ScheduleManagement() {
 
                           {/* Availability indicator — blocked */}
                           {mergedAvail?.unavailable && (
-                            <div className="mt-1 flex items-center gap-0.5">
+                            <div className="flex items-center gap-0.5">
                               <button
                                 title={mergedAvail.source === 'time_off' ? 'Time off' : (isAdmin ? "Blocked — click to override" : 'Not available')}
                                 onClick={() => isAdmin && mergedAvail.source !== 'time_off' && setAvailabilityEditTarget({ userId: emp.id, date: dateStr, empName: `${emp.firstName} ${emp.lastName}` })}
@@ -1509,7 +1652,7 @@ export default function ScheduleManagement() {
                           )}
                           {/* Availability indicator — available with explicit time window or override */}
                           {mergedAvail && !mergedAvail.unavailable && mergedAvail.source !== 'default' && (
-                            <div className="mt-1 flex items-center gap-0.5">
+                            <div className="flex items-center gap-0.5">
                               <button
                                 title={isAdmin ? "Available — click to edit" : "Available"}
                                 onClick={() => isAdmin && setAvailabilityEditTarget({ userId: emp.id, date: dateStr, empName: `${emp.firstName} ${emp.lastName}` })}
@@ -1527,7 +1670,7 @@ export default function ScheduleManagement() {
                           )}
                           {/* Admin: show ghost "set avail" when no data at all (null) or source is default */}
                           {(!mergedAvail || mergedAvail.source === 'default') && isAdmin && !isPast && (
-                            <div className="mt-1 flex items-center gap-0.5">
+                            <div className="flex items-center gap-0.5">
                               <button
                                 title="Set availability for this day"
                                 onClick={() => setAvailabilityEditTarget({ userId: emp.id, date: dateStr, empName: `${emp.firstName} ${emp.lastName}` })}
@@ -1537,26 +1680,6 @@ export default function ScheduleManagement() {
                                 <span>set avail</span>
                               </button>
                             </div>
-                          )}
-
-                          {/* Add Shift Button */}
-                          {daySchedules.length === 0 && aiEntries.length === 0 && (
-                            <button
-                              onClick={() => openCreateShift(emp.id, date)}
-                              className="w-full h-[44px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-primary"
-                              title="Add shift"
-                            >
-                              <Plus className="h-4 w-4" />
-                            </button>
-                          )}
-                          {(daySchedules.length > 0 || aiEntries.length > 0) && (
-                            <button
-                              onClick={() => openCreateShift(emp.id, date)}
-                              className="w-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-primary py-0.5"
-                              title="Add another shift"
-                            >
-                              <Plus className="h-3 w-3" />
-                            </button>
                           )}
                         </div>
                       </td>
@@ -1662,6 +1785,63 @@ export default function ScheduleManagement() {
           target={availabilityEditTarget}
           onClose={() => setAvailabilityEditTarget(null)}
         />
+      )}
+
+      {/* Drag-to-reschedule Conflict Warning Dialog */}
+      {pendingReschedule && (
+        <Dialog open onOpenChange={(open) => { if (!open) setPendingReschedule(null); }}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                {pendingReschedule.conflictingShift ? (
+                  <span className="text-amber-600">Scheduling Conflict</span>
+                ) : (
+                  <span>Confirm Reschedule</span>
+                )}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3 py-2">
+              <div className="text-sm text-muted-foreground">
+                Move shift to{' '}
+                <span className="font-medium text-foreground">
+                  {pendingReschedule.newStartTime.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })},{' '}
+                  {formatTime(pendingReschedule.newStartTime)}–{formatTime(pendingReschedule.newEndTime)}
+                </span>
+                ?
+              </div>
+              {pendingReschedule.conflictingShift && (
+                <div className="rounded-md bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
+                  <span className="font-semibold">Warning:</span> This overlaps with an existing shift ({formatTime(pendingReschedule.conflictingShift.startTime)}–{formatTime(pendingReschedule.conflictingShift.endTime)}) for this employee. Saving will create an overlap.
+                </div>
+              )}
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button variant="ghost" size="sm" onClick={() => setPendingReschedule(null)}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                variant="default"
+                className={pendingReschedule.conflictingShift ? "bg-amber-600 hover:bg-amber-700 text-white" : ""}
+                disabled={rescheduleShiftMutation.isPending}
+                onClick={() => {
+                  rescheduleShiftMutation.mutate({
+                    id: pendingReschedule.schedule.id,
+                    data: {
+                      startTime: pendingReschedule.newStartTime.toISOString(),
+                      endTime: pendingReschedule.newEndTime.toISOString(),
+                    },
+                  });
+                }}
+              >
+                {rescheduleShiftMutation.isPending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                ) : null}
+                {pendingReschedule.conflictingShift ? "Move Anyway" : "Confirm"}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
       )}
 
     </div>
