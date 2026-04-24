@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { BarChart, Bar, ResponsiveContainer, Tooltip, Cell, XAxis } from "recharts";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -701,6 +702,11 @@ export default function CreateShiftSplitPanel({
   const [editedShifts, setEditedShifts] = useState<Record<number, ShiftEdit>>({});
   const [dialogSize, setDialogSize] = useState<DialogSize>('normal');
   const [dialogDims, setDialogDims] = useState<{ width: number; height: number } | null>(null);
+  const [pendingCorrectionWarning, setPendingCorrectionWarning] = useState<{
+    historicalDate: string;
+    totalRevenue: number;
+    message: string;
+  } | null>(null);
   const forceRegenRef = useRef(false);
   const resizeGripRef = useRef<{ startX: number; startY: number; startW: number; startH: number } | null>(null);
 
@@ -859,11 +865,19 @@ export default function CreateShiftSplitPanel({
 
   // Mutation to correct a historical revenue total
   const correctRevenueMutation = useMutation({
-    mutationFn: async ({ historicalDate, totalRevenue }: { historicalDate: string; totalRevenue: number }) => {
-      const res = await apiRequest("POST", "/api/schedules/historical-sales/correct", { date: historicalDate, totalRevenue });
+    mutationFn: async ({ historicalDate, totalRevenue, confirmed }: { historicalDate: string; totalRevenue: number; confirmed?: boolean }) => {
+      const res = await apiRequest("POST", "/api/schedules/historical-sales/correct", { date: historicalDate, totalRevenue, confirmed });
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data, variables) => {
+      if (data?.requiresConfirmation) {
+        setPendingCorrectionWarning({
+          historicalDate: variables.historicalDate,
+          totalRevenue: variables.totalRevenue,
+          message: data.message,
+        });
+        return;
+      }
       queryClient.invalidateQueries({ queryKey: ["/api/schedules/historical-sales", modalDate] });
       toast({ title: "Revenue corrected", description: "The historical total has been updated." });
     },
@@ -1012,6 +1026,7 @@ export default function CreateShiftSplitPanel({
     : undefined;
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         key={editingSchedule ? `edit-${editingSchedule.id}` : 'create'}
@@ -1466,5 +1481,39 @@ export default function CreateShiftSplitPanel({
         </div>
       </DialogContent>
     </Dialog>
+
+    {/* ── Suspicious revenue correction confirmation dialog ── */}
+    <AlertDialog
+      open={!!pendingCorrectionWarning}
+      onOpenChange={(open) => { if (!open) setPendingCorrectionWarning(null); }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-amber-500" />
+            Unusual Revenue Total
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            {pendingCorrectionWarning?.message}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel onClick={() => setPendingCorrectionWarning(null)}>
+            Cancel
+          </AlertDialogCancel>
+          <AlertDialogAction
+            onClick={() => {
+              if (!pendingCorrectionWarning) return;
+              const { historicalDate, totalRevenue } = pendingCorrectionWarning;
+              setPendingCorrectionWarning(null);
+              correctRevenueMutation.mutate({ historicalDate, totalRevenue, confirmed: true });
+            }}
+          >
+            Yes, save it
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 }

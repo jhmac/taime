@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
 import { aiSchedulingSettings, aiSchedulingRules, shopifyDailySales, shopifyOrders, users, userAvailability, availabilityTemplates, schedules, shops, userShops, roles, workPatternTemplates, userWorkPatterns, clockEvents, workLocations, aiSuggestedSchedules } from "@shared/schema";
-import { eq, and, gte, lte, desc, inArray, sql, count, isNull, or } from "drizzle-orm";
+import { eq, and, gte, lte, lt, desc, inArray, sql, count, isNull, or } from "drizzle-orm";
 import { db } from "../db";
 import Anthropic from '@anthropic-ai/sdk';
 import rateLimit from "express-rate-limit";
@@ -1741,7 +1741,7 @@ Required JSON structure:
       );
       if (!isAdmin) return res.status(403).json({ message: "Manager access required" });
 
-      const { date, totalRevenue } = req.body;
+      const { date, totalRevenue, confirmed } = req.body;
       if (!date || typeof totalRevenue !== 'number' || totalRevenue < 0) {
         return res.status(400).json({ message: "date and non-negative totalRevenue are required" });
       }
@@ -1751,6 +1751,46 @@ Required JSON structure:
 
       const shopDomain = shopCreds.shopDomain;
       const dateObj = new Date(date + 'T00:00:00Z');
+
+      // ── Sanity check: compare against trailing 4-week same-day-of-week average ──
+      if (!confirmed) {
+        const targetDow = dateObj.getUTCDay(); // 0=Sun … 6=Sat
+        const fourWeeksAgo = new Date(dateObj.getTime() - 28 * 24 * 60 * 60 * 1000);
+        const recentSameDow = await db
+          .select({ totalRevenue: shopifyDailySales.totalRevenue })
+          .from(shopifyDailySales)
+          .where(
+            and(
+              eq(shopifyDailySales.shopDomain, shopDomain),
+              eq(shopifyDailySales.dayOfWeek, targetDow),
+              gte(shopifyDailySales.date, fourWeeksAgo),
+              lt(shopifyDailySales.date, dateObj),
+            )
+          )
+          .orderBy(desc(shopifyDailySales.date))
+          .limit(4);
+
+        if (recentSameDow.length >= 2) {
+          const avg =
+            recentSameDow.reduce((sum, r) => sum + parseFloat(r.totalRevenue ?? '0'), 0) /
+            recentSameDow.length;
+
+          if (avg > 0 && (totalRevenue > avg * 3 || totalRevenue < avg * 0.25)) {
+            const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+            const dayName = dayNames[targetDow];
+            const direction = totalRevenue > avg * 3 ? 'higher' : 'lower';
+            const avgFmt = avg >= 1000 ? `$${(avg / 1000).toFixed(1)}k` : `$${Math.round(avg)}`;
+            return res.json({
+              requiresConfirmation: true,
+              direction,
+              dayName,
+              typicalAverage: Math.round(avg),
+              typicalAverageFormatted: avgFmt,
+              message: `This is much ${direction} than your typical ${dayName} sales of ${avgFmt}. Are you sure?`,
+            });
+          }
+        }
+      }
 
       // Upsert the daily sales row
       const existing = await db.select({ id: shopifyDailySales.id })
@@ -1766,6 +1806,7 @@ Required JSON structure:
         await db.insert(shopifyDailySales).values({
           shopDomain,
           date: dateObj,
+          dayOfWeek: dateObj.getUTCDay(),
           totalRevenue: String(totalRevenue),
           orderCount: 0,
         });
