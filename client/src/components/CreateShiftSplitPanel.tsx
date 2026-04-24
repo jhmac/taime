@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 import {
   Clock, Users, Loader2, TrendingUp, Sparkles, AlertTriangle,
   ChevronDown, ChevronUp, Wand2, Check, X, RefreshCw,
-  Maximize2, Minimize2, Pencil, Save, Trash2,
+  Maximize2, Minimize2, Pencil, Save, Trash2, Plus,
 } from "lucide-react";
 import type { Schedule } from "@shared/schema";
 
@@ -108,6 +108,7 @@ interface Props {
   onDeleteSchedule?: (id: string) => void;
   isUpdating?: boolean;
   isDeleting?: boolean;
+  onAddNewShift?: () => void;
 }
 
 function fmt12(t: string) {
@@ -688,6 +689,7 @@ export default function CreateShiftSplitPanel({
   onDeleteSchedule,
   isUpdating = false,
   isDeleting = false,
+  onAddNewShift,
 }: Props) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -707,6 +709,9 @@ export default function CreateShiftSplitPanel({
     totalRevenue: number;
     message: string;
   } | null>(null);
+  const [modalTitle, setModalTitle] = useState(editingSchedule?.title ?? '');
+  const [modalLocationId, setModalLocationId] = useState(editingSchedule?.locationId ?? locations[0]?.id ?? '');
+  const [modalNotes, setModalNotes] = useState(editingSchedule?.description ?? '');
   const forceRegenRef = useRef(false);
   const resizeGripRef = useRef<{ startX: number; startY: number; startW: number; startH: number } | null>(null);
 
@@ -720,11 +725,14 @@ export default function CreateShiftSplitPanel({
       setExcludedIdxs(new Set());
       setEditedShifts({});
       setDialogDims(null);
+      setModalTitle('');
+      setModalLocationId(locations[0]?.id ?? '');
+      setModalNotes('');
       forceRegenRef.current = false;
     }
-  }, [open, defaultDate, defaultUserId, defaultStartTime, defaultEndTime]);
+  }, [open, defaultDate, defaultUserId, defaultStartTime, defaultEndTime]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // When editing an existing saved schedule, pre-fill the form with its data
+  // When editing an existing saved schedule, pre-fill ALL form fields with its data
   useEffect(() => {
     if (!open || !editingSchedule) return;
     const dt = new Date(editingSchedule.startTime);
@@ -738,8 +746,22 @@ export default function CreateShiftSplitPanel({
     setModalEndTime(endStr);
     setSelectedUserId(editingSchedule.userId);
     setSelectedShiftIdx(null);
+    setModalTitle(editingSchedule.title ?? '');
+    setModalLocationId(editingSchedule.locationId ?? locations[0]?.id ?? '');
+    setModalNotes(editingSchedule.description ?? '');
     if (onDateChange) onDateChange(dateStr);
   }, [open, editingSchedule]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When editingSchedule is cleared while the panel is still open (e.g. "Add Shift" clicked),
+  // reset the form fields so the user sees a blank create form for the same date
+  useEffect(() => {
+    if (!open || editingSchedule) return;
+    setModalTitle('');
+    setModalLocationId(locations[0]?.id ?? '');
+    setModalNotes('');
+    setSelectedUserId('');
+    setSelectedShiftIdx(null);
+  }, [editingSchedule]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Escape key closes the panel; body scroll locked while open
   useEffect(() => {
@@ -959,29 +981,24 @@ export default function CreateShiftSplitPanel({
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    const userId = formData.get("userId") as string;
-    const startDate = formData.get("startDate") as string;
-    const startTime = formData.get("startTime") as string;
-    const endTime = formData.get("endTime") as string;
     if (editingSchedule && onUpdateSchedule) {
       onUpdateSchedule({
         id: editingSchedule.id,
-        userId,
-        startTime: new Date(`${startDate}T${startTime}`),
-        endTime: new Date(`${startDate}T${endTime}`),
-        title: (formData.get("title") as string) || null,
-        locationId: (formData.get("locationId") as string) || null,
-        description: (formData.get("description") as string) || null,
+        userId: selectedUserId,
+        startTime: new Date(`${modalDate}T${modalStartTime}`),
+        endTime: new Date(`${modalDate}T${modalEndTime}`),
+        title: modalTitle || null,
+        locationId: modalLocationId || null,
+        description: modalNotes || null,
       });
     } else {
       onCreateShift({
-        userId,
-        startTime: new Date(`${startDate}T${startTime}`),
-        endTime: new Date(`${startDate}T${endTime}`),
-        title: (formData.get("title") as string) || undefined,
-        locationId: (formData.get("locationId") as string) || undefined,
-        description: (formData.get("description") as string) || undefined,
+        userId: selectedUserId,
+        startTime: new Date(`${modalDate}T${modalStartTime}`),
+        endTime: new Date(`${modalDate}T${modalEndTime}`),
+        title: modalTitle || undefined,
+        locationId: modalLocationId || undefined,
+        description: modalNotes || undefined,
       });
     }
   };
@@ -1113,6 +1130,19 @@ export default function CreateShiftSplitPanel({
                 >
                   {leftCollapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
                 </button>
+                {/* Add New Shift button — visible when editing an existing shift */}
+                {editingSchedule && onAddNewShift && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1 text-xs h-8"
+                    title="Add another shift for this date"
+                    onClick={onAddNewShift}
+                  >
+                    <Plus className="h-3 w-3" />
+                    <span className="hidden sm:inline">Add Shift</span>
+                  </Button>
+                )}
                 {/* Refresh button */}
                 <Button
                   size="sm"
@@ -1370,11 +1400,11 @@ export default function CreateShiftSplitPanel({
               <div>
                 <Label className="text-xs">Role/Title (optional)</Label>
                 <Input
-                  key={`title-${editingSchedule?.id ?? 'new'}`}
                   name="title"
                   className="h-8 text-sm"
                   placeholder="e.g., Opener, Closer"
-                  defaultValue={editingSchedule?.title ?? ''}
+                  value={modalTitle}
+                  onChange={(e) => setModalTitle(e.target.value)}
                 />
               </div>
 
@@ -1382,8 +1412,8 @@ export default function CreateShiftSplitPanel({
                 <Label className="text-xs">Location</Label>
                 <Select
                   name="locationId"
-                  key={`loc-${editingSchedule?.id ?? 'new'}-${open}`}
-                  defaultValue={editingSchedule?.locationId ?? locations[0]?.id ?? ""}
+                  value={modalLocationId}
+                  onValueChange={setModalLocationId}
                 >
                   <SelectTrigger className="h-8">
                     <SelectValue placeholder="Select location (optional)" />
@@ -1401,12 +1431,12 @@ export default function CreateShiftSplitPanel({
               <div>
                 <Label className="text-xs">Notes</Label>
                 <Textarea
-                  key={`notes-${editingSchedule?.id ?? 'new'}`}
                   name="description"
                   className="text-sm"
                   placeholder="Optional notes..."
                   rows={2}
-                  defaultValue={editingSchedule?.description ?? ''}
+                  value={modalNotes}
+                  onChange={(e) => setModalNotes(e.target.value)}
                 />
               </div>
 
