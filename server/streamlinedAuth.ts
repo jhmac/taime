@@ -5,6 +5,17 @@ import { config } from "./lib/config";
 
 const SUPER_ADMIN_EMAIL = "jh@scuild.com";
 
+/**
+ * In-memory map: Clerk user ID (user_XXX) → DB user ID (may differ for
+ * legacy users whose DB ID pre-dates Clerk, e.g. "46870047").
+ *
+ * Populated whenever /api/auth/sync finds an email-matched user whose DB ID
+ * differs from the incoming Clerk ID.  Once cached, requireAuth can resolve
+ * the correct DB user on every subsequent request without hitting the Clerk
+ * admin API or doing an email lookup again.
+ */
+const clerkToDbIdCache = new Map<string, string>();
+
 export const requireSuperAdmin: RequestHandler = async (req: any, res, next) => {
   if (!req.user?.id) {
     return res.status(401).json({ message: "Unauthorized" });
@@ -36,13 +47,18 @@ export const requireSuperAdmin: RequestHandler = async (req: any, res, next) => 
 export const requireAuth: RequestHandler = async (req: any, res, next) => {
   const auth = getAuth(req);
   if (!auth?.userId) {
-    console.log(`[Auth] 401 on ${req.method} ${req.path} - No userId from Clerk. sessionId=${auth?.sessionId || 'none'}`);
     return res.status(401).json({ message: "Unauthorized" });
   }
-  
+
   try {
-    let userWithRole = await storage.getUserWithRole(auth.userId);
-    if (!userWithRole) {
+    // If a previous sync already resolved this Clerk ID → DB ID, use that.
+    const cachedDbId = clerkToDbIdCache.get(auth.userId);
+    const lookupId = cachedDbId ?? auth.userId;
+
+    let userWithRole = await storage.getUserWithRole(lookupId);
+
+    if (!userWithRole && !cachedDbId) {
+      // Not in DB by Clerk ID — try auto-sync via Clerk admin API.
       try {
         const clerkUser = await clerkClient.users.getUser(auth.userId);
         const primaryEmailObj = clerkUser.emailAddresses?.find(
@@ -58,12 +74,19 @@ export const requireAuth: RequestHandler = async (req: any, res, next) => {
         });
         if (synced) {
           userWithRole = await storage.getUserWithRole(synced.id);
+          // Cache Clerk ID → DB ID when upsertUser matched by email (IDs differ)
+          if (synced.id !== auth.userId) {
+            clerkToDbIdCache.set(auth.userId, synced.id);
+          }
         }
       } catch (syncErr) {
-        console.warn('[Auth] Auto-sync failed for', auth.userId, syncErr);
+        // Clerk admin API unavailable — leave userWithRole undefined.
+        // The /api/auth/sync endpoint (called by the client) will resolve this
+        // using the email from the request body and populate the cache.
       }
     }
-    req.user = userWithRole || { id: auth.userId };
+
+    req.user = userWithRole || { id: lookupId };
     next();
   } catch (error) {
     req.user = { id: auth.userId };
@@ -86,14 +109,34 @@ export async function setupAuth(app: Express) {
     try {
       const auth = getAuth(req);
       const clerkUserId = auth?.userId || req.user.id;
-      const clerkUser = await clerkClient.users.getUser(clerkUserId);
-      const primaryEmailObj = clerkUser.emailAddresses?.find(
-        (e: any) => e.id === clerkUser.primaryEmailAddressId
-      );
-      const verifiedEmail = primaryEmailObj?.emailAddress || '';
-      const verifiedFirstName = clerkUser.firstName || '';
-      const verifiedLastName = clerkUser.lastName || '';
-      const verifiedImageUrl = clerkUser.imageUrl || '';
+
+      // Prefer email/name from the request body (sent by the Clerk client-side
+      // SDK) so we never depend on the Clerk admin API, which fails when the
+      // secret key doesn't match the publishable key's Clerk instance.
+      const bodyEmail     = req.body?.email           || '';
+      const bodyFirst     = req.body?.firstName       || '';
+      const bodyLast      = req.body?.lastName        || '';
+      const bodyImage     = req.body?.profileImageUrl || '';
+
+      let verifiedEmail     = bodyEmail;
+      let verifiedFirstName = bodyFirst;
+      let verifiedLastName  = bodyLast;
+      let verifiedImageUrl  = bodyImage;
+
+      if (!verifiedEmail) {
+        try {
+          const clerkUser = await clerkClient.users.getUser(clerkUserId);
+          const primaryEmailObj = clerkUser.emailAddresses?.find(
+            (e: any) => e.id === clerkUser.primaryEmailAddressId
+          );
+          verifiedEmail     = primaryEmailObj?.emailAddress || '';
+          verifiedFirstName = verifiedFirstName || clerkUser.firstName || '';
+          verifiedLastName  = verifiedLastName  || clerkUser.lastName  || '';
+          verifiedImageUrl  = verifiedImageUrl  || clerkUser.imageUrl  || '';
+        } catch (_clerkErr) {
+          // Clerk admin API unreachable — proceed without extra data.
+        }
+      }
 
       const synced = await storage.upsertUser({
         id: clerkUserId,
@@ -102,6 +145,13 @@ export async function setupAuth(app: Express) {
         lastName: verifiedLastName,
         profileImageUrl: verifiedImageUrl,
       });
+
+      // If upsertUser matched an existing user by email whose DB ID differs
+      // from the Clerk ID, cache the mapping so requireAuth can resolve it on
+      // every subsequent request without going through sync again.
+      if (synced.id !== clerkUserId) {
+        clerkToDbIdCache.set(clerkUserId, synced.id);
+      }
 
       const userWithRole = await storage.getUserWithRole(synced.id);
       res.json(userWithRole);

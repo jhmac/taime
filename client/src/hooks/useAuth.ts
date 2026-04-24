@@ -30,7 +30,7 @@ export function useAuth() {
   });
 
   useEffect(() => {
-    if (isLoaded && isSignedIn && clerkUser && !syncedUser && !hasSynced.current) {
+    if (isLoaded && isSignedIn && clerkUser && (!syncedUser || !(syncedUser as any).role) && !hasSynced.current) {
       hasSynced.current = true;
       (async () => {
         try {

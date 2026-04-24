@@ -582,6 +582,7 @@ export default function ScheduleManagement() {
     ) ||
     ['owner', 'admin', 'manager', 'assistant_manager'].includes(currentUser?.role?.name || '');
 
+
   const getWeekDates = (weekOffset: number) => {
     const today = new Date();
     const startOfWeek = new Date(today);
