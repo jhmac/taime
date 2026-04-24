@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { BarChart, Bar, ResponsiveContainer, Tooltip, Cell, XAxis } from "recharts";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -741,6 +741,19 @@ export default function CreateShiftSplitPanel({
     if (onDateChange) onDateChange(dateStr);
   }, [open, editingSchedule]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Escape key closes the panel; body scroll locked while open
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onOpenChange(false); };
+    document.addEventListener('keydown', onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [open, onOpenChange]);
+
   // Reset custom dimensions when switching preset sizes
   const cycleSize = () => {
     setDialogSize((s) => s === 'normal' ? 'wide' : s === 'wide' ? 'full' : 'normal');
@@ -1031,30 +1044,50 @@ export default function CreateShiftSplitPanel({
 
   return (
     <>
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        key={editingSchedule ? `edit-${editingSchedule.id}` : 'create'}
-        data-dialog-resizable
-        className={cn(dialogWidthClass, "max-h-[92vh] flex flex-col p-0 gap-0 overflow-hidden transition-[width,height] duration-200 relative")}
-        style={dialogStyle}
-        onPointerMove={handleGripPointerMove}
-        onPointerUp={handleGripPointerUp}
-        onPointerLeave={handleGripPointerUp}
-      >
-        <DialogHeader className="px-5 py-3 border-b flex-shrink-0">
-          <DialogTitle className="text-sm flex items-center gap-2">
-            <Clock className="h-4 w-4" />
-            {editingSchedule ? 'Edit Shift' : 'Create Shift'}
-            <button
-              type="button"
-              onClick={cycleSize}
-              title={dialogSize === 'normal' ? 'Expand dialog' : dialogSize === 'wide' ? 'Full width' : 'Shrink dialog'}
-              className="ml-auto text-muted-foreground hover:text-foreground transition-colors"
-            >
-              {dialogSize === 'full' ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
-            </button>
-          </DialogTitle>
-        </DialogHeader>
+    {open && createPortal(
+      <>
+        {/* Backdrop */}
+        <div
+          className="fixed inset-0 z-50 bg-black/80"
+          onClick={() => onOpenChange(false)}
+          aria-hidden="true"
+        />
+        {/* Panel */}
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={editingSchedule ? 'Edit Shift' : 'Create Shift'}
+          data-dialog-resizable
+          className={cn(dialogWidthClass, "fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 bg-background border shadow-lg rounded-lg overflow-hidden transition-[width,height] duration-200")}
+          style={dialogStyle}
+          onPointerMove={handleGripPointerMove}
+          onPointerUp={handleGripPointerUp}
+          onPointerLeave={handleGripPointerUp}
+        >
+          {/* Close button */}
+          <button
+            type="button"
+            className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 z-10"
+            onClick={() => onOpenChange(false)}
+          >
+            <X className="h-4 w-4" />
+            <span className="sr-only">Close</span>
+          </button>
+          {/* Header */}
+          <div className="px-5 py-3 border-b flex-shrink-0">
+            <h2 className="text-sm font-semibold leading-none tracking-tight flex items-center gap-2">
+              <Clock className="h-4 w-4" />
+              {editingSchedule ? 'Edit Shift' : 'Create Shift'}
+              <button
+                type="button"
+                onClick={cycleSize}
+                title={dialogSize === 'normal' ? 'Expand dialog' : dialogSize === 'wide' ? 'Full width' : 'Shrink dialog'}
+                className="ml-auto text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {dialogSize === 'full' ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+              </button>
+            </h2>
+          </div>
 
         {/* Body */}
         <div className="flex-1 overflow-hidden flex flex-col md:flex-row min-h-0">
@@ -1483,8 +1516,10 @@ export default function CreateShiftSplitPanel({
             <rect x="0" y="6" width="10" height="2" rx="1" />
           </svg>
         </div>
-      </DialogContent>
-    </Dialog>
+        </div>
+      </>,
+      document.body
+    )}
 
     {/* ── Suspicious revenue correction confirmation dialog ── */}
     <AlertDialog
