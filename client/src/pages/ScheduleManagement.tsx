@@ -1323,16 +1323,6 @@ export default function ScheduleManagement() {
             onWeekChange={setSelectedWeek}
             onEditSchedule={openEditShift}
             onCreateShift={(date, startTime) => {
-              // If no shifts exist for this date, use AI to suggest a schedule
-              const dateHasShifts = schedules.some(
-                s => formatLocalDate(new Date(s.startTime)) === date
-              );
-              if (!dateHasShifts && isAdmin) {
-                setShowSuggestedReview(true);
-                suggestMutation.mutate(date);
-                return;
-              }
-              // Date already has shifts — open the manual create panel
               setEditingSchedule(null);
               setModalDate(date);
               setModalStartTime(startTime);
