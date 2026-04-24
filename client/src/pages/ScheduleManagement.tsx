@@ -913,7 +913,7 @@ export default function ScheduleManagement() {
   };
 
   const openCreateShift = (userId?: string, date?: Date) => {
-    const dateStr = date ? date.toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+    const dateStr = formatLocalDate(date ?? new Date());
     setCreateShiftDefaults({ userId: userId || '', date: dateStr });
     setModalDate(dateStr);
     setShowCreateShift(true);

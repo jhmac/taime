@@ -270,8 +270,8 @@ function DayColumn({
 
   return (
     <div
-      className={cn("relative border-r last:border-r-0", isToday && "bg-primary/[0.03]")}
-      style={{ height: `${totalHeight}px`, minWidth: 0 }}
+      className={cn("relative h-full", isToday && "bg-primary/[0.03]")}
+      style={{ minHeight: `${totalHeight}px`, minWidth: 0 }}
       onClick={handleColumnClick}
     >
       {Array.from({ length: TOTAL_HOURS * 4 }).map((_, qi) => {
@@ -409,7 +409,7 @@ function WeekView({
           const dayStr    = formatLocalDate(date);
           const dayShifts = schedules.filter(s => formatLocalDate(new Date(s.startTime)) === dayStr);
           return (
-            <div key={i} className="flex-1 min-w-0">
+            <div key={i} className="flex-1 min-w-0 border-r last:border-r-0">
               <DayColumn
                 date={date}
                 shifts={dayShifts}
