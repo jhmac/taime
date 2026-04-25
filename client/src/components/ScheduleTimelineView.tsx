@@ -24,6 +24,13 @@ const COLOR_KEYS = [
 ] as const;
 type ColorKey = typeof COLOR_KEYS[number];
 
+function colorKeyFromName(name: string): ColorKey {
+  const ORDER: ColorKey[] = ['violet','blue','emerald','amber','rose','cyan','pink','indigo'];
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = name.charCodeAt(i) + ((h << 5) - h);
+  return ORDER[Math.abs(h) % ORDER.length];
+}
+
 function colorKeyFromId(id: string): ColorKey {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = id.charCodeAt(i) + ((h << 5) - h);
@@ -164,7 +171,6 @@ function ShiftBlock({
   dragState: DragState | null;
 }) {
   const { schedule: s, col, totalCols } = positioned;
-  const colors = getColors(s.userId);
   const isDragging = dragState?.scheduleId === s.id;
 
   const startMs = isDragging && dragState.edge === 'top'    ? dragState.currentMs : new Date(s.startTime).getTime();
@@ -180,8 +186,13 @@ function ShiftBlock({
   const widthPct = 100 / totalCols;
   const leftPct  = col * widthPct;
 
-  const firstName = user?.firstName ?? 'Unknown';
+  const displayName = user
+    ? `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim() || (user as any).username || 'Unknown'
+    : 'Unknown';
+  const colors = COLOR_CLASSES[colorKeyFromName(displayName)];
   const timeLabel = `${formatTimeShort(new Date(startMs))}–${formatTimeShort(new Date(endMs))}`;
+  const showRole = !!s.title && height >= 60;
+  const showTime = height >= 40;
 
   return (
     <div
@@ -197,10 +208,10 @@ function ShiftBlock({
         left:     `calc(${leftPct}% + 1px)`,
         width:    `calc(${widthPct}% - 2px)`,
         cursor:   'pointer',
-        minHeight:'44px',
+        minHeight:'32px',
       }}
       onClick={(e) => { e.stopPropagation(); onEdit(s); }}
-      title={`${firstName}: ${timeLabel}`}
+      title={`${displayName}: ${timeLabel}${s.title ? ` · ${s.title}` : ''}`}
     >
       {/* Top drag handle */}
       <div
@@ -214,8 +225,9 @@ function ShiftBlock({
 
       {/* Content */}
       <div className={cn("px-1.5 pt-2 pb-1 flex flex-col gap-0", colors.text)}>
-        <span className="text-[10px] font-semibold truncate leading-tight">{firstName}</span>
-        <span className="text-[9px] opacity-70 truncate">{timeLabel}</span>
+        <span className="text-[10px] font-semibold truncate leading-tight">{displayName}</span>
+        {showRole && <span className="text-[8px] opacity-60 truncate leading-tight">{s.title}</span>}
+        {showTime && <span className="text-[9px] opacity-70 truncate">{timeLabel}</span>}
       </div>
 
       {/* Bottom drag handle */}
@@ -491,16 +503,17 @@ function MonthView({
                 <div className="space-y-0.5">
                   {dayShifts.slice(0, 3).map(s => {
                     const user   = users.find(u => u.id === s.userId);
-                    const colors = getColors(s.userId);
+                    const uName  = user ? `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim() || (user as any).username || '' : '';
+                    const colors = uName ? COLOR_CLASSES[colorKeyFromName(uName)] : getColors(s.userId);
                     const dur    = ((new Date(s.endTime).getTime() - new Date(s.startTime).getTime()) / 3600000).toFixed(1);
                     return (
                       <div
                         key={s.id}
                         className={cn("text-[9px] px-1 py-0.5 rounded truncate border", colors.block, colors.text, colors.border)}
                         onClick={e => { e.stopPropagation(); onEdit(s); }}
-                        title={`${user?.firstName}: ${formatTimeShort(new Date(s.startTime))}–${formatTimeShort(new Date(s.endTime))}`}
+                        title={`${uName || user?.firstName}: ${formatTimeShort(new Date(s.startTime))}–${formatTimeShort(new Date(s.endTime))}`}
                       >
-                        {user?.firstName} {dur}h
+                        {uName || user?.firstName} {dur}h
                       </div>
                     );
                   })}

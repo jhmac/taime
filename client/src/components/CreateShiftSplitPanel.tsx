@@ -420,6 +420,8 @@ type DragState = {
   initialY?: number;
 } | null;
 
+type ActualShiftEntry = { schedule: Schedule; name: string; startTime: string; endTime: string };
+
 function DayTimeline({
   suggestData,
   isLoading,
@@ -434,6 +436,9 @@ function DayTimeline({
   onShiftEdit,
   onDragStart,
   onDragEnd,
+  actualShifts,
+  onSelectActualShift,
+  selectedActualId,
 }: {
   suggestData: SuggestData | null | undefined;
   isLoading: boolean;
@@ -448,6 +453,9 @@ function DayTimeline({
   onShiftEdit?: (idx: number, updates: { startTime?: string; endTime?: string }) => void;
   onDragStart?: (idx: number) => void;
   onDragEnd?: () => void;
+  actualShifts?: ActualShiftEntry[];
+  onSelectActualShift?: (s: Schedule) => void;
+  selectedActualId?: string | null;
 }) {
   const open = storeHours?.open || suggestData?.storeHours?.open || "09:00";
   const close = storeHours?.close || suggestData?.storeHours?.close || "21:00";
@@ -553,7 +561,7 @@ function DayTimeline({
     hourLabels.push(h);
   }
 
-  if (isLoading) {
+  if (isLoading && !actualShifts?.length) {
     return (
       <div className="space-y-2">
         <Skeleton className="h-4 w-40 rounded" />
@@ -564,19 +572,33 @@ function DayTimeline({
 
   const shifts = suggestData?.proposedShifts ?? [];
   const activeCount = shifts.filter((_, i) => !excludedIdxs.has(i)).length;
+  const hasActual = (actualShifts?.length ?? 0) > 0;
+  const hasAi = shifts.length > 0;
 
   return (
     <div>
-      <div className="text-[11px] font-medium text-muted-foreground mb-2 flex items-center gap-1">
-        <Sparkles className="h-3 w-3" />
-        AI-Recommended Shifts
-        {shifts.length > 0 && (
-          <span className="ml-1 text-foreground font-semibold">
-            ({activeCount}{excludedIdxs.size > 0 ? ` of ${shifts.length}` : ""})
-          </span>
+      <div className="text-[11px] font-medium text-muted-foreground mb-2 flex items-center gap-1.5 flex-wrap">
+        {hasActual && (
+          <>
+            <Clock className="h-3 w-3 text-orange-500" />
+            <span>Scheduled <span className="text-foreground font-semibold">({actualShifts!.length})</span></span>
+          </>
+        )}
+        {hasActual && hasAi && <span className="text-border/60 select-none">·</span>}
+        {hasAi && (
+          <>
+            <Sparkles className="h-3 w-3" />
+            <span>AI Suggested <span className="text-foreground font-semibold">({activeCount}{excludedIdxs.size > 0 ? ` of ${shifts.length}` : ""})</span></span>
+          </>
+        )}
+        {!hasActual && !hasAi && (
+          <>
+            <Sparkles className="h-3 w-3" />
+            <span>AI-Recommended Shifts</span>
+          </>
         )}
       </div>
-      {shifts.length === 0 ? (
+      {shifts.length === 0 && !hasActual ? (
         <div className={`rounded-lg border border-dashed p-3 text-center ${isError ? "border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-900/20" : "border-border bg-muted/30"}`}>
           {isError ? (
             <>
@@ -634,7 +656,47 @@ function DayTimeline({
                 );
               })}
             </div>
-            {/* One column per shift */}
+            {/* Actual scheduled shift columns — shown first */}
+            {actualShifts?.map((actual, idx) => {
+              const startMin = timeToMin(actual.startTime);
+              const endMin = timeToMin(actual.endTime);
+              const topPct = ((Math.max(startMin, openMin) - openMin) / totalMin) * 100;
+              const hPct = ((Math.min(endMin, closeMin) - Math.max(startMin, openMin)) / totalMin) * 100;
+              if (hPct <= 0) return null;
+              const isActive = selectedActualId === actual.schedule.id;
+              const colorCls = getShiftColor(actual.name);
+              return (
+                <div key={`actual-${idx}`} className="relative flex-1 min-w-[52px] border-l border-border/20 first:border-l-0 z-10">
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); onSelectActualShift?.(actual.schedule); }}
+                    style={{ top: `${topPct}%`, height: `${Math.max(hPct, 3)}%` }}
+                    className={cn(
+                      "absolute inset-x-0.5 rounded-md px-1.5 py-0.5 text-left text-white overflow-hidden transition-all",
+                      colorCls,
+                      isActive
+                        ? "ring-2 ring-orange-400 ring-offset-1 opacity-100 z-20"
+                        : "opacity-90 hover:opacity-100"
+                    )}
+                    title={`${actual.name}: ${fmt12(actual.startTime)}–${fmt12(actual.endTime)}`}
+                  >
+                    <div className="text-[9px] font-bold truncate leading-tight pt-0.5">{actual.name}</div>
+                    <div className="text-[8px] opacity-80 truncate">{fmt12(actual.startTime)}–{fmt12(actual.endTime)}</div>
+                    <div className="text-[7px] opacity-60 mt-0.5 flex items-center gap-0.5">
+                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-white/70" />
+                      scheduled
+                    </div>
+                  </button>
+                </div>
+              );
+            })}
+
+            {/* Subtle divider between scheduled and AI columns */}
+            {hasActual && hasAi && (
+              <div className="w-px bg-border/50 flex-shrink-0 self-stretch" />
+            )}
+
+            {/* One column per AI shift */}
             {shifts.map((shift, idx) => (
               <div
                 key={idx}
@@ -1381,51 +1443,12 @@ export default function CreateShiftSplitPanel({
                 isCorrecting={correctRevenueMutation.isPending}
               />
 
-              {/* Scheduled Shifts for this date */}
-              {dateActualShifts.length > 0 && (
-                <div onClick={(e) => e.stopPropagation()}>
-                  <div className="text-[11px] font-medium text-muted-foreground mb-2 flex items-center gap-1">
-                    <Clock className="h-3 w-3 text-orange-500" />
-                    <span>Scheduled</span>
-                    <span className="ml-1 text-foreground font-semibold">({dateActualShifts.length})</span>
-                  </div>
-                  <div className="space-y-1.5">
-                    {dateActualShifts.map(({ schedule, name, startTime, endTime }) => {
-                      const isActive = editingSchedule?.id === schedule.id;
-                      const colorClass = getShiftColor(name);
-                      return (
-                        <button
-                          key={schedule.id}
-                          type="button"
-                          onClick={() => onSelectSchedule?.(schedule)}
-                          className={cn(
-                            "w-full text-left flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs transition-all border",
-                            isActive
-                              ? "ring-2 ring-orange-400 bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800"
-                              : "bg-muted/40 hover:bg-muted/70 border-transparent hover:border-border/50"
-                          )}
-                        >
-                          <span className={cn("w-2.5 h-2.5 rounded-full flex-shrink-0", colorClass)} />
-                          <span className="font-medium flex-1 truncate">{name}</span>
-                          <span className="text-muted-foreground whitespace-nowrap">
-                            {fmt12(startTime)}–{fmt12(endTime)}
-                          </span>
-                          {isActive
-                            ? <Pencil className="h-3 w-3 text-orange-500 flex-shrink-0" />
-                            : <Pencil className="h-3 w-3 text-muted-foreground/40 flex-shrink-0" />
-                          }
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
               {/* Divider */}
               <div className="border-t border-border/40" />
 
-              {/* Day-view timeline — stop bubble so empty-space clicks on the */}
-              {/* scrollable area (above) deselect while block clicks don't.   */}
+              {/* Day-view timeline — actual scheduled shifts + AI suggestions unified */}
+              {/* stop bubble so empty-space clicks on the scrollable area deselect  */}
+              {/* while block clicks don't.                                          */}
               <div onClick={(e) => e.stopPropagation()}>
                 <DayTimeline
                   suggestData={mergedSuggestData}
@@ -1441,6 +1464,9 @@ export default function CreateShiftSplitPanel({
                   onShiftEdit={handleShiftEdit}
                   onDragStart={handleDragStart}
                   onDragEnd={handleDragEnd}
+                  actualShifts={dateActualShifts}
+                  onSelectActualShift={onSelectSchedule}
+                  selectedActualId={editingSchedule?.id}
                 />
               </div>
             </div>
