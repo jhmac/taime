@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 import {
   Clock, Users, Loader2, TrendingUp, Sparkles, AlertTriangle,
   ChevronDown, ChevronUp, Wand2, Check, X, RefreshCw,
-  Maximize2, Minimize2, Pencil, Save, Trash2, Plus,
+  Maximize2, Minimize2, Pencil, Save, Trash2, Plus, Undo2, Redo2,
 } from "lucide-react";
 import type { Schedule } from "@shared/schema";
 
@@ -430,6 +430,8 @@ function DayTimeline({
   onToggleExclude,
   conflictingEmployeeIds,
   onShiftEdit,
+  onDragStart,
+  onDragEnd,
 }: {
   suggestData: SuggestData | null | undefined;
   isLoading: boolean;
@@ -442,6 +444,8 @@ function DayTimeline({
   onToggleExclude: (idx: number) => void;
   conflictingEmployeeIds: Set<string>;
   onShiftEdit?: (idx: number, updates: { startTime?: string; endTime?: string }) => void;
+  onDragStart?: (idx: number) => void;
+  onDragEnd?: () => void;
 }) {
   const open = storeHours?.open || suggestData?.storeHours?.open || "09:00";
   const close = storeHours?.close || suggestData?.storeHours?.close || "21:00";
@@ -460,7 +464,8 @@ function DayTimeline({
     e.preventDefault();
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
     dragRef.current = { idx, type };
-  }, []);
+    onDragStart?.(idx);
+  }, [onDragStart]);
 
   const handleBodyPointerDown = useCallback((e: React.PointerEvent, idx: number) => {
     if (!containerRef.current || !onShiftEdit) return;
@@ -474,7 +479,8 @@ function DayTimeline({
     dragRef.current = { idx, type: 'move', offsetPct, initialY: e.clientY };
     // Capture on the container so all move/up events bubble there
     containerRef.current.setPointerCapture(e.pointerId);
-  }, [openMin, totalMin, suggestData, onShiftEdit]);
+    onDragStart?.(idx);
+  }, [openMin, totalMin, suggestData, onShiftEdit, onDragStart]);
 
   const handleBlockClick = useCallback((shift: ProposedShift, idx: number) => {
     if (blockClickSuppressRef.current) {
@@ -524,8 +530,10 @@ function DayTimeline({
   }, [openMin, totalMin, closeMin, suggestData, onShiftEdit]);
 
   const handlePointerUp = useCallback(() => {
+    const wasDragging = dragRef.current !== null;
     const wasMove = dragRef.current?.type === 'move';
     dragRef.current = null;
+    if (wasDragging) onDragEnd?.();
     if (wasMove) {
       // Click fires after pointerup. handleBlockClick clears the ref on receipt.
       // Safety net: if the pointer was released outside the element (no click fires),
@@ -536,7 +544,7 @@ function DayTimeline({
         });
       });
     }
-  }, []);
+  }, [onDragEnd]);
 
   const hourLabels: number[] = [];
   for (let h = Math.ceil(openMin / 60); h <= Math.floor(closeMin / 60); h++) {
@@ -702,6 +710,8 @@ export default function CreateShiftSplitPanel({
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [excludedIdxs, setExcludedIdxs] = useState<Set<number>>(new Set());
   const [editedShifts, setEditedShifts] = useState<Record<number, ShiftEdit>>({});
+  const [undoStack, setUndoStack] = useState<Record<number, ShiftEdit>[]>([]);
+  const [redoStack, setRedoStack] = useState<Record<number, ShiftEdit>[]>([]);
   const [dialogSize, setDialogSize] = useState<DialogSize>('normal');
   const [dialogDims, setDialogDims] = useState<{ width: number; height: number } | null>(null);
   const [pendingCorrectionWarning, setPendingCorrectionWarning] = useState<{
@@ -714,6 +724,9 @@ export default function CreateShiftSplitPanel({
   const [modalNotes, setModalNotes] = useState(editingSchedule?.description ?? '');
   const forceRegenRef = useRef(false);
   const resizeGripRef = useRef<{ startX: number; startY: number; startW: number; startH: number } | null>(null);
+  const dragActiveRef = useRef(false);
+  const editedShiftsRef = useRef<Record<number, ShiftEdit>>({});
+  const suggestDataRef = useRef<SuggestData | undefined>(undefined);
 
   useEffect(() => {
     if (open) {
@@ -724,11 +737,20 @@ export default function CreateShiftSplitPanel({
       setSelectedShiftIdx(null);
       setExcludedIdxs(new Set());
       setEditedShifts({});
+      editedShiftsRef.current = {};
+      setUndoStack([]);
+      setRedoStack([]);
       setDialogDims(null);
       setModalTitle('');
       setModalLocationId(locations[0]?.id ?? '');
       setModalNotes('');
       forceRegenRef.current = false;
+    } else {
+      // Clear undo/redo history immediately when dialog closes
+      setUndoStack([]);
+      setRedoStack([]);
+      editedShiftsRef.current = {};
+      dragActiveRef.current = false;
     }
   }, [open, defaultDate, defaultUserId, defaultStartTime, defaultEndTime]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -764,9 +786,12 @@ export default function CreateShiftSplitPanel({
   }, [editingSchedule]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Escape key closes the panel; body scroll locked while open
+  // Note: undo/redo shortcuts are added in a separate effect below, after handleUndo/handleRedo are declared.
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onOpenChange(false); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onOpenChange(false);
+    };
     document.addEventListener('keydown', onKey);
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -811,13 +836,99 @@ export default function CreateShiftSplitPanel({
   }, []);
 
   const handleShiftEdit = useCallback((idx: number, updates: ShiftEdit) => {
-    setEditedShifts((prev) => ({ ...prev, [idx]: { ...prev[idx], ...updates } }));
+    // Only push to undo stack when NOT in a drag (pre-drag snapshot is captured in handleDragStart)
+    if (!dragActiveRef.current) {
+      const snapshot = editedShiftsRef.current;
+      setUndoStack((prev) => {
+        const next = [...prev, snapshot];
+        return next.length > 20 ? next.slice(next.length - 20) : next;
+      });
+      setRedoStack([]);
+    }
+    setEditedShifts((prev) => {
+      const next = { ...prev, [idx]: { ...prev[idx], ...updates } };
+      editedShiftsRef.current = next;
+      return next;
+    });
     if (selectedShiftIdx === idx) {
       if (updates.startTime) setModalStartTime(updates.startTime);
       if (updates.endTime) setModalEndTime(updates.endTime);
       if (updates.employeeId) setSelectedUserId(updates.employeeId);
     }
   }, [selectedShiftIdx]);
+
+  const handleDragStart = useCallback((_idx: number) => {
+    if (dragActiveRef.current) return; // already tracking a drag
+    dragActiveRef.current = true;
+    const snapshot = editedShiftsRef.current;
+    setUndoStack((prev) => {
+      const next = [...prev, snapshot];
+      return next.length > 20 ? next.slice(next.length - 20) : next;
+    });
+    setRedoStack([]);
+  }, []);
+
+  const handleDragEnd = useCallback(() => {
+    dragActiveRef.current = false;
+  }, []);
+
+  const applySnapshot = useCallback((snapshot: Record<number, ShiftEdit>, currentSelectedIdx: number | null) => {
+    editedShiftsRef.current = snapshot;
+    setEditedShifts(snapshot);
+    if (currentSelectedIdx !== null) {
+      const restoredEdit = snapshot[currentSelectedIdx];
+      const originalShift = suggestDataRef.current?.proposedShifts[currentSelectedIdx];
+      setModalStartTime(restoredEdit?.startTime ?? originalShift?.startTime ?? "09:00");
+      setModalEndTime(restoredEdit?.endTime ?? originalShift?.endTime ?? "17:00");
+      if (restoredEdit?.employeeId) setSelectedUserId(restoredEdit.employeeId);
+      else if (originalShift?.employeeId) setSelectedUserId(originalShift.employeeId);
+    }
+  }, []);
+
+  const handleUndo = useCallback(() => {
+    setUndoStack((prev) => {
+      if (prev.length === 0) return prev;
+      const next = [...prev];
+      const snapshot = next.pop()!;
+      setRedoStack((r) => {
+        const rNext = [...r, editedShiftsRef.current];
+        return rNext.length > 20 ? rNext.slice(rNext.length - 20) : rNext;
+      });
+      applySnapshot(snapshot, selectedShiftIdx);
+      return next;
+    });
+  }, [selectedShiftIdx, applySnapshot]);
+
+  const handleRedo = useCallback(() => {
+    setRedoStack((prev) => {
+      if (prev.length === 0) return prev;
+      const next = [...prev];
+      const snapshot = next.pop()!;
+      setUndoStack((u) => {
+        const uNext = [...u, editedShiftsRef.current];
+        return uNext.length > 20 ? uNext.slice(uNext.length - 20) : uNext;
+      });
+      applySnapshot(snapshot, selectedShiftIdx);
+      return next;
+    });
+  }, [selectedShiftIdx, applySnapshot]);
+
+  // Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z keyboard shortcuts for undo/redo
+  // Declared after handleUndo/handleRedo to avoid temporal dead zone
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      // Skip when focus is inside a text field to preserve native text undo
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      const k = e.key.toLowerCase();
+      if (k === 'z' && !e.shiftKey) { e.preventDefault(); handleUndo(); }
+      else if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); handleRedo(); }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open, handleUndo, handleRedo]);
 
   const handleToggleExclude = (idx: number) => {
     setExcludedIdxs((prev) => {
@@ -874,6 +985,9 @@ export default function CreateShiftSplitPanel({
     gcTime: 10 * 60_000,
     retry: 1,
   });
+
+  // Keep suggestDataRef in sync so undo/redo can access original shift times
+  useEffect(() => { suggestDataRef.current = suggestData; }, [suggestData]);
 
   // Mutation to persist a single edited shift back to DB
   const saveShiftMutation = useMutation({
@@ -975,7 +1089,11 @@ export default function CreateShiftSplitPanel({
             : currentEdit.employeeName
         : currentEdit.employeeName,
     };
-    setEditedShifts((prev) => ({ ...prev, [selectedShiftIdx]: mergedEdit }));
+    setEditedShifts((prev) => {
+      const next = { ...prev, [selectedShiftIdx]: mergedEdit };
+      editedShiftsRef.current = next;
+      return next;
+    });
     saveShiftMutation.mutate({ idx: selectedShiftIdx, edit: mergedEdit });
   };
 
@@ -1154,7 +1272,14 @@ export default function CreateShiftSplitPanel({
                       ? `Last fetched ${new Date(suggestUpdatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} — click to refresh`
                       : "Refresh AI suggestions"
                   }
-                  onClick={() => { forceRegenRef.current = true; setEditedShifts({}); refetchSuggest(); }}
+                  onClick={() => {
+                    forceRegenRef.current = true;
+                    editedShiftsRef.current = {};
+                    setEditedShifts({});
+                    setUndoStack([]);
+                    setRedoStack([]);
+                    refetchSuggest();
+                  }}
                 >
                   <RefreshCw className={cn("h-3 w-3", suggestFetching && "animate-spin")} />
                   {suggestUpdatedAt && !suggestFetching ? (
@@ -1249,6 +1374,8 @@ export default function CreateShiftSplitPanel({
                   onToggleExclude={handleToggleExclude}
                   conflictingEmployeeIds={conflictingEmployeeIds}
                   onShiftEdit={handleShiftEdit}
+                  onDragStart={handleDragStart}
+                  onDragEnd={handleDragEnd}
                 />
               </div>
             </div>
@@ -1272,6 +1399,33 @@ export default function CreateShiftSplitPanel({
                     <X className="h-3.5 w-3.5" />
                   </button>
                 </div>
+              </div>
+            )}
+
+            {/* Undo / Redo controls — shown when there are undoable drag edits */}
+            {undoStack.length > 0 && (
+              <div className="px-4 pt-2 pb-0 flex-shrink-0 flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={handleUndo}
+                  disabled={undoStack.length === 0}
+                  title="Undo last drag edit (Ctrl+Z)"
+                  className="flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60 disabled:opacity-40 disabled:pointer-events-none transition-colors"
+                >
+                  <Undo2 className="h-3 w-3" />
+                  Undo
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRedo}
+                  disabled={redoStack.length === 0}
+                  title="Redo (Ctrl+Y)"
+                  className="flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60 disabled:opacity-40 disabled:pointer-events-none transition-colors"
+                >
+                  <Redo2 className="h-3 w-3" />
+                  Redo
+                </button>
+                <span className="text-[10px] text-muted-foreground/60 ml-1">{undoStack.length} step{undoStack.length !== 1 ? 's' : ''}</span>
               </div>
             )}
 
