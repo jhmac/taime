@@ -17,6 +17,7 @@ import {
   Clock, Users, Loader2, TrendingUp, Sparkles, AlertTriangle,
   ChevronDown, ChevronUp, Wand2, Check, X, RefreshCw,
   Maximize2, Minimize2, Pencil, Save, Trash2, Plus, Undo2, Redo2,
+  Lock,
 } from "lucide-react";
 import type { Schedule } from "@shared/schema";
 
@@ -55,6 +56,27 @@ interface SuggestData {
   dataSource: string;
   hourlyData: HourlyData[];
   storeHours: { open: string; close: string };
+}
+
+interface AvailMember {
+  userId: string;
+  name: string;
+  firstName: string | null;
+  lastName: string | null;
+  profileImageUrl: string | null;
+  roleName: string;
+  isAvailable: boolean;
+  availableFrom: string | null;
+  availableTo: string | null;
+  overlapHours: number;
+  compositeScore: number;
+  source: string;
+}
+
+interface TodayAvailData {
+  date: string;
+  storeHours: { open: string; close: string; isClosed: boolean } | null;
+  members: AvailMember[];
 }
 
 interface User {
@@ -409,6 +431,219 @@ function SalesChart({
           <span className="text-[9px] text-muted-foreground italic ml-auto">Hover total to correct</span>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── Pill score badge ─────────────────────────────────────────────────────────
+function PillScoreBadge({ score }: { score: number }) {
+  if (score >= 85) return (
+    <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-yellow-400 text-yellow-900 text-[9px] font-bold shrink-0" title={`Score: ${score}`}>{score}</span>
+  );
+  if (score >= 60) return (
+    <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-slate-300 text-slate-700 text-[9px] font-bold shrink-0" title={`Score: ${score}`}>{score}</span>
+  );
+  return (
+    <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-muted text-muted-foreground text-[9px] font-bold shrink-0" title={`Score: ${score}`}>{score}</span>
+  );
+}
+
+// ── Mini availability bar ─────────────────────────────────────────────────────
+function PillAvailBar({ member, storeOpen, storeClose }: { member: AvailMember; storeOpen: string; storeClose: string }) {
+  if (!member.isAvailable || !member.availableFrom || !member.availableTo) return null;
+  function t2m(t: string) { const [h, m] = t.split(':').map(Number); return h * 60 + (m || 0); }
+  const openMins = t2m(storeOpen);
+  const closeMins = t2m(storeClose);
+  const total = closeMins - openMins;
+  if (total <= 0) return null;
+  const from = Math.max(t2m(member.availableFrom), openMins);
+  const to = Math.min(t2m(member.availableTo), closeMins);
+  const startPct = ((from - openMins) / total) * 100;
+  const widthPct = Math.max(0, ((to - from) / total) * 100);
+  return (
+    <div className="w-full h-1 bg-muted rounded-full overflow-hidden mt-0.5">
+      <div
+        className="h-full bg-emerald-500 rounded-full"
+        style={{ marginLeft: `${startPct}%`, width: `${widthPct}%` }}
+      />
+    </div>
+  );
+}
+
+// ── AvailableEmployeePills ────────────────────────────────────────────────────
+function AvailableEmployeePills({
+  members,
+  storeHours,
+  isLoading,
+  scheduledEmployeeIds,
+  onAdd,
+  showUnavailable,
+  onToggleUnavailable,
+}: {
+  members: AvailMember[];
+  storeHours: { open: string; close: string } | null;
+  isLoading: boolean;
+  scheduledEmployeeIds: Set<string>;
+  onAdd: (member: AvailMember) => void;
+  showUnavailable: boolean;
+  onToggleUnavailable: () => void;
+}) {
+  const availableMembers = members.filter(m => m.isAvailable);
+  const unavailableMembers = members.filter(m => !m.isAvailable);
+  const visibleMembers = showUnavailable ? members : availableMembers;
+
+  const storeOpen = storeHours?.open || '09:00';
+  const storeClose = storeHours?.close || '21:00';
+
+  function fmtTime(t: string) {
+    const [h, m] = t.split(':').map(Number);
+    const ampm = h >= 12 ? 'pm' : 'am';
+    const h12 = h % 12 || 12;
+    return m === 0 ? `${h12}${ampm}` : `${h12}:${String(m).padStart(2, '0')}${ampm}`;
+  }
+
+  function memberInitials(m: AvailMember) {
+    return ((m.firstName?.[0] || '') + (m.lastName?.[0] || '')).toUpperCase() || '?';
+  }
+
+  const PILL_COLORS = ['bg-violet-500','bg-blue-500','bg-emerald-500','bg-amber-500','bg-rose-500','bg-cyan-500'];
+  function pillColor(name: string) {
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    return PILL_COLORS[Math.abs(hash) % PILL_COLORS.length];
+  }
+
+  if (isLoading) {
+    return (
+      <div>
+        <div className="text-[11px] font-medium text-muted-foreground mb-2 flex items-center gap-1">
+          <Users className="h-3 w-3" />
+          Who's Available Today
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {[1, 2, 3, 4].map(i => (
+            <Skeleton key={i} className="h-16 w-44 rounded-lg flex-shrink-0" />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  const allScheduled = availableMembers.length > 0 && availableMembers.every(m => scheduledEmployeeIds.has(m.userId));
+
+  return (
+    <div>
+      {/* Section header */}
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
+          <Users className="h-3 w-3" />
+          Who's Available Today
+          {availableMembers.length > 0 && (
+            <span className="ml-1 text-foreground font-semibold">({availableMembers.length})</span>
+          )}
+        </span>
+        {unavailableMembers.length > 0 && (
+          <button
+            onClick={onToggleUnavailable}
+            className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+          >
+            {showUnavailable ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+            {showUnavailable ? 'Hide unavailable' : `+${unavailableMembers.length} unavailable`}
+          </button>
+        )}
+      </div>
+
+      {/* Empty states */}
+      {availableMembers.length === 0 && !showUnavailable && (
+        <div className="rounded-lg border border-dashed border-border bg-muted/30 py-3 px-4 text-center">
+          <p className="text-xs text-muted-foreground">No availability data yet for this day.</p>
+        </div>
+      )}
+      {availableMembers.length > 0 && allScheduled && !showUnavailable && (
+        <div className="rounded-lg border border-dashed border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 py-3 px-4 text-center">
+          <p className="text-xs text-emerald-700 dark:text-emerald-400">Everyone is already scheduled for this day.</p>
+        </div>
+      )}
+
+      {/* Pill grid — horizontally wrapping */}
+      {visibleMembers.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {visibleMembers.map(member => {
+            const isScheduled = scheduledEmployeeIds.has(member.userId);
+            const windowLabel = member.availableFrom && member.availableTo
+              ? `${fmtTime(member.availableFrom)} – ${fmtTime(member.availableTo)}`
+              : 'All day';
+            const unavailReason = !member.isAvailable
+              ? (member.source === 'time_off' ? 'Time off' : 'Not available')
+              : null;
+
+            return (
+              <div
+                key={member.userId}
+                className={cn(
+                  "relative flex flex-col gap-1 p-2 rounded-lg border w-44 flex-shrink-0 transition-all",
+                  !member.isAvailable
+                    ? "bg-muted/20 border-border/30 opacity-50"
+                    : isScheduled
+                    ? "bg-muted/30 border-border/40"
+                    : "bg-background border-border hover:border-primary/40 hover:shadow-sm"
+                )}
+                title={unavailReason || undefined}
+              >
+                {/* Avatar + name row */}
+                <div className="flex items-center gap-1.5 min-w-0">
+                  {member.profileImageUrl ? (
+                    <img
+                      src={member.profileImageUrl}
+                      alt={member.name}
+                      className="w-6 h-6 rounded-full object-cover shrink-0"
+                    />
+                  ) : (
+                    <div className={cn("w-6 h-6 rounded-full flex items-center justify-center text-white text-[9px] font-bold shrink-0", pillColor(member.name))}>
+                      {memberInitials(member)}
+                    </div>
+                  )}
+                  <span className="text-[11px] font-medium truncate flex-1 min-w-0">{member.name}</span>
+                  <PillScoreBadge score={member.compositeScore} />
+                </div>
+
+                {/* Availability range + bar */}
+                {member.isAvailable ? (
+                  <>
+                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 leading-none">{windowLabel}</span>
+                    <PillAvailBar member={member} storeOpen={storeOpen} storeClose={storeClose} />
+                  </>
+                ) : (
+                  <span className="text-[10px] text-muted-foreground italic flex items-center gap-0.5 leading-none">
+                    <Lock className="h-2.5 w-2.5" />
+                    {unavailReason}
+                  </span>
+                )}
+
+                {/* Action */}
+                {member.isAvailable && (
+                  isScheduled ? (
+                    <span className="flex items-center gap-0.5 text-[10px] text-emerald-600 dark:text-emerald-400 font-medium mt-0.5">
+                      <Check className="h-3 w-3" />
+                      Scheduled
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => onAdd(member)}
+                      className="flex items-center gap-0.5 text-[10px] font-medium text-primary hover:text-primary/80 mt-0.5 w-fit"
+                      title={`Add shift for ${member.name}`}
+                    >
+                      <Plus className="h-3 w-3" />
+                      Add shift
+                    </button>
+                  )
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -920,6 +1155,8 @@ export default function CreateShiftSplitPanel({
   const [dialogDims, setDialogDims] = useState<{ width: number; height: number } | null>(null);
   const [selectedActualSchedule, setSelectedActualSchedule] = useState<Schedule | null>(null);
   const [actualFormEdits, setActualFormEdits] = useState<{ startTime: string; endTime: string; userId: string } | null>(null);
+  const [manualShifts, setManualShifts] = useState<ProposedShift[]>([]);
+  const [showPillsUnavailable, setShowPillsUnavailable] = useState(false);
   const [pendingCorrectionWarning, setPendingCorrectionWarning] = useState<{
     historicalDate: string;
     totalRevenue: number;
@@ -932,6 +1169,7 @@ export default function CreateShiftSplitPanel({
   const resizeGripRef = useRef<{ startX: number; startY: number; startW: number; startH: number } | null>(null);
   const dragActiveRef = useRef(false);
   const editedShiftsRef = useRef<Record<number, ShiftEdit>>({});
+  const timelineWrapperRef = useRef<HTMLDivElement>(null);
 
   const dateActualShifts = useMemo(() => {
     if (!schedules || !modalDate) return [];
@@ -986,6 +1224,8 @@ export default function CreateShiftSplitPanel({
       setModalNotes('');
       setSelectedActualSchedule(null);
       setActualFormEdits(null);
+      setManualShifts([]);
+      setShowPillsUnavailable(false);
       forceRegenRef.current = false;
     } else {
       // Clear undo/redo history immediately when dialog closes
@@ -993,6 +1233,7 @@ export default function CreateShiftSplitPanel({
       setRedoStack([]);
       editedShiftsRef.current = {};
       dragActiveRef.current = false;
+      setManualShifts([]);
     }
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1078,7 +1319,18 @@ export default function CreateShiftSplitPanel({
   }, []);
 
   const handleShiftEdit = useCallback((idx: number, updates: ShiftEdit) => {
-    // Only push to undo stack when NOT in a drag (pre-drag snapshot is captured in handleDragStart)
+    const aiCount = suggestDataRef.current?.proposedShifts?.length ?? 0;
+    if (idx >= aiCount) {
+      // Manual shift — update manualShifts array directly
+      const manualIdx = idx - aiCount;
+      setManualShifts((prev) => prev.map((s, i) => i === manualIdx ? { ...s, ...updates } : s));
+      if (selectedShiftIdx === idx) {
+        if (updates.startTime) setModalStartTime(updates.startTime);
+        if (updates.endTime) setModalEndTime(updates.endTime);
+      }
+      return;
+    }
+    // AI shift — only push to undo stack when NOT in a drag
     if (!dragActiveRef.current) {
       const snapshot = editedShiftsRef.current;
       setUndoStack((prev) => {
@@ -1210,6 +1462,17 @@ export default function CreateShiftSplitPanel({
     },
     enabled: open && !!modalDate,
     retry: 1,
+  });
+
+  const { data: availData, isLoading: availLoading } = useQuery<TodayAvailData>({
+    queryKey: ['/api/schedules/today-availability', modalDate],
+    queryFn: async () => {
+      const res = await fetch(`/api/schedules/today-availability?date=${modalDate}`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to fetch availability');
+      return res.json();
+    },
+    enabled: open && !!modalDate,
+    staleTime: 2 * 60_000,
   });
 
   const {
@@ -1422,8 +1685,30 @@ export default function CreateShiftSplitPanel({
 
   const handleSaveShiftEdit = () => {
     if (selectedShiftIdx === null) return;
+    const aiCount = suggestDataRef.current?.proposedShifts?.length ?? 0;
+
+    if (selectedShiftIdx >= aiCount) {
+      // Manual shift — save to local state only (no API call needed)
+      const manualIdx = selectedShiftIdx - aiCount;
+      const emp = selectedUserId ? employees.find((e) => e.id === selectedUserId) : null;
+      const empName = emp ? `${emp.firstName ?? ""} ${emp.lastName ?? ""}`.trim() : undefined;
+      setManualShifts((prev) => prev.map((s, i) =>
+        i === manualIdx
+          ? {
+              ...s,
+              startTime: modalStartTime,
+              endTime: modalEndTime,
+              ...(selectedUserId ? { employeeId: selectedUserId } : {}),
+              ...(empName ? { employeeName: empName } : {}),
+            }
+          : s
+      ));
+      setSelectedShiftIdx(null);
+      return;
+    }
+
+    // AI shift — persist via mutation
     const currentEdit = editedShifts[selectedShiftIdx] ?? {};
-    // Merge in any form-level changes
     const mergedEdit: ShiftEdit = {
       ...currentEdit,
       startTime: modalStartTime,
@@ -1468,12 +1753,22 @@ export default function CreateShiftSplitPanel({
     }
   };
 
-  const proposedShifts = (suggestData?.proposedShifts ?? []).map((shift, idx) =>
+  const aiProposedShifts = (suggestData?.proposedShifts ?? []).map((shift, idx) =>
     editedShifts[idx] ? { ...shift, ...editedShifts[idx] } : shift
   );
+  const proposedShifts = [...aiProposedShifts, ...manualShifts];
   const mergedSuggestData = suggestData
     ? { ...suggestData, proposedShifts }
-    : suggestData;
+    : manualShifts.length > 0
+    ? {
+        date: modalDate,
+        proposedShifts: manualShifts,
+        historicalDate: '',
+        dataSource: 'manual',
+        hourlyData: [],
+        storeHours: salesData?.storeHours ?? { open: '09:00', close: '21:00' },
+      }
+    : undefined;
   const activeShifts = proposedShifts.filter((_, i) => !excludedIdxs.has(i));
   const storeHours = salesData?.storeHours ?? suggestData?.storeHours ?? null;
 
@@ -1495,6 +1790,49 @@ export default function CreateShiftSplitPanel({
   }, [modalDate, proposedShifts, queryClient]);
 
   const conflictCount = activeShifts.filter((s) => conflictingEmployeeIds.has(s.employeeId)).length;
+
+  // Employee IDs that already appear on the timeline (proposed + actual) — used by pills
+  const scheduledForPills = useMemo<Set<string>>(() => {
+    const ids = new Set<string>();
+    proposedShifts.forEach((s, i) => { if (!excludedIdxs.has(i)) ids.add(s.employeeId); });
+    dateActualShifts.forEach(a => ids.add(a.schedule.userId));
+    return ids;
+  }, [proposedShifts, excludedIdxs, dateActualShifts]);
+
+  const handlePillAdd = useCallback((member: AvailMember) => {
+    const clampFn = (t: string, min: string, max: string) => {
+      function t2m(x: string) { const [h, m] = x.split(':').map(Number); return h * 60 + (m || 0); }
+      function m2t(m: number) { return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; }
+      const minM = t2m(min); const maxM = t2m(max); const tM = t2m(t);
+      return m2t(Math.max(minM, Math.min(maxM, tM)));
+    };
+    const sOpen = storeHours?.open || '09:00';
+    const sClose = storeHours?.close || '21:00';
+    const rawStart = member.availableFrom || sOpen;
+    const rawEnd = member.availableTo || sClose;
+    const clampedStart = clampFn(rawStart, sOpen, sClose);
+    const clampedEnd = clampFn(rawEnd, sOpen, sClose);
+    const newShift: ProposedShift = {
+      employeeId: member.userId,
+      employeeName: member.name,
+      profileImageUrl: member.profileImageUrl,
+      startTime: clampedStart,
+      endTime: clampedEnd,
+      shiftBlock: 'Manual',
+      rationale: '',
+      revenue: 0,
+    };
+    setManualShifts(prev => [...prev, newShift]);
+    if (!selectedUserId) {
+      setSelectedUserId(member.userId);
+      setModalStartTime(clampedStart);
+      setModalEndTime(clampedEnd);
+    }
+    // Scroll the timeline into view so the new block is visible
+    requestAnimationFrame(() => {
+      timelineWrapperRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+  }, [storeHours, selectedUserId]);
 
   const dateLabel = modalDate
     ? new Date(modalDate + "T12:00:00Z").toLocaleDateString("en-US", {
@@ -1710,7 +2048,7 @@ export default function CreateShiftSplitPanel({
               {/* Day-view timeline — actual scheduled shifts + AI suggestions unified */}
               {/* stop bubble so empty-space clicks on the scrollable area deselect  */}
               {/* while block clicks don't.                                          */}
-              <div onClick={(e) => e.stopPropagation()}>
+              <div ref={timelineWrapperRef} onClick={(e) => e.stopPropagation()}>
                 <DayTimeline
                   suggestData={mergedSuggestData}
                   isLoading={suggestLoading && !!modalDate}
@@ -1732,6 +2070,22 @@ export default function CreateShiftSplitPanel({
                   onDeleteActualShift={(s) => deleteActualMutation.mutate(s.id)}
                 />
               </div>
+
+              {/* Who's Available pills */}
+              {!!modalDate && (
+                <>
+                  <div className="border-t border-border/40" />
+                  <AvailableEmployeePills
+                    members={availData?.members ?? []}
+                    storeHours={availData?.storeHours ?? storeHours}
+                    isLoading={availLoading && !availData}
+                    scheduledEmployeeIds={scheduledForPills}
+                    onAdd={handlePillAdd}
+                    showUnavailable={showPillsUnavailable}
+                    onToggleUnavailable={() => setShowPillsUnavailable(v => !v)}
+                  />
+                </>
+              )}
             </div>
           </div>
 
@@ -1900,6 +2254,7 @@ export default function CreateShiftSplitPanel({
                     setExcludedIdxs(new Set());
                     setSelectedActualSchedule(null);
                     setActualFormEdits(null);
+                    setManualShifts([]);
                     onDateChange?.(e.target.value);
                   }}
                 />
