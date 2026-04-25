@@ -1,4 +1,6 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
+import * as SheetPrimitive from "@radix-ui/react-dialog";
+import { cva } from "class-variance-authority";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -42,6 +44,13 @@ interface Props {
   onDelete: (id: string) => void;
 }
 
+const panelVariants = cva(
+  "fixed inset-y-0 right-0 z-40 flex h-full flex-col bg-background border-l shadow-2xl " +
+  "w-[min(26rem,100vw)] " +
+  "transition-transform duration-300 ease-in-out " +
+  "data-[state=open]:translate-x-0 data-[state=closed]:translate-x-full"
+);
+
 function displayName(emp: EmpUser): string {
   return `${emp.firstName || ''} ${emp.lastName || ''}`.trim() || 'Unknown';
 }
@@ -72,31 +81,20 @@ export default function EditShiftPanel({
   const [locationId, setLocationId] = useState('');
   const [description, setDescription] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [isVisible, setIsVisible] = useState(false);
-  const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (schedule) {
-      const st = new Date(schedule.startTime);
-      const et = new Date(schedule.endTime);
-      setUserId(schedule.userId || '');
-      setDate(localDateStr(st));
-      setStartTime(`${pad(st.getHours())}:${pad(st.getMinutes())}`);
-      setEndTime(`${pad(et.getHours())}:${pad(et.getMinutes())}`);
-      setTitle(schedule.title || '');
-      setLocationId(schedule.locationId || '');
-      setDescription(schedule.description || '');
-      setShowDeleteConfirm(false);
-      requestAnimationFrame(() => setIsVisible(true));
-    } else {
-      setIsVisible(false);
-    }
+    if (!schedule) return;
+    const st = new Date(schedule.startTime);
+    const et = new Date(schedule.endTime);
+    setUserId(schedule.userId || '');
+    setDate(localDateStr(st));
+    setStartTime(`${pad(st.getHours())}:${pad(st.getMinutes())}`);
+    setEndTime(`${pad(et.getHours())}:${pad(et.getMinutes())}`);
+    setTitle(schedule.title || '');
+    setLocationId(schedule.locationId || '');
+    setDescription(schedule.description || '');
+    setShowDeleteConfirm(false);
   }, [schedule]);
-
-  const handleClose = () => {
-    setIsVisible(false);
-    setTimeout(onClose, 300);
-  };
 
   const handleSave = () => {
     if (!schedule || !userId || !date) return;
@@ -121,202 +119,211 @@ export default function EditShiftPanel({
     ? new Date(schedule.startTime).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
     : '';
 
-  if (!schedule && !isVisible) return null;
-
   return (
     <>
-      <div
-        ref={panelRef}
-        className={cn(
-          "fixed top-0 right-0 h-full z-40 flex flex-col",
-          "w-[min(26rem,100vw)] bg-background border-l shadow-2xl",
-          "transition-transform duration-300 ease-in-out",
-          isVisible ? "translate-x-0" : "translate-x-full"
-        )}
-        role="dialog"
-        aria-label="Edit Shift"
+      {/*
+        modal={false} → Radix does NOT block pointer events on background content,
+        does NOT set aria-modal, does NOT trap focus. The grid stays fully scrollable
+        and clickable. Clicking outside or pressing Escape still fires onOpenChange(false).
+        No SheetOverlay is rendered, so there is no dark backdrop.
+      */}
+      <SheetPrimitive.Root
+        modal={false}
+        open={!!schedule}
+        onOpenChange={(open) => { if (!open) onClose(); }}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b shrink-0">
-          <div className="flex items-center gap-2 text-base font-semibold">
-            <Calendar className="h-4 w-4 text-primary shrink-0" />
-            Edit Shift
-            {shiftLabel && (
-              <span className="text-sm font-normal text-muted-foreground ml-1">— {shiftLabel}</span>
-            )}
-          </div>
-          <button
-            onClick={handleClose}
-            className="rounded-sm opacity-70 hover:opacity-100 transition-opacity focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-            aria-label="Close"
+        <SheetPrimitive.Portal>
+          {/* No overlay — background grid remains fully interactive */}
+          <SheetPrimitive.Content
+            className={panelVariants()}
+            onPointerDownOutside={(e) => {
+              e.preventDefault();
+              onClose();
+            }}
+            onEscapeKeyDown={() => onClose()}
           >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        {/* Scrollable body */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-5">
-          {/* Employee */}
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium flex items-center gap-1.5">
-              <User className="h-3.5 w-3.5 text-muted-foreground" />
-              Employee
-            </Label>
-            <Select value={userId} onValueChange={setUserId}>
-              <SelectTrigger className="h-9 text-sm">
-                <SelectValue placeholder="Select employee" />
-              </SelectTrigger>
-              <SelectContent>
-                {employees.map(emp => (
-                  <SelectItem key={emp.id} value={emp.id}>
-                    {displayName(emp)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Date */}
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium flex items-center gap-1.5">
-              <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-              Date
-            </Label>
-            <Input
-              type="date"
-              className="h-9 text-sm"
-              value={date}
-              onChange={e => setDate(e.target.value)}
-            />
-          </div>
-
-          {/* Start / End Time */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium flex items-center gap-1.5">
-                <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-                Start
-              </Label>
-              <Input
-                type="time"
-                className="h-9 text-sm"
-                value={startTime}
-                onChange={e => setStartTime(e.target.value)}
-              />
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b shrink-0">
+              <div className="flex items-center gap-2 text-base font-semibold">
+                <Calendar className="h-4 w-4 text-primary shrink-0" />
+                Edit Shift
+                {shiftLabel && (
+                  <span className="text-sm font-normal text-muted-foreground ml-1">— {shiftLabel}</span>
+                )}
+              </div>
+              <SheetPrimitive.Close
+                className="rounded-sm opacity-70 hover:opacity-100 transition-opacity focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+              </SheetPrimitive.Close>
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium flex items-center gap-1.5">
-                <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-                End
-              </Label>
-              <Input
-                type="time"
-                className="h-9 text-sm"
-                value={endTime}
-                onChange={e => setEndTime(e.target.value)}
-              />
+
+            {/* Scrollable body */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-5">
+              {/* Employee */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium flex items-center gap-1.5">
+                  <User className="h-3.5 w-3.5 text-muted-foreground" />
+                  Employee
+                </Label>
+                <Select value={userId} onValueChange={setUserId}>
+                  <SelectTrigger className="h-9 text-sm">
+                    <SelectValue placeholder="Select employee" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {employees.map(emp => (
+                      <SelectItem key={emp.id} value={emp.id}>
+                        {displayName(emp)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Date */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium flex items-center gap-1.5">
+                  <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+                  Date
+                </Label>
+                <Input
+                  type="date"
+                  className="h-9 text-sm"
+                  value={date}
+                  onChange={e => setDate(e.target.value)}
+                />
+              </div>
+
+              {/* Start / End Time */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium flex items-center gap-1.5">
+                    <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                    Start
+                  </Label>
+                  <Input
+                    type="time"
+                    className="h-9 text-sm"
+                    value={startTime}
+                    onChange={e => setStartTime(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium flex items-center gap-1.5">
+                    <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                    End
+                  </Label>
+                  <Input
+                    type="time"
+                    className="h-9 text-sm"
+                    value={endTime}
+                    onChange={e => setEndTime(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {/* Duration hint */}
+              {date && startTime && endTime && (
+                <div className="text-xs text-muted-foreground -mt-2">
+                  {(() => {
+                    const [sh2, sm2] = startTime.split(':').map(Number);
+                    const [eh2, em2] = endTime.split(':').map(Number);
+                    let mins = (eh2 * 60 + em2) - (sh2 * 60 + sm2);
+                    if (mins <= 0) mins += 1440;
+                    const hrs = Math.floor(mins / 60);
+                    const remaining = mins % 60;
+                    return remaining > 0 ? `${hrs}h ${remaining}m shift` : `${hrs}h shift`;
+                  })()}
+                </div>
+              )}
+
+              {/* Role / Title */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium flex items-center gap-1.5">
+                  <Briefcase className="h-3.5 w-3.5 text-muted-foreground" />
+                  Role / Title
+                  <span className="text-muted-foreground font-normal ml-1">(optional)</span>
+                </Label>
+                <Input
+                  className="h-9 text-sm"
+                  placeholder="e.g. Opener, Floor, Closer…"
+                  value={title}
+                  onChange={e => setTitle(e.target.value)}
+                />
+              </div>
+
+              {/* Location */}
+              {locations.length > 0 && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium flex items-center gap-1.5">
+                    <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
+                    Location
+                  </Label>
+                  <Select value={locationId || '__none'} onValueChange={v => setLocationId(v === '__none' ? '' : v)}>
+                    <SelectTrigger className="h-9 text-sm">
+                      <SelectValue placeholder="Select location" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none">No location</SelectItem>
+                      {locations.map(loc => (
+                        <SelectItem key={loc.id} value={loc.id}>
+                          {loc.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {/* Notes */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium flex items-center gap-1.5">
+                  <StickyNote className="h-3.5 w-3.5 text-muted-foreground" />
+                  Notes
+                  <span className="text-muted-foreground font-normal ml-1">(optional)</span>
+                </Label>
+                <Textarea
+                  className="text-sm resize-none min-h-[72px]"
+                  placeholder="Any notes for this shift…"
+                  value={description}
+                  onChange={e => setDescription(e.target.value)}
+                />
+              </div>
             </div>
-          </div>
 
-          {/* Duration hint */}
-          {date && startTime && endTime && (
-            <div className="text-xs text-muted-foreground -mt-2">
-              {(() => {
-                const [sh2, sm2] = startTime.split(':').map(Number);
-                const [eh2, em2] = endTime.split(':').map(Number);
-                let mins = (eh2 * 60 + em2) - (sh2 * 60 + sm2);
-                if (mins <= 0) mins += 1440;
-                const hrs = Math.floor(mins / 60);
-                const remaining = mins % 60;
-                return remaining > 0 ? `${hrs}h ${remaining}m shift` : `${hrs}h shift`;
-              })()}
+            {/* Footer Actions */}
+            <div className="border-t px-5 py-4 flex items-center justify-between gap-3 shrink-0">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                onClick={() => setShowDeleteConfirm(true)}
+                disabled={isDeleting || isUpdating}
+              >
+                {isDeleting
+                  ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                  : <Trash2 className="h-3.5 w-3.5 mr-1.5" />}
+                Delete
+              </Button>
+              <div className="flex items-center gap-2">
+                <Button variant="ghost" size="sm" onClick={onClose} disabled={isUpdating || isDeleting}>
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={handleSave}
+                  disabled={isUpdating || isDeleting || !userId || !date}
+                >
+                  {isUpdating
+                    ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />Saving…</>
+                    : 'Save Changes'}
+                </Button>
+              </div>
             </div>
-          )}
-
-          {/* Role / Title */}
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium flex items-center gap-1.5">
-              <Briefcase className="h-3.5 w-3.5 text-muted-foreground" />
-              Role / Title
-              <span className="text-muted-foreground font-normal ml-1">(optional)</span>
-            </Label>
-            <Input
-              className="h-9 text-sm"
-              placeholder="e.g. Opener, Floor, Closer…"
-              value={title}
-              onChange={e => setTitle(e.target.value)}
-            />
-          </div>
-
-          {/* Location */}
-          {locations.length > 0 && (
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium flex items-center gap-1.5">
-                <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
-                Location
-              </Label>
-              <Select value={locationId || '__none'} onValueChange={v => setLocationId(v === '__none' ? '' : v)}>
-                <SelectTrigger className="h-9 text-sm">
-                  <SelectValue placeholder="Select location" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none">No location</SelectItem>
-                  {locations.map(loc => (
-                    <SelectItem key={loc.id} value={loc.id}>
-                      {loc.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-
-          {/* Notes */}
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium flex items-center gap-1.5">
-              <StickyNote className="h-3.5 w-3.5 text-muted-foreground" />
-              Notes
-              <span className="text-muted-foreground font-normal ml-1">(optional)</span>
-            </Label>
-            <Textarea
-              className="text-sm resize-none min-h-[72px]"
-              placeholder="Any notes for this shift…"
-              value={description}
-              onChange={e => setDescription(e.target.value)}
-            />
-          </div>
-        </div>
-
-        {/* Footer Actions */}
-        <div className="border-t px-5 py-4 flex items-center justify-between gap-3 shrink-0">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-destructive hover:text-destructive hover:bg-destructive/10"
-            onClick={() => setShowDeleteConfirm(true)}
-            disabled={isDeleting || isUpdating}
-          >
-            {isDeleting
-              ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
-              : <Trash2 className="h-3.5 w-3.5 mr-1.5" />}
-            Delete
-          </Button>
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" onClick={handleClose} disabled={isUpdating || isDeleting}>
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              onClick={handleSave}
-              disabled={isUpdating || isDeleting || !userId || !date}
-            >
-              {isUpdating
-                ? <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />Saving…</>
-                : 'Save Changes'}
-            </Button>
-          </div>
-        </div>
-      </div>
+          </SheetPrimitive.Content>
+        </SheetPrimitive.Portal>
+      </SheetPrimitive.Root>
 
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <AlertDialogContent>
