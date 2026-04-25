@@ -121,25 +121,15 @@ export default function EditShiftPanel({
 
   return (
     <>
-      {/*
-        modal={false} → Radix does NOT block pointer events on background content,
-        does NOT set aria-modal, does NOT trap focus. The grid stays fully scrollable
-        and clickable. Clicking outside or pressing Escape still fires onOpenChange(false).
-        No SheetOverlay is rendered, so there is no dark backdrop.
-      */}
       <SheetPrimitive.Root
         modal={false}
         open={!!schedule}
         onOpenChange={(open) => { if (!open) onClose(); }}
       >
         <SheetPrimitive.Portal>
-          {/* No overlay — background grid remains fully interactive */}
           <SheetPrimitive.Content
             className={panelVariants()}
-            onPointerDownOutside={(e) => {
-              e.preventDefault();
-              onClose();
-            }}
+            onPointerDownOutside={() => onClose()}
             onEscapeKeyDown={() => onClose()}
           >
             {/* Header */}
