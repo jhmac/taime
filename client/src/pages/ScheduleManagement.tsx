@@ -27,7 +27,6 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import AvailabilityCommandPanel from "@/components/AvailabilityCommandPanel";
 import SuggestedScheduleReview from "@/components/SuggestedScheduleReview";
 import CreateShiftSplitPanel from "@/components/CreateShiftSplitPanel";
-import EditShiftPanel from "@/components/EditShiftPanel";
 import ScheduleTimelineView, { type ScheduleSubView } from "@/components/ScheduleTimelineView";
 
 interface DayNote {
@@ -727,6 +726,7 @@ export default function ScheduleManagement() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/schedules"] });
       setEditingSchedule(null);
+      setShowCreateShift(false);
       toast({ title: "Deleted", description: "Shift removed." });
     },
     onError: () => {
@@ -992,6 +992,7 @@ export default function ScheduleManagement() {
 
   const openEditShift = (schedule: Schedule) => {
     setEditingSchedule(schedule);
+    setShowCreateShift(true);
   };
 
   const handleAIGenerate = () => {
@@ -1740,10 +1741,10 @@ export default function ScheduleManagement() {
         />
       )}
 
-      {/* Create Shift Split-Panel Dialog — for new shifts only */}
+      {/* Create / Edit Shift Split-Panel Dialog */}
       <CreateShiftSplitPanel
         open={showCreateShift}
-        onOpenChange={(open) => { setShowCreateShift(open); }}
+        onOpenChange={(open) => { setShowCreateShift(open); if (!open) setEditingSchedule(null); }}
         defaultDate={modalDate}
         defaultUserId={createShiftDefaults.userId}
         defaultStartTime={modalStartTime}
@@ -1759,18 +1760,11 @@ export default function ScheduleManagement() {
         autoAssignMutation={autoAssignMutation}
         isAdmin={isAdmin}
         schedules={schedules}
-      />
-
-      {/* Edit Shift Panel — right-side drawer, opens when a card is clicked */}
-      <EditShiftPanel
-        schedule={editingSchedule}
-        onClose={() => setEditingSchedule(null)}
-        employees={activeEmployees}
-        locations={locations}
+        editingSchedule={editingSchedule}
+        onUpdateSchedule={(data) => updateScheduleMutation.mutate({ id: data.id, data })}
+        onDeleteSchedule={(id) => deleteScheduleMutation.mutate(id)}
         isUpdating={updateScheduleMutation.isPending}
         isDeleting={deleteScheduleMutation.isPending}
-        onUpdate={(data) => updateScheduleMutation.mutate({ id: data.id, data })}
-        onDelete={(id) => deleteScheduleMutation.mutate(id)}
       />
 
       {/* Availability Override Dialog */}
