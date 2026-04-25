@@ -456,6 +456,7 @@ function DayTimeline({
   actualShifts?: ActualShiftEntry[];
   onSelectActualShift?: (s: Schedule) => void;
   selectedActualId?: string | null;
+  onActualShiftChange?: (s: Schedule, startTime: string, endTime: string) => void;
 }) {
   const open = storeHours?.open || suggestData?.storeHours?.open || "09:00";
   const close = storeHours?.close || suggestData?.storeHours?.close || "21:00";
@@ -465,6 +466,10 @@ function DayTimeline({
   const containerRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragState>(null);
   const blockClickSuppressRef = useRef(false);
+  type ActualDrag = { idx: number; schedule: Schedule; type: 'top' | 'bottom' | 'move'; offsetPct?: number; initialY?: number; previewStart: string; previewEnd: string };
+  const actualDragRef = useRef<ActualDrag | null>(null);
+  const [actualDragPreview, setActualDragPreview] = useState<{ idx: number; startTime: string; endTime: string } | null>(null);
+  const actualClickSuppressRef = useRef(false);
 
   const minsToStr = (mins: number) =>
     `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
@@ -501,12 +506,52 @@ function DayTimeline({
   }, [onSelectShift]);
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
-    if (!dragRef.current || !containerRef.current || !onShiftEdit) return;
-    const { idx, type } = dragRef.current;
+    if (!containerRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
     const relY = Math.max(0, Math.min(e.clientY - rect.top, rect.height));
     const rawMin = openMin + (relY / rect.height) * totalMin;
     const snapped = Math.round(rawMin / 15) * 15;
+
+    // ── actual-shift drag ──
+    if (actualDragRef.current) {
+      const ad = actualDragRef.current;
+      const { idx, type } = ad;
+      const curStartMin = timeToMin(ad.previewStart);
+      const curEndMin   = timeToMin(ad.previewEnd);
+      if (type === 'bottom') {
+        if (snapped > curStartMin + 15 && snapped <= closeMin) {
+          const newEnd = minsToStr(snapped);
+          ad.previewEnd = newEnd;
+          setActualDragPreview({ idx, startTime: ad.previewStart, endTime: newEnd });
+        }
+      } else if (type === 'top') {
+        if (snapped < curEndMin - 15 && snapped >= openMin) {
+          const newStart = minsToStr(snapped);
+          ad.previewStart = newStart;
+          setActualDragPreview({ idx, startTime: newStart, endTime: ad.previewEnd });
+        }
+      } else if (type === 'move') {
+        const initialY = ad.initialY ?? e.clientY;
+        if (Math.abs(e.clientY - initialY) > 5) {
+          actualClickSuppressRef.current = true;
+          const offsetPct = ad.offsetPct ?? 0;
+          const rawStart = openMin + ((relY / rect.height) - offsetPct) * totalMin;
+          const snappedStart = Math.round(rawStart / 15) * 15;
+          const dur = curEndMin - curStartMin;
+          const clampedStart = Math.max(openMin, Math.min(closeMin - dur, snappedStart));
+          const newStart = minsToStr(clampedStart);
+          const newEnd   = minsToStr(clampedStart + dur);
+          ad.previewStart = newStart;
+          ad.previewEnd   = newEnd;
+          setActualDragPreview({ idx, startTime: newStart, endTime: newEnd });
+        }
+      }
+      return;
+    }
+
+    // ── AI-suggestion drag ──
+    if (!dragRef.current || !onShiftEdit) return;
+    const { idx, type } = dragRef.current;
     const shifts = suggestData?.proposedShifts ?? [];
     const shift = shifts[idx];
     if (!shift) return;
@@ -540,21 +585,38 @@ function DayTimeline({
   }, [openMin, totalMin, closeMin, suggestData, onShiftEdit]);
 
   const handlePointerUp = useCallback(() => {
+    // ── actual-shift drag end ──
+    if (actualDragRef.current) {
+      const wasMove = actualDragRef.current.type === 'move';
+      const schedule = actualDragRef.current.schedule;
+      const preview = actualDragPreview;
+      actualDragRef.current = null;
+      if (preview) {
+        setActualDragPreview(null);
+        onActualShiftChange?.(schedule, preview.startTime, preview.endTime);
+      } else {
+        setActualDragPreview(null);
+      }
+      if (wasMove) {
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          actualClickSuppressRef.current = false;
+        }));
+      }
+      return;
+    }
+    // ── AI-suggestion drag end ──
     const wasDragging = dragRef.current !== null;
     const wasMove = dragRef.current?.type === 'move';
     dragRef.current = null;
     if (wasDragging) onDragEnd?.();
     if (wasMove) {
-      // Click fires after pointerup. handleBlockClick clears the ref on receipt.
-      // Safety net: if the pointer was released outside the element (no click fires),
-      // clear the suppress ref after two animation frames so future clicks aren't blocked.
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           blockClickSuppressRef.current = false;
         });
       });
     }
-  }, [onDragEnd]);
+  }, [actualDragPreview, onActualShiftChange, onDragEnd]);
 
   const hourLabels: number[] = [];
   for (let h = Math.ceil(openMin / 60); h <= Math.floor(closeMin / 60); h++) {
@@ -658,35 +720,93 @@ function DayTimeline({
             </div>
             {/* Actual scheduled shift columns — shown first */}
             {actualShifts?.map((actual, idx) => {
-              const startMin = timeToMin(actual.startTime);
-              const endMin = timeToMin(actual.endTime);
+              const preview = actualDragPreview?.idx === idx ? actualDragPreview : null;
+              const dispStart = preview?.startTime ?? actual.startTime;
+              const dispEnd   = preview?.endTime   ?? actual.endTime;
+              const startMin  = timeToMin(dispStart);
+              const endMin    = timeToMin(dispEnd);
               const topPct = ((Math.max(startMin, openMin) - openMin) / totalMin) * 100;
-              const hPct = ((Math.min(endMin, closeMin) - Math.max(startMin, openMin)) / totalMin) * 100;
+              const hPct   = ((Math.min(endMin, closeMin) - Math.max(startMin, openMin)) / totalMin) * 100;
               if (hPct <= 0) return null;
-              const isActive = selectedActualId === actual.schedule.id;
-              const colorCls = getShiftColor(actual.name);
+              const isActive    = selectedActualId === actual.schedule.id;
+              const isDragging  = !!preview;
+              const colorCls    = getShiftColor(actual.name);
               return (
                 <div key={`actual-${idx}`} className="relative flex-1 min-w-[52px] border-l border-border/20 first:border-l-0 z-10">
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); onSelectActualShift?.(actual.schedule); }}
+                  <div
                     style={{ top: `${topPct}%`, height: `${Math.max(hPct, 3)}%` }}
                     className={cn(
-                      "absolute inset-x-0.5 rounded-md px-1.5 py-0.5 text-left text-white overflow-hidden transition-all",
+                      "absolute inset-x-0.5 rounded-md text-left text-white overflow-hidden select-none",
                       colorCls,
-                      isActive
-                        ? "ring-2 ring-orange-400 ring-offset-1 opacity-100 z-20"
-                        : "opacity-90 hover:opacity-100"
+                      isActive   ? "ring-2 ring-orange-400 ring-offset-1 opacity-100 z-20"
+                               : "opacity-90 hover:opacity-100",
+                      isDragging ? "opacity-100 z-30 shadow-xl cursor-grabbing"
+                               : "cursor-pointer",
                     )}
-                    title={`${actual.name}: ${fmt12(actual.startTime)}–${fmt12(actual.endTime)}`}
+                    title={`${actual.name}: ${fmt12(dispStart)}–${fmt12(dispEnd)}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (actualClickSuppressRef.current) {
+                        actualClickSuppressRef.current = false;
+                        return;
+                      }
+                      onSelectActualShift?.(actual.schedule);
+                    }}
+                    onPointerDown={(e) => {
+                      if (!containerRef.current) return;
+                      const target = e.target as HTMLElement;
+                      if (target.dataset.dragHandle) return; // handled by the handle divs
+                      if (!onActualShiftChange) {
+                        // no drag support: just select
+                        return;
+                      }
+                      const rect = containerRef.current.getBoundingClientRect();
+                      const relY = (e.clientY - rect.top) / rect.height;
+                      const offsetPct = relY - (timeToMin(dispStart) - openMin) / totalMin;
+                      containerRef.current.setPointerCapture(e.pointerId);
+                      actualDragRef.current = { idx, schedule: actual.schedule, type: 'move', offsetPct, initialY: e.clientY, previewStart: dispStart, previewEnd: dispEnd };
+                    }}
                   >
-                    <div className="text-[9px] font-bold truncate leading-tight pt-0.5">{actual.name}</div>
-                    <div className="text-[8px] opacity-80 truncate">{fmt12(actual.startTime)}–{fmt12(actual.endTime)}</div>
-                    <div className="text-[7px] opacity-60 mt-0.5 flex items-center gap-0.5">
-                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-white/70" />
-                      scheduled
+                    {/* Top resize handle */}
+                    <div
+                      data-drag-handle="top"
+                      className="absolute top-0 left-0 right-0 h-2.5 cursor-ns-resize z-10 flex items-center justify-center"
+                      onPointerDown={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (!containerRef.current) return;
+                        containerRef.current.setPointerCapture(e.pointerId);
+                        actualDragRef.current = { idx, schedule: actual.schedule, type: 'top', previewStart: dispStart, previewEnd: dispEnd };
+                      }}
+                    >
+                      <div className="w-5 h-0.5 rounded-full bg-white/40" />
                     </div>
-                  </button>
+                    {/* Content */}
+                    <div className="px-1.5 pt-3 pb-1 pointer-events-none">
+                      <div className="text-[9px] font-bold truncate leading-tight">{actual.name}</div>
+                      <div className="text-[8px] opacity-80 truncate">{fmt12(dispStart)}–{fmt12(dispEnd)}</div>
+                      {!isDragging && (
+                        <div className="text-[7px] opacity-60 mt-0.5 flex items-center gap-0.5">
+                          <span className="inline-block w-1.5 h-1.5 rounded-full bg-white/70" />
+                          scheduled
+                        </div>
+                      )}
+                    </div>
+                    {/* Bottom resize handle */}
+                    <div
+                      data-drag-handle="bottom"
+                      className="absolute bottom-0 left-0 right-0 h-2.5 cursor-ns-resize z-10 flex items-center justify-center"
+                      onPointerDown={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (!containerRef.current) return;
+                        containerRef.current.setPointerCapture(e.pointerId);
+                        actualDragRef.current = { idx, schedule: actual.schedule, type: 'bottom', previewStart: dispStart, previewEnd: dispEnd };
+                      }}
+                    >
+                      <div className="w-5 h-0.5 rounded-full bg-white/40" />
+                    </div>
+                  </div>
                 </div>
               );
             })}
@@ -719,7 +839,7 @@ function DayTimeline({
           </div>
         </div>
       )}
-      {shifts.length > 0 && (
+      {(shifts.length > 0 || (actualShifts?.length ?? 0) > 0) && (
         <div className="flex items-center justify-between mt-1.5">
           <p className="text-[9px] text-muted-foreground">
             Click to select · drag body to move · drag edge to resize
@@ -958,6 +1078,16 @@ export default function CreateShiftSplitPanel({
   const handleDragEnd = useCallback(() => {
     dragActiveRef.current = false;
   }, []);
+
+  // When user drags an actual shift block, update the form times and select that shift
+  const handleActualShiftChange = useCallback((schedule: Schedule, startTime: string, endTime: string) => {
+    // Select this shift for editing if it isn't already
+    if (!editingSchedule || editingSchedule.id !== schedule.id) {
+      onSelectSchedule?.(schedule);
+    }
+    setModalStartTime(startTime);
+    setModalEndTime(endTime);
+  }, [editingSchedule, onSelectSchedule]);
 
   const applySnapshot = useCallback((snapshot: Record<number, ShiftEdit>, currentSelectedIdx: number | null) => {
     editedShiftsRef.current = snapshot;
@@ -1467,6 +1597,7 @@ export default function CreateShiftSplitPanel({
                   actualShifts={dateActualShifts}
                   onSelectActualShift={onSelectSchedule}
                   selectedActualId={editingSchedule?.id}
+                  onActualShiftChange={handleActualShiftChange}
                 />
               </div>
             </div>

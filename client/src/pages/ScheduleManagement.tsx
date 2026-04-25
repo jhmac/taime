@@ -737,10 +737,13 @@ export default function ScheduleManagement() {
       const res = await apiRequest('PATCH', `/api/schedules/${id}`, data);
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (updatedSchedule) => {
       queryClient.invalidateQueries({ queryKey: ["/api/schedules"] });
-      setEditingSchedule(null);
-      setShowCreateShift(false);
+      // Keep panel open so user can continue editing other shifts; update
+      // editingSchedule with the fresh data so the form stays in sync.
+      if (updatedSchedule?.id) {
+        setEditingSchedule(updatedSchedule);
+      }
       toast({ title: "Shift updated", description: "Changes saved." });
     },
     onError: () => {
