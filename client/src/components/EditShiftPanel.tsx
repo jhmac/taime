@@ -11,7 +11,6 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Loader2, Trash2, Calendar, Clock, MapPin, User, StickyNote, Briefcase, X } from "lucide-react";
-import { cn } from "@/lib/utils";
 import type { Schedule } from "@shared/schema";
 
 interface EmpUser {
