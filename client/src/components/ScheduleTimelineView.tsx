@@ -98,6 +98,7 @@ interface Props {
   onEditSchedule: (s: Schedule) => void;
   onCreateShift: (date: string, startTime: string) => void;
   isAdmin: boolean;
+  selectedScheduleId?: string | null;
 }
 
 // Overlap layout
@@ -162,6 +163,7 @@ function ShiftBlock({
   onEdit,
   onDragStart,
   dragState,
+  isSelected,
 }: {
   positioned: PositionedShift;
   user: User | undefined;
@@ -169,6 +171,7 @@ function ShiftBlock({
   onEdit: (s: Schedule) => void;
   onDragStart: (e: React.MouseEvent | React.TouchEvent, s: Schedule, edge: DragEdge) => void;
   dragState: DragState | null;
+  isSelected?: boolean;
 }) {
   const { schedule: s, col, totalCols } = positioned;
   const isDragging = dragState?.scheduleId === s.id;
@@ -197,10 +200,11 @@ function ShiftBlock({
   return (
     <div
       className={cn(
-        "absolute border rounded-md overflow-hidden select-none",
+        "absolute border-2 rounded-md overflow-hidden select-none transition-shadow",
         colors.block, colors.border,
         isDragging && "shadow-lg ring-2 ring-primary/40 z-30",
-        !isDragging && "z-10 hover:z-20 hover:shadow-md",
+        isSelected && !isDragging && "ring-2 ring-white ring-offset-1 shadow-xl z-20 border-white/60",
+        !isDragging && !isSelected && "z-10 hover:z-20 hover:shadow-md",
       )}
       style={{
         top:      `${top}px`,
@@ -254,6 +258,7 @@ function DayColumn({
   dragState,
   onSlotClick,
   isToday,
+  selectedScheduleId,
 }: {
   date: Date;
   shifts: Schedule[];
@@ -264,6 +269,7 @@ function DayColumn({
   dragState: DragState | null;
   onSlotClick: (date: Date, startTime: string) => void;
   isToday: boolean;
+  selectedScheduleId?: string | null;
 }) {
   const totalHeight = TOTAL_HOURS * hourPx;
   const positioned  = useMemo(() => layoutOverlapping(shifts), [shifts]);
@@ -310,6 +316,7 @@ function DayColumn({
           onEdit={onEdit}
           onDragStart={onDragStart}
           dragState={dragState}
+          isSelected={selectedScheduleId === p.schedule.id}
         />
       ))}
     </div>
@@ -342,6 +349,7 @@ function DayView({
   onDragStart,
   dragState,
   onSlotClick,
+  selectedScheduleId,
 }: {
   date: Date;
   schedules: Schedule[];
@@ -350,6 +358,7 @@ function DayView({
   onDragStart: (e: React.MouseEvent | React.TouchEvent, s: Schedule, edge: DragEdge) => void;
   dragState: DragState | null;
   onSlotClick: (date: Date, startTime: string) => void;
+  selectedScheduleId?: string | null;
 }) {
   const dayStr    = formatLocalDate(date);
   const dayShifts = schedules.filter(s => formatLocalDate(new Date(s.startTime)) === dayStr);
@@ -370,6 +379,7 @@ function DayView({
             dragState={dragState}
             onSlotClick={onSlotClick}
             isToday={isToday}
+            selectedScheduleId={selectedScheduleId}
           />
         </div>
       </div>
@@ -386,6 +396,7 @@ function WeekView({
   onDragStart,
   dragState,
   onSlotClick,
+  selectedScheduleId,
 }: {
   weekDates: Date[];
   schedules: Schedule[];
@@ -394,6 +405,7 @@ function WeekView({
   onDragStart: (e: React.MouseEvent | React.TouchEvent, s: Schedule, edge: DragEdge) => void;
   dragState: DragState | null;
   onSlotClick: (date: Date, startTime: string) => void;
+  selectedScheduleId?: string | null;
 }) {
   const today = new Date().toDateString();
 
@@ -432,6 +444,7 @@ function WeekView({
                 dragState={dragState}
                 onSlotClick={onSlotClick}
                 isToday={date.toDateString() === today}
+                selectedScheduleId={selectedScheduleId}
               />
             </div>
           );
@@ -616,6 +629,7 @@ export default function ScheduleTimelineView({
   onEditSchedule,
   onCreateShift,
   isAdmin,
+  selectedScheduleId,
 }: Props) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -889,6 +903,7 @@ export default function ScheduleTimelineView({
           onDragStart={handleDragStart}
           dragState={dragState}
           onSlotClick={handleSlotClick}
+          selectedScheduleId={selectedScheduleId}
         />
       )}
       {effectiveSubView === 'week' && (
@@ -900,6 +915,7 @@ export default function ScheduleTimelineView({
           onDragStart={handleDragStart}
           dragState={dragState}
           onSlotClick={handleSlotClick}
+          selectedScheduleId={selectedScheduleId}
         />
       )}
       {effectiveSubView === 'month' && (

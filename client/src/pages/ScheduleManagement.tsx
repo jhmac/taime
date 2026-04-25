@@ -1333,6 +1333,7 @@ export default function ScheduleManagement() {
               setShowCreateShift(true);
             }}
             isAdmin={isAdmin}
+            selectedScheduleId={editingSchedule?.id ?? null}
           />
         )}
 

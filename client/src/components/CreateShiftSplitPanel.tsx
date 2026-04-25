@@ -1707,17 +1707,27 @@ export default function CreateShiftSplitPanel({
                     />
                   </SelectTrigger>
                   <SelectContent>
-                    {modalEmployees.length === 0 ? (
-                      <div className="py-2 px-3 text-xs text-muted-foreground">
-                        No employees with availability. Turn off the filter to see all.
-                      </div>
-                    ) : (
-                      modalEmployees.map((user) => (
+                    {(() => {
+                      // When editing a saved shift, always include the currently-assigned
+                      // employee even if the availability filter would hide them.
+                      const base = filterByAvailability ? modalEmployees : employees;
+                      const list =
+                        editingSchedule && selectedUserId && !base.some((e) => e.id === selectedUserId)
+                          ? [...base, ...employees.filter((e) => e.id === selectedUserId)]
+                          : base;
+                      if (list.length === 0) {
+                        return (
+                          <div className="py-2 px-3 text-xs text-muted-foreground">
+                            No employees with availability. Turn off the filter to see all.
+                          </div>
+                        );
+                      }
+                      return list.map((user) => (
                         <SelectItem key={user.id} value={user.id}>
                           {user.firstName} {user.lastName}
                         </SelectItem>
-                      ))
-                    )}
+                      ));
+                    })()}
                   </SelectContent>
                 </Select>
               </div>
@@ -1817,8 +1827,8 @@ export default function CreateShiftSplitPanel({
                 />
               </div>
 
-              {/* AI Auto-Assign */}
-              {!isEditingBlock && (
+              {/* AI Auto-Assign — only when creating new shifts, not when editing a saved one */}
+              {!isEditingBlock && !editingSchedule && (
                 <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5 space-y-2">
                   <p className="text-[11px] font-medium text-primary flex items-center gap-1.5">
                     <Wand2 className="h-3 w-3" />
