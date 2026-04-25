@@ -38,16 +38,16 @@ function colorKeyFromId(id: string): ColorKey {
 }
 
 const COLOR_CLASSES: Record<ColorKey, { block: string; text: string; border: string }> = {
-  violet:  { block:'bg-violet-100 dark:bg-violet-900/50',  text:'text-violet-800 dark:text-violet-200',  border:'border-violet-300 dark:border-violet-700' },
-  blue:    { block:'bg-blue-100 dark:bg-blue-900/50',      text:'text-blue-800 dark:text-blue-200',      border:'border-blue-300 dark:border-blue-700' },
-  emerald: { block:'bg-emerald-100 dark:bg-emerald-900/50',text:'text-emerald-800 dark:text-emerald-200',border:'border-emerald-300 dark:border-emerald-700' },
-  amber:   { block:'bg-amber-100 dark:bg-amber-900/50',    text:'text-amber-800 dark:text-amber-200',    border:'border-amber-300 dark:border-amber-700' },
-  rose:    { block:'bg-rose-100 dark:bg-rose-900/50',      text:'text-rose-800 dark:text-rose-200',      border:'border-rose-300 dark:border-rose-700' },
-  cyan:    { block:'bg-cyan-100 dark:bg-cyan-900/50',      text:'text-cyan-800 dark:text-cyan-200',      border:'border-cyan-300 dark:border-cyan-700' },
-  pink:    { block:'bg-pink-100 dark:bg-pink-900/50',      text:'text-pink-800 dark:text-pink-200',      border:'border-pink-300 dark:border-pink-700' },
-  indigo:  { block:'bg-indigo-100 dark:bg-indigo-900/50',  text:'text-indigo-800 dark:text-indigo-200',  border:'border-indigo-300 dark:border-indigo-700' },
-  teal:    { block:'bg-teal-100 dark:bg-teal-900/50',      text:'text-teal-800 dark:text-teal-200',      border:'border-teal-300 dark:border-teal-700' },
-  orange:  { block:'bg-orange-100 dark:bg-orange-900/50',  text:'text-orange-800 dark:text-orange-200',  border:'border-orange-300 dark:border-orange-700' },
+  violet:  { block:'bg-violet-500 dark:bg-violet-600', text:'text-white', border:'border-violet-600 dark:border-violet-500' },
+  blue:    { block:'bg-blue-500 dark:bg-blue-600',     text:'text-white', border:'border-blue-600 dark:border-blue-500' },
+  emerald: { block:'bg-emerald-500 dark:bg-emerald-600',text:'text-white', border:'border-emerald-600 dark:border-emerald-500' },
+  amber:   { block:'bg-amber-500 dark:bg-amber-600',   text:'text-white', border:'border-amber-600 dark:border-amber-500' },
+  rose:    { block:'bg-rose-500 dark:bg-rose-600',     text:'text-white', border:'border-rose-600 dark:border-rose-500' },
+  cyan:    { block:'bg-cyan-500 dark:bg-cyan-600',     text:'text-white', border:'border-cyan-600 dark:border-cyan-500' },
+  pink:    { block:'bg-pink-500 dark:bg-pink-600',     text:'text-white', border:'border-pink-600 dark:border-pink-500' },
+  indigo:  { block:'bg-indigo-500 dark:bg-indigo-600', text:'text-white', border:'border-indigo-600 dark:border-indigo-500' },
+  teal:    { block:'bg-teal-500 dark:bg-teal-600',     text:'text-white', border:'border-teal-600 dark:border-teal-500' },
+  orange:  { block:'bg-orange-500 dark:bg-orange-600', text:'text-white', border:'border-orange-600 dark:border-orange-500' },
 };
 
 function getColors(userId: string) {

@@ -439,6 +439,7 @@ function DayTimeline({
   actualShifts,
   onSelectActualShift,
   selectedActualId,
+  onActualShiftChange,
 }: {
   suggestData: SuggestData | null | undefined;
   isLoading: boolean;
