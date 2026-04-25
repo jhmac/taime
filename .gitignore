@@ -18,3 +18,5 @@ taime-release.keystore
 # Firebase credential files — contain sensitive server keys
 android/app/google-services.json
 ios/App/GoogleService-Info.plist
+
+.git.backup.*
