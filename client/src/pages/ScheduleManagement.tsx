@@ -991,7 +991,17 @@ export default function ScheduleManagement() {
   };
 
   const openEditShift = (schedule: Schedule) => {
+    const st = new Date(schedule.startTime);
+    const et = new Date(schedule.endTime);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const dateStr = `${st.getFullYear()}-${pad(st.getMonth() + 1)}-${pad(st.getDate())}`;
+    const startStr = `${pad(st.getHours())}:${pad(st.getMinutes())}`;
+    const endStr = `${pad(et.getHours())}:${pad(et.getMinutes())}`;
     setEditingSchedule(schedule);
+    setCreateShiftDefaults({ userId: schedule.userId, date: dateStr });
+    setModalDate(dateStr);
+    setModalStartTime(startStr);
+    setModalEndTime(endStr);
     setShowCreateShift(true);
   };
 

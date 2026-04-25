@@ -994,7 +994,7 @@ export default function CreateShiftSplitPanel({
       editedShiftsRef.current = {};
       dragActiveRef.current = false;
     }
-  }, [open, defaultDate, defaultUserId, defaultStartTime, defaultEndTime]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // When editing an existing saved schedule, pre-fill ALL form fields with its data
   useEffect(() => {
@@ -1446,9 +1446,10 @@ export default function CreateShiftSplitPanel({
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (editingSchedule && onUpdateSchedule) {
+      const effectiveUserId = selectedUserId || editingSchedule.userId;
       onUpdateSchedule({
         id: editingSchedule.id,
-        userId: selectedUserId,
+        userId: effectiveUserId,
         startTime: new Date(`${modalDate}T${modalStartTime}`),
         endTime: new Date(`${modalDate}T${modalEndTime}`),
         title: modalTitle || null,
@@ -1848,7 +1849,7 @@ export default function CreateShiftSplitPanel({
                       setActualFormEdits(prev => prev ? { ...prev, userId: v } : { startTime: modalStartTime, endTime: modalEndTime, userId: v });
                     }
                   }}
-                  required
+                  required={!editingSchedule && !isActualEditing}
                 >
                   <SelectTrigger className="h-8">
                     <SelectValue
