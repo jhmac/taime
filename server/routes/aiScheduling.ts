@@ -547,6 +547,17 @@ export function registerAiSchedulingRoutes(app: Express, storage: IStorage, isAu
 
       const prompt = `You are a workforce scheduling AI that ONLY outputs valid JSON. No markdown, no explanations, no text before or after the JSON object.
 
+SCHEDULING PRINCIPLES (core rules — apply these to every schedule):
+- Coverage priority: staffing levels are driven by revenue projections mapped to staffing tiers. Always meet the required headcount per shift block before considering fairness or preferences.
+- Rest gaps: never schedule the same employee with fewer than 10 hours between the end of one shift and the start of the next.
+- Role sequencing: opening shifts require at least one Opener or Key Holder; closing shifts require at least one Closer or Key Holder.
+- No clopening: do not assign an employee to a closing shift on day N and an opening shift on day N+1.
+- New Hire pairing: any New Hire on a shift must share that shift with at least one Trainer.
+- Target-hours priority: full-time employees (those with targetWeeklyHours set) must receive enough shifts to meet their weekly target before part-timers receive extra shifts.
+- Fairness: distribute undesirable shifts (early opens, late closes, weekends) as evenly as possible across eligible employees over the week.
+- Labor cost guardrail: target 15–25% of projected daily revenue in labor cost. Warn if a day's scheduled labor would exceed 30% of projected revenue.
+- Composite scoring tiebreaker: when multiple employees are equally eligible, rank by composite score — availability overlap (40%), 90-day performance score (40%), hours remaining toward weekly target (20%).
+
 DATA:
 
 SHIFT BLOCKS: ${JSON.stringify(shiftBlocks.map((b: any) => ({ name: b.name, start: b.startTime, end: b.endTime })))}
