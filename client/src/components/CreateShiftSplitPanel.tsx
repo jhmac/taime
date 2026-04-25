@@ -440,6 +440,7 @@ function DayTimeline({
   onSelectActualShift,
   selectedActualId,
   onActualShiftChange,
+  onDeleteActualShift,
 }: {
   suggestData: SuggestData | null | undefined;
   isLoading: boolean;
@@ -458,6 +459,7 @@ function DayTimeline({
   onSelectActualShift?: (s: Schedule) => void;
   selectedActualId?: string | null;
   onActualShiftChange?: (s: Schedule, startTime: string, endTime: string) => void;
+  onDeleteActualShift?: (s: Schedule) => void;
 }) {
   const open = storeHours?.open || suggestData?.storeHours?.open || "09:00";
   const close = storeHours?.close || suggestData?.storeHours?.close || "21:00";
@@ -737,7 +739,7 @@ function DayTimeline({
                   <div
                     style={{ top: `${topPct}%`, height: `${Math.max(hPct, 3)}%` }}
                     className={cn(
-                      "absolute inset-x-0.5 rounded-md text-left text-white overflow-hidden select-none",
+                      "absolute inset-x-0.5 rounded-md text-left text-white overflow-hidden select-none group/actual",
                       colorCls,
                       isActive   ? "ring-2 ring-orange-400 ring-offset-1 opacity-100 z-20"
                                : "opacity-90 hover:opacity-100",
@@ -807,6 +809,21 @@ function DayTimeline({
                     >
                       <div className="w-5 h-0.5 rounded-full bg-white/40" />
                     </div>
+                    {/* Hover X — delete this shift */}
+                    {onDeleteActualShift && !isDragging && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteActualShift(actual.schedule);
+                        }}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        className="absolute top-0.5 right-0.5 hidden group-hover/actual:flex items-center justify-center w-4 h-4 rounded-full bg-black/40 hover:bg-red-500/90 text-white z-30 transition-colors"
+                        title="Delete shift"
+                      >
+                        <X className="h-2.5 w-2.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
               );
@@ -901,6 +918,8 @@ export default function CreateShiftSplitPanel({
   const [redoStack, setRedoStack] = useState<Record<number, ShiftEdit>[]>([]);
   const [dialogSize, setDialogSize] = useState<DialogSize>('normal');
   const [dialogDims, setDialogDims] = useState<{ width: number; height: number } | null>(null);
+  const [selectedActualSchedule, setSelectedActualSchedule] = useState<Schedule | null>(null);
+  const [actualFormEdits, setActualFormEdits] = useState<{ startTime: string; endTime: string; userId: string } | null>(null);
   const [pendingCorrectionWarning, setPendingCorrectionWarning] = useState<{
     historicalDate: string;
     totalRevenue: number;
@@ -934,6 +953,19 @@ export default function CreateShiftSplitPanel({
         return { schedule: s, name, startTime, endTime };
       });
   }, [schedules, modalDate, employees]);
+  // Live preview: overlay any in-progress form edits onto the selected actual shift card
+  const liveActualShifts = useMemo(() => {
+    if (!selectedActualSchedule || !actualFormEdits) return dateActualShifts;
+    return dateActualShifts.map((actual) => {
+      if (actual.schedule.id !== selectedActualSchedule.id) return actual;
+      const user = employees.find((e) => e.id === actualFormEdits.userId);
+      const name = user
+        ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || actual.name
+        : actual.name;
+      return { ...actual, name, startTime: actualFormEdits.startTime, endTime: actualFormEdits.endTime };
+    });
+  }, [dateActualShifts, selectedActualSchedule, actualFormEdits, employees]);
+
   const suggestDataRef = useRef<SuggestData | undefined>(undefined);
 
   useEffect(() => {
@@ -952,6 +984,8 @@ export default function CreateShiftSplitPanel({
       setModalTitle('');
       setModalLocationId(locations[0]?.id ?? '');
       setModalNotes('');
+      setSelectedActualSchedule(null);
+      setActualFormEdits(null);
       forceRegenRef.current = false;
     } else {
       // Clear undo/redo history immediately when dialog closes
@@ -1080,15 +1114,22 @@ export default function CreateShiftSplitPanel({
     dragActiveRef.current = false;
   }, []);
 
-  // When user drags an actual shift block, update the form times and select that shift
+  // When user drags an actual shift block, select it and update the form times
   const handleActualShiftChange = useCallback((schedule: Schedule, startTime: string, endTime: string) => {
-    // Select this shift for editing if it isn't already
-    if (!editingSchedule || editingSchedule.id !== schedule.id) {
-      onSelectSchedule?.(schedule);
-    }
+    const st = new Date(schedule.startTime);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const dateStr = `${st.getFullYear()}-${pad(st.getMonth() + 1)}-${pad(st.getDate())}`;
+    setSelectedActualSchedule(schedule);
+    setActualFormEdits({ startTime, endTime, userId: schedule.userId });
+    setModalDate(dateStr);
     setModalStartTime(startTime);
     setModalEndTime(endTime);
-  }, [editingSchedule, onSelectSchedule]);
+    setSelectedUserId(schedule.userId);
+    setModalTitle(schedule.title ?? '');
+    setModalLocationId(schedule.locationId ?? locations[0]?.id ?? '');
+    setModalNotes(schedule.description ?? '');
+    setSelectedShiftIdx(null);
+  }, [locations]);
 
   const applySnapshot = useCallback((snapshot: Record<number, ShiftEdit>, currentSelectedIdx: number | null) => {
     editedShiftsRef.current = snapshot;
@@ -1230,6 +1271,46 @@ export default function CreateShiftSplitPanel({
     },
   });
 
+  // Mutations to update / delete an existing scheduled shift inline
+  const updateActualMutation = useMutation({
+    mutationFn: async (data: {
+      id: string;
+      userId: string;
+      startTime: Date;
+      endTime: Date;
+      title?: string | null;
+      locationId?: string | null;
+      description?: string | null;
+    }) => {
+      const res = await apiRequest("PATCH", `/api/schedules/${data.id}`, data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/schedules"] });
+      setSelectedActualSchedule(null);
+      setActualFormEdits(null);
+      toast({ title: "Shift updated", description: "Changes saved to the schedule." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to update shift.", variant: "destructive" });
+    },
+  });
+
+  const deleteActualMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return apiRequest("DELETE", `/api/schedules/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/schedules"] });
+      setSelectedActualSchedule(null);
+      setActualFormEdits(null);
+      toast({ title: "Shift deleted", description: "The scheduled shift has been removed." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to delete shift.", variant: "destructive" });
+    },
+  });
+
   // Mutation to correct a historical revenue total
   const correctRevenueMutation = useMutation({
     mutationFn: async ({ historicalDate, totalRevenue, confirmed }: { historicalDate: string; totalRevenue: number; confirmed?: boolean }) => {
@@ -1282,7 +1363,6 @@ export default function CreateShiftSplitPanel({
 
   const handleSelectShift = (shift: ProposedShift, idx: number) => {
     if (idx === selectedShiftIdx) {
-      // Deselect
       setSelectedShiftIdx(null);
       return;
     }
@@ -1290,7 +1370,55 @@ export default function CreateShiftSplitPanel({
     setSelectedUserId(shift.employeeId);
     setModalStartTime(shift.startTime);
     setModalEndTime(shift.endTime);
+    // Clear any actual-shift selection
+    setSelectedActualSchedule(null);
+    setActualFormEdits(null);
   };
+
+  const handleSelectActualShift = useCallback((schedule: Schedule) => {
+    if (selectedActualSchedule?.id === schedule.id) {
+      // Deselect
+      setSelectedActualSchedule(null);
+      setActualFormEdits(null);
+      return;
+    }
+    const st = new Date(schedule.startTime);
+    const et = new Date(schedule.endTime);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const dateStr = `${st.getFullYear()}-${pad(st.getMonth() + 1)}-${pad(st.getDate())}`;
+    const startStr = `${pad(st.getHours())}:${pad(st.getMinutes())}`;
+    const endStr   = `${pad(et.getHours())}:${pad(et.getMinutes())}`;
+    setSelectedActualSchedule(schedule);
+    setActualFormEdits({ startTime: startStr, endTime: endStr, userId: schedule.userId });
+    setModalDate(dateStr);
+    setModalStartTime(startStr);
+    setModalEndTime(endStr);
+    setSelectedUserId(schedule.userId);
+    setModalTitle(schedule.title ?? '');
+    setModalLocationId(schedule.locationId ?? locations[0]?.id ?? '');
+    setModalNotes(schedule.description ?? '');
+    setSelectedShiftIdx(null);
+    if (onDateChange) onDateChange(dateStr);
+  }, [selectedActualSchedule, locations, onDateChange]);
+
+  const handleSaveActual = useCallback(() => {
+    if (!selectedActualSchedule) return;
+    const [y, mo, d] = modalDate.split('-').map(Number);
+    const [sh, sm] = modalStartTime.split(':').map(Number);
+    const [eh, em] = modalEndTime.split(':').map(Number);
+    const startDate = new Date(y, mo - 1, d, sh, sm, 0, 0);
+    const endDate   = new Date(y, mo - 1, d, eh, em, 0, 0);
+    if (endDate <= startDate) endDate.setDate(endDate.getDate() + 1);
+    updateActualMutation.mutate({
+      id: selectedActualSchedule.id,
+      userId: selectedUserId,
+      startTime: startDate,
+      endTime: endDate,
+      title: modalTitle || null,
+      locationId: modalLocationId || null,
+      description: modalNotes || null,
+    });
+  }, [selectedActualSchedule, modalDate, modalStartTime, modalEndTime, selectedUserId, modalTitle, modalLocationId, modalNotes, updateActualMutation]);
 
   const handleSaveShiftEdit = () => {
     if (selectedShiftIdx === null) return;
@@ -1377,6 +1505,7 @@ export default function CreateShiftSplitPanel({
 
   const selectedShift = selectedShiftIdx !== null ? proposedShifts[selectedShiftIdx] : null;
   const isEditingBlock = selectedShiftIdx !== null && selectedShift !== undefined;
+  const isActualEditing = selectedActualSchedule !== null;
 
   const dialogWidthClass =
     dialogSize === 'full'
@@ -1595,10 +1724,11 @@ export default function CreateShiftSplitPanel({
                   onShiftEdit={handleShiftEdit}
                   onDragStart={handleDragStart}
                   onDragEnd={handleDragEnd}
-                  actualShifts={dateActualShifts}
-                  onSelectActualShift={onSelectSchedule}
-                  selectedActualId={editingSchedule?.id}
+                  actualShifts={liveActualShifts}
+                  onSelectActualShift={handleSelectActualShift}
+                  selectedActualId={selectedActualSchedule?.id}
                   onActualShiftChange={handleActualShiftChange}
+                  onDeleteActualShift={(s) => deleteActualMutation.mutate(s.id)}
                 />
               </div>
             </div>
@@ -1606,16 +1736,33 @@ export default function CreateShiftSplitPanel({
 
           {/* ── RIGHT PANEL ── */}
           <div className="md:w-[45%] flex flex-col min-h-0 overflow-y-auto">
-            {/* Edit mode banner when a block is selected */}
-            {isEditingBlock && (
+            {/* Edit mode banner when an AI block or actual shift is selected */}
+            {(isEditingBlock || isActualEditing) && (
               <div className="px-4 pt-3 pb-0 flex-shrink-0">
-                <div className="flex items-center justify-between rounded-lg border border-primary/30 bg-primary/5 px-3 py-2">
-                  <span className="text-xs font-medium text-primary flex items-center gap-1.5">
+                <div className={cn(
+                  "flex items-center justify-between rounded-lg border px-3 py-2",
+                  isActualEditing
+                    ? "border-orange-400/40 bg-orange-50 dark:bg-orange-900/20"
+                    : "border-primary/30 bg-primary/5"
+                )}>
+                  <span className={cn(
+                    "text-xs font-medium flex items-center gap-1.5",
+                    isActualEditing ? "text-orange-600 dark:text-orange-400" : "text-primary"
+                  )}>
                     <Pencil className="h-3 w-3" />
-                    Editing {selectedShift.employeeName}&apos;s shift
+                    {isActualEditing
+                      ? `Editing ${employees.find(e => e.id === (actualFormEdits?.userId ?? selectedActualSchedule?.userId))?.firstName ?? ''}'s scheduled shift`
+                      : `Editing ${selectedShift!.employeeName}'s shift`}
                   </span>
                   <button
-                    onClick={() => setSelectedShiftIdx(null)}
+                    onClick={() => {
+                      if (isActualEditing) {
+                        setSelectedActualSchedule(null);
+                        setActualFormEdits(null);
+                      } else {
+                        setSelectedShiftIdx(null);
+                      }
+                    }}
                     className="text-muted-foreground hover:text-foreground"
                     title="Cancel edit"
                   >
@@ -1653,7 +1800,11 @@ export default function CreateShiftSplitPanel({
             )}
 
             <form
-              onSubmit={isEditingBlock ? (e) => { e.preventDefault(); handleSaveShiftEdit(); } : handleSubmit}
+              onSubmit={
+                isEditingBlock ? (e) => { e.preventDefault(); handleSaveShiftEdit(); }
+                : isActualEditing ? (e) => { e.preventDefault(); handleSaveActual(); }
+                : handleSubmit
+              }
               className="px-4 py-3 space-y-3 flex-1"
             >
               {/* Availability filter toggle */}
@@ -1693,6 +1844,8 @@ export default function CreateShiftSplitPanel({
                       const emp = employees.find((e) => e.id === v);
                       const empName = emp ? `${emp.firstName ?? ""} ${emp.lastName ?? ""}`.trim() : "";
                       handleShiftEdit(selectedShiftIdx!, { employeeId: v, employeeName: empName });
+                    } else if (isActualEditing) {
+                      setActualFormEdits(prev => prev ? { ...prev, userId: v } : { startTime: modalStartTime, endTime: modalEndTime, userId: v });
                     }
                   }}
                   required
@@ -1744,6 +1897,8 @@ export default function CreateShiftSplitPanel({
                     setModalDate(e.target.value);
                     setSelectedShiftIdx(null);
                     setExcludedIdxs(new Set());
+                    setSelectedActualSchedule(null);
+                    setActualFormEdits(null);
                     onDateChange?.(e.target.value);
                   }}
                 />
@@ -1762,6 +1917,8 @@ export default function CreateShiftSplitPanel({
                       setModalStartTime(e.target.value);
                       if (isEditingBlock) {
                         handleShiftEdit(selectedShiftIdx!, { startTime: e.target.value });
+                      } else if (isActualEditing) {
+                        setActualFormEdits(prev => prev ? { ...prev, startTime: e.target.value } : { startTime: e.target.value, endTime: modalEndTime, userId: selectedUserId });
                       }
                     }}
                   />
@@ -1778,6 +1935,8 @@ export default function CreateShiftSplitPanel({
                       setModalEndTime(e.target.value);
                       if (isEditingBlock) {
                         handleShiftEdit(selectedShiftIdx!, { endTime: e.target.value });
+                      } else if (isActualEditing) {
+                        setActualFormEdits(prev => prev ? { ...prev, endTime: e.target.value } : { startTime: modalStartTime, endTime: e.target.value, userId: selectedUserId });
                       }
                     }}
                   />
@@ -1862,8 +2021,23 @@ export default function CreateShiftSplitPanel({
               )}
 
               <div className="flex justify-between gap-2 pt-1 pb-2">
-                {/* Delete button — only when editing an existing saved schedule */}
-                {editingSchedule && onDeleteSchedule ? (
+                {/* Delete button — actual shift or existing saved schedule */}
+                {isActualEditing ? (
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    disabled={deleteActualMutation.isPending}
+                    onClick={() => deleteActualMutation.mutate(selectedActualSchedule!.id)}
+                    className="gap-1.5"
+                  >
+                    {deleteActualMutation.isPending ? (
+                      <><Loader2 className="h-3 w-3 animate-spin" />Deleting…</>
+                    ) : (
+                      <><Trash2 className="h-3 w-3" />Delete</>
+                    )}
+                  </Button>
+                ) : editingSchedule && onDeleteSchedule ? (
                   <Button
                     type="button"
                     variant="destructive"
@@ -1885,9 +2059,13 @@ export default function CreateShiftSplitPanel({
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() => isEditingBlock ? setSelectedShiftIdx(null) : onOpenChange(false)}
+                    onClick={() => {
+                      if (isEditingBlock) setSelectedShiftIdx(null);
+                      else if (isActualEditing) { setSelectedActualSchedule(null); setActualFormEdits(null); }
+                      else onOpenChange(false);
+                    }}
                   >
-                    {isEditingBlock ? "Deselect" : "Cancel"}
+                    {(isEditingBlock || isActualEditing) ? "Deselect" : "Cancel"}
                   </Button>
                   {isEditingBlock ? (
                     <Button
@@ -1898,6 +2076,20 @@ export default function CreateShiftSplitPanel({
                       className="gap-1.5"
                     >
                       {saveShiftMutation.isPending ? (
+                        <><Loader2 className="h-3 w-3 animate-spin" />Saving…</>
+                      ) : (
+                        <><Save className="h-3 w-3" />Save Changes</>
+                      )}
+                    </Button>
+                  ) : isActualEditing ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={updateActualMutation.isPending}
+                      onClick={handleSaveActual}
+                      className="gap-1.5"
+                    >
+                      {updateActualMutation.isPending ? (
                         <><Loader2 className="h-3 w-3 animate-spin" />Saving…</>
                       ) : (
                         <><Save className="h-3 w-3" />Save Changes</>
