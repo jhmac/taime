@@ -1767,6 +1767,8 @@ export default function ScheduleManagement() {
         isUpdating={updateScheduleMutation.isPending}
         isDeleting={deleteScheduleMutation.isPending}
         onAddNewShift={() => { setEditingSchedule(null); }}
+        schedules={schedules}
+        onSelectSchedule={openEditShift}
       />
 
       {/* Availability Override Dialog */}

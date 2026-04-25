@@ -109,6 +109,8 @@ interface Props {
   isUpdating?: boolean;
   isDeleting?: boolean;
   onAddNewShift?: () => void;
+  schedules?: Schedule[];
+  onSelectSchedule?: (schedule: Schedule) => void;
 }
 
 function fmt12(t: string) {
@@ -698,6 +700,8 @@ export default function CreateShiftSplitPanel({
   isUpdating = false,
   isDeleting = false,
   onAddNewShift,
+  schedules,
+  onSelectSchedule,
 }: Props) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -726,6 +730,27 @@ export default function CreateShiftSplitPanel({
   const resizeGripRef = useRef<{ startX: number; startY: number; startW: number; startH: number } | null>(null);
   const dragActiveRef = useRef(false);
   const editedShiftsRef = useRef<Record<number, ShiftEdit>>({});
+
+  const dateActualShifts = useMemo(() => {
+    if (!schedules || !modalDate) return [];
+    return schedules
+      .filter(s => {
+        const d = new Date(s.startTime);
+        const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        return dateStr === modalDate;
+      })
+      .map(s => {
+        const user = employees.find(e => e.id === s.userId);
+        const name = user
+          ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || (user as any).username || 'Unknown'
+          : 'Unknown';
+        const st = new Date(s.startTime);
+        const et = new Date(s.endTime);
+        const startTime = `${String(st.getHours()).padStart(2, '0')}:${String(st.getMinutes()).padStart(2, '0')}`;
+        const endTime = `${String(et.getHours()).padStart(2, '0')}:${String(et.getMinutes()).padStart(2, '0')}`;
+        return { schedule: s, name, startTime, endTime };
+      });
+  }, [schedules, modalDate, employees]);
   const suggestDataRef = useRef<SuggestData | undefined>(undefined);
 
   useEffect(() => {
@@ -1355,6 +1380,46 @@ export default function CreateShiftSplitPanel({
                 : undefined}
                 isCorrecting={correctRevenueMutation.isPending}
               />
+
+              {/* Scheduled Shifts for this date */}
+              {dateActualShifts.length > 0 && (
+                <div onClick={(e) => e.stopPropagation()}>
+                  <div className="text-[11px] font-medium text-muted-foreground mb-2 flex items-center gap-1">
+                    <Clock className="h-3 w-3 text-orange-500" />
+                    <span>Scheduled</span>
+                    <span className="ml-1 text-foreground font-semibold">({dateActualShifts.length})</span>
+                  </div>
+                  <div className="space-y-1.5">
+                    {dateActualShifts.map(({ schedule, name, startTime, endTime }) => {
+                      const isActive = editingSchedule?.id === schedule.id;
+                      const colorClass = getShiftColor(name);
+                      return (
+                        <button
+                          key={schedule.id}
+                          type="button"
+                          onClick={() => onSelectSchedule?.(schedule)}
+                          className={cn(
+                            "w-full text-left flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs transition-all border",
+                            isActive
+                              ? "ring-2 ring-orange-400 bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800"
+                              : "bg-muted/40 hover:bg-muted/70 border-transparent hover:border-border/50"
+                          )}
+                        >
+                          <span className={cn("w-2.5 h-2.5 rounded-full flex-shrink-0", colorClass)} />
+                          <span className="font-medium flex-1 truncate">{name}</span>
+                          <span className="text-muted-foreground whitespace-nowrap">
+                            {fmt12(startTime)}–{fmt12(endTime)}
+                          </span>
+                          {isActive
+                            ? <Pencil className="h-3 w-3 text-orange-500 flex-shrink-0" />
+                            : <Pencil className="h-3 w-3 text-muted-foreground/40 flex-shrink-0" />
+                          }
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* Divider */}
               <div className="border-t border-border/40" />
