@@ -742,6 +742,7 @@ export default function ScheduleManagement() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/schedules"] });
       setEditingSchedule(null);
+      setShowCreateShift(false);
       toast({ title: "Shift updated", description: "Changes saved." });
     },
     onError: () => {
