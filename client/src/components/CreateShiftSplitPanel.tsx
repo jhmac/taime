@@ -1745,13 +1745,22 @@ export default function CreateShiftSplitPanel({
     onSuccess: async (response: any) => {
       const result = await response.json();
       const skipped = pendingSkippedCountRef.current;
-      queryClient.invalidateQueries({ queryKey: ["/api/schedules"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/schedules/today-availability"] });
+      pendingSkippedCountRef.current = 0;
+      // Force a fresh fetch (not just mark stale) so the underlying schedule grid
+      // updates immediately with the new shifts before the modal closes. Awaiting
+      // the refetch guarantees the user lands back on a populated grid.
+      await Promise.all([
+        queryClient.refetchQueries({ queryKey: ["/api/schedules"], type: 'active' }),
+        queryClient.refetchQueries({ queryKey: ["/api/schedules/today-availability"], type: 'active' }),
+      ]);
+      // Also clear pending manual draft shifts so a subsequent panel open doesn't show
+      // them as "still pending" alongside the now-persisted versions.
+      setManualShifts([]);
       toast({
         title: "Schedule Approved",
         description: skipped > 0
-          ? `${result.schedulesCreated} shift${result.schedulesCreated !== 1 ? "s" : ""} created, ${skipped} blank shift${skipped !== 1 ? "s" : ""} skipped.`
-          : `${result.schedulesCreated} shift${result.schedulesCreated !== 1 ? "s" : ""} created.`,
+          ? `${result.schedulesCreated} shift${result.schedulesCreated !== 1 ? "s" : ""} added to schedule, ${skipped} blank shift${skipped !== 1 ? "s" : ""} skipped.`
+          : `${result.schedulesCreated} shift${result.schedulesCreated !== 1 ? "s" : ""} added to schedule.`,
       });
       onOpenChange(false);
     },
@@ -1830,7 +1839,9 @@ export default function CreateShiftSplitPanel({
     const aiCount = suggestDataRef.current?.proposedShifts?.length ?? 0;
 
     if (selectedShiftIdx >= aiCount) {
-      // Manual shift — save to local state only (no API call needed)
+      // Manual shift — save to local state only (no API call needed).
+      // Persist role/title and notes too so they reach the apply route as `shiftBlock`/`reasoning`
+      // instead of falling back to the generic "AI Generated Shift" default on the server.
       const manualIdx = selectedShiftIdx - aiCount;
       const emp = selectedUserId ? employees.find((e) => e.id === selectedUserId) : null;
       const empName = emp ? `${emp.firstName ?? ""} ${emp.lastName ?? ""}`.trim() : undefined;
@@ -1842,6 +1853,8 @@ export default function CreateShiftSplitPanel({
               endTime: modalEndTime,
               ...(selectedUserId ? { employeeId: selectedUserId } : {}),
               ...(empName ? { employeeName: empName } : {}),
+              shiftBlock: modalTitle?.trim() ? modalTitle.trim() : 'Manual Shift',
+              rationale: modalNotes?.trim() || s.rationale || '',
             }
           : s
       ));
@@ -2650,17 +2663,60 @@ export default function CreateShiftSplitPanel({
                           ? "bg-amber-500 hover:bg-amber-600 hover:shadow-lg"
                           : "bg-orange-500 hover:bg-orange-600 hover:shadow-lg"
                       )}
-                      disabled={approveMutation.isPending || suggestLoading || validActiveShifts.length === 0}
+                      disabled={approveMutation.isPending || suggestLoading}
                       onClick={() => {
-                        pendingSkippedCountRef.current = activeShifts.length - validActiveShifts.length;
-                        approveMutation.mutate(validActiveShifts);
+                        // Auto-commit any in-progress right-panel edits to the currently
+                        // selected manual draft shift before computing the save payload.
+                        // Without this, a user who adds a blank shift, picks an employee
+                        // in the form, and clicks "Save N New Shifts" without first hitting
+                        // per-card "Save Changes" would have their assignment silently
+                        // dropped (employeeId stays '' → filtered out as unassigned).
+                        const aiCount = suggestDataRef.current?.proposedShifts?.length ?? 0;
+                        let liveManual = manualShifts;
+                        if (selectedShiftIdx !== null && selectedShiftIdx >= aiCount) {
+                          const manualIdx = selectedShiftIdx - aiCount;
+                          const emp = selectedUserId ? employees.find((e) => e.id === selectedUserId) : null;
+                          const empName = emp ? `${emp.firstName ?? ''} ${emp.lastName ?? ''}`.trim() : undefined;
+                          liveManual = manualShifts.map((s, i) =>
+                            i === manualIdx
+                              ? {
+                                  ...s,
+                                  startTime: modalStartTime,
+                                  endTime: modalEndTime,
+                                  ...(selectedUserId ? { employeeId: selectedUserId } : {}),
+                                  ...(empName ? { employeeName: empName } : {}),
+                                  shiftBlock: modalTitle?.trim() ? modalTitle.trim() : (s.shiftBlock || 'Manual Shift'),
+                                  rationale: modalNotes?.trim() || s.rationale || '',
+                                }
+                              : s
+                          );
+                          setManualShifts(liveManual);
+                        }
+                        // Recompute the save payload from the live (post-commit) manual shifts
+                        const liveProposed = [...aiProposedShifts, ...liveManual.filter(
+                          s => !persistedManualKeys.has(`${s.employeeId}:${s.startTime}:${s.endTime}`)
+                        )];
+                        const liveActive = liveProposed.filter((_, i) => !excludedIdxs.has(i));
+                        const liveValid = liveActive.filter((s) => !!s.employeeId);
+                        if (liveValid.length === 0) {
+                          toast({
+                            title: 'No shifts to save',
+                            description: 'Assign an employee to at least one shift before saving.',
+                            variant: 'destructive',
+                          });
+                          return;
+                        }
+                        pendingSkippedCountRef.current = liveActive.length - liveValid.length;
+                        approveMutation.mutate(liveValid);
                       }}
                       title={
                         validActiveShifts.length === 0
                           ? "Select an employee for each shift before saving"
                           : conflictCount > 0
                           ? `${conflictCount} shift${conflictCount !== 1 ? "s" : ""} conflict with existing schedules`
-                          : undefined
+                          : dateActualShifts.length > 0
+                          ? `${dateActualShifts.length} shift${dateActualShifts.length !== 1 ? "s are" : " is"} already scheduled on this day. ${validActiveShifts.length} new shift${validActiveShifts.length !== 1 ? "s" : ""} will be added.`
+                          : `Add ${validActiveShifts.length} shift${validActiveShifts.length !== 1 ? "s" : ""} to the schedule`
                       }
                     >
                       {approveMutation.isPending ? (
@@ -2668,9 +2724,9 @@ export default function CreateShiftSplitPanel({
                       ) : validActiveShifts.length === 0 ? (
                         <>Assign employees to save</>
                       ) : conflictCount > 0 ? (
-                        <><AlertTriangle className="h-3 w-3" />Save {activeShifts.length} Shift{activeShifts.length !== 1 ? "s" : ""} to Schedule · {conflictCount} conflict{conflictCount !== 1 ? "s" : ""}</>
+                        <><AlertTriangle className="h-3 w-3" />Save {activeShifts.length} New Shift{activeShifts.length !== 1 ? "s" : ""} · {conflictCount} conflict{conflictCount !== 1 ? "s" : ""}</>
                       ) : (
-                        <><Check className="h-3 w-3" />Save {activeShifts.length} Shift{activeShifts.length !== 1 ? "s" : ""} to Schedule</>
+                        <><Check className="h-3 w-3" />Save {activeShifts.length} New Shift{activeShifts.length !== 1 ? "s" : ""} to Schedule</>
                       )}
                     </Button>
                   ) : !editingSchedule && !isActualEditing ? (
