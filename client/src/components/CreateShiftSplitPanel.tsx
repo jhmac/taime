@@ -1729,10 +1729,10 @@ export default function CreateShiftSplitPanel({
     setSelectedUserId(shift.employeeId);
     setModalStartTime(shift.startTime);
     setModalEndTime(shift.endTime);
-    // Populate role / location / notes — ProposedShift has no locationId, so reset to first
-    // available location (deterministic default) rather than leaving a stale selection
+    // Populate role / location / notes — ProposedShift has no locationId field,
+    // so clear to empty to avoid stale carryover from a previous selection
     setModalTitle(shift.shiftBlock || "");
-    setModalLocationId(locations[0]?.id ?? "");
+    setModalLocationId("");
     setModalNotes(shift.rationale || "");
     // Clear any actual-shift selection
     setSelectedActualSchedule(null);
@@ -1804,7 +1804,9 @@ export default function CreateShiftSplitPanel({
             }
           : s
       ));
-      setSelectedShiftIdx(null);
+      // Keep card selected and flash "Saved ✓" (same UX as AI shifts)
+      setShiftSaved(true);
+      setTimeout(() => setShiftSaved(false), 2000);
       return;
     }
 
