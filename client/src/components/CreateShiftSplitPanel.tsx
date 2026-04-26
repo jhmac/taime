@@ -1045,7 +1045,7 @@ function DayTimeline({
                     className={cn(
                       "absolute inset-x-0.5 rounded-md text-left text-white overflow-hidden select-none group/actual",
                       colorCls,
-                      isActive   ? "ring-2 ring-orange-400 ring-offset-1 opacity-100 z-20"
+                      isActive   ? "ring-[3px] ring-orange-400 ring-offset-2 scale-[1.02] shadow-lg opacity-100 z-20"
                                : "opacity-90 hover:opacity-100",
                       isDragging ? "opacity-100 z-30 shadow-xl cursor-grabbing"
                                : "cursor-pointer",
@@ -2626,7 +2626,7 @@ export default function CreateShiftSplitPanel({
                       ) : validActiveShifts.length === 0 ? (
                         <>Assign employees to save</>
                       ) : conflictCount > 0 ? (
-                        <><AlertTriangle className="h-3 w-3" />Save {activeShifts.length} Shift{activeShifts.length !== 1 ? "s" : ""} · {conflictCount} conflict{conflictCount !== 1 ? "s" : ""}</>
+                        <><AlertTriangle className="h-3 w-3" />Save {activeShifts.length} Shift{activeShifts.length !== 1 ? "s" : ""} to Schedule · {conflictCount} conflict{conflictCount !== 1 ? "s" : ""}</>
                       ) : (
                         <><Check className="h-3 w-3" />Save {activeShifts.length} Shift{activeShifts.length !== 1 ? "s" : ""} to Schedule</>
                       )}
