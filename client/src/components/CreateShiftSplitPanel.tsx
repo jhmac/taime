@@ -200,6 +200,8 @@ function ShiftBlock({
   if (isExcluded) title = "Click to restore this shift";
   else if (hasConflict) title = `${shift.employeeName} already has a shift scheduled on this day`;
 
+  const isDraft = !shift.employeeId;
+
   return (
     <div
       style={{ top: `${topPct}%`, height: `${heightPct}%` }}
@@ -220,24 +222,32 @@ function ShiftBlock({
           "w-full h-full rounded-md px-1.5 py-0.5 text-left transition-all overflow-hidden group",
           isExcluded
             ? "bg-muted/60 border border-dashed border-border opacity-50"
+            : isDraft
+            ? "bg-slate-200 dark:bg-slate-700 border-2 border-dashed border-slate-400 dark:border-slate-500"
             : hasConflict
             ? "bg-amber-100 dark:bg-amber-900/40 border-2 border-amber-500"
             : color,
           isExcluded
             ? "text-muted-foreground text-[10px] font-medium leading-tight"
+            : isDraft
+            ? "text-slate-500 dark:text-slate-400 text-[10px] font-medium leading-tight"
             : hasConflict
             ? "text-amber-900 dark:text-amber-200 text-[10px] font-medium leading-tight"
             : "text-white text-[10px] font-medium leading-tight",
           !isExcluded && isSelected
             ? hasConflict
-              ? "ring-2 ring-amber-400 ring-offset-1 opacity-100"
-              : "ring-2 ring-white ring-offset-1 opacity-100"
+              ? "ring-[3px] ring-amber-400 ring-offset-2 opacity-100 scale-[1.02] shadow-lg z-10 relative"
+              : isDraft
+              ? "ring-[3px] ring-slate-400 ring-offset-2 opacity-100 scale-[1.02] shadow-lg z-10 relative"
+              : "ring-[3px] ring-white ring-offset-2 opacity-100 scale-[1.02] shadow-lg z-10 relative"
             : !isExcluded
             ? "opacity-90 hover:opacity-100"
             : ""
         )}
       >
-        <div className={cn("truncate pt-1", isExcluded && "line-through")}>{shift.employeeName}</div>
+        <div className={cn("truncate pt-1", isExcluded && "line-through")}>
+          {isDraft ? "← Select employee" : shift.employeeName}
+        </div>
         <div className={cn("truncate opacity-80", isExcluded && "line-through")}>
           {fmt12(shift.startTime)}–{fmt12(shift.endTime)}
         </div>
@@ -1610,6 +1620,8 @@ export default function CreateShiftSplitPanel({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/schedules/suggest", modalDate] });
       toast({ title: "Shift saved", description: "Changes persisted to the suggested schedule." });
+      // Brief delay so the user sees the toast, then deselect the card
+      setTimeout(() => setSelectedShiftIdx(null), 800);
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to save shift changes.", variant: "destructive" });
@@ -1715,6 +1727,10 @@ export default function CreateShiftSplitPanel({
     setSelectedUserId(shift.employeeId);
     setModalStartTime(shift.startTime);
     setModalEndTime(shift.endTime);
+    // Populate role / location / notes — clear stale values when shift has none
+    setModalTitle(shift.shiftBlock || "");
+    setModalLocationId("");
+    setModalNotes(shift.rationale || "");
     // Clear any actual-shift selection
     setSelectedActualSchedule(null);
     setActualFormEdits(null);
@@ -1861,6 +1877,8 @@ export default function CreateShiftSplitPanel({
       }
     : undefined;
   const activeShifts = proposedShifts.filter((_, i) => !excludedIdxs.has(i));
+  // Shifts with an assigned employee — these are what actually get approved/saved
+  const validActiveShifts = activeShifts.filter((s) => !!s.employeeId);
   const storeHours = salesData?.storeHours ?? suggestData?.storeHours ?? null;
 
   const conflictingEmployeeIds = useMemo<Set<string>>(() => {
@@ -1913,18 +1931,53 @@ export default function CreateShiftSplitPanel({
       rationale: 'Manually added',
       revenue: 0,
     };
+    // Auto-select the newly added shift so the right form shows its details
+    const newIdx = proposedShifts.length; // index this shift will occupy
     setManualShifts(prev => [...prev, newShift]);
+    setSelectedShiftIdx(newIdx);
+    setSelectedUserId(member.userId);
+    setModalStartTime(clampedStart);
+    setModalEndTime(clampedEnd);
+    setModalTitle('');
+    setModalNotes('');
+    setSelectedActualSchedule(null);
+    setActualFormEdits(null);
     if (modalDate) persistPillShiftMutation.mutate({ shift: newShift, date: modalDate });
-    if (!selectedUserId) {
-      setSelectedUserId(member.userId);
-      setModalStartTime(clampedStart);
-      setModalEndTime(clampedEnd);
-    }
     // Scroll the timeline into view so the new block is visible
     requestAnimationFrame(() => {
       timelineWrapperRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     });
-  }, [storeHours, selectedUserId, persistPillShiftMutation]);
+  }, [storeHours, proposedShifts.length, persistPillShiftMutation, modalDate]);
+
+  // Add a blank draft shift to the timeline so the manager can fill it in from the right panel
+  const handleAddBlankShift = useCallback(() => {
+    const sOpen = storeHours?.open || '09:00';
+    const sClose = storeHours?.close || '21:00';
+    const blank: ProposedShift = {
+      employeeId: '',
+      employeeName: 'New Shift',
+      profileImageUrl: null,
+      startTime: sOpen,
+      endTime: sClose,
+      shiftBlock: '',
+      rationale: '',
+      revenue: 0,
+    };
+    const newIdx = proposedShifts.length; // index this shift will occupy
+    setManualShifts(prev => [...prev, blank]);
+    setSelectedShiftIdx(newIdx);
+    setSelectedUserId('');
+    setModalStartTime(sOpen);
+    setModalEndTime(sClose);
+    setModalTitle('');
+    setModalLocationId(locations[0]?.id ?? '');
+    setModalNotes('');
+    setSelectedActualSchedule(null);
+    setActualFormEdits(null);
+    requestAnimationFrame(() => {
+      timelineWrapperRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+  }, [storeHours, proposedShifts.length, locations]);
 
   const dateLabel = modalDate
     ? new Date(modalDate + "T12:00:00Z").toLocaleDateString("en-US", {
@@ -2026,19 +2079,17 @@ export default function CreateShiftSplitPanel({
                 >
                   {leftCollapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
                 </button>
-                {/* Add New Shift button — visible when editing an existing shift */}
-                {editingSchedule && onAddNewShift && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="gap-1 text-xs h-8"
-                    title="Add another shift for this date"
-                    onClick={onAddNewShift}
-                  >
-                    <Plus className="h-3 w-3" />
-                    <span className="hidden sm:inline">Add Shift</span>
-                  </Button>
-                )}
+                {/* Add blank shift — always visible so managers can build shifts from scratch */}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1 text-xs h-8"
+                  title="Add a blank shift to the timeline"
+                  onClick={handleAddBlankShift}
+                >
+                  <Plus className="h-3 w-3" />
+                  <span className="hidden sm:inline">Add Shift</span>
+                </Button>
                 {/* Refresh button */}
                 <Button
                   size="sm"
@@ -2066,34 +2117,37 @@ export default function CreateShiftSplitPanel({
                     </span>
                   ) : null}
                 </Button>
-                <Button
-                  size="sm"
-                  className={cn(
-                    "gap-1.5 text-xs h-8 text-white",
-                    conflictCount > 0
-                      ? "bg-amber-500 hover:bg-amber-600"
-                      : "bg-orange-500 hover:bg-orange-600"
-                  )}
-                  disabled={
-                    approveMutation.isPending ||
-                    activeShifts.length === 0 ||
-                    suggestLoading
-                  }
-                  onClick={() => approveMutation.mutate(activeShifts)}
-                  title={
-                    conflictCount > 0
-                      ? `${conflictCount} active shift${conflictCount !== 1 ? "s" : ""} conflict with existing schedules`
-                      : undefined
-                  }
-                >
-                  {approveMutation.isPending ? (
-                    <><Loader2 className="h-3 w-3 animate-spin" />Approving…</>
-                  ) : conflictCount > 0 ? (
-                    <><AlertTriangle className="h-3 w-3" />Approve ({activeShifts.length}) · {conflictCount} conflict{conflictCount !== 1 ? "s" : ""}</>
-                  ) : (
-                    <><Check className="h-3 w-3" />Approve ({activeShifts.length})</>
-                  )}
-                </Button>
+                {/* In Edit mode keep Approve in header; in Create mode it moves to the bottom CTA */}
+                {editingSchedule && (
+                  <Button
+                    size="sm"
+                    className={cn(
+                      "gap-1.5 text-xs h-8 text-white",
+                      conflictCount > 0
+                        ? "bg-amber-500 hover:bg-amber-600"
+                        : "bg-orange-500 hover:bg-orange-600"
+                    )}
+                    disabled={
+                      approveMutation.isPending ||
+                      validActiveShifts.length === 0 ||
+                      suggestLoading
+                    }
+                    onClick={() => approveMutation.mutate(validActiveShifts)}
+                    title={
+                      conflictCount > 0
+                        ? `${conflictCount} active shift${conflictCount !== 1 ? "s" : ""} conflict with existing schedules`
+                        : undefined
+                    }
+                  >
+                    {approveMutation.isPending ? (
+                      <><Loader2 className="h-3 w-3 animate-spin" />Approving…</>
+                    ) : conflictCount > 0 ? (
+                      <><AlertTriangle className="h-3 w-3" />Approve ({validActiveShifts.length}) · {conflictCount} conflict{conflictCount !== 1 ? "s" : ""}</>
+                    ) : (
+                      <><Check className="h-3 w-3" />Approve ({validActiveShifts.length})</>
+                    )}
+                  </Button>
+                )}
               </div>
             </div>
 
@@ -2550,6 +2604,32 @@ export default function CreateShiftSplitPanel({
                         <><Loader2 className="h-3 w-3 animate-spin" />Saving…</>
                       ) : (
                         <><Save className="h-3 w-3" />Save Changes</>
+                      )}
+                    </Button>
+                  ) : validActiveShifts.length > 0 ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      className={cn(
+                        "gap-1.5 text-white",
+                        conflictCount > 0
+                          ? "bg-amber-500 hover:bg-amber-600"
+                          : "bg-orange-500 hover:bg-orange-600"
+                      )}
+                      disabled={approveMutation.isPending || suggestLoading}
+                      onClick={() => approveMutation.mutate(validActiveShifts)}
+                      title={
+                        conflictCount > 0
+                          ? `${conflictCount} shift${conflictCount !== 1 ? "s" : ""} conflict with existing schedules`
+                          : undefined
+                      }
+                    >
+                      {approveMutation.isPending ? (
+                        <><Loader2 className="h-3 w-3 animate-spin" />Saving…</>
+                      ) : conflictCount > 0 ? (
+                        <><AlertTriangle className="h-3 w-3" />Save {validActiveShifts.length} Shift{validActiveShifts.length !== 1 ? "s" : ""} · {conflictCount} conflict{conflictCount !== 1 ? "s" : ""}</>
+                      ) : (
+                        <><Check className="h-3 w-3" />Save {validActiveShifts.length} Shift{validActiveShifts.length !== 1 ? "s" : ""} to Schedule</>
                       )}
                     </Button>
                   ) : (
