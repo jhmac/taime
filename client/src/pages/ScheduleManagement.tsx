@@ -990,6 +990,25 @@ export default function ScheduleManagement() {
     setShowCreateShift(true);
   };
 
+  // Computes the `selectedWeek` offset whose visible Sun–Sat range contains the
+  // given YYYY-MM-DD date, so the panel's "Jump to that week" toast action
+  // can land the grid on the week of a just-saved shift.
+  const jumpToWeekContaining = (dateStr: string) => {
+    if (!dateStr) return;
+    const target = new Date(dateStr + 'T12:00:00');
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const startOfThisWeek = new Date(today);
+    startOfThisWeek.setDate(today.getDate() - today.getDay());
+    const startOfTargetWeek = new Date(target);
+    startOfTargetWeek.setDate(target.getDate() - target.getDay());
+    startOfTargetWeek.setHours(0, 0, 0, 0);
+    const offset = Math.round(
+      (startOfTargetWeek.getTime() - startOfThisWeek.getTime()) / (7 * 24 * 60 * 60 * 1000)
+    );
+    setSelectedWeek(offset);
+  };
+
   const openEditShift = (schedule: Schedule) => {
     const st = new Date(schedule.startTime);
     const et = new Date(schedule.endTime);
@@ -1775,6 +1794,8 @@ export default function ScheduleManagement() {
         onDeleteSchedule={(id) => deleteScheduleMutation.mutate(id)}
         isUpdating={updateScheduleMutation.isPending}
         isDeleting={deleteScheduleMutation.isPending}
+        currentWeekRange={{ start: startDateParam, end: endDateParam }}
+        onJumpToWeek={jumpToWeekContaining}
       />
 
       {/* Availability Override Dialog */}

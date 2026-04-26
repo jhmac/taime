@@ -1694,6 +1694,61 @@ Required JSON structure:
     }
   });
 
+  // DELETE /api/schedules/suggest/shift — remove a single shift from the saved suggestion
+  // Matches by employeeId + startTime + endTime to avoid index drift races.
+  app.delete("/api/schedules/suggest/shift", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const isAdmin = userPermissions.some((p: any) =>
+        p.name === 'admin.manage_all' || p.name === 'schedule.view_all' || p.name === 'schedule.create'
+      );
+      if (!isAdmin) return res.status(403).json({ message: "Manager access required" });
+
+      const date = req.query.date as string;
+      const employeeId = req.query.employeeId as string | undefined;
+      const startTime = req.query.startTime as string | undefined;
+      const endTime = req.query.endTime as string | undefined;
+      if (!date || !startTime || !endTime) {
+        return res.status(400).json({ message: "date, startTime, and endTime are required" });
+      }
+
+      const { tryResolveStoreIdForUser } = await import('../lib/storeResolver');
+      const storeId = await tryResolveStoreIdForUser(userId);
+      if (!storeId) return res.status(403).json({ message: "No store associated with your account" });
+
+      const rows = await db.select()
+        .from(aiSuggestedSchedules)
+        .where(and(eq(aiSuggestedSchedules.storeId, storeId), eq(aiSuggestedSchedules.date, date)))
+        .limit(1);
+
+      if (rows.length === 0) return res.json({ success: true, removed: 0 });
+
+      const scheduleData = rows[0].scheduleData as any;
+      if (!Array.isArray(scheduleData?.proposedShifts)) {
+        return res.json({ success: true, removed: 0 });
+      }
+
+      const before = scheduleData.proposedShifts.length;
+      scheduleData.proposedShifts = scheduleData.proposedShifts.filter((s: any) => {
+        if (s.startTime !== startTime) return true;
+        if (s.endTime !== endTime) return true;
+        if (employeeId && s.employeeId !== employeeId) return true;
+        return false;
+      });
+      const removed = before - scheduleData.proposedShifts.length;
+
+      await db.update(aiSuggestedSchedules)
+        .set({ scheduleData })
+        .where(and(eq(aiSuggestedSchedules.storeId, storeId), eq(aiSuggestedSchedules.date, date)));
+
+      return res.json({ success: true, removed });
+    } catch (err) {
+      console.error("[suggest DELETE shift] error:", err);
+      return res.status(500).json({ message: "Failed to remove shift from suggestion" });
+    }
+  });
+
   // PUT /api/schedules/suggest — patch a single shift in the saved suggestion
   app.put("/api/schedules/suggest", isAuthenticated, async (req: any, res) => {
     try {

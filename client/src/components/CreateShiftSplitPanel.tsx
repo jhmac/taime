@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
+import { ToastAction } from "@/components/ui/toast";
 import { apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 import {
@@ -133,6 +134,12 @@ interface Props {
   onAddNewShift?: () => void;
   schedules?: Schedule[];
   onSelectSchedule?: (schedule: Schedule) => void;
+  /** Date range (YYYY-MM-DD inclusive) currently displayed by the schedule grid behind the panel.
+   *  Used to detect off-week saves so we can offer a "Jump to that week" toast. */
+  currentWeekRange?: { start: string; end: string };
+  /** Called when the user clicks the "Jump to that week" toast action after saving shifts
+   *  for a date outside the visible week. The receiver should adjust the grid's week state. */
+  onJumpToWeek?: (date: string) => void;
 }
 
 function fmt12(t: string) {
@@ -175,6 +182,7 @@ function ShiftBlock({
   hasConflict,
   onResizeStart,
   onBodyPointerDown,
+  xTooltip,
 }: {
   shift: ProposedShift;
   openMin: number;
@@ -186,6 +194,9 @@ function ShiftBlock({
   hasConflict: boolean;
   onResizeStart?: (e: React.PointerEvent, type: 'top' | 'bottom') => void;
   onBodyPointerDown?: (e: React.PointerEvent) => void;
+  /** Tooltip shown on the per-card X button. Differs by card type
+   *  (AI suggestion vs manual draft) so the user knows what X will do. */
+  xTooltip?: string;
 }) {
   const totalMin = closeMin - openMin;
   if (totalMin <= 0) return null;
@@ -262,7 +273,7 @@ function ShiftBlock({
         {!isExcluded && (
           <span
             role="button"
-            title="Exclude this shift"
+            title={xTooltip ?? "Exclude this shift"}
             onClick={onToggleExclude}
             className="absolute top-0.5 right-0.5 hidden group-hover:flex items-center justify-center w-4 h-4 rounded-full bg-black/30 hover:bg-black/50 text-white"
           >
@@ -754,7 +765,7 @@ function DayTimeline({
   selectedIdx: number | null;
   onSelectShift: (shift: ProposedShift, idx: number) => void;
   excludedIdxs: Set<number>;
-  onToggleExclude: (idx: number) => void;
+  onToggleExclude: (idx: number, shift: ProposedShift) => void;
   conflictingEmployeeIds: Set<string>;
   onShiftEdit?: (idx: number, updates: { startTime?: string; endTime?: string }) => void;
   onDragStart?: (idx: number) => void;
@@ -1138,26 +1149,36 @@ function DayTimeline({
               <div className="w-px bg-border/50 flex-shrink-0 self-stretch" />
             )}
 
-            {/* One column per AI shift */}
-            {shifts.map((shift, idx) => (
-              <div
-                key={idx}
-                className="relative flex-1 min-w-[52px] border-l border-border/20 first:border-l-0 z-10"
-              >
-                <ShiftBlock
-                  shift={shift}
-                  openMin={openMin}
-                  closeMin={closeMin}
-                  isSelected={selectedIdx === idx}
-                  isExcluded={excludedIdxs.has(idx)}
-                  onClick={() => handleBlockClick(shift, idx)}
-                  onToggleExclude={(e) => { e.stopPropagation(); onToggleExclude(idx); }}
-                  hasConflict={conflictingEmployeeIds.has(shift.employeeId)}
-                  onResizeStart={onShiftEdit && !excludedIdxs.has(idx) ? (e, type) => handleResizeStart(e, idx, type) : undefined}
-                  onBodyPointerDown={onShiftEdit && !excludedIdxs.has(idx) ? (e) => handleBodyPointerDown(e, idx) : undefined}
-                />
-              </div>
-            ))}
+            {/* One column per AI / manual shift.
+             *  Manual drafts (shiftBlock === 'Manual') get a "Remove this draft" tooltip
+             *  because clicking X fully removes them; AI suggestions only get excluded
+             *  from the save batch (toggleable). */}
+            {shifts.map((shift, idx) => {
+              const isManualDraft = shift.shiftBlock === 'Manual';
+              const xTooltip = isManualDraft
+                ? "Remove this draft"
+                : "Remove from suggestions";
+              return (
+                <div
+                  key={idx}
+                  className="relative flex-1 min-w-[52px] border-l border-border/20 first:border-l-0 z-10"
+                >
+                  <ShiftBlock
+                    shift={shift}
+                    openMin={openMin}
+                    closeMin={closeMin}
+                    isSelected={selectedIdx === idx}
+                    isExcluded={excludedIdxs.has(idx)}
+                    onClick={() => handleBlockClick(shift, idx)}
+                    onToggleExclude={(e) => { e.stopPropagation(); onToggleExclude(idx, shift); }}
+                    hasConflict={conflictingEmployeeIds.has(shift.employeeId)}
+                    onResizeStart={onShiftEdit && !excludedIdxs.has(idx) ? (e, type) => handleResizeStart(e, idx, type) : undefined}
+                    onBodyPointerDown={onShiftEdit && !excludedIdxs.has(idx) ? (e) => handleBodyPointerDown(e, idx) : undefined}
+                    xTooltip={xTooltip}
+                  />
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -1206,6 +1227,8 @@ export default function CreateShiftSplitPanel({
   onAddNewShift,
   schedules,
   onSelectSchedule,
+  currentWeekRange,
+  onJumpToWeek,
 }: Props) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -1545,7 +1568,66 @@ export default function CreateShiftSplitPanel({
     return () => document.removeEventListener('keydown', onKey);
   }, [open, handleUndo, handleRedo]);
 
-  const handleToggleExclude = (idx: number) => {
+  // Removes a single shift from the cached AI suggestion on the server.
+  // Used by handleToggleExclude when the user X's a Manual draft that has
+  // already been persisted into suggestData.proposedShifts — without this
+  // call the next refetch would resurrect the draft.
+  const removeSuggestShiftMutation = useMutation({
+    mutationFn: async (params: { date: string; employeeId: string; startTime: string; endTime: string }) => {
+      const url = `/api/schedules/suggest/shift?date=${encodeURIComponent(params.date)}`
+        + `&employeeId=${encodeURIComponent(params.employeeId)}`
+        + `&startTime=${encodeURIComponent(params.startTime)}`
+        + `&endTime=${encodeURIComponent(params.endTime)}`;
+      return apiRequest("DELETE", url);
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/schedules/suggest", variables.date] });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Couldn't remove that draft from the suggestion.", variant: "destructive" });
+    },
+  });
+
+  // Single entry-point for clicking the X on any timeline card.
+  // Branches by *card type* (not index position), because Manual drafts get
+  // persisted into the AI suggestion cache and then live at idx < aiCount —
+  // an index-based branch would mistakenly toggle exclusion on them.
+  const handleToggleExclude = (idx: number, shift: ProposedShift) => {
+    const isManualDraft = shift.shiftBlock === 'Manual';
+    if (isManualDraft) {
+      // Splice from local pending drafts (no-op if it was already persisted)…
+      const matchKey = `${shift.employeeId}:${shift.startTime}:${shift.endTime}`;
+      setManualShifts((prev) => prev.filter(
+        (s) => `${s.employeeId}:${s.startTime}:${s.endTime}` !== matchKey
+      ));
+      // …and clear the persisted copy from the server cache so a refetch
+      // doesn't resurrect it. Safe to call even if there's no persisted row;
+      // the route returns { removed: 0 } in that case.
+      if (modalDate && shift.employeeId && shift.startTime && shift.endTime) {
+        removeSuggestShiftMutation.mutate({
+          date: modalDate,
+          employeeId: shift.employeeId,
+          startTime: shift.startTime,
+          endTime: shift.endTime,
+        });
+      }
+      // Adjust selection + excluded-idx mask for the splice.
+      if (selectedShiftIdx === idx) {
+        setSelectedShiftIdx(null);
+      } else if (selectedShiftIdx !== null && selectedShiftIdx > idx) {
+        setSelectedShiftIdx(selectedShiftIdx - 1);
+      }
+      setExcludedIdxs((prev) => {
+        const remapped = new Set<number>();
+        prev.forEach((v) => {
+          if (v === idx) return;
+          remapped.add(v > idx ? v - 1 : v);
+        });
+        return remapped;
+      });
+      return;
+    }
+    // AI suggestion — toggle exclusion (existing behavior).
     setExcludedIdxs((prev) => {
       const next = new Set(prev);
       if (next.has(idx)) {
@@ -1692,15 +1774,72 @@ export default function CreateShiftSplitPanel({
     },
   });
 
-  const deleteActualMutation = useMutation({
-    mutationFn: async (id: string) => {
-      return apiRequest("DELETE", `/api/schedules/${id}`);
+  // Recreates a deleted shift via POST /api/schedules — used by the Undo path
+  // on the actual-delete toast. Refetches /api/schedules so the panel + grid
+  // immediately show the restored card without manual reload.
+  const recreateScheduleMutation = useMutation({
+    mutationFn: async (data: {
+      userId: string;
+      startTime: Date;
+      endTime: Date;
+      title?: string | null;
+      locationId?: string | null;
+      description?: string | null;
+    }) => {
+      const res = await apiRequest("POST", "/api/schedules", data);
+      return res.json();
     },
     onSuccess: () => {
+      queryClient.refetchQueries({ queryKey: ["/api/schedules"], type: 'active' });
+      toast({ title: "Shift restored", description: "The deleted shift has been re-created." });
+    },
+    onError: () => {
+      toast({
+        title: "Couldn't restore shift",
+        description: "Try recreating it manually from the schedule.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Capture the full payload of an actual shift before deleting so we can recreate
+  // it on undo. The mutation receives the whole `Schedule` (not just an id) so
+  // the closure has every field needed for the POST in recreateScheduleMutation.
+  const deleteActualMutation = useMutation({
+    mutationFn: async (params: { schedule: Schedule }) => {
+      return apiRequest("DELETE", `/api/schedules/${params.schedule.id}`);
+    },
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/schedules"] });
       setSelectedActualSchedule(null);
       setActualFormEdits(null);
-      toast({ title: "Shift deleted", description: "The scheduled shift has been removed." });
+      const original = variables.schedule;
+      const empName = employees.find((e) => e.id === original.userId);
+      const who = empName ? `${empName.firstName ?? ''}`.trim() || 'shift' : 'shift';
+      const startTimeStr = new Date(original.startTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+      const endTimeStr = new Date(original.endTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+      toast({
+        title: "Shift deleted",
+        description: `${who}'s ${startTimeStr}–${endTimeStr} shift removed.`,
+        action: (
+          <ToastAction
+            altText="Undo delete"
+            onClick={() => {
+              recreateScheduleMutation.mutate({
+                userId: original.userId,
+                startTime: new Date(original.startTime),
+                endTime: new Date(original.endTime),
+                title: original.title ?? null,
+                locationId: original.locationId ?? null,
+                description: original.description ?? null,
+              });
+            }}
+          >
+            Undo
+          </ToastAction>
+        ),
+        duration: 10_000,
+      });
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to delete shift.", variant: "destructive" });
@@ -1749,18 +1888,46 @@ export default function CreateShiftSplitPanel({
       // Force a fresh fetch (not just mark stale) so the underlying schedule grid
       // updates immediately with the new shifts before the modal closes. Awaiting
       // the refetch guarantees the user lands back on a populated grid.
+      // Also refetch the team-calendar query the schedule page uses for coverage
+      // signals — without this the grid's availability badges go stale until
+      // a manual reload.
       await Promise.all([
         queryClient.refetchQueries({ queryKey: ["/api/schedules"], type: 'active' }),
         queryClient.refetchQueries({ queryKey: ["/api/schedules/today-availability"], type: 'active' }),
+        queryClient.refetchQueries({ queryKey: ["/api/availability/calendar/team"], type: 'active' }),
       ]);
       // Also clear pending manual draft shifts so a subsequent panel open doesn't show
       // them as "still pending" alongside the now-persisted versions.
       setManualShifts([]);
+
+      // Detect off-week save: if the saved date is outside the schedule grid's
+      // current visible week, surface a "Jump to that week" toast action so the
+      // user lands on the page actually showing their changes.
+      const savedDate = modalDate;
+      const range = currentWeekRange;
+      const isOffWeek = !!range && !!savedDate && (savedDate < range.start || savedDate > range.end);
+
+      const dayLabel = savedDate
+        ? new Date(savedDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+        : '';
+      const baseDescription = skipped > 0
+        ? `${result.schedulesCreated} shift${result.schedulesCreated !== 1 ? "s" : ""} added${dayLabel ? ` for ${dayLabel}` : ''}, ${skipped} blank shift${skipped !== 1 ? "s" : ""} skipped.`
+        : `${result.schedulesCreated} shift${result.schedulesCreated !== 1 ? "s" : ""} added${dayLabel ? ` for ${dayLabel}` : ''}.`;
+
       toast({
-        title: "Schedule Approved",
-        description: skipped > 0
-          ? `${result.schedulesCreated} shift${result.schedulesCreated !== 1 ? "s" : ""} added to schedule, ${skipped} blank shift${skipped !== 1 ? "s" : ""} skipped.`
-          : `${result.schedulesCreated} shift${result.schedulesCreated !== 1 ? "s" : ""} added to schedule.`,
+        title: isOffWeek ? "Saved — outside current week" : "Schedule Approved",
+        description: baseDescription,
+        ...(isOffWeek && onJumpToWeek ? {
+          action: (
+            <ToastAction
+              altText="Jump to that week"
+              onClick={() => onJumpToWeek(savedDate)}
+            >
+              Jump to that week
+            </ToastAction>
+          ),
+          duration: 10_000,
+        } : {}),
       });
       onOpenChange(false);
     },
@@ -2243,7 +2410,7 @@ export default function CreateShiftSplitPanel({
                   onSelectActualShift={handleSelectActualShift}
                   selectedActualId={selectedActualSchedule?.id}
                   onActualShiftChange={handleActualShiftChange}
-                  onDeleteActualShift={(s) => deleteActualMutation.mutate(s.id)}
+                  onDeleteActualShift={(s) => deleteActualMutation.mutate({ schedule: s })}
                 />
               </div>
 
@@ -2561,7 +2728,7 @@ export default function CreateShiftSplitPanel({
                     variant="destructive"
                     size="sm"
                     disabled={deleteActualMutation.isPending}
-                    onClick={() => deleteActualMutation.mutate(selectedActualSchedule!.id)}
+                    onClick={() => deleteActualMutation.mutate({ schedule: selectedActualSchedule! })}
                     className="gap-1.5"
                   >
                     {deleteActualMutation.isPending ? (
