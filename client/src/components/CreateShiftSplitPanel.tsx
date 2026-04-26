@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { BarChart, Bar, ResponsiveContainer, Tooltip, Cell, XAxis } from "recharts";
@@ -19,9 +19,10 @@ import {
   Clock, Users, Loader2, TrendingUp, Sparkles, AlertTriangle,
   ChevronDown, ChevronUp, Wand2, Check, X, RefreshCw,
   Maximize2, Minimize2, Pencil, Save, Trash2, Plus, Undo2, Redo2,
-  Lock,
+  Lock, Keyboard, DollarSign, Store,
 } from "lucide-react";
 import type { Schedule } from "@shared/schema";
+import { computeMargin, hasUnsavedChanges as hasUnsavedChangesHelper } from "@/lib/createShiftHelpers";
 
 interface HourlyData {
   hour: number;
@@ -73,6 +74,14 @@ interface AvailMember {
   overlapHours: number;
   compositeScore: number;
   source: string;
+  /** Concrete availability windows for snap-to-availability (Task #387 B5).
+   *  Always present alongside availableFrom/availableTo today (one window),
+   *  but the API contract is an array so future split availability "just works". */
+  windows?: { start: string; end: string }[];
+  /** Hourly rate in dollars, used by the live margin meter (Task #387 C4). */
+  hourlyRate?: number | null;
+  /** Role FK so the margin meter can fall back to role.defaultHourlyRate. */
+  roleId?: string | null;
 }
 
 interface TodayAvailData {
@@ -458,15 +467,35 @@ function SalesChart({
 }
 
 // ── Pill score badge ─────────────────────────────────────────────────────────
+// Color-blind safe: each tier carries a distinct shape symbol AND a distinct
+// aria-label so screen-readers announce "Top match" / "Strong match" / "OK
+// match" rather than a bare number. Color is supplemental, not load-bearing.
 function PillScoreBadge({ score }: { score: number }) {
-  if (score >= 85) return (
-    <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-yellow-400 text-yellow-900 text-[9px] font-bold shrink-0" title={`Score: ${score}`}>{score}</span>
-  );
-  if (score >= 60) return (
-    <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-slate-300 text-slate-700 text-[9px] font-bold shrink-0" title={`Score: ${score}`}>{score}</span>
-  );
+  let tier: 'top' | 'strong' | 'ok';
+  let symbol: string;
+  let bg: string;
+  let fg: string;
+  let label: string;
+  if (score >= 85) {
+    tier = 'top'; symbol = '★'; bg = 'bg-yellow-400'; fg = 'text-yellow-900';
+    label = `Top match — score ${score}`;
+  } else if (score >= 60) {
+    tier = 'strong'; symbol = '◆'; bg = 'bg-slate-300'; fg = 'text-slate-700';
+    label = `Strong match — score ${score}`;
+  } else {
+    tier = 'ok'; symbol = '•'; bg = 'bg-muted'; fg = 'text-muted-foreground';
+    label = `OK match — score ${score}`;
+  }
   return (
-    <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-muted text-muted-foreground text-[9px] font-bold shrink-0" title={`Score: ${score}`}>{score}</span>
+    <span
+      className={cn('inline-flex items-center gap-0.5 px-1 h-5 rounded-full text-[9px] font-bold shrink-0', bg, fg)}
+      title={label}
+      aria-label={label}
+      data-tier={tier}
+    >
+      <span aria-hidden="true">{symbol}</span>
+      <span aria-hidden="true">{score}</span>
+    </span>
   );
 }
 
@@ -1331,6 +1360,15 @@ export default function CreateShiftSplitPanel({
     totalRevenue: number;
     message: string;
   } | null>(null);
+  // Confirm-on-close dialog (Task #387 A1) — shown when the user attempts to
+  // close the panel with unsaved client-side state (pending drafts, excluded
+  // AI shifts, in-memory edits, or a dirty form).
+  const [pendingCloseConfirm, setPendingCloseConfirm] = useState(false);
+  // Keyboard cheat-sheet overlay (Task #387 C6) — toggled by `?` and `/`.
+  const [showShortcutOverlay, setShowShortcutOverlay] = useState(false);
+  // Tracks the most recent set of created schedule IDs so the bulk-undo toast
+  // can DELETE them in one round-trip if the user clicks Undo within 10s.
+  const lastCreatedIdsRef = useRef<string[]>([]);
   const [modalTitle, setModalTitle] = useState(editingSchedule?.title ?? '');
   const [modalLocationId, setModalLocationId] = useState(editingSchedule?.locationId ?? locations[0]?.id ?? '');
   const [modalNotes, setModalNotes] = useState(editingSchedule?.description ?? '');
@@ -1437,12 +1475,48 @@ export default function CreateShiftSplitPanel({
     setSelectedShiftIdx(null);
   }, [editingSchedule]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Escape key closes the panel; body scroll locked while open
-  // Note: undo/redo shortcuts are added in a separate effect below, after handleUndo/handleRedo are declared.
+  // Tracks whether the right-panel form has been edited beyond its initial
+  // values. Triggers the unsaved-changes confirmation on close. Reset whenever
+  // selection or date changes (a new context = a new clean form).
+  const [formDirty, setFormDirty] = useState(false);
+  useEffect(() => { setFormDirty(false); }, [selectedShiftIdx, selectedActualSchedule?.id, modalDate]);
+
+  const dirty = hasUnsavedChangesHelper({
+    pendingManualCount: manualShifts.length,
+    excludedCount: excludedIdxs.size,
+    editedCount: Object.keys(editedShifts).length,
+    formDirty,
+  });
+
+  // Single funnel for "user wants to close the panel". Branches into the
+  // confirmation dialog when dirty, otherwise closes immediately. Used by
+  // backdrop click, X button, Escape key, and Cancel button.
+  const requestClose = useCallback(() => {
+    if (dirty) {
+      setPendingCloseConfirm(true);
+      return;
+    }
+    onOpenChange(false);
+  }, [dirty, onOpenChange]);
+
+  // Escape key, `?`/`/` shortcut overlay, and body scroll lock.
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onOpenChange(false);
+      const tag = (e.target as HTMLElement)?.tagName;
+      const inField = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+      if (e.key === 'Escape') {
+        if (showShortcutOverlay) { setShowShortcutOverlay(false); return; }
+        requestClose();
+        return;
+      }
+      // `?` and `/` both toggle the cheat-sheet (most users hit `?` which
+      // requires Shift; `/` is the unshifted equivalent and is also useful
+      // on layouts where `?` is awkward).
+      if (!inField && (e.key === '?' || e.key === '/')) {
+        e.preventDefault();
+        setShowShortcutOverlay((v) => !v);
+      }
     };
     document.addEventListener('keydown', onKey);
     const prev = document.body.style.overflow;
@@ -1451,7 +1525,7 @@ export default function CreateShiftSplitPanel({
       document.removeEventListener('keydown', onKey);
       document.body.style.overflow = prev;
     };
-  }, [open, onOpenChange]);
+  }, [open, requestClose, showShortcutOverlay]);
 
   // Reset custom dimensions when switching preset sizes
   const cycleSize = () => {
@@ -2015,6 +2089,13 @@ export default function CreateShiftSplitPanel({
       const result = await response.json();
       const skipped = pendingSkippedCountRef.current;
       pendingSkippedCountRef.current = 0;
+      // Capture created IDs for the bulk-undo toast (Task #387 B8). The W1.1
+      // server change appends `created: Schedule[]` so we can DELETE them in a
+      // single round-trip if the user clicks Undo within the toast lifetime.
+      const createdIds: string[] = Array.isArray(result?.created)
+        ? result.created.map((s: { id: string }) => s.id).filter(Boolean)
+        : [];
+      lastCreatedIdsRef.current = createdIds;
       // Force a fresh fetch (not just mark stale) so the underlying schedule grid
       // updates immediately with the new shifts before the modal closes. Awaiting
       // the refetch guarantees the user lands back on a populated grid.
@@ -2044,6 +2125,32 @@ export default function CreateShiftSplitPanel({
         ? `${result.schedulesCreated} shift${result.schedulesCreated !== 1 ? "s" : ""} added${dayLabel ? ` for ${dayLabel}` : ''}, ${skipped} blank shift${skipped !== 1 ? "s" : ""} skipped.`
         : `${result.schedulesCreated} shift${result.schedulesCreated !== 1 ? "s" : ""} added${dayLabel ? ` for ${dayLabel}` : ''}.`;
 
+      // Bulk-undo action (Task #387 B8) — fires DELETE /api/schedules/bulk
+      // with the just-created IDs. Independent of the off-week jump action;
+      // we prefer the jump-to-week CTA when both apply (off-week saves are
+      // rare and the jump is the more useful next step).
+      const undoAction = createdIds.length > 0 ? (
+        <ToastAction
+          altText="Undo last save"
+          data-testid="bulk-undo-toast-action"
+          onClick={async () => {
+            try {
+              await apiRequest('DELETE', '/api/schedules/bulk', { ids: createdIds });
+              await Promise.all([
+                queryClient.refetchQueries({ queryKey: ["/api/schedules"], type: 'active' }),
+                queryClient.refetchQueries({ queryKey: ["/api/schedules/today-availability"], type: 'active' }),
+              ]);
+              toast({ title: 'Undone', description: `Removed ${createdIds.length} shift${createdIds.length !== 1 ? 's' : ''}.` });
+              lastCreatedIdsRef.current = [];
+            } catch {
+              toast({ title: 'Undo failed', description: 'Some shifts may have already been modified.', variant: 'destructive' });
+            }
+          }}
+        >
+          Undo
+        </ToastAction>
+      ) : null;
+
       toast({
         title: isOffWeek ? "Saved — outside current week" : "Schedule Approved",
         description: baseDescription,
@@ -2056,6 +2163,9 @@ export default function CreateShiftSplitPanel({
               Jump to that week
             </ToastAction>
           ),
+          duration: 10_000,
+        } : undoAction ? {
+          action: undoAction,
           duration: 10_000,
         } : {}),
       });
@@ -2234,6 +2344,67 @@ export default function CreateShiftSplitPanel({
   const activeShifts = proposedShifts.filter((_, i) => !excludedIdxs.has(i));
   // Shifts with an assigned employee — these are what actually get approved/saved
   const validActiveShifts = activeShifts.filter((s) => !!s.employeeId);
+
+  // Bulk save handler — wraps the inline button onClick so Cmd+S can call it
+  // too. Auto-commits in-progress right-panel edits to the selected manual
+  // draft before computing the save payload (otherwise an unsaved assignment
+  // gets silently dropped). Defined after aiProposedShifts/persistedManualKeys
+  // so its closure captures their current values.
+  const handleBulkSave = useCallback(() => {
+    if (approveMutation.isPending || suggestLoading) return;
+    const aiCount = suggestDataRef.current?.proposedShifts?.length ?? 0;
+    let liveManual = manualShifts;
+    if (selectedShiftIdx !== null && selectedShiftIdx >= aiCount) {
+      const manualIdx = selectedShiftIdx - aiCount;
+      const emp = selectedUserId ? employees.find((e) => e.id === selectedUserId) : null;
+      const empName = emp ? `${emp.firstName ?? ''} ${emp.lastName ?? ''}`.trim() : undefined;
+      liveManual = manualShifts.map((s, i) =>
+        i === manualIdx
+          ? {
+              ...s,
+              startTime: modalStartTime,
+              endTime: modalEndTime,
+              ...(selectedUserId ? { employeeId: selectedUserId } : {}),
+              ...(empName ? { employeeName: empName } : {}),
+              shiftBlock: modalTitle?.trim() ? modalTitle.trim() : (s.shiftBlock || 'Manual Shift'),
+              rationale: modalNotes?.trim() || s.rationale || '',
+            }
+          : s
+      );
+      setManualShifts(liveManual);
+    }
+    const liveProposed = [...aiProposedShifts, ...liveManual.filter(
+      s => !persistedManualKeys.has(`${s.employeeId}:${s.startTime}:${s.endTime}`)
+    )];
+    const liveActive = liveProposed.filter((_, i) => !excludedIdxs.has(i));
+    const liveValid = liveActive.filter((s) => !!s.employeeId);
+    if (liveValid.length === 0) {
+      toast({
+        title: 'No shifts to save',
+        description: 'Assign an employee to at least one shift before saving.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    pendingSkippedCountRef.current = liveActive.length - liveValid.length;
+    approveMutation.mutate(liveValid);
+  }, [approveMutation, suggestLoading, manualShifts, selectedShiftIdx, employees, selectedUserId, modalStartTime, modalEndTime, modalTitle, modalNotes, aiProposedShifts, persistedManualKeys, excludedIdxs, toast]);
+
+  // Cmd/Ctrl+S — save all pending shifts. Only fires when the panel is open
+  // AND there are valid shifts to save (so the browser's default page-save
+  // behavior still works on the rest of the app).
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+        if (validActiveShifts.length === 0) return;
+        e.preventDefault();
+        handleBulkSave();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open, validActiveShifts.length, handleBulkSave]);
   const storeHours = salesData?.storeHours ?? suggestData?.storeHours ?? null;
 
   const conflictingEmployeeIds = useMemo<Set<string>>(() => {
@@ -2355,11 +2526,23 @@ export default function CreateShiftSplitPanel({
       ? 'w-[96vw] max-w-[1200px]'
       : 'w-[96vw] max-w-[920px]';
 
-  const dialogStyle = {
+  // Mobile bounds (Task #387 A7): clamp custom dimensions to the current
+  // viewport so a power-user resize on desktop doesn't trap the dialog
+  // off-screen on mobile after a window-resize. The grip is also hidden
+  // below 768px so touch users don't accidentally drag the dialog.
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+  const clampedDims = dialogDims && typeof window !== 'undefined'
+    ? {
+        width: Math.min(dialogDims.width, Math.round(window.innerWidth * 0.98)),
+        height: Math.min(dialogDims.height, Math.round(window.innerHeight * 0.96)),
+      }
+    : null;
+
+  const dialogStyle: CSSProperties = {
     display: 'flex',
     flexDirection: 'column',
-    ...(dialogDims
-      ? { width: dialogDims.width, height: dialogDims.height, maxWidth: 'none', maxHeight: 'none' }
+    ...(clampedDims
+      ? { width: clampedDims.width, height: clampedDims.height, maxWidth: 'none', maxHeight: 'none' }
       : dialogSize === 'full'
       ? { maxHeight: '98vh', height: '98vh' }
       : { maxHeight: '92vh', height: '92vh' }),
@@ -2372,7 +2555,7 @@ export default function CreateShiftSplitPanel({
         {/* Backdrop */}
         <div
           className="fixed inset-0 z-50 bg-black/80"
-          onClick={() => onOpenChange(false)}
+          onClick={requestClose}
           aria-hidden="true"
         />
         {/* Panel */}
@@ -2391,7 +2574,7 @@ export default function CreateShiftSplitPanel({
           <button
             type="button"
             className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 z-10"
-            onClick={() => onOpenChange(false)}
+            onClick={requestClose}
           >
             <X className="h-4 w-4" />
             <span className="sr-only">Close</span>
@@ -2517,6 +2700,27 @@ export default function CreateShiftSplitPanel({
 
               {/* Divider */}
               <div className="border-t border-border/40" />
+
+              {/* Closed-store banner (Task #387 A5) — when the store is closed for
+                  the selected day, surface that prominently above the timeline so the
+                  user understands why pills are empty and saves will be unusual. */}
+              {availData?.storeHours?.isClosed && (
+                <div
+                  className="rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 px-3 py-2.5 flex items-start gap-2"
+                  data-testid="closed-store-banner"
+                >
+                  <Store className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-amber-800 dark:text-amber-200 leading-tight">
+                      Store is closed on this day
+                    </p>
+                    <p className="text-[11px] text-amber-700/90 dark:text-amber-300/90 leading-snug mt-0.5">
+                      No availability is shown because the store is closed. You can still add shifts manually,
+                      but they'll be flagged as outside operating hours.
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {/* Day-view timeline — actual scheduled shifts + AI suggestions unified */}
               {/* stop bubble so empty-space clicks on the scrollable area deselect  */}
@@ -2851,6 +3055,51 @@ export default function CreateShiftSplitPanel({
                 </div>
               )}
 
+              {/* ── Live margin meter (Task #387 C4) ──
+                  Sums labor cost across the currently valid pending shifts using
+                  per-user hourlyRate from today-availability, falling back to
+                  $15/hr when missing. Shown only when there's something to score. */}
+              {validActiveShifts.length > 0 && (() => {
+                const members = (availData?.members ?? []) as AvailMember[];
+                const byUser: Record<string, number | null> = {};
+                const userRoleId: Record<string, string | null> = {};
+                for (const m of members) {
+                  byUser[m.userId] = m.hourlyRate ?? null;
+                  userRoleId[m.userId] = m.roleId ?? null;
+                }
+                const margin = computeMargin(
+                  validActiveShifts.map(s => ({
+                    employeeId: s.employeeId,
+                    startTime: s.startTime,
+                    endTime: s.endTime,
+                  })),
+                  { byUser, userRoleId, fallback: 15 },
+                );
+                const usedFallback = margin.perShift.some(p => p.rateSource === 'fallback');
+                const fmt = (n: number) => `$${n.toFixed(0)}`;
+                return (
+                  <div
+                    data-testid="margin-meter"
+                    className="rounded-md border bg-muted/40 px-3 py-2 flex items-center justify-between gap-3 text-xs"
+                    title={usedFallback ? 'Some employees have no hourly rate set — using $15/hr fallback.' : undefined}
+                  >
+                    <span className="flex items-center gap-1.5 text-muted-foreground">
+                      <DollarSign className="h-3.5 w-3.5" />
+                      Estimated labor
+                      {usedFallback && (
+                        <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">(est.)</span>
+                      )}
+                    </span>
+                    <span className="font-mono font-semibold tabular-nums">
+                      {fmt(margin.totalCost)}
+                      <span className="text-muted-foreground font-normal ml-1">
+                        · {margin.totalHours.toFixed(1)}h
+                      </span>
+                    </span>
+                  </div>
+                );
+              })()}
+
               <div className="flex justify-between gap-2 pt-1 pb-2">
                 {/* Delete button — actual shift or existing saved schedule */}
                 {isActualEditing ? (
@@ -2894,7 +3143,7 @@ export default function CreateShiftSplitPanel({
                     onClick={() => {
                       if (isEditingBlock) setSelectedShiftIdx(null);
                       else if (isActualEditing) { setSelectedActualSchedule(null); setActualFormEdits(null); }
-                      else onOpenChange(false);
+                      else requestClose();
                     }}
                   >
                     {(isEditingBlock || isActualEditing) ? "Deselect" : "Cancel"}
@@ -2962,51 +3211,7 @@ export default function CreateShiftSplitPanel({
                           : "bg-orange-500 hover:bg-orange-600 hover:shadow-lg"
                       )}
                       disabled={approveMutation.isPending || suggestLoading}
-                      onClick={() => {
-                        // Auto-commit any in-progress right-panel edits to the currently
-                        // selected manual draft shift before computing the save payload.
-                        // Without this, a user who adds a blank shift, picks an employee
-                        // in the form, and clicks "Save N New Shifts" without first hitting
-                        // per-card "Save Changes" would have their assignment silently
-                        // dropped (employeeId stays '' → filtered out as unassigned).
-                        const aiCount = suggestDataRef.current?.proposedShifts?.length ?? 0;
-                        let liveManual = manualShifts;
-                        if (selectedShiftIdx !== null && selectedShiftIdx >= aiCount) {
-                          const manualIdx = selectedShiftIdx - aiCount;
-                          const emp = selectedUserId ? employees.find((e) => e.id === selectedUserId) : null;
-                          const empName = emp ? `${emp.firstName ?? ''} ${emp.lastName ?? ''}`.trim() : undefined;
-                          liveManual = manualShifts.map((s, i) =>
-                            i === manualIdx
-                              ? {
-                                  ...s,
-                                  startTime: modalStartTime,
-                                  endTime: modalEndTime,
-                                  ...(selectedUserId ? { employeeId: selectedUserId } : {}),
-                                  ...(empName ? { employeeName: empName } : {}),
-                                  shiftBlock: modalTitle?.trim() ? modalTitle.trim() : (s.shiftBlock || 'Manual Shift'),
-                                  rationale: modalNotes?.trim() || s.rationale || '',
-                                }
-                              : s
-                          );
-                          setManualShifts(liveManual);
-                        }
-                        // Recompute the save payload from the live (post-commit) manual shifts
-                        const liveProposed = [...aiProposedShifts, ...liveManual.filter(
-                          s => !persistedManualKeys.has(`${s.employeeId}:${s.startTime}:${s.endTime}`)
-                        )];
-                        const liveActive = liveProposed.filter((_, i) => !excludedIdxs.has(i));
-                        const liveValid = liveActive.filter((s) => !!s.employeeId);
-                        if (liveValid.length === 0) {
-                          toast({
-                            title: 'No shifts to save',
-                            description: 'Assign an employee to at least one shift before saving.',
-                            variant: 'destructive',
-                          });
-                          return;
-                        }
-                        pendingSkippedCountRef.current = liveActive.length - liveValid.length;
-                        approveMutation.mutate(liveValid);
-                      }}
+                      onClick={handleBulkSave}
                       title={
                         validActiveShifts.length === 0
                           ? "Select an employee for each shift before saving"
@@ -3039,10 +3244,13 @@ export default function CreateShiftSplitPanel({
           </div>
         </div>
 
-        {/* ── Resize grip (bottom-right corner) ── */}
+        {/* ── Resize grip (bottom-right corner) ──
+            Hidden below 768px (mobile) so touch users can't accidentally
+            drag the panel into a non-recoverable position. Task #387 A7. */}
+        {!isMobile && (
         <div
           title="Drag to resize"
-          className="absolute bottom-1 right-1 w-5 h-5 cursor-nwse-resize z-50 flex items-end justify-end p-0.5 opacity-30 hover:opacity-70 transition-opacity select-none"
+          className="absolute bottom-1 right-1 w-5 h-5 cursor-nwse-resize z-50 flex items-end justify-end p-0.5 opacity-30 hover:opacity-70 transition-opacity select-none hidden md:flex"
           onPointerDown={handleGripPointerDown}
         >
           <svg viewBox="0 0 10 10" className="w-3.5 h-3.5 text-muted-foreground fill-current">
@@ -3050,10 +3258,85 @@ export default function CreateShiftSplitPanel({
             <rect x="0" y="6" width="10" height="2" rx="1" />
           </svg>
         </div>
+        )}
         </div>
+
+        {/* ── Keyboard shortcut cheat-sheet (toggled with `?`) ── */}
+        {showShortcutOverlay && (
+          <div
+            className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+            onClick={() => setShowShortcutOverlay(false)}
+          >
+            <div className="absolute inset-0 bg-black/60" aria-hidden="true" />
+            <div
+              role="dialog"
+              aria-label="Keyboard shortcuts"
+              className="relative bg-background border rounded-lg shadow-2xl w-full max-w-md p-5"
+              onClick={(e) => e.stopPropagation()}
+              data-testid="shortcut-cheat-sheet"
+            >
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold flex items-center gap-2">
+                  <Keyboard className="h-4 w-4" />
+                  Keyboard shortcuts
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setShowShortcutOverlay(false)}
+                  className="text-muted-foreground hover:text-foreground"
+                  aria-label="Close shortcuts"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <ul className="text-xs space-y-1.5">
+                {[
+                  ['?  or  /', 'Show / hide this cheat-sheet'],
+                  ['Esc', 'Close panel (confirm if unsaved)'],
+                  ['Ctrl/⌘ + Z', 'Undo last change'],
+                  ['Ctrl/⌘ + ⇧ + Z', 'Redo'],
+                  ['Ctrl/⌘ + S', 'Save all pending shifts'],
+                ].map(([k, v]) => (
+                  <li key={k} className="flex justify-between gap-3">
+                    <kbd className="font-mono bg-muted px-1.5 py-0.5 rounded text-[10px]">{k}</kbd>
+                    <span className="text-muted-foreground">{v}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        )}
       </>,
       document.body
     )}
+
+    {/* ── Unsaved-changes confirmation (Task #387 A1) ── */}
+    <AlertDialog open={pendingCloseConfirm} onOpenChange={setPendingCloseConfirm}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-amber-500" />
+            Discard unsaved changes?
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            You have shifts in this panel that haven't been saved to the schedule yet.
+            Closing now will discard them.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel onClick={() => setPendingCloseConfirm(false)}>
+            Keep editing
+          </AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            onClick={() => { setPendingCloseConfirm(false); onOpenChange(false); }}
+          >
+            Discard
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+
 
     {/* ── Suspicious revenue correction confirmation dialog ── */}
     <AlertDialog

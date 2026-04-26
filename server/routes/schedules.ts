@@ -254,6 +254,237 @@ export function registerScheduleRoutes(
     }
   });
 
+  // ── Bulk operations (Task #387 B1, B2, B3) ────────────────────────────────
+  // Single transaction + single consolidated WS broadcast per call.
+
+  app.patch('/api/schedules/bulk', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canManage = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'schedule.manage');
+      if (!canManage) return res.status(403).json({ message: "Permission denied" });
+
+      const { ids, op } = req.body as {
+        ids: string[];
+        op: { kind: 'set'; patch: Record<string, any> } | { kind: 'shiftMinutes'; deltaMin: number };
+      };
+      if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ message: "ids required" });
+      if (ids.length > 200) return res.status(400).json({ message: "max 200 ids per call" });
+      if (!op || (op.kind !== 'set' && op.kind !== 'shiftMinutes')) {
+        return res.status(400).json({ message: "op.kind must be 'set' or 'shiftMinutes'" });
+      }
+
+      // Per-store scoping: only allow editing shifts inside the requester's store
+      const storeId = (await tryResolveStoreIdForUser(userId)) || 'default';
+      const allowedUserIds = new Set(await getAllStoreUserIds(storeId));
+
+      const updated = await db.transaction(async (tx) => {
+        const existing = await tx.select().from(schedulesTable).where(inArray(schedulesTable.id, ids));
+        const inScope = existing.filter(s => allowedUserIds.has(s.userId));
+        if (inScope.length === 0) return [];
+
+        const results: any[] = [];
+        for (const sched of inScope) {
+          let patch: Record<string, any> = {};
+          if (op.kind === 'set') {
+            patch = { ...op.patch };
+            if (typeof patch.startTime === 'string') patch.startTime = new Date(patch.startTime);
+            if (typeof patch.endTime === 'string') patch.endTime = new Date(patch.endTime);
+          } else {
+            const deltaMs = op.deltaMin * 60 * 1000;
+            patch.startTime = new Date(new Date(sched.startTime).getTime() + deltaMs);
+            patch.endTime = new Date(new Date(sched.endTime).getTime() + deltaMs);
+          }
+          const [row] = await tx.update(schedulesTable).set(patch).where(eq(schedulesTable.id, sched.id)).returning();
+          results.push(row);
+        }
+        return results;
+      });
+
+      const recipients = await computeScheduleStoreRecipients(storeId, getAllStoreUserIds);
+      sendToUsers(recipients, { type: 'schedules_bulk_updated', data: { ids: updated.map(s => s.id), schedules: updated } });
+
+      res.json({ updated });
+    } catch (error) {
+      console.error("Error bulk-updating schedules:", error);
+      res.status(500).json({ message: "Failed to update shifts" });
+    }
+  });
+
+  app.delete('/api/schedules/bulk', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canManage = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'schedule.manage');
+      if (!canManage) return res.status(403).json({ message: "Permission denied" });
+
+      const { ids } = req.body as { ids: string[] };
+      if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ message: "ids required" });
+      if (ids.length > 200) return res.status(400).json({ message: "max 200 ids per call" });
+
+      const storeId = (await tryResolveStoreIdForUser(userId)) || 'default';
+      const allowedUserIds = new Set(await getAllStoreUserIds(storeId));
+
+      const deleted = await db.transaction(async (tx) => {
+        const existing = await tx.select().from(schedulesTable).where(inArray(schedulesTable.id, ids));
+        const inScope = existing.filter(s => allowedUserIds.has(s.userId));
+        if (inScope.length === 0) return [];
+        const ok = inScope.map(s => s.id);
+        await tx.delete(schedulesTable).where(inArray(schedulesTable.id, ok));
+        return ok;
+      });
+
+      const recipients = await computeScheduleStoreRecipients(storeId, getAllStoreUserIds);
+      sendToUsers(recipients, { type: 'schedules_bulk_deleted', data: { ids: deleted } });
+
+      res.json({ deleted });
+    } catch (error) {
+      console.error("Error bulk-deleting schedules:", error);
+      res.status(500).json({ message: "Failed to delete shifts" });
+    }
+  });
+
+  app.post('/api/schedules/copy-day', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canManage = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'schedule.manage');
+      if (!canManage) return res.status(403).json({ message: "Permission denied" });
+
+      const { sourceDate, targetDates, replace } = req.body as {
+        sourceDate: string;
+        targetDates: string[];
+        replace?: boolean;
+      };
+      const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+      if (!sourceDate || !DATE_RE.test(sourceDate)) return res.status(400).json({ message: "sourceDate must be YYYY-MM-DD" });
+      if (!Array.isArray(targetDates) || targetDates.length === 0) return res.status(400).json({ message: "targetDates required" });
+      if (targetDates.some(d => typeof d !== 'string' || !DATE_RE.test(d))) {
+        return res.status(400).json({ message: "all targetDates must be YYYY-MM-DD" });
+      }
+      if (targetDates.length > 60) return res.status(400).json({ message: "max 60 target dates per call" });
+
+      const storeId = (await tryResolveStoreIdForUser(userId)) || 'default';
+      const allowedUserIds = new Set(await getAllStoreUserIds(storeId));
+
+      const sourceStart = new Date(sourceDate + 'T00:00:00');
+      const sourceEnd = new Date(sourceDate + 'T23:59:59.999');
+
+      const result = await db.transaction(async (tx) => {
+        // Load source shifts in scope
+        const allOnSource = await tx
+          .select()
+          .from(schedulesTable)
+          .where(and(gte(schedulesTable.startTime, sourceStart), lte(schedulesTable.startTime, sourceEnd)));
+        const sourceShifts = allOnSource.filter(s => allowedUserIds.has(s.userId));
+
+        let replacedCount = 0;
+        if (replace) {
+          for (const td of targetDates) {
+            const ts = new Date(td + 'T00:00:00');
+            const te = new Date(td + 'T23:59:59.999');
+            const existing = await tx
+              .select({ id: schedulesTable.id, userId: schedulesTable.userId })
+              .from(schedulesTable)
+              .where(and(gte(schedulesTable.startTime, ts), lte(schedulesTable.startTime, te)));
+            const toDelete = existing.filter(s => allowedUserIds.has(s.userId)).map(s => s.id);
+            if (toDelete.length > 0) {
+              await tx.delete(schedulesTable).where(inArray(schedulesTable.id, toDelete));
+              replacedCount += toDelete.length;
+            }
+          }
+        }
+
+        const created: any[] = [];
+        for (const td of targetDates) {
+          const rowsToInsert = sourceShifts.map(s => {
+            const srcStart = new Date(s.startTime);
+            const srcEnd = new Date(s.endTime);
+            const newStart = new Date(`${td}T00:00:00`);
+            newStart.setHours(srcStart.getHours(), srcStart.getMinutes(), 0, 0);
+            const newEnd = new Date(`${td}T00:00:00`);
+            newEnd.setHours(srcEnd.getHours(), srcEnd.getMinutes(), 0, 0);
+            // Handle shifts that cross midnight
+            if (newEnd <= newStart) newEnd.setDate(newEnd.getDate() + 1);
+            return {
+              userId: s.userId,
+              startTime: newStart,
+              endTime: newEnd,
+              title: s.title,
+              locationId: s.locationId,
+              description: s.description,
+              createdBy: userId,
+            };
+          });
+          if (rowsToInsert.length > 0) {
+            const inserted = await tx.insert(schedulesTable).values(rowsToInsert).returning();
+            created.push(...inserted);
+          }
+        }
+        return { created, replacedCount };
+      });
+
+      const recipients = await computeScheduleStoreRecipients(storeId, getAllStoreUserIds);
+      sendToUsers(recipients, {
+        type: 'schedules_bulk_created',
+        data: { ids: result.created.map(s => s.id), schedules: result.created },
+      });
+
+      res.json(result);
+    } catch (error) {
+      console.error("Error copying day schedules:", error);
+      res.status(500).json({ message: "Failed to copy day" });
+    }
+  });
+
+  // Per-day preview: counts existing in-scope shifts on each target date.
+  // Used by the Copy-day picker to show "will replace N existing shifts on …".
+  app.get('/api/schedules/copy-day-preview', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canManage = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'schedule.manage');
+      if (!canManage) return res.status(403).json({ message: "Permission denied" });
+
+      const sourceDate = req.query.sourceDate as string | undefined;
+      const targetDatesParam = req.query.targetDates as string | undefined;
+      const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+      if (!sourceDate || !DATE_RE.test(sourceDate)) return res.status(400).json({ message: "sourceDate required" });
+      const targetDates = (targetDatesParam || '').split(',').filter(Boolean);
+      if (targetDates.length === 0 || targetDates.some(d => !DATE_RE.test(d))) {
+        return res.status(400).json({ message: "targetDates required (comma-separated YYYY-MM-DD)" });
+      }
+      if (targetDates.length > 60) return res.status(400).json({ message: "max 60 target dates" });
+
+      const storeId = (await tryResolveStoreIdForUser(userId)) || 'default';
+      const allowedUserIds = new Set(await getAllStoreUserIds(storeId));
+
+      const ss = new Date(sourceDate + 'T00:00:00');
+      const se = new Date(sourceDate + 'T23:59:59.999');
+      const sourceRows = await db
+        .select({ id: schedulesTable.id, userId: schedulesTable.userId })
+        .from(schedulesTable)
+        .where(and(gte(schedulesTable.startTime, ss), lte(schedulesTable.startTime, se)));
+      const sourceCount = sourceRows.filter(s => allowedUserIds.has(s.userId)).length;
+
+      const perTarget: { date: string; existing: number }[] = [];
+      for (const td of targetDates) {
+        const ts = new Date(td + 'T00:00:00');
+        const te = new Date(td + 'T23:59:59.999');
+        const rows = await db
+          .select({ id: schedulesTable.id, userId: schedulesTable.userId })
+          .from(schedulesTable)
+          .where(and(gte(schedulesTable.startTime, ts), lte(schedulesTable.startTime, te)));
+        perTarget.push({ date: td, existing: rows.filter(s => allowedUserIds.has(s.userId)).length });
+      }
+
+      res.json({ sourceCount, perTarget });
+    } catch (error) {
+      console.error("Error previewing copy-day:", error);
+      res.status(500).json({ message: "Failed to preview copy-day" });
+    }
+  });
+
   app.delete('/api/schedules/:id', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;

@@ -45,6 +45,9 @@ export const roles = pgTable("roles", {
   description: text("description"),
   isSystemRole: boolean("is_system_role").default(false),
   isActive: boolean("is_active").default(true),
+  // Fallback hourly rate used by the live margin meter when an individual user's
+  // `users.hourlyRate` is null. Decimal so it round-trips without float drift.
+  defaultHourlyRate: decimal("default_hourly_rate", { precision: 10, scale: 2 }),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

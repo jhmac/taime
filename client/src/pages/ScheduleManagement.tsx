@@ -28,6 +28,7 @@ import AvailabilityCommandPanel from "@/components/AvailabilityCommandPanel";
 import SuggestedScheduleReview from "@/components/SuggestedScheduleReview";
 import CreateShiftSplitPanel from "@/components/CreateShiftSplitPanel";
 import ScheduleTimelineView, { type ScheduleSubView } from "@/components/ScheduleTimelineView";
+import { useWebSocketContext } from "@/contexts/WebSocketContext";
 
 interface DayNote {
   id: string;
@@ -649,6 +650,24 @@ export default function ScheduleManagement() {
       return res.json();
     },
   });
+
+  // Cross-tab sync (Task #387 A4) — when another browser tab applies a bulk
+  // schedule change, refetch our copy so the grid stays current without a
+  // manual reload. Listens for the bulk events broadcast by W1.1/W1.2.
+  const { lastMessage: wsMessage } = useWebSocketContext();
+  useEffect(() => {
+    if (!wsMessage) return;
+    const t = wsMessage.type;
+    if (
+      t === 'schedules_bulk_created' ||
+      t === 'schedules_bulk_updated' ||
+      t === 'schedules_bulk_deleted'
+    ) {
+      queryClient.invalidateQueries({ queryKey: ["/api/schedules"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/availability/calendar/team"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/schedules/today-availability"] });
+    }
+  }, [wsMessage, queryClient]);
 
   const { data: users = [], isLoading: usersLoading } = useQuery<User[]>({
     queryKey: ["/api/users"],

@@ -795,9 +795,18 @@ Required JSON structure:
 
       const created = await storage.createSchedulesBatch(validEntries);
 
+      // Single consolidated WS broadcast — clients invalidate `/api/schedules` once
+      const broadcastIds = created.map(c => c.id);
+      sendToUsers(
+        await computeScheduleStoreRecipients(applyStoreId, getAllStoreUserIds),
+        { type: 'schedules_bulk_created', data: { ids: broadcastIds, schedules: created } },
+      );
+
       res.json({
         success: true,
         schedulesCreated: created.length,
+        // Stable contract for bulk-undo toast and UI follow-ups (Task #387 B4)
+        created,
       });
     } catch (error) {
       console.error("Error applying AI schedule:", error);
@@ -1344,6 +1353,10 @@ Required JSON structure:
         let availStart: string | null = null;
         let availEnd: string | null = null;
         let source = 'default';
+        // Concrete time windows for snap-to-availability (Task #387 B5).
+        // Today this is one window per member, but the field is an array so
+        // future split-availability (e.g. 9-12 + 14-18) drops in cleanly.
+        let windows: { start: string; end: string }[] = [];
 
         if (hasTimeOff) {
           isAvailable = false;
@@ -1378,6 +1391,7 @@ Required JSON structure:
         if (isAvailable) {
           if (!availStart) availStart = storeOpen;
           if (!availEnd) availEnd = storeClose;
+          if (availStart && availEnd) windows = [{ start: availStart, end: availEnd }];
         }
 
         // Compute overlap with store hours
@@ -1451,6 +1465,9 @@ Required JSON structure:
           scheduledHoursThisWeek: Math.round(scheduledHours * 10) / 10,
           targetWeeklyHours: u.targetWeeklyHours ? parseFloat(u.targetWeeklyHours) : null,
           source,
+          windows,
+          hourlyRate: u.hourlyRate ? parseFloat(u.hourlyRate) : null,
+          roleId: u.roleId,
         });
       }
 
