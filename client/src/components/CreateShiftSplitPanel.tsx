@@ -1226,7 +1226,40 @@ export default function CreateShiftSplitPanel({
   const [actualFormEdits, setActualFormEdits] = useState<{ startTime: string; endTime: string; userId: string } | null>(null);
   const [manualShifts, setManualShifts] = useState<ProposedShift[]>([]);
   const [shiftSaved, setShiftSaved] = useState(false);
+  const shiftSavedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingSkippedCountRef = useRef(0);
+
+  // Flash the "Saved ✓" confirmation on the per-card Save button for 2s.
+  // Uses a ref-tracked timer so we can clear it on unmount or when the user
+  // switches to a different card (preventing stale "Saved" state on a freshly
+  // selected card that wasn't actually just saved).
+  const flashSaved = useCallback(() => {
+    if (shiftSavedTimerRef.current) clearTimeout(shiftSavedTimerRef.current);
+    setShiftSaved(true);
+    shiftSavedTimerRef.current = setTimeout(() => {
+      setShiftSaved(false);
+      shiftSavedTimerRef.current = null;
+    }, 2000);
+  }, []);
+
+  // Clear the timer on unmount to avoid setState-on-unmounted warnings
+  useEffect(() => () => {
+    if (shiftSavedTimerRef.current) {
+      clearTimeout(shiftSavedTimerRef.current);
+      shiftSavedTimerRef.current = null;
+    }
+  }, []);
+
+  // Reset the "Saved ✓" flash whenever the user switches to a different card —
+  // otherwise a fresh selection would inherit the stale "Saved" state from the
+  // previous card and look like it had just been saved.
+  useEffect(() => {
+    if (shiftSavedTimerRef.current) {
+      clearTimeout(shiftSavedTimerRef.current);
+      shiftSavedTimerRef.current = null;
+    }
+    setShiftSaved(false);
+  }, [selectedShiftIdx, selectedActualSchedule?.id]);
   const [showPillsUnavailable, setShowPillsUnavailable] = useState(false);
   const [pendingCorrectionWarning, setPendingCorrectionWarning] = useState<{
     historicalDate: string;
@@ -1619,12 +1652,15 @@ export default function CreateShiftSplitPanel({
       });
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/schedules/suggest", modalDate] });
       toast({ title: "Shift saved", description: "Changes persisted to the suggested schedule." });
-      // Flash "Saved ✓" on the button for 2s — keep the card selected so the manager can keep editing
-      setShiftSaved(true);
-      setTimeout(() => setShiftSaved(false), 2000);
+      // Flash "Saved ✓" on the button for 2s — but ONLY if the same card is still selected.
+      // Prevents a stale "Saved ✓" appearing on card B when the user saves A then switches to B
+      // before the network round-trip resolves.
+      if (selectedShiftIdx === variables.idx) {
+        flashSaved();
+      }
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to save shift changes.", variant: "destructive" });
@@ -1720,6 +1756,7 @@ export default function CreateShiftSplitPanel({
       onOpenChange(false);
     },
     onError: () => {
+      pendingSkippedCountRef.current = 0;
       toast({ title: "Error", description: "Failed to approve shifts.", variant: "destructive" });
     },
   });
@@ -1809,8 +1846,7 @@ export default function CreateShiftSplitPanel({
           : s
       ));
       // Keep card selected and flash "Saved ✓" (same UX as AI shifts)
-      setShiftSaved(true);
-      setTimeout(() => setShiftSaved(false), 2000);
+      flashSaved();
       return;
     }
 
@@ -1979,14 +2015,16 @@ export default function CreateShiftSplitPanel({
     setModalStartTime(sOpen);
     setModalEndTime(sClose);
     setModalTitle('');
-    setModalLocationId(locations[0]?.id ?? '');
+    // Clear location to empty so the form doesn't carry a stale default into the new shift —
+    // consistent with handleSelectShift, which also clears location on selection.
+    setModalLocationId('');
     setModalNotes('');
     setSelectedActualSchedule(null);
     setActualFormEdits(null);
     requestAnimationFrame(() => {
       timelineWrapperRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     });
-  }, [storeHours, proposedShifts.length, locations]);
+  }, [storeHours, proposedShifts.length]);
 
   const dateLabel = modalDate
     ? new Date(modalDate + "T12:00:00Z").toLocaleDateString("en-US", {
@@ -2088,11 +2126,12 @@ export default function CreateShiftSplitPanel({
                 >
                   {leftCollapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
                 </button>
-                {/* Add blank shift — always visible so managers can build shifts from scratch */}
+                {/* Add blank shift — always visible so managers can build shifts from scratch.
+                    Dashed border subtly signals "create new" affordance distinct from Refresh. */}
                 <Button
                   size="sm"
                   variant="outline"
-                  className="gap-1 text-xs h-8"
+                  className="gap-1 text-xs h-8 border-dashed border-slate-400 dark:border-slate-500 hover:border-orange-400 hover:bg-orange-50 dark:hover:bg-orange-950/30"
                   title="Add a blank shift to the timeline"
                   onClick={handleAddBlankShift}
                 >
@@ -2558,7 +2597,10 @@ export default function CreateShiftSplitPanel({
                       variant="outline"
                       disabled={saveShiftMutation.isPending}
                       onClick={handleSaveShiftEdit}
-                      className={cn("gap-1.5", shiftSaved && "border-green-600 text-green-700 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20")}
+                      className={cn(
+                        "gap-1.5 transition-all",
+                        shiftSaved && "border-green-600 text-green-700 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 scale-[1.03] shadow-sm"
+                      )}
                     >
                       {saveShiftMutation.isPending ? (
                         <><Loader2 className="h-3 w-3 animate-spin" />Saving…</>
@@ -2601,12 +2643,12 @@ export default function CreateShiftSplitPanel({
                       type="button"
                       size="sm"
                       className={cn(
-                        "gap-1.5 text-white",
+                        "gap-1.5 text-white font-semibold shadow-md transition-all",
                         validActiveShifts.length === 0
-                          ? "bg-slate-400 hover:bg-slate-500"
+                          ? "bg-slate-400 hover:bg-slate-500 shadow-none font-normal"
                           : conflictCount > 0
-                          ? "bg-amber-500 hover:bg-amber-600"
-                          : "bg-orange-500 hover:bg-orange-600"
+                          ? "bg-amber-500 hover:bg-amber-600 hover:shadow-lg"
+                          : "bg-orange-500 hover:bg-orange-600 hover:shadow-lg"
                       )}
                       disabled={approveMutation.isPending || suggestLoading || validActiveShifts.length === 0}
                       onClick={() => {
