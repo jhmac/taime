@@ -1725,7 +1725,12 @@ export default function CreateShiftSplitPanel({
         const next: UndoEntry[] = [...prev, {
           kind: 'remove-manual',
           shift,
-          insertIdx: idx,
+          // Store the manual-array index (not the merged AI+manual idx) so
+          // undo splices the card back into manualShifts at the correct slot.
+          // For persisted-manuals (manualIdx < 0) we record 0 — they live in
+          // the cached AI proposedShifts, not in manualShifts, so undo's
+          // splice is effectively a no-op and re-persistence handles restore.
+          insertIdx: Math.max(0, manualIdx),
           wasPersisted: isPersistedManual,
         }];
         return next.length > 20 ? next.slice(next.length - 20) : next;
