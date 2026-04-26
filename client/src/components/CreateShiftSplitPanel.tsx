@@ -738,11 +738,9 @@ type DragState = {
 
 type ActualShiftEntry = { schedule: Schedule; name: string; startTime: string; endTime: string };
 
-// Hover-intent delete button used on persisted "Scheduled" cards.
-// The X is rendered immediately on hover but stays disabled for 200ms so an
-// accidental cursor flick across the card doesn't fire the destructive delete.
-// After the delay the button visibly arms (red bg + active title) and only
-// then will the click invoke `onConfirm`.
+// Hover-intent delete button for persisted "Scheduled" cards. Requires the
+// cursor to dwell for 200ms before the click is honored, so an accidental
+// flick across the card doesn't fire the destructive delete.
 function HoverIntentDeleteButton({ onConfirm }: { onConfirm: () => void }) {
   const [armed, setArmed] = useState(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -770,7 +768,7 @@ function HoverIntentDeleteButton({ onConfirm }: { onConfirm: () => void }) {
         if (armed) onConfirm();
       }}
       onPointerDown={(e) => e.stopPropagation()}
-      title={armed ? "Delete shift" : "Hover briefly to delete"}
+      title="Delete from schedule"
       className={`absolute top-0.5 right-0.5 hidden group-hover/actual:flex items-center justify-center w-4 h-4 rounded-full text-white z-30 transition-colors ${
         armed ? 'bg-red-500/90 hover:bg-red-600' : 'bg-black/40 cursor-progress'
       }`}
@@ -799,6 +797,7 @@ function DayTimeline({
   selectedActualId,
   onActualShiftChange,
   onDeleteActualShift,
+  aiCount,
 }: {
   suggestData: SuggestData | null | undefined;
   isLoading: boolean;
@@ -818,6 +817,7 @@ function DayTimeline({
   selectedActualId?: string | null;
   onActualShiftChange?: (s: Schedule, startTime: string, endTime: string) => void;
   onDeleteActualShift?: (s: Schedule) => void;
+  aiCount: number;
 }) {
   const open = storeHours?.open || suggestData?.storeHours?.open || "09:00";
   const close = storeHours?.close || suggestData?.storeHours?.close || "21:00";
@@ -1184,15 +1184,12 @@ function DayTimeline({
               <div className="w-px bg-border/50 flex-shrink-0 self-stretch" />
             )}
 
-            {/* One column per AI / manual shift.
-             *  Manual drafts (shiftBlock === 'Manual') get a "Remove this draft" tooltip
-             *  because clicking X fully removes them; AI suggestions only get excluded
-             *  from the save batch (toggleable). */}
+            {/* One column per AI / manual shift. */}
             {shifts.map((shift, idx) => {
-              const isManualDraft = shift.shiftBlock === 'Manual';
-              const xTooltip = isManualDraft
-                ? "Remove this draft"
-                : "Remove from suggestions";
+              const cardKind = classifyShiftCard(idx, aiCount, shift.shiftBlock);
+              const xTooltip = cardKind === 'ai'
+                ? "Remove from suggestions"
+                : "Remove this draft";
               return (
                 <div
                   key={idx}
@@ -1568,24 +1565,17 @@ export default function CreateShiftSplitPanel({
     }
   }, []);
 
-  // Dispatcher for an UndoEntry. Used by both handleUndo (popping from undo →
-  // pushing inverse to redo) and handleRedo (popping redo → pushing inverse to
-  // undo). Returns the *inverse* entry that should be pushed onto the other
-  // stack so the action is round-trippable.
-  //
-  // The `direction` flag distinguishes which way we're going:
-  //   - 'undo': reverse the recorded action (e.g. remove-ai → un-exclude)
-  //   - 'redo': re-apply the recorded action (e.g. remove-ai → re-exclude)
-  // Without this, both Cmd+Z and Cmd+Y would do the same thing (the original
-  // bug the architect caught).
+  // Apply an UndoEntry in either direction. 'undo' reverses the original
+  // action; 'redo' re-applies it. Returns the inverse entry that should be
+  // pushed onto the opposite stack so undo/redo are round-trippable.
   const applyUndoEntry = useCallback((
     entry: UndoEntry,
     direction: 'undo' | 'redo',
     currentSelectedIdx: number | null,
   ): UndoEntry => {
     if (entry.kind === 'edit') {
-      // Edit snapshots are self-describing (they carry the previous
-      // editedShifts map), so undo/redo just swap snapshots either way.
+      // Edit snapshots carry the previous editedShifts map, so undo/redo
+      // swap snapshots either way.
       const inverse: UndoEntry = { kind: 'edit', prevEdited: editedShiftsRef.current };
       applyEditSnapshot(entry.prevEdited, currentSelectedIdx);
       return inverse;
@@ -1593,11 +1583,8 @@ export default function CreateShiftSplitPanel({
     if (entry.kind === 'remove-ai') {
       setExcludedIdxs((prev) => {
         const next = new Set(prev);
-        if (direction === 'undo') {
-          next.delete(entry.idx); // restore the card
-        } else {
-          next.add(entry.idx);    // re-remove it
-        }
+        if (direction === 'undo') next.delete(entry.idx);
+        else next.add(entry.idx);
         return next;
       });
       return { kind: 'remove-ai', idx: entry.idx };
@@ -1690,12 +1677,10 @@ export default function CreateShiftSplitPanel({
     },
   });
 
-  // Single entry-point for clicking the X on any timeline card.
-  // Detects Manual drafts by *either* index position (idx >= aiCount, i.e.
-  // it's still in local pendingManualShifts) OR shiftBlock === 'Manual' (it
-  // was persisted into the cache via persistPillShiftMutation). This catches
-  // blank drafts that have shiftBlock === '' too — any card past the AI
-  // count is a manual draft regardless of its block label.
+  // Single entry-point for clicking the X on any timeline card. Branches by
+  // card kind (AI / persisted-manual / pending-manual) — see classifyShiftCard
+  // for the rules. Manual cards are spliced from local state by index;
+  // persisted-manuals additionally drop their cache entry server-side.
   const handleToggleExclude = (idx: number, shift: ProposedShift) => {
     const aiCount = suggestDataRef.current?.proposedShifts?.length ?? 0;
     const cardKind = classifyShiftCard(idx, aiCount, shift.shiftBlock);
@@ -1703,14 +1688,21 @@ export default function CreateShiftSplitPanel({
     const isManualDraft = cardKind !== 'ai';
 
     if (isManualDraft) {
-      // Splice from local pending drafts (no-op if it was already persisted)…
-      const matchKey = `${shift.employeeId}:${shift.startTime}:${shift.endTime}`;
-      setManualShifts((prev) => prev.filter(
-        (s) => `${s.employeeId}:${s.startTime}:${s.endTime}` !== matchKey
-      ));
-      // …and clear the persisted copy from the server cache so a refetch
-      // doesn't resurrect it. Safe to call even if there's no persisted row;
-      // the route returns { removed: 0 } in that case.
+      // Index-based splice. Pending drafts live at idx >= aiCount in the
+      // merged array, so manualIdx maps the merged index into manualShifts.
+      // Persisted-manual cards (idx < aiCount, shiftBlock === 'Manual') are
+      // already moved out of manualShifts into the cached proposedShifts
+      // array, so the manualShifts splice is a no-op for them — but we
+      // still fire removeSuggestShiftMutation to drop the persisted copy.
+      const manualIdx = idx - aiCount;
+      if (manualIdx >= 0) {
+        setManualShifts((prev) => {
+          if (manualIdx >= prev.length) return prev;
+          const next = [...prev];
+          next.splice(manualIdx, 1);
+          return next;
+        });
+      }
       if (isPersistedManual && modalDate && shift.employeeId && shift.startTime && shift.endTime) {
         removeSuggestShiftMutation.mutate({
           date: modalDate,
@@ -1719,7 +1711,6 @@ export default function CreateShiftSplitPanel({
           endTime: shift.endTime,
         });
       }
-      // Push an undo action so Cmd+Z restores the removed draft.
       setUndoStack((prev) => {
         const next: UndoEntry[] = [...prev, {
           kind: 'remove-manual',
@@ -1750,9 +1741,6 @@ export default function CreateShiftSplitPanel({
     setExcludedIdxs((prev) => {
       const next = new Set(prev);
       if (next.has(idx)) {
-        // Un-excluding doesn't get its own undo entry — it's already a
-        // toggle. Only the *exclude* direction is recorded so Cmd+Z can
-        // restore a removed card.
         next.delete(idx);
       } else {
         next.add(idx);
@@ -2538,6 +2526,7 @@ export default function CreateShiftSplitPanel({
                   selectedActualId={selectedActualSchedule?.id}
                   onActualShiftChange={handleActualShiftChange}
                   onDeleteActualShift={(s) => deleteActualMutation.mutate({ schedule: s })}
+                  aiCount={aiProposedShifts.length}
                 />
               </div>
 
