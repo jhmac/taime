@@ -1589,17 +1589,27 @@ export default function CreateShiftSplitPanel({
       });
       return { kind: 'remove-ai', idx: entry.idx };
     }
-    // remove-manual: undo re-inserts the shift; redo deletes it again.
+    // remove-manual: undo splices the shift back at its original manual
+    // index; redo removes that same object by reference. Object identity is
+    // preserved through the round trip, so duplicate cards stay independent.
     if (direction === 'undo') {
-      setManualShifts((prev) => [...prev, entry.shift]);
+      setManualShifts((prev) => {
+        const insertAt = Math.max(0, Math.min(entry.insertIdx, prev.length));
+        const next = [...prev];
+        next.splice(insertAt, 0, entry.shift);
+        return next;
+      });
       if (entry.wasPersisted && modalDate && entry.shift.employeeId) {
         persistPillShiftMutation.mutate({ shift: entry.shift, date: modalDate });
       }
     } else {
-      const matchKey = `${entry.shift.employeeId}:${entry.shift.startTime}:${entry.shift.endTime}`;
-      setManualShifts((prev) => prev.filter(
-        (s) => `${s.employeeId}:${s.startTime}:${s.endTime}` !== matchKey,
-      ));
+      setManualShifts((prev) => {
+        const targetIdx = prev.indexOf(entry.shift);
+        if (targetIdx < 0) return prev;
+        const next = [...prev];
+        next.splice(targetIdx, 1);
+        return next;
+      });
       if (entry.wasPersisted && modalDate && entry.shift.employeeId && entry.shift.startTime && entry.shift.endTime) {
         removeSuggestShiftMutation.mutate({
           date: modalDate,

@@ -257,6 +257,92 @@ describe('actual-delete undo recreate payload', () => {
   });
 });
 
+describe('manual undo/redo preserves duplicate independence (object identity)', () => {
+  // The real component splices by reference for redo and by stored insertIdx
+  // for undo. This test models that loop with three identical-shape shifts
+  // (duplicates) and proves: removing one card → undo restores it at the
+  // original index → redo removes that exact same card (not a sibling).
+  function spliceOut(prev: SimShift[], idx: number): { next: SimShift[]; removed: SimShift } {
+    const next = [...prev];
+    const [removed] = next.splice(idx, 1);
+    return { next, removed };
+  }
+  function spliceIn(prev: SimShift[], shift: SimShift, insertIdx: number): SimShift[] {
+    const at = Math.max(0, Math.min(insertIdx, prev.length));
+    const next = [...prev];
+    next.splice(at, 0, shift);
+    return next;
+  }
+  function removeByRef(prev: SimShift[], shift: SimShift): SimShift[] {
+    const idx = prev.indexOf(shift);
+    if (idx < 0) return prev;
+    const next = [...prev];
+    next.splice(idx, 1);
+    return next;
+  }
+
+  it('redo of a manual remove deletes only the originally clicked duplicate', () => {
+    const a: SimShift = { employeeId: 'u1', startTime: '09:00', endTime: '17:00', shiftBlock: 'Manual' };
+    const b: SimShift = { employeeId: 'u1', startTime: '09:00', endTime: '17:00', shiftBlock: 'Manual' };
+    const c: SimShift = { employeeId: 'u1', startTime: '09:00', endTime: '17:00', shiftBlock: 'Manual' };
+    let state: SimShift[] = [a, b, c];
+
+    const removedAt = 1;
+    const step1 = spliceOut(state, removedAt);
+    state = step1.next;
+    expect(state).toEqual([a, c]);
+    expect(step1.removed).toBe(b);
+
+    state = spliceIn(state, step1.removed, removedAt);
+    expect(state).toEqual([a, b, c]);
+    expect(state[1]).toBe(b);
+
+    state = removeByRef(state, step1.removed);
+    expect(state).toEqual([a, c]);
+    expect(state.includes(b)).toBe(false);
+    expect(state.includes(a)).toBe(true);
+    expect(state.includes(c)).toBe(true);
+  });
+
+  it('undo restores at the original index even after other manuals were appended', () => {
+    const a: SimShift = { employeeId: 'u1', startTime: '09:00', endTime: '17:00', shiftBlock: 'Manual' };
+    const b: SimShift = { employeeId: 'u2', startTime: '10:00', endTime: '18:00', shiftBlock: 'Manual' };
+    const c: SimShift = { employeeId: 'u3', startTime: '11:00', endTime: '19:00', shiftBlock: 'Manual' };
+    let state: SimShift[] = [a, b, c];
+
+    const removedAt = 0;
+    const step = spliceOut(state, removedAt);
+    state = step.next;
+    expect(state).toEqual([b, c]);
+
+    const d: SimShift = { employeeId: 'u4', startTime: '12:00', endTime: '20:00', shiftBlock: 'Manual' };
+    state = [...state, d];
+    expect(state).toEqual([b, c, d]);
+
+    state = spliceIn(state, step.removed, removedAt);
+    expect(state[0]).toBe(a);
+    expect(state).toEqual([a, b, c, d]);
+  });
+
+  it('undo clamps insertIdx if the array shrank below the original index', () => {
+    const a: SimShift = { employeeId: 'u1', startTime: '09:00', endTime: '17:00', shiftBlock: 'Manual' };
+    const b: SimShift = { employeeId: 'u2', startTime: '10:00', endTime: '18:00', shiftBlock: 'Manual' };
+    let state: SimShift[] = [a, b];
+
+    const removedAt = 1;
+    const step = spliceOut(state, removedAt);
+    state = step.next;
+    expect(state).toEqual([a]);
+
+    const otherStep = spliceOut(state, 0);
+    state = otherStep.next;
+    expect(state).toEqual([]);
+
+    state = spliceIn(state, step.removed, removedAt);
+    expect(state).toEqual([b]);
+  });
+});
+
 describe('manual delete uses index-based splice', () => {
   // Two manual shifts that share the same employee/start/end (e.g. a
   // duplicate created by mistake or by paste). Old key-based filter would
