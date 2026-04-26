@@ -230,6 +230,66 @@ describe('computeMargin', () => {
     expect(r.totalHours).toBe(4);
     expect(r.totalCost).toBe(40);
   });
+
+  // ── Tier coloring (Task #387 C4) ──
+  it('returns tier=unknown when no projectedRevenue is provided', () => {
+    const r = computeMargin(
+      [{ employeeId: 'u1', startTime: '09:00', endTime: '13:00' }],
+      { byUser: { u1: 15 } },
+    );
+    expect(r.tier).toBe('unknown');
+    expect(r.laborPct).toBeNull();
+  });
+
+  it('returns tier=green when labor is at or below the target %', () => {
+    // 4h * $15 = $60 labor on $400 revenue = 15% (target 25%)
+    const r = computeMargin(
+      [{ employeeId: 'u1', startTime: '09:00', endTime: '13:00' }],
+      { byUser: { u1: 15 }, projectedRevenue: 400, targetLaborPct: 25 },
+    );
+    expect(r.tier).toBe('green');
+    expect(r.laborPct).toBeCloseTo(15, 5);
+  });
+
+  it('returns tier=amber when labor exceeds target but stays within +5pp', () => {
+    // $60 labor on $200 revenue = 30% (target 25, threshold 25..30)
+    const r = computeMargin(
+      [{ employeeId: 'u1', startTime: '09:00', endTime: '13:00' }],
+      { byUser: { u1: 15 }, projectedRevenue: 200, targetLaborPct: 25 },
+    );
+    expect(r.tier).toBe('amber');
+    expect(r.laborPct).toBeCloseTo(30, 5);
+  });
+
+  it('returns tier=red when labor blows past the amber band', () => {
+    // $60 labor on $100 revenue = 60% — way over target+5
+    const r = computeMargin(
+      [{ employeeId: 'u1', startTime: '09:00', endTime: '13:00' }],
+      { byUser: { u1: 15 }, projectedRevenue: 100, targetLaborPct: 25 },
+    );
+    expect(r.tier).toBe('red');
+    expect(r.laborPct).toBeCloseTo(60, 5);
+  });
+
+  it('returns tier=unknown when revenue is 0 (no signal — divide-by-zero)', () => {
+    // Helper treats 0 revenue as "no signal" rather than infinite labor %.
+    // The UI hides the % badge in this case so the meter falls back to its
+    // neutral styling.
+    const r = computeMargin(
+      [{ employeeId: 'u1', startTime: '09:00', endTime: '11:00' }],
+      { byUser: { u1: 10 }, projectedRevenue: 0, targetLaborPct: 25 },
+    );
+    expect(r.tier).toBe('unknown');
+    expect(r.laborPct).toBeNull();
+  });
+
+  it('echoes the targetLaborPct so the UI can label its tooltip', () => {
+    const r = computeMargin(
+      [{ employeeId: 'u1', startTime: '09:00', endTime: '11:00' }],
+      { byUser: { u1: 10 }, projectedRevenue: 100, targetLaborPct: 18 },
+    );
+    expect(r.targetLaborPct).toBe(18);
+  });
 });
 
 describe('hasUnsavedChanges', () => {

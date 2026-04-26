@@ -22,7 +22,16 @@ import {
   Lock, Keyboard, DollarSign, Store,
 } from "lucide-react";
 import type { Schedule } from "@shared/schema";
-import { computeMargin, hasUnsavedChanges as hasUnsavedChangesHelper } from "@/lib/createShiftHelpers";
+import {
+  computeMargin,
+  hasUnsavedChanges as hasUnsavedChangesHelper,
+  loadDraft,
+  saveDraft,
+  clearDraft,
+  evictStaleDrafts,
+} from "@/lib/createShiftHelpers";
+import { useAuth } from "@/hooks/useAuth";
+import { useWebSocketContext } from "@/contexts/WebSocketContext";
 
 interface HourlyData {
   hour: number;
@@ -1303,6 +1312,15 @@ export default function CreateShiftSplitPanel({
 }: Props) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { user: currentUser } = useAuth();
+  const { lastMessage: panelWsMessage } = useWebSocketContext();
+  // Drafts are namespaced by (storeId, date, userId). The panel doesn't
+  // currently know about multi-store; we use a stable 'panel' bucket so
+  // drafts collide cleanly across reopenings of the same date by the same
+  // manager, but never bleed across users (the userId segment guarantees
+  // that). When multi-store lands, swap 'panel' for the active store id.
+  const draftStoreId = 'panel';
+  const draftUserId = (currentUser as any)?.id ?? '';
 
   const [modalDate, setModalDate] = useState(defaultDate || "");
   const [modalStartTime, setModalStartTime] = useState(defaultStartTime || "09:00");
@@ -1369,6 +1387,16 @@ export default function CreateShiftSplitPanel({
   // Tracks the most recent set of created schedule IDs so the bulk-undo toast
   // can DELETE them in one round-trip if the user clicks Undo within 10s.
   const lastCreatedIdsRef = useRef<string[]>([]);
+  // External-change banner (Task #387 A4 panel-side) — flips true when a
+  // bulk WS event arrives for the open day from another tab/user. The
+  // banner shows a Refresh CTA that re-pulls schedules + suggest +
+  // today-availability and clears the flag. Reset on date change and on close.
+  const [externalChangeNotice, setExternalChangeNotice] = useState(false);
+  // Draft-restore guard — once we've loaded a draft for the current
+  // (storeId, date, userId) we don't want a subsequent state reset (date
+  // change, etc.) to write a *blank* draft back over our restored one
+  // before the user has a chance to interact with it.
+  const draftHydratedRef = useRef<string | null>(null);
   const [modalTitle, setModalTitle] = useState(editingSchedule?.title ?? '');
   const [modalLocationId, setModalLocationId] = useState(editingSchedule?.locationId ?? locations[0]?.id ?? '');
   const [modalNotes, setModalNotes] = useState(editingSchedule?.description ?? '');
@@ -1498,6 +1526,99 @@ export default function CreateShiftSplitPanel({
     }
     onOpenChange(false);
   }, [dirty, onOpenChange]);
+
+  // ── Localstorage drafts (Task #387 A8) ──────────────────────────────────────
+  // 1. On first mount, sweep stale drafts (>24h old) so we don't hold onto them
+  //    forever. Cheap synchronous loop; runs once per page load.
+  useEffect(() => { evictStaleDrafts(); }, []);
+
+  // 2. When the panel opens for a (date, user) we haven't restored yet,
+  //    pull any saved draft and rehydrate the form fields + manual shifts.
+  //    The hydration ref guards against the save-effect (#3 below) firing
+  //    immediately after with the *initial* state and overwriting the draft
+  //    we just loaded.
+  useEffect(() => {
+    if (!open) { draftHydratedRef.current = null; return; }
+    if (!modalDate || !draftUserId) return;
+    if (editingSchedule) return; // Don't restore drafts when editing a saved shift.
+    const key = `${draftStoreId}:${modalDate}:${draftUserId}`;
+    if (draftHydratedRef.current === key) return;
+    draftHydratedRef.current = key;
+    const draft = loadDraft(draftStoreId, modalDate, draftUserId);
+    if (!draft) return;
+    // Only restore if the user actually has un-persisted work in the draft
+    // (manualShifts > 0 OR a non-default field). Avoids confusing rehydrate
+    // when we previously cleared the draft on save.
+    const hasContent = (draft.manualShifts?.length ?? 0) > 0
+      || draft.modalTitle || draft.modalNotes || draft.selectedUserId;
+    if (!hasContent) return;
+    if (draft.modalStartTime) setModalStartTime(draft.modalStartTime);
+    if (draft.modalEndTime) setModalEndTime(draft.modalEndTime);
+    if (draft.selectedUserId) setSelectedUserId(draft.selectedUserId);
+    if (draft.modalTitle) setModalTitle(draft.modalTitle);
+    if (draft.modalLocationId) setModalLocationId(draft.modalLocationId);
+    if (draft.modalNotes) setModalNotes(draft.modalNotes);
+    if (Array.isArray(draft.manualShifts) && draft.manualShifts.length > 0) {
+      setManualShifts(draft.manualShifts as ProposedShift[]);
+    }
+    toast({
+      title: 'Draft restored',
+      description: 'Picked up where you left off in this panel.',
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, modalDate, draftUserId, editingSchedule]);
+
+  // 3. Debounced save: whenever the form/manual shifts change while the
+  //    panel is open, persist a snapshot. Only writes when there is content
+  //    worth saving so we don't pollute storage with empty drafts.
+  useEffect(() => {
+    if (!open || !modalDate || !draftUserId || editingSchedule) return;
+    const hasContent = manualShifts.length > 0
+      || !!modalTitle || !!modalNotes || !!selectedUserId;
+    if (!hasContent) return;
+    const t = setTimeout(() => {
+      saveDraft(draftStoreId, modalDate, draftUserId, {
+        modalDate,
+        modalStartTime,
+        modalEndTime,
+        selectedUserId,
+        modalTitle,
+        modalLocationId,
+        modalNotes,
+        manualShifts: manualShifts as unknown[],
+      });
+    }, 500);
+    return () => clearTimeout(t);
+  }, [
+    open, modalDate, draftUserId, editingSchedule,
+    modalStartTime, modalEndTime, selectedUserId,
+    modalTitle, modalLocationId, modalNotes, manualShifts,
+  ]);
+
+  // ── External-change banner (Task #387 A4 panel-side) ────────────────────────
+  // When another tab/user creates/updates/deletes shifts via the bulk routes,
+  // raise a non-blocking notice so the user knows the data they're looking at
+  // could be stale. The banner has a Refresh CTA that re-pulls the relevant
+  // queries. Only fires when the WS event matches the open day.
+  useEffect(() => {
+    if (!open || !panelWsMessage) return;
+    const t = panelWsMessage.type;
+    if (t !== 'schedules_bulk_created' && t !== 'schedules_bulk_updated' && t !== 'schedules_bulk_deleted') return;
+    const data = (panelWsMessage as any).data;
+    const schedules: Array<{ startTime?: string }> = Array.isArray(data?.schedules) ? data.schedules : [];
+    // Best-effort date match — bulk_deleted carries no schedule bodies, so
+    // we surface the notice for any bulk_deleted event when the panel is open.
+    if (t !== 'schedules_bulk_deleted' && modalDate) {
+      const matchesDay = schedules.some((s) => {
+        if (!s.startTime) return false;
+        try { return new Date(s.startTime).toISOString().slice(0, 10) === modalDate; }
+        catch { return false; }
+      });
+      if (!matchesDay) return;
+    }
+    setExternalChangeNotice(true);
+  }, [open, panelWsMessage, modalDate]);
+  useEffect(() => { setExternalChangeNotice(false); }, [modalDate, open]);
 
   // Escape key, `?`/`/` shortcut overlay, and body scroll lock.
   useEffect(() => {
@@ -1865,6 +1986,15 @@ export default function CreateShiftSplitPanel({
     staleTime: 2 * 60_000,
   });
 
+  // Roles list — used by the live margin meter to fall back to
+  // `role.defaultHourlyRate` when an employee has no per-user hourly rate set.
+  // Cheap query (cached server-side) and only fired while the panel is open.
+  const { data: rolesList = [] } = useQuery<Array<{ id: string; defaultHourlyRate?: string | number | null }>>({
+    queryKey: ['/api/roles'],
+    enabled: open,
+    staleTime: 5 * 60_000,
+  });
+
   const {
     data: suggestData,
     isLoading: suggestLoading,
@@ -2110,6 +2240,10 @@ export default function CreateShiftSplitPanel({
       // Also clear pending manual draft shifts so a subsequent panel open doesn't show
       // them as "still pending" alongside the now-persisted versions.
       setManualShifts([]);
+      setFormDirty(false);
+      // Drop the localStorage draft for this (date, user) — the work is now
+      // persisted server-side, no need to restore it on next open.
+      if (draftUserId && modalDate) clearDraft(draftStoreId, modalDate, draftUserId);
 
       // Detect off-week save: if the saved date is outside the schedule grid's
       // current visible week, surface a "Jump to that week" toast action so the
@@ -2701,53 +2835,139 @@ export default function CreateShiftSplitPanel({
               {/* Divider */}
               <div className="border-t border-border/40" />
 
-              {/* Closed-store banner (Task #387 A5) — when the store is closed for
-                  the selected day, surface that prominently above the timeline so the
-                  user understands why pills are empty and saves will be unusual. */}
-              {availData?.storeHours?.isClosed && (
+              {/* External-change banner (Task #387 A4 panel-side) — appears when
+                  another tab/user creates/updates/deletes shifts for the open day
+                  via the bulk routes. Refresh CTA re-pulls server data, then the
+                  notice clears. */}
+              {externalChangeNotice && (
                 <div
-                  className="rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 px-3 py-2.5 flex items-start gap-2"
-                  data-testid="closed-store-banner"
+                  className="rounded-lg border border-sky-300 dark:border-sky-800 bg-sky-50 dark:bg-sky-950/30 px-3 py-2 flex items-center justify-between gap-3"
+                  data-testid="external-change-banner"
                 >
-                  <Store className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold text-amber-800 dark:text-amber-200 leading-tight">
-                      Store is closed on this day
-                    </p>
-                    <p className="text-[11px] text-amber-700/90 dark:text-amber-300/90 leading-snug mt-0.5">
-                      No availability is shown because the store is closed. You can still add shifts manually,
-                      but they'll be flagged as outside operating hours.
-                    </p>
-                  </div>
+                  <span className="flex items-center gap-2 text-xs text-sky-800 dark:text-sky-200">
+                    <RefreshCw className="h-3.5 w-3.5" />
+                    Schedule changed elsewhere — pulled new data is available.
+                  </span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs gap-1.5"
+                    data-testid="external-change-refresh"
+                    onClick={async () => {
+                      await Promise.all([
+                        queryClient.refetchQueries({ queryKey: ['/api/schedules'], type: 'active' }),
+                        queryClient.refetchQueries({ queryKey: ['/api/schedules/suggest'], type: 'active' }),
+                        queryClient.refetchQueries({ queryKey: ['/api/schedules/today-availability'], type: 'active' }),
+                      ]);
+                      setExternalChangeNotice(false);
+                    }}
+                  >
+                    <RefreshCw className="h-3 w-3" />
+                    Refresh
+                  </Button>
                 </div>
               )}
 
-              {/* Day-view timeline — actual scheduled shifts + AI suggestions unified */}
-              {/* stop bubble so empty-space clicks on the scrollable area deselect  */}
-              {/* while block clicks don't.                                          */}
-              <div ref={timelineWrapperRef} onClick={(e) => e.stopPropagation()}>
-                <DayTimeline
-                  suggestData={mergedSuggestData}
-                  isLoading={suggestLoading && !!modalDate}
-                  isError={suggestError}
-                  errorMsg={suggestError ? (suggestErrorObj as Error)?.message : undefined}
-                  storeHours={storeHours}
-                  selectedIdx={selectedShiftIdx}
-                  onSelectShift={handleSelectShift}
-                  excludedIdxs={excludedIdxs}
-                  onToggleExclude={handleToggleExclude}
-                  conflictingEmployeeIds={conflictingEmployeeIds}
-                  onShiftEdit={handleShiftEdit}
-                  onDragStart={handleDragStart}
-                  onDragEnd={handleDragEnd}
-                  actualShifts={liveActualShifts}
-                  onSelectActualShift={handleSelectActualShift}
-                  selectedActualId={selectedActualSchedule?.id}
-                  onActualShiftChange={handleActualShiftChange}
-                  onDeleteActualShift={(s) => deleteActualMutation.mutate({ schedule: s })}
-                  aiCount={aiProposedShifts.length}
-                />
-              </div>
+              {/* Closed-store handling (Task #387 A5) ──
+                  When there's nothing in the timeline yet AND the store is
+                  closed, replace the timeline with a dedicated empty state +
+                  two clear escape hatches: jump to a different date, or add
+                  a shift anyway (the right-panel form remains available). */}
+              {availData?.storeHours?.isClosed && validActiveShifts.length === 0 && manualShifts.length === 0 ? (
+                <div
+                  className="rounded-lg border-2 border-dashed border-amber-300 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-950/20 px-4 py-8 flex flex-col items-center text-center gap-3"
+                  data-testid="closed-store-empty-state"
+                >
+                  <div className="h-10 w-10 rounded-full bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center">
+                    <Store className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                  </div>
+                  <div className="space-y-1 max-w-sm">
+                    <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">
+                      The store is closed on this day
+                    </p>
+                    <p className="text-xs text-amber-800/80 dark:text-amber-200/80 leading-relaxed">
+                      We can't suggest shifts because operating hours are off. Pick a different date,
+                      or add a shift anyway — it'll be flagged as outside hours when saved.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2 justify-center pt-1">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-8 gap-1.5 text-xs"
+                      data-testid="closed-store-pick-date"
+                      onClick={() => {
+                        // Focus the Date input on the right panel so the user can
+                        // immediately type/pick a different day without hunting.
+                        const el = document.querySelector<HTMLInputElement>('input[name="startDate"]');
+                        el?.focus();
+                        el?.showPicker?.();
+                      }}
+                    >
+                      Pick a different date
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-8 gap-1.5 text-xs"
+                      data-testid="closed-store-add-anyway"
+                      onClick={() => onAddNewShift?.()}
+                    >
+                      <Plus className="h-3 w-3" />
+                      Add shift anyway
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {/* Compact closed-store banner above timeline when there is content */}
+                  {availData?.storeHours?.isClosed && (
+                    <div
+                      className="rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 px-3 py-2.5 flex items-start gap-2"
+                      data-testid="closed-store-banner"
+                    >
+                      <Store className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold text-amber-800 dark:text-amber-200 leading-tight">
+                          Store is closed on this day
+                        </p>
+                        <p className="text-[11px] text-amber-700/90 dark:text-amber-300/90 leading-snug mt-0.5">
+                          You're scheduling outside operating hours — saves will be flagged.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Day-view timeline — actual scheduled shifts + AI suggestions unified */}
+                  {/* stop bubble so empty-space clicks on the scrollable area deselect  */}
+                  {/* while block clicks don't.                                          */}
+                  <div ref={timelineWrapperRef} onClick={(e) => e.stopPropagation()}>
+                    <DayTimeline
+                      suggestData={mergedSuggestData}
+                      isLoading={suggestLoading && !!modalDate}
+                      isError={suggestError}
+                      errorMsg={suggestError ? (suggestErrorObj as Error)?.message : undefined}
+                      storeHours={storeHours}
+                      selectedIdx={selectedShiftIdx}
+                      onSelectShift={handleSelectShift}
+                      excludedIdxs={excludedIdxs}
+                      onToggleExclude={handleToggleExclude}
+                      conflictingEmployeeIds={conflictingEmployeeIds}
+                      onShiftEdit={handleShiftEdit}
+                      onDragStart={handleDragStart}
+                      onDragEnd={handleDragEnd}
+                      actualShifts={liveActualShifts}
+                      onSelectActualShift={handleSelectActualShift}
+                      selectedActualId={selectedActualSchedule?.id}
+                      onActualShiftChange={handleActualShiftChange}
+                      onDeleteActualShift={(s) => deleteActualMutation.mutate({ schedule: s })}
+                      aiCount={aiProposedShifts.length}
+                    />
+                  </div>
+                </>
+              )}
 
               {/* Who's Available pills */}
               {!!modalDate && (
@@ -2874,6 +3094,7 @@ export default function CreateShiftSplitPanel({
                   value={selectedUserId}
                   onValueChange={(v) => {
                     setSelectedUserId(v);
+                    setFormDirty(true);
                     if (isEditingBlock) {
                       const emp = employees.find((e) => e.id === v);
                       const empName = emp ? `${emp.firstName ?? ""} ${emp.lastName ?? ""}`.trim() : "";
@@ -2929,6 +3150,7 @@ export default function CreateShiftSplitPanel({
                   value={modalDate}
                   onChange={(e) => {
                     setModalDate(e.target.value);
+                    setFormDirty(true);
                     setSelectedShiftIdx(null);
                     setExcludedIdxs(new Set());
                     setSelectedActualSchedule(null);
@@ -2950,6 +3172,7 @@ export default function CreateShiftSplitPanel({
                     value={modalStartTime}
                     onChange={(e) => {
                       setModalStartTime(e.target.value);
+                      setFormDirty(true);
                       if (isEditingBlock) {
                         handleShiftEdit(selectedShiftIdx!, { startTime: e.target.value });
                       } else if (isActualEditing) {
@@ -2968,6 +3191,7 @@ export default function CreateShiftSplitPanel({
                     value={modalEndTime}
                     onChange={(e) => {
                       setModalEndTime(e.target.value);
+                      setFormDirty(true);
                       if (isEditingBlock) {
                         handleShiftEdit(selectedShiftIdx!, { endTime: e.target.value });
                       } else if (isActualEditing) {
@@ -2985,7 +3209,7 @@ export default function CreateShiftSplitPanel({
                   className="h-8 text-sm"
                   placeholder="e.g., Opener, Closer"
                   value={modalTitle}
-                  onChange={(e) => setModalTitle(e.target.value)}
+                  onChange={(e) => { setModalTitle(e.target.value); setFormDirty(true); }}
                 />
               </div>
 
@@ -2994,7 +3218,7 @@ export default function CreateShiftSplitPanel({
                 <Select
                   name="locationId"
                   value={modalLocationId}
-                  onValueChange={setModalLocationId}
+                  onValueChange={(v) => { setModalLocationId(v); setFormDirty(true); }}
                 >
                   <SelectTrigger className="h-8">
                     <SelectValue placeholder="Select location (optional)" />
@@ -3017,7 +3241,7 @@ export default function CreateShiftSplitPanel({
                   placeholder="Optional notes..."
                   rows={2}
                   value={modalNotes}
-                  onChange={(e) => setModalNotes(e.target.value)}
+                  onChange={(e) => { setModalNotes(e.target.value); setFormDirty(true); }}
                 />
               </div>
 
@@ -3056,9 +3280,12 @@ export default function CreateShiftSplitPanel({
               )}
 
               {/* ── Live margin meter (Task #387 C4) ──
-                  Sums labor cost across the currently valid pending shifts using
-                  per-user hourlyRate from today-availability, falling back to
-                  $15/hr when missing. Shown only when there's something to score. */}
+                  Sums labor cost across the currently valid pending shifts and
+                  shows projected labor % vs revenue. Cost uses per-user
+                  hourlyRate from today-availability, falling back to
+                  role.defaultHourlyRate, then to $15/hr. Tier coloring is
+                  computed by the helper: green ≤ 25%, amber ≤ 30%, red above.
+                  Tooltip explains the threshold and any fallback rates. */}
               {validActiveShifts.length > 0 && (() => {
                 const members = (availData?.members ?? []) as AvailMember[];
                 const byUser: Record<string, number | null> = {};
@@ -3067,34 +3294,76 @@ export default function CreateShiftSplitPanel({
                   byUser[m.userId] = m.hourlyRate ?? null;
                   userRoleId[m.userId] = m.roleId ?? null;
                 }
+                const byRoleDefault: Record<string, number | null> = {};
+                for (const r of rolesList) {
+                  const raw = (r as any).defaultHourlyRate;
+                  const parsed = typeof raw === 'string' ? parseFloat(raw) : (typeof raw === 'number' ? raw : null);
+                  byRoleDefault[r.id] = (parsed != null && Number.isFinite(parsed) && parsed > 0) ? parsed : null;
+                }
+                const projectedRevenue = salesData?.dailyTotal ?? null;
                 const margin = computeMargin(
                   validActiveShifts.map(s => ({
                     employeeId: s.employeeId,
                     startTime: s.startTime,
                     endTime: s.endTime,
                   })),
-                  { byUser, userRoleId, fallback: 15 },
+                  { byUser, userRoleId, byRoleDefault, fallback: 15, projectedRevenue, targetLaborPct: 25 },
                 );
                 const usedFallback = margin.perShift.some(p => p.rateSource === 'fallback');
                 const fmt = (n: number) => `$${n.toFixed(0)}`;
+                const tierClasses: Record<string, string> = {
+                  green: 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300',
+                  amber: 'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300',
+                  red:   'border-rose-300 bg-rose-50 text-rose-800 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-300',
+                  unknown: 'border-border bg-muted/40 text-foreground',
+                };
+                const tierLabel: Record<string, string> = {
+                  green: 'On budget',
+                  amber: 'Watch labor',
+                  red: 'Over budget',
+                  unknown: '',
+                };
+                const tipParts: string[] = [];
+                if (margin.tier !== 'unknown') {
+                  tipParts.push(`Target labor ≤ ${margin.targetLaborPct}% of revenue.`);
+                  tipParts.push(`Projected revenue: ${fmt(projectedRevenue ?? 0)}.`);
+                }
+                if (usedFallback) tipParts.push('Some employees have no hourly rate set — using $15/hr fallback.');
                 return (
                   <div
                     data-testid="margin-meter"
-                    className="rounded-md border bg-muted/40 px-3 py-2 flex items-center justify-between gap-3 text-xs"
-                    title={usedFallback ? 'Some employees have no hourly rate set — using $15/hr fallback.' : undefined}
+                    className={cn(
+                      'rounded-md border px-3 py-2 flex items-center justify-between gap-3 text-xs transition-colors',
+                      tierClasses[margin.tier],
+                    )}
+                    title={tipParts.join(' ') || undefined}
                   >
-                    <span className="flex items-center gap-1.5 text-muted-foreground">
+                    <span className="flex items-center gap-1.5">
                       <DollarSign className="h-3.5 w-3.5" />
                       Estimated labor
                       {usedFallback && (
-                        <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">(est.)</span>
+                        <span className="text-[10px] font-medium opacity-80">(est.)</span>
+                      )}
+                      {margin.tier !== 'unknown' && (
+                        <span
+                          className="text-[10px] font-semibold uppercase tracking-wide opacity-90"
+                          data-testid="margin-meter-tier"
+                        >
+                          · {tierLabel[margin.tier]}
+                        </span>
                       )}
                     </span>
                     <span className="font-mono font-semibold tabular-nums">
                       {fmt(margin.totalCost)}
-                      <span className="text-muted-foreground font-normal ml-1">
-                        · {margin.totalHours.toFixed(1)}h
-                      </span>
+                      <span className="font-normal opacity-80 ml-1">· {margin.totalHours.toFixed(1)}h</span>
+                      {margin.laborPct !== null && (
+                        <span
+                          className="ml-2 font-semibold"
+                          data-testid="margin-meter-pct"
+                        >
+                          {margin.laborPct.toFixed(1)}%
+                        </span>
+                      )}
                     </span>
                   </div>
                 );
@@ -3310,28 +3579,53 @@ export default function CreateShiftSplitPanel({
       document.body
     )}
 
-    {/* ── Unsaved-changes confirmation (Task #387 A1) ── */}
+    {/* ── Unsaved-changes confirmation (Task #387 A1) ──
+        Three explicit choices: Save (the safe default), Discard (destructive,
+        styled as such), and Keep editing (cancel the close). The Save action
+        only enables when there are valid shifts to persist; otherwise the
+        user can still Discard or Keep editing. */}
     <AlertDialog open={pendingCloseConfirm} onOpenChange={setPendingCloseConfirm}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle className="flex items-center gap-2">
             <AlertTriangle className="h-4 w-4 text-amber-500" />
-            Discard unsaved changes?
+            Save changes before closing?
           </AlertDialogTitle>
           <AlertDialogDescription>
-            You have shifts in this panel that haven't been saved to the schedule yet.
-            Closing now will discard them.
+            You have shifts or edits in this panel that haven't been saved to the schedule yet.
+            Choose what to do.
           </AlertDialogDescription>
         </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel onClick={() => setPendingCloseConfirm(false)}>
+        <AlertDialogFooter className="gap-2 sm:gap-2">
+          <AlertDialogCancel
+            onClick={() => setPendingCloseConfirm(false)}
+            data-testid="close-confirm-keep-editing"
+          >
             Keep editing
           </AlertDialogCancel>
-          <AlertDialogAction
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+          <Button
+            type="button"
+            variant="outline"
+            className="border-destructive text-destructive hover:bg-destructive/10"
             onClick={() => { setPendingCloseConfirm(false); onOpenChange(false); }}
+            data-testid="close-confirm-discard"
           >
             Discard
+          </Button>
+          <AlertDialogAction
+            disabled={validActiveShifts.length === 0 || approveMutation.isPending}
+            onClick={() => {
+              setPendingCloseConfirm(false);
+              handleBulkSave();
+              // Close after the save resolves (approve mutation refetches and
+              // clears manualShifts, which flips `dirty` to false; once the
+              // user reopens later their work is in the grid + draft cleared).
+            }}
+            data-testid="close-confirm-save"
+          >
+            {approveMutation.isPending ? (
+              <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" />Saving…</>
+            ) : 'Save & close'}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

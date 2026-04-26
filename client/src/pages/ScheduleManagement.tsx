@@ -705,12 +705,24 @@ export default function ScheduleManagement() {
 
   const activeShop = connectedShops.find((s: any) => s.isActive) || (connectedShops.length > 0 ? connectedShops[0] : null);
 
+  // Helper — invalidate every query whose data is affected by a schedule write.
+  // The split panel reads `/api/schedules/suggest` (unscheduled coverage) and
+  // `/api/schedules/today-availability` (members+windows) in addition to the
+  // grid's `/api/schedules` list. Without these, suggestions and pills go
+  // stale right after a grid mutation and the user sees mismatched state
+  // (Task #387 A3).
+  const invalidateScheduleSurfaces = () => {
+    queryClient.invalidateQueries({ queryKey: ["/api/schedules"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/schedules/suggest"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/schedules/today-availability"] });
+  };
+
   const createScheduleMutation = useMutation({
     mutationFn: async (scheduleData: any) => {
       return apiRequest('POST', '/api/schedules', scheduleData);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/schedules"] });
+      invalidateScheduleSurfaces();
       setShowCreateShift(false);
       toast({ title: "Success", description: "Shift created!" });
     },
@@ -725,7 +737,7 @@ export default function ScheduleManagement() {
       return res.json();
     },
     onSuccess: (data: any) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/schedules"] });
+      invalidateScheduleSurfaces();
       setShowCreateShift(false);
       if (data.created === 0) {
         toast({ title: "Auto-Assign", description: data.message });
@@ -743,7 +755,7 @@ export default function ScheduleManagement() {
       return apiRequest('DELETE', `/api/schedules/${id}`);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/schedules"] });
+      invalidateScheduleSurfaces();
       setEditingSchedule(null);
       setShowCreateShift(false);
       toast({ title: "Deleted", description: "Shift removed." });
@@ -759,7 +771,7 @@ export default function ScheduleManagement() {
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/schedules"] });
+      invalidateScheduleSurfaces();
       setEditingSchedule(null);
       setShowCreateShift(false);
       toast({ title: "Shift updated", description: "Changes saved." });
@@ -775,7 +787,7 @@ export default function ScheduleManagement() {
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/schedules"] });
+      invalidateScheduleSurfaces();
       setPendingReschedule(null);
       toast({ title: "Shift rescheduled", description: "The shift has been moved." });
     },

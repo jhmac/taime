@@ -80,7 +80,12 @@ export function registerScheduleRoutes(
     }
   });
 
-  app.patch('/api/schedules/:id', isAuthenticated, async (req: any, res) => {
+  app.patch('/api/schedules/:id', isAuthenticated, async (req: any, res, next) => {
+    // Defensive routing: this `:id` route was registered before
+    // `/api/schedules/bulk`, so Express would match `:id = 'bulk'` here first
+    // and call storage.updateSchedule('bulk', ...) → 404. Bail to next()
+    // so the dedicated bulk handler further down can claim the request.
+    if (req.params.id === 'bulk') return next();
     try {
       const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
@@ -278,6 +283,16 @@ export function registerScheduleRoutes(
       const storeId = (await tryResolveStoreIdForUser(userId)) || 'default';
       const allowedUserIds = new Set(await getAllStoreUserIds(storeId));
 
+      // Field allowlist for op.kind === 'set'. Critically excludes `userId` —
+      // assignee changes must go through the per-shift PATCH route which has
+      // its own cross-store validation. Allowing `userId` here would let any
+      // manager-with-IDs reassign shifts to users in OTHER stores via this
+      // endpoint, since we only check that the *current* assignee is in-store
+      // (not the target). Same risk for storeId, locationId of foreign loc.
+      const ALLOWED_PATCH_FIELDS = new Set([
+        'startTime', 'endTime', 'title', 'locationId', 'description', 'status', 'shiftType',
+      ]);
+
       const updated = await db.transaction(async (tx) => {
         const existing = await tx.select().from(schedulesTable).where(inArray(schedulesTable.id, ids));
         const inScope = existing.filter(s => allowedUserIds.has(s.userId));
@@ -287,9 +302,23 @@ export function registerScheduleRoutes(
         for (const sched of inScope) {
           let patch: Record<string, any> = {};
           if (op.kind === 'set') {
-            patch = { ...op.patch };
+            // Allowlist filter — silently drop unknown / dangerous fields.
+            for (const [k, v] of Object.entries(op.patch ?? {})) {
+              if (ALLOWED_PATCH_FIELDS.has(k)) patch[k] = v;
+            }
             if (typeof patch.startTime === 'string') patch.startTime = new Date(patch.startTime);
             if (typeof patch.endTime === 'string') patch.endTime = new Date(patch.endTime);
+            // Validate locationId points to a real location. Drops silently
+            // rather than failing the whole batch — same defensive posture as
+            // the field allowlist above.
+            if (patch.locationId) {
+              const loc = await storage.getWorkLocation(patch.locationId);
+              if (!loc) delete patch.locationId;
+            }
+            if (Object.keys(patch).length === 0) {
+              // Nothing legal to update for this row — skip without erroring.
+              continue;
+            }
           } else {
             const deltaMs = op.deltaMin * 60 * 1000;
             patch.startTime = new Date(new Date(sched.startTime).getTime() + deltaMs);
@@ -485,7 +514,10 @@ export function registerScheduleRoutes(
     }
   });
 
-  app.delete('/api/schedules/:id', isAuthenticated, async (req: any, res) => {
+  app.delete('/api/schedules/:id', isAuthenticated, async (req: any, res, next) => {
+    // Same defensive routing as the PATCH `:id` route — fall through to the
+    // dedicated `DELETE /api/schedules/bulk` handler when id === 'bulk'.
+    if (req.params.id === 'bulk') return next();
     try {
       const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
