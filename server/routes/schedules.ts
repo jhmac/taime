@@ -9,6 +9,26 @@ import { tryResolveStoreIdForUser } from "../lib/storeResolver";
 import { computeScheduleDmRecipients, computeScheduleStoreRecipients } from "../lib/broadcastRecipients";
 import { getAllStoreUserIds } from "../lib/permissionUtils";
 
+/**
+ * Returns the YYYY-MM-DD slice of a timestamp value (UTC), or undefined when
+ * the input is missing or not parseable. Used to attach an "affected day"
+ * marker to schedule WS payloads so subscribers can filter notices to the day
+ * they're viewing. Centralized here so single- and bulk-delete routes stay in
+ * lockstep — a drift between the two would re-introduce the asymmetry the
+ * round-4 architect review flagged.
+ */
+function toIsoDate(value: unknown): string | undefined {
+  if (value === null || value === undefined) return undefined;
+  try {
+    const d = value instanceof Date ? value : new Date(value as string | number);
+    const ms = d.getTime();
+    if (!Number.isFinite(ms)) return undefined;
+    return d.toISOString().slice(0, 10);
+  } catch {
+    return undefined;
+  }
+}
+
 export function registerScheduleRoutes(
   app: Express,
   storage: IStorage,
@@ -308,12 +328,14 @@ export function registerScheduleRoutes(
             }
             if (typeof patch.startTime === 'string') patch.startTime = new Date(patch.startTime);
             if (typeof patch.endTime === 'string') patch.endTime = new Date(patch.endTime);
-            // Validate locationId points to a real ACTIVE location AND belongs
-            // to the requester's store scope. We never let a manager assign a
-            // shift to a foreign or deactivated location via this endpoint.
+            // Validate locationId points to a real, active location that
+            // matches the requester's resolved store scope. We never let a
+            // manager assign a shift to a foreign or deactivated location via
+            // this endpoint. Treat null/undefined isActive as "not active" so
+            // legacy rows (predating the default) cannot slip through.
             if (patch.locationId) {
               const loc = await storage.getWorkLocation(patch.locationId);
-              if (!loc || loc.isActive === false || loc.id !== storeId) {
+              if (!loc || loc.isActive !== true || loc.id !== storeId) {
                 delete patch.locationId;
               }
             }
@@ -365,14 +387,19 @@ export function registerScheduleRoutes(
         // filter "schedule changed elsewhere" notices to the day they're viewing.
         const dateSet = new Set<string>();
         for (const s of inScope) {
-          try { dateSet.add(new Date(s.startTime).toISOString().slice(0, 10)); } catch { /* skip bad dates */ }
+          const iso = toIsoDate(s.startTime);
+          if (iso) dateSet.add(iso);
         }
         await tx.delete(schedulesTable).where(inArray(schedulesTable.id, okIds));
         return { ok: okIds, dates: Array.from(dateSet) };
       });
 
-      const recipients = await computeScheduleStoreRecipients(storeId, getAllStoreUserIds);
-      sendToUsers(recipients, { type: 'schedules_bulk_deleted', data: { ids: ok, dates } });
+      // Skip the WS broadcast entirely when nothing was actually deleted — a
+      // no-op shouldn't wake every other tab in the store.
+      if (ok.length > 0) {
+        const recipients = await computeScheduleStoreRecipients(storeId, getAllStoreUserIds);
+        sendToUsers(recipients, { type: 'schedules_bulk_deleted', data: { ids: ok, dates } });
+      }
 
       res.json({ deleted: ok });
     } catch (error) {
@@ -535,16 +562,12 @@ export function registerScheduleRoutes(
       }
       // Look up the row BEFORE deleting so the WS payload can carry the
       // affected day; the panel listener uses this to suppress notices for
-      // events on other days.
+      // events on other days. See bulk-delete handler — same shape.
       const [existing] = await db
         .select({ startTime: schedulesTable.startTime })
         .from(schedulesTable)
         .where(eq(schedulesTable.id, req.params.id));
-      let deletedDate: string | undefined;
-      if (existing?.startTime) {
-        try { deletedDate = new Date(existing.startTime).toISOString().slice(0, 10); }
-        catch { /* ignore bad dates */ }
-      }
+      const deletedDate = toIsoDate(existing?.startTime);
       await storage.deleteSchedule(req.params.id);
       const scheduleDeletedStoreId = (await tryResolveStoreIdForUser(userId)) || 'default';
       const scheduleDeletedRecipients = await computeScheduleStoreRecipients(scheduleDeletedStoreId, getAllStoreUserIds);

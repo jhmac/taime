@@ -232,6 +232,49 @@ describe("PATCH /api/schedules/bulk — field allowlist", () => {
     }
   });
 
+  it("drops locationId for a legacy row whose isActive is null (fail-closed)", async () => {
+    // Override the default mock to simulate a pre-default-flag row where
+    // isActive is null. The route MUST treat null as "not active".
+    const recorder: TxRecorder = { setCalls: [] };
+    const app = express();
+    app.use(express.json());
+    const isAuthenticated = (req: any, _res: any, next: () => void) => {
+      req.user = { id: "user-1", role: { name: "admin" } };
+      next();
+    };
+    const storage: any = {
+      getUserPermissions: vi.fn().mockResolvedValue([{ name: "schedule.manage" }]),
+      getWorkLocation: vi.fn(async (id: string) => ({ id, name: `loc-${id}`, isActive: null })),
+      getUser: vi.fn(),
+    };
+    dbMock.transaction.mockImplementation(async (cb: any) => {
+      const tx = {
+        select: () => ({ from: () => ({ where: async () => [baseRow] }) }),
+        update: () => ({
+          set: (patch: Record<string, unknown>) => {
+            recorder.setCalls.push(patch);
+            return { where: () => ({ returning: async () => [{ id: "row", ...patch }] }) };
+          },
+        }),
+      };
+      return cb(tx);
+    });
+    registerScheduleRoutes(app, storage, isAuthenticated, () => {}, () => {});
+    const { server, base } = await startServer(app);
+    try {
+      const r = await patchBulk(base, {
+        ids: ["sched-1"],
+        op: { kind: "set", patch: { locationId: "store-A", description: "ok" } },
+      });
+      expect(r.status).toBe(200);
+      const patch = recorder.setCalls[0];
+      expect(patch.locationId).toBeUndefined();
+      expect(patch.description).toBe("ok");
+    } finally {
+      await stopServer(server);
+    }
+  });
+
   it("drops locationId for a foreign (out-of-scope) store even when it exists", async () => {
     const recorder: TxRecorder = { setCalls: [] };
     const app = buildApp({
