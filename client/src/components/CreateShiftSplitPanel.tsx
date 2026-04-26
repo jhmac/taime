@@ -1316,8 +1316,10 @@ export default function CreateShiftSplitPanel({
   const queryClient = useQueryClient();
   const { user: currentUser } = useAuth();
   const { lastMessage: panelWsMessage } = useWebSocketContext();
-  // Drafts are namespaced by (storeId, date, userId).
-  const draftStoreId = 'panel';
+  // Drafts are namespaced by (storeId, date, userId). storeId comes from the
+  // first available work-location for this user (single-store users have one);
+  // we never bleed across users because userId is in the key.
+  const draftStoreId = locations[0]?.id || 'panel';
   const draftUserId = currentUser?.id ?? '';
 
   const [modalDate, setModalDate] = useState(defaultDate || "");
@@ -1596,27 +1598,36 @@ export default function CreateShiftSplitPanel({
 
   // A4: surface non-blocking notice when a WS event for the open day arrives.
   useEffect(() => {
-    if (!open || !panelWsMessage) return;
+    if (!open || !panelWsMessage || !modalDate) return;
     const t = panelWsMessage.type;
     const isBulk = t === 'schedules_bulk_created' || t === 'schedules_bulk_updated' || t === 'schedules_bulk_deleted';
     const isSingle = t === 'schedule_created' || t === 'schedule_updated' || t === 'schedule_deleted';
     if (!isBulk && !isSingle) return;
     type SchedulePayload = { startTime?: string };
-    const msg = panelWsMessage as { data?: { schedules?: SchedulePayload[]; schedule?: SchedulePayload } };
+    const msg = panelWsMessage as {
+      data?: {
+        schedules?: SchedulePayload[];
+        schedule?: SchedulePayload;
+        dates?: string[];
+      };
+    };
     const data = msg.data;
     const schedules: SchedulePayload[] = Array.isArray(data?.schedules)
       ? data!.schedules!
       : data?.schedule
         ? [data.schedule]
         : [];
-    if (t !== 'schedules_bulk_deleted' && t !== 'schedule_deleted' && modalDate) {
-      const matchesDay = schedules.some((s) => {
+    const datePayload = Array.isArray(data?.dates) ? data!.dates! : [];
+    // Server now ships affected dates for delete events; everywhere else we
+    // derive the date from the schedule body. If neither source matches the
+    // open day, suppress the notice.
+    const matchesDay = datePayload.includes(modalDate)
+      || schedules.some((s) => {
         if (!s.startTime) return false;
         try { return new Date(s.startTime).toISOString().slice(0, 10) === modalDate; }
         catch { return false; }
       });
-      if (!matchesDay) return;
-    }
+    if (!matchesDay) return;
     setExternalChangeNotice(true);
   }, [open, panelWsMessage, modalDate]);
   useEffect(() => { setExternalChangeNotice(false); }, [modalDate, open]);
@@ -3294,7 +3305,7 @@ export default function CreateShiftSplitPanel({
                     startTime: s.startTime,
                     endTime: s.endTime,
                   })),
-                  { byUser, userRoleId, byRoleDefault, fallback: 15, projectedRevenue, targetLaborPct: 25 },
+                  { byUser, userRoleId, byRoleDefault, fallback: 15, projectedRevenue },
                 );
                 const usedFallback = margin.perShift.some(p => p.rateSource === 'fallback');
                 const fmt = (n: number) => `$${n.toFixed(0)}`;
@@ -3305,14 +3316,14 @@ export default function CreateShiftSplitPanel({
                   unknown: 'border-border bg-muted/40 text-foreground',
                 };
                 const tierLabel: Record<string, string> = {
-                  green: 'On budget',
-                  amber: 'Watch labor',
-                  red: 'Over budget',
+                  green: 'Healthy margin',
+                  amber: 'Tight margin',
+                  red: 'Negative / low margin',
                   unknown: '',
                 };
                 const tipParts: string[] = [];
                 if (margin.tier !== 'unknown') {
-                  tipParts.push(`Target labor ≤ ${margin.targetLaborPct}% of revenue.`);
+                  tipParts.push(`Margin = (revenue − labor) / revenue. Green ≥ 35%, amber 20–35%, red < 20%.`);
                   tipParts.push(`Projected revenue: ${fmt(projectedRevenue ?? 0)}.`);
                 }
                 if (usedFallback) tipParts.push('Some employees have no hourly rate set — using $15/hr fallback.');
@@ -3343,12 +3354,13 @@ export default function CreateShiftSplitPanel({
                     <span className="font-mono font-semibold tabular-nums">
                       {fmt(margin.totalCost)}
                       <span className="font-normal opacity-80 ml-1">· {margin.totalHours.toFixed(1)}h</span>
-                      {margin.laborPct !== null && (
+                      {margin.marginPct !== null && (
                         <span
                           className="ml-2 font-semibold"
                           data-testid="margin-meter-pct"
+                          aria-label={`Margin ${margin.marginPct.toFixed(1)} percent`}
                         >
-                          {margin.laborPct.toFixed(1)}%
+                          {margin.marginPct.toFixed(1)}% margin
                         </span>
                       )}
                     </span>

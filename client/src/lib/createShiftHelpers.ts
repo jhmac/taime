@@ -231,10 +231,8 @@ export interface MarginRates {
   userRoleId?: Record<string, string | null | undefined>;
   /** Final fallback when neither user-rate nor role-default is set. */
   fallback?: number;
-  /** Projected revenue for the day (used to compute labor %). */
+  /** Projected revenue for the day (used to compute margin %). */
   projectedRevenue?: number | null;
-  /** Target labor % (e.g. 25 means 25%). Defaults to 25 when not set. */
-  targetLaborPct?: number;
 }
 
 /** Color tier returned by the margin meter — purely semantic, the UI maps to colors. */
@@ -245,12 +243,12 @@ export interface MarginResult {
   totalCost: number;
   /** Per-shift breakdown (same order as input). */
   perShift: Array<{ hours: number; cost: number; rateSource: 'user' | 'role' | 'fallback' }>;
-  /** Cost / projectedRevenue * 100. null when projectedRevenue is missing or 0. */
+  /** Labor cost as % of revenue. null when revenue is missing or 0. */
   laborPct: number | null;
-  /** Threshold tier: green ≤ target, amber ≤ target+5, red above. unknown when no revenue. */
+  /** Margin % = (revenue - labor) / revenue * 100. null when revenue is missing or 0. */
+  marginPct: number | null;
+  /** Tier: green ≥ 35% margin, amber 20–35%, red < 20%. */
   tier: MarginTier;
-  /** The target threshold actually applied (for tooltip display). */
-  targetLaborPct: number;
 }
 
 /** Returns rounded hours (15-min granularity) for one shift. */
@@ -264,7 +262,6 @@ function shiftHours(s: { startTime: string; endTime: string }): number {
 
 export function computeMargin(shifts: MarginInputShift[], rates: MarginRates): MarginResult {
   const fallback = rates.fallback ?? 15;
-  const targetLaborPct = rates.targetLaborPct ?? 25;
   let totalHours = 0;
   let totalCost = 0;
   const perShift: MarginResult['perShift'] = [];
@@ -294,11 +291,13 @@ export function computeMargin(shifts: MarginInputShift[], rates: MarginRates): M
   }
   const revenue = rates.projectedRevenue;
   let laborPct: number | null = null;
+  let marginPct: number | null = null;
   let tier: MarginTier = 'unknown';
   if (typeof revenue === 'number' && revenue > 0) {
     laborPct = (totalCost / revenue) * 100;
-    if (laborPct <= targetLaborPct) tier = 'green';
-    else if (laborPct <= targetLaborPct + 5) tier = 'amber';
+    marginPct = ((revenue - totalCost) / revenue) * 100;
+    if (marginPct >= 35) tier = 'green';
+    else if (marginPct >= 20) tier = 'amber';
     else tier = 'red';
   }
   return {
@@ -306,8 +305,8 @@ export function computeMargin(shifts: MarginInputShift[], rates: MarginRates): M
     totalCost: Math.round(totalCost * 100) / 100,
     perShift,
     laborPct: laborPct === null ? null : Math.round(laborPct * 10) / 10,
+    marginPct: marginPct === null ? null : Math.round(marginPct * 10) / 10,
     tier,
-    targetLaborPct,
   };
 }
 

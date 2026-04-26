@@ -308,12 +308,14 @@ export function registerScheduleRoutes(
             }
             if (typeof patch.startTime === 'string') patch.startTime = new Date(patch.startTime);
             if (typeof patch.endTime === 'string') patch.endTime = new Date(patch.endTime);
-            // Validate locationId points to a real location. Drops silently
-            // rather than failing the whole batch — same defensive posture as
-            // the field allowlist above.
+            // Validate locationId points to a real ACTIVE location AND belongs
+            // to the requester's store scope. We never let a manager assign a
+            // shift to a foreign or deactivated location via this endpoint.
             if (patch.locationId) {
               const loc = await storage.getWorkLocation(patch.locationId);
-              if (!loc) delete patch.locationId;
+              if (!loc || loc.isActive === false || loc.id !== storeId) {
+                delete patch.locationId;
+              }
             }
             if (Object.keys(patch).length === 0) {
               // Nothing legal to update for this row — skip without erroring.
@@ -354,19 +356,25 @@ export function registerScheduleRoutes(
       const storeId = (await tryResolveStoreIdForUser(userId)) || 'default';
       const allowedUserIds = new Set(await getAllStoreUserIds(storeId));
 
-      const deleted = await db.transaction(async (tx) => {
+      const { ok, dates } = await db.transaction(async (tx) => {
         const existing = await tx.select().from(schedulesTable).where(inArray(schedulesTable.id, ids));
         const inScope = existing.filter(s => allowedUserIds.has(s.userId));
-        if (inScope.length === 0) return [];
-        const ok = inScope.map(s => s.id);
-        await tx.delete(schedulesTable).where(inArray(schedulesTable.id, ok));
-        return ok;
+        if (inScope.length === 0) return { ok: [] as string[], dates: [] as string[] };
+        const okIds = inScope.map(s => s.id);
+        // Capture the affected day for each deleted shift so subscribers can
+        // filter "schedule changed elsewhere" notices to the day they're viewing.
+        const dateSet = new Set<string>();
+        for (const s of inScope) {
+          try { dateSet.add(new Date(s.startTime).toISOString().slice(0, 10)); } catch { /* skip bad dates */ }
+        }
+        await tx.delete(schedulesTable).where(inArray(schedulesTable.id, okIds));
+        return { ok: okIds, dates: Array.from(dateSet) };
       });
 
       const recipients = await computeScheduleStoreRecipients(storeId, getAllStoreUserIds);
-      sendToUsers(recipients, { type: 'schedules_bulk_deleted', data: { ids: deleted } });
+      sendToUsers(recipients, { type: 'schedules_bulk_deleted', data: { ids: ok, dates } });
 
-      res.json({ deleted });
+      res.json({ deleted: ok });
     } catch (error) {
       console.error("Error bulk-deleting schedules:", error);
       res.status(500).json({ message: "Failed to delete shifts" });
@@ -525,10 +533,25 @@ export function registerScheduleRoutes(
       if (!canManage) {
         return res.status(403).json({ message: "Permission denied" });
       }
+      // Look up the row BEFORE deleting so the WS payload can carry the
+      // affected day; the panel listener uses this to suppress notices for
+      // events on other days.
+      const [existing] = await db
+        .select({ startTime: schedulesTable.startTime })
+        .from(schedulesTable)
+        .where(eq(schedulesTable.id, req.params.id));
+      let deletedDate: string | undefined;
+      if (existing?.startTime) {
+        try { deletedDate = new Date(existing.startTime).toISOString().slice(0, 10); }
+        catch { /* ignore bad dates */ }
+      }
       await storage.deleteSchedule(req.params.id);
       const scheduleDeletedStoreId = (await tryResolveStoreIdForUser(userId)) || 'default';
       const scheduleDeletedRecipients = await computeScheduleStoreRecipients(scheduleDeletedStoreId, getAllStoreUserIds);
-      sendToUsers(scheduleDeletedRecipients, { type: 'schedule_deleted', data: { scheduleId: req.params.id } });
+      sendToUsers(scheduleDeletedRecipients, {
+        type: 'schedule_deleted',
+        data: { scheduleId: req.params.id, dates: deletedDate ? [deletedDate] : [] },
+      });
       res.json({ success: true });
     } catch (error) {
       console.error("Error deleting schedule:", error);

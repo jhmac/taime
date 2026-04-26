@@ -141,6 +141,13 @@
       "when": 1745935200000,
       "tag": "0019_ai_scheduling_rules",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1746021600000,
+      "tag": "0020_role_default_hourly_rate",
+      "breakpoints": true
     }
   ]
 }

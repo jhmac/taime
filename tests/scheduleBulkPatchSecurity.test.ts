@@ -83,7 +83,7 @@ function buildApp(opts: {
   const storage: any = {
     getUserPermissions: vi.fn().mockResolvedValue([{ name: "schedule.manage" }]),
     getWorkLocation: vi.fn(async (id: string) =>
-      opts.knownLocationIds?.has(id) ? { id, name: `loc-${id}` } : undefined,
+      opts.knownLocationIds?.has(id) ? { id, name: `loc-${id}`, isActive: true } : undefined,
     ),
     getUser: vi.fn(),
   };
@@ -209,22 +209,48 @@ describe("PATCH /api/schedules/bulk — field allowlist", () => {
     }
   });
 
-  it("keeps a valid locationId when storage confirms it exists", async () => {
+  it("keeps a valid locationId when storage confirms it exists in scope", async () => {
     const recorder: TxRecorder = { setCalls: [] };
     const app = buildApp({
+      // The route only accepts locationIds whose id matches the requester's
+      // resolved store (store-A here), so we use the storeId as the location.
       existingRows: [baseRow],
-      knownLocationIds: new Set(["loc-real"]),
+      knownLocationIds: new Set(["store-A"]),
       recorder,
     });
     const { server, base } = await startServer(app);
     try {
       const r = await patchBulk(base, {
         ids: ["sched-1"],
-        op: { kind: "set", patch: { locationId: "loc-real" } },
+        op: { kind: "set", patch: { locationId: "store-A" } },
       });
       expect(r.status).toBe(200);
       const patch = recorder.setCalls[0];
-      expect(patch.locationId).toBe("loc-real");
+      expect(patch.locationId).toBe("store-A");
+    } finally {
+      await stopServer(server);
+    }
+  });
+
+  it("drops locationId for a foreign (out-of-scope) store even when it exists", async () => {
+    const recorder: TxRecorder = { setCalls: [] };
+    const app = buildApp({
+      // loc-foreign exists in storage but does NOT belong to the requester's
+      // store, so the route MUST drop it to prevent cross-store assignment.
+      existingRows: [baseRow],
+      knownLocationIds: new Set(["loc-foreign"]),
+      recorder,
+    });
+    const { server, base } = await startServer(app);
+    try {
+      const r = await patchBulk(base, {
+        ids: ["sched-1"],
+        op: { kind: "set", patch: { locationId: "loc-foreign", description: "ok" } },
+      });
+      expect(r.status).toBe(200);
+      const patch = recorder.setCalls[0];
+      expect(patch.locationId).toBeUndefined();
+      expect(patch.description).toBe("ok");
     } finally {
       await stopServer(server);
     }
@@ -251,8 +277,10 @@ describe("PATCH /api/schedules/bulk — field allowlist", () => {
   it("applies all allowed fields together", async () => {
     const recorder: TxRecorder = { setCalls: [] };
     const app = buildApp({
+      // Use the requester's storeId as the locationId so the in-scope check
+      // passes (route requires loc.id === storeId for cross-store safety).
       existingRows: [baseRow],
-      knownLocationIds: new Set(["loc-real"]),
+      knownLocationIds: new Set(["store-A"]),
       recorder,
     });
     const { server, base } = await startServer(app);
@@ -268,7 +296,7 @@ describe("PATCH /api/schedules/bulk — field allowlist", () => {
             description: "Cover for sick call-out",
             status: "scheduled",
             shiftType: "regular",
-            locationId: "loc-real",
+            locationId: "store-A",
             userId: "evil",       // dropped
             id: "sched-other",    // dropped
           },
