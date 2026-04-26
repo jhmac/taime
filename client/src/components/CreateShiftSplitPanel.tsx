@@ -14,6 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
 import { apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
+import { classifyShiftCard } from "./createShiftCardKind";
 import {
   Clock, Users, Loader2, TrendingUp, Sparkles, AlertTriangle,
   ChevronDown, ChevronUp, Wand2, Check, X, RefreshCw,
@@ -737,6 +738,48 @@ type DragState = {
 
 type ActualShiftEntry = { schedule: Schedule; name: string; startTime: string; endTime: string };
 
+// Hover-intent delete button used on persisted "Scheduled" cards.
+// The X is rendered immediately on hover but stays disabled for 200ms so an
+// accidental cursor flick across the card doesn't fire the destructive delete.
+// After the delay the button visibly arms (red bg + active title) and only
+// then will the click invoke `onConfirm`.
+function HoverIntentDeleteButton({ onConfirm }: { onConfirm: () => void }) {
+  const [armed, setArmed] = useState(false);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const handleEnter = () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setArmed(true), 200);
+  };
+  const handleLeave = () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = null;
+    setArmed(false);
+  };
+  useEffect(() => () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+  }, []);
+  return (
+    <button
+      type="button"
+      data-testid="hover-intent-delete"
+      data-armed={armed ? 'true' : 'false'}
+      onPointerEnter={handleEnter}
+      onPointerLeave={handleLeave}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (armed) onConfirm();
+      }}
+      onPointerDown={(e) => e.stopPropagation()}
+      title={armed ? "Delete shift" : "Hover briefly to delete"}
+      className={`absolute top-0.5 right-0.5 hidden group-hover/actual:flex items-center justify-center w-4 h-4 rounded-full text-white z-30 transition-colors ${
+        armed ? 'bg-red-500/90 hover:bg-red-600' : 'bg-black/40 cursor-progress'
+      }`}
+    >
+      <X className="h-2.5 w-2.5" />
+    </button>
+  );
+}
+
 function DayTimeline({
   suggestData,
   isLoading,
@@ -1124,20 +1167,12 @@ function DayTimeline({
                     >
                       <div className="w-5 h-0.5 rounded-full bg-white/40" />
                     </div>
-                    {/* Hover X — delete this shift */}
+                    {/* Hover X — delete this shift, with 200ms hover-intent
+                        delay so accidental cursor flicks don't trigger a delete. */}
                     {onDeleteActualShift && !isDragging && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDeleteActualShift(actual.schedule);
-                        }}
-                        onPointerDown={(e) => e.stopPropagation()}
-                        className="absolute top-0.5 right-0.5 hidden group-hover/actual:flex items-center justify-center w-4 h-4 rounded-full bg-black/40 hover:bg-red-500/90 text-white z-30 transition-colors"
-                        title="Delete shift"
-                      >
-                        <X className="h-2.5 w-2.5" />
-                      </button>
+                      <HoverIntentDeleteButton
+                        onConfirm={() => onDeleteActualShift(actual.schedule)}
+                      />
                     )}
                   </div>
                 </div>
@@ -1202,6 +1237,16 @@ function DayTimeline({
 type DialogSize = 'normal' | 'wide' | 'full';
 type ShiftEdit = { startTime?: string; endTime?: string; employeeId?: string; employeeName?: string };
 
+// Tagged-union of reversible actions tracked by the panel's undo stack.
+// `edit` covers per-shift time/employee edits via ShiftBlock drag/resize/form.
+// `remove-ai`/`remove-manual` are pushed when the X-button removes a card so
+// Cmd+Z restores it. For persisted-Manual removals we record `wasPersisted`
+// so handleUndo can re-PUT the suggestion to the server cache.
+type UndoEntry =
+  | { kind: 'edit'; prevEdited: Record<number, ShiftEdit> }
+  | { kind: 'remove-ai'; idx: number }
+  | { kind: 'remove-manual'; shift: ProposedShift; insertIdx: number; wasPersisted: boolean };
+
 export default function CreateShiftSplitPanel({
   open,
   onOpenChange,
@@ -1241,8 +1286,8 @@ export default function CreateShiftSplitPanel({
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [excludedIdxs, setExcludedIdxs] = useState<Set<number>>(new Set());
   const [editedShifts, setEditedShifts] = useState<Record<number, ShiftEdit>>({});
-  const [undoStack, setUndoStack] = useState<Record<number, ShiftEdit>[]>([]);
-  const [redoStack, setRedoStack] = useState<Record<number, ShiftEdit>[]>([]);
+  const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
+  const [redoStack, setRedoStack] = useState<UndoEntry[]>([]);
   const [dialogSize, setDialogSize] = useState<DialogSize>('normal');
   const [dialogDims, setDialogDims] = useState<{ width: number; height: number } | null>(null);
   const [selectedActualSchedule, setSelectedActualSchedule] = useState<Schedule | null>(null);
@@ -1461,7 +1506,7 @@ export default function CreateShiftSplitPanel({
     if (!dragActiveRef.current) {
       const snapshot = editedShiftsRef.current;
       setUndoStack((prev) => {
-        const next = [...prev, snapshot];
+        const next: UndoEntry[] = [...prev, { kind: 'edit', prevEdited: snapshot }];
         return next.length > 20 ? next.slice(next.length - 20) : next;
       });
       setRedoStack([]);
@@ -1483,7 +1528,7 @@ export default function CreateShiftSplitPanel({
     dragActiveRef.current = true;
     const snapshot = editedShiftsRef.current;
     setUndoStack((prev) => {
-      const next = [...prev, snapshot];
+      const next: UndoEntry[] = [...prev, { kind: 'edit', prevEdited: snapshot }];
       return next.length > 20 ? next.slice(next.length - 20) : next;
     });
     setRedoStack([]);
@@ -1510,7 +1555,7 @@ export default function CreateShiftSplitPanel({
     setSelectedShiftIdx(null);
   }, [locations]);
 
-  const applySnapshot = useCallback((snapshot: Record<number, ShiftEdit>, currentSelectedIdx: number | null) => {
+  const applyEditSnapshot = useCallback((snapshot: Record<number, ShiftEdit>, currentSelectedIdx: number | null) => {
     editedShiftsRef.current = snapshot;
     setEditedShifts(snapshot);
     if (currentSelectedIdx !== null) {
@@ -1523,33 +1568,90 @@ export default function CreateShiftSplitPanel({
     }
   }, []);
 
+  // Dispatcher for an UndoEntry. Used by both handleUndo (popping from undo →
+  // pushing inverse to redo) and handleRedo (popping redo → pushing inverse to
+  // undo). Returns the *inverse* entry that should be pushed onto the other
+  // stack so the action is round-trippable.
+  //
+  // The `direction` flag distinguishes which way we're going:
+  //   - 'undo': reverse the recorded action (e.g. remove-ai → un-exclude)
+  //   - 'redo': re-apply the recorded action (e.g. remove-ai → re-exclude)
+  // Without this, both Cmd+Z and Cmd+Y would do the same thing (the original
+  // bug the architect caught).
+  const applyUndoEntry = useCallback((
+    entry: UndoEntry,
+    direction: 'undo' | 'redo',
+    currentSelectedIdx: number | null,
+  ): UndoEntry => {
+    if (entry.kind === 'edit') {
+      // Edit snapshots are self-describing (they carry the previous
+      // editedShifts map), so undo/redo just swap snapshots either way.
+      const inverse: UndoEntry = { kind: 'edit', prevEdited: editedShiftsRef.current };
+      applyEditSnapshot(entry.prevEdited, currentSelectedIdx);
+      return inverse;
+    }
+    if (entry.kind === 'remove-ai') {
+      setExcludedIdxs((prev) => {
+        const next = new Set(prev);
+        if (direction === 'undo') {
+          next.delete(entry.idx); // restore the card
+        } else {
+          next.add(entry.idx);    // re-remove it
+        }
+        return next;
+      });
+      return { kind: 'remove-ai', idx: entry.idx };
+    }
+    // remove-manual: undo re-inserts the shift; redo deletes it again.
+    if (direction === 'undo') {
+      setManualShifts((prev) => [...prev, entry.shift]);
+      if (entry.wasPersisted && modalDate && entry.shift.employeeId) {
+        persistPillShiftMutation.mutate({ shift: entry.shift, date: modalDate });
+      }
+    } else {
+      const matchKey = `${entry.shift.employeeId}:${entry.shift.startTime}:${entry.shift.endTime}`;
+      setManualShifts((prev) => prev.filter(
+        (s) => `${s.employeeId}:${s.startTime}:${s.endTime}` !== matchKey,
+      ));
+      if (entry.wasPersisted && modalDate && entry.shift.employeeId && entry.shift.startTime && entry.shift.endTime) {
+        removeSuggestShiftMutation.mutate({
+          date: modalDate,
+          employeeId: entry.shift.employeeId,
+          startTime: entry.shift.startTime,
+          endTime: entry.shift.endTime,
+        });
+      }
+    }
+    return { kind: 'remove-manual', shift: entry.shift, insertIdx: entry.insertIdx, wasPersisted: entry.wasPersisted };
+  }, [applyEditSnapshot, modalDate]);
+
   const handleUndo = useCallback(() => {
     setUndoStack((prev) => {
       if (prev.length === 0) return prev;
       const next = [...prev];
-      const snapshot = next.pop()!;
+      const entry = next.pop()!;
+      const inverse = applyUndoEntry(entry, 'undo', selectedShiftIdx);
       setRedoStack((r) => {
-        const rNext = [...r, editedShiftsRef.current];
+        const rNext: UndoEntry[] = [...r, inverse];
         return rNext.length > 20 ? rNext.slice(rNext.length - 20) : rNext;
       });
-      applySnapshot(snapshot, selectedShiftIdx);
       return next;
     });
-  }, [selectedShiftIdx, applySnapshot]);
+  }, [selectedShiftIdx, applyUndoEntry]);
 
   const handleRedo = useCallback(() => {
     setRedoStack((prev) => {
       if (prev.length === 0) return prev;
       const next = [...prev];
-      const snapshot = next.pop()!;
+      const entry = next.pop()!;
+      const inverse = applyUndoEntry(entry, 'redo', selectedShiftIdx);
       setUndoStack((u) => {
-        const uNext = [...u, editedShiftsRef.current];
+        const uNext: UndoEntry[] = [...u, inverse];
         return uNext.length > 20 ? uNext.slice(uNext.length - 20) : uNext;
       });
-      applySnapshot(snapshot, selectedShiftIdx);
       return next;
     });
-  }, [selectedShiftIdx, applySnapshot]);
+  }, [selectedShiftIdx, applyUndoEntry]);
 
   // Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z keyboard shortcuts for undo/redo
   // Declared after handleUndo/handleRedo to avoid temporal dead zone
@@ -1589,11 +1691,17 @@ export default function CreateShiftSplitPanel({
   });
 
   // Single entry-point for clicking the X on any timeline card.
-  // Branches by *card type* (not index position), because Manual drafts get
-  // persisted into the AI suggestion cache and then live at idx < aiCount —
-  // an index-based branch would mistakenly toggle exclusion on them.
+  // Detects Manual drafts by *either* index position (idx >= aiCount, i.e.
+  // it's still in local pendingManualShifts) OR shiftBlock === 'Manual' (it
+  // was persisted into the cache via persistPillShiftMutation). This catches
+  // blank drafts that have shiftBlock === '' too — any card past the AI
+  // count is a manual draft regardless of its block label.
   const handleToggleExclude = (idx: number, shift: ProposedShift) => {
-    const isManualDraft = shift.shiftBlock === 'Manual';
+    const aiCount = suggestDataRef.current?.proposedShifts?.length ?? 0;
+    const cardKind = classifyShiftCard(idx, aiCount, shift.shiftBlock);
+    const isPersistedManual = cardKind === 'persisted-manual';
+    const isManualDraft = cardKind !== 'ai';
+
     if (isManualDraft) {
       // Splice from local pending drafts (no-op if it was already persisted)…
       const matchKey = `${shift.employeeId}:${shift.startTime}:${shift.endTime}`;
@@ -1603,7 +1711,7 @@ export default function CreateShiftSplitPanel({
       // …and clear the persisted copy from the server cache so a refetch
       // doesn't resurrect it. Safe to call even if there's no persisted row;
       // the route returns { removed: 0 } in that case.
-      if (modalDate && shift.employeeId && shift.startTime && shift.endTime) {
+      if (isPersistedManual && modalDate && shift.employeeId && shift.startTime && shift.endTime) {
         removeSuggestShiftMutation.mutate({
           date: modalDate,
           employeeId: shift.employeeId,
@@ -1611,6 +1719,17 @@ export default function CreateShiftSplitPanel({
           endTime: shift.endTime,
         });
       }
+      // Push an undo action so Cmd+Z restores the removed draft.
+      setUndoStack((prev) => {
+        const next: UndoEntry[] = [...prev, {
+          kind: 'remove-manual',
+          shift,
+          insertIdx: idx,
+          wasPersisted: isPersistedManual,
+        }];
+        return next.length > 20 ? next.slice(next.length - 20) : next;
+      });
+      setRedoStack([]);
       // Adjust selection + excluded-idx mask for the splice.
       if (selectedShiftIdx === idx) {
         setSelectedShiftIdx(null);
@@ -1631,10 +1750,18 @@ export default function CreateShiftSplitPanel({
     setExcludedIdxs((prev) => {
       const next = new Set(prev);
       if (next.has(idx)) {
+        // Un-excluding doesn't get its own undo entry — it's already a
+        // toggle. Only the *exclude* direction is recorded so Cmd+Z can
+        // restore a removed card.
         next.delete(idx);
       } else {
         next.add(idx);
         if (selectedShiftIdx === idx) setSelectedShiftIdx(null);
+        setUndoStack((prevStack) => {
+          const nextStack: UndoEntry[] = [...prevStack, { kind: 'remove-ai', idx }];
+          return nextStack.length > 20 ? nextStack.slice(nextStack.length - 20) : nextStack;
+        });
+        setRedoStack([]);
       }
       return next;
     });
