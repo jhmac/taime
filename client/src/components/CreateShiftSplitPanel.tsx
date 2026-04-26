@@ -1570,6 +1570,29 @@ export default function CreateShiftSplitPanel({
   // Keep suggestDataRef in sync so undo/redo can access original shift times
   useEffect(() => { suggestDataRef.current = suggestData; }, [suggestData]);
 
+  // Mutation to persist a pill-added shift to the suggested schedule cache
+  const persistPillShiftMutation = useMutation({
+    mutationFn: async ({ shift, date }: { shift: ProposedShift; date: string }) => {
+      const res = await apiRequest("PUT", "/api/schedules/suggest", {
+        date,
+        shiftIndex: -1,
+        employeeId: shift.employeeId,
+        employeeName: shift.employeeName,
+        startTime: shift.startTime,
+        endTime: shift.endTime,
+        shiftBlock: shift.shiftBlock,
+        rationale: shift.rationale,
+      });
+      return res.json();
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/schedules/suggest", variables.date] });
+    },
+    onError: () => {
+      toast({ title: "Warning", description: "Shift added locally but could not be saved — it may not persist after reopening.", variant: "destructive" });
+    },
+  });
+
   // Mutation to persist a single edited shift back to DB
   const saveShiftMutation = useMutation({
     mutationFn: async ({ idx, edit }: { idx: number; edit: ShiftEdit }) => {
@@ -1815,13 +1838,22 @@ export default function CreateShiftSplitPanel({
   const aiProposedShifts = (suggestData?.proposedShifts ?? []).map((shift, idx) =>
     editedShifts[idx] ? { ...shift, ...editedShifts[idx] } : shift
   );
-  const proposedShifts = [...aiProposedShifts, ...manualShifts];
+  // Exclude manual shifts that have already been persisted to and returned from the cache
+  const persistedManualKeys = new Set(
+    aiProposedShifts
+      .filter(s => s.shiftBlock === 'Manual')
+      .map(s => `${s.employeeId}:${s.startTime}:${s.endTime}`)
+  );
+  const pendingManualShifts = manualShifts.filter(
+    s => !persistedManualKeys.has(`${s.employeeId}:${s.startTime}:${s.endTime}`)
+  );
+  const proposedShifts = [...aiProposedShifts, ...pendingManualShifts];
   const mergedSuggestData = suggestData
     ? { ...suggestData, proposedShifts }
-    : manualShifts.length > 0
+    : proposedShifts.length > 0
     ? {
         date: modalDate,
-        proposedShifts: manualShifts,
+        proposedShifts,
         historicalDate: '',
         dataSource: 'manual',
         hourlyData: [],
@@ -1878,10 +1910,11 @@ export default function CreateShiftSplitPanel({
       startTime: clampedStart,
       endTime: clampedEnd,
       shiftBlock: 'Manual',
-      rationale: '',
+      rationale: 'Manually added',
       revenue: 0,
     };
     setManualShifts(prev => [...prev, newShift]);
+    if (modalDate) persistPillShiftMutation.mutate({ shift: newShift, date: modalDate });
     if (!selectedUserId) {
       setSelectedUserId(member.userId);
       setModalStartTime(clampedStart);
@@ -1891,7 +1924,7 @@ export default function CreateShiftSplitPanel({
     requestAnimationFrame(() => {
       timelineWrapperRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     });
-  }, [storeHours, selectedUserId]);
+  }, [storeHours, selectedUserId, persistPillShiftMutation]);
 
   const dateLabel = modalDate
     ? new Date(modalDate + "T12:00:00Z").toLocaleDateString("en-US", {

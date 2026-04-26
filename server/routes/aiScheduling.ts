@@ -1704,7 +1704,7 @@ Required JSON structure:
       );
       if (!isAdmin) return res.status(403).json({ message: "Manager access required" });
 
-      const { date, shiftIndex, startTime, endTime, employeeId, employeeName } = req.body;
+      const { date, shiftIndex, startTime, endTime, employeeId, employeeName, shiftBlock, rationale } = req.body;
       if (!date || typeof shiftIndex !== 'number') {
         return res.status(400).json({ message: "date and shiftIndex are required" });
       }
@@ -1717,6 +1717,42 @@ Required JSON structure:
         .from(aiSuggestedSchedules)
         .where(and(eq(aiSuggestedSchedules.storeId, storeId), eq(aiSuggestedSchedules.date, date)))
         .limit(1);
+
+      // shiftIndex === -1 means "append a new shift"
+      if (shiftIndex === -1) {
+        if (!employeeId || !employeeName || !startTime || !endTime) {
+          return res.status(400).json({ message: "employeeId, employeeName, startTime, and endTime are required when appending" });
+        }
+        const newShift = {
+          employeeId,
+          employeeName,
+          startTime,
+          endTime,
+          shiftBlock: shiftBlock || 'Manual',
+          rationale: rationale || 'Manually added',
+          revenue: 0,
+        };
+        if (rows.length === 0) {
+          // No cache yet — create a minimal one containing just this shift
+          const minimalSchedule = {
+            date,
+            proposedShifts: [newShift],
+            historicalDate: '',
+            dataSource: 'manual',
+            hourlyData: [],
+            storeHours: { open: '09:00', close: '21:00' },
+          };
+          await db.insert(aiSuggestedSchedules).values({ storeId, date, scheduleData: minimalSchedule });
+        } else {
+          const scheduleData = rows[0].scheduleData as any;
+          if (!Array.isArray(scheduleData?.proposedShifts)) scheduleData.proposedShifts = [];
+          scheduleData.proposedShifts.push(newShift);
+          await db.update(aiSuggestedSchedules)
+            .set({ scheduleData })
+            .where(and(eq(aiSuggestedSchedules.storeId, storeId), eq(aiSuggestedSchedules.date, date)));
+        }
+        return res.json({ success: true, shift: newShift });
+      }
 
       if (rows.length === 0) return res.status(404).json({ message: "No saved suggestion found for this date" });
 
