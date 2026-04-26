@@ -482,28 +482,30 @@ function SalesChart({
 function PillScoreBadge({ score }: { score: number }) {
   let tier: 'top' | 'strong' | 'ok';
   let symbol: string;
+  let suffix: string;
   let bg: string;
   let fg: string;
   let label: string;
   if (score >= 85) {
-    tier = 'top'; symbol = '★'; bg = 'bg-yellow-400'; fg = 'text-yellow-900';
+    tier = 'top'; symbol = '★'; suffix = 'Top'; bg = 'bg-yellow-400'; fg = 'text-yellow-900';
     label = `Top match — score ${score}`;
   } else if (score >= 60) {
-    tier = 'strong'; symbol = '◆'; bg = 'bg-slate-300'; fg = 'text-slate-700';
+    tier = 'strong'; symbol = '◆'; suffix = 'Strong'; bg = 'bg-slate-300'; fg = 'text-slate-700';
     label = `Strong match — score ${score}`;
   } else {
-    tier = 'ok'; symbol = '•'; bg = 'bg-muted'; fg = 'text-muted-foreground';
+    tier = 'ok'; symbol = '•'; suffix = 'OK'; bg = 'bg-muted'; fg = 'text-muted-foreground';
     label = `OK match — score ${score}`;
   }
   return (
     <span
-      className={cn('inline-flex items-center gap-0.5 px-1 h-5 rounded-full text-[9px] font-bold shrink-0', bg, fg)}
+      className={cn('inline-flex items-center gap-0.5 px-1.5 h-5 rounded-full text-[9px] font-bold shrink-0', bg, fg)}
       title={label}
       aria-label={label}
       data-tier={tier}
     >
       <span aria-hidden="true">{symbol}</span>
-      <span aria-hidden="true">{score}</span>
+      <span aria-hidden="true">{suffix}</span>
+      <span aria-hidden="true" className="opacity-70">{score}</span>
     </span>
   );
 }
@@ -1314,11 +1316,7 @@ export default function CreateShiftSplitPanel({
   const queryClient = useQueryClient();
   const { user: currentUser } = useAuth();
   const { lastMessage: panelWsMessage } = useWebSocketContext();
-  // Drafts are namespaced by (storeId, date, userId). The panel doesn't
-  // currently know about multi-store; we use a stable 'panel' bucket so
-  // drafts collide cleanly across reopenings of the same date by the same
-  // manager, but never bleed across users (the userId segment guarantees
-  // that). When multi-store lands, swap 'panel' for the active store id.
+  // Drafts are namespaced by (storeId, date, userId).
   const draftStoreId = 'panel';
   const draftUserId = currentUser?.id ?? '';
 
@@ -1341,10 +1339,7 @@ export default function CreateShiftSplitPanel({
   const shiftSavedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingSkippedCountRef = useRef(0);
 
-  // Flash the "Saved ✓" confirmation on the per-card Save button for 2s.
-  // Uses a ref-tracked timer so we can clear it on unmount or when the user
-  // switches to a different card (preventing stale "Saved" state on a freshly
-  // selected card that wasn't actually just saved).
+  // Flash "Saved ✓" on the per-card Save button for 2s; clears on unmount/card switch.
   const flashSaved = useCallback(() => {
     if (shiftSavedTimerRef.current) clearTimeout(shiftSavedTimerRef.current);
     setShiftSaved(true);
@@ -1362,9 +1357,7 @@ export default function CreateShiftSplitPanel({
     }
   }, []);
 
-  // Reset the "Saved ✓" flash whenever the user switches to a different card —
-  // otherwise a fresh selection would inherit the stale "Saved" state from the
-  // previous card and look like it had just been saved.
+  // Reset "Saved ✓" flash on card switch.
   useEffect(() => {
     if (shiftSavedTimerRef.current) {
       clearTimeout(shiftSavedTimerRef.current);
@@ -1378,24 +1371,15 @@ export default function CreateShiftSplitPanel({
     totalRevenue: number;
     message: string;
   } | null>(null);
-  // Confirm-on-close dialog (Task #387 A1) — shown when the user attempts to
-  // close the panel with unsaved client-side state (pending drafts, excluded
-  // AI shifts, in-memory edits, or a dirty form).
+  // A1 confirm-on-close dialog state.
   const [pendingCloseConfirm, setPendingCloseConfirm] = useState(false);
-  // Keyboard cheat-sheet overlay (Task #387 C6) — toggled by `?` and `/`.
+  // C6 keyboard cheat-sheet, toggled by ? and /.
   const [showShortcutOverlay, setShowShortcutOverlay] = useState(false);
-  // Tracks the most recent set of created schedule IDs so the bulk-undo toast
-  // can DELETE them in one round-trip if the user clicks Undo within 10s.
+  // Last batch of created IDs so bulk-undo can DELETE them within 10s.
   const lastCreatedIdsRef = useRef<string[]>([]);
-  // External-change banner (Task #387 A4 panel-side) — flips true when a
-  // bulk WS event arrives for the open day from another tab/user. The
-  // banner shows a Refresh CTA that re-pulls schedules + suggest +
-  // today-availability and clears the flag. Reset on date change and on close.
+  // A4 external-change banner state.
   const [externalChangeNotice, setExternalChangeNotice] = useState(false);
-  // Draft-restore guard — once we've loaded a draft for the current
-  // (storeId, date, userId) we don't want a subsequent state reset (date
-  // change, etc.) to write a *blank* draft back over our restored one
-  // before the user has a chance to interact with it.
+  // Guard so re-renders don't overwrite a freshly restored draft with blanks.
   const draftHydratedRef = useRef<string | null>(null);
   const [modalTitle, setModalTitle] = useState(editingSchedule?.title ?? '');
   const [modalLocationId, setModalLocationId] = useState(editingSchedule?.locationId ?? locations[0]?.id ?? '');
@@ -1532,11 +1516,7 @@ export default function CreateShiftSplitPanel({
   //    forever. Cheap synchronous loop; runs once per page load.
   useEffect(() => { evictStaleDrafts(); }, []);
 
-  // 2. When the panel opens for a (date, user) we haven't restored yet,
-  //    pull any saved draft and rehydrate the form fields + manual shifts.
-  //    The hydration ref guards against the save-effect (#3 below) firing
-  //    immediately after with the *initial* state and overwriting the draft
-  //    we just loaded.
+  // 2. Rehydrate draft on open (guarded by draftHydratedRef so the save-effect doesn't clobber it).
   useEffect(() => {
     if (!open) { draftHydratedRef.current = null; return; }
     if (!modalDate || !draftUserId) return;
@@ -1550,6 +1530,8 @@ export default function CreateShiftSplitPanel({
     // (manualShifts > 0 OR a non-default field). Avoids confusing rehydrate
     // when we previously cleared the draft on save.
     const hasContent = (draft.manualShifts?.length ?? 0) > 0
+      || (draft.excludedIdxs?.length ?? 0) > 0
+      || (draft.editedShifts && Object.keys(draft.editedShifts).length > 0)
       || draft.modalTitle || draft.modalNotes || draft.selectedUserId;
     if (!hasContent) return;
     if (draft.modalStartTime) setModalStartTime(draft.modalStartTime);
@@ -1612,11 +1594,7 @@ export default function CreateShiftSplitPanel({
     excludedIdxs, editedShifts,
   ]);
 
-  // ── External-change banner (Task #387 A4 panel-side) ────────────────────────
-  // When another tab/user creates/updates/deletes shifts via the bulk routes,
-  // raise a non-blocking notice so the user knows the data they're looking at
-  // could be stale. The banner has a Refresh CTA that re-pulls the relevant
-  // queries. Only fires when the WS event matches the open day.
+  // A4: surface non-blocking notice when a WS event for the open day arrives.
   useEffect(() => {
     if (!open || !panelWsMessage) return;
     const t = panelWsMessage.type;
@@ -1916,12 +1894,7 @@ export default function CreateShiftSplitPanel({
     const isManualDraft = cardKind !== 'ai';
 
     if (isManualDraft) {
-      // Index-based splice. Pending drafts live at idx >= aiCount in the
-      // merged array, so manualIdx maps the merged index into manualShifts.
-      // Persisted-manual cards (idx < aiCount, shiftBlock === 'Manual') are
-      // already moved out of manualShifts into the cached proposedShifts
-      // array, so the manualShifts splice is a no-op for them — but we
-      // still fire removeSuggestShiftMutation to drop the persisted copy.
+      // Pending drafts live at idx >= aiCount; persisted-manuals are removed via mutation.
       const manualIdx = idx - aiCount;
       if (manualIdx >= 0) {
         setManualShifts((prev) => {
@@ -1943,11 +1916,7 @@ export default function CreateShiftSplitPanel({
         const next: UndoEntry[] = [...prev, {
           kind: 'remove-manual',
           shift,
-          // Store the manual-array index (not the merged AI+manual idx) so
-          // undo splices the card back into manualShifts at the correct slot.
-          // For persisted-manuals (manualIdx < 0) we record 0 — they live in
-          // the cached AI proposedShifts, not in manualShifts, so undo's
-          // splice is effectively a no-op and re-persistence handles restore.
+          // Manual-array index for undo splice (persisted-manuals stay at 0).
           insertIdx: Math.max(0, manualIdx),
           wasPersisted: isPersistedManual,
         }];
@@ -2249,12 +2218,7 @@ export default function CreateShiftSplitPanel({
         ? result.created.map((s: { id: string }) => s.id).filter(Boolean)
         : [];
       lastCreatedIdsRef.current = createdIds;
-      // Force a fresh fetch (not just mark stale) so the underlying schedule grid
-      // updates immediately with the new shifts before the modal closes. Awaiting
-      // the refetch guarantees the user lands back on a populated grid.
-      // Also refetch the team-calendar query the schedule page uses for coverage
-      // signals — without this the grid's availability badges go stale until
-      // a manual reload.
+      // Refetch grid + availability so the user lands on populated views.
       await Promise.all([
         queryClient.refetchQueries({ queryKey: ["/api/schedules"], type: 'active' }),
         queryClient.refetchQueries({ queryKey: ["/api/schedules/today-availability"], type: 'active' }),
@@ -3630,25 +3594,30 @@ export default function CreateShiftSplitPanel({
             type="button"
             variant="outline"
             className="border-destructive text-destructive hover:bg-destructive/10"
-            onClick={() => { setPendingCloseConfirm(false); onOpenChange(false); }}
+            onClick={() => {
+              setPendingCloseConfirm(false);
+              if (draftUserId && modalDate) clearDraft(draftStoreId, modalDate, draftUserId);
+              onOpenChange(false);
+            }}
             data-testid="close-confirm-discard"
           >
             Discard
           </Button>
           <AlertDialogAction
-            disabled={validActiveShifts.length === 0 || approveMutation.isPending}
+            disabled={approveMutation.isPending}
             onClick={() => {
               setPendingCloseConfirm(false);
-              handleBulkSave();
-              // Close after the save resolves (approve mutation refetches and
-              // clears manualShifts, which flips `dirty` to false; once the
-              // user reopens later their work is in the grid + draft cleared).
+              if (validActiveShifts.length > 0) {
+                handleBulkSave();
+              } else {
+                onOpenChange(false);
+              }
             }}
             data-testid="close-confirm-save"
           >
             {approveMutation.isPending ? (
               <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" />Saving…</>
-            ) : 'Save & close'}
+            ) : validActiveShifts.length > 0 ? 'Save & close' : 'Keep draft & close'}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
