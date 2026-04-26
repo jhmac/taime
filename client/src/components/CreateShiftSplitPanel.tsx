@@ -1226,6 +1226,7 @@ export default function CreateShiftSplitPanel({
   const [actualFormEdits, setActualFormEdits] = useState<{ startTime: string; endTime: string; userId: string } | null>(null);
   const [manualShifts, setManualShifts] = useState<ProposedShift[]>([]);
   const [shiftSaved, setShiftSaved] = useState(false);
+  const pendingSkippedCountRef = useRef(0);
   const [showPillsUnavailable, setShowPillsUnavailable] = useState(false);
   const [pendingCorrectionWarning, setPendingCorrectionWarning] = useState<{
     historicalDate: string;
@@ -1707,11 +1708,14 @@ export default function CreateShiftSplitPanel({
     },
     onSuccess: async (response: any) => {
       const result = await response.json();
+      const skipped = pendingSkippedCountRef.current;
       queryClient.invalidateQueries({ queryKey: ["/api/schedules"] });
       queryClient.invalidateQueries({ queryKey: ["/api/schedules/today-availability"] });
       toast({
         title: "Schedule Approved",
-        description: `${result.schedulesCreated} shift${result.schedulesCreated !== 1 ? "s" : ""} created.`,
+        description: skipped > 0
+          ? `${result.schedulesCreated} shift${result.schedulesCreated !== 1 ? "s" : ""} created, ${skipped} blank shift${skipped !== 1 ? "s" : ""} skipped.`
+          : `${result.schedulesCreated} shift${result.schedulesCreated !== 1 ? "s" : ""} created.`,
       });
       onOpenChange(false);
     },
@@ -2122,37 +2126,6 @@ export default function CreateShiftSplitPanel({
                     </span>
                   ) : null}
                 </Button>
-                {/* In Edit mode keep Approve in header; in Create mode it moves to the bottom CTA */}
-                {editingSchedule && (
-                  <Button
-                    size="sm"
-                    className={cn(
-                      "gap-1.5 text-xs h-8 text-white",
-                      conflictCount > 0
-                        ? "bg-amber-500 hover:bg-amber-600"
-                        : "bg-orange-500 hover:bg-orange-600"
-                    )}
-                    disabled={
-                      approveMutation.isPending ||
-                      validActiveShifts.length === 0 ||
-                      suggestLoading
-                    }
-                    onClick={() => approveMutation.mutate(validActiveShifts)}
-                    title={
-                      conflictCount > 0
-                        ? `${conflictCount} active shift${conflictCount !== 1 ? "s" : ""} conflict with existing schedules`
-                        : undefined
-                    }
-                  >
-                    {approveMutation.isPending ? (
-                      <><Loader2 className="h-3 w-3 animate-spin" />Approving…</>
-                    ) : conflictCount > 0 ? (
-                      <><AlertTriangle className="h-3 w-3" />Approve ({validActiveShifts.length}) · {conflictCount} conflict{conflictCount !== 1 ? "s" : ""}</>
-                    ) : (
-                      <><Check className="h-3 w-3" />Approve ({validActiveShifts.length})</>
-                    )}
-                  </Button>
-                )}
               </div>
             </div>
 
@@ -2562,7 +2535,8 @@ export default function CreateShiftSplitPanel({
                   </Button>
                 ) : <div />}
 
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
+                  {/* Cancel / Deselect */}
                   <Button
                     type="button"
                     variant="outline"
@@ -2575,13 +2549,16 @@ export default function CreateShiftSplitPanel({
                   >
                     {(isEditingBlock || isActualEditing) ? "Deselect" : "Cancel"}
                   </Button>
+
+                  {/* Per-card "Save Changes" — secondary, shown while editing a specific card or the editingSchedule shift */}
                   {isEditingBlock ? (
                     <Button
                       type="button"
                       size="sm"
+                      variant="outline"
                       disabled={saveShiftMutation.isPending}
                       onClick={handleSaveShiftEdit}
-                      className={cn("gap-1.5", shiftSaved && "bg-green-600 hover:bg-green-700 text-white")}
+                      className={cn("gap-1.5", shiftSaved && "border-green-600 text-green-700 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20")}
                     >
                       {saveShiftMutation.isPending ? (
                         <><Loader2 className="h-3 w-3 animate-spin" />Saving…</>
@@ -2595,6 +2572,7 @@ export default function CreateShiftSplitPanel({
                     <Button
                       type="button"
                       size="sm"
+                      variant="outline"
                       disabled={updateActualMutation.isPending}
                       onClick={handleSaveActual}
                       className="gap-1.5"
@@ -2606,17 +2584,19 @@ export default function CreateShiftSplitPanel({
                       )}
                     </Button>
                   ) : editingSchedule ? (
-                    <Button type="submit" size="sm" disabled={isUpdating} className="gap-1.5">
+                    <Button type="submit" size="sm" variant="outline" disabled={isUpdating} className="gap-1.5">
                       {isUpdating ? (
                         <><Loader2 className="h-3 w-3 animate-spin" />Saving…</>
                       ) : (
                         <><Save className="h-3 w-3" />Save Changes</>
                       )}
                     </Button>
-                  ) : activeShifts.length > 0 ? (
-                    // Primary bulk-save CTA — visible whenever the timeline has any active shifts
-                    // (including blank drafts). Only valid (employee-assigned) shifts actually get saved;
-                    // blank drafts are counted in activeShifts but excluded from the submission.
+                  ) : null}
+
+                  {/* Primary bulk-save CTA — always rightmost whenever the timeline has any active shifts,
+                      across both create and edit modes. Blank/unassigned draft shifts show in the count
+                      but are filtered out at submission; a toast explains any skipped shifts. */}
+                  {activeShifts.length > 0 ? (
                     <Button
                       type="button"
                       size="sm"
@@ -2629,7 +2609,10 @@ export default function CreateShiftSplitPanel({
                           : "bg-orange-500 hover:bg-orange-600"
                       )}
                       disabled={approveMutation.isPending || suggestLoading || validActiveShifts.length === 0}
-                      onClick={() => approveMutation.mutate(validActiveShifts)}
+                      onClick={() => {
+                        pendingSkippedCountRef.current = activeShifts.length - validActiveShifts.length;
+                        approveMutation.mutate(validActiveShifts);
+                      }}
                       title={
                         validActiveShifts.length === 0
                           ? "Select an employee for each shift before saving"
@@ -2643,16 +2626,17 @@ export default function CreateShiftSplitPanel({
                       ) : validActiveShifts.length === 0 ? (
                         <>Assign employees to save</>
                       ) : conflictCount > 0 ? (
-                        <><AlertTriangle className="h-3 w-3" />Save {validActiveShifts.length} Shift{validActiveShifts.length !== 1 ? "s" : ""} · {conflictCount} conflict{conflictCount !== 1 ? "s" : ""}</>
+                        <><AlertTriangle className="h-3 w-3" />Save {activeShifts.length} Shift{activeShifts.length !== 1 ? "s" : ""} · {conflictCount} conflict{conflictCount !== 1 ? "s" : ""}</>
                       ) : (
-                        <><Check className="h-3 w-3" />Save {validActiveShifts.length} Shift{validActiveShifts.length !== 1 ? "s" : ""} to Schedule</>
+                        <><Check className="h-3 w-3" />Save {activeShifts.length} Shift{activeShifts.length !== 1 ? "s" : ""} to Schedule</>
                       )}
                     </Button>
-                  ) : (
+                  ) : !editingSchedule && !isActualEditing ? (
+                    /* No active timeline shifts and not in edit context — offer single-shift create */
                     <Button type="submit" size="sm" disabled={isCreating}>
                       {isCreating ? "Creating..." : "Create Shift"}
                     </Button>
-                  )}
+                  ) : null}
                 </div>
               </div>
             </form>
