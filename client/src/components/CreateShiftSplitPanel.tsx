@@ -479,6 +479,7 @@ function AvailableEmployeePills({
   onAdd,
   showUnavailable,
   onToggleUnavailable,
+  dateKey,
 }: {
   members: AvailMember[];
   storeHours: { open: string; close: string } | null;
@@ -487,10 +488,38 @@ function AvailableEmployeePills({
   onAdd: (member: AvailMember) => void;
   showUnavailable: boolean;
   onToggleUnavailable: () => void;
+  dateKey?: string;
 }) {
-  const availableMembers = members.filter(m => m.isAvailable);
-  const unavailableMembers = members.filter(m => !m.isAvailable);
-  const visibleMembers = showUnavailable ? members : availableMembers;
+  const [roleFilter, setRoleFilter] = useState('all');
+  const [minScore, setMinScore] = useState(0);
+
+  useEffect(() => {
+    setRoleFilter('all');
+    setMinScore(0);
+  }, [dateKey]);
+
+  const roles = useMemo(() => {
+    return Array.from(new Set(members.map(m => m.roleName))).sort();
+  }, [members]);
+
+  const filteredMembers = useMemo(() => {
+    return members.filter(m => {
+      if (roleFilter !== 'all' && m.roleName !== roleFilter) return false;
+      if (m.compositeScore < minScore) return false;
+      return true;
+    });
+  }, [members, roleFilter, minScore]);
+
+  const availableMembers = filteredMembers.filter(m => m.isAvailable);
+  // Unavailable list is always derived from the unfiltered set so that
+  // role/score filters never affect the "Show unavailable" toggle.
+  const allUnavailableMembers = members.filter(m => !m.isAvailable);
+  const visibleMembers = showUnavailable
+    ? [...availableMembers, ...allUnavailableMembers]
+    : availableMembers;
+
+  // For the empty-state message: detect if filters are actively hiding available members.
+  const unfilteredAvailableCount = members.filter(m => m.isAvailable).length;
 
   const storeOpen = storeHours?.open || '09:00';
   const storeClose = storeHours?.close || '21:00';
@@ -534,7 +563,7 @@ function AvailableEmployeePills({
   return (
     <div>
       {/* Section header */}
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex items-center justify-between mb-1.5">
         <span className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
           <Users className="h-3 w-3" />
           Who's Available Today
@@ -542,21 +571,51 @@ function AvailableEmployeePills({
             <span className="ml-1 text-foreground font-semibold">({availableMembers.length})</span>
           )}
         </span>
-        {unavailableMembers.length > 0 && (
+        {allUnavailableMembers.length > 0 && (
           <button
             onClick={onToggleUnavailable}
             className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
           >
             {showUnavailable ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-            {showUnavailable ? 'Hide unavailable' : `+${unavailableMembers.length} unavailable`}
+            {showUnavailable ? 'Hide unavailable' : `+${allUnavailableMembers.length} unavailable`}
           </button>
         )}
       </div>
 
+      {/* Filter chips */}
+      {members.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          <Select value={roleFilter} onValueChange={setRoleFilter}>
+            <SelectTrigger className="h-6 text-[10px] w-auto min-w-[80px] px-2 border-border/60">
+              <SelectValue placeholder="Role" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All roles</SelectItem>
+              {roles.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Select value={String(minScore)} onValueChange={v => setMinScore(Number(v))}>
+            <SelectTrigger className="h-6 text-[10px] w-auto min-w-[80px] px-2 border-border/60">
+              <SelectValue placeholder="Min score" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="0">Any score</SelectItem>
+              <SelectItem value="35">≥35 (Bronze+)</SelectItem>
+              <SelectItem value="60">≥60 (Silver+)</SelectItem>
+              <SelectItem value="85">≥85 (Gold)</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
       {/* Empty states */}
       {availableMembers.length === 0 && !showUnavailable && (
         <div className="rounded-lg border border-dashed border-border bg-muted/30 py-3 px-4 text-center">
-          <p className="text-xs text-muted-foreground">No availability data yet for this day.</p>
+          <p className="text-xs text-muted-foreground">
+            {unfilteredAvailableCount > 0
+              ? 'No employees match the current filters.'
+              : 'No availability data yet for this day.'}
+          </p>
         </div>
       )}
       {availableMembers.length > 0 && allScheduled && !showUnavailable && (
@@ -2083,6 +2142,7 @@ export default function CreateShiftSplitPanel({
                     onAdd={handlePillAdd}
                     showUnavailable={showPillsUnavailable}
                     onToggleUnavailable={() => setShowPillsUnavailable(v => !v)}
+                    dateKey={modalDate}
                   />
                 </>
               )}
