@@ -1225,6 +1225,7 @@ export default function CreateShiftSplitPanel({
   const [selectedActualSchedule, setSelectedActualSchedule] = useState<Schedule | null>(null);
   const [actualFormEdits, setActualFormEdits] = useState<{ startTime: string; endTime: string; userId: string } | null>(null);
   const [manualShifts, setManualShifts] = useState<ProposedShift[]>([]);
+  const [shiftSaved, setShiftSaved] = useState(false);
   const [showPillsUnavailable, setShowPillsUnavailable] = useState(false);
   const [pendingCorrectionWarning, setPendingCorrectionWarning] = useState<{
     historicalDate: string;
@@ -1620,8 +1621,9 @@ export default function CreateShiftSplitPanel({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/schedules/suggest", modalDate] });
       toast({ title: "Shift saved", description: "Changes persisted to the suggested schedule." });
-      // Brief delay so the user sees the toast, then deselect the card
-      setTimeout(() => setSelectedShiftIdx(null), 800);
+      // Flash "Saved ✓" on the button for 2s — keep the card selected so the manager can keep editing
+      setShiftSaved(true);
+      setTimeout(() => setShiftSaved(false), 2000);
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to save shift changes.", variant: "destructive" });
@@ -1727,9 +1729,10 @@ export default function CreateShiftSplitPanel({
     setSelectedUserId(shift.employeeId);
     setModalStartTime(shift.startTime);
     setModalEndTime(shift.endTime);
-    // Populate role / location / notes — clear stale values when shift has none
+    // Populate role / location / notes — ProposedShift has no locationId, so reset to first
+    // available location (deterministic default) rather than leaving a stale selection
     setModalTitle(shift.shiftBlock || "");
-    setModalLocationId("");
+    setModalLocationId(locations[0]?.id ?? "");
     setModalNotes(shift.rationale || "");
     // Clear any actual-shift selection
     setSelectedActualSchedule(null);
@@ -2576,10 +2579,12 @@ export default function CreateShiftSplitPanel({
                       size="sm"
                       disabled={saveShiftMutation.isPending}
                       onClick={handleSaveShiftEdit}
-                      className="gap-1.5"
+                      className={cn("gap-1.5", shiftSaved && "bg-green-600 hover:bg-green-700 text-white")}
                     >
                       {saveShiftMutation.isPending ? (
                         <><Loader2 className="h-3 w-3 animate-spin" />Saving…</>
+                      ) : shiftSaved ? (
+                        <><Check className="h-3 w-3" />Saved ✓</>
                       ) : (
                         <><Save className="h-3 w-3" />Save Changes</>
                       )}
@@ -2606,26 +2611,35 @@ export default function CreateShiftSplitPanel({
                         <><Save className="h-3 w-3" />Save Changes</>
                       )}
                     </Button>
-                  ) : validActiveShifts.length > 0 ? (
+                  ) : activeShifts.length > 0 ? (
+                    // Primary bulk-save CTA — visible whenever the timeline has any active shifts
+                    // (including blank drafts). Only valid (employee-assigned) shifts actually get saved;
+                    // blank drafts are counted in activeShifts but excluded from the submission.
                     <Button
                       type="button"
                       size="sm"
                       className={cn(
                         "gap-1.5 text-white",
-                        conflictCount > 0
+                        validActiveShifts.length === 0
+                          ? "bg-slate-400 hover:bg-slate-500"
+                          : conflictCount > 0
                           ? "bg-amber-500 hover:bg-amber-600"
                           : "bg-orange-500 hover:bg-orange-600"
                       )}
-                      disabled={approveMutation.isPending || suggestLoading}
+                      disabled={approveMutation.isPending || suggestLoading || validActiveShifts.length === 0}
                       onClick={() => approveMutation.mutate(validActiveShifts)}
                       title={
-                        conflictCount > 0
+                        validActiveShifts.length === 0
+                          ? "Select an employee for each shift before saving"
+                          : conflictCount > 0
                           ? `${conflictCount} shift${conflictCount !== 1 ? "s" : ""} conflict with existing schedules`
                           : undefined
                       }
                     >
                       {approveMutation.isPending ? (
                         <><Loader2 className="h-3 w-3 animate-spin" />Saving…</>
+                      ) : validActiveShifts.length === 0 ? (
+                        <>Assign employees to save</>
                       ) : conflictCount > 0 ? (
                         <><AlertTriangle className="h-3 w-3" />Save {validActiveShifts.length} Shift{validActiveShifts.length !== 1 ? "s" : ""} · {conflictCount} conflict{conflictCount !== 1 ? "s" : ""}</>
                       ) : (
