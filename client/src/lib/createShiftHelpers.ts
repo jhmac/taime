@@ -25,7 +25,6 @@ export function minsToTime(mins: number): string {
 // ─── Draft persistence (localStorage) ──────────────────────────────────────────
 
 export interface CreateShiftDraft {
-  /** ISO timestamp when this draft was last touched. Used for the 24h evict. */
   savedAt: string;
   modalDate: string;
   modalStartTime: string;
@@ -34,8 +33,11 @@ export interface CreateShiftDraft {
   modalTitle: string;
   modalLocationId: string;
   modalNotes: string;
-  /** Pending manual draft shifts that haven't been persisted server-side. */
   manualShifts: unknown[];
+  /** Indexes of AI-suggested shifts the user has excluded. */
+  excludedIdxs?: number[];
+  /** In-memory edits keyed by AI suggestion index. */
+  editedShifts?: Record<number, { startTime?: string; endTime?: string; title?: string }>;
 }
 
 const DRAFT_PREFIX = 'taime:create-shift-draft:';

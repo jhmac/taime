@@ -1320,7 +1320,7 @@ export default function CreateShiftSplitPanel({
   // manager, but never bleed across users (the userId segment guarantees
   // that). When multi-store lands, swap 'panel' for the active store id.
   const draftStoreId = 'panel';
-  const draftUserId = (currentUser as any)?.id ?? '';
+  const draftUserId = currentUser?.id ?? '';
 
   const [modalDate, setModalDate] = useState(defaultDate || "");
   const [modalStartTime, setModalStartTime] = useState(defaultStartTime || "09:00");
@@ -1417,7 +1417,7 @@ export default function CreateShiftSplitPanel({
       .map(s => {
         const user = employees.find(e => e.id === s.userId);
         const name = user
-          ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || (user as any).username || 'Unknown'
+          ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email || 'Unknown'
           : 'Unknown';
         const st = new Date(s.startTime);
         const et = new Date(s.endTime);
@@ -1561,6 +1561,18 @@ export default function CreateShiftSplitPanel({
     if (Array.isArray(draft.manualShifts) && draft.manualShifts.length > 0) {
       setManualShifts(draft.manualShifts as ProposedShift[]);
     }
+    if (Array.isArray(draft.excludedIdxs) && draft.excludedIdxs.length > 0) {
+      setExcludedIdxs(new Set(draft.excludedIdxs));
+    }
+    if (draft.editedShifts && typeof draft.editedShifts === 'object') {
+      const restored: Record<number, ShiftEdit> = {};
+      for (const [k, v] of Object.entries(draft.editedShifts)) {
+        const idx = Number(k);
+        if (Number.isFinite(idx) && v && typeof v === 'object') restored[idx] = v as ShiftEdit;
+      }
+      setEditedShifts(restored);
+      editedShiftsRef.current = restored;
+    }
     toast({
       title: 'Draft restored',
       description: 'Picked up where you left off in this panel.',
@@ -1574,7 +1586,9 @@ export default function CreateShiftSplitPanel({
   useEffect(() => {
     if (!open || !modalDate || !draftUserId || editingSchedule) return;
     const hasContent = manualShifts.length > 0
-      || !!modalTitle || !!modalNotes || !!selectedUserId;
+      || !!modalTitle || !!modalNotes || !!selectedUserId
+      || excludedIdxs.size > 0
+      || Object.keys(editedShifts).length > 0;
     if (!hasContent) return;
     const t = setTimeout(() => {
       saveDraft(draftStoreId, modalDate, draftUserId, {
@@ -1586,6 +1600,8 @@ export default function CreateShiftSplitPanel({
         modalLocationId,
         modalNotes,
         manualShifts: manualShifts as unknown[],
+        excludedIdxs: Array.from(excludedIdxs),
+        editedShifts,
       });
     }, 500);
     return () => clearTimeout(t);
@@ -1593,6 +1609,7 @@ export default function CreateShiftSplitPanel({
     open, modalDate, draftUserId, editingSchedule,
     modalStartTime, modalEndTime, selectedUserId,
     modalTitle, modalLocationId, modalNotes, manualShifts,
+    excludedIdxs, editedShifts,
   ]);
 
   // ── External-change banner (Task #387 A4 panel-side) ────────────────────────
@@ -1603,12 +1620,18 @@ export default function CreateShiftSplitPanel({
   useEffect(() => {
     if (!open || !panelWsMessage) return;
     const t = panelWsMessage.type;
-    if (t !== 'schedules_bulk_created' && t !== 'schedules_bulk_updated' && t !== 'schedules_bulk_deleted') return;
-    const data = (panelWsMessage as any).data;
-    const schedules: Array<{ startTime?: string }> = Array.isArray(data?.schedules) ? data.schedules : [];
-    // Best-effort date match — bulk_deleted carries no schedule bodies, so
-    // we surface the notice for any bulk_deleted event when the panel is open.
-    if (t !== 'schedules_bulk_deleted' && modalDate) {
+    const isBulk = t === 'schedules_bulk_created' || t === 'schedules_bulk_updated' || t === 'schedules_bulk_deleted';
+    const isSingle = t === 'schedule_created' || t === 'schedule_updated' || t === 'schedule_deleted';
+    if (!isBulk && !isSingle) return;
+    type SchedulePayload = { startTime?: string };
+    const msg = panelWsMessage as { data?: { schedules?: SchedulePayload[]; schedule?: SchedulePayload } };
+    const data = msg.data;
+    const schedules: SchedulePayload[] = Array.isArray(data?.schedules)
+      ? data!.schedules!
+      : data?.schedule
+        ? [data.schedule]
+        : [];
+    if (t !== 'schedules_bulk_deleted' && t !== 'schedule_deleted' && modalDate) {
       const matchesDay = schedules.some((s) => {
         if (!s.startTime) return false;
         try { return new Date(s.startTime).toISOString().slice(0, 10) === modalDate; }
@@ -3296,7 +3319,7 @@ export default function CreateShiftSplitPanel({
                 }
                 const byRoleDefault: Record<string, number | null> = {};
                 for (const r of rolesList) {
-                  const raw = (r as any).defaultHourlyRate;
+                  const raw = r.defaultHourlyRate;
                   const parsed = typeof raw === 'string' ? parseFloat(raw) : (typeof raw === 'number' ? raw : null);
                   byRoleDefault[r.id] = (parsed != null && Number.isFinite(parsed) && parsed > 0) ? parsed : null;
                 }
