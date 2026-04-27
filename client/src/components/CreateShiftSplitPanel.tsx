@@ -1011,13 +1011,27 @@ function DayTimeline({
 }) {
   const open = storeHours?.open || suggestData?.storeHours?.open || "09:00";
   const close = storeHours?.close || suggestData?.storeHours?.close || "21:00";
-  const openMin = timeToMin(open);
-  const closeMin = timeToMin(close);
+  // Bug #4 — allow scheduling pre-open/post-close (e.g. opening or closing
+  // duties). The displayed grid extends BUFFER_MIN minutes beyond the store's
+  // actual open/close times so a shift like 7:30 AM on a 9:00 AM store still
+  // renders as a positioned card. Drag-clamping uses the same buffered range
+  // so the user can drag/resize into the buffer zone too.
+  const storeOpenMin = timeToMin(open);
+  const storeCloseMin = timeToMin(close);
+  const BUFFER_MIN = 60;
+  const openMin = Math.max(0, storeOpenMin - BUFFER_MIN);
+  const closeMin = Math.min(24 * 60, storeCloseMin + BUFFER_MIN);
   const totalMin = closeMin - openMin;
   const containerRef = useRef<HTMLDivElement>(null);
+  // Bug #1 — don't immediately setPointerCapture on pointerdown. Capture
+  // re-routes the synthetic `click` event to the captured ancestor instead
+  // of the original button, blocking ShiftBlock onClick from selecting any
+  // card after a previous interaction. We promote a "pending" drag to an
+  // "active" drag (with capture) only after the user actually moves >5px.
+  type DragState = { idx: number; type: 'top' | 'bottom' | 'move'; offsetPct?: number; initialY?: number; pointerId?: number; captured?: boolean } | null;
   const dragRef = useRef<DragState>(null);
   const blockClickSuppressRef = useRef(false);
-  type ActualDrag = { idx: number; schedule: Schedule; type: 'top' | 'bottom' | 'move'; offsetPct?: number; initialY?: number; previewStart: string; previewEnd: string };
+  type ActualDrag = { idx: number; schedule: Schedule; type: 'top' | 'bottom' | 'move'; offsetPct?: number; initialY?: number; previewStart: string; previewEnd: string; pointerId?: number; captured?: boolean };
   const actualDragRef = useRef<ActualDrag | null>(null);
   const [actualDragPreview, setActualDragPreview] = useState<{ idx: number; startTime: string; endTime: string } | null>(null);
   const actualClickSuppressRef = useRef(false);
@@ -1045,11 +1059,12 @@ function DayTimeline({
     if (!shift) return;
     const startMin = timeToMin(shift.startTime);
     const offsetPct = relY - (startMin - openMin) / totalMin;
-    dragRef.current = { idx, type: 'move', offsetPct, initialY: e.clientY };
-    // Capture on the container so all move/up events bubble there
-    containerRef.current.setPointerCapture(e.pointerId);
-    onDragStart?.(idx);
-  }, [openMin, totalMin, suggestData, onShiftEdit, onDragStart]);
+    // Bug #1 — record a "pending" drag with the pointerId so handlePointerMove
+    // can promote it to an active capture only AFTER the user actually moves
+    // >5px. Pure clicks (no movement) skip pointer capture entirely so the
+    // synthetic click event reaches the button's onClick → selection works.
+    dragRef.current = { idx, type: 'move', offsetPct, initialY: e.clientY, pointerId: e.pointerId, captured: false };
+  }, [openMin, totalMin, suggestData, onShiftEdit]);
 
   const handleBlockClick = useCallback((shift: ProposedShift, idx: number) => {
     if (blockClickSuppressRef.current) {
@@ -1067,8 +1082,12 @@ function DayTimeline({
     const snapped = Math.round(rawMin / 15) * 15;
 
     // ── actual-shift drag ──
+    // Code-review hardening: only honor moves from the SAME pointer that
+    // started this drag. A second touch (multi-touch) or stray mouse move
+    // must not alter or hijack an in-progress drag.
     if (actualDragRef.current) {
       const ad = actualDragRef.current;
+      if (ad.pointerId !== undefined && ad.pointerId !== e.pointerId) return;
       const { idx, type } = ad;
       const curStartMin = timeToMin(ad.previewStart);
       const curEndMin   = timeToMin(ad.previewEnd);
@@ -1087,6 +1106,13 @@ function DayTimeline({
       } else if (type === 'move') {
         const initialY = ad.initialY ?? e.clientY;
         if (Math.abs(e.clientY - initialY) > 5) {
+          // Bug #1 — promote pending drag to captured drag on first qualifying
+          // movement. Without this, pure clicks on actual cards wouldn't fire
+          // the button's onClick because the synthetic click is rerouted.
+          if (!ad.captured && ad.pointerId !== undefined && containerRef.current) {
+            try { containerRef.current.setPointerCapture(ad.pointerId); } catch {}
+            ad.captured = true;
+          }
           actualClickSuppressRef.current = true;
           const offsetPct = ad.offsetPct ?? 0;
           const rawStart = openMin + ((relY / rect.height) - offsetPct) * totalMin;
@@ -1105,7 +1131,9 @@ function DayTimeline({
 
     // ── AI-suggestion drag ──
     if (!dragRef.current || !onShiftEdit) return;
-    const { idx, type } = dragRef.current;
+    const dr0 = dragRef.current;
+    if (dr0.pointerId !== undefined && dr0.pointerId !== e.pointerId) return;
+    const { idx, type } = dr0;
     const shifts = suggestData?.proposedShifts ?? [];
     const shift = shifts[idx];
     if (!shift) return;
@@ -1123,6 +1151,14 @@ function DayTimeline({
     } else if (type === 'move') {
       const initialY = dragRef.current.initialY ?? e.clientY;
       if (Math.abs(e.clientY - initialY) > 5) {
+        // Bug #1 — promote pending drag to captured drag once the user
+        // actually moves. Pure click → no capture, click reaches button.
+        const dr = dragRef.current;
+        if (!dr.captured && dr.pointerId !== undefined && containerRef.current) {
+          try { containerRef.current.setPointerCapture(dr.pointerId); } catch {}
+          dr.captured = true;
+          onDragStart?.(idx);
+        }
         blockClickSuppressRef.current = true;
         const offsetPct = dragRef.current.offsetPct ?? 0;
         const rawStartMin = openMin + ((relY / rect.height) - offsetPct) * totalMin;
@@ -1136,16 +1172,24 @@ function DayTimeline({
         }
       }
     }
-  }, [openMin, totalMin, closeMin, suggestData, onShiftEdit]);
+  }, [openMin, totalMin, closeMin, suggestData, onShiftEdit, onDragStart]);
 
-  const handlePointerUp = useCallback(() => {
+  // Code-review hardening: optional `e` so callers (onPointerLeave/Cancel)
+  // can pass through the event for pointerId-gating. When `e` is absent we
+  // treat it as an unconditional teardown (legacy callers + safety net).
+  // `cancelled` skips committing the preview — used by onPointerCancel where
+  // the gesture was aborted (e.g. OS gesture, lost capture) and should not
+  // be persisted as a user-intended change.
+  const handlePointerUp = useCallback((e?: React.PointerEvent, cancelled = false) => {
     // ── actual-shift drag end ──
     if (actualDragRef.current) {
-      const wasMove = actualDragRef.current.type === 'move';
-      const schedule = actualDragRef.current.schedule;
+      const ad = actualDragRef.current;
+      if (e && ad.pointerId !== undefined && ad.pointerId !== e.pointerId) return;
+      const wasMove = ad.type === 'move';
+      const schedule = ad.schedule;
       const preview = actualDragPreview;
       actualDragRef.current = null;
-      if (preview) {
+      if (preview && !cancelled) {
         setActualDragPreview(null);
         onActualShiftChange?.(schedule, preview.startTime, preview.endTime);
       } else {
@@ -1159,6 +1203,8 @@ function DayTimeline({
       return;
     }
     // ── AI-suggestion drag end ──
+    if (dragRef.current && e && dragRef.current.pointerId !== undefined &&
+        dragRef.current.pointerId !== e.pointerId) return;
     const wasDragging = dragRef.current !== null;
     const wasMove = dragRef.current?.type === 'move';
     dragRef.current = null;
@@ -1254,7 +1300,12 @@ function DayTimeline({
             ref={containerRef}
             data-timeline-body="true"
             data-testid="day-timeline-body"
-            className="relative flex flex-1 border border-border/50 rounded-lg bg-muted/20 overflow-hidden touch-none"
+            // Bug #3 — `overflow-x-auto` so when many shift columns push the
+            // total width past the visible area, the user can scroll
+            // horizontally to reach off-screen cards instead of having them
+            // clipped. Vertical overflow stays hidden because shift positions
+            // are computed against the buffered grid range (Bug #4).
+            className="relative flex flex-1 border border-border/50 rounded-lg bg-muted/20 overflow-x-auto overflow-y-hidden touch-pan-x"
             style={{ height: Math.max(160, Math.min(300, totalMin * 0.6)) }}
             onPointerMove={(e) => {
               handlePointerMove(e);
@@ -1273,8 +1324,13 @@ function DayTimeline({
                 }
               }
             }}
-            onPointerUp={handlePointerUp}
-            onPointerLeave={(e) => { handlePointerUp(); setHoverY(null); }}
+            onPointerUp={(e) => handlePointerUp(e)}
+            onPointerLeave={(e) => { handlePointerUp(e); setHoverY(null); }}
+            // Code-review hardening: pointercancel fires when the OS or the
+            // browser yanks the gesture (back-swipe, scroll-takeover, lost
+            // capture). Without this, dragRef/actualDragRef stay populated
+            // and subsequent moves keep editing a "ghost" drag.
+            onPointerCancel={(e) => { handlePointerUp(e, true); setHoverY(null); }}
           >
             {/* Hour grid lines — span all columns */}
             <div className="absolute inset-0 pointer-events-none z-0">
@@ -1289,6 +1345,43 @@ function DayTimeline({
                   />
                 );
               })}
+              {/* Bug #4 — visually mark the actual store open/close hours so
+                  the buffer zones (used for opening/closing duty shifts) read
+                  as "outside business hours" rather than just empty grid. */}
+              {(() => {
+                const openTopPct = ((storeOpenMin - openMin) / totalMin) * 100;
+                const closeTopPct = ((storeCloseMin - openMin) / totalMin) * 100;
+                return (
+                  <>
+                    {openTopPct > 0 && openTopPct < 100 && (
+                      <>
+                        <div
+                          className="absolute left-0 right-0 bg-muted/40"
+                          style={{ top: 0, height: `${openTopPct}%` }}
+                          title="Before store open"
+                        />
+                        <div
+                          className="absolute left-0 right-0 border-t-2 border-dashed border-emerald-500/60"
+                          style={{ top: `${openTopPct}%` }}
+                        />
+                      </>
+                    )}
+                    {closeTopPct > 0 && closeTopPct < 100 && (
+                      <>
+                        <div
+                          className="absolute left-0 right-0 bg-muted/40"
+                          style={{ top: `${closeTopPct}%`, bottom: 0 }}
+                          title="After store close"
+                        />
+                        <div
+                          className="absolute left-0 right-0 border-t-2 border-dashed border-rose-500/60"
+                          style={{ top: `${closeTopPct}%` }}
+                        />
+                      </>
+                    )}
+                  </>
+                );
+              })()}
             </div>
 
             {/* ── Task #392 C2 — green availability band overlay during pill drag ── */}
@@ -1397,7 +1490,7 @@ function DayTimeline({
               const isDragging  = !!preview;
               const colorCls    = getShiftColor(actual.name);
               return (
-                <div key={`actual-${idx}`} className="relative flex-1 min-w-[52px] border-l border-border/20 first:border-l-0 z-10">
+                <div key={`actual-${idx}`} className="relative flex-1 min-w-[64px] border-l border-border/20 first:border-l-0 z-10">
                   <div
                     data-testid={`actual-shift-card-${actual.schedule.id}`}
                     aria-selected={isMultiSelected || isActive}
@@ -1440,8 +1533,11 @@ function DayTimeline({
                       const rect = containerRef.current.getBoundingClientRect();
                       const relY = (e.clientY - rect.top) / rect.height;
                       const offsetPct = relY - (timeToMin(dispStart) - openMin) / totalMin;
-                      containerRef.current.setPointerCapture(e.pointerId);
-                      actualDragRef.current = { idx, schedule: actual.schedule, type: 'move', offsetPct, initialY: e.clientY, previewStart: dispStart, previewEnd: dispEnd };
+                      // Bug #1 — defer setPointerCapture until handlePointerMove
+                      // detects >5px movement. Otherwise the synthetic click
+                      // gets re-routed and the card's onClick (selection)
+                      // never fires for any card except the first.
+                      actualDragRef.current = { idx, schedule: actual.schedule, type: 'move', offsetPct, initialY: e.clientY, previewStart: dispStart, previewEnd: dispEnd, pointerId: e.pointerId, captured: false };
                     }}
                   >
                     {/* Top resize handle */}
@@ -1509,7 +1605,7 @@ function DayTimeline({
               return (
                 <div
                   key={idx}
-                  className="relative flex-1 min-w-[52px] border-l border-border/20 first:border-l-0 z-10"
+                  className="relative flex-1 min-w-[64px] border-l border-border/20 first:border-l-0 z-10"
                 >
                   <ShiftBlock
                     shift={shift}
