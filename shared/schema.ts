@@ -907,7 +907,15 @@ export const shopifyDailySales = pgTable("shopify_daily_sales", {
   itemCount: integer("item_count").default(0),
   averageOrderValue: decimal("average_order_value", { precision: 10, scale: 2 }).default("0.00"),
   createdAt: timestamp("created_at").defaultNow(),
-});
+}, (table) => [
+  // One aggregate row per (shop, date). Backfill code does select-then-insert
+  // which is not atomic — concurrent backfills (e.g. /historical-sales and
+  // /suggest hit at the same time) used to produce multiple rows per day,
+  // and each successive backfill summed the duplicated per-order rows
+  // beneath it, inflating the cached daily total to several times the
+  // actual figure (e.g. $5.3k displayed when the real number was ~$1.5k).
+  uniqueIndex("uq_shopify_daily_sales_shop_date").on(table.shopDomain, table.date),
+]);
 
 // Shopify Orders
 export const shopifyOrders = pgTable("shopify_orders", {
@@ -930,6 +938,10 @@ export const shopifyOrders = pgTable("shopify_orders", {
 }, (table) => [
   index("IDX_shopify_orders_shop_date").on(table.shopDomain, table.orderCreatedAt),
   index("IDX_shopify_orders_order_id").on(table.orderId),
+  // One row per Shopify order. Without this, the non-atomic upsert in
+  // backfillDayOrdersFromShopify produced duplicate per-order rows whenever
+  // the same date was backfilled concurrently or twice in quick succession.
+  uniqueIndex("uq_shopify_orders_shop_order").on(table.shopDomain, table.orderId),
 ]);
 
 // Shopify Analytics Report Schedules

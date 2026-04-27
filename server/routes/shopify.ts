@@ -320,42 +320,59 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
             }
           }
 
-          const existing = await db.select()
-            .from(shopifyDailySales)
-            .where(and(
-              eq(shopifyDailySales.shopDomain, normalizedDomain),
-              eq(shopifyDailySales.date, date)
-            ))
-            .limit(1);
-
-          if (existing.length > 0) {
-            const currentOrderCount = existing[0].orderCount || 0;
-            const currentRevenue = parseFloat(existing[0].totalRevenue || '0');
-            const currentItems = existing[0].itemCount || 0;
-            const newOrderCount = currentOrderCount + 1;
-            const newRevenue = currentRevenue + orderTotal;
-            const newItems = currentItems + itemCount;
-            const newAvgOrderValue = newOrderCount > 0 ? Math.round((newRevenue / newOrderCount) * 100) / 100 : 0;
-
-            await db.update(shopifyDailySales)
-              .set({
-                orderCount: newOrderCount,
-                totalRevenue: String(Math.round(newRevenue * 100) / 100),
-                itemCount: newItems,
-                averageOrderValue: String(newAvgOrderValue),
-              })
-              .where(eq(shopifyDailySales.id, existing[0].id));
+          // Idempotency: Shopify retries webhooks (e.g. on transient 5xx),
+          // and a naive +1 increment per delivery would double-count. Insert
+          // the per-order row first with onConflictDoNothing on the
+          // (shop_domain, order_id) unique index — if 0 rows are returned
+          // the order is already recorded, so skip the aggregate update.
+          // This also keeps shopify_orders authoritative for the per-order
+          // sum used by /historical-sales.
+          const rawOrderId = String(order.id ?? order.admin_graphql_api_id ?? '');
+          const orderId = rawOrderId.includes('/') ? rawOrderId.split('/').pop()! : rawOrderId;
+          if (!orderId) {
+            console.warn(`[Shopify Webhook] orders/create missing id; skipping aggregate update`);
           } else {
-            const avgOrderValue = Math.round(orderTotal * 100) / 100;
-            await db.insert(shopifyDailySales).values({
-              shopDomain: normalizedDomain,
-              date,
-              dayOfWeek,
-              orderCount: 1,
-              totalRevenue: String(Math.round(orderTotal * 100) / 100),
-              itemCount,
-              averageOrderValue: String(avgOrderValue),
-            });
+            const insertedOrder = await db.insert(shopifyOrders)
+              .values({
+                shopDomain: normalizedDomain,
+                orderId,
+                orderNumber: order.name ?? order.order_number?.toString() ?? null,
+                totalPrice: String(Math.round(orderTotal * 100) / 100),
+                currency: order.currency ?? 'USD',
+                financialStatus: order.financial_status ?? null,
+                fulfillmentStatus: order.fulfillment_status ?? null,
+                lineItems: (order.line_items ?? []) as any,
+                customerData: null,
+                orderCreatedAt: orderDate,
+              })
+              .onConflictDoNothing({ target: [shopifyOrders.shopDomain, shopifyOrders.orderId] })
+              .returning({ id: shopifyOrders.id });
+
+            if (insertedOrder.length === 0) {
+              console.log(`[Shopify Webhook] orders/create duplicate for ${normalizedDomain}/${orderId} — skipping aggregate increment`);
+            } else {
+              // Atomic incremental upsert keyed on (shop_domain, date) — see
+              // uq_shopify_daily_sales_shop_date.
+              await db.insert(shopifyDailySales)
+                .values({
+                  shopDomain: normalizedDomain,
+                  date,
+                  dayOfWeek,
+                  orderCount: 1,
+                  totalRevenue: String(Math.round(orderTotal * 100) / 100),
+                  itemCount,
+                  averageOrderValue: String(Math.round(orderTotal * 100) / 100),
+                })
+                .onConflictDoUpdate({
+                  target: [shopifyDailySales.shopDomain, shopifyDailySales.date],
+                  set: {
+                    orderCount: sql`COALESCE(${shopifyDailySales.orderCount}, 0) + 1`,
+                    totalRevenue: sql`ROUND((COALESCE(${shopifyDailySales.totalRevenue}, 0) + ${orderTotal})::numeric, 2)`,
+                    itemCount: sql`COALESCE(${shopifyDailySales.itemCount}, 0) + ${itemCount}`,
+                    averageOrderValue: sql`ROUND(((COALESCE(${shopifyDailySales.totalRevenue}, 0) + ${orderTotal}) / (COALESCE(${shopifyDailySales.orderCount}, 0) + 1))::numeric, 2)`,
+                  },
+                });
+            }
           }
 
           await db.update(shops)
@@ -901,39 +918,35 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
 
       let syncedDays = 0;
       for (const [dateKey, dayData] of Object.entries(dailyAggregation)) {
-        const existing = await db.select()
-          .from(shopifyDailySales)
-          .where(and(
-            eq(shopifyDailySales.shopDomain, credentials.shopDomain),
-            eq(shopifyDailySales.date, dayData.date)
-          ))
-          .limit(1);
-
         const avgOrderValue = dayData.orderCount > 0
           ? Math.round((dayData.totalRevenue / dayData.orderCount) * 100) / 100
           : 0;
+        const totalRevenueStr = String(Math.round(dayData.totalRevenue * 100) / 100);
 
-        if (existing.length > 0) {
-          await db.update(shopifyDailySales)
-            .set({
-              orderCount: dayData.orderCount,
-              totalRevenue: String(Math.round(dayData.totalRevenue * 100) / 100),
-              itemCount: dayData.itemCount,
-              averageOrderValue: String(avgOrderValue),
-              dayOfWeek: dayData.dayOfWeek,
-            })
-            .where(eq(shopifyDailySales.id, existing[0].id));
-        } else {
-          await db.insert(shopifyDailySales).values({
+        // Atomic full-overwrite upsert keyed on (shop_domain, date) — see
+        // uq_shopify_daily_sales_shop_date. Sync recomputes the day's
+        // totals from the entire fetched batch, so the conflict path
+        // overwrites rather than incrementing.
+        await db.insert(shopifyDailySales)
+          .values({
             shopDomain: credentials.shopDomain,
             date: dayData.date,
             dayOfWeek: dayData.dayOfWeek,
             orderCount: dayData.orderCount,
-            totalRevenue: String(Math.round(dayData.totalRevenue * 100) / 100),
+            totalRevenue: totalRevenueStr,
             itemCount: dayData.itemCount,
             averageOrderValue: String(avgOrderValue),
+          })
+          .onConflictDoUpdate({
+            target: [shopifyDailySales.shopDomain, shopifyDailySales.date],
+            set: {
+              orderCount: dayData.orderCount,
+              totalRevenue: totalRevenueStr,
+              itemCount: dayData.itemCount,
+              averageOrderValue: String(avgOrderValue),
+              dayOfWeek: dayData.dayOfWeek,
+            },
           });
-        }
         syncedDays++;
       }
 

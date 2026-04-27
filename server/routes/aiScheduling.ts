@@ -232,24 +232,12 @@ async function backfillDayOrdersFromShopify(
     for (const li of lineItems) itemCount += li.quantity || 1;
     const orderCreatedAt = order.createdAt ? new Date(order.createdAt) : new Date(startIso);
 
-    const existing = await db.select({ id: shopifyOrders.id })
-      .from(shopifyOrders)
-      .where(and(eq(shopifyOrders.shopDomain, shopDomain), eq(shopifyOrders.orderId, orderId)))
-      .limit(1);
-
-    if (existing.length > 0) {
-      await db.update(shopifyOrders)
-        .set({
-          totalPrice: String(Math.round(orderPrice * 100) / 100),
-          financialStatus: (order as any).displayFinancialStatus ?? null,
-          fulfillmentStatus: (order as any).displayFulfillmentStatus ?? null,
-          lineItems: lineItems as any,
-          orderCreatedAt,
-          updatedAt: new Date(),
-        })
-        .where(eq(shopifyOrders.id, existing[0].id));
-    } else {
-      await db.insert(shopifyOrders).values({
+    // Atomic upsert keyed on (shop_domain, order_id) — see uq_shopify_orders_shop_order.
+    // The previous select-then-insert pattern wasn't atomic and let two
+    // concurrent backfills both miss the row, both insert, and end up with
+    // duplicate per-order rows that the daily aggregate then summed.
+    await db.insert(shopifyOrders)
+      .values({
         shopDomain,
         orderId,
         orderNumber: (order as any).name ?? null,
@@ -260,30 +248,28 @@ async function backfillDayOrdersFromShopify(
         lineItems: lineItems as any,
         customerData: null,
         orderCreatedAt,
+      })
+      .onConflictDoUpdate({
+        target: [shopifyOrders.shopDomain, shopifyOrders.orderId],
+        set: {
+          totalPrice: String(Math.round(orderPrice * 100) / 100),
+          financialStatus: (order as any).displayFinancialStatus ?? null,
+          fulfillmentStatus: (order as any).displayFulfillmentStatus ?? null,
+          lineItems: lineItems as any,
+          orderCreatedAt,
+          updatedAt: new Date(),
+        },
       });
-    }
   }
 
-  // Upsert daily aggregate
+  // Atomic upsert daily aggregate, keyed on (shop_domain, date) — see
+  // uq_shopify_daily_sales_shop_date.
   const dateObj = new Date(`${dateStr}T00:00:00Z`);
   const dayOfWeek = dateObj.getUTCDay();
   const avgOrderValue = orders.length > 0 ? Math.round((dayRevenue / orders.length) * 100) / 100 : 0;
 
-  const existingDay = await db.select({ id: shopifyDailySales.id })
-    .from(shopifyDailySales)
-    .where(and(eq(shopifyDailySales.shopDomain, shopDomain), eq(shopifyDailySales.date, dateObj)))
-    .limit(1);
-
-  if (existingDay.length > 0) {
-    await db.update(shopifyDailySales).set({
-      orderCount: orders.length,
-      totalRevenue: String(Math.round(dayRevenue * 100) / 100),
-      itemCount,
-      averageOrderValue: String(avgOrderValue),
-      dayOfWeek,
-    }).where(eq(shopifyDailySales.id, existingDay[0].id));
-  } else {
-    await db.insert(shopifyDailySales).values({
+  await db.insert(shopifyDailySales)
+    .values({
       shopDomain,
       date: dateObj,
       dayOfWeek,
@@ -291,8 +277,17 @@ async function backfillDayOrdersFromShopify(
       totalRevenue: String(Math.round(dayRevenue * 100) / 100),
       itemCount,
       averageOrderValue: String(avgOrderValue),
+    })
+    .onConflictDoUpdate({
+      target: [shopifyDailySales.shopDomain, shopifyDailySales.date],
+      set: {
+        orderCount: orders.length,
+        totalRevenue: String(Math.round(dayRevenue * 100) / 100),
+        itemCount,
+        averageOrderValue: String(avgOrderValue),
+        dayOfWeek,
+      },
     });
-  }
 
   return { ordersFound: orders.length, dayRevenue: Math.round(dayRevenue * 100) / 100 };
 }
@@ -1730,30 +1725,16 @@ Required JSON structure:
       const [openH] = storeOpen.split(':').map(Number);
       const [closeH] = storeClose.split(':').map(Number);
 
-      // Use shopify_daily_sales.total_revenue as the authoritative net daily total
-      // (individual orders include gross amounts before refunds; daily aggregate reflects
-      // the net figure as reported by Shopify analytics). The aggregate row is
-      // keyed on UTC midnight of `historicalDateStr` (regardless of store
-      // timezone — see backfillDayOrdersFromShopify), so we look it up that
-      // way. We only override the per-order sum when the daily aggregate is
-      // strictly greater (i.e. covers MORE of the local day than the
-      // per-order rows we currently have); a smaller aggregate would be a
-      // stale partial cache from before the timezone fix and using it would
-      // shrink today's correct figure back to the wrong tiny number.
-      let dailyTotal = hourlyRevenue.reduce((s, v) => s + v, 0);
-      if (shopDomain && dailyTotal > 0) {
-        const netRow = await db.select({ totalRevenue: shopifyDailySales.totalRevenue })
-          .from(shopifyDailySales)
-          .where(and(
-            eq(shopifyDailySales.shopDomain, shopDomain),
-            eq(shopifyDailySales.date, new Date(historicalDateStr + 'T00:00:00Z')),
-          ))
-          .limit(1);
-        if (netRow[0]?.totalRevenue) {
-          const netTotal = parseFloat(netRow[0].totalRevenue);
-          if (netTotal > dailyTotal) dailyTotal = netTotal;
-        }
-      }
+      // The per-order sum from shopify_orders IS the authoritative daily
+      // total — the daily aggregate is just a cached recomputation of the
+      // same per-order rows (see backfillDayOrdersFromShopify), not an
+      // independent figure from Shopify analytics. An earlier version of
+      // this code overrode with the aggregate when it was strictly greater,
+      // assuming a larger value meant "more of the day covered" — but in
+      // practice a larger aggregate just means the per-order table had
+      // duplicates at the time the aggregate was last written, so reading
+      // it back inflated the historical total to several × the real figure.
+      const dailyTotal = hourlyRevenue.reduce((s, v) => s + v, 0);
       const avgHourlyRevenue = dailyTotal / Math.max(1, closeH - openH);
 
       // Build hourly breakdown for store hours only
