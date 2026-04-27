@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Capacitor } from '@capacitor/core';
+import { Geolocation } from '@capacitor/geolocation';
 import { useAuth } from '@/hooks/useAuth';
 import { useGeolocation } from '@/hooks/useGeolocation';
 import { useCompanySettings } from '@/hooks/useCompanySettings';
@@ -17,6 +19,42 @@ function isSnoozed(): boolean {
   const until = sessionStorage.getItem(SNOOZE_KEY);
   if (!until) return false;
   return Date.now() < parseInt(until, 10);
+}
+
+/**
+ * Returns true only when we're confident the browser/OS will NOT show a
+ * permission dialog if we call getCurrentPosition() right now.
+ *
+ * This is used to gate the silent Smart Clock-In auto-check on page load:
+ * we never want the auto-check itself to be the thing that triggers a fresh
+ * "Allow this site to access your location?" popup. The user should only
+ * see that prompt as a result of an explicit action (clicking Clock In or
+ * the in-app permission nudge).
+ */
+async function isLocationAlreadyGranted(): Promise<boolean> {
+  try {
+    const cached = localStorage.getItem('taime_geo_perm');
+    if (cached === 'granted') return true;
+  } catch {}
+
+  if (Capacitor.isNativePlatform()) {
+    try {
+      const status = await Geolocation.checkPermissions();
+      return status.location === 'granted';
+    } catch {
+      return false;
+    }
+  }
+
+  if (typeof navigator === 'undefined' || !navigator.geolocation) return false;
+  if (!navigator.permissions?.query) return false;
+
+  try {
+    const result = await navigator.permissions.query({ name: 'geolocation' as PermissionName });
+    return result.state === 'granted';
+  } catch {
+    return false;
+  }
 }
 
 export default function SmartClockPrompt() {
@@ -74,6 +112,17 @@ export default function SmartClockPrompt() {
 
   const checkLocation = useCallback(async () => {
     if (checked || checking || !settings?.enableSmartClockPrompt || activeTimeEntry || workLocations.length === 0) {
+      return;
+    }
+
+    // Never trigger a browser/OS permission dialog from this auto-check.
+    // If the user hasn't already granted location permission, silently skip
+    // — they'll be prompted only when they take an explicit action that
+    // needs location (clicking Clock In, the in-app "Enable location"
+    // nudge, etc.).
+    const allowed = await isLocationAlreadyGranted();
+    if (!allowed) {
+      setChecked(true);
       return;
     }
 
