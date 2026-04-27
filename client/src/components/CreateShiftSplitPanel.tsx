@@ -566,10 +566,12 @@ function AvailableEmployeePills({
 }) {
   const [roleFilter, setRoleFilter] = useState('all');
   const [minScore, setMinScore] = useState(0);
+  const [minHours, setMinHours] = useState(0);
 
   useEffect(() => {
     setRoleFilter('all');
     setMinScore(0);
+    setMinHours(0);
   }, [dateKey]);
 
   const roles = useMemo(() => {
@@ -580,9 +582,10 @@ function AvailableEmployeePills({
     return members.filter(m => {
       if (roleFilter !== 'all' && m.roleName !== roleFilter) return false;
       if (m.compositeScore < minScore) return false;
+      if (minHours > 0 && m.overlapHours < minHours) return false;
       return true;
     });
-  }, [members, roleFilter, minScore]);
+  }, [members, roleFilter, minScore, minHours]);
 
   const availableMembers = filteredMembers.filter(m => m.isAvailable);
   // Unavailable list is always derived from the unfiltered set so that
@@ -677,6 +680,17 @@ function AvailableEmployeePills({
               <SelectItem value="35">≥35 (Bronze+)</SelectItem>
               <SelectItem value="60">≥60 (Silver+)</SelectItem>
               <SelectItem value="85">≥85 (Gold)</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={String(minHours)} onValueChange={v => setMinHours(Number(v))}>
+            <SelectTrigger className="h-6 text-[10px] w-auto min-w-[80px] px-2 border-border/60">
+              <SelectValue placeholder="Min hours" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="0">Any hours</SelectItem>
+              <SelectItem value="2">≥2h</SelectItem>
+              <SelectItem value="4">≥4h</SelectItem>
+              <SelectItem value="6">≥6h</SelectItem>
             </SelectContent>
           </Select>
         </div>
