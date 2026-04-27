@@ -3789,12 +3789,16 @@ export default function CreateShiftSplitPanel({
                       aiCount={aiProposedShifts.length}
                       pillDrag={pillDrag}
                       aiGhostCandidates={(suggestData?.proposedShifts ?? [])
-                        // Restrict ghost suggestions to genuine AI-generated
-                        // shifts. Anything tagged 'Manual' would otherwise
-                        // round-trip through the ghost preview as a
-                        // duplicate-add option for an already-manual entry.
-                        .filter((s) => (s.shiftBlock || '').toLowerCase() !== 'manual')
-                        .map((s, idx): AiGhostCandidate => ({
+                        // IMPORTANT: capture the ORIGINAL index first, then
+                        // filter. `excludedIdxs` is keyed to the original
+                        // suggestion index, so we must not let .filter()
+                        // re-number the entries after we've already tagged
+                        // them. Manual-tagged entries are filtered out so
+                        // the ghost preview only ever surfaces genuine AI
+                        // suggestions (no duplicate-add of manual entries).
+                        .map((s, idx) => ({ s, idx }))
+                        .filter(({ s }) => (s.shiftBlock || '').toLowerCase() !== 'manual')
+                        .map(({ s, idx }): AiGhostCandidate => ({
                           employeeId: s.employeeId,
                           employeeName: s.employeeName,
                           startTime: s.startTime,

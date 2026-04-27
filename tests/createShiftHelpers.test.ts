@@ -341,6 +341,41 @@ describe('pickAiGhostForMinute', () => {
     const r = pickAiGhostForMinute(12 * 60, broken, new Set(), new Set());
     expect(r?.idx).toBe(1);
   });
+
+  // Regression: callers must preserve the ORIGINAL suggestion index when
+  // building candidates. If they re-number after filtering, the wrong
+  // entries get treated as excluded. This test mirrors how the panel
+  // builds the candidate list (capture idx before filtering manuals).
+  it('honors excludedIdxs when callers preserve the original index after filtering', () => {
+    type RawSuggestion = {
+      employeeId: string; employeeName: string;
+      startTime: string; endTime: string;
+      shiftBlock: string;
+    };
+    const raw: RawSuggestion[] = [
+      { employeeId: 'u1', employeeName: 'Ada',  startTime: '09:00', endTime: '13:00', shiftBlock: 'Open'   },
+      { employeeId: 'u2', employeeName: 'Ben',  startTime: '12:00', endTime: '17:00', shiftBlock: 'Manual' }, // dropped
+      { employeeId: 'u3', employeeName: 'Cleo', startTime: '15:00', endTime: '21:00', shiftBlock: 'Close'  },
+    ];
+    // Mirror the panel's pipeline: tag with original idx FIRST, then filter.
+    const candidates: AiGhostCandidate[] = raw
+      .map((s, idx) => ({ s, idx }))
+      .filter(({ s }) => s.shiftBlock.toLowerCase() !== 'manual')
+      .map(({ s, idx }) => ({
+        idx,
+        employeeId: s.employeeId,
+        employeeName: s.employeeName,
+        startTime: s.startTime,
+        endTime: s.endTime,
+      }));
+    // The user excluded raw index 2 (Cleo). With original-index preservation
+    // Cleo is correctly skipped at hover-time.
+    const r = pickAiGhostForMinute(18 * 60, candidates, new Set([2]), new Set());
+    expect(r?.employeeId).toBe('u1'); // Ada is the only remaining candidate
+    // And the raw index for the surviving entry is the ORIGINAL 0, not 1
+    // (which would be the value if filtering had re-numbered it).
+    expect(candidates[0].idx).toBe(0);
+  });
 });
 
 describe('hasUnsavedChanges', () => {
