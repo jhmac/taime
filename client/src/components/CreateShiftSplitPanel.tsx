@@ -2831,14 +2831,27 @@ export default function CreateShiftSplitPanel({
       const res = await apiRequest("POST", "/api/schedules/suggest", body);
       return res.json();
     },
-    enabled: open && !!modalDate,
+    // When editing an existing saved shift, the panel is a focused single-shift
+    // editor — AI proposals would only confuse the view (Bug: reopening a saved
+    // shift showed "AI Suggested (5)" alongside "Scheduled (4)" with a
+    // duplicate-conflict warning). Skip the fetch entirely in editingSchedule
+    // mode; the derived aiProposedShifts below also collapses to [] for that
+    // case so any stale react-query cache from create-mode doesn't leak in.
+    enabled: open && !!modalDate && !editingSchedule,
     staleTime: 5 * 60_000,
     gcTime: 10 * 60_000,
     retry: 1,
   });
 
-  // Keep suggestDataRef in sync so undo/redo can access original shift times
-  useEffect(() => { suggestDataRef.current = suggestData; }, [suggestData]);
+  // Keep suggestDataRef in sync so undo/redo can access original shift times.
+  // In editingSchedule mode the panel shows zero AI proposals, so we null out
+  // the ref too — handlers that read `suggestDataRef.current?.proposedShifts`
+  // for index/aiCount math then see an empty AI list, matching the rendered
+  // UI and preventing stale react-query cache from leaking into edit-mode
+  // interactions.
+  useEffect(() => {
+    suggestDataRef.current = editingSchedule ? undefined : suggestData;
+  }, [suggestData, editingSchedule]);
 
   // Mutation to persist a pill-added shift to the suggested schedule cache
   const persistPillShiftMutation = useMutation({
@@ -3582,9 +3595,16 @@ export default function CreateShiftSplitPanel({
     }
   };
 
-  const aiProposedShifts = (suggestData?.proposedShifts ?? []).map((shift, idx) =>
-    editedShifts[idx] ? { ...shift, ...editedShifts[idx] } : shift
-  );
+  // In editingSchedule mode the panel is a focused single-shift editor; we
+  // suppress AI proposals entirely so the timeline shows only the day's
+  // existing scheduled shifts (Scheduled column). This guards against a
+  // react-query cache hit from a prior create-mode open on the same date
+  // surfacing stale AI suggestions in the edit view.
+  const aiProposedShifts = editingSchedule
+    ? []
+    : (suggestData?.proposedShifts ?? []).map((shift, idx) =>
+        editedShifts[idx] ? { ...shift, ...editedShifts[idx] } : shift
+      );
   // Exclude manual shifts that have already been persisted to and returned from the cache
   const persistedManualKeys = new Set(
     aiProposedShifts
@@ -4367,13 +4387,20 @@ export default function CreateShiftSplitPanel({
                   size="sm"
                   variant="outline"
                   className="gap-1 text-xs h-8"
-                  disabled={suggestFetching || !modalDate}
+                  disabled={suggestFetching || !modalDate || !!editingSchedule}
                   title={
-                    suggestUpdatedAt
+                    editingSchedule
+                      ? "AI suggestions are hidden while editing a saved shift"
+                      : suggestUpdatedAt
                       ? `Last fetched ${new Date(suggestUpdatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} — click to refresh`
                       : "Refresh AI suggestions"
                   }
                   onClick={() => {
+                    // Defense-in-depth: even though the button is disabled in
+                    // editingSchedule mode, this guard ensures a programmatic
+                    // click can't trigger an AI suggest fetch (which would be
+                    // wasted work — the proposals aren't shown when editing).
+                    if (editingSchedule) return;
                     forceRegenRef.current = true;
                     editedShiftsRef.current = {};
                     setEditedShifts({});
@@ -4400,8 +4427,10 @@ export default function CreateShiftSplitPanel({
               )}
               onClick={() => setSelectedShiftIdx(null)}
             >
-              {/* Synthetic warning */}
-              {suggestData?.dataSource === "synthetic" && (
+              {/* Synthetic warning — suppressed in editingSchedule mode (the
+                  AI proposals aren't shown there, so the "recommendations use
+                  defaults" disclaimer is irrelevant and just noise). */}
+              {!editingSchedule && suggestData?.dataSource === "synthetic" && (
                 <div className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
                   <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                   No Shopify sales data found. Recommendations use minimum staffing defaults.
@@ -4563,24 +4592,30 @@ export default function CreateShiftSplitPanel({
                       onDeleteActualShift={(s) => deleteActualMutation.mutate({ schedule: s })}
                       aiCount={aiProposedShifts.length}
                       pillDrag={pillDrag}
-                      aiGhostCandidates={(suggestData?.proposedShifts ?? [])
-                        // IMPORTANT: capture the ORIGINAL index first, then
-                        // filter. `excludedIdxs` is keyed to the original
-                        // suggestion index, so we must not let .filter()
-                        // re-number the entries after we've already tagged
-                        // them. Manual-tagged entries are filtered out so
-                        // the ghost preview only ever surfaces genuine AI
-                        // suggestions (no duplicate-add of manual entries).
-                        .map((s, idx) => ({ s, idx }))
-                        .filter(({ s }) => (s.shiftBlock || '').toLowerCase() !== 'manual')
-                        .map(({ s, idx }): AiGhostCandidate => ({
-                          employeeId: s.employeeId,
-                          employeeName: s.employeeName,
-                          startTime: s.startTime,
-                          endTime: s.endTime,
-                          idx,
-                        }))
-                        .filter((c) => !!c.employeeId)}
+                      aiGhostCandidates={editingSchedule
+                        ? []
+                        : (suggestData?.proposedShifts ?? [])
+                          // IMPORTANT: capture the ORIGINAL index first, then
+                          // filter. `excludedIdxs` is keyed to the original
+                          // suggestion index, so we must not let .filter()
+                          // re-number the entries after we've already tagged
+                          // them. Manual-tagged entries are filtered out so
+                          // the ghost preview only ever surfaces genuine AI
+                          // suggestions (no duplicate-add of manual entries).
+                          // In editingSchedule mode the ghost preview is
+                          // suppressed entirely — the panel is a focused
+                          // single-shift editor and click-to-add-from-ghost
+                          // would re-introduce the AI proposals we just hid.
+                          .map((s, idx) => ({ s, idx }))
+                          .filter(({ s }) => (s.shiftBlock || '').toLowerCase() !== 'manual')
+                          .map(({ s, idx }): AiGhostCandidate => ({
+                            employeeId: s.employeeId,
+                            employeeName: s.employeeName,
+                            startTime: s.startTime,
+                            endTime: s.endTime,
+                            idx,
+                          }))
+                          .filter((c) => !!c.employeeId)}
                       onApplyAiGhost={(c) => {
                         const member = (availData?.members ?? []).find((m) => m.userId === c.employeeId);
                         if (!member) return;
