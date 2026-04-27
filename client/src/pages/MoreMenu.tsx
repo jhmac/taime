@@ -8,7 +8,7 @@ import {
   FileSpreadsheet, UserCog, ShieldCheck, BarChart, Medal,
   Settings, Cog, LogOut, ChevronRight, Banknote,
   Coffee, Lightbulb, LifeBuoy, History, FileDown, Mic, Brain,
-  Package, Wand2, Calculator,
+  Package, Wand2, Wallet,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -65,7 +65,7 @@ export default function MoreMenu() {
         { icon: User, label: 'Profile', subtitle: 'Edit your info & preferences', path: '/employee-settings', iconBg: 'bg-orange-100', iconColor: 'text-orange-600' },
         { icon: Trophy, label: 'My Score', subtitle: 'Performance score, tier & badges', path: '/my-score', iconBg: 'bg-yellow-100', iconColor: 'text-yellow-600' },
         { icon: Clock, label: 'Availability', subtitle: 'Set your weekly availability', path: '/availability', iconBg: 'bg-teal-100', iconColor: 'text-teal-600' },
-        { icon: Calculator, label: 'Open/Close', subtitle: 'Daily drawer count & deposits', path: '/cash', iconBg: 'bg-emerald-100', iconColor: 'text-emerald-600' },
+        { icon: Wallet, label: 'Open/Close', subtitle: 'Daily drawer count & deposits', path: '/cash', iconBg: 'bg-emerald-100', iconColor: 'text-emerald-600' },
         { icon: FileText, label: 'Requests', subtitle: 'Time off, shift trades & cover', path: '/requests', iconBg: 'bg-blue-100', iconColor: 'text-blue-600' },
         { icon: Banknote, label: 'Payroll', subtitle: 'View your pay & cash out', path: '/payroll', iconBg: 'bg-green-100', iconColor: 'text-green-600' },
       ],
