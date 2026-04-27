@@ -11,6 +11,8 @@ import {
   oneHopNudge,
   computeMargin,
   hasUnsavedChanges,
+  pickAiGhostForMinute,
+  type AiGhostCandidate,
 } from '../client/src/lib/createShiftHelpers';
 
 // ─── Polyfill localStorage for Node test runtime ──────────────────────────────
@@ -296,6 +298,48 @@ describe('computeMargin', () => {
       { byUser: { u1: 65.5 / 8.5 }, projectedRevenue: 100 },
     );
     expect(amber.tier).toBe('amber');
+  });
+});
+
+describe('pickAiGhostForMinute', () => {
+  const candidates: AiGhostCandidate[] = [
+    { idx: 0, employeeId: 'u1', employeeName: 'Alice', startTime: '09:00', endTime: '13:00' },
+    { idx: 1, employeeId: 'u2', employeeName: 'Bob',   startTime: '12:00', endTime: '17:00' },
+    { idx: 2, employeeId: 'u3', employeeName: 'Cleo',  startTime: '15:00', endTime: '21:00' },
+  ];
+
+  it('picks the candidate whose midpoint is closest to the hovered minute', () => {
+    // hover at 11:00 → midpoint 660. Alice mid=660, Bob mid=870, Cleo mid=1080.
+    const r = pickAiGhostForMinute(11 * 60, candidates, new Set(), new Set());
+    expect(r?.idx).toBe(0);
+  });
+
+  it('skips excluded suggestions', () => {
+    const r = pickAiGhostForMinute(11 * 60, candidates, new Set([0]), new Set());
+    expect(r?.idx).toBe(1);
+  });
+
+  it('skips candidates whose employee already has a shift', () => {
+    const r = pickAiGhostForMinute(11 * 60, candidates, new Set(), new Set(['u1']));
+    expect(r?.idx).toBe(1);
+  });
+
+  it('returns null when every candidate is excluded or already applied', () => {
+    const r = pickAiGhostForMinute(11 * 60, candidates, new Set([0, 1, 2]), new Set());
+    expect(r).toBeNull();
+  });
+
+  it('returns null on empty candidate list', () => {
+    expect(pickAiGhostForMinute(600, [], new Set(), new Set())).toBeNull();
+  });
+
+  it('ignores degenerate windows (end <= start)', () => {
+    const broken: AiGhostCandidate[] = [
+      { idx: 0, employeeId: 'u1', employeeName: 'X', startTime: '12:00', endTime: '12:00' },
+      { idx: 1, employeeId: 'u2', employeeName: 'Y', startTime: '14:00', endTime: '18:00' },
+    ];
+    const r = pickAiGhostForMinute(12 * 60, broken, new Set(), new Set());
+    expect(r?.idx).toBe(1);
   });
 });
 

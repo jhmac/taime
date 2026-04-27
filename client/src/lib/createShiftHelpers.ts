@@ -340,6 +340,49 @@ export function hasUnsavedChanges(s: DirtyStateInputs): boolean {
   );
 }
 
+// ─── AI ghost preview (Task #392 C5) ──────────────────────────────────────────
+
+export interface AiGhostCandidate {
+  employeeId: string;
+  employeeName: string;
+  startTime: string;
+  endTime: string;
+  /** Original index in suggestData.proposedShifts so the caller can map back. */
+  idx: number;
+}
+
+/**
+ * Pick the best AI suggestion to render as a ghost preview at a given minute
+ * on the timeline. Filters out suggestions the user has already excluded or
+ * already turned into a real shift. Returns the candidate whose midpoint is
+ * closest to `hoverMin`, or null when no suitable candidate exists.
+ */
+export function pickAiGhostForMinute(
+  hoverMin: number,
+  candidates: readonly AiGhostCandidate[],
+  /** Indexes of AI suggestions the user has excluded. */
+  excludedIdxs: ReadonlySet<number>,
+  /** Set of employeeIds that already have a scheduled or manual shift. */
+  appliedEmployeeIds: ReadonlySet<string>,
+): AiGhostCandidate | null {
+  let best: AiGhostCandidate | null = null;
+  let bestDist = Infinity;
+  for (const c of candidates) {
+    if (excludedIdxs.has(c.idx)) continue;
+    if (appliedEmployeeIds.has(c.employeeId)) continue;
+    const s = timeToMin(c.startTime);
+    const e = timeToMin(c.endTime);
+    if (e <= s) continue;
+    const mid = (s + e) / 2;
+    const dist = Math.abs(mid - hoverMin);
+    if (dist < bestDist) {
+      best = c;
+      bestDist = dist;
+    }
+  }
+  return best;
+}
+
 // ─── Multi-select math (Task #391 B6) ──────────────────────────────────────────
 //
 // Pulled into pure helpers so the click-to-modifier reducer is unit-testable.

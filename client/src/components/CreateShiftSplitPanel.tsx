@@ -31,6 +31,10 @@ import {
   evictStaleDrafts,
   modeFromEvent,
   nextMultiSelection,
+  snapToWindow,
+  oneHopNudge,
+  pickAiGhostForMinute,
+  type AiGhostCandidate,
 } from "@/lib/createShiftHelpers";
 import { useAuth } from "@/hooks/useAuth";
 import { useWebSocketContext } from "@/contexts/WebSocketContext";
@@ -236,6 +240,7 @@ function ShiftBlock({
 
   return (
     <div
+      data-shift-card="true"
       style={{ top: `${topPct}%`, height: `${heightPct}%` }}
       className="absolute inset-x-0.5"
     >
@@ -544,6 +549,7 @@ function AvailableEmployeePills({
   showUnavailable,
   onToggleUnavailable,
   dateKey,
+  onPillDragStart,
 }: {
   members: AvailMember[];
   storeHours: { open: string; close: string } | null;
@@ -553,6 +559,10 @@ function AvailableEmployeePills({
   showUnavailable: boolean;
   onToggleUnavailable: () => void;
   dateKey?: string;
+  /** Task #392 C1 — start a drag-from-pill onto the timeline. Caller installs
+   *  the document-level pointermove/pointerup listeners and renders the green
+   *  band + ghost preview on DayTimeline. */
+  onPillDragStart?: (member: AvailMember, e: React.PointerEvent) => void;
 }) {
   const [roleFilter, setRoleFilter] = useState('all');
   const [minScore, setMinScore] = useState(0);
@@ -700,18 +710,31 @@ function AvailableEmployeePills({
               ? (member.source === 'time_off' ? 'Time off' : 'Not available')
               : null;
 
+            const canDrag = member.isAvailable && !isScheduled && !!onPillDragStart;
             return (
               <div
                 key={member.userId}
+                data-testid={`avail-pill-${member.userId}`}
                 className={cn(
-                  "relative flex flex-col gap-1 p-2 rounded-lg border w-44 flex-shrink-0 transition-all",
+                  "relative flex flex-col gap-1 p-2 rounded-lg border w-44 flex-shrink-0 transition-all touch-none",
                   !member.isAvailable
                     ? "bg-muted/20 border-border/30 opacity-50"
                     : isScheduled
                     ? "bg-muted/30 border-border/40"
-                    : "bg-background border-border hover:border-primary/40 hover:shadow-sm"
+                    : "bg-background border-border hover:border-primary/40 hover:shadow-sm",
+                  canDrag && "cursor-grab active:cursor-grabbing"
                 )}
-                title={unavailReason || undefined}
+                title={unavailReason || (canDrag ? `Drag onto the timeline to add a shift for ${member.name}` : undefined)}
+                onPointerDown={canDrag ? (e) => {
+                  // Only left-button / primary input triggers a drag. Buttons
+                  // inside the pill (e.g. "Add shift") still get their click —
+                  // we only promote to a real drag once the pointer moves
+                  // beyond a small threshold (handled by the parent).
+                  if (e.button !== 0) return;
+                  const target = e.target as HTMLElement;
+                  if (target.closest('button')) return;
+                  onPillDragStart?.(member, e);
+                } : undefined}
               >
                 {/* Avatar + name row */}
                 <div className="flex items-center gap-1.5 min-w-0">
@@ -841,6 +864,10 @@ function DayTimeline({
   onActualShiftChange,
   onDeleteActualShift,
   aiCount,
+  pillDrag,
+  aiGhostCandidates,
+  onApplyAiGhost,
+  scheduledEmployeeIds,
 }: {
   suggestData: SuggestData | null | undefined;
   isLoading: boolean;
@@ -862,6 +889,16 @@ function DayTimeline({
   onActualShiftChange?: (s: Schedule, startTime: string, endTime: string) => void;
   onDeleteActualShift?: (s: Schedule) => void;
   aiCount: number;
+  /** Task #392 C1/C2 — when set, render a green availability band + dashed
+   *  ghost block so the user sees where their drop will land. */
+  pillDrag?: { member: AvailMember; clientY: number } | null;
+  /** Task #392 C5 — list of AI-suggested shifts (with original idx) so the
+   *  timeline can render a faint ghost on empty hover space. */
+  aiGhostCandidates?: AiGhostCandidate[];
+  onApplyAiGhost?: (candidate: AiGhostCandidate) => void;
+  /** Set of employeeIds that already have a scheduled or manual shift on this
+   *  day — used to filter the AI ghost so it doesn't suggest a duplicate. */
+  scheduledEmployeeIds?: ReadonlySet<string>;
 }) {
   const open = storeHours?.open || suggestData?.storeHours?.open || "09:00";
   const close = storeHours?.close || suggestData?.storeHours?.close || "21:00";
@@ -875,6 +912,9 @@ function DayTimeline({
   const actualDragRef = useRef<ActualDrag | null>(null);
   const [actualDragPreview, setActualDragPreview] = useState<{ idx: number; startTime: string; endTime: string } | null>(null);
   const actualClickSuppressRef = useRef(false);
+  // Task #392 C5 — hover Y over the empty timeline area, used to render the
+  // AI ghost preview. Set to null when the cursor leaves or is over a card.
+  const [hoverY, setHoverY] = useState<number | null>(null);
 
   const minsToStr = (mins: number) =>
     `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
@@ -1103,11 +1143,29 @@ function DayTimeline({
           {/* Timeline body: one column per shift */}
           <div
             ref={containerRef}
+            data-timeline-body="true"
+            data-testid="day-timeline-body"
             className="relative flex flex-1 border border-border/50 rounded-lg bg-muted/20 overflow-hidden touch-none"
             style={{ height: Math.max(160, Math.min(300, totalMin * 0.6)) }}
-            onPointerMove={handlePointerMove}
+            onPointerMove={(e) => {
+              handlePointerMove(e);
+              // Task #392 C5 — track empty-space hover for AI ghost. Only
+              // record positions over the bare timeline background, not over
+              // a shift card (which sets z-10 / z-20 above the body).
+              if (!actualDragRef.current && !dragRef.current && !pillDrag) {
+                const rect = containerRef.current?.getBoundingClientRect();
+                if (!rect) return;
+                const target = e.target as HTMLElement;
+                const overCard = !!target.closest('[data-shift-card], [data-testid^="actual-shift-card"]');
+                if (overCard) {
+                  setHoverY(null);
+                } else {
+                  setHoverY(Math.max(0, Math.min(e.clientY - rect.top, rect.height)));
+                }
+              }
+            }}
             onPointerUp={handlePointerUp}
-            onPointerLeave={handlePointerUp}
+            onPointerLeave={(e) => { handlePointerUp(); setHoverY(null); }}
           >
             {/* Hour grid lines — span all columns */}
             <div className="absolute inset-0 pointer-events-none z-0">
@@ -1123,6 +1181,98 @@ function DayTimeline({
                 );
               })}
             </div>
+
+            {/* ── Task #392 C2 — green availability band overlay during pill drag ── */}
+            {pillDrag && (() => {
+              const m = pillDrag.member;
+              const wins = (m.windows && m.windows.length > 0)
+                ? m.windows
+                : (m.availableFrom && m.availableTo
+                    ? [{ start: m.availableFrom, end: m.availableTo }]
+                    : []);
+              if (wins.length === 0) return null;
+              return (
+                <div className="absolute inset-0 pointer-events-none z-[5]" data-testid="pill-drag-band">
+                  {wins.map((w, i) => {
+                    const ws = Math.max(timeToMin(w.start), openMin);
+                    const we = Math.min(timeToMin(w.end), closeMin);
+                    if (we <= ws) return null;
+                    const top = ((ws - openMin) / totalMin) * 100;
+                    const h = ((we - ws) / totalMin) * 100;
+                    return (
+                      <div
+                        key={`band-${i}`}
+                        style={{ top: `${top}%`, height: `${h}%` }}
+                        className="absolute left-0 right-0 bg-emerald-400/20 border-y-2 border-emerald-500/50"
+                      />
+                    );
+                  })}
+                </div>
+              );
+            })()}
+
+            {/* ── Task #392 C1 — dashed ghost preview at the snapped drop ── */}
+            {pillDrag && containerRef.current && (() => {
+              const rect = containerRef.current.getBoundingClientRect();
+              // Allow some slack so the preview doesn't disappear right at
+              // the edge of the body when the cursor briefly leaves it.
+              if (pillDrag.clientY < rect.top - 30 || pillDrag.clientY > rect.bottom + 30) return null;
+              const relY = Math.max(0, Math.min(pillDrag.clientY - rect.top, rect.height));
+              const rawStart = openMin + (relY / rect.height) * totalMin;
+              const snappedStart = Math.round(rawStart / 15) * 15;
+              const m = pillDrag.member;
+              const wins = (m.windows && m.windows.length > 0)
+                ? m.windows
+                : (m.availableFrom && m.availableTo
+                    ? [{ start: m.availableFrom, end: m.availableTo }]
+                    : []);
+              const dur = 240; // default 4-hour drop length
+              const baseStart = Math.max(openMin, Math.min(closeMin - 60, snappedStart));
+              const baseEnd = Math.min(closeMin, baseStart + dur);
+              const snap = snapToWindow(minsToStr(baseStart), minsToStr(baseEnd), wins, 15);
+              const sM = Math.max(openMin, Math.min(closeMin, timeToMin(snap.start)));
+              const eM = Math.max(sM + 15, Math.min(closeMin, timeToMin(snap.end)));
+              const top = ((sM - openMin) / totalMin) * 100;
+              const h = ((eM - sM) / totalMin) * 100;
+              return (
+                <div
+                  data-testid="pill-drag-ghost"
+                  style={{ top: `${top}%`, height: `${h}%` }}
+                  className="absolute inset-x-1 rounded-md border-2 border-dashed border-primary bg-primary/15 pointer-events-none z-[40] flex flex-col px-1.5 py-1 shadow-lg"
+                >
+                  <div className="text-[10px] font-bold text-primary truncate leading-tight">{m.name}</div>
+                  <div className="text-[9px] text-primary/80 leading-tight">{fmt12(snap.start)}–{fmt12(snap.end)}</div>
+                  {snap.snapped && (
+                    <div className="text-[8px] text-emerald-700 dark:text-emerald-400 leading-tight mt-auto">snapped to availability</div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* ── Task #392 C5 — faint AI ghost on hover empty space ── */}
+            {!pillDrag && hoverY !== null && containerRef.current && aiGhostCandidates && aiGhostCandidates.length > 0 && onApplyAiGhost && (() => {
+              const rect = containerRef.current.getBoundingClientRect();
+              const hoverMin = openMin + (hoverY / rect.height) * totalMin;
+              const cand = pickAiGhostForMinute(hoverMin, aiGhostCandidates, excludedIdxs, scheduledEmployeeIds ?? new Set<string>());
+              if (!cand) return null;
+              const sM = Math.max(openMin, Math.min(closeMin, timeToMin(cand.startTime)));
+              const eM = Math.max(sM + 15, Math.min(closeMin, timeToMin(cand.endTime)));
+              const top = ((sM - openMin) / totalMin) * 100;
+              const h = ((eM - sM) / totalMin) * 100;
+              return (
+                <div
+                  data-testid="ai-ghost-preview"
+                  style={{ top: `${top}%`, height: `${h}%` }}
+                  className="absolute inset-x-1 rounded-md border border-dashed border-violet-500/60 bg-violet-500/10 hover:bg-violet-500/20 z-[15] flex flex-col px-1.5 py-1 cursor-pointer transition-colors"
+                  title={`AI suggests ${cand.employeeName} ${fmt12(cand.startTime)}–${fmt12(cand.endTime)} — click to add`}
+                  onClick={(e) => { e.stopPropagation(); onApplyAiGhost(cand); }}
+                >
+                  <div className="text-[10px] font-medium text-violet-700 dark:text-violet-300 truncate leading-tight">✨ {cand.employeeName}</div>
+                  <div className="text-[9px] text-violet-600 dark:text-violet-400 leading-tight">{fmt12(cand.startTime)}–{fmt12(cand.endTime)}</div>
+                  <div className="text-[8px] text-violet-500 leading-tight mt-auto">click to add</div>
+                </div>
+              );
+            })()}
             {/* Actual scheduled shift columns — shown first */}
             {actualShifts?.map((actual, idx) => {
               const preview = actualDragPreview?.idx === idx ? actualDragPreview : null;
@@ -1544,6 +1694,11 @@ export default function CreateShiftSplitPanel({
   const [selectedActualIds, setSelectedActualIds] = useState<Set<string>>(new Set());
   const [multiSelectAnchorId, setMultiSelectAnchorId] = useState<string | null>(null);
   const [showCopyDayDialog, setShowCopyDayDialog] = useState(false);
+  // Task #392 C1/C2 — drag-from-pill state. `null` = no drag in progress.
+  // Updated on every pointermove via document-level listener installed by
+  // `startPillDrag`. DayTimeline reads this to render the green availability
+  // band + dashed ghost preview at the snapped drop location.
+  const [pillDrag, setPillDrag] = useState<{ member: AvailMember; clientY: number } | null>(null);
   const [shiftSaved, setShiftSaved] = useState(false);
   const shiftSavedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingSkippedCountRef = useRef(0);
@@ -1971,7 +2126,34 @@ export default function CreateShiftSplitPanel({
     dragActiveRef.current = false;
   }, []);
 
-  // When user drags an actual shift block, select it and update the form times
+  // Task #392 C3 — one-hop collision-avoidance closure stored in a ref so
+  // `handleActualShiftChange` (declared above the late-bound `storeHours` and
+  // `updateActualMutation`) can compute nudges without a forward reference.
+  // The effect below keeps the closure in sync whenever its inputs change.
+  //
+  // Nudges are NOT persisted on resize. They are queued in
+  // `pendingNudgesRef` and only dispatched when the user clicks Save Changes
+  // for the dragged shift, so cancelling the edit also cancels the nudges.
+  const nudgeOnResizeRef = useRef<(schedule: Schedule, startTime: string, endTime: string, dateStr: string) => void>(() => {});
+  const pendingNudgesRef = useRef<Array<{
+    id: string;
+    userId: string;
+    startTime: Date;
+    endTime: Date;
+    title: string | null;
+    locationId: string | null;
+    description: string | null;
+  }>>([]);
+  // Drop the queued nudges if the user deselects/cancels the actual edit
+  // before saving — they were only ever a "what would happen" preview.
+  useEffect(() => {
+    if (!selectedActualSchedule) {
+      pendingNudgesRef.current = [];
+    }
+  }, [selectedActualSchedule]);
+
+  // When user drags an actual shift block, select it and update the form times.
+  // Also fires the one-hop nudge for sibling shifts owned by the same employee.
   const handleActualShiftChange = useCallback((schedule: Schedule, startTime: string, endTime: string) => {
     const st = new Date(schedule.startTime);
     const pad = (n: number) => String(n).padStart(2, '0');
@@ -1986,6 +2168,7 @@ export default function CreateShiftSplitPanel({
     setModalLocationId(schedule.locationId ?? locations[0]?.id ?? '');
     setModalNotes(schedule.description ?? '');
     setSelectedShiftIdx(null);
+    nudgeOnResizeRef.current(schedule, startTime, endTime, dateStr);
   }, [locations]);
 
   const applyEditSnapshot = useCallback((snapshot: Record<number, ShiftEdit>, currentSelectedIdx: number | null) => {
@@ -2697,16 +2880,44 @@ export default function CreateShiftSplitPanel({
     const startDate = new Date(y, mo - 1, d, sh, sm, 0, 0);
     const endDate   = new Date(y, mo - 1, d, eh, em, 0, 0);
     if (endDate <= startDate) endDate.setDate(endDate.getDate() + 1);
-    updateActualMutation.mutate({
-      id: selectedActualSchedule.id,
-      userId: selectedUserId,
-      startTime: startDate,
-      endTime: endDate,
-      title: modalTitle || null,
-      locationId: modalLocationId || null,
-      description: modalNotes || null,
-    });
-  }, [selectedActualSchedule, modalDate, modalStartTime, modalEndTime, selectedUserId, modalTitle, modalLocationId, modalNotes, updateActualMutation]);
+    // Task #392 C3 — capture any queued one-hop nudges and only dispatch them
+    // AFTER the primary update succeeds. If the primary save fails, the
+    // sibling shifts are left untouched so the schedule stays consistent
+    // with what the user sees.
+    const queued = pendingNudgesRef.current;
+    pendingNudgesRef.current = [];
+    updateActualMutation.mutate(
+      {
+        id: selectedActualSchedule.id,
+        userId: selectedUserId,
+        startTime: startDate,
+        endTime: endDate,
+        title: modalTitle || null,
+        locationId: modalLocationId || null,
+        description: modalNotes || null,
+      },
+      {
+        onSuccess: () => {
+          if (queued.length === 0) return;
+          // Dispatch nudges via apiRequest directly (not `updateActualMutation`)
+          // to avoid the per-mutation toast spam and selection-clear side
+          // effects. One summary toast + one invalidate at the end.
+          Promise.all(queued.map((n) =>
+            apiRequest('PATCH', `/api/schedules/${n.id}`, n).catch((err) => {
+              console.warn('[CreateShiftSplitPanel] nudge PATCH failed', n.id, err);
+              return null;
+            })
+          )).then(() => {
+            queryClient.invalidateQueries({ queryKey: ['/api/schedules'] });
+            toast({
+              title: 'Made room',
+              description: `Nudged ${queued.length} other shift${queued.length === 1 ? '' : 's'} to make space.`,
+            });
+          });
+        },
+      },
+    );
+  }, [selectedActualSchedule, modalDate, modalStartTime, modalEndTime, selectedUserId, modalTitle, modalLocationId, modalNotes, updateActualMutation, queryClient, toast]);
 
   const handleSaveShiftEdit = () => {
     if (selectedShiftIdx === null) return;
@@ -2874,6 +3085,53 @@ export default function CreateShiftSplitPanel({
   }, [open, validActiveShifts.length, handleBulkSave]);
   const storeHours = salesData?.storeHours ?? suggestData?.storeHours ?? null;
 
+  // Task #392 C3 — keep the nudge-on-resize closure synced with its inputs.
+  // Defined here (after `storeHours`) so we don't run into TS2454/TS2448
+  // forward-reference errors. The closure QUEUES nudges into
+  // `pendingNudgesRef` rather than dispatching them. `handleSaveActual`
+  // flushes the queue once the user commits the dragged shift; cancelling
+  // the edit clears it. This avoids touching sibling shifts before the
+  // primary edit is confirmed and prevents the per-mutation toast/selection
+  // reset side effects from firing repeatedly.
+  useEffect(() => {
+    nudgeOnResizeRef.current = (schedule, startTime, endTime, dateStr) => {
+      const sOpen = storeHours?.open || '09:00';
+      const sClose = storeHours?.close || '21:00';
+      const oMin = timeToMin(sOpen);
+      const cMin = timeToMin(sClose);
+      const others = dateActualShifts
+        .filter((a) => a.schedule.id !== schedule.id && a.schedule.userId === schedule.userId)
+        .map((a) => ({
+          id: a.schedule.id,
+          startTime: a.startTime,
+          endTime: a.endTime,
+          employeeId: a.schedule.userId,
+        }));
+      const nudges = oneHopNudge(startTime, endTime, schedule.userId, others, oMin, cMin);
+      const queued: typeof pendingNudgesRef.current = [];
+      Array.from(nudges.entries()).forEach(([id, range]) => {
+        const target = dateActualShifts.find((a) => a.schedule.id === id);
+        if (!target) return;
+        queued.push({
+          id: target.schedule.id,
+          userId: target.schedule.userId,
+          startTime: new Date(`${dateStr}T${range.startTime}:00`),
+          endTime: new Date(`${dateStr}T${range.endTime}:00`),
+          title: target.schedule.title ?? null,
+          locationId: target.schedule.locationId ?? null,
+          description: target.schedule.description ?? null,
+        });
+      });
+      pendingNudgesRef.current = queued;
+      if (queued.length > 0) {
+        toast({
+          title: 'Made room (preview)',
+          description: `${queued.length} other shift${queued.length === 1 ? '' : 's'} will be nudged when you save.`,
+        });
+      }
+    };
+  }, [storeHours, dateActualShifts, toast]);
+
   const conflictingEmployeeIds = useMemo<Set<string>>(() => {
     if (!modalDate || proposedShifts.length === 0) return new Set();
     const allCached = queryClient.getQueriesData<Array<{ userId: string; startTime: string }>>({
@@ -2900,6 +3158,19 @@ export default function CreateShiftSplitPanel({
     dateActualShifts.forEach(a => ids.add(a.schedule.userId));
     return ids;
   }, [proposedShifts, excludedIdxs, dateActualShifts]);
+
+  // Task #392 C5 — for the AI ghost preview we deliberately exclude the AI
+  // suggestions themselves from the "already scheduled" set. Otherwise every
+  // candidate would be filtered out as already applied (since AI suggestions
+  // ARE part of `proposedShifts`) and the ghost would never render. Only
+  // manual drafts and persisted actual shifts count as "already on the
+  // timeline" for the purpose of suppressing a ghost.
+  const scheduledForAiGhost = useMemo<Set<string>>(() => {
+    const ids = new Set<string>();
+    pendingManualShifts.forEach(s => ids.add(s.employeeId));
+    dateActualShifts.forEach(a => ids.add(a.schedule.userId));
+    return ids;
+  }, [pendingManualShifts, dateActualShifts]);
 
   const handlePillAdd = useCallback((member: AvailMember) => {
     const clampFn = (t: string, min: string, max: string) => {
@@ -2941,6 +3212,137 @@ export default function CreateShiftSplitPanel({
       timelineWrapperRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     });
   }, [storeHours, proposedShifts.length, persistPillShiftMutation, modalDate]);
+
+  // Task #392 C1/C2 — handle a pill drop on the timeline body. `clientY` is
+  // the cursor's pageY at drop, `bodyRect` is the timeline body's bounds.
+  // Computes a snapped 4-hour shift centered at the drop position, then
+  // snaps to the member's availability window edges if either end is within
+  // 15 minutes. Persists via the same `persistPillShiftMutation` as the
+  // single-click "Add shift" affordance, so undo/redo + form selection match.
+  //
+  // The optional `explicitRange` argument lets callers (e.g. C5 ghost-apply)
+  // bypass the snap-to-cursor flow and persist exact start/end times. When
+  // supplied, the cursor position is ignored.
+  const handlePillDrop = useCallback((
+    member: AvailMember,
+    clientY: number,
+    bodyRect: DOMRect,
+    explicitRange?: { start: string; end: string },
+  ) => {
+    const sOpen = storeHours?.open || '09:00';
+    const sClose = storeHours?.close || '21:00';
+    const oMin = timeToMin(sOpen);
+    const cMin = timeToMin(sClose);
+    const total = cMin - oMin;
+    if (total <= 0) return;
+
+    let finalStart: string;
+    let finalEnd: string;
+    let snapped = false;
+    let rationale = 'Dragged from availability';
+    if (explicitRange) {
+      finalStart = explicitRange.start;
+      finalEnd = explicitRange.end;
+      rationale = 'Applied AI suggestion';
+    } else {
+      const relY = Math.max(0, Math.min(clientY - bodyRect.top, bodyRect.height));
+      const rawStart = oMin + (relY / bodyRect.height) * total;
+      const snappedStart = Math.round(rawStart / 15) * 15;
+      const dur = 240; // default 4-hour shift on drop
+      const baseStart = Math.max(oMin, Math.min(cMin - 60, snappedStart));
+      const baseEnd = Math.min(cMin, baseStart + dur);
+      const m2t = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+      const wins = (member.windows && member.windows.length > 0)
+        ? member.windows
+        : (member.availableFrom && member.availableTo
+            ? [{ start: member.availableFrom, end: member.availableTo }]
+            : []);
+      const snap = snapToWindow(m2t(baseStart), m2t(baseEnd), wins, 15);
+      finalStart = snap.start;
+      finalEnd = snap.end;
+      snapped = snap.snapped;
+      rationale = snap.snapped ? 'Dragged from availability (snapped)' : 'Dragged from availability';
+    }
+
+    const newShift: ProposedShift = {
+      employeeId: member.userId,
+      employeeName: member.name,
+      profileImageUrl: member.profileImageUrl,
+      startTime: finalStart,
+      endTime: finalEnd,
+      shiftBlock: 'Manual',
+      rationale,
+      revenue: 0,
+    };
+    const newIdx = proposedShifts.length;
+    setManualShifts(prev => [...prev, newShift]);
+    setSelectedShiftIdx(newIdx);
+    setSelectedUserId(member.userId);
+    setModalStartTime(finalStart);
+    setModalEndTime(finalEnd);
+    setModalTitle('');
+    setModalLocationId('');
+    setModalNotes('');
+    setSelectedActualSchedule(null);
+    setActualFormEdits(null);
+    if (modalDate) persistPillShiftMutation.mutate({ shift: newShift, date: modalDate });
+    if (snapped) {
+      toast({ title: 'Snapped to availability', description: `${member.name}: ${finalStart}–${finalEnd}` });
+    }
+  }, [storeHours, modalDate, persistPillShiftMutation, proposedShifts.length, toast]);
+
+  // Task #392 C1 — install document-level pointermove/pointerup listeners
+  // when a pill is grabbed. Only promotes to a real drag once the cursor
+  // has moved >5px so simple taps still pass through to the pill's
+  // "Add shift" button. Esc cancels the drag without dropping.
+  const startPillDrag = useCallback((member: AvailMember, e: React.PointerEvent) => {
+    const startX = e.clientX;
+    const startY = e.clientY;
+    let promoted = false;
+    const onMove = (ev: PointerEvent) => {
+      if (!promoted) {
+        if (Math.hypot(ev.clientX - startX, ev.clientY - startY) <= 5) return;
+        promoted = true;
+      }
+      setPillDrag({ member, clientY: ev.clientY });
+    };
+    const cleanup = () => {
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      // The Escape handler is registered in the capture phase, so we must
+      // remove it the same way or it will leak.
+      document.removeEventListener('keydown', onKey, true);
+    };
+    const onUp = (ev: PointerEvent) => {
+      cleanup();
+      if (!promoted) { setPillDrag(null); return; }
+      const body = document.querySelector('[data-timeline-body="true"]') as HTMLElement | null;
+      setPillDrag(null);
+      if (!body) return;
+      const rect = body.getBoundingClientRect();
+      if (
+        ev.clientX < rect.left || ev.clientX > rect.right
+        || ev.clientY < rect.top || ev.clientY > rect.bottom
+      ) {
+        return; // dropped outside the timeline — cancel quietly
+      }
+      handlePillDrop(member, ev.clientY, rect);
+    };
+    // Register in the capture phase + stop immediate propagation so Esc
+    // cancels the drag without falling through to the panel's outer Escape
+    // handler (which would close the modal).
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape') {
+        ev.stopImmediatePropagation();
+        ev.preventDefault();
+        cleanup();
+        setPillDrag(null);
+      }
+    };
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    document.addEventListener('keydown', onKey, true);
+  }, [handlePillDrop]);
 
   // Add a blank draft shift to the timeline so the manager can fill it in from the right panel
   const handleAddBlankShift = useCallback(() => {
@@ -3385,6 +3787,32 @@ export default function CreateShiftSplitPanel({
                       onActualShiftChange={handleActualShiftChange}
                       onDeleteActualShift={(s) => deleteActualMutation.mutate({ schedule: s })}
                       aiCount={aiProposedShifts.length}
+                      pillDrag={pillDrag}
+                      aiGhostCandidates={(suggestData?.proposedShifts ?? [])
+                        // Restrict ghost suggestions to genuine AI-generated
+                        // shifts. Anything tagged 'Manual' would otherwise
+                        // round-trip through the ghost preview as a
+                        // duplicate-add option for an already-manual entry.
+                        .filter((s) => (s.shiftBlock || '').toLowerCase() !== 'manual')
+                        .map((s, idx): AiGhostCandidate => ({
+                          employeeId: s.employeeId,
+                          employeeName: s.employeeName,
+                          startTime: s.startTime,
+                          endTime: s.endTime,
+                          idx,
+                        }))
+                        .filter((c) => !!c.employeeId)}
+                      onApplyAiGhost={(c) => {
+                        const member = (availData?.members ?? []).find((m) => m.userId === c.employeeId);
+                        if (!member) return;
+                        // Re-use the pill-drop persistence path with an explicit range so
+                        // the candidate's exact start/end times are honored (no snapping
+                        // and no 4-hour default duration).
+                        const body = document.querySelector('[data-timeline-body="true"]') as HTMLElement | null;
+                        const rect = body ? body.getBoundingClientRect() : new DOMRect(0, 0, 0, 0);
+                        handlePillDrop(member, 0, rect, { start: c.startTime, end: c.endTime });
+                      }}
+                      scheduledEmployeeIds={scheduledForAiGhost}
                     />
                   </div>
                 </>
@@ -3403,6 +3831,7 @@ export default function CreateShiftSplitPanel({
                     showUnavailable={showPillsUnavailable}
                     onToggleUnavailable={() => setShowPillsUnavailable(v => !v)}
                     dateKey={modalDate}
+                    onPillDragStart={startPillDrag}
                   />
                 </>
               )}
