@@ -37,3 +37,7 @@ otherwise it boots `npm run dev` automatically.
 - `availability-pills.spec.ts` — covers the "Who's Available Today" section in
   the Create Shift dialog: appearance, pill click adds a shift, date change
   refreshes pills.
+- `save-undo-flow.spec.ts` — exercises the bulk save → toast Undo round-trip
+  (POST `/api/ai-scheduling/apply` → DELETE `/api/schedules/bulk`) and the
+  unsaved-changes confirmation dialog when closing the panel with pending
+  shifts (Discard closes without saving).
