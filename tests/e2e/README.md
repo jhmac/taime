@@ -41,3 +41,9 @@ otherwise it boots `npm run dev` automatically.
   (POST `/api/ai-scheduling/apply` → DELETE `/api/schedules/bulk`) and the
   unsaved-changes confirmation dialog when closing the panel with pending
   shifts (Discard closes without saving).
+- `multi-select.spec.ts` — covers the shift-card multi-select handler in
+  `CreateShiftSplitPanel`: Cmd/Ctrl-click toggling + floating action bar
+  count + bulk delete + Undo round-trip; the two-step Escape behavior
+  (first clears the selection, second closes the panel); and Shift-click
+  range extension with anchor advancement on follow-up Cmd-clicks. Pure
+  helper logic is also covered by `tests/multiSelectHelpers.test.ts`.
