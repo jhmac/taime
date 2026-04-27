@@ -212,8 +212,8 @@ export default function CashManagement() {
             </h2>
             <p className="text-amber-700 dark:text-amber-300 text-sm">
               {notAtStore
-                ? "You're clocked in but not at the store location. Cash Management is only available when you're physically at the store."
-                : "You need to be clocked in and at the store to access Cash Management. Please clock in first, then come back here."}
+                ? "You're clocked in but not at the store location. Open/Close is only available when you're physically at the store."
+                : "You need to be clocked in and at the store to access Open/Close. Please clock in first, then come back here."}
             </p>
             <div className="pt-2 space-y-2">
               <Button onClick={() => navigate("/")} className="w-full">
@@ -302,7 +302,7 @@ export default function CashManagement() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
-            <i className="fas fa-cash-register text-primary" /> Cash
+            <i className="fas fa-cash-register text-primary" /> Open/Close
           </h1>
           <p className="text-muted-foreground text-sm">
             {new Date(selectedDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}

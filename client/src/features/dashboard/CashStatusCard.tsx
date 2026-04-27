@@ -66,7 +66,7 @@ export default function CashStatusCard() {
         <CardTitle className="text-sm flex items-center justify-between">
           <span className="flex items-center gap-2">
             <i className="fas fa-cash-register text-primary" />
-            Cash Management
+            Open/Close
           </span>
           {Math.abs(totalOverShort) >= 5 && (
             <Badge variant="destructive" className="text-xs">

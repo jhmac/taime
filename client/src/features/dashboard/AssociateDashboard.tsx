@@ -1001,7 +1001,7 @@ function QuickActions({ navigate }: { navigate: (path: string) => void }) {
           { path: '/issues', bg: 'bg-red-500 dark:bg-red-600', icon: <AlertTriangle className="h-6 w-6 text-white" />, label: 'Report Issue' },
           { path: '/improvements', bg: 'bg-orange-500 dark:bg-orange-600', icon: <Video className="h-6 w-6 text-white" />, label: 'Record Improvement' },
           { path: '/communication', bg: 'bg-pink-500 dark:bg-pink-600', icon: <Heart className="h-6 w-6 text-white" />, label: 'Give a Kudo' },
-          { path: '/cash', bg: 'bg-emerald-500 dark:bg-emerald-600', icon: <Building2 className="h-6 w-6 text-white" />, label: 'Cash Management' },
+          { path: '/cash', bg: 'bg-emerald-500 dark:bg-emerald-600', icon: <Building2 className="h-6 w-6 text-white" />, label: 'Open/Close' },
         ].map(({ path, bg, icon, label }) => (
           <button
             key={path}
