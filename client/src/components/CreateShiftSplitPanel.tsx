@@ -215,7 +215,14 @@ function ShiftBlock({
   onClick: () => void;
   isSelected: boolean;
   isExcluded: boolean;
-  onToggleExclude: (e: React.MouseEvent) => void;
+  // Accepts any synthetic event so the same handler can be wired to both
+  // the parent's onClick (MouseEvent when the card is excluded — the body
+  // becomes a "click to restore" target) and the new sibling X button's
+  // onPointerUp (PointerEvent). React.PointerEvent does not structurally
+  // extend React.MouseEvent in @types/react even though the underlying
+  // DOM PointerEvent extends MouseEvent, so widening to SyntheticEvent
+  // avoids an `as unknown as React.MouseEvent` cast at every call site.
+  onToggleExclude: (e: React.SyntheticEvent) => void;
   hasConflict: boolean;
   onResizeStart?: (e: React.PointerEvent, type: 'top' | 'bottom') => void;
   onBodyPointerDown?: (e: React.PointerEvent) => void;
@@ -312,7 +319,7 @@ function ShiftBlock({
             // handler (selection) cannot also fire and re-open the shift.
             e.stopPropagation();
             e.preventDefault();
-            onToggleExclude(e as unknown as React.MouseEvent);
+            onToggleExclude(e);
           }}
           onClick={(e) => {
             // Defensive fallback for non-pointer activations (keyboard,
@@ -3360,7 +3367,10 @@ export default function CreateShiftSplitPanel({
     // into another card's window after the fact — this catches that case.
     const conflictReports: string[] = [];
     const liveActuals = liveActualShifts ?? [];
-    const editingActualId = isActualEditing ? selectedActualSchedule?.id ?? null : null;
+    // Inline isActualEditing (= selectedActualSchedule !== null) so this
+    // useCallback doesn't depend on a const declared further down in the
+    // file, which would break the temporal-dead-zone check at compile time.
+    const editingActualId = selectedActualSchedule ? selectedActualSchedule.id : null;
     for (let i = 0; i < liveValid.length; i++) {
       const a = liveValid[i];
       const aStart = timeToMin(a.startTime);
@@ -3401,7 +3411,12 @@ export default function CreateShiftSplitPanel({
 
     pendingSkippedCountRef.current = liveActive.length - liveValid.length;
     approveMutation.mutate(liveValid);
-  }, [approveMutation, suggestLoading, manualShifts, selectedShiftIdx, employees, selectedUserId, modalStartTime, modalEndTime, modalTitle, modalNotes, aiProposedShifts, persistedManualKeys, excludedIdxs, toast]);
+    // The new overlap guard above reads `liveActualShifts`,
+    // `selectedActualSchedule`, and `isActualEditing` — including them in
+    // the deps array prevents the callback from holding a stale snapshot
+    // (e.g. immediately after another shift is saved on the same date,
+    // the freshly-added actual must be visible to the next save attempt).
+  }, [approveMutation, suggestLoading, manualShifts, selectedShiftIdx, employees, selectedUserId, modalStartTime, modalEndTime, modalTitle, modalNotes, aiProposedShifts, persistedManualKeys, excludedIdxs, toast, liveActualShifts, selectedActualSchedule]);
 
   // Cmd/Ctrl+S — save all pending shifts. Only fires when the panel is open
   // AND there are valid shifts to save (so the browser's default page-save
