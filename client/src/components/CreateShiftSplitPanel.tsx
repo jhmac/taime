@@ -3098,10 +3098,11 @@ export default function CreateShiftSplitPanel({
                 className="h-7 gap-1 text-xs"
                 disabled={!modalDate}
                 data-testid="bulk-copy-button"
+                title="Copy this whole day's shifts to other dates (not just the selected ones)"
                 onClick={() => setShowCopyDayDialog(true)}
               >
                 <Copy className="h-3 w-3" />
-                Copy
+                Copy day
               </Button>
               <Button
                 size="sm"
