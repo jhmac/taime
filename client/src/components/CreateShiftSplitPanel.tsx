@@ -564,15 +564,67 @@ function AvailableEmployeePills({
    *  band + ghost preview on DayTimeline. */
   onPillDragStart?: (member: AvailMember, e: React.PointerEvent) => void;
 }) {
-  const [roleFilter, setRoleFilter] = useState('all');
-  const [minScore, setMinScore] = useState(0);
-  const [minHours, setMinHours] = useState(0);
+  // Filters are restored from localStorage only when the saved dateKey matches
+  // the current dateKey, preventing stale values from a previous day bleeding
+  // through on fresh mounts.
+  const [roleFilter, setRoleFilter] = useState(() => {
+    try {
+      const saved = localStorage.getItem('pillFilter_dateKey');
+      if (saved !== dateKey) return 'all';
+      return localStorage.getItem('pillFilter_roleFilter') || 'all';
+    } catch { return 'all'; }
+  });
+  const [minScore, setMinScore] = useState(() => {
+    try {
+      const saved = localStorage.getItem('pillFilter_dateKey');
+      if (saved !== dateKey) return 0;
+      return parseInt(localStorage.getItem('pillFilter_minScore') || '0', 10);
+    } catch { return 0; }
+  });
+  const [minHours, setMinHours] = useState(() => {
+    try {
+      const saved = localStorage.getItem('pillFilter_dateKey');
+      if (saved !== dateKey) return 0;
+      return parseFloat(localStorage.getItem('pillFilter_minHours') || '0');
+    } catch { return 0; }
+  });
+
+  // Track previous dateKey so we skip the reset on initial mount and only
+  // reset when the date actually changes between renders.
+  const prevDateKeyRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (prevDateKeyRef.current !== undefined && prevDateKeyRef.current !== dateKey) {
+      setRoleFilter('all');
+      setMinScore(0);
+      setMinHours(0);
+      try {
+        localStorage.removeItem('pillFilter_roleFilter');
+        localStorage.removeItem('pillFilter_minScore');
+        localStorage.removeItem('pillFilter_minHours');
+        localStorage.removeItem('pillFilter_dateKey');
+      } catch {}
+    }
+    prevDateKeyRef.current = dateKey;
+  }, [dateKey]);
 
   useEffect(() => {
-    setRoleFilter('all');
-    setMinScore(0);
-    setMinHours(0);
-  }, [dateKey]);
+    try {
+      localStorage.setItem('pillFilter_roleFilter', roleFilter);
+      if (dateKey) localStorage.setItem('pillFilter_dateKey', dateKey);
+    } catch {}
+  }, [roleFilter, dateKey]);
+  useEffect(() => {
+    try {
+      localStorage.setItem('pillFilter_minScore', String(minScore));
+      if (dateKey) localStorage.setItem('pillFilter_dateKey', dateKey);
+    } catch {}
+  }, [minScore, dateKey]);
+  useEffect(() => {
+    try {
+      localStorage.setItem('pillFilter_minHours', String(minHours));
+      if (dateKey) localStorage.setItem('pillFilter_dateKey', dateKey);
+    } catch {}
+  }, [minHours, dateKey]);
 
   const roles = useMemo(() => {
     return Array.from(new Set(members.map(m => m.roleName))).sort();
