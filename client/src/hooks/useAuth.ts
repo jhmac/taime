@@ -4,7 +4,18 @@ import type { UserWithRole } from "@shared/schema";
 import { useEffect, useRef } from "react";
 import { clearTokenCache } from "@/lib/queryClient";
 
+function hasE2ECookie() {
+  if (!import.meta.env.DEV) return false;
+  // Mirror the server-side opt-in: requires explicit Vite env flag in addition to the cookie.
+  // Without this, a stray __e2e_uid cookie would put the UI into the auth shell while
+  // the server rejects the (unsigned) cookie on every request.
+  if (import.meta.env.VITE_ENABLE_E2E_AUTH_BYPASS !== 'true') return false;
+  return document.cookie.split(';').some(c => c.trim().startsWith('__e2e_uid='));
+}
+
 export function useAuth() {
+  const e2eMode = hasE2ECookie();
+
   const { user: clerkUser, isLoaded, isSignedIn } = useUser();
   const { getToken } = useClerkAuth();
   const hasSynced = useRef(false);
@@ -12,10 +23,18 @@ export function useAuth() {
 
   const { data: syncedUser, isLoading: isSyncing } = useQuery<UserWithRole>({
     queryKey: ["/api/auth/user"],
-    enabled: isLoaded && isSignedIn,
+    enabled: e2eMode || (isLoaded && !!isSignedIn),
     retry: 1,
     staleTime: 30000,
     queryFn: async () => {
+      if (e2eMode) {
+        const res = await fetch("/api/auth/user", { credentials: "include" });
+        if (!res.ok) {
+          if (res.status === 401) return null;
+          throw new Error("Failed to fetch user");
+        }
+        return res.json();
+      }
       const token = await getToken();
       const res = await fetch("/api/auth/user", {
         credentials: "include",
@@ -30,6 +49,7 @@ export function useAuth() {
   });
 
   useEffect(() => {
+    if (e2eMode) return;
     if (isLoaded && isSignedIn && clerkUser && (!syncedUser || !(syncedUser as any).role) && !hasSynced.current) {
       hasSynced.current = true;
       (async () => {
@@ -62,7 +82,16 @@ export function useAuth() {
       hasSynced.current = false;
       clearTokenCache();
     }
-  }, [isLoaded, isSignedIn, clerkUser, syncedUser, getToken, queryClient]);
+  }, [e2eMode, isLoaded, isSignedIn, clerkUser, syncedUser, getToken, queryClient]);
+
+  if (e2eMode) {
+    return {
+      user: syncedUser,
+      isLoading: isSyncing && !syncedUser,
+      isAuthenticated: !!syncedUser,
+      error: null,
+    };
+  }
 
   return {
     user: syncedUser,

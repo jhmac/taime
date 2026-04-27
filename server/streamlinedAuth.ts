@@ -1,9 +1,46 @@
 import type { Express, RequestHandler } from "express";
 import { clerkMiddleware, getAuth, clerkClient } from "@clerk/express";
+import { createHmac, timingSafeEqual } from "crypto";
+import { eq } from "drizzle-orm";
+import { db } from "./db";
+import { users, roles } from "@shared/schema";
 import { storage } from "./storage";
 import { config } from "./lib/config";
 
 const SUPER_ADMIN_EMAIL = "jh@scuild.com";
+
+const E2E_COOKIE = "__e2e_uid";
+const IS_DEV = config.server.nodeEnv !== "production";
+// E2E auth bypass requires BOTH IS_DEV and an explicit opt-in flag (not committed to VCS by default).
+// E2E_TEST_SECRET must be set via environment/CI secrets (not as a committed env var).
+const E2E_BYPASS_ENABLED = IS_DEV && process.env.ENABLE_E2E_AUTH_BYPASS === 'true';
+const E2E_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
+
+function createE2EToken(userId: string, secret: string): string {
+  const ts = Date.now().toString();
+  const payload = `${userId}:${ts}`;
+  const sig = createHmac("sha256", secret).update(payload).digest("hex");
+  return `${payload}:${sig}`;
+}
+
+function verifyE2EToken(raw: string, secret: string): string | null {
+  const lastColon = raw.lastIndexOf(":");
+  if (lastColon < 0) return null;
+  const payload = raw.substring(0, lastColon);
+  const sig = raw.substring(lastColon + 1);
+  const expected = createHmac("sha256", secret).update(payload).digest("hex");
+  try {
+    if (!timingSafeEqual(Buffer.from(sig, "hex"), Buffer.from(expected, "hex"))) return null;
+  } catch {
+    return null;
+  }
+  const secondColon = payload.lastIndexOf(":");
+  if (secondColon < 0) return null;
+  const userId = payload.substring(0, secondColon);
+  const ts = parseInt(payload.substring(secondColon + 1), 10);
+  if (isNaN(ts) || Date.now() - ts > E2E_TOKEN_TTL_MS) return null;
+  return userId;
+}
 
 /**
  * In-memory map: Clerk user ID (user_XXX) → DB user ID (may differ for
@@ -45,6 +82,27 @@ export const requireSuperAdmin: RequestHandler = async (req: any, res, next) => 
 };
 
 export const requireAuth: RequestHandler = async (req: any, res, next) => {
+  // Dev-only: honour an HMAC-signed E2E bypass cookie set by /api/dev/test-login.
+  // The cookie value is a signed token; raw user IDs are rejected.
+  if (E2E_BYPASS_ENABLED) {
+    const e2eSecret = process.env.E2E_TEST_SECRET;
+    if (e2eSecret) {
+      const cookieHeader = req.headers.cookie || '';
+      const rawToken = cookieHeader
+        .split(';')
+        .map((c: string) => c.trim().split('='))
+        .find(([k]: string[]) => k === E2E_COOKIE)?.[1];
+      if (rawToken) {
+        const userId = verifyE2EToken(decodeURIComponent(rawToken), e2eSecret);
+        if (userId) {
+          const userWithRole = await storage.getUserWithRole(userId);
+          req.user = userWithRole || { id: userId };
+          return next();
+        }
+      }
+    }
+  }
+
   const auth = getAuth(req);
   if (!auth?.userId) {
     return res.status(401).json({ message: "Unauthorized" });
@@ -104,6 +162,86 @@ export async function setupAuth(app: Express) {
     }
     res.json({ publishableKey: key });
   });
+
+  // Dev-only: set an E2E bypass cookie so automated tests can authenticate
+  // without going through Clerk. Requires E2E_TEST_SECRET env var AND is
+  // restricted to localhost requests only to prevent accidental misuse.
+  const isLocalhost = (req: any) => {
+    const ip = req.ip || req.socket?.remoteAddress || '';
+    return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+  };
+
+  if (E2E_BYPASS_ENABLED) {
+    app.get('/api/dev/test-login', async (req: any, res) => {
+      if (!isLocalhost(req)) {
+        return res.status(403).json({ error: "E2E endpoints are only accessible from localhost" });
+      }
+      const secret = req.query.secret as string;
+      const configuredSecret = process.env.E2E_TEST_SECRET || '';
+      if (!configuredSecret) {
+        return res.status(503).json({ error: "E2E_TEST_SECRET is not configured" });
+      }
+      if (!secret || secret !== configuredSecret) {
+        return res.status(403).json({ error: "Invalid or missing E2E secret" });
+      }
+      const userId = req.query.userId as string;
+      if (!userId) {
+        return res.status(400).json({ error: "userId query param required" });
+      }
+      const user = await storage.getUserWithRole(userId);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      const token = createE2EToken(userId, configuredSecret);
+      res.cookie(E2E_COOKIE, token, {
+        httpOnly: false,
+        sameSite: 'lax',
+        maxAge: 60 * 60 * 1000,
+      });
+      res.json({ ok: true, userId, role: user.role?.name });
+    });
+
+    app.get('/api/dev/test-logout', (req: any, res) => {
+      if (!isLocalhost(req)) {
+        return res.status(403).json({ error: "E2E endpoints are only accessible from localhost" });
+      }
+      res.clearCookie(E2E_COOKIE);
+      res.json({ ok: true });
+    });
+
+    // Dev-only: return the first available owner-role user so tests don't
+    // depend on a hard-coded user ID.
+    app.get('/api/dev/test-setup', async (req: any, res) => {
+      if (!isLocalhost(req)) {
+        return res.status(403).json({ error: "E2E endpoints are only accessible from localhost" });
+      }
+      const secret = req.query.secret as string;
+      const configuredSecret = process.env.E2E_TEST_SECRET || '';
+      if (!configuredSecret) {
+        return res.status(503).json({ error: "E2E_TEST_SECRET is not configured" });
+      }
+      if (!secret || secret !== configuredSecret) {
+        return res.status(403).json({ error: "Invalid or missing E2E secret" });
+      }
+      const [ownerRole] = await db
+        .select({ id: roles.id })
+        .from(roles)
+        .where(eq(roles.name, 'owner'))
+        .limit(1);
+      if (!ownerRole) {
+        return res.status(503).json({ error: "No owner role found — seed the database first" });
+      }
+      const [ownerUser] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.roleId, ownerRole.id))
+        .limit(1);
+      if (!ownerUser) {
+        return res.status(503).json({ error: "No owner user found — seed the database first" });
+      }
+      res.json({ userId: ownerUser.id });
+    });
+  }
 
   app.post('/api/auth/sync', requireAuth, async (req: any, res) => {
     try {

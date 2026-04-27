@@ -370,6 +370,15 @@ function AuthenticatedApp() {
   );
 }
 
+function isE2EMode() {
+  if (!import.meta.env.DEV) return false;
+  // Mirror the server-side opt-in: requires explicit Vite env flag in addition to the cookie.
+  // Prevents stray __e2e_uid cookies from putting the UI into the auth shell when the
+  // server-side bypass is disabled (avoids broken auth-shell with failing API calls).
+  if (import.meta.env.VITE_ENABLE_E2E_AUTH_BYPASS !== 'true') return false;
+  return document.cookie.split(';').some(c => c.trim().startsWith('__e2e_uid='));
+}
+
 function Router() {
   const [location] = useLocation();
 
@@ -419,6 +428,15 @@ function Router() {
 
   if (location.startsWith("/sso-callback")) {
     return <AuthenticateWithRedirectCallback />;
+  }
+
+  // Dev-only: bypass Clerk entirely when the E2E test cookie is present
+  if (isE2EMode()) {
+    return (
+      <Suspense fallback={<PageLoader />}>
+        <AuthenticatedApp />
+      </Suspense>
+    );
   }
 
   return (
