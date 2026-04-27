@@ -2206,6 +2206,15 @@ export default function CreateShiftSplitPanel({
     const dateStr = `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`;
     const startStr = `${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
     const endStr = `${pad(dtEnd.getHours())}:${pad(dtEnd.getMinutes())}`;
+    dlog("editingSchedule/populate", {
+      id: editingSchedule.id,
+      userId: editingSchedule.userId,
+      rawStartISO: typeof editingSchedule.startTime === 'string' ? editingSchedule.startTime : new Date(editingSchedule.startTime).toISOString(),
+      rawEndISO: typeof editingSchedule.endTime === 'string' ? editingSchedule.endTime : new Date(editingSchedule.endTime).toISOString(),
+      derivedDate: dateStr,
+      derivedStart: startStr,
+      derivedEnd: endStr,
+    });
     setModalDate(dateStr);
     setModalStartTime(startStr);
     setModalEndTime(endStr);
@@ -3406,7 +3415,7 @@ export default function CreateShiftSplitPanel({
     // stale snapshot from before the user's most recent typing).
   }, [selectedActualSchedule, locations, onDateChange, multiSelectAnchorId, liveActualShifts, pendingActualEdits]);
 
-  const handleSaveActual = useCallback(() => {
+  const handleSaveActual = useCallback((closeOnSave: boolean = false) => {
     if (!selectedActualSchedule) return;
     const [y, mo, d] = modalDate.split('-').map(Number);
     const [sh, sm] = modalStartTime.split(':').map(Number);
@@ -3421,6 +3430,7 @@ export default function CreateShiftSplitPanel({
       startISO: startDate.toISOString(),
       endISO: endDate.toISOString(),
       queuedNudges: pendingNudgesRef.current.length,
+      closeOnSave,
     });
     // Task #392 C3 — capture any queued one-hop nudges and only dispatch them
     // AFTER the primary update succeeds. If the primary save fails, the
@@ -3440,7 +3450,13 @@ export default function CreateShiftSplitPanel({
       },
       {
         onSuccess: () => {
-          if (queued.length === 0) return;
+          if (queued.length === 0) {
+            if (closeOnSave) {
+              dlog("handleSaveActual/closingAfterSave", { id: selectedActualSchedule.id });
+              onOpenChange(false);
+            }
+            return;
+          }
           // Dispatch nudges via apiRequest directly (not `updateActualMutation`)
           // to avoid the per-mutation toast spam and selection-clear side
           // effects. One summary toast + one invalidate at the end.
@@ -3455,11 +3471,15 @@ export default function CreateShiftSplitPanel({
               title: 'Made room',
               description: `Nudged ${queued.length} other shift${queued.length === 1 ? '' : 's'} to make space.`,
             });
+            if (closeOnSave) {
+              dlog("handleSaveActual/closingAfterSaveAndNudge", { id: selectedActualSchedule.id, nudgeCount: queued.length });
+              onOpenChange(false);
+            }
           });
         },
       },
     );
-  }, [selectedActualSchedule, modalDate, modalStartTime, modalEndTime, selectedUserId, modalTitle, modalLocationId, modalNotes, updateActualMutation, queryClient, toast]);
+  }, [selectedActualSchedule, modalDate, modalStartTime, modalEndTime, selectedUserId, modalTitle, modalLocationId, modalNotes, updateActualMutation, queryClient, toast, onOpenChange]);
 
   const handleSaveShiftEdit = () => {
     if (selectedShiftIdx === null) return;
@@ -5021,20 +5041,36 @@ export default function CreateShiftSplitPanel({
                       )}
                     </Button>
                   ) : isActualEditing ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={updateActualMutation.isPending}
-                      onClick={handleSaveActual}
-                      className="gap-1.5"
-                    >
-                      {updateActualMutation.isPending ? (
-                        <><Loader2 className="h-3 w-3 animate-spin" />Saving…</>
-                      ) : (
-                        <><Save className="h-3 w-3" />Save Changes</>
-                      )}
-                    </Button>
+                    <>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={updateActualMutation.isPending}
+                        onClick={() => handleSaveActual(false)}
+                        className="gap-1.5"
+                      >
+                        {updateActualMutation.isPending ? (
+                          <><Loader2 className="h-3 w-3 animate-spin" />Saving…</>
+                        ) : (
+                          <><Save className="h-3 w-3" />Save Changes</>
+                        )}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={updateActualMutation.isPending}
+                        onClick={() => handleSaveActual(true)}
+                        className="gap-1.5 bg-orange-500 hover:bg-orange-600 text-white font-semibold shadow-md"
+                        title="Save changes and close this panel"
+                      >
+                        {updateActualMutation.isPending ? (
+                          <><Loader2 className="h-3 w-3 animate-spin" />Saving…</>
+                        ) : (
+                          <><Check className="h-3 w-3" />Save &amp; Close</>
+                        )}
+                      </Button>
+                    </>
                   ) : editingSchedule ? (
                     <Button type="submit" size="sm" variant="outline" disabled={isUpdating} className="gap-1.5">
                       {isUpdating ? (
