@@ -3369,14 +3369,31 @@ export default function CreateShiftSplitPanel({
     const et = new Date(schedule.endTime);
     const pad = (n: number) => String(n).padStart(2, '0');
     const dateStr = `${st.getFullYear()}-${pad(st.getMonth() + 1)}-${pad(st.getDate())}`;
-    const startStr = `${pad(st.getHours())}:${pad(st.getMinutes())}`;
-    const endStr   = `${pad(et.getHours())}:${pad(et.getMinutes())}`;
+    const serverStart = `${pad(st.getHours())}:${pad(st.getMinutes())}`;
+    const serverEnd   = `${pad(et.getHours())}:${pad(et.getMinutes())}`;
+    // Bug-2 round-trip fix: if the user previously edited this shift in the
+    // current panel session (e.g. tweaked A's times, clicked B, now clicked
+    // A again), prefer the pending map values over the server-side ones.
+    // Without this, re-populating from `schedule.startTime/endTime` would
+    // immediately bleed into `pendingActualEdits` via the sync effect and
+    // wipe the user's unsaved work.
+    const pending = pendingActualEdits[schedule.id];
+    const startStr = pending?.startTime ?? serverStart;
+    const endStr   = pending?.endTime ?? serverEnd;
+    const userId   = pending?.userId ?? schedule.userId;
+    dlog("handleSelectActualShift/populate", {
+      id: schedule.id,
+      hadPending: !!pending,
+      startStr,
+      endStr,
+      userId,
+    });
     setSelectedActualSchedule(schedule);
-    setActualFormEdits({ startTime: startStr, endTime: endStr, userId: schedule.userId });
+    setActualFormEdits({ startTime: startStr, endTime: endStr, userId });
     setModalDate(dateStr);
     setModalStartTime(startStr);
     setModalEndTime(endStr);
-    setSelectedUserId(schedule.userId);
+    setSelectedUserId(userId);
     setModalTitle(schedule.title ?? '');
     setModalLocationId(schedule.locationId ?? locations[0]?.id ?? '');
     setModalNotes(schedule.description ?? '');
@@ -3384,9 +3401,10 @@ export default function CreateShiftSplitPanel({
     if (onDateChange) onDateChange(dateStr);
     // multiSelectAnchorId + liveActualShifts must be in deps so range and
     // toggle clicks always read the freshest anchor and ordered id list.
-    // Without them, useCallback would close over stale snapshots and a
-    // Shift-click could fall back to additive single-add (no contiguous range).
-  }, [selectedActualSchedule, locations, onDateChange, multiSelectAnchorId, liveActualShifts]);
+    // pendingActualEdits is in deps so the round-trip restore above always
+    // reads the freshest map entry (otherwise the closure would capture a
+    // stale snapshot from before the user's most recent typing).
+  }, [selectedActualSchedule, locations, onDateChange, multiSelectAnchorId, liveActualShifts, pendingActualEdits]);
 
   const handleSaveActual = useCallback(() => {
     if (!selectedActualSchedule) return;
