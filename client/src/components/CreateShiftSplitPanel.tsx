@@ -39,6 +39,28 @@ import {
 import { useAuth } from "@/hooks/useAuth";
 import { useWebSocketContext } from "@/contexts/WebSocketContext";
 
+// ── Structured debug logging ────────────────────────────────────────────────
+// Centralized so a session's user actions, state transitions, and save
+// payloads can be reconstructed from the browser console when a user reports
+// a bug. Toggleable via window.__TAIME_DEBUG__ = false to silence in noisy
+// flows; defaults to ON so we capture data from the field by default.
+type DLogPayload = Record<string, unknown> | unknown[] | string | number | null | undefined;
+const dlog = (action: string, payload?: DLogPayload) => {
+  try {
+    if (typeof window !== "undefined" && (window as { __TAIME_DEBUG__?: boolean }).__TAIME_DEBUG__ === false) return;
+    const ts = new Date().toISOString().slice(11, 23); // HH:MM:SS.mmm
+    if (payload === undefined) {
+      // eslint-disable-next-line no-console
+      console.debug(`[Taime/Schedule ${ts}] ${action}`);
+    } else {
+      // eslint-disable-next-line no-console
+      console.debug(`[Taime/Schedule ${ts}] ${action}`, payload);
+    }
+  } catch {
+    // Never let logging crash the UI
+  }
+};
+
 interface HourlyData {
   hour: number;
   label: string;
@@ -1987,6 +2009,14 @@ export default function CreateShiftSplitPanel({
   const [dialogDims, setDialogDims] = useState<{ width: number; height: number } | null>(null);
   const [selectedActualSchedule, setSelectedActualSchedule] = useState<Schedule | null>(null);
   const [actualFormEdits, setActualFormEdits] = useState<{ startTime: string; endTime: string; userId: string } | null>(null);
+  // Bug-fix: pending edits that survive selection changes. `actualFormEdits`
+  // only holds the *currently-selected* shift's edits and gets overwritten
+  // when the user clicks a sibling, which made their previous edits visually
+  // revert ("the edited shift collapses back to its original state"). This
+  // map keeps each shift's pending edits alive — keyed by schedule.id —
+  // until the user either Saves (mutation success drops the entry) or
+  // closes the panel (cleared in the open/close effect).
+  const [pendingActualEdits, setPendingActualEdits] = useState<Record<string, { startTime: string; endTime: string; userId: string }>>({});
   const [manualShifts, setManualShifts] = useState<ProposedShift[]>([]);
   // Multi-select for persisted (actual) shifts on the day timeline (Task #391
   // B6). Plain click still focuses a single shift in the right-hand form;
@@ -2078,16 +2108,25 @@ export default function CreateShiftSplitPanel({
   }, [schedules, modalDate, employees]);
   // Live preview: overlay any in-progress form edits onto the selected actual shift card
   const liveActualShifts = useMemo(() => {
-    if (!selectedActualSchedule || !actualFormEdits) return dateActualShifts;
+    // Overlay pending edits onto EVERY shift (not just the currently
+    // selected one) so a user can edit shift A, click to focus shift B,
+    // and still see A's pending changes on the timeline. The selected
+    // shift gets `actualFormEdits` (the live form values) layered on
+    // top of the map entry so unsaved typing is reflected immediately.
+    const hasMapEdits = Object.keys(pendingActualEdits).length > 0;
+    if (!hasMapEdits && (!selectedActualSchedule || !actualFormEdits)) return dateActualShifts;
     return dateActualShifts.map((actual) => {
-      if (actual.schedule.id !== selectedActualSchedule.id) return actual;
-      const user = employees.find((e) => e.id === actualFormEdits.userId);
+      const isSelected = selectedActualSchedule && actual.schedule.id === selectedActualSchedule.id;
+      const mapEdit = pendingActualEdits[actual.schedule.id];
+      const liveEdit = isSelected && actualFormEdits ? actualFormEdits : mapEdit;
+      if (!liveEdit) return actual;
+      const user = employees.find((e) => e.id === liveEdit.userId);
       const name = user
         ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || actual.name
         : actual.name;
-      return { ...actual, name, startTime: actualFormEdits.startTime, endTime: actualFormEdits.endTime };
+      return { ...actual, name, startTime: liveEdit.startTime, endTime: liveEdit.endTime };
     });
-  }, [dateActualShifts, selectedActualSchedule, actualFormEdits, employees]);
+  }, [dateActualShifts, selectedActualSchedule, actualFormEdits, pendingActualEdits, employees]);
 
   const suggestDataRef = useRef<SuggestData | undefined>(undefined);
 
@@ -2109,6 +2148,7 @@ export default function CreateShiftSplitPanel({
       setModalNotes('');
       setSelectedActualSchedule(null);
       setActualFormEdits(null);
+      setPendingActualEdits({});
       setManualShifts([]);
       setShowPillsUnavailable(false);
       setSelectedActualIds(new Set());
@@ -2116,6 +2156,7 @@ export default function CreateShiftSplitPanel({
       setShowCopyDayDialog(false);
       setShowMoveDayDialog(false);
       forceRegenRef.current = false;
+      dlog("panel/open");
     } else {
       // Clear undo/redo history immediately when dialog closes
       setUndoStack([]);
@@ -2123,13 +2164,38 @@ export default function CreateShiftSplitPanel({
       editedShiftsRef.current = {};
       dragActiveRef.current = false;
       setManualShifts([]);
+      setPendingActualEdits({});
       // Acceptance: multi-select state is cleared on closing the panel.
       setSelectedActualIds(new Set());
       setMultiSelectAnchorId(null);
       setShowCopyDayDialog(false);
       setShowMoveDayDialog(false);
+      dlog("panel/close");
     }
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Single-source sync: any time the form's `actualFormEdits` changes for the
+  // currently-selected actual shift, mirror it into the per-shift map keyed
+  // by schedule.id. This keeps Bug-2's overlay alive across selection
+  // changes (clicking a sibling shift no longer wipes the prior shift's
+  // pending edits) without sprinkling map writes through every input handler.
+  useEffect(() => {
+    if (!selectedActualSchedule || !actualFormEdits) return;
+    setPendingActualEdits(prev => {
+      const id = selectedActualSchedule.id;
+      const existing = prev[id];
+      if (
+        existing &&
+        existing.startTime === actualFormEdits.startTime &&
+        existing.endTime === actualFormEdits.endTime &&
+        existing.userId === actualFormEdits.userId
+      ) {
+        return prev;
+      }
+      dlog("pendingActualEdits/upsert", { id, ...actualFormEdits });
+      return { ...prev, [id]: actualFormEdits };
+    });
+  }, [actualFormEdits, selectedActualSchedule]);
 
   // When editing an existing saved schedule, pre-fill ALL form fields with its data
   useEffect(() => {
@@ -2384,6 +2450,7 @@ export default function CreateShiftSplitPanel({
 
   const handleShiftEdit = useCallback((idx: number, updates: ShiftEdit) => {
     const aiCount = suggestDataRef.current?.proposedShifts?.length ?? 0;
+    dlog("handleShiftEdit", { idx, aiCount, isManual: idx >= aiCount, updates });
     if (idx >= aiCount) {
       // Manual shift — update manualShifts array directly
       const manualIdx = idx - aiCount;
@@ -2459,6 +2526,7 @@ export default function CreateShiftSplitPanel({
   // When user drags an actual shift block, select it and update the form times.
   // Also fires the one-hop nudge for sibling shifts owned by the same employee.
   const handleActualShiftChange = useCallback((schedule: Schedule, startTime: string, endTime: string) => {
+    dlog("handleActualShiftChange/drag", { id: schedule.id, startTime, endTime });
     const st = new Date(schedule.startTime);
     const pad = (n: number) => String(n).padStart(2, '0');
     const dateStr = `${st.getFullYear()}-${pad(st.getMonth() + 1)}-${pad(st.getDate())}`;
@@ -2603,9 +2671,11 @@ export default function CreateShiftSplitPanel({
       return apiRequest("DELETE", url);
     },
     onSuccess: (_data, variables) => {
+      dlog("removeSuggestShift/success", variables);
       queryClient.invalidateQueries({ queryKey: ["/api/schedules/suggest", variables.date] });
     },
-    onError: () => {
+    onError: (err, variables) => {
+      dlog("removeSuggestShift/error", { error: String(err), variables });
       toast({ title: "Error", description: "Couldn't remove that draft from the suggestion.", variant: "destructive" });
     },
   });
@@ -2617,6 +2687,7 @@ export default function CreateShiftSplitPanel({
   const handleToggleExclude = (idx: number, shift: ProposedShift) => {
     const aiCount = suggestDataRef.current?.proposedShifts?.length ?? 0;
     const cardKind = classifyShiftCard(idx, aiCount, shift.shiftBlock);
+    dlog("handleToggleExclude", { idx, aiCount, cardKind, employeeId: shift.employeeId, startTime: shift.startTime, endTime: shift.endTime });
     const isPersistedManual = cardKind === 'persisted-manual';
     const isManualDraft = cardKind !== 'ai';
 
@@ -2727,11 +2798,13 @@ export default function CreateShiftSplitPanel({
     queryFn: async () => {
       const skipCache = forceRegenRef.current;
       forceRegenRef.current = false;
+      dlog("suggest/fetch", { date: modalDate, skipCache });
       if (!skipCache) {
         try {
           const getRes = await apiRequest("GET", `/api/schedules/suggest?date=${modalDate}`);
           const saved = await getRes.json();
           if (saved?.proposedShifts?.length > 0) {
+            dlog("suggest/cacheHit", { date: modalDate, count: saved.proposedShifts.length });
             return saved;
           }
         } catch {
@@ -2796,6 +2869,7 @@ export default function CreateShiftSplitPanel({
       return res.json();
     },
     onSuccess: (_data, variables) => {
+      dlog("saveShiftMutation/success", { idx: variables.idx, edit: variables.edit });
       queryClient.invalidateQueries({ queryKey: ["/api/schedules/suggest", modalDate] });
       toast({ title: "Shift saved", description: "Changes persisted to the suggested schedule." });
       // Flash "Saved ✓" on the button for 2s — but ONLY if the same card is still selected.
@@ -2824,13 +2898,24 @@ export default function CreateShiftSplitPanel({
       const res = await apiRequest("PATCH", `/api/schedules/${data.id}`, data);
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (_data, vars) => {
+      dlog("updateActualMutation/success", { id: vars.id, userId: vars.userId });
       queryClient.invalidateQueries({ queryKey: ["/api/schedules"] });
+      // Drop the saved shift's entry from the pending-edits map so the
+      // overlay stops layering already-persisted values on top of fresh
+      // server data after invalidation.
+      setPendingActualEdits(prev => {
+        if (!prev[vars.id]) return prev;
+        const next = { ...prev };
+        delete next[vars.id];
+        return next;
+      });
       setSelectedActualSchedule(null);
       setActualFormEdits(null);
       toast({ title: "Shift updated", description: "Changes saved to the schedule." });
     },
-    onError: () => {
+    onError: (err, vars) => {
+      dlog("updateActualMutation/error", { id: vars?.id, error: String(err) });
       toast({ title: "Error", description: "Failed to update shift.", variant: "destructive" });
     },
   });
@@ -2889,6 +2974,7 @@ export default function CreateShiftSplitPanel({
       return { deleted };
     },
     onSuccess: (data, variables) => {
+      dlog("bulkDeleteActualsMutation/success", { deletedCount: data.deleted.length, deletedIds: data.deleted });
       queryClient.invalidateQueries({ queryKey: ["/api/schedules"] });
       // Clear multi-select once the server confirms the delete — the cards
       // they referenced are no longer in liveActualShifts.
@@ -2901,6 +2987,18 @@ export default function CreateShiftSplitPanel({
       if (selectedActualSchedule && removedSetForFocus.has(selectedActualSchedule.id)) {
         setSelectedActualSchedule(null);
         setActualFormEdits(null);
+      }
+      // Drop pending-edit overlays for any rows the server confirmed deleted,
+      // so the map doesn't accumulate orphaned entries until the panel closes.
+      if (removedSetForFocus.size > 0) {
+        setPendingActualEdits(prev => {
+          let mutated = false;
+          const next = { ...prev };
+          for (const id of removedSetForFocus) {
+            if (id in next) { delete next[id]; mutated = true; }
+          }
+          return mutated ? next : prev;
+        });
       }
       const removedCount = data.deleted.length;
       // Capture original payloads for undo; only include the rows the server
@@ -3042,9 +3140,18 @@ export default function CreateShiftSplitPanel({
       return apiRequest("DELETE", `/api/schedules/${params.schedule.id}`);
     },
     onSuccess: (_data, variables) => {
+      dlog("deleteActualMutation/success", { id: variables.schedule.id, userId: variables.schedule.userId });
       queryClient.invalidateQueries({ queryKey: ["/api/schedules"] });
       setSelectedActualSchedule(null);
       setActualFormEdits(null);
+      // Drop any pending edits for the deleted shift so a stale overlay
+      // doesn't ressurect on subsequent renders or undo flows.
+      setPendingActualEdits(prev => {
+        if (!prev[variables.schedule.id]) return prev;
+        const next = { ...prev };
+        delete next[variables.schedule.id];
+        return next;
+      });
       const original = variables.schedule;
       const empName = employees.find((e) => e.id === original.userId);
       const who = empName ? `${empName.firstName ?? ''}`.trim() || 'shift' : 'shift';
@@ -3124,6 +3231,13 @@ export default function CreateShiftSplitPanel({
         ? result.created.map((s: { id: string }) => s.id).filter(Boolean)
         : [];
       lastCreatedIdsRef.current = createdIds;
+      dlog("approveMutation/success", {
+        schedulesCreated: result?.schedulesCreated,
+        createdCount: createdIds.length,
+        createdIds,
+        skipped,
+        rawResultKeys: result && typeof result === 'object' ? Object.keys(result) : null,
+      });
       // Refetch grid + availability so the user lands on populated views.
       await Promise.all([
         queryClient.refetchQueries({ queryKey: ["/api/schedules"], type: 'active' }),
@@ -3198,13 +3312,15 @@ export default function CreateShiftSplitPanel({
       });
       onOpenChange(false);
     },
-    onError: () => {
+    onError: (err) => {
+      dlog("approveMutation/error", { error: String(err) });
       pendingSkippedCountRef.current = 0;
       toast({ title: "Error", description: "Failed to approve shifts.", variant: "destructive" });
     },
   });
 
   const handleSelectShift = (shift: ProposedShift, idx: number) => {
+    dlog("handleSelectShift", { idx, employeeId: shift.employeeId, startTime: shift.startTime, endTime: shift.endTime });
     if (idx === selectedShiftIdx) {
       setSelectedShiftIdx(null);
       return;
@@ -3229,6 +3345,7 @@ export default function CreateShiftSplitPanel({
     // single-focus form state in these branches — multi-select is for bulk
     // actions only and shouldn't replace what's in the editor on the right.
     const mode = e ? modeFromEvent(e) : 'single';
+    dlog("handleSelectActualShift", { id: schedule.id, mode, prevSelectedId: selectedActualSchedule?.id });
     if (mode === 'toggle' || mode === 'range') {
       const orderedIds = (liveActualShifts ?? []).map(a => a.schedule.id);
       setSelectedActualIds(prev => nextMultiSelection(prev, orderedIds, multiSelectAnchorId, schedule.id, mode));
@@ -3279,6 +3396,14 @@ export default function CreateShiftSplitPanel({
     const startDate = new Date(y, mo - 1, d, sh, sm, 0, 0);
     const endDate   = new Date(y, mo - 1, d, eh, em, 0, 0);
     if (endDate <= startDate) endDate.setDate(endDate.getDate() + 1);
+    dlog("handleSaveActual", {
+      id: selectedActualSchedule.id,
+      modalDate, modalStartTime, modalEndTime,
+      userId: selectedUserId,
+      startISO: startDate.toISOString(),
+      endISO: endDate.toISOString(),
+      queuedNudges: pendingNudgesRef.current.length,
+    });
     // Task #392 C3 — capture any queued one-hop nudges and only dispatch them
     // AFTER the primary update succeeds. If the primary save fails, the
     // sibling shifts are left untouched so the schedule stays consistent
@@ -3321,6 +3446,15 @@ export default function CreateShiftSplitPanel({
   const handleSaveShiftEdit = () => {
     if (selectedShiftIdx === null) return;
     const aiCount = suggestDataRef.current?.proposedShifts?.length ?? 0;
+    dlog("handleSaveShiftEdit", {
+      selectedShiftIdx,
+      aiCount,
+      isManual: selectedShiftIdx >= aiCount,
+      modalStartTime,
+      modalEndTime,
+      selectedUserId,
+      modalTitle,
+    });
 
     if (selectedShiftIdx >= aiCount) {
       // Manual shift — save to local state only (no API call needed).
@@ -3428,6 +3562,7 @@ export default function CreateShiftSplitPanel({
   // gets silently dropped). Defined after aiProposedShifts/persistedManualKeys
   // so its closure captures their current values.
   const handleBulkSave = useCallback(() => {
+    dlog("handleBulkSave/start", { isPending: approveMutation.isPending, suggestLoading });
     if (approveMutation.isPending || suggestLoading) return;
     const aiCount = suggestDataRef.current?.proposedShifts?.length ?? 0;
     let liveManual = manualShifts;
@@ -3514,6 +3649,20 @@ export default function CreateShiftSplitPanel({
     }
 
     pendingSkippedCountRef.current = liveActive.length - liveValid.length;
+    dlog("handleBulkSave/payload", {
+      date: modalDate,
+      manualCount: liveManual.length,
+      excludedCount: excludedIdxs.size,
+      activeCount: liveActive.length,
+      validCount: liveValid.length,
+      skippedCount: pendingSkippedCountRef.current,
+      shifts: liveValid.map(s => ({
+        employeeId: s.employeeId,
+        startTime: s.startTime,
+        endTime: s.endTime,
+        shiftBlock: s.shiftBlock,
+      })),
+    });
     approveMutation.mutate(liveValid);
     // The new overlap guard above reads `liveActualShifts`,
     // `selectedActualSchedule`, and `isActualEditing` — including them in
