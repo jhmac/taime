@@ -176,3 +176,90 @@ export function checkBudgetThreshold(
     weeklyBudgetLimit: budgetLimit,
   };
 }
+
+export interface DailyLaborCost {
+  date: string;
+  laborCost: number;
+}
+
+export function calculateDailyLaborCost(
+  shifts: ScheduleShift[],
+  hourlyRates: Map<string, number>
+): DailyLaborCost[] {
+  const byDate = new Map<string, number>();
+
+  for (const shift of shifts) {
+    const startMin = timeToMinutes(shift.startTime);
+    const endMin = timeToMinutes(shift.endTime);
+    const minutes = Math.max(0, endMin - startMin);
+    if (minutes === 0) continue;
+
+    const rate = hourlyRates.get(shift.employeeId) || 15;
+    const cost = (minutes / 60) * rate;
+
+    byDate.set(shift.date, (byDate.get(shift.date) || 0) + cost);
+  }
+
+  return Array.from(byDate.entries())
+    .map(([date, laborCost]) => ({ date, laborCost: Math.round(laborCost * 100) / 100 }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+export interface DailyLaborCostWarning {
+  date: string;
+  laborCost: number;
+  projectedRevenue: number;
+  laborCostPercent: number;
+  type: "over" | "under";
+  message: string;
+}
+
+export function checkDailyLaborCostThresholds(
+  dailyCosts: DailyLaborCost[],
+  projectedRevenueByDate: Map<string, number>,
+  options: { overThresholdPct?: number; underThresholdPct?: number } = {}
+): DailyLaborCostWarning[] {
+  const overPct = options.overThresholdPct ?? 30;
+  const underPct = options.underThresholdPct ?? 10;
+  const warnings: DailyLaborCostWarning[] = [];
+
+  const costByDate = new Map<string, number>(
+    dailyCosts.map(d => [d.date, d.laborCost])
+  );
+
+  const dates = Array.from(projectedRevenueByDate.keys()).sort();
+
+  for (const date of dates) {
+    const projectedRevenue = projectedRevenueByDate.get(date) ?? 0;
+    if (projectedRevenue <= 0) continue;
+
+    const laborCost = costByDate.get(date) ?? 0;
+
+    const pct = (laborCost / projectedRevenue) * 100;
+    const roundedPct = Math.round(pct * 10) / 10;
+    const costStr = `$${laborCost.toFixed(2)}`;
+    const revStr = `$${projectedRevenue.toFixed(2)}`;
+
+    if (pct > overPct) {
+      warnings.push({
+        date,
+        laborCost,
+        projectedRevenue,
+        laborCostPercent: roundedPct,
+        type: "over",
+        message: `${date}: estimated labor cost ${costStr} is ${roundedPct}% of projected revenue ${revStr}, exceeding the ${overPct}% target.`,
+      });
+    } else if (pct < underPct) {
+      warnings.push({
+        date,
+        laborCost,
+        projectedRevenue,
+        laborCostPercent: roundedPct,
+        type: "under",
+        message: `${date}: estimated labor cost ${costStr} is only ${roundedPct}% of projected revenue ${revStr}, below the ${underPct}% minimum — may indicate understaffing.`,
+      });
+    }
+  }
+
+  return warnings;
+}

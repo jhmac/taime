@@ -13,6 +13,8 @@ import {
   applyShiftOverlap,
   calculateOverlapLaborCost,
   checkBudgetThreshold,
+  calculateDailyLaborCost,
+  checkDailyLaborCostThresholds,
 } from "../services/shiftOverlap";
 import logger from "../lib/logger";
 
@@ -721,8 +723,25 @@ Required JSON structure:
         );
       }
 
+      const dailyLaborCosts = calculateDailyLaborCost(adjustedShifts, hourlyRates);
+      const projectedRevenueByDate = new Map<string, number>(
+        days.map(d => [d.date, d.predictedRevenue])
+      );
+      const dailyLaborCostWarnings = checkDailyLaborCostThresholds(
+        dailyLaborCosts,
+        projectedRevenueByDate
+      );
+      for (const w of dailyLaborCostWarnings) {
+        warnings.push(w.message);
+      }
+
       logger.info(
-        { overlapMinutes, overlapBlocks: overlapBlocks.length, additionalLaborCost },
+        {
+          overlapMinutes,
+          overlapBlocks: overlapBlocks.length,
+          additionalLaborCost,
+          dailyLaborCostWarnings: dailyLaborCostWarnings.length,
+        },
         "Shift overlap applied to generated schedule"
       );
 
@@ -734,6 +753,8 @@ Required JSON structure:
         overlapBlocks,
         additionalLaborCost,
         budgetWarning,
+        dailyLaborCosts,
+        dailyLaborCostWarnings,
         summary: typeof parsedSchedule.summary === 'string' ? parsedSchedule.summary.slice(0, 1000) : '',
         warnings,
         settings: {
