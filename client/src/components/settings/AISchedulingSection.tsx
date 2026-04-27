@@ -14,7 +14,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Plus, Trash2, Clock, DollarSign, Users, Save, UserCheck, UserX, Target, Store, Copy, Wand2, CalendarCheck, Loader2, Tag, ShieldCheck, BookOpen, X, ChevronDown } from 'lucide-react';
+import { Plus, Trash2, Clock, DollarSign, Users, Save, UserCheck, UserX, Target, Store, Copy, Wand2, CalendarCheck, Loader2, Tag, ShieldCheck, BookOpen, X, ChevronDown, Scale, Sunrise, Moon, CalendarDays, AlertTriangle } from 'lucide-react';
 import AIScheduleGenerator from '@/components/AIScheduleGenerator';
 
 interface ShiftBlock {
@@ -532,6 +532,198 @@ function AIRulesTab() {
           {saveRulesMutation.isPending ? 'Saving...' : 'Save AI Rules'}
         </Button>
       </div>
+    </div>
+  );
+}
+
+interface FairnessEmployee {
+  userId: string;
+  name: string;
+  openingShifts: number;
+  closingShifts: number;
+  weekendShifts: number;
+  totalShifts: number;
+  flags: string[];
+}
+
+interface FairnessMetrics {
+  windowDays: number;
+  teamAverages: {
+    openingShifts: number;
+    closingShifts: number;
+    weekendShifts: number;
+  };
+  employees: FairnessEmployee[];
+  flaggedCount: number;
+}
+
+function FairnessTab() {
+  const { data, isLoading, isError } = useQuery<FairnessMetrics>({
+    queryKey: ['/api/ai-scheduling/fairness-metrics'],
+    refetchOnWindowFocus: false,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 p-6 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Loading fairness metrics…
+      </div>
+    );
+  }
+
+  if (isError || !data) {
+    return (
+      <div className="p-6 text-sm text-destructive">
+        Failed to load fairness metrics. Please try again.
+      </div>
+    );
+  }
+
+  const { teamAverages, employees, flaggedCount, windowDays } = data;
+
+  const sorted = [...employees].sort((a, b) => b.totalShifts - a.totalShifts);
+
+  const flagLabel: Record<string, string> = {
+    opening: 'Early Opens',
+    closing: 'Late Closes',
+    weekend: 'Weekends',
+  };
+
+  const flagColor: Record<string, string> = {
+    opening: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300',
+    closing: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300',
+    weekend: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Summary banner */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Scale className="h-4 w-4" />
+            Shift Fairness — Last {windowDays} Days
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Counts of early opens, late closes, and weekend shifts per employee over the trailing 4-week window.
+            Employees flagged in orange have received 2× or more of a shift type compared to the team average.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-3 gap-4">
+            <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-3 text-center">
+              <Sunrise className="h-5 w-5 text-amber-600 dark:text-amber-400 mx-auto mb-1" />
+              <div className="text-xl font-semibold text-amber-700 dark:text-amber-300">{teamAverages.openingShifts}</div>
+              <div className="text-xs text-amber-600 dark:text-amber-400">Avg early opens</div>
+            </div>
+            <div className="rounded-lg bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 p-3 text-center">
+              <Moon className="h-5 w-5 text-purple-600 dark:text-purple-400 mx-auto mb-1" />
+              <div className="text-xl font-semibold text-purple-700 dark:text-purple-300">{teamAverages.closingShifts}</div>
+              <div className="text-xs text-purple-600 dark:text-purple-400">Avg late closes</div>
+            </div>
+            <div className="rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-3 text-center">
+              <CalendarDays className="h-5 w-5 text-blue-600 dark:text-blue-400 mx-auto mb-1" />
+              <div className="text-xl font-semibold text-blue-700 dark:text-blue-300">{teamAverages.weekendShifts}</div>
+              <div className="text-xs text-blue-600 dark:text-blue-400">Avg weekend shifts</div>
+            </div>
+          </div>
+
+          {flaggedCount > 0 && (
+            <div className="mt-4 flex items-center gap-2 rounded-lg bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 px-3 py-2.5 text-sm text-orange-800 dark:text-orange-300">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              <span>
+                <span className="font-semibold">{flaggedCount} employee{flaggedCount !== 1 ? 's' : ''}</span>{' '}
+                {flaggedCount === 1 ? 'has' : 'have'} received 2× or more undesirable shifts vs. the team average.
+              </span>
+            </div>
+          )}
+
+          {flaggedCount === 0 && employees.some(e => e.totalShifts > 0) && (
+            <div className="mt-4 flex items-center gap-2 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 px-3 py-2.5 text-sm text-green-800 dark:text-green-300">
+              <Scale className="h-4 w-4 shrink-0" />
+              <span>Shift distribution is balanced — no employee is significantly over-represented in any category.</span>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Per-employee table */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Users className="h-4 w-4" />
+            Employee Breakdown
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          {sorted.length === 0 ? (
+            <p className="p-4 text-sm text-muted-foreground">No scheduled employees found.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/40">
+                    <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">Employee</th>
+                    <th className="text-center px-3 py-2.5 font-medium text-amber-600 dark:text-amber-400">
+                      <span className="flex items-center justify-center gap-1"><Sunrise className="h-3.5 w-3.5" />Opens</span>
+                    </th>
+                    <th className="text-center px-3 py-2.5 font-medium text-purple-600 dark:text-purple-400">
+                      <span className="flex items-center justify-center gap-1"><Moon className="h-3.5 w-3.5" />Closes</span>
+                    </th>
+                    <th className="text-center px-3 py-2.5 font-medium text-blue-600 dark:text-blue-400">
+                      <span className="flex items-center justify-center gap-1"><CalendarDays className="h-3.5 w-3.5" />Weekends</span>
+                    </th>
+                    <th className="text-center px-3 py-2.5 font-medium text-muted-foreground">Total</th>
+                    <th className="px-4 py-2.5"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sorted.map((emp, i) => (
+                    <tr key={emp.userId} className={`border-b last:border-0 ${emp.flags.length > 0 ? 'bg-orange-50/50 dark:bg-orange-900/10' : ''}`}>
+                      <td className="px-4 py-2.5 font-medium">{emp.name}</td>
+                      <td className="text-center px-3 py-2.5 tabular-nums">
+                        <span className={emp.flags.includes('opening') ? 'font-semibold text-orange-600 dark:text-orange-400' : ''}>
+                          {emp.openingShifts}
+                        </span>
+                      </td>
+                      <td className="text-center px-3 py-2.5 tabular-nums">
+                        <span className={emp.flags.includes('closing') ? 'font-semibold text-orange-600 dark:text-orange-400' : ''}>
+                          {emp.closingShifts}
+                        </span>
+                      </td>
+                      <td className="text-center px-3 py-2.5 tabular-nums">
+                        <span className={emp.flags.includes('weekend') ? 'font-semibold text-orange-600 dark:text-orange-400' : ''}>
+                          {emp.weekendShifts}
+                        </span>
+                      </td>
+                      <td className="text-center px-3 py-2.5 text-muted-foreground tabular-nums">{emp.totalShifts}</td>
+                      <td className="px-4 py-2.5">
+                        <div className="flex flex-wrap gap-1 justify-end">
+                          {emp.flags.map(flag => (
+                            <span
+                              key={flag}
+                              className={`inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full ${flagColor[flag] || 'bg-muted text-muted-foreground'}`}
+                            >
+                              <AlertTriangle className="h-2.5 w-2.5" />
+                              {flagLabel[flag] || flag}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <p className="text-xs text-muted-foreground px-1">
+        Thresholds: early opens = shifts starting at or before 10 AM, late closes = shifts ending at or after 8 PM, weekends = Saturday or Sunday.
+        Employees with zero shifts in the window are shown with counts of 0.
+      </p>
     </div>
   );
 }
@@ -1217,6 +1409,7 @@ export default function AISchedulingSection() {
       <TabsList className="mb-6">
         <TabsTrigger value="settings">Settings</TabsTrigger>
         <TabsTrigger value="ai-rules">AI Rules</TabsTrigger>
+        <TabsTrigger value="fairness">Fairness</TabsTrigger>
         <TabsTrigger value="generate">Generate Schedule</TabsTrigger>
       </TabsList>
       <TabsContent value="settings">
@@ -1224,6 +1417,9 @@ export default function AISchedulingSection() {
       </TabsContent>
       <TabsContent value="ai-rules">
         <AIRulesTab />
+      </TabsContent>
+      <TabsContent value="fairness">
+        <FairnessTab />
       </TabsContent>
       <TabsContent value="generate">
         <AIScheduleGenerator />

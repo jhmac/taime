@@ -2942,4 +2942,136 @@ Return your findings as JSON only — no markdown, no text outside JSON:
       res.status(500).json({ message: "Failed to review schedule" });
     }
   });
+
+  // ── Fairness metrics ─────────────────────────────────────────────────────────
+  // Returns per-employee counts of opening, closing, and weekend shifts over
+  // the trailing 4-week (28-day) window. Flags any employee whose count for a
+  // category is ≥ 2× the team average for that category.
+  //
+  // Definitions:
+  //   Opening shift  — startTime hour (UTC) <= 10
+  //   Closing shift  — endTime hour (UTC) >= 20
+  //   Weekend shift  — startTime falls on Saturday (6) or Sunday (0)
+  app.get("/api/ai-scheduling/fairness-metrics", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const canViewFairness = userPermissions.some(
+        p => p.name === 'admin.manage_all' || p.name === 'schedule.view_all' || p.name === 'schedule.create'
+      );
+      if (!canViewFairness) {
+        return res.status(403).json({ message: "Scheduling permission required" });
+      }
+
+      // Resolve the requester's company so we only aggregate their team's data.
+      // If the row is not found, we cannot safely scope the query — return 403.
+      const [requesterRow] = await db
+        .select({ companyId: users.companyId })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+      const companyId = requesterRow?.companyId ?? null;
+      if (!companyId) {
+        return res.status(403).json({ message: "User company context could not be resolved" });
+      }
+
+      const now = new Date();
+      const windowStart = new Date(now);
+      windowStart.setDate(windowStart.getDate() - 28);
+
+      // Fetch all schedulable active users scoped strictly to the requester's company.
+      const allActiveUsers = await db
+        .select({
+          id: users.id,
+          firstName: users.firstName,
+          lastName: users.lastName,
+          email: users.email,
+          showInSchedule: users.showInSchedule,
+        })
+        .from(users)
+        .where(
+          and(
+            eq(users.isActive, true),
+            eq(users.showInSchedule, true),
+            eq(users.companyId, companyId),
+          )
+        );
+
+      // Scope schedules to this team's user IDs AND cap at now to exclude future shifts.
+      const teamUserIds = allActiveUsers.map(u => u.id);
+      const recentSchedules = teamUserIds.length > 0
+        ? await db
+          .select({
+            userId: schedules.userId,
+            startTime: schedules.startTime,
+            endTime: schedules.endTime,
+          })
+          .from(schedules)
+          .where(
+            and(
+              gte(schedules.startTime, windowStart),
+              lte(schedules.startTime, now),
+              inArray(schedules.userId, teamUserIds),
+            )
+          )
+        : [];
+
+      const counts: Record<string, { name: string; opening: number; closing: number; weekend: number; total: number }> = {};
+      for (const u of allActiveUsers) {
+        const name = `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.email || 'Unknown';
+        counts[u.id] = { name, opening: 0, closing: 0, weekend: 0, total: 0 };
+      }
+
+      for (const s of recentSchedules) {
+        if (!counts[s.userId]) continue;
+        const start = new Date(s.startTime);
+        const end = new Date(s.endTime);
+        const startHour = start.getUTCHours();
+        const endHour = end.getUTCHours();
+        const dayOfWeek = start.getUTCDay();
+        counts[s.userId].total++;
+        if (startHour <= 10) counts[s.userId].opening++;
+        if (endHour >= 20) counts[s.userId].closing++;
+        if (dayOfWeek === 0 || dayOfWeek === 6) counts[s.userId].weekend++;
+      }
+
+      const employeeMetrics = Object.entries(counts).map(([empId, data]) => ({
+        userId: empId,
+        name: data.name,
+        openingShifts: data.opening,
+        closingShifts: data.closing,
+        weekendShifts: data.weekend,
+        totalShifts: data.total,
+      }));
+
+      const withShifts = employeeMetrics.filter(e => e.totalShifts > 0);
+      const n = withShifts.length || 1;
+      const avgOpening = withShifts.reduce((acc, e) => acc + e.openingShifts, 0) / n;
+      const avgClosing = withShifts.reduce((acc, e) => acc + e.closingShifts, 0) / n;
+      const avgWeekend = withShifts.reduce((acc, e) => acc + e.weekendShifts, 0) / n;
+
+      const employeesWithFlags = employeeMetrics.map(e => ({
+        ...e,
+        flags: [
+          ...(avgOpening > 0 && e.openingShifts >= 2 * avgOpening ? ['opening'] : []),
+          ...(avgClosing > 0 && e.closingShifts >= 2 * avgClosing ? ['closing'] : []),
+          ...(avgWeekend > 0 && e.weekendShifts >= 2 * avgWeekend ? ['weekend'] : []),
+        ] as string[],
+      }));
+
+      res.json({
+        windowDays: 28,
+        teamAverages: {
+          openingShifts: Math.round(avgOpening * 10) / 10,
+          closingShifts: Math.round(avgClosing * 10) / 10,
+          weekendShifts: Math.round(avgWeekend * 10) / 10,
+        },
+        employees: employeesWithFlags,
+        flaggedCount: employeesWithFlags.filter(e => e.flags.length > 0).length,
+      });
+    } catch (error) {
+      logger.error("[fairness-metrics] error", { error: String(error) });
+      res.status(500).json({ message: "Failed to fetch fairness metrics" });
+    }
+  });
 }
