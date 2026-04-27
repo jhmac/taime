@@ -339,3 +339,73 @@ export function hasUnsavedChanges(s: DirtyStateInputs): boolean {
     || !!s.multiSelectActive
   );
 }
+
+// ─── Multi-select math (Task #391 B6) ──────────────────────────────────────────
+//
+// Pulled into pure helpers so the click-to-modifier reducer is unit-testable.
+// The panel's actual-shift list has stable string IDs and a deterministic
+// render order, so range selection is just "ids between anchor and target,
+// inclusive". Toggle is "add if missing, remove if present".
+
+export type MultiSelectMode = 'single' | 'toggle' | 'range';
+
+/**
+ * Map a click event's modifier state to a selection mode.
+ *  - Cmd/Ctrl click → toggle
+ *  - Shift click    → range (extend from anchor)
+ *  - plain click    → single (replace selection)
+ */
+export function modeFromEvent(e: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }): MultiSelectMode {
+  if (e.shiftKey) return 'range';
+  if (e.metaKey || e.ctrlKey) return 'toggle';
+  return 'single';
+}
+
+/**
+ * Returns the next selection set after a click on `targetId`.
+ *
+ * @param current   current set of selected IDs
+ * @param orderedIds the ordered list of all selectable IDs (timeline order)
+ * @param anchorId  the last id the user single- or toggle-clicked (range pivot)
+ * @param targetId  the id being clicked now
+ * @param mode      derived from the click event modifiers
+ */
+export function nextMultiSelection(
+  current: ReadonlySet<string>,
+  orderedIds: readonly string[],
+  anchorId: string | null,
+  targetId: string,
+  mode: MultiSelectMode,
+): Set<string> {
+  if (mode === 'single') {
+    // Plain click clears any existing multi-selection. The caller is then
+    // expected to also focus the single-selection (form edit mode).
+    return new Set();
+  }
+  if (mode === 'toggle') {
+    const next = new Set(current);
+    if (next.has(targetId)) next.delete(targetId);
+    else next.add(targetId);
+    return next;
+  }
+  // range: select inclusive slice from anchor → target. If no anchor, treat
+  // as a single-add (toggle on without removing).
+  if (!anchorId) {
+    const next = new Set(current);
+    next.add(targetId);
+    return next;
+  }
+  const ai = orderedIds.indexOf(anchorId);
+  const ti = orderedIds.indexOf(targetId);
+  if (ai === -1 || ti === -1) {
+    // Anchor or target not in the current list (e.g. just deleted). Fall back
+    // to single-add so the click still does something sensible.
+    const next = new Set(current);
+    next.add(targetId);
+    return next;
+  }
+  const [lo, hi] = ai <= ti ? [ai, ti] : [ti, ai];
+  const next = new Set(current);
+  for (let i = lo; i <= hi; i++) next.add(orderedIds[i]);
+  return next;
+}

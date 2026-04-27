@@ -29,6 +29,8 @@ import {
   saveDraft,
   clearDraft,
   evictStaleDrafts,
+  modeFromEvent,
+  nextMultiSelection,
 } from "@/lib/createShiftHelpers";
 import { useAuth } from "@/hooks/useAuth";
 import { useWebSocketContext } from "@/contexts/WebSocketContext";
@@ -835,6 +837,7 @@ function DayTimeline({
   actualShifts,
   onSelectActualShift,
   selectedActualId,
+  multiSelectedActualIds,
   onActualShiftChange,
   onDeleteActualShift,
   aiCount,
@@ -853,8 +856,9 @@ function DayTimeline({
   onDragStart?: (idx: number) => void;
   onDragEnd?: () => void;
   actualShifts?: ActualShiftEntry[];
-  onSelectActualShift?: (s: Schedule) => void;
+  onSelectActualShift?: (s: Schedule, e?: React.MouseEvent) => void;
   selectedActualId?: string | null;
+  multiSelectedActualIds?: ReadonlySet<string>;
   onActualShiftChange?: (s: Schedule, startTime: string, endTime: string) => void;
   onDeleteActualShift?: (s: Schedule) => void;
   aiCount: number;
@@ -1130,17 +1134,27 @@ function DayTimeline({
               const hPct   = ((Math.min(endMin, closeMin) - Math.max(startMin, openMin)) / totalMin) * 100;
               if (hPct <= 0) return null;
               const isActive    = selectedActualId === actual.schedule.id;
+              const isMultiSelected = !!multiSelectedActualIds?.has(actual.schedule.id);
               const isDragging  = !!preview;
               const colorCls    = getShiftColor(actual.name);
               return (
                 <div key={`actual-${idx}`} className="relative flex-1 min-w-[52px] border-l border-border/20 first:border-l-0 z-10">
                   <div
+                    data-testid={`actual-shift-card-${actual.schedule.id}`}
+                    aria-selected={isMultiSelected || isActive}
                     style={{ top: `${topPct}%`, height: `${Math.max(hPct, 3)}%` }}
                     className={cn(
                       "absolute inset-x-0.5 rounded-md text-left text-white overflow-hidden select-none group/actual",
                       colorCls,
+                      // Single-focus orange ring (existing behavior)
                       isActive   ? "ring-[3px] ring-orange-400 ring-offset-2 scale-[1.02] shadow-lg opacity-100 z-20"
                                : "opacity-90 hover:opacity-100",
+                      // Multi-select cyan ring (Task #391 B6) — distinct from
+                      // the orange single-focus ring so users can tell which is
+                      // which when multiple are highlighted at once.
+                      isMultiSelected && !isActive
+                        ? "ring-[3px] ring-cyan-400 ring-offset-2 shadow-lg opacity-100 z-20"
+                        : null,
                       isDragging ? "opacity-100 z-30 shadow-xl cursor-grabbing"
                                : "cursor-pointer",
                     )}
@@ -1151,7 +1165,10 @@ function DayTimeline({
                         actualClickSuppressRef.current = false;
                         return;
                       }
-                      onSelectActualShift?.(actual.schedule);
+                      // Pass the click event so the parent can detect Shift /
+                      // Cmd / Ctrl modifiers and route to multi-select. Plain
+                      // clicks still focus the shift in the right-hand form.
+                      onSelectActualShift?.(actual.schedule, e);
                     }}
                     onPointerDown={(e) => {
                       if (!containerRef.current) return;
@@ -1284,6 +1301,189 @@ type UndoEntry =
   | { kind: 'remove-ai'; idx: number }
   | { kind: 'remove-manual'; shift: ProposedShift; insertIdx: number; wasPersisted: boolean };
 
+// Copy-day picker (Task #391 B7). Lives as a sub-component so its react-query
+// hooks are conditionally mounted only when the dialog opens — that way the
+// preview fetch doesn't fire (or pollute the cache) on panels where the user
+// never touches "Copy day". Server contract:
+//   GET /api/schedules/copy-day-preview?sourceDate=YYYY-MM-DD&targetDates=...
+//     → { sourceCount, perTarget: [{ date, existing }] }
+//   POST /api/schedules/copy-day { sourceDate, targetDates[], replace? }
+//     → { created: Schedule[], replacedCount }
+function CopyDayDialog({
+  open,
+  onOpenChange,
+  sourceDate,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  sourceDate: string | null;
+}) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [targetDates, setTargetDates] = useState<string[]>([]);
+  const [pendingDate, setPendingDate] = useState("");
+  const [replace, setReplace] = useState(false);
+
+  // Reset whenever the dialog opens so a stale list doesn't leak between
+  // invocations (e.g. user copies Mon→Tue, closes, then later wants Wed→Thu).
+  useEffect(() => {
+    if (open) {
+      setTargetDates([]);
+      setPendingDate("");
+      setReplace(false);
+    }
+  }, [open]);
+
+  const targetParam = targetDates.join(",");
+  type Preview = { sourceCount: number; perTarget: { date: string; existing: number }[] };
+  const { data: preview, isFetching: previewLoading } = useQuery<Preview>({
+    queryKey: ["/api/schedules/copy-day-preview", sourceDate, targetParam],
+    enabled: open && !!sourceDate && targetDates.length > 0,
+    queryFn: async () => {
+      const url = `/api/schedules/copy-day-preview?sourceDate=${encodeURIComponent(sourceDate!)}&targetDates=${encodeURIComponent(targetParam)}`;
+      const res = await apiRequest("GET", url);
+      return res.json();
+    },
+  });
+
+  const copyMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/schedules/copy-day", {
+        sourceDate,
+        targetDates,
+        replace,
+      });
+      return res.json() as Promise<{ created: Schedule[]; replacedCount: number }>;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/schedules"] });
+      toast({
+        title: `Copied to ${targetDates.length} day${targetDates.length === 1 ? "" : "s"}`,
+        description: `${data.created.length} shift${data.created.length === 1 ? "" : "s"} created${data.replacedCount > 0 ? `, ${data.replacedCount} replaced` : ""}.`,
+      });
+      onOpenChange(false);
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to copy day.", variant: "destructive" });
+    },
+  });
+
+  const addTarget = () => {
+    if (!pendingDate || !sourceDate) return;
+    if (pendingDate === sourceDate) {
+      toast({
+        title: "Pick a different day",
+        description: "Source and target dates can't be the same.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (targetDates.includes(pendingDate)) return;
+    if (targetDates.length >= 60) return;
+    setTargetDates(prev => [...prev, pendingDate].sort());
+    setPendingDate("");
+  };
+
+  const totalToCreate = preview ? preview.sourceCount * targetDates.length : 0;
+  const totalToReplace = replace && preview
+    ? preview.perTarget.reduce((s, p) => s + p.existing, 0)
+    : 0;
+
+  return (
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      <AlertDialogContent className="max-w-md" data-testid="copy-day-dialog">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Copy this day to…</AlertDialogTitle>
+          <AlertDialogDescription>
+            Pick one or more dates to receive copies of every shift on{sourceDate ? ` ${sourceDate}` : " this day"}.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+
+        <div className="space-y-3">
+          <div className="flex items-end gap-2">
+            <div className="flex-1">
+              <Label className="text-xs">Add target date</Label>
+              <Input
+                type="date"
+                value={pendingDate}
+                onChange={(e) => setPendingDate(e.target.value)}
+                min={sourceDate ?? undefined}
+                data-testid="copy-day-date-input"
+              />
+            </div>
+            <Button
+              size="sm"
+              onClick={addTarget}
+              disabled={!pendingDate || targetDates.length >= 60}
+              data-testid="copy-day-add-target-button"
+            >
+              Add
+            </Button>
+          </div>
+
+          {targetDates.length > 0 && (
+            <div className="border rounded-md max-h-40 overflow-y-auto divide-y">
+              {targetDates.map(d => {
+                const t = preview?.perTarget.find(p => p.date === d);
+                return (
+                  <div key={d} className="px-3 py-2 flex items-center gap-2 text-xs" data-testid={`copy-day-target-${d}`}>
+                    <span className="flex-1 font-mono">{d}</span>
+                    <span className="text-muted-foreground">
+                      {previewLoading && !t ? "…" : t ? `${t.existing} existing` : "0 existing"}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setTargetDates(prev => prev.filter(x => x !== d))}
+                      className="text-muted-foreground hover:text-destructive"
+                      aria-label={`Remove ${d}`}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {targetDates.length > 0 && preview && (
+            <div className="text-xs text-muted-foreground space-y-1" data-testid="copy-day-preview-summary">
+              <div>
+                Will create <span className="font-semibold text-foreground">{totalToCreate}</span> shift
+                {totalToCreate === 1 ? "" : "s"} ({preview.sourceCount} × {targetDates.length} day{targetDates.length === 1 ? "" : "s"}).
+              </div>
+              {totalToReplace > 0 && (
+                <div className="text-amber-600 dark:text-amber-400">
+                  Will first delete {totalToReplace} existing shift{totalToReplace === 1 ? "" : "s"} on those dates.
+                </div>
+              )}
+            </div>
+          )}
+
+          <label className="flex items-center gap-2 text-xs cursor-pointer pt-1">
+            <Switch checked={replace} onCheckedChange={setReplace} data-testid="copy-day-replace-toggle" />
+            <span>Replace existing shifts on target dates</span>
+          </label>
+        </div>
+
+        <AlertDialogFooter>
+          <AlertDialogCancel data-testid="copy-day-cancel">Cancel</AlertDialogCancel>
+          <Button
+            onClick={() => copyMutation.mutate()}
+            disabled={targetDates.length === 0 || copyMutation.isPending || !sourceDate}
+            data-testid="copy-day-confirm"
+          >
+            {copyMutation.isPending ? (
+              <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" />Copying…</>
+            ) : (
+              `Copy to ${targetDates.length || 0} day${targetDates.length === 1 ? "" : "s"}`
+            )}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
 export default function CreateShiftSplitPanel({
   open,
   onOpenChange,
@@ -1337,6 +1537,13 @@ export default function CreateShiftSplitPanel({
   const [selectedActualSchedule, setSelectedActualSchedule] = useState<Schedule | null>(null);
   const [actualFormEdits, setActualFormEdits] = useState<{ startTime: string; endTime: string; userId: string } | null>(null);
   const [manualShifts, setManualShifts] = useState<ProposedShift[]>([]);
+  // Multi-select for persisted (actual) shifts on the day timeline (Task #391
+  // B6). Plain click still focuses a single shift in the right-hand form;
+  // Cmd/Ctrl-click toggles, Shift-click extends a range. Anchor tracks the
+  // pivot for shift-click range expansion.
+  const [selectedActualIds, setSelectedActualIds] = useState<Set<string>>(new Set());
+  const [multiSelectAnchorId, setMultiSelectAnchorId] = useState<string | null>(null);
+  const [showCopyDayDialog, setShowCopyDayDialog] = useState(false);
   const [shiftSaved, setShiftSaved] = useState(false);
   const shiftSavedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingSkippedCountRef = useRef(0);
@@ -1447,6 +1654,9 @@ export default function CreateShiftSplitPanel({
       setActualFormEdits(null);
       setManualShifts([]);
       setShowPillsUnavailable(false);
+      setSelectedActualIds(new Set());
+      setMultiSelectAnchorId(null);
+      setShowCopyDayDialog(false);
       forceRegenRef.current = false;
     } else {
       // Clear undo/redo history immediately when dialog closes
@@ -1455,6 +1665,10 @@ export default function CreateShiftSplitPanel({
       editedShiftsRef.current = {};
       dragActiveRef.current = false;
       setManualShifts([]);
+      // Acceptance: multi-select state is cleared on closing the panel.
+      setSelectedActualIds(new Set());
+      setMultiSelectAnchorId(null);
+      setShowCopyDayDialog(false);
     }
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1500,6 +1714,9 @@ export default function CreateShiftSplitPanel({
     excludedCount: excludedIdxs.size,
     editedCount: Object.keys(editedShifts).length,
     formDirty,
+    // Multi-select alone is not "dirty" enough to warrant a confirm-on-close —
+    // it's a transient view state and is cleared on close anyway.
+    multiSelectActive: false,
   });
 
   // Single funnel for "user wants to close the panel". Branches into the
@@ -1640,6 +1857,14 @@ export default function CreateShiftSplitPanel({
       const inField = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
       if (e.key === 'Escape') {
         if (showShortcutOverlay) { setShowShortcutOverlay(false); return; }
+        // Acceptance: Esc clears multi-select before falling through to close.
+        // This matches platform conventions (Finder, file managers, etc.) and
+        // gives users a fast way to bail out of an accidental selection.
+        if (selectedActualIds.size > 0) {
+          setSelectedActualIds(new Set());
+          setMultiSelectAnchorId(null);
+          return;
+        }
         requestClose();
         return;
       }
@@ -1658,7 +1883,11 @@ export default function CreateShiftSplitPanel({
       document.removeEventListener('keydown', onKey);
       document.body.style.overflow = prev;
     };
-  }, [open, requestClose, showShortcutOverlay]);
+    // selectedActualIds in deps so the Esc branch always sees the current
+    // selection. Without it, the listener captured an empty set on first
+    // mount and would skip the clear-multi-select branch — falling through
+    // to close the panel instead of just dropping the selection.
+  }, [open, requestClose, showShortcutOverlay, selectedActualIds]);
 
   // Reset custom dimensions when switching preset sizes
   const cycleSize = () => {
@@ -2139,6 +2368,77 @@ export default function CreateShiftSplitPanel({
     },
   });
 
+  // Bulk-delete N persisted shifts in one round-trip (Task #391 B6 floating
+  // action bar). Captures the full pre-delete payloads so the toast can offer
+  // a single-click "Undo all N" that recreates them. Uses the existing
+  // /api/schedules/bulk DELETE route which is already store-scoped + permission
+  // checked server-side.
+  const bulkDeleteActualsMutation = useMutation({
+    mutationFn: async (params: { schedules: Schedule[] }) => {
+      const ids = params.schedules.map(s => s.id);
+      const res = await apiRequest("DELETE", "/api/schedules/bulk", { ids });
+      const json = await res.json().catch(() => ({} as any));
+      return { deleted: Array.isArray(json?.deleted) ? json.deleted as string[] : [] };
+    },
+    onSuccess: (data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/schedules"] });
+      // Clear multi-select once the server confirms the delete — the cards
+      // they referenced are no longer in liveActualShifts.
+      setSelectedActualIds(new Set());
+      setMultiSelectAnchorId(null);
+      // If the right-side form was focused on one of the deleted shifts,
+      // drop that focus too — otherwise the editor keeps pointing to a row
+      // that no longer exists until the refetch lands.
+      const removedSetForFocus = new Set(data.deleted);
+      if (selectedActualSchedule && removedSetForFocus.has(selectedActualSchedule.id)) {
+        setSelectedActualSchedule(null);
+        setActualFormEdits(null);
+      }
+      const removedCount = data.deleted.length;
+      // Capture original payloads for undo; only include the rows the server
+      // actually deleted (in case some failed scope check and were skipped).
+      const removedSet = new Set(data.deleted);
+      const restorable = variables.schedules.filter(s => removedSet.has(s.id));
+      toast({
+        title: removedCount === 1 ? "1 shift deleted" : `${removedCount} shifts deleted`,
+        description: removedCount > 0 ? "Click undo within 10s to restore." : "No shifts were eligible for deletion.",
+        action: removedCount > 0 ? (
+          <ToastAction
+            altText={`Undo delete of ${removedCount} shift${removedCount === 1 ? "" : "s"}`}
+            data-testid="bulk-delete-undo-action"
+            onClick={async () => {
+              // Sequential POSTs so each recreate gets its own row + WS event.
+              // For ≤200 shifts this is well within a couple of seconds and
+              // keeps the API surface unchanged.
+              for (const s of restorable) {
+                try {
+                  await apiRequest("POST", "/api/schedules", {
+                    userId: s.userId,
+                    startTime: new Date(s.startTime),
+                    endTime: new Date(s.endTime),
+                    title: s.title ?? null,
+                    locationId: s.locationId ?? null,
+                    description: s.description ?? null,
+                  });
+                } catch {
+                  // Swallow per-row errors — the toast below summarizes overall.
+                }
+              }
+              queryClient.invalidateQueries({ queryKey: ["/api/schedules"] });
+              toast({ title: "Shifts restored", description: `${restorable.length} shift${restorable.length === 1 ? "" : "s"} re-created.` });
+            }}
+          >
+            Undo
+          </ToastAction>
+        ) : undefined,
+        duration: 10_000,
+      });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to delete shifts.", variant: "destructive" });
+    },
+  });
+
   // Capture the full payload of an actual shift before deleting so we can recreate
   // it on undo. The mutation receives the whole `Schedule` (not just an id) so
   // the closure has every field needed for the POST in recreateScheduleMutation.
@@ -2328,7 +2628,25 @@ export default function CreateShiftSplitPanel({
     setActualFormEdits(null);
   };
 
-  const handleSelectActualShift = useCallback((schedule: Schedule) => {
+  const handleSelectActualShift = useCallback((schedule: Schedule, e?: React.MouseEvent) => {
+    // Multi-select branch (Task #391 B6). Cmd/Ctrl-click toggles, Shift-click
+    // extends a range from the last anchor. We deliberately do NOT touch the
+    // single-focus form state in these branches — multi-select is for bulk
+    // actions only and shouldn't replace what's in the editor on the right.
+    const mode = e ? modeFromEvent(e) : 'single';
+    if (mode === 'toggle' || mode === 'range') {
+      const orderedIds = (liveActualShifts ?? []).map(a => a.schedule.id);
+      setSelectedActualIds(prev => nextMultiSelection(prev, orderedIds, multiSelectAnchorId, schedule.id, mode));
+      // Range clicks keep the existing anchor; toggle clicks adopt the most
+      // recently clicked id as the next anchor (so a follow-up Shift-click
+      // pivots from there).
+      if (mode === 'toggle') setMultiSelectAnchorId(schedule.id);
+      return;
+    }
+    // Plain click — clear any prior multi-selection and behave as before.
+    setSelectedActualIds(new Set());
+    setMultiSelectAnchorId(schedule.id);
+
     if (selectedActualSchedule?.id === schedule.id) {
       // Deselect
       setSelectedActualSchedule(null);
@@ -2352,7 +2670,11 @@ export default function CreateShiftSplitPanel({
     setModalNotes(schedule.description ?? '');
     setSelectedShiftIdx(null);
     if (onDateChange) onDateChange(dateStr);
-  }, [selectedActualSchedule, locations, onDateChange]);
+    // multiSelectAnchorId + liveActualShifts must be in deps so range and
+    // toggle clicks always read the freshest anchor and ordered id list.
+    // Without them, useCallback would close over stale snapshots and a
+    // Shift-click could fall back to additive single-add (no contiguous range).
+  }, [selectedActualSchedule, locations, onDateChange, multiSelectAnchorId, liveActualShifts]);
 
   const handleSaveActual = useCallback(() => {
     if (!selectedActualSchedule) return;
@@ -2711,6 +3033,59 @@ export default function CreateShiftSplitPanel({
             <X className="h-4 w-4" />
             <span className="sr-only">Close</span>
           </button>
+
+          {/* Floating action bar (Task #391 B6) — appears centered at the
+              bottom of the panel only when one or more persisted shifts are
+              multi-selected. Stays inside the dialog (absolute, not fixed) so
+              it doesn't fight a closed/closing panel. Esc clears selection;
+              this gives mouse users an equivalent path. */}
+          {selectedActualIds.size > 0 && (
+            <div
+              role="region"
+              aria-label="Bulk actions for selected shifts"
+              data-testid="multi-select-action-bar"
+              className="absolute bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 px-3 py-2 rounded-full bg-foreground text-background shadow-2xl border border-border/30"
+            >
+              <span className="text-xs font-medium pl-1 pr-1">
+                {selectedActualIds.size} shift{selectedActualIds.size === 1 ? "" : "s"} selected
+              </span>
+              <Button
+                size="sm"
+                variant="destructive"
+                className="h-7 gap-1 text-xs"
+                disabled={bulkDeleteActualsMutation.isPending}
+                data-testid="bulk-delete-button"
+                onClick={() => {
+                  // Snapshot the full payloads before delete so the undo path
+                  // has everything it needs to recreate them.
+                  const payload = (liveActualShifts ?? [])
+                    .filter(a => selectedActualIds.has(a.schedule.id))
+                    .map(a => a.schedule);
+                  if (payload.length === 0) return;
+                  bulkDeleteActualsMutation.mutate({ schedules: payload });
+                }}
+              >
+                {bulkDeleteActualsMutation.isPending ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Trash2 className="h-3 w-3" />
+                )}
+                Delete
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                className="h-7 text-xs"
+                data-testid="clear-selection-button"
+                onClick={() => {
+                  setSelectedActualIds(new Set());
+                  setMultiSelectAnchorId(null);
+                }}
+              >
+                Clear
+              </Button>
+            </div>
+          )}
           {/* Header */}
           <div className="px-5 py-3 border-b flex-shrink-0">
             <h2 className="text-sm font-semibold leading-none tracking-tight flex items-center gap-2">
@@ -2762,6 +3137,21 @@ export default function CreateShiftSplitPanel({
                 >
                   <Plus className="h-3 w-3" />
                   <span className="hidden sm:inline">Add Shift</span>
+                </Button>
+                {/* Copy this day to other dates (Task #391 B7). Disabled when
+                    there are no persisted shifts to copy — copying an empty
+                    day is a no-op and would just confuse users. */}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1 text-xs h-8"
+                  title="Copy this day's shifts to another date"
+                  disabled={!modalDate || (liveActualShifts?.length ?? 0) === 0}
+                  onClick={() => setShowCopyDayDialog(true)}
+                  data-testid="copy-day-button"
+                >
+                  <Plus className="h-3 w-3 rotate-45" />
+                  <span className="hidden sm:inline">Copy day</span>
                 </Button>
                 {/* Refresh button */}
                 <Button
@@ -2959,6 +3349,7 @@ export default function CreateShiftSplitPanel({
                       actualShifts={liveActualShifts}
                       onSelectActualShift={handleSelectActualShift}
                       selectedActualId={selectedActualSchedule?.id}
+                      multiSelectedActualIds={selectedActualIds}
                       onActualShiftChange={handleActualShiftChange}
                       onDeleteActualShift={(s) => deleteActualMutation.mutate({ schedule: s })}
                       aiCount={aiProposedShifts.length}
@@ -3577,6 +3968,16 @@ export default function CreateShiftSplitPanel({
       </>,
       document.body
     )}
+
+    {/* Copy-day picker dialog (Task #391 B7) — only mounted when invoked so
+        the preview query doesn't fire on every panel open. `modalDate` is the
+        currently-displayed date in YYYY-MM-DD form; if it's null the button
+        that opens this dialog is also disabled, so passing null is defensive. */}
+    <CopyDayDialog
+      open={showCopyDayDialog}
+      onOpenChange={setShowCopyDayDialog}
+      sourceDate={modalDate}
+    />
 
     {/* ── Unsaved-changes confirmation (Task #387 A1) ──
         Three explicit choices: Save (the safe default), Discard (destructive,
