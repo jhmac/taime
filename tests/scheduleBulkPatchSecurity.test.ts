@@ -357,6 +357,116 @@ describe("PATCH /api/schedules/bulk — field allowlist", () => {
     }
   });
 
+  // ── shiftMinutes op (Task #395 — "Move to date" relies on this contract) ──
+  // Locks in the assumption that bulk PATCH with `op.kind: 'shiftMinutes'`
+  // adds the same delta (in ms) to every selected row's startTime AND
+  // endTime, ignoring whatever was in `op.patch` (there is no patch field on
+  // this branch). This is the entire mechanism behind the "Move N shifts to
+  // <date>" floating-action-bar feature, which converts (targetDate −
+  // sourceDate) into deltaMin and issues a single bulk PATCH.
+  describe("shiftMinutes op", () => {
+    it("shifts each row's startTime and endTime by the requested delta", async () => {
+      const recorder: TxRecorder = { setCalls: [] };
+      const rowA = {
+        id: "sched-A",
+        userId: "user-1",
+        startTime: new Date("2026-04-26T09:00:00Z"),
+        endTime: new Date("2026-04-26T13:00:00Z"),
+      };
+      const rowB = {
+        id: "sched-B",
+        userId: "user-2",
+        startTime: new Date("2026-04-26T15:30:00Z"),
+        endTime: new Date("2026-04-26T22:00:00Z"),
+      };
+      const app = buildApp({ existingRows: [rowA, rowB], recorder });
+      const { server, base } = await startServer(app);
+      try {
+        // +5 days = 5 * 1440 minutes — what "Move to 2026-05-01" computes.
+        const deltaMin = 5 * 24 * 60;
+        const r = await patchBulk(base, {
+          ids: ["sched-A", "sched-B"],
+          op: { kind: "shiftMinutes", deltaMin },
+        });
+        expect(r.status).toBe(200);
+        expect(recorder.setCalls).toHaveLength(2);
+
+        // Row A: 2026-04-26 09:00 → 2026-05-01 09:00 (and 13:00 → 13:00).
+        expect((recorder.setCalls[0].startTime as Date).toISOString()).toBe(
+          "2026-05-01T09:00:00.000Z",
+        );
+        expect((recorder.setCalls[0].endTime as Date).toISOString()).toBe(
+          "2026-05-01T13:00:00.000Z",
+        );
+        // Row B keeps its own (different) time of day after the shift.
+        expect((recorder.setCalls[1].startTime as Date).toISOString()).toBe(
+          "2026-05-01T15:30:00.000Z",
+        );
+        expect((recorder.setCalls[1].endTime as Date).toISOString()).toBe(
+          "2026-05-01T22:00:00.000Z",
+        );
+      } finally {
+        await stopServer(server);
+      }
+    });
+
+    it("supports a negative delta (the Move-to undo path)", async () => {
+      const recorder: TxRecorder = { setCalls: [] };
+      const moved = {
+        id: "sched-A",
+        userId: "user-1",
+        startTime: new Date("2026-05-01T09:00:00Z"),
+        endTime: new Date("2026-05-01T13:00:00Z"),
+      };
+      const app = buildApp({ existingRows: [moved], recorder });
+      const { server, base } = await startServer(app);
+      try {
+        const r = await patchBulk(base, {
+          ids: ["sched-A"],
+          op: { kind: "shiftMinutes", deltaMin: -5 * 24 * 60 },
+        });
+        expect(r.status).toBe(200);
+        // Restored to the original date, exactly inverting the +5d move above.
+        expect((recorder.setCalls[0].startTime as Date).toISOString()).toBe(
+          "2026-04-26T09:00:00.000Z",
+        );
+        expect((recorder.setCalls[0].endTime as Date).toISOString()).toBe(
+          "2026-04-26T13:00:00.000Z",
+        );
+      } finally {
+        await stopServer(server);
+      }
+    });
+
+    it("ignores any `patch` body sent alongside shiftMinutes (no field bleed-through)", async () => {
+      // Defensive: if a future caller mistakenly includes a `patch` object on
+      // the shiftMinutes branch (e.g. a copy-paste from the `set` op), the
+      // server must NOT silently apply those fields — only startTime/endTime
+      // are produced by this branch.
+      const recorder: TxRecorder = { setCalls: [] };
+      const app = buildApp({ existingRows: [baseRow], recorder });
+      const { server, base } = await startServer(app);
+      try {
+        const r = await patchBulk(base, {
+          ids: ["sched-1"],
+          op: {
+            kind: "shiftMinutes",
+            deltaMin: 60,
+            // @ts-expect-error — extra fields ignored by the route's contract.
+            patch: { title: "should-not-stick", userId: "evil" },
+          },
+        });
+        expect(r.status).toBe(200);
+        const patch = recorder.setCalls[0];
+        expect(Object.keys(patch).sort()).toEqual(["endTime", "startTime"]);
+        expect(patch.title).toBeUndefined();
+        expect(patch.userId).toBeUndefined();
+      } finally {
+        await stopServer(server);
+      }
+    });
+  });
+
   it("requires schedule.manage permission (403 otherwise)", async () => {
     const app = express();
     app.use(express.json());

@@ -19,7 +19,7 @@ import {
   Clock, Users, Loader2, TrendingUp, Sparkles, AlertTriangle,
   ChevronDown, ChevronUp, Wand2, Check, X, RefreshCw,
   Maximize2, Minimize2, Pencil, Save, Trash2, Plus, Undo2, Redo2,
-  Lock, Keyboard, DollarSign, Store, Copy,
+  Lock, Keyboard, DollarSign, Store, Copy, CalendarDays,
 } from "lucide-react";
 import type { Schedule } from "@shared/schema";
 import {
@@ -1702,6 +1702,102 @@ function CopyDayDialog({
   );
 }
 
+// Move-to-date picker (Task #395). Lives as a sub-component so its local
+// state (the chosen target date) is reset every time the dialog re-opens
+// without having to plumb it through the parent. The actual mutation lives
+// on the parent so it can share the toast/undo wiring with the other bulk
+// actions on the floating action bar.
+function MoveToDateDialog({
+  open,
+  onOpenChange,
+  sourceDate,
+  count,
+  isMoving,
+  onConfirm,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  sourceDate: string | null;
+  count: number;
+  isMoving: boolean;
+  onConfirm: (targetDate: string) => void;
+}) {
+  const [targetDate, setTargetDate] = useState("");
+
+  // Reset every time the dialog opens so the previous pick doesn't leak in.
+  useEffect(() => {
+    if (open) setTargetDate("");
+  }, [open]);
+
+  const sameAsSource = !!sourceDate && !!targetDate && targetDate === sourceDate;
+  const canConfirm = !!targetDate && !!sourceDate && !sameAsSource && !isMoving;
+
+  // Pre-format a friendly date label for the description / button without
+  // pulling in date-fns just for this. Parsing as UTC midnight keeps the
+  // displayed weekday consistent with the YYYY-MM-DD value the user picked.
+  const targetLabel = targetDate
+    ? new Date(targetDate + "T12:00:00Z").toLocaleDateString("en-US", {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      })
+    : "";
+
+  return (
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      <AlertDialogContent className="max-w-md" data-testid="move-to-dialog">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Move {count} shift{count === 1 ? "" : "s"} to…</AlertDialogTitle>
+          <AlertDialogDescription>
+            Each shift keeps its original start and end time — only the date changes.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+
+        <div className="space-y-3">
+          <div>
+            <Label className="text-xs">New date</Label>
+            <Input
+              type="date"
+              value={targetDate}
+              onChange={(e) => setTargetDate(e.target.value)}
+              data-testid="move-to-date-input"
+              autoFocus
+            />
+          </div>
+
+          {sameAsSource && (
+            <div className="text-xs text-amber-600 dark:text-amber-400" data-testid="move-to-same-date-warning">
+              That's the same date these shifts are already on. Pick a different day.
+            </div>
+          )}
+
+          {targetDate && !sameAsSource && (
+            <div className="text-xs text-muted-foreground" data-testid="move-to-summary">
+              {count} shift{count === 1 ? "" : "s"} will move to <span className="font-semibold text-foreground">{targetLabel}</span>.
+            </div>
+          )}
+        </div>
+
+        <AlertDialogFooter>
+          <AlertDialogCancel data-testid="move-to-cancel">Cancel</AlertDialogCancel>
+          <Button
+            onClick={() => { if (canConfirm) onConfirm(targetDate); }}
+            disabled={!canConfirm}
+            data-testid="move-to-confirm"
+          >
+            {isMoving ? (
+              <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" />Moving…</>
+            ) : (
+              `Move to ${targetLabel || "date"}`
+            )}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
 export default function CreateShiftSplitPanel({
   open,
   onOpenChange,
@@ -1762,6 +1858,7 @@ export default function CreateShiftSplitPanel({
   const [selectedActualIds, setSelectedActualIds] = useState<Set<string>>(new Set());
   const [multiSelectAnchorId, setMultiSelectAnchorId] = useState<string | null>(null);
   const [showCopyDayDialog, setShowCopyDayDialog] = useState(false);
+  const [showMoveDayDialog, setShowMoveDayDialog] = useState(false);
   // Task #392 C1/C2 — drag-from-pill state. `null` = no drag in progress.
   // Updated on every pointermove via document-level listener installed by
   // `startPillDrag`. DayTimeline reads this to render the green availability
@@ -1880,6 +1977,7 @@ export default function CreateShiftSplitPanel({
       setSelectedActualIds(new Set());
       setMultiSelectAnchorId(null);
       setShowCopyDayDialog(false);
+      setShowMoveDayDialog(false);
       forceRegenRef.current = false;
     } else {
       // Clear undo/redo history immediately when dialog closes
@@ -1892,6 +1990,7 @@ export default function CreateShiftSplitPanel({
       setSelectedActualIds(new Set());
       setMultiSelectAnchorId(null);
       setShowCopyDayDialog(false);
+      setShowMoveDayDialog(false);
     }
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -2700,6 +2799,93 @@ export default function CreateShiftSplitPanel({
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to delete shifts.", variant: "destructive" });
+    },
+  });
+
+  // Bulk-move N persisted shifts to a different date in one round-trip
+  // (Task #395 — "Move to…" on the floating action bar). All cards on the
+  // floating action bar belong to the currently-displayed `modalDate`, so
+  // moving them to `targetDate` is equivalent to shifting every shift's
+  // start/end timestamp by exactly (targetDate − modalDate) whole days.
+  // We use the existing `shiftMinutes` op on /api/schedules/bulk so the
+  // server can do the math + per-row update in a single transaction. Undo
+  // is just the same call with the inverse delta.
+  const bulkMoveActualsMutation = useMutation({
+    mutationFn: async (params: { ids: string[]; deltaMin: number; targetDate: string }) => {
+      const res = await apiRequest("PATCH", "/api/schedules/bulk", {
+        ids: params.ids,
+        op: { kind: 'shiftMinutes', deltaMin: params.deltaMin },
+      });
+      // Server returns { updated: Schedule[] }; parse defensively without
+      // an `any` cast (a malformed body just yields an empty list).
+      let updated: Schedule[] = [];
+      try {
+        const json: unknown = await res.json();
+        if (json && typeof json === 'object' && Array.isArray((json as { updated?: unknown }).updated)) {
+          updated = (json as { updated: Schedule[] }).updated;
+        }
+      } catch {
+        // Body wasn't JSON — leave updated empty.
+      }
+      return { updated };
+    },
+    onSuccess: (data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/schedules"] });
+      // Acceptance: selection clears after the move completes. Also dismiss
+      // the dialog and clear any focused-row state pointing at a moved shift
+      // (the editor on the right would otherwise still show the old date).
+      setSelectedActualIds(new Set());
+      setMultiSelectAnchorId(null);
+      setShowMoveDayDialog(false);
+      const removedSetForFocus = new Set(data.updated.map(s => s.id));
+      if (selectedActualSchedule && removedSetForFocus.has(selectedActualSchedule.id)) {
+        setSelectedActualSchedule(null);
+        setActualFormEdits(null);
+      }
+
+      const movedCount = data.updated.length;
+      const movedIds = data.updated.map(s => s.id);
+      const targetLabel = variables.targetDate
+        ? new Date(variables.targetDate + "T12:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric" })
+        : "";
+      toast({
+        title:
+          movedCount === 0
+            ? "No shifts moved"
+            : `${movedCount} shift${movedCount === 1 ? "" : "s"} moved to ${targetLabel}`,
+        description: movedCount > 0 ? "Click undo within 10s to restore the original date." : "No shifts were eligible for move.",
+        action: movedCount > 0 ? (
+          <ToastAction
+            altText={`Undo move of ${movedCount} shift${movedCount === 1 ? "" : "s"}`}
+            data-testid="bulk-move-undo-action"
+            onClick={async () => {
+              try {
+                await apiRequest("PATCH", "/api/schedules/bulk", {
+                  ids: movedIds,
+                  op: { kind: 'shiftMinutes', deltaMin: -variables.deltaMin },
+                });
+                queryClient.invalidateQueries({ queryKey: ["/api/schedules"] });
+                toast({
+                  title: "Move undone",
+                  description: `${movedCount} shift${movedCount === 1 ? "" : "s"} restored to the original date.`,
+                });
+              } catch {
+                toast({
+                  title: "Couldn't undo move",
+                  description: "Try moving them back manually from the schedule.",
+                  variant: "destructive",
+                });
+              }
+            }}
+          >
+            Undo
+          </ToastAction>
+        ) : undefined,
+        duration: 10_000,
+      });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to move shifts.", variant: "destructive" });
     },
   });
 
@@ -3554,6 +3740,28 @@ export default function CreateShiftSplitPanel({
                   <Trash2 className="h-3 w-3" />
                 )}
                 Delete
+              </Button>
+              {/* Move-to (Task #395) — reassigns every selected shift's date
+                  while preserving its time-of-day. Sits between Delete and
+                  Copy day so the most-common bulk actions cluster from
+                  destructive → reorganize → duplicate, mirroring the
+                  expected mental escalation. Disabled while a move is
+                  in-flight to prevent double-submits. */}
+              <Button
+                size="sm"
+                variant="secondary"
+                className="h-7 gap-1 text-xs"
+                disabled={!modalDate || bulkMoveActualsMutation.isPending}
+                data-testid="bulk-move-button"
+                title={`Move ${selectedActualIds.size} selected shift${selectedActualIds.size === 1 ? "" : "s"} to a different date (keeps each shift's time of day)`}
+                onClick={() => setShowMoveDayDialog(true)}
+              >
+                {bulkMoveActualsMutation.isPending ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <CalendarDays className="h-3 w-3" />
+                )}
+                Move to…
               </Button>
               {/* Copy from the bar mirrors the header "Copy day" button so
                   the bulk-action UX is self-contained: a manager who's
@@ -4510,6 +4718,31 @@ export default function CreateShiftSplitPanel({
       open={showCopyDayDialog}
       onOpenChange={setShowCopyDayDialog}
       sourceDate={modalDate}
+    />
+
+    {/* Move-to-date dialog (Task #395). Only mounted when triggered so its
+        local state resets cleanly between invocations. The mutation lives
+        on the panel itself; this dialog is a thin date picker that hands
+        the chosen target date back to the parent for the actual call. */}
+    <MoveToDateDialog
+      open={showMoveDayDialog}
+      onOpenChange={setShowMoveDayDialog}
+      sourceDate={modalDate}
+      count={selectedActualIds.size}
+      isMoving={bulkMoveActualsMutation.isPending}
+      onConfirm={(targetDate) => {
+        if (!modalDate || !targetDate) return;
+        // Compute whole-day delta in minutes. Parsing both strings as UTC
+        // midnight avoids any DST-driven off-by-one in the diff itself; the
+        // subsequent server-side timestamp shift is symmetric for ±N days.
+        const sourceMs = new Date(modalDate + "T00:00:00Z").getTime();
+        const targetMs = new Date(targetDate + "T00:00:00Z").getTime();
+        const deltaMin = Math.round((targetMs - sourceMs) / 60000);
+        if (deltaMin === 0) return;
+        const ids = Array.from(selectedActualIds);
+        if (ids.length === 0) return;
+        bulkMoveActualsMutation.mutate({ ids, deltaMin, targetDate });
+      }}
     />
 
     {/* ── Unsaved-changes confirmation (Task #387 A1) ──
