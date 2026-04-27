@@ -2831,27 +2831,31 @@ export default function CreateShiftSplitPanel({
       const res = await apiRequest("POST", "/api/schedules/suggest", body);
       return res.json();
     },
-    // When editing an existing saved shift, the panel is a focused single-shift
-    // editor — AI proposals would only confuse the view (Bug: reopening a saved
-    // shift showed "AI Suggested (5)" alongside "Scheduled (4)" with a
-    // duplicate-conflict warning). Skip the fetch entirely in editingSchedule
-    // mode; the derived aiProposedShifts below also collapses to [] for that
-    // case so any stale react-query cache from create-mode doesn't leak in.
+    // editingSchedule mode is a focused single-shift editor — skip the fetch
+    // so we don't surface AI proposals the user didn't ask for. See
+    // effectiveSuggestData below for the matching render-side mask.
     enabled: open && !!modalDate && !editingSchedule,
     staleTime: 5 * 60_000,
     gcTime: 10 * 60_000,
     retry: 1,
   });
 
-  // Keep suggestDataRef in sync so undo/redo can access original shift times.
-  // In editingSchedule mode the panel shows zero AI proposals, so we null out
-  // the ref too — handlers that read `suggestDataRef.current?.proposedShifts`
-  // for index/aiCount math then see an empty AI list, matching the rendered
-  // UI and preventing stale react-query cache from leaking into edit-mode
-  // interactions.
+  // Single source of truth for AI suggestion data the UI is allowed to read.
+  // In editingSchedule mode this collapses to undefined so all derived AI
+  // surfaces (timeline column, ghost preview, conflict banner, synthetic-data
+  // disclaimer) auto-disappear without per-site `editingSchedule` checks.
+  // The Refresh button and the suggest useQuery `enabled` clause are gated
+  // directly by `editingSchedule` instead — they're about NOT FETCHING /
+  // disabling an action, not about masking already-loaded data. Routing all
+  // AI reads through this value also blocks stale react-query cache from a
+  // prior create-mode open on the same date from leaking into the edit view.
+  const effectiveSuggestData = editingSchedule ? undefined : suggestData;
+
+  // Mirror into ref so undo/redo and handler-side aiCount math (which can't
+  // re-read from useState during a callback) stay aligned with the rendered UI.
   useEffect(() => {
-    suggestDataRef.current = editingSchedule ? undefined : suggestData;
-  }, [suggestData, editingSchedule]);
+    suggestDataRef.current = effectiveSuggestData;
+  }, [effectiveSuggestData]);
 
   // Mutation to persist a pill-added shift to the suggested schedule cache
   const persistPillShiftMutation = useMutation({
@@ -3595,16 +3599,33 @@ export default function CreateShiftSplitPanel({
     }
   };
 
-  // In editingSchedule mode the panel is a focused single-shift editor; we
-  // suppress AI proposals entirely so the timeline shows only the day's
-  // existing scheduled shifts (Scheduled column). This guards against a
-  // react-query cache hit from a prior create-mode open on the same date
-  // surfacing stale AI suggestions in the edit view.
-  const aiProposedShifts = editingSchedule
-    ? []
-    : (suggestData?.proposedShifts ?? []).map((shift, idx) =>
-        editedShifts[idx] ? { ...shift, ...editedShifts[idx] } : shift
-      );
+  // Reads through effectiveSuggestData so this is automatically [] in
+  // editingSchedule mode (see derivation near the suggest useQuery).
+  const aiProposedShifts = (effectiveSuggestData?.proposedShifts ?? []).map(
+    (shift, idx) => editedShifts[idx] ? { ...shift, ...editedShifts[idx] } : shift
+  );
+
+  // Ghost-preview candidates for the timeline's hover-to-add affordance.
+  // IMPORTANT: capture the ORIGINAL index BEFORE filtering — `excludedIdxs`
+  // is keyed to the original suggestion index, so any reordering would
+  // mis-attribute exclusions. Manual-tagged entries are filtered out so the
+  // ghost preview only ever surfaces genuine AI suggestions (no duplicate-
+  // add of manual entries). Auto-empty in editingSchedule mode via
+  // effectiveSuggestData.
+  const aiGhostCandidates = useMemo<AiGhostCandidate[]>(
+    () => (effectiveSuggestData?.proposedShifts ?? [])
+      .map((s, idx) => ({ s, idx }))
+      .filter(({ s }) => (s.shiftBlock || '').toLowerCase() !== 'manual')
+      .map(({ s, idx }): AiGhostCandidate => ({
+        employeeId: s.employeeId,
+        employeeName: s.employeeName,
+        startTime: s.startTime,
+        endTime: s.endTime,
+        idx,
+      }))
+      .filter((c) => !!c.employeeId),
+    [effectiveSuggestData],
+  );
   // Exclude manual shifts that have already been persisted to and returned from the cache
   const persistedManualKeys = new Set(
     aiProposedShifts
@@ -3615,8 +3636,10 @@ export default function CreateShiftSplitPanel({
     s => !persistedManualKeys.has(`${s.employeeId}:${s.startTime}:${s.endTime}`)
   );
   const proposedShifts = [...aiProposedShifts, ...pendingManualShifts];
-  const mergedSuggestData = suggestData
-    ? { ...suggestData, proposedShifts }
+  // Reads through effectiveSuggestData so the merged payload (passed to
+  // DayTimeline) carries no AI metadata in editingSchedule mode.
+  const mergedSuggestData = effectiveSuggestData
+    ? { ...effectiveSuggestData, proposedShifts }
     : proposedShifts.length > 0
     ? {
         date: modalDate,
@@ -4427,10 +4450,9 @@ export default function CreateShiftSplitPanel({
               )}
               onClick={() => setSelectedShiftIdx(null)}
             >
-              {/* Synthetic warning — suppressed in editingSchedule mode (the
-                  AI proposals aren't shown there, so the "recommendations use
-                  defaults" disclaimer is irrelevant and just noise). */}
-              {!editingSchedule && suggestData?.dataSource === "synthetic" && (
+              {/* Synthetic-data disclaimer; auto-suppressed in editing mode
+                  via effectiveSuggestData. */}
+              {effectiveSuggestData?.dataSource === "synthetic" && (
                 <div className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
                   <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                   No Shopify sales data found. Recommendations use minimum staffing defaults.
@@ -4592,30 +4614,7 @@ export default function CreateShiftSplitPanel({
                       onDeleteActualShift={(s) => deleteActualMutation.mutate({ schedule: s })}
                       aiCount={aiProposedShifts.length}
                       pillDrag={pillDrag}
-                      aiGhostCandidates={editingSchedule
-                        ? []
-                        : (suggestData?.proposedShifts ?? [])
-                          // IMPORTANT: capture the ORIGINAL index first, then
-                          // filter. `excludedIdxs` is keyed to the original
-                          // suggestion index, so we must not let .filter()
-                          // re-number the entries after we've already tagged
-                          // them. Manual-tagged entries are filtered out so
-                          // the ghost preview only ever surfaces genuine AI
-                          // suggestions (no duplicate-add of manual entries).
-                          // In editingSchedule mode the ghost preview is
-                          // suppressed entirely — the panel is a focused
-                          // single-shift editor and click-to-add-from-ghost
-                          // would re-introduce the AI proposals we just hid.
-                          .map((s, idx) => ({ s, idx }))
-                          .filter(({ s }) => (s.shiftBlock || '').toLowerCase() !== 'manual')
-                          .map(({ s, idx }): AiGhostCandidate => ({
-                            employeeId: s.employeeId,
-                            employeeName: s.employeeName,
-                            startTime: s.startTime,
-                            endTime: s.endTime,
-                            idx,
-                          }))
-                          .filter((c) => !!c.employeeId)}
+                      aiGhostCandidates={aiGhostCandidates}
                       onApplyAiGhost={(c) => {
                         const member = (availData?.members ?? []).find((m) => m.userId === c.employeeId);
                         if (!member) return;
