@@ -869,9 +869,11 @@ type DragState = {
 
 type ActualShiftEntry = { schedule: Schedule; name: string; startTime: string; endTime: string };
 
-// Hover-intent delete button for persisted "Scheduled" cards. Requires the
-// cursor to dwell for 200ms before the click is honored, so an accidental
-// flick across the card doesn't fire the destructive delete.
+// Hover-intent delete button for persisted "Scheduled" cards. The cursor
+// dwelling for 200ms "arms" the button (turning it red) so users get a
+// clear visual cue that a click will delete. The click itself always fires
+// the delete — gating clicks behind the timer was confusing because a quick
+// click did nothing with no feedback.
 function HoverIntentDeleteButton({ onConfirm }: { onConfirm: () => void }) {
   const [armed, setArmed] = useState(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -896,12 +898,12 @@ function HoverIntentDeleteButton({ onConfirm }: { onConfirm: () => void }) {
       onPointerLeave={handleLeave}
       onClick={(e) => {
         e.stopPropagation();
-        if (armed) onConfirm();
+        onConfirm();
       }}
       onPointerDown={(e) => e.stopPropagation()}
       title="Delete from schedule"
-      className={`absolute top-0.5 right-0.5 hidden group-hover/actual:flex items-center justify-center w-4 h-4 rounded-full text-white z-30 transition-colors ${
-        armed ? 'bg-red-500/90 hover:bg-red-600' : 'bg-black/40 cursor-progress'
+      className={`absolute top-0.5 right-0.5 hidden group-hover/actual:flex items-center justify-center w-4 h-4 rounded-full text-white z-30 transition-colors cursor-pointer ${
+        armed ? 'bg-red-500/90 hover:bg-red-600' : 'bg-black/40 hover:bg-black/60'
       }`}
     >
       <X className="h-2.5 w-2.5" />
@@ -3225,18 +3227,18 @@ export default function CreateShiftSplitPanel({
     return ids;
   }, [proposedShifts, excludedIdxs, dateActualShifts]);
 
-  // Task #392 C5 — for the AI ghost preview we deliberately exclude the AI
-  // suggestions themselves from the "already scheduled" set. Otherwise every
-  // candidate would be filtered out as already applied (since AI suggestions
-  // ARE part of `proposedShifts`) and the ghost would never render. Only
-  // manual drafts and persisted actual shifts count as "already on the
-  // timeline" for the purpose of suppressing a ghost.
+  // Task #392 C5 — the AI ghost preview is suppressed when the candidate
+  // already has any shift on the timeline (manual draft, persisted actual,
+  // OR a non-excluded AI proposal). Otherwise the violet ghost overlay can
+  // render directly on top of an existing AI card and steal the click,
+  // turning an attempted "edit" into a duplicate add.
   const scheduledForAiGhost = useMemo<Set<string>>(() => {
     const ids = new Set<string>();
+    proposedShifts.forEach((s, i) => { if (!excludedIdxs.has(i)) ids.add(s.employeeId); });
     pendingManualShifts.forEach(s => ids.add(s.employeeId));
     dateActualShifts.forEach(a => ids.add(a.schedule.userId));
     return ids;
-  }, [pendingManualShifts, dateActualShifts]);
+  }, [proposedShifts, excludedIdxs, pendingManualShifts, dateActualShifts]);
 
   const handlePillAdd = useCallback((member: AvailMember) => {
     const clampFn = (t: string, min: string, max: string) => {

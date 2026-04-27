@@ -16,6 +16,7 @@ import {
   calculateDailyLaborCost,
   checkDailyLaborCostThresholds,
 } from "../services/shiftOverlap";
+import { computeScheduleStoreRecipients } from "../lib/broadcastRecipients";
 import logger from "../lib/logger";
 
 const anthropic = new Anthropic({ apiKey: config.anthropic.apiKey });
@@ -223,7 +224,12 @@ async function backfillDayOrdersFromShopify(
   return { ordersFound: orders.length, dayRevenue: Math.round(dayRevenue * 100) / 100 };
 }
 
-export function registerAiSchedulingRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
+export function registerAiSchedulingRoutes(
+  app: Express,
+  storage: IStorage,
+  isAuthenticated: any,
+  sendToUsers: (userIds: string[], data: Record<string, unknown>) => void,
+) {
   app.get("/api/ai-scheduling/settings", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;

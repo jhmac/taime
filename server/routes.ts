@@ -175,7 +175,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerSopRoutes(app, storage, isAuthenticated);
   registerSopLibraryRoutes(app, storage, isAuthenticated, broadcastToAll, sendToUsers);
   registerAiAssistantRoutes(app, storage, isAuthenticated);
-  registerAiSchedulingRoutes(app, storage, isAuthenticated);
+  registerAiSchedulingRoutes(app, storage, isAuthenticated, sendToUsers);
   registerDashboardRoutes(app, storage, isAuthenticated);
   registerIssueRoutes(app, storage, isAuthenticated, broadcastToAll, sendToUsers);
   registerRitualRoutes(app, storage, isAuthenticated, broadcastToAll, sendToUsers);
