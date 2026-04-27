@@ -8,9 +8,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
   BrainCircuit, Calendar, DollarSign, Users, Loader2,
-  Check, AlertTriangle, ChevronDown, ChevronUp, Sparkles
+  Check, AlertTriangle, ChevronDown, ChevronUp, Sparkles,
+  ShieldCheck, XCircle, Info
 } from 'lucide-react';
 
 interface ScheduleEntry {
@@ -42,6 +44,23 @@ interface GenerateResult {
   salesDataAvailable: boolean;
 }
 
+interface ReviewIssue {
+  type: string;
+  date: string;
+  shiftBlock: string;
+  employees: string[];
+  description: string;
+  recommendation: string;
+}
+
+interface ReviewResult {
+  issues: ReviewIssue[];
+  coverageAssessment: string;
+  estimatedLaborCostPct: number | null;
+  fairnessSummary: string;
+  overallRating: 'pass' | 'warn' | 'fail';
+}
+
 export default function AIScheduleGenerator() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -58,6 +77,8 @@ export default function AIScheduleGenerator() {
   const [result, setResult] = useState<GenerateResult | null>(null);
   const [expandedDays, setExpandedDays] = useState<Set<string>>(new Set());
   const [removedEntries, setRemovedEntries] = useState<Set<number>>(new Set());
+  const [reviewResult, setReviewResult] = useState<ReviewResult | null>(null);
+  const [showReviewModal, setShowReviewModal] = useState(false);
 
   const { data: connectedShops = [] } = useQuery<any[]>({
     queryKey: ['/api/shopify/shops'],
@@ -77,6 +98,7 @@ export default function AIScheduleGenerator() {
       const data = await response.json();
       setResult(data);
       setRemovedEntries(new Set());
+      setReviewResult(null);
       toast({ title: "Schedule Generated", description: data.summary || "AI schedule is ready for review." });
     },
     onError: (error: any) => {
@@ -95,9 +117,31 @@ export default function AIScheduleGenerator() {
       queryClient.invalidateQueries({ queryKey: ['/api/schedules'] });
       toast({ title: "Schedule Applied", description: `${data.schedulesCreated} shifts have been created.` });
       setResult(null);
+      setReviewResult(null);
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to apply schedule.", variant: "destructive" });
+    },
+  });
+
+  const reviewMutation = useMutation({
+    mutationFn: async () => {
+      if (!result) throw new Error('No schedule to review');
+      const entries = result.generatedSchedule.filter((_, i) => !removedEntries.has(i));
+      return apiRequest('POST', '/api/ai-scheduling/review', {
+        scheduleEntries: entries,
+        startDate,
+        endDate,
+        days: result.days,
+      });
+    },
+    onSuccess: async (response: any) => {
+      const data: ReviewResult = await response.json();
+      setReviewResult(data);
+      setShowReviewModal(true);
+    },
+    onError: () => {
+      toast({ title: "Review Failed", description: "Failed to audit the schedule. Please try again.", variant: "destructive" });
     },
   });
 
@@ -120,6 +164,12 @@ export default function AIScheduleGenerator() {
     return result.generatedSchedule
       .map((entry, index) => ({ ...entry, originalIndex: index }))
       .filter(e => e.date === date);
+  };
+
+  const ratingConfig = {
+    pass: { icon: <Check className="h-5 w-5" />, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800', label: 'Passed' },
+    warn: { icon: <AlertTriangle className="h-5 w-5" />, color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800', label: 'Warnings Found' },
+    fail: { icon: <XCircle className="h-5 w-5" />, color: 'text-red-600 dark:text-red-400', bg: 'bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800', label: 'Issues Found' },
   };
 
   return (
@@ -197,6 +247,35 @@ export default function AIScheduleGenerator() {
                     ))}
                   </div>
                 </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {reviewResult && (
+            <Card className={`border ${ratingConfig[reviewResult.overallRating].bg}`}>
+              <CardContent className="pt-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className={ratingConfig[reviewResult.overallRating].color}>
+                    {ratingConfig[reviewResult.overallRating].icon}
+                  </span>
+                  <span className={`font-medium ${ratingConfig[reviewResult.overallRating].color}`}>
+                    Schedule Review: {ratingConfig[reviewResult.overallRating].label}
+                  </span>
+                  {reviewResult.issues.length > 0 && (
+                    <Badge variant="outline" className="ml-auto">
+                      {reviewResult.issues.length} issue{reviewResult.issues.length !== 1 ? 's' : ''}
+                    </Badge>
+                  )}
+                </div>
+                <p className="text-sm text-muted-foreground">{reviewResult.coverageAssessment}</p>
+                <Button
+                  variant="link"
+                  size="sm"
+                  className="px-0 text-xs mt-1"
+                  onClick={() => setShowReviewModal(true)}
+                >
+                  View full report
+                </Button>
               </CardContent>
             </Card>
           )}
@@ -312,8 +391,26 @@ export default function AIScheduleGenerator() {
               {activeEntries.length} shifts will be created ({removedEntries.size} removed)
             </p>
             <div className="flex gap-3">
-              <Button variant="outline" onClick={() => setResult(null)}>
+              <Button variant="outline" onClick={() => { setResult(null); setReviewResult(null); }}>
                 Discard
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => reviewMutation.mutate()}
+                disabled={reviewMutation.isPending || activeEntries.length === 0}
+                className="gap-2 border-blue-300 text-blue-700 dark:border-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950/20"
+              >
+                {reviewMutation.isPending ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Reviewing...
+                  </>
+                ) : (
+                  <>
+                    <ShieldCheck className="h-4 w-4" />
+                    Review before publishing
+                  </>
+                )}
               </Button>
               <Button
                 onClick={() => applyMutation.mutate()}
@@ -336,6 +433,134 @@ export default function AIScheduleGenerator() {
           </div>
         </>
       )}
+
+      {/* Schedule Review Modal */}
+      <Dialog open={showReviewModal} onOpenChange={setShowReviewModal}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5 text-primary" />
+              Schedule Audit Report
+            </DialogTitle>
+          </DialogHeader>
+          {reviewResult && (
+            <div className="space-y-4">
+              {/* Overall Rating */}
+              <div className={`rounded-lg border p-4 ${ratingConfig[reviewResult.overallRating].bg}`}>
+                <div className="flex items-center gap-2">
+                  <span className={ratingConfig[reviewResult.overallRating].color}>
+                    {ratingConfig[reviewResult.overallRating].icon}
+                  </span>
+                  <span className={`font-semibold text-base ${ratingConfig[reviewResult.overallRating].color}`}>
+                    Overall: {ratingConfig[reviewResult.overallRating].label}
+                  </span>
+                </div>
+              </div>
+
+              {/* Coverage & Labor Cost */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="rounded-lg border p-3 space-y-1">
+                  <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                    <Users className="h-3.5 w-3.5" />
+                    Coverage Assessment
+                  </div>
+                  <p className="text-sm">{reviewResult.coverageAssessment || 'No assessment available.'}</p>
+                </div>
+                <div className="rounded-lg border p-3 space-y-1">
+                  <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                    <DollarSign className="h-3.5 w-3.5" />
+                    Estimated Labor Cost
+                  </div>
+                  <p className="text-sm">
+                    {reviewResult.estimatedLaborCostPct !== null
+                      ? `${reviewResult.estimatedLaborCostPct.toFixed(1)}% of projected revenue`
+                      : 'Unable to estimate'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Fairness Summary */}
+              {reviewResult.fairnessSummary && (
+                <div className="rounded-lg border p-3 space-y-1">
+                  <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                    <Info className="h-3.5 w-3.5" />
+                    Fairness Assessment
+                  </div>
+                  <p className="text-sm">{reviewResult.fairnessSummary}</p>
+                </div>
+              )}
+
+              {/* Issues List */}
+              <div>
+                <h3 className="text-sm font-semibold mb-2">
+                  {reviewResult.issues.length === 0
+                    ? 'No issues found'
+                    : `${reviewResult.issues.length} Issue${reviewResult.issues.length !== 1 ? 's' : ''} Found`}
+                </h3>
+                {reviewResult.issues.length === 0 ? (
+                  <div className="rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/20 p-4 text-sm text-emerald-700 dark:text-emerald-300 flex items-center gap-2">
+                    <Check className="h-4 w-4 shrink-0" />
+                    This schedule looks good! No rule violations or coverage gaps were detected.
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {reviewResult.issues.map((issue, i) => (
+                      <div key={i} className="rounded-lg border p-3 space-y-1.5">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-1.5">
+                            <AlertTriangle className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
+                            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                              {issue.type}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5 text-xs text-muted-foreground shrink-0">
+                            {issue.date && <span>{issue.date}</span>}
+                            {issue.shiftBlock && <span>· {issue.shiftBlock}</span>}
+                          </div>
+                        </div>
+                        {issue.employees && issue.employees.length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {issue.employees.map((emp, j) => (
+                              <Badge key={j} variant="secondary" className="text-xs">{emp}</Badge>
+                            ))}
+                          </div>
+                        )}
+                        <p className="text-sm">{issue.description}</p>
+                        {issue.recommendation && (
+                          <div className="rounded bg-muted/50 px-2.5 py-1.5 text-xs text-muted-foreground">
+                            <span className="font-medium text-foreground">Fix: </span>
+                            {issue.recommendation}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <Separator />
+
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setShowReviewModal(false)}>
+                  Close
+                </Button>
+                <Button
+                  onClick={() => { setShowReviewModal(false); applyMutation.mutate(); }}
+                  disabled={applyMutation.isPending || activeEntries.length === 0}
+                  className="gap-2"
+                >
+                  {applyMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Check className="h-4 w-4" />
+                  )}
+                  Apply Schedule Anyway
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

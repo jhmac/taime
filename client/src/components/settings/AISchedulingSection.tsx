@@ -15,6 +15,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Plus, Trash2, Clock, DollarSign, Users, Save, UserCheck, UserX, Target, Store, Copy, Wand2, CalendarCheck, Loader2, Tag, ShieldCheck, BookOpen, X, ChevronDown } from 'lucide-react';
+import AIScheduleGenerator from '@/components/AIScheduleGenerator';
 
 interface ShiftBlock {
   name: string;
@@ -1216,12 +1217,16 @@ export default function AISchedulingSection() {
       <TabsList className="mb-6">
         <TabsTrigger value="settings">Settings</TabsTrigger>
         <TabsTrigger value="ai-rules">AI Rules</TabsTrigger>
+        <TabsTrigger value="generate">Generate Schedule</TabsTrigger>
       </TabsList>
       <TabsContent value="settings">
         {settingsContent}
       </TabsContent>
       <TabsContent value="ai-rules">
         <AIRulesTab />
+      </TabsContent>
+      <TabsContent value="generate">
+        <AIScheduleGenerator />
       </TabsContent>
     </Tabs>
   );

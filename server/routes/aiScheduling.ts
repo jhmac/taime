@@ -2692,4 +2692,254 @@ Respond ONLY with a valid JSON object (no markdown, no explanation) in this exac
       res.status(500).json({ message: "Failed to generate suggested schedule", detail: String(error) });
     }
   });
+
+  app.post("/api/ai-scheduling/review", isAuthenticated, aiRateLimiter, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const isAdmin = userPermissions.some(p =>
+        p.name === 'admin.manage_all' || p.name === 'schedule.create' || p.name === 'schedule.view_all'
+      );
+      if (!isAdmin) {
+        return res.status(403).json({ message: "Admin access required" });
+      }
+
+      // scheduleEntries: required. days: optional revenue projections from the generate result.
+      const { scheduleEntries, startDate, endDate, days: providedDays } = req.body;
+      if (!scheduleEntries || !Array.isArray(scheduleEntries) || scheduleEntries.length === 0) {
+        return res.status(400).json({ message: "scheduleEntries array is required and must not be empty" });
+      }
+      if (!startDate || !endDate) {
+        return res.status(400).json({ message: "startDate and endDate are required" });
+      }
+
+      // ── Resolve store and scope all queries to the caller's store ─────────────
+      const { tryResolveStoreIdForUser } = await import('../lib/storeResolver');
+      const { getAllStoreUserIds } = await import('../lib/permissionUtils');
+      const storeId = await tryResolveStoreIdForUser(userId);
+      if (!storeId) {
+        return res.status(403).json({ message: "No store associated with your account" });
+      }
+      const storeUserIds = await getAllStoreUserIds(storeId);
+      if (storeUserIds.length === 0) {
+        return res.status(400).json({ message: "No employees found for your store" });
+      }
+
+      const settingsResult = await db.select().from(aiSchedulingSettings).limit(1);
+      const settings = settingsResult[0] || {
+        shiftBlocks: [
+          { name: "Morning", startTime: "09:00", endTime: "14:00" },
+          { name: "Afternoon", startTime: "14:00", endTime: "21:00" },
+        ],
+        minimumStaffing: 2,
+        storeHours: [],
+      };
+
+      const storeHoursArray = (settings.storeHours as any[]) || [];
+      const shiftBlocks = (settings.shiftBlocks as any[]) || [];
+      const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+
+      // Build the days array (use provided days with revenue if available, otherwise build from range)
+      const days: Array<{ date: string; dayOfWeek: number; dayName: string; predictedRevenue?: number; requiredStaff?: number }> = [];
+      if (Array.isArray(providedDays) && providedDays.length > 0) {
+        for (const d of providedDays) {
+          if (d.date) days.push(d);
+        }
+      } else {
+        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+          const current = new Date(d);
+          const dateStr = current.toISOString().split('T')[0];
+          const dow = current.getDay();
+          days.push({ date: dateStr, dayOfWeek: dow, dayName: dayNames[dow] });
+        }
+      }
+
+      // Scope all user queries to the resolved store's user IDs
+      const [allUsers, availabilityResult, allWorkPatterns] = await Promise.all([
+        db.select().from(users).where(and(eq(users.isActive, true), inArray(users.id, storeUserIds))),
+        db.select().from(userAvailability).where(and(
+          gte(userAvailability.date, start),
+          lte(userAvailability.date, end),
+          inArray(userAvailability.userId, storeUserIds)
+        )),
+        db.select().from(userWorkPatterns).where(inArray(userWorkPatterns.userId, storeUserIds)),
+      ]);
+
+      const workPatternsByUser: Record<string, Record<number, string>> = {};
+      for (const wp of allWorkPatterns) {
+        if (!workPatternsByUser[wp.userId]) workPatternsByUser[wp.userId] = {};
+        workPatternsByUser[wp.userId][(wp as any).dayOfWeek] = (wp as any).status;
+      }
+
+      const availabilityByUserDate: Record<string, Record<string, boolean>> = {};
+      for (const avail of availabilityResult) {
+        const dateKey = new Date(avail.date).toISOString().split('T')[0];
+        if (!availabilityByUserDate[avail.userId]) availabilityByUserDate[avail.userId] = {};
+        if (avail.isAvailable === false) {
+          availabilityByUserDate[avail.userId][dateKey] = false;
+        }
+      }
+
+      const scoreWindow = new Date();
+      scoreWindow.setDate(scoreWindow.getDate() - 90);
+      const performanceScores = await db
+        .select({ userId: clockEvents.userId, totalPoints: sql<number>`COALESCE(SUM(${clockEvents.pointValue}), 0)::int` })
+        .from(clockEvents)
+        .where(and(gte(clockEvents.createdAt, scoreWindow), inArray(clockEvents.userId, storeUserIds)))
+        .groupBy(clockEvents.userId);
+      const scoreMap: Record<string, number> = {};
+      for (const s of performanceScores) scoreMap[s.userId] = s.totalPoints;
+
+      const allPromptRules = await db.select().from(aiSchedulingRules)
+        .where(and(eq(aiSchedulingRules.storeId, storeId), eq(aiSchedulingRules.isEnabled, true)));
+      const activeRules = allPromptRules.filter(r => r.ruleType !== 'custom_instructions');
+
+      const employeeList = allUsers
+        .filter(u => u.showInSchedule !== false)
+        .map(u => {
+          const userPatterns = workPatternsByUser[u.id] || {};
+          const availByDate: Record<string, string> = {};
+          for (const day of days) {
+            const pattern = userPatterns[day.dayOfWeek];
+            const explicitUnavailable = availabilityByUserDate[u.id]?.[day.date] === false;
+            if (pattern === 'hard_off') {
+              availByDate[day.date] = 'HARD_OFF';
+            } else if (explicitUnavailable) {
+              availByDate[day.date] = 'unavailable';
+            } else if (pattern === 'required') {
+              availByDate[day.date] = 'REQUIRED';
+            } else if (pattern === 'preferred_off') {
+              availByDate[day.date] = 'preferred_off';
+            } else {
+              availByDate[day.date] = 'available';
+            }
+          }
+          const classifications = u.schedulingClassifications as string[] | null;
+          return {
+            id: u.id,
+            name: `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.email || 'Unknown',
+            availability: availByDate,
+            targetWeeklyHours: u.targetWeeklyHours ? parseFloat(u.targetWeeklyHours) : null,
+            performanceScore: scoreMap[u.id] ?? 0,
+            classifications: classifications && classifications.length > 0 ? classifications : [],
+          };
+        });
+
+      // ── Build Template 2 prompt ──────────────────────────────────────────────
+      // Template source: .agents/skills/retail-scheduling-agent/references/prompt-templates.md
+      const storeHoursStr = storeHoursArray.length === 7
+        ? storeHoursArray.map((sh: any) => {
+            const dayName = dayNames[sh.day];
+            return sh.isClosed ? `${dayName}: CLOSED` : `${dayName}: ${sh.openTime}–${sh.closeTime}`;
+          }).join(', ')
+        : 'Not configured';
+
+      const coverageRulesStr = activeRules.length > 0
+        ? activeRules.map((r, i) => {
+            const p: AiRuleParams = (r.params as AiRuleParams) || {};
+            switch (r.ruleType) {
+              case 'opening_requires_classification':
+                return `${i + 1}. Opening shift must include at least ${p.count || 1} employee(s) with [${p.classification || 'Key Holder'}] role.`;
+              case 'closing_requires_classification':
+                return `${i + 1}. Closing shift must include at least ${p.count || 1} employee(s) with [${p.classification || 'Closer'}] role.`;
+              case 'new_hire_paired_with_trainer':
+                return `${i + 1}. Any New Hire on a shift must be paired with at least one Trainer.`;
+              case 'no_clopening':
+                return `${i + 1}. No clopenings — do not schedule the same employee to close one day and open the next.`;
+              case 'min_classification_per_shift':
+                return `${i + 1}. Every shift must have at least ${p.count || 1} employee(s) with [${p.classification || 'Key Holder'}] role.`;
+              default:
+                return `${i + 1}. ${r.ruleType}: ${JSON.stringify(p)}`;
+            }
+          }).join('\n')
+        : 'None configured';
+
+      const revenueByDayStr = days.some(d => d.predictedRevenue !== undefined)
+        ? days.map(d => `${d.date} (${d.dayName}): revenue=$${d.predictedRevenue ?? 0}, need ${d.requiredStaff ?? 'unknown'} staff`).join('\n')
+        : 'Not available — estimate labor cost based on shift hours and typical retail wages ($15–$20/hr)';
+
+      // Follows Template 2 structure from prompt-templates.md exactly
+      const prompt = `You are a retail scheduling auditor. Review the following draft schedule and identify all constraint violations, coverage gaps, fairness issues, and labor cost concerns.
+
+STORE CONFIGURATION:
+- Store hours: ${storeHoursStr}
+- Shift blocks: ${JSON.stringify(shiftBlocks.map((b: any) => ({ name: b.name, startTime: b.startTime, endTime: b.endTime })))}
+- Minimum staffing: ${settings.minimumStaffing}
+- Labor cost target: 15–25% of daily revenue
+
+EMPLOYEES (with availability, hour targets, scores, and role classifications):
+${employeeList.map(e => {
+  const targetInfo = e.targetWeeklyHours ? ` [TARGET: ${e.targetWeeklyHours}hrs/wk]` : '';
+  const scoreInfo = ` [SCORE: ${e.performanceScore}]`;
+  const classInfo = e.classifications.length > 0 ? ` [ROLES: ${e.classifications.join(', ')}]` : '';
+  return `${e.name} (${e.id})${targetInfo}${scoreInfo}${classInfo}: ${Object.entries(e.availability).map(([date, status]) => `${date}=${status}`).join(', ')}`;
+}).join('\n')}
+
+DRAFT SCHEDULE TO REVIEW:
+${JSON.stringify(scheduleEntries)}
+
+REVENUE PROJECTIONS BY DAY:
+${revenueByDayStr}
+
+ACTIVE COVERAGE RULES:
+${coverageRulesStr}
+
+For each issue found, report:
+1. The type of violation (e.g., rest gap, missing role, coverage gap, clopening, over-budget)
+2. The affected date and shift block
+3. The affected employee(s)
+4. A recommended fix
+
+Also provide:
+- An overall coverage assessment (are all required staff counts met?)
+- An estimated labor cost % of projected revenue
+- A fairness summary (are undesirable shifts distributed equitably?)
+
+Return your findings as JSON only — no markdown, no text outside JSON:
+{"issues":[{"type":"violation type","date":"YYYY-MM-DD","shiftBlock":"block","employees":["Name"],"description":"what is wrong","recommendation":"how to fix"}],"coverageAssessment":"overall coverage status","estimatedLaborCostPct":number,"fairnessSummary":"brief fairness assessment","overallRating":"pass|warn|fail"}`;
+
+      const aiResult = await anthropic.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 4096,
+        system: "You are a retail scheduling auditor. You MUST respond with valid JSON only. No markdown, no explanations, no code fences. Your entire response must be a single JSON object starting with { and ending with }.",
+        messages: [{ role: 'user', content: prompt }],
+      });
+
+      const aiContent = aiResult.content[0];
+      if (aiContent.type !== 'text') {
+        throw new Error('Expected text response from Claude');
+      }
+
+      let parsedReview: any;
+      try {
+        let jsonStr = aiContent.text.trim();
+        const codeBlockMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
+        if (codeBlockMatch) jsonStr = codeBlockMatch[1].trim();
+        if (!jsonStr.startsWith('{')) {
+          const firstBrace = jsonStr.indexOf('{');
+          if (firstBrace !== -1) jsonStr = jsonStr.slice(firstBrace);
+        }
+        const lastBrace = jsonStr.lastIndexOf('}');
+        if (lastBrace !== -1 && lastBrace < jsonStr.length - 1) jsonStr = jsonStr.slice(0, lastBrace + 1);
+        parsedReview = JSON.parse(jsonStr);
+      } catch (parseErr) {
+        logger.error("[review] failed to parse AI response", { parseErr: String(parseErr) });
+        return res.status(500).json({ message: "AI returned an unparseable response. Please try again." });
+      }
+
+      res.json({
+        issues: Array.isArray(parsedReview.issues) ? parsedReview.issues : [],
+        coverageAssessment: typeof parsedReview.coverageAssessment === 'string' ? parsedReview.coverageAssessment : '',
+        estimatedLaborCostPct: typeof parsedReview.estimatedLaborCostPct === 'number' ? parsedReview.estimatedLaborCostPct : null,
+        fairnessSummary: typeof parsedReview.fairnessSummary === 'string' ? parsedReview.fairnessSummary : '',
+        overallRating: ['pass', 'warn', 'fail'].includes(parsedReview.overallRating) ? parsedReview.overallRating : 'warn',
+      });
+    } catch (error) {
+      logger.error("[review] unhandled error", { error: String(error) });
+      res.status(500).json({ message: "Failed to review schedule" });
+    }
+  });
 }
