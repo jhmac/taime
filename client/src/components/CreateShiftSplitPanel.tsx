@@ -19,7 +19,7 @@ import {
   Clock, Users, Loader2, TrendingUp, Sparkles, AlertTriangle,
   ChevronDown, ChevronUp, Wand2, Check, X, RefreshCw,
   Maximize2, Minimize2, Pencil, Save, Trash2, Plus, Undo2, Redo2,
-  Lock, Keyboard, DollarSign, Store,
+  Lock, Keyboard, DollarSign, Store, Copy,
 } from "lucide-react";
 import type { Schedule } from "@shared/schema";
 import {
@@ -2377,8 +2377,21 @@ export default function CreateShiftSplitPanel({
     mutationFn: async (params: { schedules: Schedule[] }) => {
       const ids = params.schedules.map(s => s.id);
       const res = await apiRequest("DELETE", "/api/schedules/bulk", { ids });
-      const json = await res.json().catch(() => ({} as any));
-      return { deleted: Array.isArray(json?.deleted) ? json.deleted as string[] : [] };
+      // Server returns { deleted: string[] } on success. Parse defensively
+      // without an `any` cast: a missing/malformed body just yields an empty
+      // deleted list, which matches the "nothing happened" UX.
+      let deleted: string[] = [];
+      try {
+        const json: unknown = await res.json();
+        if (json && typeof json === 'object' && Array.isArray((json as { deleted?: unknown }).deleted)) {
+          deleted = ((json as { deleted: unknown[] }).deleted).filter(
+            (x): x is string => typeof x === 'string'
+          );
+        }
+      } catch {
+        // Body wasn't JSON (e.g. 204) — leave deleted empty.
+      }
+      return { deleted };
     },
     onSuccess: (data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/schedules"] });
@@ -3071,6 +3084,24 @@ export default function CreateShiftSplitPanel({
                   <Trash2 className="h-3 w-3" />
                 )}
                 Delete
+              </Button>
+              {/* Copy from the bar mirrors the header "Copy day" button so
+                  the bulk-action UX is self-contained: a manager who's
+                  already in selection mode can replicate the day to other
+                  dates without breaking flow to find the header button.
+                  Note: copy-day operates on the full day (not just the
+                  selected subset) — that matches the existing endpoint and
+                  the most common manager intent. */}
+              <Button
+                size="sm"
+                variant="secondary"
+                className="h-7 gap-1 text-xs"
+                disabled={!modalDate}
+                data-testid="bulk-copy-button"
+                onClick={() => setShowCopyDayDialog(true)}
+              >
+                <Copy className="h-3 w-3" />
+                Copy
               </Button>
               <Button
                 size="sm"
