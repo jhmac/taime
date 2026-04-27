@@ -201,6 +201,13 @@ function timeToMin(t: string) {
   return h * 60 + (m || 0);
 }
 
+// Bug fix (color consistency): hash user IDs (not names) against the same
+// 10-colour palette + ordering used by ScheduleTimelineView so that a person
+// gets ONE colour app-wide — their shift cards in the timeline, the shift
+// cards in this panel, and their avatar pill in the "Who's Available Today"
+// section all line up. Hashing by name caused two people with the same
+// initials to collide and made the panel/timeline/avatar diverge whenever
+// the palette sizes (8/6/10) hashed to different buckets.
 const SHIFT_COLORS = [
   "bg-violet-500",
   "bg-blue-500",
@@ -210,11 +217,14 @@ const SHIFT_COLORS = [
   "bg-cyan-500",
   "bg-pink-500",
   "bg-indigo-500",
+  "bg-teal-500",
+  "bg-orange-500",
 ];
 
-function getShiftColor(name: string) {
+function getShiftColor(userId: string) {
+  const key = userId || "";
   let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  for (let i = 0; i < key.length; i++) hash = key.charCodeAt(i) + ((hash << 5) - hash);
   return SHIFT_COLORS[Math.abs(hash) % SHIFT_COLORS.length];
 }
 
@@ -259,7 +269,7 @@ function ShiftBlock({
   const topPct = ((Math.max(startMin, openMin) - openMin) / totalMin) * 100;
   const heightPct = ((Math.min(endMin, closeMin) - Math.max(startMin, openMin)) / totalMin) * 100;
   if (heightPct <= 0) return null;
-  const color = getShiftColor(shift.employeeName);
+  const color = getShiftColor(shift.employeeId || shift.employeeName);
 
   let title = shift.rationale;
   if (isExcluded) title = "Click to restore this shift";
@@ -711,12 +721,10 @@ function AvailableEmployeePills({
     return ((m.firstName?.[0] || '') + (m.lastName?.[0] || '')).toUpperCase() || '?';
   }
 
-  const PILL_COLORS = ['bg-violet-500','bg-blue-500','bg-emerald-500','bg-amber-500','bg-rose-500','bg-cyan-500'];
-  function pillColor(name: string) {
-    let hash = 0;
-    for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
-    return PILL_COLORS[Math.abs(hash) % PILL_COLORS.length];
-  }
+  // Re-use the canonical SHIFT_COLORS palette + getShiftColor helper so the
+  // avatar dot here matches the user's shift card colour exactly. See the
+  // comment above SHIFT_COLORS for the underlying rationale.
+  const pillColor = getShiftColor;
 
   if (isLoading) {
     return (
@@ -858,7 +866,7 @@ function AvailableEmployeePills({
                       className="w-6 h-6 rounded-full object-cover shrink-0"
                     />
                   ) : (
-                    <div className={cn("w-6 h-6 rounded-full flex items-center justify-center text-white text-[9px] font-bold shrink-0", pillColor(member.name))}>
+                    <div className={cn("w-6 h-6 rounded-full flex items-center justify-center text-white text-[9px] font-bold shrink-0", pillColor(member.userId))}>
                       {memberInitials(member)}
                     </div>
                   )}
@@ -1510,7 +1518,7 @@ function DayTimeline({
               const isActive    = selectedActualId === actual.schedule.id;
               const isMultiSelected = !!multiSelectedActualIds?.has(actual.schedule.id);
               const isDragging  = !!preview;
-              const colorCls    = getShiftColor(actual.name);
+              const colorCls    = getShiftColor(actual.schedule.userId || actual.name);
               return (
                 <div key={`actual-${idx}`} className="relative flex-1 min-w-[64px] border-l border-border/20 first:border-l-0 z-10">
                   <div
@@ -3684,6 +3692,41 @@ export default function CreateShiftSplitPanel({
       return;
     }
     const aiCount = suggestDataRef.current?.proposedShifts?.length ?? 0;
+    // Bug fix (excluded AI shift reappears): when the user X's an AI
+    // suggestion the only thing that happens locally is a flag in
+    // `excludedIdxs` — `approveMutation` writes the KEPT shifts but the
+    // server's AI cache still holds the rejected one. Without the calls
+    // below, the next refetch (triggered by approve, by reopening the
+    // panel, or by clicking another shift) resurrects the excluded shift
+    // as a fresh AI suggestion. Manual-draft exclusions are removed
+    // inline by handleToggleExclude, so this only fires for AI cards.
+    const excludedAiToPersist: ProposedShift[] = [];
+    excludedIdxs.forEach((idx) => {
+      if (idx >= aiCount) return; // skip manual idxs (already removed)
+      const s = aiProposedShifts[idx];
+      if (s && s.employeeId && s.startTime && s.endTime) {
+        excludedAiToPersist.push(s);
+      }
+    });
+    if (modalDate && excludedAiToPersist.length > 0) {
+      dlog("handleBulkSave/persistingExcludedAi", {
+        date: modalDate,
+        count: excludedAiToPersist.length,
+        shifts: excludedAiToPersist.map((s) => ({
+          employeeId: s.employeeId,
+          startTime: s.startTime,
+          endTime: s.endTime,
+        })),
+      });
+      for (const s of excludedAiToPersist) {
+        removeSuggestShiftMutation.mutate({
+          date: modalDate,
+          employeeId: s.employeeId!,
+          startTime: s.startTime,
+          endTime: s.endTime,
+        });
+      }
+    }
     let liveManual = manualShifts;
     if (selectedShiftIdx !== null && selectedShiftIdx >= aiCount) {
       const manualIdx = selectedShiftIdx - aiCount;
