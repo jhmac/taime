@@ -6,9 +6,9 @@ import {
   AlertTriangle, FileText, Users, Video, Inbox, Zap, FolderOpen,
   Hourglass, Sprout, ClipboardCheck, ClipboardList, DollarSign,
   FileSpreadsheet, UserCog, ShieldCheck, BarChart, Medal,
-  Settings, Cog, LogOut, ChevronRight, Banknote, Building2,
+  Settings, Cog, LogOut, ChevronRight, Banknote,
   Coffee, Lightbulb, LifeBuoy, History, FileDown, Mic, Brain,
-  Package, Wand2,
+  Package, Wand2, Calculator,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -65,6 +65,7 @@ export default function MoreMenu() {
         { icon: User, label: 'Profile', subtitle: 'Edit your info & preferences', path: '/employee-settings', iconBg: 'bg-orange-100', iconColor: 'text-orange-600' },
         { icon: Trophy, label: 'My Score', subtitle: 'Performance score, tier & badges', path: '/my-score', iconBg: 'bg-yellow-100', iconColor: 'text-yellow-600' },
         { icon: Clock, label: 'Availability', subtitle: 'Set your weekly availability', path: '/availability', iconBg: 'bg-teal-100', iconColor: 'text-teal-600' },
+        { icon: Calculator, label: 'Open/Close', subtitle: 'Daily drawer count & deposits', path: '/cash', iconBg: 'bg-emerald-100', iconColor: 'text-emerald-600' },
         { icon: FileText, label: 'Requests', subtitle: 'Time off, shift trades & cover', path: '/requests', iconBg: 'bg-blue-100', iconColor: 'text-blue-600' },
         { icon: Banknote, label: 'Payroll', subtitle: 'View your pay & cash out', path: '/payroll', iconBg: 'bg-green-100', iconColor: 'text-green-600' },
       ],
@@ -108,7 +109,6 @@ export default function MoreMenu() {
         { icon: DollarSign, label: 'Payroll', subtitle: 'Pay runs & wage management', path: '/payroll', iconBg: 'bg-green-100', iconColor: 'text-green-600' },
         { icon: FileSpreadsheet, label: 'Timesheets', subtitle: 'Review & approve hours', path: '/timesheets', iconBg: 'bg-teal-100', iconColor: 'text-teal-600' },
         { icon: FileDown, label: 'Payroll Export', subtitle: 'Export payroll data', path: '/payroll-export', iconBg: 'bg-lime-100', iconColor: 'text-lime-600' },
-        { icon: Building2, label: 'Cash Management', subtitle: 'Drawer counts & deposits', path: '/cash', iconBg: 'bg-emerald-100', iconColor: 'text-emerald-600' },
         { icon: UserCog, label: 'HR', subtitle: 'Onboarding & compliance', path: '/hr', iconBg: 'bg-indigo-100', iconColor: 'text-indigo-600' },
         { icon: ShieldCheck, label: 'Roles & Permissions', subtitle: 'Access control', path: '/hr/roles', iconBg: 'bg-red-100', iconColor: 'text-red-500' },
         { icon: BarChart, label: 'Analytics', subtitle: 'Reports & insights', path: '/analytics', iconBg: 'bg-purple-100', iconColor: 'text-purple-600' },
