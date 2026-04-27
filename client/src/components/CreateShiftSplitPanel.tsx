@@ -3540,19 +3540,36 @@ export default function CreateShiftSplitPanel({
     saveShiftMutation.mutate({ idx: selectedShiftIdx, edit: mergedEdit });
   };
 
+  // Persists the editingSchedule edit via the parent's mutation. Extracted
+  // from handleSubmit so the close-confirm dialog can reuse the same path
+  // when the user clicks "Save & close" while editing a single shift —
+  // otherwise that dialog would call handleBulkSave and create the AI
+  // proposals as brand-new shifts each cycle (the "+1 shift on every
+  // reopen" bug). Returns true if the save was dispatched.
+  const handleEditingScheduleSave = useCallback((): boolean => {
+    if (!editingSchedule || !onUpdateSchedule) return false;
+    const effectiveUserId = selectedUserId || editingSchedule.userId;
+    dlog("handleEditingScheduleSave", {
+      id: editingSchedule.id,
+      userId: effectiveUserId,
+      modalDate, modalStartTime, modalEndTime,
+    });
+    onUpdateSchedule({
+      id: editingSchedule.id,
+      userId: effectiveUserId,
+      startTime: new Date(`${modalDate}T${modalStartTime}`),
+      endTime: new Date(`${modalDate}T${modalEndTime}`),
+      title: modalTitle || null,
+      locationId: modalLocationId || null,
+      description: modalNotes || null,
+    });
+    return true;
+  }, [editingSchedule, onUpdateSchedule, selectedUserId, modalDate, modalStartTime, modalEndTime, modalTitle, modalLocationId, modalNotes]);
+
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (editingSchedule && onUpdateSchedule) {
-      const effectiveUserId = selectedUserId || editingSchedule.userId;
-      onUpdateSchedule({
-        id: editingSchedule.id,
-        userId: effectiveUserId,
-        startTime: new Date(`${modalDate}T${modalStartTime}`),
-        endTime: new Date(`${modalDate}T${modalEndTime}`),
-        title: modalTitle || null,
-        locationId: modalLocationId || null,
-        description: modalNotes || null,
-      });
+      handleEditingScheduleSave();
     } else {
       onCreateShift({
         userId: selectedUserId,
@@ -3600,8 +3617,29 @@ export default function CreateShiftSplitPanel({
   // gets silently dropped). Defined after aiProposedShifts/persistedManualKeys
   // so its closure captures their current values.
   const handleBulkSave = useCallback(() => {
-    dlog("handleBulkSave/start", { isPending: approveMutation.isPending, suggestLoading });
+    dlog("handleBulkSave/start", { isPending: approveMutation.isPending, suggestLoading, hasEditingSchedule: !!editingSchedule });
     if (approveMutation.isPending || suggestLoading) return;
+    // Defensive guard: handleBulkSave creates the AI-suggested shifts as
+    // brand-new schedule rows. In editingSchedule mode the user opened the
+    // panel to edit ONE existing shift — bulk-creating AI proposals here
+    // is never the intent and was the root cause of the "+N shifts on
+    // every reopen" bug. Route to the single-shift update path; if no
+    // update callback was wired up by the parent, refuse the operation
+    // outright rather than silently falling through to bulk-apply.
+    if (editingSchedule) {
+      if (onUpdateSchedule) {
+        dlog("handleBulkSave/blockedInEditingSchedule", { id: editingSchedule.id });
+        handleEditingScheduleSave();
+      } else {
+        dlog("handleBulkSave/blockedNoUpdateCallback", { id: editingSchedule.id });
+        toast({
+          title: "Cannot save",
+          description: "Edit-shift save handler is unavailable. Close and try again.",
+          variant: "destructive",
+        });
+      }
+      return;
+    }
     const aiCount = suggestDataRef.current?.proposedShifts?.length ?? 0;
     let liveManual = manualShifts;
     if (selectedShiftIdx !== null && selectedShiftIdx >= aiCount) {
@@ -3707,23 +3745,41 @@ export default function CreateShiftSplitPanel({
     // the deps array prevents the callback from holding a stale snapshot
     // (e.g. immediately after another shift is saved on the same date,
     // the freshly-added actual must be visible to the next save attempt).
-  }, [approveMutation, suggestLoading, manualShifts, selectedShiftIdx, employees, selectedUserId, modalStartTime, modalEndTime, modalTitle, modalNotes, aiProposedShifts, persistedManualKeys, excludedIdxs, toast, liveActualShifts, selectedActualSchedule]);
+  }, [approveMutation, suggestLoading, manualShifts, selectedShiftIdx, employees, selectedUserId, modalStartTime, modalEndTime, modalTitle, modalNotes, aiProposedShifts, persistedManualKeys, excludedIdxs, toast, liveActualShifts, selectedActualSchedule, editingSchedule, onUpdateSchedule, handleEditingScheduleSave]);
 
   // Cmd/Ctrl+S — save all pending shifts. Only fires when the panel is open
   // AND there are valid shifts to save (so the browser's default page-save
   // behavior still works on the rest of the app).
+  // Mode-aware routing: in editingSchedule mode, save the single shift via
+  // the parent's update mutation; in isActualEditing mode, save the focused
+  // actual shift; otherwise, run the bulk-create path. Without this, Cmd+S
+  // in Edit Shift mode would create the AI proposals as new shifts (the
+  // "+N shifts on every reopen" bug).
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+        if (editingSchedule && onUpdateSchedule) {
+          e.preventDefault();
+          dlog("cmdS/saveEditingSchedule", { id: editingSchedule.id });
+          handleEditingScheduleSave();
+          return;
+        }
+        if (selectedActualSchedule) {
+          e.preventDefault();
+          dlog("cmdS/saveActual", { id: selectedActualSchedule.id });
+          handleSaveActual(false);
+          return;
+        }
         if (validActiveShifts.length === 0) return;
         e.preventDefault();
+        dlog("cmdS/bulkSave", { count: validActiveShifts.length });
         handleBulkSave();
       }
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [open, validActiveShifts.length, handleBulkSave]);
+  }, [open, validActiveShifts.length, handleBulkSave, editingSchedule, onUpdateSchedule, selectedActualSchedule, handleEditingScheduleSave, handleSaveActual]);
   const storeHours = salesData?.storeHours ?? suggestData?.storeHours ?? null;
 
   // Task #392 C3 — keep the nudge-on-resize closure synced with its inputs.
@@ -5083,8 +5139,13 @@ export default function CreateShiftSplitPanel({
 
                   {/* Primary bulk-save CTA — always rightmost whenever the timeline has any active shifts,
                       across both create and edit modes. Blank/unassigned draft shifts show in the count
-                      but are filtered out at submission; a toast explains any skipped shifts. */}
-                  {activeShifts.length > 0 ? (
+                      but are filtered out at submission; a toast explains any skipped shifts.
+                      HIDDEN in editingSchedule mode: when the panel is opened to edit a single
+                      existing shift, the user's intent is to save THAT shift — not to bulk-create
+                      AI proposals. Showing the orange "Save N New Shifts" CTA next to "Save Changes"
+                      caused users to accidentally create the AI proposals as real shifts on every
+                      Edit Shift cycle (the "+N shifts on every reopen" bug). */}
+                  {!editingSchedule && activeShifts.length > 0 ? (
                     <Button
                       type="button"
                       size="sm"
@@ -5269,10 +5330,23 @@ export default function CreateShiftSplitPanel({
             Discard
           </Button>
           <AlertDialogAction
-            disabled={approveMutation.isPending}
+            disabled={approveMutation.isPending || updateActualMutation.isPending || isUpdating}
             onClick={() => {
               setPendingCloseConfirm(false);
-              if (validActiveShifts.length > 0) {
+              // In editingSchedule mode, "Save & close" must save the
+              // single-shift edit via the parent's update mutation —
+              // NOT call handleBulkSave, which would create the AI
+              // proposed shifts as brand-new schedule rows on every
+              // close (the "+1 shift on every reopen" bug).
+              if (editingSchedule && onUpdateSchedule) {
+                dlog("closeConfirm/saveEditingSchedule", { id: editingSchedule.id });
+                handleEditingScheduleSave();
+                // Parent's onSuccess closes the panel via setShowCreateShift(false).
+              } else if (isActualEditing && selectedActualSchedule) {
+                dlog("closeConfirm/saveActualAndClose", { id: selectedActualSchedule.id });
+                handleSaveActual(true);
+              } else if (validActiveShifts.length > 0) {
+                dlog("closeConfirm/bulkSave", { count: validActiveShifts.length });
                 handleBulkSave();
               } else {
                 onOpenChange(false);
@@ -5280,9 +5354,9 @@ export default function CreateShiftSplitPanel({
             }}
             data-testid="close-confirm-save"
           >
-            {approveMutation.isPending ? (
+            {approveMutation.isPending || updateActualMutation.isPending || isUpdating ? (
               <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" />Saving…</>
-            ) : validActiveShifts.length > 0 ? 'Save & close' : 'Keep draft & close'}
+            ) : (editingSchedule || isActualEditing) ? 'Save & close' : validActiveShifts.length > 0 ? 'Save & close' : 'Keep draft & close'}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
