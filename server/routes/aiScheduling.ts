@@ -2132,7 +2132,7 @@ Required JSON structure:
         return res.status(403).json({ message: "Manager access required" });
       }
 
-      const { date } = req.body;
+      const { date, force } = req.body;
       const dateParam = date || new Date().toISOString().split('T')[0];
 
       // ── Resolve store and get availability data directly from DB ─────────────
@@ -2144,8 +2144,28 @@ Required JSON structure:
         logger.warn("[suggest] 403 — no store for user", { userId });
         return res.status(403).json({ message: "No store associated with your account" });
       }
+
+      // Short-circuit: if a cached suggestion row already exists for this
+      // store+date and the caller didn't explicitly request a regen, return
+      // the cached payload without doing any AI/synthetic generation work.
+      // This prevents the panel from silently regenerating suggestions every
+      // time it's reopened after the GET endpoint's self-healing prune leaves
+      // `proposedShifts` empty (Task #413). The explicit "Refresh AI
+      // suggestions" button still works because the frontend sends
+      // `force: true` in that path, which bypasses this guard.
+      if (force !== true) {
+        const cachedRows = await db.select()
+          .from(aiSuggestedSchedules)
+          .where(and(eq(aiSuggestedSchedules.storeId, storeId), eq(aiSuggestedSchedules.date, dateParam)))
+          .limit(1);
+        if (cachedRows.length > 0) {
+          logger.info("[suggest] short-circuit — returning cached payload", { storeId, dateParam });
+          return res.json(cachedRows[0].scheduleData);
+        }
+      }
+
       const storeUserIds = await getAllStoreUserIds(storeId);
-      logger.info("[suggest] store resolved", { storeId, userCount: storeUserIds.length, dateParam });
+      logger.info("[suggest] store resolved", { storeId, userCount: storeUserIds.length, dateParam, force: force === true });
       if (storeUserIds.length === 0) return res.json({ date: dateParam, proposedShifts: [], historicalDate: '', dataSource: 'synthetic', hourlyData: [], storeHours: { open: '09:00', close: '21:00' } });
 
       // ── Mirror today-availability data gathering exactly ─────────────────────

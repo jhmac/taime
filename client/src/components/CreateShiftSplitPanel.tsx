@@ -2738,7 +2738,15 @@ export default function CreateShiftSplitPanel({
           // no saved suggestion — fall through to generate
         }
       }
-      const res = await apiRequest("POST", "/api/schedules/suggest", { date: modalDate });
+      // When the user explicitly clicked "Refresh AI suggestions", send
+      // `force: true` so the server bypasses its cache short-circuit and
+      // regenerates a fresh batch (Task #413). The non-force branch (initial
+      // open with no cache row) omits the flag so first-time generation still
+      // runs, while reopens that hit an existing cache row will short-circuit
+      // server-side and return the cached payload unchanged.
+      const body: { date: string; force?: boolean } = { date: modalDate };
+      if (skipCache) body.force = true;
+      const res = await apiRequest("POST", "/api/schedules/suggest", body);
       return res.json();
     },
     enabled: open && !!modalDate,
