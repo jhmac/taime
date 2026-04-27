@@ -53,6 +53,70 @@ function getLocalHourInTz(timestamp: Date, timezone: string): number {
 }
 
 /**
+ * Returns the timezone offset for a given UTC instant in a given IANA tz,
+ * in minutes east of UTC (positive east, negative west). Handles DST
+ * automatically because the offset is computed at the supplied instant.
+ *
+ * Example: For "America/Chicago" on a CDT date, returns -300; on a CST
+ * date returns -360.
+ */
+function getTimezoneOffsetMinutes(date: Date, timezone: string): number {
+  try {
+    const dtf = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
+    const parts = dtf.formatToParts(date);
+    const get = (t: string) => parseInt(parts.find(p => p.type === t)?.value ?? '0', 10);
+    const y = get('year');
+    const mo = get('month');
+    const d = get('day');
+    const h = get('hour') % 24;
+    const mi = get('minute');
+    const s = get('second');
+    const localAsUtc = Date.UTC(y, mo - 1, d, h, mi, s);
+    return Math.round((localAsUtc - date.getTime()) / 60000);
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * For a calendar day expressed as YYYY-MM-DD in `timezone`, returns the
+ * UTC instants that bracket that local day (start = local-midnight in UTC,
+ * end = next local-midnight in UTC, exclusive end).
+ *
+ * Critical for accurate "daily sales" lookups against Shopify orders:
+ * a UTC-only window of `T00:00:00Z .. T23:59:59Z` for a CST/CDT store
+ * misses 5–6 hours of evening orders (which fall into the next UTC day)
+ * and incorrectly includes 5–6 hours of the previous evening, dramatically
+ * understating any single-day revenue figure.
+ */
+function localDayBoundsUtc(dateStr: string, timezone: string): { start: Date; endExclusive: Date } {
+  // Pick noon UTC on the target date as a stable reference instant for
+  // computing the offset (well away from DST jump hours).
+  const reference = new Date(`${dateStr}T12:00:00Z`);
+  const offsetMinutes = getTimezoneOffsetMinutes(reference, timezone);
+  // local-midnight = UTC midnight - offset (in ms). For CDT (-300):
+  // local-00:00 on a date is 05:00 UTC.
+  const utcMidnight = Date.UTC(
+    reference.getUTCFullYear(),
+    reference.getUTCMonth(),
+    reference.getUTCDate(),
+    0, 0, 0,
+  );
+  const start = new Date(utcMidnight - offsetMinutes * 60 * 1000);
+  const endExclusive = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  return { start, endExclusive };
+}
+
+/**
  * Computes the historical comparison date: 52 weeks ago (364 days) from the target date.
  * This guarantees the same day of the week (e.g. Thursday → Thursday) and correctly
  * captures seasonal context (e.g. "week before Easter" last year).
@@ -133,9 +197,18 @@ async function backfillDayOrdersFromShopify(
   shopDomain: string,
   service: ShopifyService,
   dateStr: string,
+  storeTimezone: string = 'UTC',
 ): Promise<{ ordersFound: number; dayRevenue: number }> {
-  const startIso = `${dateStr}T00:00:00Z`;
-  const endIso   = `${dateStr}T23:59:59Z`;
+  // Use the store's local calendar day to bracket the Shopify query.
+  // A naive `${dateStr}T00:00:00Z .. T23:59:59Z` window for a CST/CDT store
+  // misses ~5–6 hours of evening orders (which fall into the next UTC day),
+  // and that partial total then gets cached as the "authoritative net" —
+  // exactly the cause of the $94 figure on the projected-revenue card.
+  const { start: startBound, endExclusive: endBound } = localDayBoundsUtc(dateStr, storeTimezone);
+  const startIso = startBound.toISOString();
+  // Shopify's createdAtMax is inclusive; subtract 1ms so we don't pull the
+  // first order of the *next* local day into this bucket.
+  const endIso = new Date(endBound.getTime() - 1).toISOString();
 
   const orders = await service.getOrders({
     first: 250,
@@ -1578,8 +1651,13 @@ Required JSON structure:
         const weights = [0,0,0,0,0,0,0.01,0.02,0.05,0.08,0.09,0.10,0.10,0.09,0.08,0.07,0.07,0.06,0.06,0.05,0.04,0.03,0.01,0];
 
         const tryFetchRevenue = async (dateStr: string): Promise<{ found: boolean; source: 'actual' | 'estimated' }> => {
-          const start = new Date(dateStr + 'T00:00:00Z');
-          const end = new Date(dateStr + 'T23:59:59Z');
+          // Per-order window must use the store's local calendar day so a
+          // CST/CDT store doesn't lose its evening orders to the next UTC
+          // day (which is exactly what produced the wrong tiny historical
+          // total). The daily-aggregate row is still keyed on UTC midnight
+          // of `dateStr`, kept as `dailyKey` below for the lookup.
+          const { start, endExclusive } = localDayBoundsUtc(dateStr, storeTimezone);
+          const dailyKey = new Date(dateStr + 'T00:00:00Z');
 
           // Auto-backfill: pull from Shopify GraphQL if no per-order rows exist for this date
           const existingCount = await db.select({ cnt: count() })
@@ -1587,12 +1665,12 @@ Required JSON structure:
             .where(and(
               eq(shopifyOrders.shopDomain, shopDomain),
               gte(shopifyOrders.orderCreatedAt, start),
-              lte(shopifyOrders.orderCreatedAt, end),
+              lt(shopifyOrders.orderCreatedAt, endExclusive),
             ));
           if ((existingCount[0]?.cnt ?? 0) === 0 && shopCreds) {
             try {
-              console.log(`[historical-sales] auto-backfill: fetching Shopify orders for ${dateStr}`);
-              await backfillDayOrdersFromShopify(shopDomain, shopCreds.service, dateStr);
+              console.log(`[historical-sales] auto-backfill: fetching Shopify orders for ${dateStr} (tz=${storeTimezone})`);
+              await backfillDayOrdersFromShopify(shopDomain, shopCreds.service, dateStr, storeTimezone);
             } catch (backfillErr) {
               console.warn(`[historical-sales] auto-backfill failed (non-fatal): ${backfillErr}`);
             }
@@ -1605,7 +1683,7 @@ Required JSON structure:
           }).from(shopifyOrders).where(and(
             eq(shopifyOrders.shopDomain, shopDomain),
             gte(shopifyOrders.orderCreatedAt, start),
-            lte(shopifyOrders.orderCreatedAt, end),
+            lt(shopifyOrders.orderCreatedAt, endExclusive),
           ));
           if (orders.length > 0) {
             for (const order of orders) {
@@ -1620,7 +1698,7 @@ Required JSON structure:
           // Fall back to daily aggregate (estimated hour distribution)
           const dailySales = await db.select({ totalRevenue: shopifyDailySales.totalRevenue })
             .from(shopifyDailySales)
-            .where(and(eq(shopifyDailySales.shopDomain, shopDomain), eq(shopifyDailySales.date, start)))
+            .where(and(eq(shopifyDailySales.shopDomain, shopDomain), eq(shopifyDailySales.date, dailyKey)))
             .limit(1);
           const dailyTotal = dailySales[0]?.totalRevenue ? parseFloat(dailySales[0].totalRevenue) : 0;
           if (dailyTotal > 0) {
@@ -1654,7 +1732,14 @@ Required JSON structure:
 
       // Use shopify_daily_sales.total_revenue as the authoritative net daily total
       // (individual orders include gross amounts before refunds; daily aggregate reflects
-      // the net figure as reported by Shopify analytics).
+      // the net figure as reported by Shopify analytics). The aggregate row is
+      // keyed on UTC midnight of `historicalDateStr` (regardless of store
+      // timezone — see backfillDayOrdersFromShopify), so we look it up that
+      // way. We only override the per-order sum when the daily aggregate is
+      // strictly greater (i.e. covers MORE of the local day than the
+      // per-order rows we currently have); a smaller aggregate would be a
+      // stale partial cache from before the timezone fix and using it would
+      // shrink today's correct figure back to the wrong tiny number.
       let dailyTotal = hourlyRevenue.reduce((s, v) => s + v, 0);
       if (shopDomain && dailyTotal > 0) {
         const netRow = await db.select({ totalRevenue: shopifyDailySales.totalRevenue })
@@ -1666,7 +1751,7 @@ Required JSON structure:
           .limit(1);
         if (netRow[0]?.totalRevenue) {
           const netTotal = parseFloat(netRow[0].totalRevenue);
-          if (netTotal > 0) dailyTotal = netTotal;
+          if (netTotal > dailyTotal) dailyTotal = netTotal;
         }
       }
       const avgHourlyRevenue = dailyTotal / Math.max(1, closeH - openH);
@@ -2309,8 +2394,10 @@ Required JSON structure:
         const weights2 = [0,0,0,0,0,0,0.01,0.02,0.05,0.08,0.09,0.10,0.10,0.09,0.08,0.07,0.07,0.06,0.06,0.05,0.04,0.03,0.01,0];
 
         const tryFetchRevenue2 = async (dateStr: string): Promise<{ found: boolean; source: 'actual' | 'estimated' }> => {
-          const start = new Date(dateStr + 'T00:00:00Z');
-          const end = new Date(dateStr + 'T23:59:59Z');
+          // Bracket on store-local calendar day (mirrors tryFetchRevenue
+          // above). Daily aggregate row is keyed on UTC midnight of dateStr.
+          const { start, endExclusive } = localDayBoundsUtc(dateStr, storeTimezone2);
+          const dailyKey = new Date(dateStr + 'T00:00:00Z');
 
           // ── Auto-backfill: if shopify_orders has no rows for this date, pull from Shopify GraphQL ──
           const existingOrderCount = await db.select({ cnt: count() })
@@ -2318,12 +2405,12 @@ Required JSON structure:
             .where(and(
               eq(shopifyOrders.shopDomain, shopDomain2),
               gte(shopifyOrders.orderCreatedAt, start),
-              lte(shopifyOrders.orderCreatedAt, end),
+              lt(shopifyOrders.orderCreatedAt, endExclusive),
             ));
           if ((existingOrderCount[0]?.cnt ?? 0) === 0) {
             try {
-              logger.info("[suggest] auto-backfill: fetching Shopify orders for", { dateStr, shopDomain: shopDomain2 });
-              await backfillDayOrdersFromShopify(shopDomain2, shopCreds.service, dateStr);
+              logger.info("[suggest] auto-backfill: fetching Shopify orders for", { dateStr, shopDomain: shopDomain2, tz: storeTimezone2 });
+              await backfillDayOrdersFromShopify(shopDomain2, shopCreds.service, dateStr, storeTimezone2);
             } catch (backfillErr) {
               logger.warn("[suggest] auto-backfill failed (non-fatal)", { dateStr, error: String(backfillErr) });
             }
@@ -2336,7 +2423,7 @@ Required JSON structure:
           }).from(shopifyOrders).where(and(
             eq(shopifyOrders.shopDomain, shopDomain2),
             gte(shopifyOrders.orderCreatedAt, start),
-            lte(shopifyOrders.orderCreatedAt, end),
+            lt(shopifyOrders.orderCreatedAt, endExclusive),
           ));
           if (ordersInner.length > 0) {
             for (const o of ordersInner) {
@@ -2350,7 +2437,7 @@ Required JSON structure:
           // Fall back to shopify_daily_sales aggregate (estimated distribution)
           const dailySalesRows2 = await db.select({ totalRevenue: shopifyDailySales.totalRevenue })
             .from(shopifyDailySales)
-            .where(and(eq(shopifyDailySales.shopDomain, shopDomain2), eq(shopifyDailySales.date, start)))
+            .where(and(eq(shopifyDailySales.shopDomain, shopDomain2), eq(shopifyDailySales.date, dailyKey)))
             .limit(1);
           const dailyTotal2Inner = dailySalesRows2[0]?.totalRevenue ? parseFloat(dailySalesRows2[0].totalRevenue) : 0;
           if (dailyTotal2Inner > 0) {

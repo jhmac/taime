@@ -296,17 +296,35 @@ function ShiftBlock({
         ) : !isExcluded && shift.rationale ? (
           <div className="truncate opacity-70 text-[9px]">{shift.rationale}</div>
         ) : null}
-        {!isExcluded && (
-          <span
-            role="button"
-            title={xTooltip ?? "Exclude this shift"}
-            onClick={onToggleExclude}
-            className="absolute top-0.5 right-0.5 hidden group-hover:flex items-center justify-center w-4 h-4 rounded-full bg-black/30 hover:bg-black/50 text-white"
-          >
-            <X className="h-2.5 w-2.5" />
-          </span>
-        )}
       </button>
+      {!isExcluded && (
+        <button
+          type="button"
+          role="button"
+          title={xTooltip ?? "Exclude this shift"}
+          onPointerDown={(e) => {
+            // Stop the parent body's pointerdown so pressing the X never
+            // initiates a drag/resize on the underlying card.
+            e.stopPropagation();
+          }}
+          onPointerUp={(e) => {
+            // Commit on pointerup with stopPropagation so the parent's click
+            // handler (selection) cannot also fire and re-open the shift.
+            e.stopPropagation();
+            e.preventDefault();
+            onToggleExclude(e as unknown as React.MouseEvent);
+          }}
+          onClick={(e) => {
+            // Defensive fallback for non-pointer activations (keyboard,
+            // accessibility tooling). Plain pointer paths exit at pointerup.
+            e.stopPropagation();
+            onToggleExclude(e);
+          }}
+          className="absolute top-0.5 right-0.5 z-30 flex items-center justify-center w-5 h-5 rounded-full bg-black/45 opacity-70 hover:opacity-100 hover:bg-red-500 hover:scale-110 text-white transition-all cursor-pointer shadow"
+        >
+          <X className="h-3 w-3" />
+        </button>
+      )}
       {/* Bottom resize handle */}
       {!isExcluded && onResizeStart && (
         <div
@@ -869,44 +887,60 @@ type DragState = {
 
 type ActualShiftEntry = { schedule: Schedule; name: string; startTime: string; endTime: string };
 
-// Hover-intent delete button for persisted "Scheduled" cards. The cursor
-// dwelling for 200ms "arms" the button (turning it red) so users get a
-// clear visual cue that a click will delete. The click itself always fires
-// the delete — gating clicks behind the timer was confusing because a quick
-// click did nothing with no feedback.
+// Always-visible delete button for persisted "Scheduled" cards.
+//
+// Earlier versions hid this button until you hovered the card AND dwelt for
+// 200ms ("hover-intent"). That made deletion feel broken: the X often
+// disappeared mid-click when the cursor crossed the card boundary, and on
+// touch devices it never appeared at all. Worse, when the card had pointer
+// capture from the parent's drag handler, the click could be silently
+// swallowed.
+//
+// The new behavior:
+//   - The X is always rendered in the corner. It dims to a subtle 60%
+//     opacity when not hovered so it doesn't compete visually with the
+//     shift label, then jumps to full red on hover.
+//   - We commit on pointerup with stopPropagation, NOT click. This avoids
+//     the parent card's pointer-capture flow stealing the event before a
+//     synthetic "click" can fire.
+//   - pointerdown also stops propagation so the parent never starts a drag
+//     just because the user pressed the X.
 function HoverIntentDeleteButton({ onConfirm }: { onConfirm: () => void }) {
-  const [armed, setArmed] = useState(false);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
-  const handleEnter = () => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => setArmed(true), 200);
-  };
-  const handleLeave = () => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = null;
-    setArmed(false);
-  };
-  useEffect(() => () => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-  }, []);
+  const [hovered, setHovered] = useState(false);
   return (
     <button
       type="button"
       data-testid="hover-intent-delete"
-      data-armed={armed ? 'true' : 'false'}
-      onPointerEnter={handleEnter}
-      onPointerLeave={handleLeave}
+      data-armed={hovered ? 'true' : 'false'}
+      onPointerEnter={() => setHovered(true)}
+      onPointerLeave={() => setHovered(false)}
+      onPointerDown={(e) => {
+        // Block the parent card's drag-start handler so pressing the X
+        // never initiates a move.
+        e.stopPropagation();
+      }}
+      onPointerUp={(e) => {
+        // Commit on pointerup. Stop both propagation and default so the
+        // parent card never sees a click — otherwise we'd both delete the
+        // card AND select it on the way out.
+        e.stopPropagation();
+        e.preventDefault();
+        onConfirm();
+      }}
       onClick={(e) => {
+        // Defensive: if pointerup didn't fire (e.g. keyboard activation),
+        // honor the click. Synthetic clicks from screen readers count.
         e.stopPropagation();
         onConfirm();
       }}
-      onPointerDown={(e) => e.stopPropagation()}
       title="Delete from schedule"
-      className={`absolute top-0.5 right-0.5 hidden group-hover/actual:flex items-center justify-center w-4 h-4 rounded-full text-white z-30 transition-colors cursor-pointer ${
-        armed ? 'bg-red-500/90 hover:bg-red-600' : 'bg-black/40 hover:bg-black/60'
+      className={`absolute top-0.5 right-0.5 flex items-center justify-center w-5 h-5 rounded-full text-white z-30 transition-all cursor-pointer ${
+        hovered
+          ? 'bg-red-500 opacity-100 scale-110 shadow-md'
+          : 'bg-black/45 opacity-60 hover:opacity-100'
       }`}
     >
-      <X className="h-2.5 w-2.5" />
+      <X className="h-3 w-3" />
     </button>
   );
 }
@@ -3318,6 +3352,53 @@ export default function CreateShiftSplitPanel({
       });
       return;
     }
+
+    // Final guard: refuse to save if any shift in this batch (or already-saved
+    // shifts on the same date) would put the same employee on two overlapping
+    // shifts. The dropdown grays out conflicting employees as you build the
+    // schedule, but a manager can still slide an existing card's start/end
+    // into another card's window after the fact — this catches that case.
+    const conflictReports: string[] = [];
+    const liveActuals = liveActualShifts ?? [];
+    const editingActualId = isActualEditing ? selectedActualSchedule?.id ?? null : null;
+    for (let i = 0; i < liveValid.length; i++) {
+      const a = liveValid[i];
+      const aStart = timeToMin(a.startTime);
+      const aEnd = timeToMin(a.endTime);
+      // Other pending entries in this same save batch
+      for (let j = i + 1; j < liveValid.length; j++) {
+        const b = liveValid[j];
+        if (b.employeeId !== a.employeeId) continue;
+        const bStart = timeToMin(b.startTime);
+        const bEnd = timeToMin(b.endTime);
+        if (aStart < bEnd && aEnd > bStart) {
+          conflictReports.push(
+            `${a.employeeName || 'This employee'} would have two overlapping shifts (${a.startTime}–${a.endTime} and ${b.startTime}–${b.endTime}).`,
+          );
+        }
+      }
+      // Already-saved actual shifts for this same date
+      for (const act of liveActuals) {
+        if (editingActualId && act.schedule.id === editingActualId) continue;
+        if (act.schedule.userId !== a.employeeId) continue;
+        const actStart = timeToMin(act.startTime);
+        const actEnd = timeToMin(act.endTime);
+        if (aStart < actEnd && aEnd > actStart) {
+          conflictReports.push(
+            `${a.employeeName || 'This employee'} is already scheduled ${act.startTime}–${act.endTime}; a new ${a.startTime}–${a.endTime} shift would overlap.`,
+          );
+        }
+      }
+    }
+    if (conflictReports.length > 0) {
+      toast({
+        title: 'Overlapping shifts',
+        description: conflictReports.slice(0, 2).join(' '),
+        variant: 'destructive',
+      });
+      return;
+    }
+
     pendingSkippedCountRef.current = liveActive.length - liveValid.length;
     approveMutation.mutate(liveValid);
   }, [approveMutation, suggestLoading, manualShifts, selectedShiftIdx, employees, selectedUserId, modalStartTime, modalEndTime, modalTitle, modalNotes, aiProposedShifts, persistedManualKeys, excludedIdxs, toast]);
@@ -3404,6 +3485,62 @@ export default function CreateShiftSplitPanel({
   }, [modalDate, proposedShifts, queryClient]);
 
   const conflictCount = activeShifts.filter((s) => conflictingEmployeeIds.has(s.employeeId)).length;
+
+  // Employees who already have a shift overlapping the right-form's
+  // current start/end window on the chosen date. Used to gray out the
+  // employee dropdown so a manager can't double-book the same person at
+  // the same time. We consider both already-saved (actual) shifts AND
+  // pending manual shifts in this draft so multiple manuals chained
+  // together also block correctly. The currently-edited shift (whether
+  // a saved one being moved or a manual draft being tweaked) is excluded
+  // so an employee can re-time their own shift without "self-conflicting".
+  const dropdownConflictingEmployeeIds = useMemo<Set<string>>(() => {
+    const blocked = new Set<string>();
+    if (!modalDate || !modalStartTime || !modalEndTime) return blocked;
+    const startMin = timeToMin(modalStartTime);
+    const endMin = timeToMin(modalEndTime);
+    if (!(endMin > startMin)) return blocked;
+
+    // Inline `isActualEditing` (selectedActualSchedule !== null) so this
+    // useMemo doesn't depend on a const declared further down in the file.
+    const ignoreScheduleId = selectedActualSchedule ? selectedActualSchedule.id : null;
+    // Index of the manual shift currently being edited (if any) so we
+    // skip it when checking for self-overlap. selectedShiftIdx is into
+    // proposedShifts (AI then manual); subtracting aiCount yields the
+    // manual index, or a negative value if the selected card is AI.
+    const aiCount = proposedShifts.length - manualShifts.length;
+    const editingManualIdx =
+      selectedShiftIdx !== null && selectedShiftIdx >= aiCount
+        ? selectedShiftIdx - aiCount
+        : -1;
+
+    const overlaps = (aStart: number, aEnd: number) =>
+      startMin < aEnd && endMin > aStart;
+
+    for (const a of liveActualShifts ?? []) {
+      if (ignoreScheduleId && a.schedule.id === ignoreScheduleId) continue;
+      if (overlaps(timeToMin(a.startTime), timeToMin(a.endTime))) {
+        blocked.add(a.schedule.userId);
+      }
+    }
+    manualShifts.forEach((m, idx) => {
+      if (idx === editingManualIdx) return;
+      if (!m.employeeId) return;
+      if (overlaps(timeToMin(m.startTime), timeToMin(m.endTime))) {
+        blocked.add(m.employeeId);
+      }
+    });
+    return blocked;
+  }, [
+    modalDate,
+    modalStartTime,
+    modalEndTime,
+    liveActualShifts,
+    manualShifts,
+    proposedShifts.length,
+    selectedShiftIdx,
+    selectedActualSchedule,
+  ]);
 
   // Employee IDs that already appear on the timeline (proposed + actual) — used by pills
   const scheduledForPills = useMemo<Set<string>>(() => {
@@ -4260,11 +4397,38 @@ export default function CreateShiftSplitPanel({
                           </div>
                         );
                       }
-                      return list.map((user) => (
-                        <SelectItem key={user.id} value={user.id}>
-                          {user.firstName} {user.lastName}
-                        </SelectItem>
-                      ));
+                      return list.map((user) => {
+                        const hasConflict =
+                          dropdownConflictingEmployeeIds.has(user.id) &&
+                          user.id !== selectedUserId;
+                        return (
+                          <SelectItem
+                            key={user.id}
+                            value={user.id}
+                            disabled={hasConflict}
+                            data-testid={
+                              hasConflict
+                                ? `select-employee-conflict-${user.id}`
+                                : undefined
+                            }
+                          >
+                            <span className="flex items-center justify-between gap-2 w-full">
+                              <span
+                                className={
+                                  hasConflict ? "text-muted-foreground" : ""
+                                }
+                              >
+                                {user.firstName} {user.lastName}
+                              </span>
+                              {hasConflict && (
+                                <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium ml-2 shrink-0">
+                                  already scheduled
+                                </span>
+                              )}
+                            </span>
+                          </SelectItem>
+                        );
+                      });
                     })()}
                   </SelectContent>
                 </Select>
