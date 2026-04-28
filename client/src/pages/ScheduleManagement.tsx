@@ -604,7 +604,13 @@ export default function ScheduleManagement() {
 
   const [isTouchDevice, setIsTouchDevice] = useState(false);
   useEffect(() => {
-    const check = () => setIsMobilePanel(window.innerWidth < 1024);
+    const check = () => {
+      const mobile = window.innerWidth < 1024;
+      setIsMobilePanel(mobile);
+      if (!mobile) {
+        setShowMobileSheet(false);
+      }
+    };
     check();
     window.addEventListener('resize', check);
     return () => window.removeEventListener('resize', check);
@@ -1378,9 +1384,15 @@ export default function ScheduleManagement() {
               size="sm"
               className="gap-1.5 text-xs"
               onClick={handleCommandPanelToggle}
-              title="Toggle Today's Team Intelligence panel"
+              title="Open Today's Team panel"
+              aria-label="Open Today's Team panel"
+              data-testid="button-toggle-todays-team"
             >
-              {(isMobilePanel ? showMobileSheet : showCommandPanel) ? <PanelRightClose className="h-3.5 w-3.5" /> : <PanelRightOpen className="h-3.5 w-3.5" />}
+              {isMobilePanel ? (
+                <Users className="h-3.5 w-3.5" />
+              ) : (
+                (showCommandPanel ? <PanelRightClose className="h-3.5 w-3.5" /> : <PanelRightOpen className="h-3.5 w-3.5" />)
+              )}
               <span className="hidden sm:inline">Today's Team</span>
             </Button>
             <Button
@@ -1829,16 +1841,25 @@ export default function ScheduleManagement() {
 
       {/* Today's Intelligence Command Panel — mobile/tablet bottom sheet */}
       <Sheet open={showMobileSheet} onOpenChange={setShowMobileSheet}>
-        <SheetContent side="right" className="w-[min(22rem,100vw)] p-0 flex flex-col lg:hidden">
+        <SheetContent
+          side="bottom"
+          className="h-[88dvh] max-h-[88dvh] p-0 flex flex-col rounded-t-2xl border-t shadow-2xl lg:hidden pb-[env(safe-area-inset-bottom)]"
+          data-testid="sheet-todays-team-mobile"
+        >
           <SheetHeader className="sr-only">
-            <SheetTitle>Today's Intelligence</SheetTitle>
+            <SheetTitle>Today's Team</SheetTitle>
           </SheetHeader>
-          <AvailabilityCommandPanel
-            date={todayDateStr}
-            onQuickAdd={(member, start, end) => { setShowMobileSheet(false); handleQuickAdd(member, start, end); }}
-            onGapClick={(start, end, top) => { setShowMobileSheet(false); handleGapClick(start, end, top); }}
-            onAIAutoSchedule={() => { setShowMobileSheet(false); suggestMutation.mutate(todayDateStr); }}
-          />
+          <div className="flex justify-center pt-2 pb-1 flex-shrink-0" aria-hidden="true">
+            <div className="w-10 h-1.5 rounded-full bg-muted-foreground/30" />
+          </div>
+          <div className="flex-1 min-h-0 overflow-hidden">
+            <AvailabilityCommandPanel
+              date={todayDateStr}
+              onQuickAdd={(member, start, end) => { setShowMobileSheet(false); handleQuickAdd(member, start, end); }}
+              onGapClick={(start, end, top) => { setShowMobileSheet(false); handleGapClick(start, end, top); }}
+              onAIAutoSchedule={() => { setShowMobileSheet(false); suggestMutation.mutate(todayDateStr); }}
+            />
+          </div>
         </SheetContent>
       </Sheet>
 
