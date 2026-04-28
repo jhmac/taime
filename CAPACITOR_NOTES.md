@@ -192,6 +192,30 @@ following secret credential files, regardless of `.gitignore` settings:
 | `*.keystore` | Android release signing key — cannot be replaced on the Play Store without a lengthy Google support process |
 | `android/app/google-services.json` | Firebase Android credentials |
 | `ios/App/GoogleService-Info.plist` | Firebase iOS credentials |
+| `.env`, `.env.<anything>` | Local environment files — typically contain API keys, database URLs, and other runtime secrets |
+
+### Environment files (`.env`, `.env.local`, `.env.production`, …)
+
+Real environment files must never be committed. They are blocked by both the
+`.gitignore` (which excludes `.env` and `.env.*`) and the pre-commit hook
+(which refuses to stage anything matching `.env` or `.env.<suffix>`).
+
+Two filenames are explicitly allowed because they should only ever contain
+**placeholder** values and serve as documentation for new contributors:
+
+- `.env.example`
+- `.env.sample`
+
+Anything else — `.env`, `.env.local`, `.env.development`, `.env.production`,
+`.env.staging`, `.env.test`, etc. — is rejected. Store the real values in:
+
+- The Replit Secrets manager for the live deployment
+- A password manager (1Password, Bitwarden) for shared developer credentials
+- Your CI/CD provider's secret store for build-time variables
+
+If the hook blocks a file you believe is safe (for example, a new template
+file), rename it to `.env.example` / `.env.sample` so its intent is obvious,
+or add a narrow allow entry to `ALLOWED_PATTERNS` in `.husky/pre-commit`.
 
 ### One-time developer setup (required per machine)
 

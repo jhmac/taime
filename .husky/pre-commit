@@ -8,11 +8,26 @@
 #   *.keystore                        — Android signing keystores
 #   android/app/google-services.json  — Firebase Android credentials
 #   ios/App/GoogleService-Info.plist  — Firebase iOS credentials
+#   .env / .env.<anything>            — Local environment files; commonly
+#                                       contain API keys, DB URLs, and other
+#                                       secrets. Sample/template files
+#                                       (.env.example, .env.sample) are
+#                                       explicitly allowed via ALLOWED_PATTERNS.
 
 BLOCKED_PATTERNS=(
   "\.keystore$"
   "^android/app/google-services\.json$"
   "^ios/App/GoogleService-Info\.plist$"
+  "(^|/)\.env$"
+  "(^|/)\.env\.[^/]+$"
+)
+
+# Paths that match BLOCKED_PATTERNS but are explicitly safe to commit
+# (e.g. documented templates that contain only placeholder values, never
+# real secrets). Each entry is an ERE regex matched against the full path.
+ALLOWED_PATTERNS=(
+  "(^|/)\.env\.example$"
+  "(^|/)\.env\.sample$"
 )
 
 # --diff-filter=ACMR: only Added, Copied, Modified, Renamed files.
@@ -22,9 +37,23 @@ BLOCKED_PATTERNS=(
 STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACMR)
 FOUND=()
 
+is_allowed_path() {
+  local path="$1"
+  for allow in "${ALLOWED_PATTERNS[@]}"; do
+    if echo "$path" | grep -qE "$allow"; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 for pattern in "${BLOCKED_PATTERNS[@]}"; do
   while IFS= read -r match; do
-    [[ -n "$match" ]] && FOUND+=("$match")
+    [[ -z "$match" ]] && continue
+    if is_allowed_path "$match"; then
+      continue
+    fi
+    FOUND+=("$match")
   done < <(echo "$STAGED_FILES" | grep -E "$pattern" || true)
 done
 
