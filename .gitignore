@@ -19,4 +19,11 @@ taime-release.keystore
 android/app/google-services.json
 ios/App/GoogleService-Info.plist
 
+# Environment files — may contain API keys, DB URLs, and other secrets.
+# Use the platform's secret manager (or a per-environment vault) instead.
+.env
+.env.*
+!.env.example
+!.env.sample
+
 .git.backup.*
