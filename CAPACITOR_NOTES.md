@@ -236,21 +236,24 @@ every commit.
 #### Option B — Husky
 
 ```bash
-npx husky install
+npx husky
 ```
 
 After running this once, git will automatically execute `.husky/pre-commit`
 before every local commit. The hook already chains to the migration validation
 script, so no extra wiring is needed.
 
-To make this permanent for all future installs on your machine, add a
-`prepare` script to `package.json`:
+The repo's `package.json` already declares the right `prepare` script, so a
+fresh `npm install` will activate the hook automatically:
 
 ```json
 "scripts": {
-  "prepare": "husky install"
+  "prepare": "husky"
 }
 ```
+
+> Note: the husky v8 form `husky install` is deprecated and will be removed
+> in husky v10. Always use the bare `husky` command on v9+.
 
 #### Option C — Manual git hook symlink (no extra dependency)
 
@@ -258,6 +261,34 @@ To make this permanent for all future installs on your machine, add a
 ln -sf ../../.husky/pre-commit .git/hooks/pre-commit
 chmod +x .git/hooks/pre-commit
 ```
+
+### Husky version policy
+
+`devDependencies.husky` in `package.json` is pinned to a tilde range
+(`~9.1.7`), which only accepts patch updates within husky 9.1. **Do not
+loosen this pin without an explicit upgrade pass.**
+
+Why the tight pin:
+
+- Husky v10 is expected to remove more legacy behavior — the `husky.sh` shim
+  that older hook files source via `. "$(dirname -- "$0")/_/husky.sh"`, the
+  `HUSKY=0` environment variable, and other v8-era affordances. A silent
+  upgrade can break `.husky/pre-commit` for every developer on the team
+  (including new clones via `npm install`) without any code change in this
+  repo.
+- Even within v9, a minor bump (9.2.x, 9.3.x, …) could change hook discovery
+  or output formatting in ways that affect the credential guard. Patch-only
+  updates are safe; minor/major updates need to be reviewed manually.
+
+When you want to upgrade husky:
+
+1. Read the husky changelog for the target version end-to-end.
+2. Verify `.husky/pre-commit` does not source any deprecated shim and that
+   `npm run prepare` still uses the bare `husky` command (not
+   `husky install`).
+3. Bump the pin in `package.json`, regenerate `package-lock.json`, and run
+   the full unit test suite plus a manual commit that should be blocked
+   (e.g. staging a fake `.env`) and one that should succeed.
 
 ### What happens when a blocked file is staged
 
