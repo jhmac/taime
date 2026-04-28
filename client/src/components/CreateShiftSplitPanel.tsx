@@ -3575,22 +3575,87 @@ export default function CreateShiftSplitPanel({
   const handleEditingScheduleSave = useCallback((): boolean => {
     if (!editingSchedule || !onUpdateSchedule) return false;
     const effectiveUserId = selectedUserId || editingSchedule.userId;
+    // Determine if the currently-selected card is the editingSchedule shift
+    // itself (selectedShiftIdx === null) or one of the pending manual shifts.
+    // In editingSchedule mode aiProposedShifts=[] so manual idx == selectedShiftIdx.
+    const editingTheOriginal = selectedShiftIdx === null;
     dlog("handleEditingScheduleSave", {
       id: editingSchedule.id,
       userId: effectiveUserId,
       modalDate, modalStartTime, modalEndTime,
+      editingTheOriginal,
+      pendingManualCount: manualShifts.length,
     });
-    onUpdateSchedule({
-      id: editingSchedule.id,
-      userId: effectiveUserId,
-      startTime: new Date(`${modalDate}T${modalStartTime}`),
-      endTime: new Date(`${modalDate}T${modalEndTime}`),
-      title: modalTitle || null,
-      locationId: modalLocationId || null,
-      description: modalNotes || null,
-    });
+    // Save the original shift edit. Only apply the modal form fields to
+    // the original if the user was actually editing it (selectedShiftIdx === null);
+    // otherwise the form fields belong to a manual shift and applying them
+    // here would corrupt the original shift's times.
+    if (editingTheOriginal) {
+      onUpdateSchedule({
+        id: editingSchedule.id,
+        userId: effectiveUserId,
+        startTime: new Date(`${modalDate}T${modalStartTime}`),
+        endTime: new Date(`${modalDate}T${modalEndTime}`),
+        title: modalTitle || null,
+        locationId: modalLocationId || null,
+        description: modalNotes || null,
+      });
+    } else {
+      // User had a manual shift selected when they hit Save — preserve the
+      // original shift's existing values rather than overwriting with the
+      // manual shift's form state.
+      const origStart = editingSchedule.startTime instanceof Date
+        ? editingSchedule.startTime
+        : new Date(editingSchedule.startTime);
+      const origEnd = editingSchedule.endTime instanceof Date
+        ? editingSchedule.endTime
+        : new Date(editingSchedule.endTime);
+      onUpdateSchedule({
+        id: editingSchedule.id,
+        userId: editingSchedule.userId,
+        startTime: origStart,
+        endTime: origEnd,
+        title: editingSchedule.title ?? null,
+        locationId: editingSchedule.locationId ?? null,
+        description: editingSchedule.description ?? null,
+      });
+    }
+    // Also create any manually-added pending shifts. In editingSchedule mode
+    // aiProposedShifts=[] so proposedShifts = pendingManualShifts only. If
+    // a manual shift is currently selected in the right-panel form, apply
+    // the form's live edits to it before submitting (otherwise the in-flight
+    // edits get silently dropped). React Query mutations survive component
+    // unmount, so the panel closing (triggered by onUpdateSchedule) won't
+    // abort this in-flight request.
+    if (manualShifts.length > 0) {
+      let liveMnl = manualShifts;
+      if (selectedShiftIdx !== null && selectedShiftIdx >= 0) {
+        const mIdx = selectedShiftIdx; // aiCount=0 in editingSchedule mode
+        const emp = selectedUserId ? employees.find(e => e.id === selectedUserId) : null;
+        const empName = emp ? `${emp.firstName ?? ''} ${emp.lastName ?? ''}`.trim() : undefined;
+        liveMnl = manualShifts.map((s, i) =>
+          i === mIdx
+            ? {
+                ...s,
+                startTime: modalStartTime,
+                endTime: modalEndTime,
+                ...(selectedUserId ? { employeeId: selectedUserId } : {}),
+                ...(empName ? { employeeName: empName } : {}),
+                shiftBlock: modalTitle?.trim() ? modalTitle.trim() : (s.shiftBlock || 'Manual Shift'),
+                rationale: modalNotes?.trim() || s.rationale || '',
+              }
+            : s
+        );
+      }
+      const manualValid = liveMnl.filter((s, i) => !!s.employeeId && !excludedIdxs.has(i));
+      if (manualValid.length > 0) {
+        dlog("handleEditingScheduleSave/approveManual", { count: manualValid.length });
+        pendingSkippedCountRef.current = liveMnl.length - manualValid.length;
+        approveMutation.mutate(manualValid);
+      }
+    }
     return true;
-  }, [editingSchedule, onUpdateSchedule, selectedUserId, modalDate, modalStartTime, modalEndTime, modalTitle, modalLocationId, modalNotes]);
+  }, [editingSchedule, onUpdateSchedule, selectedUserId, modalDate, modalStartTime, modalEndTime, modalTitle, modalLocationId, modalNotes, manualShifts, selectedShiftIdx, employees, excludedIdxs, approveMutation]);
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -3681,41 +3746,9 @@ export default function CreateShiftSplitPanel({
     if (editingSchedule) {
       if (onUpdateSchedule) {
         dlog("handleBulkSave/editingScheduleRoute", { id: editingSchedule.id, pendingManualCount: manualShifts.length });
+        // handleEditingScheduleSave now handles BOTH the original shift edit
+        // AND any pending manualShifts (created via "+Add shift" or pill add).
         handleEditingScheduleSave();
-        // Also create any manually-added pending shifts concurrently.
-        // In editingSchedule mode aiProposedShifts=[], so proposedShifts = pendingManualShifts only.
-        // Apply the current form state to the selected manual shift (same as the main path below),
-        // then fire approveMutation for all valid manual entries.
-        // React Query mutations survive component unmount, so the panel closing (triggered by
-        // the parent's onUpdateSchedule callback) won't abort this in-flight request.
-        if (manualShifts.length > 0) {
-          const aiCnt = suggestDataRef.current?.proposedShifts?.length ?? 0; // 0 in this mode
-          let liveMnl = manualShifts;
-          if (selectedShiftIdx !== null && selectedShiftIdx >= aiCnt) {
-            const mIdx = selectedShiftIdx - aiCnt;
-            const emp = selectedUserId ? employees.find(e => e.id === selectedUserId) : null;
-            const empName = emp ? `${emp.firstName ?? ''} ${emp.lastName ?? ''}`.trim() : undefined;
-            liveMnl = manualShifts.map((s, i) =>
-              i === mIdx
-                ? {
-                    ...s,
-                    startTime: modalStartTime,
-                    endTime: modalEndTime,
-                    ...(selectedUserId ? { employeeId: selectedUserId } : {}),
-                    ...(empName ? { employeeName: empName } : {}),
-                    shiftBlock: modalTitle?.trim() ? modalTitle.trim() : (s.shiftBlock || 'Manual Shift'),
-                    rationale: modalNotes?.trim() || s.rationale || '',
-                  }
-                : s
-            );
-          }
-          const manualValid = liveMnl.filter((s, i) => !!s.employeeId && !excludedIdxs.has(i));
-          if (manualValid.length > 0) {
-            dlog("handleBulkSave/editingSchedule+manual", { count: manualValid.length });
-            pendingSkippedCountRef.current = liveMnl.length - manualValid.length;
-            approveMutation.mutate(manualValid);
-          }
-        }
       } else {
         dlog("handleBulkSave/blockedNoUpdateCallback", { id: editingSchedule.id });
         toast({
