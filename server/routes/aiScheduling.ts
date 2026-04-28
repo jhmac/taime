@@ -861,22 +861,13 @@ Required JSON structure:
         return res.status(400).json({ message: "Schedule entries are required" });
       }
 
-      // TODO: remove after task #420 (Edit Shift save bug). Currently this
-      // endpoint only logs on failure, which makes a "succeeded but wrote
-      // nothing" or "succeeded but wrote with wrong date/locationId"
-      // failure mode invisible. Logging the incoming payload here gives us
-      // a server-side anchor we can compare against the panel's client-side
-      // dlog stream (`Taime/Schedule approveMutation/* + Taime/API`).
+      // Log only aggregate counts on entry — per-row employee IDs and
+      // times are operational/PII-adjacent data that should not land in
+      // application logs. Per-row detail still appears in [Taime/apply]
+      // exit, but only for ROWS THAT WERE REJECTED, where we need it to
+      // diagnose validator failures.
       console.log("[Taime/apply] entry", {
-        userId,
         entryCount: scheduleEntries.length,
-        entries: scheduleEntries.map((e: any) => ({
-          employeeId: e?.employeeId,
-          date: e?.date,
-          startTime: e?.startTime,
-          endTime: e?.endTime,
-          shiftBlock: e?.shiftBlock,
-        })),
       });
 
       // Scope employee authorization to the requester's store — prevents cross-tenant IDOR
@@ -1025,20 +1016,18 @@ Required JSON structure:
         ? await storage.createSchedulesBatch(entriesToInsert)
         : [];
 
-      // TODO: remove after task #420 (Edit Shift save bug). Logs which IDs
-      // we actually wrote, plus per-row rejection reasons when validation
-      // dropped any entries — so a "succeeded but wrote fewer rows than
-      // expected" trace tells us exactly which row was rejected and why.
+      // Aggregate counts only — per-row rejection reasons (which include
+      // employeeId/date/time) are kept ONLY when validation actually dropped
+      // rows, since that's the failure mode we need detail for. Successful
+      // inserts log only counts to keep operational/PII-adjacent fields
+      // out of the application log stream.
       console.log("[Taime/apply] exit", {
-        userId,
         receivedCount: scheduleEntries.length,
         validCount: validEntries.length,
         droppedByValidation: rejectedEntries.length,
-        rejectedEntries,
+        droppedAsDuplicate: skippedAsDuplicate.length,
         createdCount: created.length,
-        createdIds: created.map(c => c.id),
-        createdLocationIds: Array.from(new Set(created.map(c => c.locationId))),
-        createdDates: Array.from(new Set(created.map(c => c.startTime instanceof Date ? c.startTime.toISOString().slice(0, 10) : String(c.startTime).slice(0, 10)))),
+        ...(rejectedEntries.length > 0 ? { rejectedEntries } : {}),
       });
 
       // Single consolidated WS broadcast — clients invalidate `/api/schedules` once
