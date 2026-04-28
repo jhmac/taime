@@ -189,10 +189,17 @@ function ShiftBlock({
   const widthPct = 100 / totalCols;
   const leftPct  = col * widthPct;
 
+  // Consistency fix: resolve the display name the same way the panel does
+  // (firstName + lastName → email → username → 'Unknown') and colour by
+  // userId (same 10-color hash as CreateShiftSplitPanel) so a person gets
+  // an identical colour and name in both the timeline and the edit panel.
   const displayName = user
-    ? `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim() || (user as any).username || 'Unknown'
+    ? `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim()
+      || user.email
+      || (user as any).username
+      || 'Unknown'
     : 'Unknown';
-  const colors = COLOR_CLASSES[colorKeyFromName(displayName)];
+  const colors = getColors(s.userId);
   const timeLabel = `${formatTimeShort(new Date(startMs))}–${formatTimeShort(new Date(endMs))}`;
   const showRole = !!s.title && height >= 60;
   const showTime = height >= 40;
@@ -516,8 +523,9 @@ function MonthView({
                 <div className="space-y-0.5">
                   {dayShifts.slice(0, 3).map(s => {
                     const user   = users.find(u => u.id === s.userId);
-                    const uName  = user ? `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim() || (user as any).username || '' : '';
-                    const colors = uName ? COLOR_CLASSES[colorKeyFromName(uName)] : getColors(s.userId);
+                    // Same name + colour resolution as ShiftBlock/panel for consistency.
+                    const uName  = user ? `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim() || user.email || (user as any).username || '' : '';
+                    const colors = getColors(s.userId);
                     const dur    = ((new Date(s.endTime).getTime() - new Date(s.startTime).getTime()) / 3600000).toFixed(1);
                     return (
                       <div
