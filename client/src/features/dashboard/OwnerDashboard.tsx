@@ -693,9 +693,16 @@ export default function OwnerDashboard() {
                           )}
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
-                          <span className="text-[10px] text-green-600 dark:text-green-400">
-                            in {new Date(emp.clockInTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
-                          </span>
+                          <div className="text-right">
+                            {emp.scheduledStartTime && (
+                              <span className="text-[10px] text-muted-foreground block">
+                                sched {new Date(emp.scheduledStartTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
+                              </span>
+                            )}
+                            <span className="text-[10px] text-green-600 dark:text-green-400 block">
+                              in {new Date(emp.clockInTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
+                            </span>
+                          </div>
                           {emp.timeEntryId && (
                             <Button
                               size="sm"

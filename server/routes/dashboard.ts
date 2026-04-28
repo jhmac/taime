@@ -325,6 +325,7 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
           userName: user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() : 'Unknown',
           profileImageUrl: user?.profileImageUrl || null,
           clockInTime: te.clockInTime,
+          scheduledStartTime: matchingSchedule?.startTime ?? null,
           hoursWorked: Math.round(hoursWorked * 100) / 100,
           isLate,
           minutesLate,
