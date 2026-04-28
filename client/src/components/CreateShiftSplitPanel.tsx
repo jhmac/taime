@@ -175,11 +175,6 @@ interface Props {
   /** Called when the user clicks the "Jump to that week" toast action after saving shifts
    *  for a date outside the visible week. The receiver should adjust the grid's week state. */
   onJumpToWeek?: (date: string) => void;
-  /** Fired whenever the panel's current working-state changes while editingSchedule is set.
-   *  Sends a Schedule[] that the parent can use to drive a display-only preview of what
-   *  the user is editing, so the outer timeline stays in sync without a server round-trip.
-   *  Fires null when the panel closes or editingSchedule is cleared. */
-  onPreviewChange?: (schedules: Schedule[] | null) => void;
 }
 
 function fmt12(t: string) {
@@ -1985,7 +1980,6 @@ export default function CreateShiftSplitPanel({
   onSelectSchedule,
   currentWeekRange,
   onJumpToWeek,
-  onPreviewChange,
 }: Props) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -2108,39 +2102,13 @@ export default function CreateShiftSplitPanel({
         return { schedule: s, name, startTime, endTime };
       });
   }, [schedules, modalDate, employees]);
-  // Live preview: derive entirely from local form state in editingSchedule mode
-  // so the inner timeline mirrors live edits without a server round-trip.
-  // In all other modes, overlay any in-progress form edits onto the server data.
+  // Live preview: overlay any in-progress form edits onto the selected actual shift card
   const liveActualShifts = useMemo(() => {
-    if (editingSchedule) {
-      // Display-only: reflect what the user currently has in the form, instantly.
-      if (!modalDate) return [];
-      const [y, mo, d] = modalDate.split('-').map(Number);
-      const [sh, sm] = (modalStartTime || '09:00').split(':').map(Number);
-      const [eh, em] = (modalEndTime || '17:00').split(':').map(Number);
-      const effectiveUserId = selectedUserId || editingSchedule.userId;
-      const effectiveUser = employees.find(e => e.id === effectiveUserId);
-      const effectiveName = effectiveUser
-        ? `${effectiveUser.firstName || ''} ${effectiveUser.lastName || ''}`.trim() || effectiveUser.email || 'Unknown'
-        : 'Unknown';
-      return [{
-        schedule: {
-          ...editingSchedule,
-          userId: effectiveUserId,
-          startTime: new Date(y, mo - 1, d, sh, sm, 0, 0),
-          endTime: new Date(y, mo - 1, d, eh, em, 0, 0),
-          title: modalTitle || editingSchedule.title,
-          locationId: modalLocationId || editingSchedule.locationId,
-        } as Schedule,
-        name: effectiveName,
-        startTime: modalStartTime,
-        endTime: modalEndTime,
-      }];
-    }
-    // Non-editingSchedule mode: overlay pending edits onto EVERY shift so a
-    // user can edit shift A, click to focus shift B, and still see A's pending
-    // changes on the timeline. The selected shift gets `actualFormEdits` (the
-    // live form values) layered on top so unsaved typing is reflected immediately.
+    // Overlay pending edits onto EVERY shift (not just the currently
+    // selected one) so a user can edit shift A, click to focus shift B,
+    // and still see A's pending changes on the timeline. The selected
+    // shift gets `actualFormEdits` (the live form values) layered on
+    // top of the map entry so unsaved typing is reflected immediately.
     const hasMapEdits = Object.keys(pendingActualEdits).length > 0;
     if (!hasMapEdits && (!selectedActualSchedule || !actualFormEdits)) return dateActualShifts;
     return dateActualShifts.map((actual) => {
@@ -2154,49 +2122,7 @@ export default function CreateShiftSplitPanel({
         : actual.name;
       return { ...actual, name, startTime: liveEdit.startTime, endTime: liveEdit.endTime };
     });
-  }, [editingSchedule, modalDate, modalStartTime, modalEndTime, selectedUserId, modalTitle, modalLocationId, employees, dateActualShifts, selectedActualSchedule, actualFormEdits, pendingActualEdits]);
-
-  // Notify the parent whenever the working-state changes so the outer timeline
-  // can display a preview of the in-progress edits without a server round-trip.
-  useEffect(() => {
-    if (!editingSchedule || !onPreviewChange || !modalDate) return;
-    const [y, mo, d] = modalDate.split('-').map(Number);
-    const [sh, sm] = (modalStartTime || '09:00').split(':').map(Number);
-    const [eh, em] = (modalEndTime || '17:00').split(':').map(Number);
-    const effectiveUserId = selectedUserId || editingSchedule.userId;
-    const previewEdited: Schedule = {
-      ...editingSchedule,
-      userId: effectiveUserId,
-      startTime: new Date(y, mo - 1, d, sh, sm, 0, 0),
-      endTime: new Date(y, mo - 1, d, eh, em, 0, 0),
-      title: modalTitle || editingSchedule.title,
-      locationId: modalLocationId || editingSchedule.locationId,
-    };
-    const syntheticManuals: Schedule[] = manualShifts.map((m, i) => {
-      const [msh, msm] = (m.startTime || '09:00').split(':').map(Number);
-      const [meh, mem] = (m.endTime || '17:00').split(':').map(Number);
-      return {
-        id: `__preview_manual_${i}`,
-        userId: m.employeeId || effectiveUserId,
-        locationId: editingSchedule.locationId ?? null,
-        startTime: new Date(y, mo - 1, d, msh, msm, 0, 0),
-        endTime: new Date(y, mo - 1, d, meh, mem, 0, 0),
-        title: m.shiftBlock || 'Manual Shift',
-        description: m.rationale || null,
-        isRecurring: false,
-        createdBy: null,
-        createdAt: new Date(),
-      } as Schedule;
-    });
-    onPreviewChange([previewEdited, ...syntheticManuals]);
-  }, [editingSchedule, modalDate, modalStartTime, modalEndTime, selectedUserId, modalTitle, modalLocationId, manualShifts, onPreviewChange]);
-
-  // Clear the outer preview when the panel closes or editingSchedule is cleared.
-  useEffect(() => {
-    if (!editingSchedule || !open) {
-      onPreviewChange?.(null);
-    }
-  }, [editingSchedule, open, onPreviewChange]);
+  }, [dateActualShifts, selectedActualSchedule, actualFormEdits, pendingActualEdits, employees]);
 
   const suggestDataRef = useRef<SuggestData | undefined>(undefined);
 

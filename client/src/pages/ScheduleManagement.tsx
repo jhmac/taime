@@ -559,10 +559,6 @@ export default function ScheduleManagement() {
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   const [showAIPanel, setShowAIPanel] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null);
-  // Preview schedules fed back from the Edit Shift panel while it's open.
-  // These replace the editingSchedule row (and add synthetic manual-shift rows)
-  // so the outer timeline shows the user's in-progress edits without a server save.
-  const [previewSchedules, setPreviewSchedules] = useState<Schedule[] | null>(null);
   const [aiResult, setAiResult] = useState<GenerateResult | null>(null);
   const [removedEntries, setRemovedEntries] = useState<Set<number>>(new Set());
   const [availabilityEditTarget, setAvailabilityEditTarget] = useState<{ userId: string; date: string; empName: string } | null>(null);
@@ -1443,14 +1439,7 @@ export default function ScheduleManagement() {
           <ScheduleTimelineView
             subView={scheduleSubView}
             onSubViewChange={handleSubViewChange}
-            schedules={previewSchedules && editingSchedule
-              ? [
-                  ...schedules.filter(s =>
-                    s.id !== editingSchedule.id && !s.id.startsWith('__preview_manual_')
-                  ),
-                  ...previewSchedules,
-                ]
-              : schedules}
+            schedules={schedules}
             users={activeEmployees}
             weekDates={weekDates}
             selectedWeek={selectedWeek}
@@ -1905,7 +1894,6 @@ export default function ScheduleManagement() {
         isDeleting={deleteScheduleMutation.isPending}
         currentWeekRange={{ start: startDateParam, end: endDateParam }}
         onJumpToWeek={jumpToWeekContaining}
-        onPreviewChange={setPreviewSchedules}
       />
 
       {/* Availability Override Dialog */}
