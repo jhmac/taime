@@ -134,3 +134,55 @@ describe("runSurfacingTick — clock-in gating", () => {
     });
   });
 });
+
+describe("runSurfacingTick — database error handling", () => {
+  let sendToUsers: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    sendToUsers = vi.fn();
+  });
+
+  it("propagates errors thrown by getActiveOnShift so the caller can log them", async () => {
+    const dbError = new Error("connection refused");
+    const deps = makeDeps({
+      getActiveOnShift: vi.fn().mockRejectedValue(dbError),
+    });
+
+    await expect(runSurfacingTick(sendToUsers, deps)).rejects.toThrow(
+      "connection refused"
+    );
+  });
+
+  it("does NOT call sendToUsers when getActiveOnShift rejects", async () => {
+    const deps = makeDeps({
+      getActiveOnShift: vi.fn().mockRejectedValue(new Error("db down")),
+    });
+
+    await expect(runSurfacingTick(sendToUsers, deps)).rejects.toThrow();
+
+    expect(sendToUsers).not.toHaveBeenCalled();
+  });
+
+  it("propagates errors thrown by getTimeBased so the caller can log them", async () => {
+    const dbError = new Error("query timeout");
+    const deps = makeDeps({
+      getActiveOnShift: vi.fn().mockResolvedValue([{ userId: "user-on-shift" }]),
+      getTimeBased: vi.fn().mockRejectedValue(dbError),
+    });
+
+    await expect(runSurfacingTick(sendToUsers, deps)).rejects.toThrow(
+      "query timeout"
+    );
+  });
+
+  it("does NOT call sendToUsers when getTimeBased rejects mid-tick", async () => {
+    const deps = makeDeps({
+      getActiveOnShift: vi.fn().mockResolvedValue([{ userId: "user-on-shift" }]),
+      getTimeBased: vi.fn().mockRejectedValue(new Error("query timeout")),
+    });
+
+    await expect(runSurfacingTick(sendToUsers, deps)).rejects.toThrow();
+
+    expect(sendToUsers).not.toHaveBeenCalled();
+  });
+});
