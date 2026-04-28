@@ -964,6 +964,13 @@ Required JSON structure:
             // suggestions on reopen — the cause of the "Schedule Approved but
             // grid is empty" + "saved shifts revert to suggested" bugs.
             locationId: applyStoreId,
+            // Original wall-clock fields (date/start/end strings) — kept on the
+            // mapped entry so that conflict skips can echo them back to the
+            // client in the same shape the panel posted, no UTC→local round
+            // trip required on the receiving side.
+            _origDate: entry.date as string,
+            _origStartTime: entry.startTime as string,
+            _origEndTime: entry.endTime as string,
           };
         });
 
@@ -975,11 +982,31 @@ Required JSON structure:
       // already exists for the same (userId, startTime, endTime, locationId)
       // makes the endpoint idempotent for the panel-as-master flow.
       const skippedAsDuplicate: Array<{ userId: string; startTime: string; endTime: string }> = [];
+      // Server-side overlap guard (Task #328). The panel runs the same check
+      // against React-Query cache, but stale/uninitialized cache could let an
+      // overlapping shift through. We re-run the overlap predicate against
+      // the live `schedules` table here so the DB never accepts two
+      // overlapping shifts for the same employee, regardless of what the
+      // browser thought it had cached.
+      const skippedAsConflict: Array<{
+        employeeId: string;
+        date: string;
+        startTime: string;
+        endTime: string;
+        reason: string;
+        existingStart: string;
+        existingEnd: string;
+      }> = [];
       let entriesToInsert = validEntries;
       if (validEntries.length > 0) {
         const userIds = Array.from(new Set(validEntries.map((e) => e.userId)));
         const minStart = new Date(Math.min(...validEntries.map((e) => e.startTime.getTime())));
         const maxEnd = new Date(Math.max(...validEntries.map((e) => e.endTime.getTime())));
+        // Classic overlap predicate: any existing shift whose
+        // startTime < pendingMaxEnd AND endTime > pendingMinStart could
+        // collide with at least one pending entry. The previous "fully
+        // contained in window" filter (gte start, lte end) missed shifts
+        // that straddled the window boundaries.
         const existing = await db.select({
           userId: schedules.userId,
           startTime: schedules.startTime,
@@ -989,19 +1016,47 @@ Required JSON structure:
           .from(schedules)
           .where(and(
             inArray(schedules.userId, userIds),
-            gte(schedules.startTime, minStart),
-            lte(schedules.endTime, maxEnd),
+            lt(schedules.startTime, maxEnd),
+            gt(schedules.endTime, minStart),
           ));
         const existingKeys = new Set(
           existing.map((r) => `${r.userId}|${r.startTime.toISOString()}|${r.endTime.toISOString()}|${r.locationId ?? ''}`),
         );
+        // Group existing shifts by userId so the per-entry overlap scan is O(k)
+        // in the user's existing-shift count, not O(N) in all existing rows.
+        const existingByUser = new Map<string, Array<{ startTime: Date; endTime: Date }>>();
+        for (const r of existing) {
+          const arr = existingByUser.get(r.userId) ?? [];
+          arr.push({ startTime: r.startTime, endTime: r.endTime });
+          existingByUser.set(r.userId, arr);
+        }
         entriesToInsert = validEntries.filter((e) => {
           const key = `${e.userId}|${e.startTime.toISOString()}|${e.endTime.toISOString()}|${e.locationId ?? ''}`;
           if (existingKeys.has(key)) {
+            // Exact duplicate → silently skip (idempotent re-save flow).
             skippedAsDuplicate.push({
               userId: e.userId,
               startTime: e.startTime.toISOString(),
               endTime: e.endTime.toISOString(),
+            });
+            return false;
+          }
+          // Different times, same employee, overlapping window → conflict.
+          const userExisting = existingByUser.get(e.userId) ?? [];
+          const overlap = userExisting.find(
+            (r) =>
+              r.startTime.getTime() < e.endTime.getTime() &&
+              r.endTime.getTime() > e.startTime.getTime(),
+          );
+          if (overlap) {
+            skippedAsConflict.push({
+              employeeId: e.userId,
+              date: e._origDate,
+              startTime: e._origStartTime,
+              endTime: e._origEndTime,
+              reason: 'overlaps_existing_schedule',
+              existingStart: overlap.startTime.toISOString(),
+              existingEnd: overlap.endTime.toISOString(),
             });
             return false;
           }
@@ -1012,8 +1067,12 @@ Required JSON structure:
         });
       }
 
-      const created = entriesToInsert.length > 0
-        ? await storage.createSchedulesBatch(entriesToInsert)
+      // Strip the _orig* helper fields before handing rows to storage — they
+      // are only there to enrich the conflict skip list above, and would
+      // otherwise be passed straight into the Drizzle insert.
+      const inserts = entriesToInsert.map(({ _origDate, _origStartTime, _origEndTime, ...rest }) => rest);
+      const created = inserts.length > 0
+        ? await storage.createSchedulesBatch(inserts)
         : [];
 
       // Aggregate counts only — per-row rejection reasons (which include
@@ -1026,8 +1085,10 @@ Required JSON structure:
         validCount: validEntries.length,
         droppedByValidation: rejectedEntries.length,
         droppedAsDuplicate: skippedAsDuplicate.length,
+        droppedAsConflict: skippedAsConflict.length,
         createdCount: created.length,
         ...(rejectedEntries.length > 0 ? { rejectedEntries } : {}),
+        ...(skippedAsConflict.length > 0 ? { skippedAsConflict } : {}),
       });
 
       // Single consolidated WS broadcast — clients invalidate `/api/schedules` once
@@ -1042,6 +1103,10 @@ Required JSON structure:
         schedulesCreated: created.length,
         // Stable contract for bulk-undo toast and UI follow-ups (Task #387 B4)
         created,
+        // Task #328: server-side overlap guard. The panel surfaces these in
+        // the post-save toast so the manager knows exactly which shifts the
+        // server refused to write and why.
+        skipped: skippedAsConflict,
       });
     } catch (error) {
       console.error("Error applying AI schedule:", error);

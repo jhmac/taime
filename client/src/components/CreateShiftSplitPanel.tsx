@@ -3261,11 +3261,26 @@ export default function CreateShiftSplitPanel({
         ? result.created.map((s: { id: string }) => s.id).filter(Boolean)
         : [];
       lastCreatedIdsRef.current = createdIds;
+      // Task #328: server-side overlap guard. The server may refuse to
+      // insert a shift that overlaps an existing one even when the client's
+      // cached overlap check missed it (stale or unloaded cache). The
+      // panel's contract is to surface the per-row reasons in a follow-up
+      // toast so the manager knows exactly which shifts didn't write.
+      const serverSkipped: Array<{
+        employeeId: string;
+        date: string;
+        startTime: string;
+        endTime: string;
+        reason: string;
+        existingStart?: string;
+        existingEnd?: string;
+      }> = Array.isArray(result?.skipped) ? result.skipped : [];
       dlog("approveMutation/success", {
         schedulesCreated: result?.schedulesCreated,
         createdCount: createdIds.length,
         createdIds,
         skipped,
+        serverSkippedCount: serverSkipped.length,
         rawResultKeys: result && typeof result === 'object' ? Object.keys(result) : null,
       });
       // Refetch grid + availability so the user lands on populated views.
@@ -3340,6 +3355,58 @@ export default function CreateShiftSplitPanel({
           duration: 10_000,
         } : {}),
       });
+
+      // Task #328: surface server-side conflict skips in a separate toast so
+      // the manager sees BOTH the success count AND a per-row breakdown of
+      // anything the server refused to write. The success toast above stays
+      // unchanged so existing flows (off-week jump / undo) keep working.
+      if (serverSkipped.length > 0) {
+        const empName = (id: string): string => {
+          const u = employees.find((e) => e.id === id);
+          if (!u) return 'A teammate';
+          const full = `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim();
+          return full || u.email || 'A teammate';
+        };
+        // Render the existing-shift window in the user's local TZ rather than
+        // hardcoding a single "overlaps an existing shift" line, so that as
+        // the server contract grows new reason codes the client surfaces
+        // them verbatim instead of silently mislabelling them.
+        const fmtLocalTime = (iso?: string): string => {
+          if (!iso) return '';
+          try {
+            return new Date(iso).toLocaleTimeString('en-GB', {
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: false,
+            });
+          } catch {
+            return '';
+          }
+        };
+        const reasonText = (s: typeof serverSkipped[number]): string => {
+          if (s.reason === 'overlaps_existing_schedule') {
+            const win = s.existingStart && s.existingEnd
+              ? ` ${fmtLocalTime(s.existingStart)}–${fmtLocalTime(s.existingEnd)}`
+              : '';
+            return `overlaps existing shift${win}`;
+          }
+          // Fallback for any new server-side reason codes — surface the raw
+          // reason rather than swallowing it, so the bug is visible in the UI.
+          return s.reason.replace(/_/g, ' ');
+        };
+        const lines = serverSkipped.slice(0, 3).map((s) =>
+          `${empName(s.employeeId)} (${s.startTime}–${s.endTime}) — ${reasonText(s)}`,
+        );
+        const more = serverSkipped.length > lines.length
+          ? ` +${serverSkipped.length - lines.length} more`
+          : '';
+        toast({
+          title: `${serverSkipped.length} shift${serverSkipped.length !== 1 ? 's' : ''} skipped`,
+          description: `${lines.join(' • ')}${more}`,
+          variant: 'destructive',
+          duration: 12_000,
+        });
+      }
       onOpenChange(false);
     },
     onError: (err) => {
