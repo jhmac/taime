@@ -754,7 +754,11 @@ export default function ScheduleManagement() {
     mutationFn: async (id: string) => {
       return apiRequest('DELETE', `/api/schedules/${id}`);
     },
-    onSuccess: () => {
+    onSuccess: (_data, id) => {
+      queryClient.setQueryData(
+        ["/api/schedules", startDateParam, endDateParam],
+        (old: Schedule[] = []) => old.filter(s => s.id !== id),
+      );
       invalidateScheduleSurfaces();
       setEditingSchedule(null);
       setShowCreateShift(false);
@@ -770,7 +774,11 @@ export default function ScheduleManagement() {
       const res = await apiRequest('PATCH', `/api/schedules/${id}`, data);
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (updatedSchedule) => {
+      queryClient.setQueryData(
+        ["/api/schedules", startDateParam, endDateParam],
+        (old: Schedule[] = []) => old.map(s => s.id === updatedSchedule.id ? updatedSchedule : s),
+      );
       invalidateScheduleSurfaces();
       setEditingSchedule(null);
       setShowCreateShift(false);
@@ -786,7 +794,11 @@ export default function ScheduleManagement() {
       const res = await apiRequest('PATCH', `/api/schedules/${id}`, data);
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (updatedSchedule) => {
+      queryClient.setQueryData(
+        ["/api/schedules", startDateParam, endDateParam],
+        (old: Schedule[] = []) => old.map(s => s.id === updatedSchedule.id ? updatedSchedule : s),
+      );
       invalidateScheduleSurfaces();
       setPendingReschedule(null);
       toast({ title: "Shift rescheduled", description: "The shift has been moved." });
