@@ -976,7 +976,54 @@ Required JSON structure:
           };
         });
 
-      const created = await storage.createSchedulesBatch(validEntries);
+      // Dedup against the live `schedules` table BEFORE inserting. The panel
+      // posts the FULL day's set of shifts on every Save (AI suggestions +
+      // pending manuals + persisted-manuals), and a pure INSERT created a new
+      // row for each entry every time — so a single shift could end up with
+      // 6–8 identical rows after a few save cycles. Skipping any row that
+      // already exists for the same (userId, startTime, endTime, locationId)
+      // makes the endpoint idempotent for the panel-as-master flow.
+      const skippedAsDuplicate: Array<{ userId: string; startTime: string; endTime: string }> = [];
+      let entriesToInsert = validEntries;
+      if (validEntries.length > 0) {
+        const userIds = Array.from(new Set(validEntries.map((e) => e.userId)));
+        const minStart = new Date(Math.min(...validEntries.map((e) => e.startTime.getTime())));
+        const maxEnd = new Date(Math.max(...validEntries.map((e) => e.endTime.getTime())));
+        const existing = await db.select({
+          userId: schedules.userId,
+          startTime: schedules.startTime,
+          endTime: schedules.endTime,
+          locationId: schedules.locationId,
+        })
+          .from(schedules)
+          .where(and(
+            inArray(schedules.userId, userIds),
+            gte(schedules.startTime, minStart),
+            lte(schedules.endTime, maxEnd),
+          ));
+        const existingKeys = new Set(
+          existing.map((r) => `${r.userId}|${r.startTime.toISOString()}|${r.endTime.toISOString()}|${r.locationId ?? ''}`),
+        );
+        entriesToInsert = validEntries.filter((e) => {
+          const key = `${e.userId}|${e.startTime.toISOString()}|${e.endTime.toISOString()}|${e.locationId ?? ''}`;
+          if (existingKeys.has(key)) {
+            skippedAsDuplicate.push({
+              userId: e.userId,
+              startTime: e.startTime.toISOString(),
+              endTime: e.endTime.toISOString(),
+            });
+            return false;
+          }
+          // Also dedup within this batch (so two identical entries in one
+          // payload don't both insert).
+          existingKeys.add(key);
+          return true;
+        });
+      }
+
+      const created = entriesToInsert.length > 0
+        ? await storage.createSchedulesBatch(entriesToInsert)
+        : [];
 
       // TODO: remove after task #420 (Edit Shift save bug). Logs which IDs
       // we actually wrote, plus per-row rejection reasons when validation
@@ -2064,6 +2111,20 @@ Required JSON structure:
         } else {
           const scheduleData = rows[0].scheduleData as any;
           if (!Array.isArray(scheduleData?.proposedShifts)) scheduleData.proposedShifts = [];
+          // Dedup: if a proposed shift already exists for the same employee
+          // at the same start/end time, treat the request as a no-op rather
+          // than appending another card. Without this, repeated "+Add shift"
+          // clicks (or callback storms during drag-resize) pile identical
+          // cards into the cache — observed: 5 identical Sydney Wall cards
+          // for the same date in the suggest cache.
+          const dup = scheduleData.proposedShifts.find((s: any) =>
+            s?.employeeId === newShift.employeeId &&
+            s?.startTime === newShift.startTime &&
+            s?.endTime === newShift.endTime,
+          );
+          if (dup) {
+            return res.json({ success: true, shift: dup, deduped: true });
+          }
           scheduleData.proposedShifts.push(newShift);
           await db.update(aiSuggestedSchedules)
             .set({ scheduleData })
