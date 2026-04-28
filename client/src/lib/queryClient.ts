@@ -1,5 +1,13 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 import { reportApiError } from "./errorReporter";
+import { makeDlog } from "./dlog";
+
+// Dev-only request/response trace, gated by window.__TAIME_DEBUG__.
+// Used by callers passing `{ trace: true }` to apiRequest so a single
+// console session captures the full save flow (state → payload → HTTP →
+// response) without needing the Network tab. See
+// docs/edit-shift-bug-trace-guide.md.
+const apiDlog = makeDlog("Taime/API");
 
 // Default client-side timeout for every network request (ms).
 // Keeps the app responsive on slow mobile connections.
@@ -57,7 +65,7 @@ export async function apiRequest(
   method: string,
   url: string,
   data?: unknown,
-  options?: { signal?: AbortSignal; timeoutMs?: number },
+  options?: { signal?: AbortSignal; timeoutMs?: number; trace?: boolean },
 ): Promise<Response> {
   const authHeaders = await getAuthHeaders();
   const headers: Record<string, string> = { ...authHeaders };
@@ -79,6 +87,16 @@ export async function apiRequest(
       : timeoutController.signal
     : timeoutController.signal;
 
+  // Trace request — only when caller opts in via `{ trace: true }` AND the
+  // global debug flag is on (handled inside apiDlog). Keeps high-traffic
+  // calls (queries, polling) silent while still letting the Edit Shift save
+  // path stream a complete request log to the console.
+  const trace = options?.trace === true;
+  const traceStartedAt = trace ? performance.now() : 0;
+  if (trace) {
+    apiDlog("request", { method, url, body: data ?? null });
+  }
+
   let res: Response;
   try {
     res = await fetch(url, {
@@ -96,9 +114,39 @@ export async function apiRequest(
     const text = (await res.text()) || res.statusText;
     let parsed: unknown;
     try { parsed = JSON.parse(text); } catch { parsed = text; }
+    if (trace) {
+      apiDlog("response/error", {
+        method, url, status: res.status,
+        durationMs: Math.round(performance.now() - traceStartedAt),
+        body: parsed,
+      });
+    }
     reportApiError(method, url, res.status, parsed);
     throw new Error(`${res.status}: ${text}`);
   }
+
+  if (trace) {
+    // Clone so callers can still consume the body via `.json()` / `.text()`.
+    try {
+      const cloneText = await res.clone().text();
+      let parsedClone: unknown = cloneText;
+      try { parsedClone = JSON.parse(cloneText); } catch { /* keep raw text */ }
+      apiDlog("response/ok", {
+        method, url, status: res.status,
+        durationMs: Math.round(performance.now() - traceStartedAt),
+        body: parsedClone,
+      });
+    } catch {
+      // Cloning/reading failed — log status only so the trace still shows
+      // the request completed.
+      apiDlog("response/ok", {
+        method, url, status: res.status,
+        durationMs: Math.round(performance.now() - traceStartedAt),
+        body: "<unavailable>",
+      });
+    }
+  }
+
   return res;
 }
 

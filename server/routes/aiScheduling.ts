@@ -861,6 +861,24 @@ Required JSON structure:
         return res.status(400).json({ message: "Schedule entries are required" });
       }
 
+      // TODO: remove after task #420 (Edit Shift save bug). Currently this
+      // endpoint only logs on failure, which makes a "succeeded but wrote
+      // nothing" or "succeeded but wrote with wrong date/locationId"
+      // failure mode invisible. Logging the incoming payload here gives us
+      // a server-side anchor we can compare against the panel's client-side
+      // dlog stream (`Taime/Schedule approveMutation/* + Taime/API`).
+      console.log("[Taime/apply] entry", {
+        userId,
+        entryCount: scheduleEntries.length,
+        entries: scheduleEntries.map((e: any) => ({
+          employeeId: e?.employeeId,
+          date: e?.date,
+          startTime: e?.startTime,
+          endTime: e?.endTime,
+          shiftBlock: e?.shiftBlock,
+        })),
+      });
+
       // Scope employee authorization to the requester's store — prevents cross-tenant IDOR
       const { tryResolveStoreIdForUser } = await import('../lib/storeResolver');
       const { getAllStoreUserIds } = await import('../lib/permissionUtils');
@@ -888,15 +906,49 @@ Required JSON structure:
         return new Date(naive.getTime() - offsetMin * 60_000);
       };
 
+      // TODO: remove after task #420. Track per-row drop reasons so a
+      // "succeeded but wrote fewer rows than expected" trace tells us
+      // exactly which row was rejected and why — eliminates the need to
+      // infer from aggregate counts when reading the apply log.
+      const rejectedEntries: Array<{
+        index: number;
+        employeeId: string | null;
+        date: string | null;
+        startTime: string | null;
+        endTime: string | null;
+        reason: string;
+      }> = [];
       const validEntries = scheduleEntries
-        .filter((entry: any) => {
-          if (!entry.employeeId || !entry.date || !entry.startTime || !entry.endTime) return false;
-          if (!validUserIds.has(entry.employeeId)) return false;
-          if (!/^\d{4}-\d{2}-\d{2}$/.test(entry.date)) return false;
-          if (!/^\d{2}:\d{2}$/.test(entry.startTime) || !/^\d{2}:\d{2}$/.test(entry.endTime)) return false;
+        .filter((entry: any, index: number) => {
+          const reject = (reason: string) => {
+            rejectedEntries.push({
+              index,
+              employeeId: entry?.employeeId ?? null,
+              date: entry?.date ?? null,
+              startTime: entry?.startTime ?? null,
+              endTime: entry?.endTime ?? null,
+              reason,
+            });
+            return false;
+          };
+          if (!entry.employeeId || !entry.date || !entry.startTime || !entry.endTime) {
+            return reject("missing required field (employeeId/date/startTime/endTime)");
+          }
+          if (!validUserIds.has(entry.employeeId)) {
+            return reject(`employeeId '${entry.employeeId}' not in requester's store`);
+          }
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(entry.date)) {
+            return reject(`date '${entry.date}' not in YYYY-MM-DD format`);
+          }
+          if (!/^\d{2}:\d{2}$/.test(entry.startTime) || !/^\d{2}:\d{2}$/.test(entry.endTime)) {
+            return reject(`startTime '${entry.startTime}' or endTime '${entry.endTime}' not in HH:MM format`);
+          }
           const st = localToUtc(entry.date, entry.startTime);
           const et = localToUtc(entry.date, entry.endTime);
-          return !isNaN(st.getTime()) && !isNaN(et.getTime());
+          if (isNaN(st.getTime()) || isNaN(et.getTime())) {
+            return reject("startTime or endTime parsed to NaN after timezone conversion");
+          }
+          return true;
         })
         .map((entry: any) => {
           const st = localToUtc(entry.date, entry.startTime);
@@ -925,6 +977,22 @@ Required JSON structure:
         });
 
       const created = await storage.createSchedulesBatch(validEntries);
+
+      // TODO: remove after task #420 (Edit Shift save bug). Logs which IDs
+      // we actually wrote, plus per-row rejection reasons when validation
+      // dropped any entries — so a "succeeded but wrote fewer rows than
+      // expected" trace tells us exactly which row was rejected and why.
+      console.log("[Taime/apply] exit", {
+        userId,
+        receivedCount: scheduleEntries.length,
+        validCount: validEntries.length,
+        droppedByValidation: rejectedEntries.length,
+        rejectedEntries,
+        createdCount: created.length,
+        createdIds: created.map(c => c.id),
+        createdLocationIds: Array.from(new Set(created.map(c => c.locationId))),
+        createdDates: Array.from(new Set(created.map(c => c.startTime instanceof Date ? c.startTime.toISOString().slice(0, 10) : String(c.startTime).slice(0, 10)))),
+      });
 
       // Single consolidated WS broadcast — clients invalidate `/api/schedules` once
       const broadcastIds = created.map(c => c.id);

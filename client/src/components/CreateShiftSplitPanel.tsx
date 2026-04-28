@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
 import { apiRequest } from "@/lib/queryClient";
+import { makeDlog } from "@/lib/dlog";
 import { cn } from "@/lib/utils";
 import { classifyShiftCard } from "./createShiftCardKind";
 import {
@@ -44,22 +45,8 @@ import { useWebSocketContext } from "@/contexts/WebSocketContext";
 // payloads can be reconstructed from the browser console when a user reports
 // a bug. Toggleable via window.__TAIME_DEBUG__ = false to silence in noisy
 // flows; defaults to ON so we capture data from the field by default.
-type DLogPayload = Record<string, unknown> | unknown[] | string | number | null | undefined;
-const dlog = (action: string, payload?: DLogPayload) => {
-  try {
-    if (typeof window !== "undefined" && (window as { __TAIME_DEBUG__?: boolean }).__TAIME_DEBUG__ === false) return;
-    const ts = new Date().toISOString().slice(11, 23); // HH:MM:SS.mmm
-    if (payload === undefined) {
-      // eslint-disable-next-line no-console
-      console.debug(`[Taime/Schedule ${ts}] ${action}`);
-    } else {
-      // eslint-disable-next-line no-console
-      console.debug(`[Taime/Schedule ${ts}] ${action}`, payload);
-    }
-  } catch {
-    // Never let logging crash the UI
-  }
-};
+// See docs/edit-shift-bug-trace-guide.md for the user-facing repro guide.
+const dlog = makeDlog("Taime/Schedule");
 
 interface HourlyData {
   hour: number;
@@ -3253,7 +3240,15 @@ export default function CreateShiftSplitPanel({
         shiftBlock: s.shiftBlock,
         reasoning: s.rationale,
       }));
-      return apiRequest("POST", "/api/ai-scheduling/apply", { scheduleEntries: entries });
+      // `trace: true` routes the HTTP request/response pair through the
+      // shared apiDlog stream so the user only needs to share the console
+      // output (no Network-tab screenshots required) — see Task #420.
+      return apiRequest(
+        "POST",
+        "/api/ai-scheduling/apply",
+        { scheduleEntries: entries },
+        { trace: true },
+      );
     },
     onSuccess: async (response: any) => {
       const result = await response.json();
@@ -3591,7 +3586,7 @@ export default function CreateShiftSplitPanel({
     // otherwise the form fields belong to a manual shift and applying them
     // here would corrupt the original shift's times.
     if (editingTheOriginal) {
-      onUpdateSchedule({
+      const editingPayload = {
         id: editingSchedule.id,
         userId: effectiveUserId,
         startTime: new Date(`${modalDate}T${modalStartTime}`),
@@ -3599,7 +3594,16 @@ export default function CreateShiftSplitPanel({
         title: modalTitle || null,
         locationId: modalLocationId || null,
         description: modalNotes || null,
+      };
+      // Snapshot the payload going to the parent so we can reconcile what
+      // the form actually sent vs. what the parent's mutation observes
+      // when the user reproduces a save bug — see Task #420.
+      dlog("handleEditingScheduleSave/onUpdateSchedule(editingTheOriginal)", {
+        ...editingPayload,
+        startTime: editingPayload.startTime.toISOString(),
+        endTime: editingPayload.endTime.toISOString(),
       });
+      onUpdateSchedule(editingPayload);
     } else {
       // User had a manual shift selected when they hit Save — preserve the
       // original shift's existing values rather than overwriting with the
@@ -3610,7 +3614,7 @@ export default function CreateShiftSplitPanel({
       const origEnd = editingSchedule.endTime instanceof Date
         ? editingSchedule.endTime
         : new Date(editingSchedule.endTime);
-      onUpdateSchedule({
+      const preservePayload = {
         id: editingSchedule.id,
         userId: editingSchedule.userId,
         startTime: origStart,
@@ -3618,7 +3622,13 @@ export default function CreateShiftSplitPanel({
         title: editingSchedule.title ?? null,
         locationId: editingSchedule.locationId ?? null,
         description: editingSchedule.description ?? null,
+      };
+      dlog("handleEditingScheduleSave/onUpdateSchedule(preserveOriginal)", {
+        ...preservePayload,
+        startTime: origStart.toISOString(),
+        endTime: origEnd.toISOString(),
       });
+      onUpdateSchedule(preservePayload);
     }
     // Also create any manually-added pending shifts. In editingSchedule mode
     // aiProposedShifts=[] so proposedShifts = pendingManualShifts only. If
@@ -3649,9 +3659,26 @@ export default function CreateShiftSplitPanel({
       }
       const manualValid = liveMnl.filter((s, i) => !!s.employeeId && !excludedIdxs.has(i));
       if (manualValid.length > 0) {
-        dlog("handleEditingScheduleSave/approveManual", { count: manualValid.length });
+        // Full payload snapshot so we can correlate what the panel believed
+        // it was sending with what the apply endpoint actually receives.
+        dlog("handleEditingScheduleSave/approveManual", {
+          count: manualValid.length,
+          modalDate,
+          shifts: manualValid.map(s => ({
+            employeeId: s.employeeId,
+            startTime: s.startTime,
+            endTime: s.endTime,
+            shiftBlock: s.shiftBlock,
+          })),
+        });
         pendingSkippedCountRef.current = liveMnl.length - manualValid.length;
         approveMutation.mutate(manualValid);
+      } else {
+        dlog("handleEditingScheduleSave/approveManualSkipped", {
+          reason: "no manual shifts passed validation",
+          totalManual: manualShifts.length,
+          excludedCount: excludedIdxs.size,
+        });
       }
     }
     return true;
@@ -3659,6 +3686,18 @@ export default function CreateShiftSplitPanel({
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    // Branch trace — distinguishes the "edit existing schedule via parent
+    // mutation" path from the "create-new via onCreateShift prop" path.
+    // Required for Task #420 because the bug only manifests in one of these.
+    dlog("handleSubmit", {
+      branch: editingSchedule && onUpdateSchedule ? "editingSchedule" : "createNew",
+      hasEditingSchedule: !!editingSchedule,
+      editingScheduleId: editingSchedule?.id ?? null,
+      hasOnUpdateSchedule: !!onUpdateSchedule,
+      selectedUserId,
+      modalDate, modalStartTime, modalEndTime,
+      modalTitle: modalTitle || null,
+    });
     if (editingSchedule && onUpdateSchedule) {
       handleEditingScheduleSave();
     } else {
@@ -4845,11 +4884,31 @@ export default function CreateShiftSplitPanel({
             )}
 
             <form
-              onSubmit={
-                isEditingBlock ? (e) => { e.preventDefault(); handleSaveShiftEdit(); }
-                : isActualEditing ? (e) => { e.preventDefault(); handleSaveActual(); }
-                : handleSubmit
-              }
+              onSubmit={(e) => {
+                // Decision-point trace (Task #420). Captures which of the
+                // three save handlers the form actually dispatched, plus
+                // the state flags that decided the routing — so a "wrong
+                // handler ran" failure mode is visible from the console.
+                const handlerName = isEditingBlock
+                  ? "handleSaveShiftEdit"
+                  : isActualEditing
+                    ? "handleSaveActual"
+                    : "handleSubmit";
+                dlog("form/onSubmit", {
+                  handler: handlerName,
+                  isEditingBlock,
+                  isActualEditing,
+                  selectedShiftIdx,
+                  selectedActualScheduleId: selectedActualSchedule?.id ?? null,
+                  hasEditingSchedule: !!editingSchedule,
+                  editingScheduleId: editingSchedule?.id ?? null,
+                  hasOnUpdateSchedule: !!onUpdateSchedule,
+                  manualShiftCount: manualShifts.length,
+                });
+                if (isEditingBlock) { e.preventDefault(); handleSaveShiftEdit(); }
+                else if (isActualEditing) { e.preventDefault(); handleSaveActual(); }
+                else handleSubmit(e);
+              }}
               className="px-4 py-3 space-y-3 flex-1"
             >
               {/* Availability filter toggle */}

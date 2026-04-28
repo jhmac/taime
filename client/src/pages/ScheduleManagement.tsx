@@ -16,6 +16,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useLocation } from "wouter";
 import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
+import { makeDlog } from "@/lib/dlog";
 import type { User, Schedule, WorkLocation, AvailabilityTemplate, TemplateSlot, TemplateSlotNew, Permission } from "@shared/schema";
 import {
   ChevronLeft, ChevronRight, Plus, Trash2, Sparkles, Loader2,
@@ -29,6 +30,11 @@ import SuggestedScheduleReview from "@/components/SuggestedScheduleReview";
 import CreateShiftSplitPanel from "@/components/CreateShiftSplitPanel";
 import ScheduleTimelineView, { type ScheduleSubView } from "@/components/ScheduleTimelineView";
 import { useWebSocketContext } from "@/contexts/WebSocketContext";
+
+// Edit Shift save-flow trace (Task #420). Mirrors the namespace used in
+// CreateShiftSplitPanel so the panel + parent + API request all interleave
+// cleanly in a single `Taime` filter in DevTools.
+const dlog = makeDlog("Taime/Schedule");
 
 interface DayNote {
   id: string;
@@ -712,6 +718,14 @@ export default function ScheduleManagement() {
   // stale right after a grid mutation and the user sees mismatched state
   // (Task #387 A3).
   const invalidateScheduleSurfaces = () => {
+    // Trace which query keys are being invalidated so we can confirm the
+    // schedule-grid query is in the set when the bug reproduces (Task #420).
+    const keys = [
+      ["/api/schedules"],
+      ["/api/schedules/suggest"],
+      ["/api/schedules/today-availability"],
+    ];
+    dlog("invalidateScheduleSurfaces", { keys });
     queryClient.invalidateQueries({ queryKey: ["/api/schedules"] });
     queryClient.invalidateQueries({ queryKey: ["/api/schedules/suggest"] });
     queryClient.invalidateQueries({ queryKey: ["/api/schedules/today-availability"] });
@@ -771,20 +785,61 @@ export default function ScheduleManagement() {
 
   const updateScheduleMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: any }) => {
-      const res = await apiRequest('PATCH', `/api/schedules/${id}`, data);
+      // `trace: true` (Task #420) routes the PATCH /api/schedules/:id
+      // request and response through the shared apiDlog stream so the user
+      // only needs to share the console output to diagnose the save bug.
+      const res = await apiRequest('PATCH', `/api/schedules/${id}`, data, { trace: true });
       return res.json();
     },
     onSuccess: (updatedSchedule) => {
+      const cacheKey = ["/api/schedules", startDateParam, endDateParam];
+      // Snapshot what the server returned, then what the cache looks like
+      // immediately after the targeted setQueryData patch and again after
+      // invalidateScheduleSurfaces — so we can confirm whether the timeline
+      // grid is reading the freshly-updated row (Task #420).
+      dlog("updateScheduleMutation/success", {
+        cacheKey,
+        updatedSchedule: {
+          id: updatedSchedule?.id,
+          userId: updatedSchedule?.userId,
+          startTime: updatedSchedule?.startTime,
+          endTime: updatedSchedule?.endTime,
+          locationId: updatedSchedule?.locationId,
+          title: updatedSchedule?.title,
+        },
+      });
       queryClient.setQueryData(
-        ["/api/schedules", startDateParam, endDateParam],
+        cacheKey,
         (old: Schedule[] = []) => old.map(s => s.id === updatedSchedule.id ? updatedSchedule : s),
       );
+      const afterPatch = queryClient.getQueryData<Schedule[]>(cacheKey);
+      const patchedRow = afterPatch?.find(s => s.id === updatedSchedule.id);
+      dlog("updateScheduleMutation/cacheAfterSetQueryData", {
+        cacheKey,
+        rowCount: afterPatch?.length ?? 0,
+        patchedRow: patchedRow
+          ? {
+              id: patchedRow.id,
+              startTime: patchedRow.startTime,
+              endTime: patchedRow.endTime,
+              userId: patchedRow.userId,
+            }
+          : null,
+        cacheKeyMatchesUpdate: !!patchedRow,
+      });
       invalidateScheduleSurfaces();
+      const afterInvalidate = queryClient.getQueryData<Schedule[]>(cacheKey);
+      dlog("updateScheduleMutation/cacheAfterInvalidate", {
+        cacheKey,
+        rowCount: afterInvalidate?.length ?? 0,
+        rowStillPresent: !!afterInvalidate?.find(s => s.id === updatedSchedule.id),
+      });
       setEditingSchedule(null);
       setShowCreateShift(false);
       toast({ title: "Shift updated", description: "Changes saved." });
     },
-    onError: () => {
+    onError: (err) => {
+      dlog("updateScheduleMutation/error", { error: String(err) });
       toast({ title: "Error", description: "Failed to update shift.", variant: "destructive" });
     },
   });
