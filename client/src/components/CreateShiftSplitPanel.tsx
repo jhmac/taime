@@ -1281,7 +1281,7 @@ function DayTimeline({
         {hasAi && (
           <>
             <Sparkles className="h-3 w-3" />
-            <span>AI Suggested <span className="text-foreground font-semibold">({activeCount}{excludedIdxs.size > 0 ? ` of ${shifts.length}` : ""})</span></span>
+            <span>{suggestData?.dataSource === 'manual' ? 'Added' : 'AI Suggested'} <span className="text-foreground font-semibold">({activeCount}{excludedIdxs.size > 0 ? ` of ${shifts.length}` : ""})</span></span>
           </>
         )}
         {!hasActual && !hasAi && (
@@ -3680,8 +3680,42 @@ export default function CreateShiftSplitPanel({
     // outright rather than silently falling through to bulk-apply.
     if (editingSchedule) {
       if (onUpdateSchedule) {
-        dlog("handleBulkSave/blockedInEditingSchedule", { id: editingSchedule.id });
+        dlog("handleBulkSave/editingScheduleRoute", { id: editingSchedule.id, pendingManualCount: manualShifts.length });
         handleEditingScheduleSave();
+        // Also create any manually-added pending shifts concurrently.
+        // In editingSchedule mode aiProposedShifts=[], so proposedShifts = pendingManualShifts only.
+        // Apply the current form state to the selected manual shift (same as the main path below),
+        // then fire approveMutation for all valid manual entries.
+        // React Query mutations survive component unmount, so the panel closing (triggered by
+        // the parent's onUpdateSchedule callback) won't abort this in-flight request.
+        if (manualShifts.length > 0) {
+          const aiCnt = suggestDataRef.current?.proposedShifts?.length ?? 0; // 0 in this mode
+          let liveMnl = manualShifts;
+          if (selectedShiftIdx !== null && selectedShiftIdx >= aiCnt) {
+            const mIdx = selectedShiftIdx - aiCnt;
+            const emp = selectedUserId ? employees.find(e => e.id === selectedUserId) : null;
+            const empName = emp ? `${emp.firstName ?? ''} ${emp.lastName ?? ''}`.trim() : undefined;
+            liveMnl = manualShifts.map((s, i) =>
+              i === mIdx
+                ? {
+                    ...s,
+                    startTime: modalStartTime,
+                    endTime: modalEndTime,
+                    ...(selectedUserId ? { employeeId: selectedUserId } : {}),
+                    ...(empName ? { employeeName: empName } : {}),
+                    shiftBlock: modalTitle?.trim() ? modalTitle.trim() : (s.shiftBlock || 'Manual Shift'),
+                    rationale: modalNotes?.trim() || s.rationale || '',
+                  }
+                : s
+            );
+          }
+          const manualValid = liveMnl.filter((s, i) => !!s.employeeId && !excludedIdxs.has(i));
+          if (manualValid.length > 0) {
+            dlog("handleBulkSave/editingSchedule+manual", { count: manualValid.length });
+            pendingSkippedCountRef.current = liveMnl.length - manualValid.length;
+            approveMutation.mutate(manualValid);
+          }
+        }
       } else {
         dlog("handleBulkSave/blockedNoUpdateCallback", { id: editingSchedule.id });
         toast({
@@ -4013,6 +4047,23 @@ export default function CreateShiftSplitPanel({
   }, [proposedShifts, excludedIdxs, pendingManualShifts, dateActualShifts]);
 
   const handlePillAdd = useCallback((member: AvailMember) => {
+    // Guard: if the employee already has a shift in the proposed or actual list,
+    // just select their existing entry instead of creating a duplicate.
+    const existingProposedIdx = proposedShifts.findIndex(s => s.employeeId === member.userId);
+    if (existingProposedIdx >= 0) {
+      const existing = proposedShifts[existingProposedIdx];
+      setSelectedShiftIdx(existingProposedIdx);
+      setSelectedUserId(existing.employeeId ?? '');
+      setModalStartTime(existing.startTime);
+      setModalEndTime(existing.endTime);
+      setSelectedActualSchedule(null);
+      setActualFormEdits(null);
+      return;
+    }
+    if (dateActualShifts.some(a => a.schedule.userId === member.userId)) {
+      return; // already has an actual scheduled shift on this day — do nothing
+    }
+
     const clampFn = (t: string, min: string, max: string) => {
       function t2m(x: string) { const [h, m] = x.split(':').map(Number); return h * 60 + (m || 0); }
       function m2t(m: number) { return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`; }
@@ -4051,7 +4102,7 @@ export default function CreateShiftSplitPanel({
     requestAnimationFrame(() => {
       timelineWrapperRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     });
-  }, [storeHours, proposedShifts.length, persistPillShiftMutation, modalDate]);
+  }, [storeHours, proposedShifts, dateActualShifts, persistPillShiftMutation, modalDate]);
 
   // Task #392 C1/C2 — handle a pill drop on the timeline body. `clientY` is
   // the cursor's pageY at drop, `bodyRect` is the timeline body's bounds.
