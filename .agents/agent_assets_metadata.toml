@@ -23,3 +23,9 @@ id = "aMEaVT8CXk9n4gUHgeh3i"
 uri = "file://.local/shopify-intelligence-agent-spec.md"
 type = "text"
 title = "Shopify Intelligence Agent — Full Spec"
+
+[[outputs]]
+id = "JhfJZOtjCMj0k8C6_inBm"
+uri = "file://TESTFLIGHT.md"
+type = "text"
+title = "Taime — TestFlight Runbook"
