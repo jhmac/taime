@@ -1,0 +1,46 @@
+name: Unit tests
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  vitest:
+    name: vitest
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+        env:
+          # The husky `prepare` script normally runs on `npm install` to wire
+          # up the local git hook. CI doesn't need (or want) the local hook,
+          # and husky is not available before deps are installed, so skip it.
+          # See CAPACITOR_NOTES.md → "Husky version policy".
+          HUSKY: "0"
+
+      - name: Run vitest suite
+        run: npx vitest run --reporter=verbose
+
+      # Explicit, named guardrail so the failure shows up at the top of the
+      # job logs (and as its own step badge) if scripts.prepare ever drifts
+      # back to the deprecated `husky install` form. Tasks #429 / #430.
+      - name: Husky policy guard (package.json scripts.prepare)
+        if: always()
+        run: npx vitest run tests/packageJsonScripts.test.ts --reporter=verbose
