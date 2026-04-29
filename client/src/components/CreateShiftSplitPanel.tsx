@@ -312,6 +312,20 @@ function ShiftBlock({
         <div className={cn("truncate pt-1", isExcluded && "line-through")}>
           {isDraft ? "← Select employee" : shift.employeeName}
         </div>
+        {/* Claude's per-shift rationale — rendered immediately under the
+            employee name (per Task #334) so it reads naturally as "why this
+            person got picked". Shown for AI-suggested cards regardless of
+            conflict state — the conflict warning below is additive, not a
+            replacement, so the manager always sees the reasoning when
+            deciding whether to keep or drop a duplicate-day proposal. */}
+        {!isExcluded && !isDraft && shift.rationale ? (
+          <div
+            className="opacity-90 text-[10px] leading-snug line-clamp-2 italic"
+            data-testid="shift-card-rationale"
+          >
+            {shift.rationale}
+          </div>
+        ) : null}
         <div className={cn("truncate opacity-80", isExcluded && "line-through")}>
           {fmt12(shift.startTime)}–{fmt12(shift.endTime)}
         </div>
@@ -320,8 +334,6 @@ function ShiftBlock({
             <AlertTriangle className="h-2.5 w-2.5 shrink-0" />
             Already scheduled
           </div>
-        ) : !isExcluded && shift.rationale ? (
-          <div className="truncate opacity-70 text-[9px]">{shift.rationale}</div>
         ) : null}
       </button>
       {!isExcluded && (
@@ -359,6 +371,84 @@ function ShiftBlock({
           onPointerDown={(e) => { e.stopPropagation(); onResizeStart(e, 'bottom'); }}
         />
       )}
+    </div>
+  );
+}
+
+// ── DataSourceBanner ─────────────────────────────────────────────────────────
+// Surfaces, at the top of the Suggested Schedule Review panel, *which* data
+// Claude based its proposals on (real Shopify orders / estimated daily total /
+// no historical data) and the historical date that was used. Without this the
+// user has no way to gauge how trustworthy the AI's per-shift rationales are.
+// `manual` source is hidden because there is no AI rationale for user-added
+// shifts. `synthetic` skips the date line — the date isn't meaningful when no
+// data was found.
+function DataSourceBanner({
+  dataSource,
+  historicalDate,
+}: {
+  dataSource: string | undefined;
+  historicalDate: string | undefined;
+}) {
+  if (!dataSource || dataSource === "manual") return null;
+
+  const config: Record<
+    string,
+    { label: string; classes: string; iconColor: string; Icon: typeof TrendingUp }
+  > = {
+    actual: {
+      label: "Real Shopify orders",
+      classes:
+        "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-200",
+      iconColor: "text-emerald-600 dark:text-emerald-400",
+      Icon: TrendingUp,
+    },
+    estimated: {
+      label: "Estimated from daily total",
+      classes:
+        "border-sky-200 bg-sky-50 text-sky-900 dark:border-sky-800 dark:bg-sky-900/20 dark:text-sky-200",
+      iconColor: "text-sky-600 dark:text-sky-400",
+      Icon: TrendingUp,
+    },
+    synthetic: {
+      label: "No historical sales data — using minimum staffing defaults",
+      classes:
+        "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200",
+      iconColor: "text-amber-600 dark:text-amber-400",
+      Icon: AlertTriangle,
+    },
+  };
+
+  const cfg = config[dataSource];
+  if (!cfg) return null;
+
+  const dateLabel = historicalDate
+    ? new Date(historicalDate + "T12:00:00Z").toLocaleDateString("en-US", {
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+      })
+    : "";
+
+  return (
+    <div
+      className={cn(
+        "flex items-start gap-2 text-xs rounded-lg border px-3 py-2",
+        cfg.classes
+      )}
+      data-testid="data-source-banner"
+    >
+      <cfg.Icon className={cn("h-3.5 w-3.5 shrink-0 mt-0.5", cfg.iconColor)} />
+      <div className="flex-1 leading-snug">
+        <p className="font-semibold" data-testid="data-source-label">
+          Data source: {cfg.label}
+        </p>
+        {dateLabel && dataSource !== "synthetic" && (
+          <p className="opacity-80 mt-0.5" data-testid="data-source-historical-date">
+            Based on {dateLabel} sales data
+          </p>
+        )}
+      </div>
     </div>
   );
 }
@@ -4684,14 +4774,15 @@ export default function CreateShiftSplitPanel({
               )}
               onClick={() => setSelectedShiftIdx(null)}
             >
-              {/* Synthetic-data disclaimer; auto-suppressed in editing mode
-                  via effectiveSuggestData. */}
-              {effectiveSuggestData?.dataSource === "synthetic" && (
-                <div className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">
-                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                  No Shopify sales data found. Recommendations use minimum staffing defaults.
-                </div>
-              )}
+              {/* Data source banner — shows which sales data Claude used to
+                  build the proposed shifts (real Shopify orders / estimated /
+                  synthetic) plus the historical date. Auto-suppressed in
+                  editing mode via effectiveSuggestData and for manual-only
+                  sources where no AI rationale exists. */}
+              <DataSourceBanner
+                dataSource={effectiveSuggestData?.dataSource}
+                historicalDate={effectiveSuggestData?.historicalDate}
+              />
 
               {/* Conflict warning */}
               {conflictCount > 0 && (
