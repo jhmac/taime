@@ -194,6 +194,16 @@ export const timeEntries = pgTable("time_entries", {
 ]);
 
 // Schedules
+//
+// NOTE (Task #432): the `schedules` table also carries a Postgres EXCLUDE
+// constraint named `schedules_no_overlap_per_user` that prevents two rows
+// for the same `user_id` from having overlapping `[start_time, end_time)`
+// ranges. Drizzle has no first-class EXCLUDE constraint support, so the
+// constraint is created in `migrations/0022_schedules_no_overlap.sql` and
+// re-asserted on every boot by `runSchemaMigrations`. The /api/ai-scheduling/
+// apply route catches the constraint-violation error (Postgres code 23P01)
+// and reports the offending rows as conflicts in the same `skipped[]` shape
+// produced by the application-level overlap guard.
 export const schedules = pgTable("schedules", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").references(() => users.id).notNull(),

@@ -354,6 +354,45 @@ export async function runSchemaMigrations(): Promise<void> {
     console.warn("[Migration] idx_users_location_id creation failed (non-fatal):", pgErr?.message ?? err);
   }
 
+  // Task #432 — Database-enforced overlap guard for schedules.
+  // Two concurrent /api/ai-scheduling/apply requests can race past the
+  // application-level overlap check (Task #328) and write two overlapping
+  // shifts for the same employee. A Postgres EXCLUDE constraint over
+  // (user_id, [start_time, end_time)) makes the DB itself reject the second
+  // insert atomically. The half-open `[start, end)` range matches the
+  // existing app-level overlap predicate so two shifts that touch at a
+  // single instant (one ending at 13:00, the next starting at 13:00) are
+  // NOT considered overlapping. We use `tsrange` (not `tstzrange`) because
+  // start_time/end_time are `timestamp without time zone` — `tstzrange`
+  // would require a STABLE session-timezone cast that Postgres refuses
+  // inside an index expression ("functions in index expression must be
+  // marked IMMUTABLE"). The route layer already maps wall-clock entries
+  // to the correct UTC instants before they hit the DB.
+  try {
+    await db.execute(sql.raw(`CREATE EXTENSION IF NOT EXISTS btree_gist`));
+    await db.execute(sql.raw(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint WHERE conname = 'schedules_no_overlap_per_user'
+        ) THEN
+          ALTER TABLE schedules
+            ADD CONSTRAINT schedules_no_overlap_per_user
+            EXCLUDE USING gist (
+              user_id WITH =,
+              tsrange(start_time, end_time, '[)') WITH &&
+            );
+        END IF;
+      END$$;
+    `));
+  } catch (err: unknown) {
+    const pgErr = err as { message?: string };
+    console.warn(
+      "[Migration] schedules_no_overlap_per_user constraint creation failed (non-fatal — likely existing overlapping rows):",
+      pgErr?.message ?? err,
+    );
+  }
+
   // Backfill users.location_id from the existing locationName→work_locations.name match
   // Only updates rows where location_id is still NULL but location_name is set, so it is
   // safe and idempotent to run on every boot.

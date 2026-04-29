@@ -267,6 +267,139 @@ describe("POST /api/ai-scheduling/apply — server-side conflict guard (Task #32
     }
   });
 
+  // ── Task #432: DB-level race-conflict fallback ────────────────────────────
+  //
+  // The DB now carries a `schedules_no_overlap_per_user` EXCLUDE constraint
+  // (Task #432). If a concurrent request slips a colliding row in between
+  // our app-level overlap SELECT and our INSERT, Postgres rejects the
+  // batch insert with code 23P01. The apply route catches that, falls back
+  // to per-row inserts, and surfaces the rejected rows in the SAME
+  // `skipped[]` shape the app-level guard already produces — so the
+  // frontend doesn't need to know the difference.
+  //
+  // These tests lock in the fallback behavior:
+  //   - 23P01 on the batch → falls back to per-row, valid rows persist,
+  //     rejected rows go to skipped[] with reason 'overlaps_existing_schedule'.
+  //   - 23P01 on every per-row insert → schedulesCreated=0, all in skipped[].
+  //   - non-23P01 errors are NOT swallowed (they propagate to the caller).
+  it("falls back to per-row inserts when the batch hits a 23P01 race conflict", async () => {
+    // App-level overlap check returns no existing rows — both entries pass.
+    // Then the batch insert raises 23P01, simulating a concurrent insert
+    // that landed AFTER our SELECT but BEFORE our INSERT for ONLY the
+    // second entry. Per-row fallback should persist row 0 and skip row 1.
+    wireDbForApply({ storeTimezone: "UTC", existingShifts: [] });
+
+    const raceErr: any = new Error("conflicting key value violates exclusion constraint");
+    raceErr.code = "23P01";
+
+    storage.createSchedulesBatch = vi
+      .fn()
+      // 1st call: the BATCH attempt with both rows → reject with 23P01
+      .mockRejectedValueOnce(raceErr)
+      // 2nd call: per-row retry of row 0 → succeed
+      .mockImplementationOnce((rows: any[]) =>
+        Promise.resolve(rows.map((r, i) => ({ id: `new-row0-${i}`, ...r })))
+      )
+      // 3rd call: per-row retry of row 1 → reject with 23P01 (the racing collision)
+      .mockRejectedValueOnce(raceErr);
+
+    const app = buildApp({ isAdmin: true, storage });
+    const { server, base } = await startServer(app);
+    try {
+      const { status, body } = await postApply(base, {
+        scheduleEntries: [
+          { employeeId: "emp-A", date: "2026-04-29", startTime: "09:00", endTime: "12:00" },
+          { employeeId: "emp-B", date: "2026-04-29", startTime: "13:00", endTime: "17:00" },
+        ],
+      });
+      expect(status).toBe(200);
+      // Row 0 persisted; row 1 raced and got skipped.
+      expect(body.schedulesCreated).toBe(1);
+      expect(body.skipped).toHaveLength(1);
+      expect(body.skipped[0]).toMatchObject({
+        employeeId: "emp-B",
+        date: "2026-04-29",
+        startTime: "13:00",
+        endTime: "17:00",
+        reason: "overlaps_existing_schedule",
+        // Race-detected conflicts can't echo the existing window because
+        // the DB constraint doesn't tell us which row collided. Empty
+        // strings flag this case for the frontend.
+        existingStart: "",
+        existingEnd: "",
+      });
+      // Batch attempted once, then per-row retries for each of the 2 rows.
+      expect(storage.createSchedulesBatch).toHaveBeenCalledTimes(3);
+    } finally {
+      await stopServer(server);
+    }
+  });
+
+  it("reports ALL rows as skipped when every per-row retry hits 23P01", async () => {
+    wireDbForApply({ storeTimezone: "UTC", existingShifts: [] });
+
+    const raceErr: any = new Error("exclusion constraint");
+    raceErr.code = "23P01";
+
+    storage.createSchedulesBatch = vi
+      .fn()
+      // Batch fails, then EVERY per-row retry also fails.
+      .mockRejectedValueOnce(raceErr)
+      .mockRejectedValueOnce(raceErr)
+      .mockRejectedValueOnce(raceErr);
+
+    const app = buildApp({ isAdmin: true, storage });
+    const { server, base } = await startServer(app);
+    try {
+      const { status, body } = await postApply(base, {
+        scheduleEntries: [
+          { employeeId: "emp-A", date: "2026-04-29", startTime: "09:00", endTime: "12:00" },
+          { employeeId: "emp-B", date: "2026-04-29", startTime: "13:00", endTime: "17:00" },
+        ],
+      });
+      expect(status).toBe(200);
+      expect(body.schedulesCreated).toBe(0);
+      expect(body.skipped).toHaveLength(2);
+      expect(body.skipped[0].reason).toBe("overlaps_existing_schedule");
+      expect(body.skipped[1].reason).toBe("overlaps_existing_schedule");
+      // Batch (1) + per-row retries for both entries (2) = 3 total calls.
+      expect(storage.createSchedulesBatch).toHaveBeenCalledTimes(3);
+    } finally {
+      await stopServer(server);
+    }
+  });
+
+  it("does NOT swallow non-23P01 batch errors (other DB errors must propagate)", async () => {
+    wireDbForApply({ storeTimezone: "UTC", existingShifts: [] });
+
+    // A non-exclusion error — e.g. a unique-violation (23505) or an FK
+    // problem — should NOT trigger the per-row fallback. The handler
+    // must let it bubble up to the express error path so the request
+    // fails loudly instead of silently returning success with no data.
+    const otherErr: any = new Error("foreign key violation");
+    otherErr.code = "23503";
+
+    storage.createSchedulesBatch = vi.fn().mockRejectedValueOnce(otherErr);
+
+    const app = buildApp({ isAdmin: true, storage });
+    const { server, base } = await startServer(app);
+    try {
+      const { status } = await postApply(base, {
+        scheduleEntries: [
+          { employeeId: "emp-A", date: "2026-04-29", startTime: "09:00", endTime: "12:00" },
+        ],
+      });
+      // Express's default error handler responds with 500 for unhandled
+      // throws inside the route. The exact body shape isn't important —
+      // the key invariant is that we did NOT call createSchedulesBatch
+      // a second time (no per-row fallback was triggered).
+      expect(status).toBe(500);
+      expect(storage.createSchedulesBatch).toHaveBeenCalledTimes(1);
+    } finally {
+      await stopServer(server);
+    }
+  });
+
   it("partial-success: inserts the valid row and reports the conflicting one", async () => {
     // Existing shifts:
     //   emp-A 09:00–13:00 UTC (will collide with the 11:00–15:00 entry)

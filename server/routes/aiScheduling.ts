@@ -1163,9 +1163,50 @@ Required JSON structure:
       // are only there to enrich the conflict skip list above, and would
       // otherwise be passed straight into the Drizzle insert.
       const inserts = entriesToInsert.map(({ _origDate, _origStartTime, _origEndTime, ...rest }) => rest);
-      const created = inserts.length > 0
-        ? await storage.createSchedulesBatch(inserts)
-        : [];
+
+      // Try the batch insert first (the fast path). If it fails with a
+      // Postgres exclusion-constraint violation (code 23P01) from the
+      // `schedules_no_overlap_per_user` constraint added in Task #432, that
+      // means a concurrent request slipped a colliding row into the table
+      // between our overlap-check SELECT and our INSERT. Fall back to
+      // per-row inserts so we can persist the rows that DON'T conflict and
+      // surface the rejected ones in the same `skipped[]` shape the
+      // application-level guard already produces.
+      let created: any[] = [];
+      if (inserts.length > 0) {
+        try {
+          created = await storage.createSchedulesBatch(inserts);
+        } catch (batchErr: unknown) {
+          const pgErr = batchErr as { code?: string };
+          if (pgErr?.code !== '23P01') throw batchErr;
+          for (let i = 0; i < inserts.length; i++) {
+            try {
+              const [row] = await storage.createSchedulesBatch([inserts[i]]);
+              created.push(row);
+            } catch (rowErr: unknown) {
+              const rowPgErr = rowErr as { code?: string };
+              if (rowPgErr?.code === '23P01') {
+                const e = entriesToInsert[i];
+                skippedAsConflict.push({
+                  employeeId: e.userId,
+                  date: e._origDate,
+                  startTime: e._origStartTime,
+                  endTime: e._origEndTime,
+                  reason: 'overlaps_existing_schedule',
+                  // The DB constraint doesn't tell us which existing row
+                  // collided, only that one did. Empty strings flag this as
+                  // a race-detected conflict (vs the app-level guard which
+                  // can echo the existing window).
+                  existingStart: '',
+                  existingEnd: '',
+                });
+              } else {
+                throw rowErr;
+              }
+            }
+          }
+        }
+      }
 
       // Aggregate counts only — per-row rejection reasons (which include
       // employeeId/date/time) are kept ONLY when validation actually dropped
