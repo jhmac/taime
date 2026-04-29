@@ -340,7 +340,7 @@ export function registerAiSchedulingRoutes(
     try {
       const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
-      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
+      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'schedule.create');
       if (!isAdmin) {
         return res.status(403).json({ message: "Admin access required" });
       }
@@ -383,7 +383,7 @@ export function registerAiSchedulingRoutes(
     try {
       const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
-      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
+      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'schedule.create');
       if (!isAdmin) {
         return res.status(403).json({ message: "Admin access required" });
       }
@@ -491,7 +491,7 @@ export function registerAiSchedulingRoutes(
     try {
       const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
-      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
+      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'schedule.create');
       if (!isAdmin) {
         return res.status(403).json({ message: "Admin access required" });
       }
@@ -1258,7 +1258,7 @@ Required JSON structure:
     try {
       const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
-      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
+      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'schedule.create');
       if (!isAdmin) {
         return res.status(403).json({ message: "Admin access required" });
       }
@@ -1299,7 +1299,7 @@ Required JSON structure:
     try {
       const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
-      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
+      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'schedule.create');
       if (!isAdmin) {
         return res.status(403).json({ message: "Admin access required" });
       }
@@ -1344,7 +1344,7 @@ Required JSON structure:
     try {
       const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
-      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
+      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'schedule.create');
       if (!isAdmin) return res.status(403).json({ message: "Admin access required" });
 
       // Scope to the requester's store to prevent cross-tenant data exposure
@@ -1383,7 +1383,7 @@ Required JSON structure:
     try {
       const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
-      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
+      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'schedule.create');
       if (!isAdmin) return res.status(403).json({ message: "Admin access required" });
 
       const { employeeId } = req.params;
@@ -1427,7 +1427,7 @@ Required JSON structure:
     try {
       const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
-      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
+      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'schedule.create');
       if (!isAdmin) return res.status(403).json({ message: "Admin access required" });
 
       const { tryResolveStoreIdForUser } = await import('../lib/storeResolver');
@@ -1457,7 +1457,7 @@ Required JSON structure:
     try {
       const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
-      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
+      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'schedule.create');
       if (!isAdmin) return res.status(403).json({ message: "Admin access required" });
 
       const { tryResolveStoreIdForUser } = await import('../lib/storeResolver');
@@ -1525,6 +1525,11 @@ Required JSON structure:
 
   app.get("/api/ai-scheduling/work-pattern-templates", isAuthenticated, async (req: any, res) => {
     try {
+      const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'schedule.create');
+      if (!isAdmin) return res.status(403).json({ message: "Manager access required" });
+
       const templates = await db.select().from(workPatternTemplates).orderBy(workPatternTemplates.name);
       res.json(templates);
     } catch (error) {
@@ -1537,7 +1542,7 @@ Required JSON structure:
     try {
       const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
-      const isAdmin = userPermissions.some((p: any) => p.name === 'admin.manage_all');
+      const isAdmin = userPermissions.some((p: any) => p.name === 'admin.manage_all' || p.name === 'schedule.create');
       if (!isAdmin) {
         return res.status(403).json({ message: "Admin access required" });
       }
@@ -1571,7 +1576,7 @@ Required JSON structure:
     try {
       const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
-      const isAdmin = userPermissions.some((p: any) => p.name === 'admin.manage_all');
+      const isAdmin = userPermissions.some((p: any) => p.name === 'admin.manage_all' || p.name === 'schedule.create');
       if (!isAdmin) {
         return res.status(403).json({ message: "Admin access required" });
       }
@@ -1615,7 +1620,7 @@ Required JSON structure:
     try {
       const userId = req.user.id;
       const userPermissions = await storage.getUserPermissions(userId);
-      const isAdmin = userPermissions.some((p: any) => p.name === 'admin.manage_all');
+      const isAdmin = userPermissions.some((p: any) => p.name === 'admin.manage_all' || p.name === 'schedule.create');
       if (!isAdmin) {
         return res.status(403).json({ message: "Admin access required" });
       }
@@ -2116,6 +2121,10 @@ Required JSON structure:
   app.get("/api/schedules/suggest", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'schedule.create');
+      if (!isAdmin) return res.status(403).json({ message: "Manager access required" });
+
       const dateParam = (req.query.date as string) || new Date().toISOString().split('T')[0];
       const { tryResolveStoreIdForUser } = await import('../lib/storeResolver');
       const { getAllStoreUserIds } = await import('../lib/permissionUtils');
@@ -2185,6 +2194,10 @@ Required JSON structure:
   app.delete("/api/schedules/suggest", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
+      const userPermissions = await storage.getUserPermissions(userId);
+      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'schedule.create');
+      if (!isAdmin) return res.status(403).json({ message: "Manager access required" });
+
       const dateParam = (req.query.date as string) || new Date().toISOString().split('T')[0];
       const { tryResolveStoreIdForUser } = await import('../lib/storeResolver');
       const storeId = await tryResolveStoreIdForUser(userId);
