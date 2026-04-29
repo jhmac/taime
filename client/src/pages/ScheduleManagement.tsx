@@ -22,8 +22,13 @@ import {
   ChevronLeft, ChevronRight, Plus, Trash2, Sparkles, Loader2,
   Check, X, Calendar, Clock, StickyNote, Bell, Wand2, Users,
   ChevronDown, ChevronUp, CalendarDays, UserCog, PanelRightOpen, PanelRightClose,
-  LayoutGrid, CalendarRange, ShieldCheck
+  LayoutGrid, CalendarRange, ShieldCheck, Pencil
 } from "lucide-react";
+import {
+  applyAiEntryEdit,
+  isValidShiftWindow,
+  type AiScheduleEntry,
+} from "@/lib/aiScheduleEditing";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import AvailabilityCommandPanel from "@/components/AvailabilityCommandPanel";
 import SuggestedScheduleReview from "@/components/SuggestedScheduleReview";
@@ -564,6 +569,12 @@ export default function ScheduleManagement() {
   const [removedEntries, setRemovedEntries] = useState<Set<number>>(new Set());
   const [reviewResult, setReviewResult] = useState<ReviewResult | null>(null);
   const [showReviewModal, setShowReviewModal] = useState(false);
+  const [editingAiEntry, setEditingAiEntry] = useState<{
+    idx: number;
+    employeeId: string;
+    startTime: string;
+    endTime: string;
+  } | null>(null);
   const [availabilityEditTarget, setAvailabilityEditTarget] = useState<{ userId: string; date: string; empName: string } | null>(null);
   const [showCommandPanel, setShowCommandPanel] = useState(() => {
     try { return localStorage.getItem('schedMgmt_showCommandPanel') !== 'false'; } catch { return true; }
@@ -1028,6 +1039,56 @@ export default function ScheduleManagement() {
     setAiResultRange(null);
     setRemovedEntries(new Set());
     setReviewResult(null);
+    setEditingAiEntry(null);
+  };
+
+  // Open the inline edit dialog for an AI-proposed shift, populated with the
+  // current values so the manager can tweak time / employee before applying.
+  const openEditAiEntry = (idx: number) => {
+    if (!aiResult) return;
+    const entry = aiResult.generatedSchedule[idx];
+    if (!entry) return;
+    setEditingAiEntry({
+      idx,
+      employeeId: entry.employeeId,
+      startTime: entry.startTime,
+      endTime: entry.endTime,
+    });
+  };
+
+  // Commit an edit to the in-memory AI proposal. Mirrors what Apply will send
+  // to the server. We also clear any prior review result because the audit is
+  // now stale — the user should re-run Review after editing.
+  const saveAiEntryEdit = () => {
+    if (!aiResult || !editingAiEntry) return;
+    if (!isValidShiftWindow(editingAiEntry.startTime, editingAiEntry.endTime)) {
+      toast({
+        title: "Invalid times",
+        description: "End time must be after start time.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const newEmp = activeEmployees.find((e) => e.id === editingAiEntry.employeeId);
+    if (!newEmp) {
+      toast({
+        title: "Pick an employee",
+        description: "Select who should work this shift.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const newName = `${newEmp.firstName ?? ""} ${newEmp.lastName ?? ""}`.trim() || newEmp.email || newEmp.id;
+    const next = applyAiEntryEdit(aiResult.generatedSchedule as AiScheduleEntry[], editingAiEntry.idx, {
+      employeeId: editingAiEntry.employeeId,
+      employeeName: newName,
+      startTime: editingAiEntry.startTime,
+      endTime: editingAiEntry.endTime,
+    });
+    setAiResult({ ...aiResult, generatedSchedule: next as GenerateResult["generatedSchedule"] });
+    setReviewResult(null);
+    setEditingAiEntry(null);
+    toast({ title: "Shift updated", description: "Re-run Review to refresh the audit." });
   };
 
   const formatTime = (dateStr: string | Date) => {
@@ -1873,21 +1934,34 @@ export default function ScheduleManagement() {
                                   <span className={cn("font-medium leading-tight", isRemoved ? "text-muted-foreground" : "text-violet-800 dark:text-violet-200")}>
                                     {entry.startTime}–{entry.endTime}
                                   </span>
-                                  <button
-                                    onClick={() => {
-                                      const next = new Set(removedEntries);
-                                      next.has(entry.idx) ? next.delete(entry.idx) : next.add(entry.idx);
-                                      setRemovedEntries(next);
-                                    }}
-                                    className="shrink-0"
-                                    title={isRemoved ? 'Restore' : 'Remove'}
-                                  >
-                                    {isRemoved ? (
-                                      <Plus className="h-3 w-3 text-muted-foreground" />
-                                    ) : (
-                                      <X className="h-3 w-3 text-violet-500" />
+                                  <div className="flex items-center gap-0.5 shrink-0">
+                                    {!isRemoved && isAdmin && (
+                                      <button
+                                        onClick={() => openEditAiEntry(entry.idx)}
+                                        className="p-0.5 hover:bg-violet-100 dark:hover:bg-violet-900/50 rounded"
+                                        title="Edit shift"
+                                        data-testid={`button-edit-ai-shift-${entry.idx}`}
+                                      >
+                                        <Pencil className="h-3 w-3 text-violet-600 dark:text-violet-300" />
+                                      </button>
                                     )}
-                                  </button>
+                                    <button
+                                      onClick={() => {
+                                        const next = new Set(removedEntries);
+                                        next.has(entry.idx) ? next.delete(entry.idx) : next.add(entry.idx);
+                                        setRemovedEntries(next);
+                                      }}
+                                      className="p-0.5 hover:bg-violet-100 dark:hover:bg-violet-900/50 rounded"
+                                      title={isRemoved ? 'Restore' : 'Remove'}
+                                      data-testid={`button-toggle-ai-shift-${entry.idx}`}
+                                    >
+                                      {isRemoved ? (
+                                        <Plus className="h-3 w-3 text-muted-foreground" />
+                                      ) : (
+                                        <X className="h-3 w-3 text-violet-500" />
+                                      )}
+                                    </button>
+                                  </div>
                                 </div>
                                 {!isRemoved && entry.shiftBlock && (
                                   <div className="text-[10px] text-violet-600 dark:text-violet-400">{entry.shiftBlock}</div>
@@ -2069,6 +2143,91 @@ export default function ScheduleManagement() {
         onApply={() => applyMutation.mutate()}
         isApplying={applyMutation.isPending}
       />
+
+      {/* Edit AI-proposed shift dialog (Task #437). Lets the manager nudge
+          the time or reassign an AI draft before clicking Apply. */}
+      {editingAiEntry && aiResult && (
+        <Dialog open onOpenChange={(open) => { if (!open) setEditingAiEntry(null); }}>
+          <DialogContent className="max-w-sm" data-testid="dialog-edit-ai-shift">
+            <DialogHeader>
+              <DialogTitle>Edit AI shift</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3 py-2">
+              <div>
+                <Label htmlFor="ai-shift-employee" className="text-xs">Employee</Label>
+                <Select
+                  value={editingAiEntry.employeeId}
+                  onValueChange={(value) => setEditingAiEntry({ ...editingAiEntry, employeeId: value })}
+                >
+                  <SelectTrigger id="ai-shift-employee" className="mt-1" data-testid="select-ai-shift-employee">
+                    <SelectValue placeholder="Select employee" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {activeEmployees.map((emp) => {
+                      const name = `${emp.firstName ?? ""} ${emp.lastName ?? ""}`.trim() || emp.email || emp.id;
+                      return (
+                        <SelectItem key={emp.id} value={emp.id} data-testid={`select-ai-shift-employee-option-${emp.id}`}>
+                          {name}
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label htmlFor="ai-shift-start" className="text-xs">Start time</Label>
+                  <Input
+                    id="ai-shift-start"
+                    type="time"
+                    className="mt-1"
+                    value={editingAiEntry.startTime}
+                    onChange={(e) => setEditingAiEntry({ ...editingAiEntry, startTime: e.target.value })}
+                    data-testid="input-ai-shift-start"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="ai-shift-end" className="text-xs">End time</Label>
+                  <Input
+                    id="ai-shift-end"
+                    type="time"
+                    className="mt-1"
+                    value={editingAiEntry.endTime}
+                    onChange={(e) => setEditingAiEntry({ ...editingAiEntry, endTime: e.target.value })}
+                    data-testid="input-ai-shift-end"
+                  />
+                </div>
+              </div>
+              {!isValidShiftWindow(editingAiEntry.startTime, editingAiEntry.endTime) && (
+                <p className="text-xs text-destructive">End time must be after start time.</p>
+              )}
+              {reviewResult && (
+                <p className="text-xs text-muted-foreground">
+                  Saving will clear the current Review audit. Re-run Review to refresh it.
+                </p>
+              )}
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setEditingAiEntry(null)}
+                data-testid="button-cancel-ai-edit"
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={saveAiEntryEdit}
+                disabled={!isValidShiftWindow(editingAiEntry.startTime, editingAiEntry.endTime)}
+                data-testid="button-save-ai-edit"
+              >
+                Save Changes
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* Drag-to-reschedule Conflict Warning Dialog */}
       {pendingReschedule && (
