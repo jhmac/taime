@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useLocation } from 'wouter';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
@@ -10,7 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import {
   BrainCircuit, DollarSign, Users, Loader2,
   Check, AlertTriangle, ChevronDown, ChevronUp, Sparkles,
-  ShieldCheck,
+  ShieldCheck, Settings2,
 } from 'lucide-react';
 import ScheduleReviewModal, { type ReviewResult, ratingConfig } from '@/components/ScheduleReviewModal';
 
@@ -33,12 +34,28 @@ interface DayPrediction {
   matchedLastYearDate?: string;
 }
 
+interface DailyLaborCostWarning {
+  date: string;
+  laborCost: number;
+  projectedRevenue: number;
+  laborCostPercent: number;
+  type: "over" | "under";
+  message: string;
+}
+
+interface LaborCostBand {
+  overPct: number;
+  underPct: number;
+}
+
 interface GenerateResult {
   success: boolean;
   days: DayPrediction[];
   generatedSchedule: ScheduleEntry[];
   summary: string;
   warnings: string[];
+  dailyLaborCostWarnings?: DailyLaborCostWarning[];
+  laborCostBand?: LaborCostBand;
   settings: any;
   salesDataAvailable: boolean;
 }
@@ -46,6 +63,7 @@ interface GenerateResult {
 export default function AIScheduleGenerator() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [, navigate] = useLocation();
   const [startDate, setStartDate] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() - d.getDay() + 7);
@@ -66,7 +84,19 @@ export default function AIScheduleGenerator() {
     queryKey: ['/api/shopify/shops'],
   });
 
+  const { data: aiSettings } = useQuery<any>({
+    queryKey: ['/api/ai-scheduling/settings'],
+  });
+
   const activeShop = connectedShops.find((s: any) => s.isActive);
+
+  const settingsBand: LaborCostBand | null = (() => {
+    if (!aiSettings) return null;
+    const over = Number(aiSettings.laborCostOverPct ?? aiSettings.labor_cost_over_pct ?? 30);
+    const under = Number(aiSettings.laborCostUnderPct ?? aiSettings.labor_cost_under_pct ?? 10);
+    if (!Number.isFinite(over) || !Number.isFinite(under)) return null;
+    return { overPct: over, underPct: under };
+  })();
 
   const generateMutation = useMutation({
     mutationFn: async () => {
@@ -210,19 +240,101 @@ export default function AIScheduleGenerator() {
         </CardContent>
       </Card>
 
-      {result && (
+      {result && (() => {
+        const dailyWarnings = result.dailyLaborCostWarnings ?? [];
+        const dailyMessages = new Set(dailyWarnings.map(w => w.message));
+        const otherWarnings = (result.warnings ?? []).filter(w => !dailyMessages.has(w));
+        const band = result.laborCostBand ?? settingsBand;
+        return (
         <>
-          {result.warnings && result.warnings.length > 0 && (
+          {otherWarnings.length > 0 && (
             <Card className="border-amber-200 dark:border-amber-800">
               <CardContent className="pt-4">
                 <div className="flex items-start gap-2">
                   <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
                   <div className="space-y-1">
-                    {result.warnings.map((w, i) => (
+                    {otherWarnings.map((w, i) => (
                       <p key={i} className="text-sm text-amber-700 dark:text-amber-300">{w}</p>
                     ))}
                   </div>
                 </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {dailyWarnings.length > 0 && (
+            <Card
+              className="border-amber-200 dark:border-amber-800"
+              data-testid="card-daily-labor-cost-warnings"
+            >
+              <CardHeader className="pb-3">
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
+                    <div>
+                      <CardTitle className="text-base">Daily labor cost warnings</CardTitle>
+                      {band && (
+                        <p
+                          className="text-xs text-muted-foreground mt-1"
+                          data-testid="text-labor-cost-band"
+                        >
+                          Evaluated against your target band:{' '}
+                          <strong>{band.underPct}%</strong> – <strong>{band.overPct}%</strong> of projected revenue
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {band && (
+                      <Badge
+                        variant="outline"
+                        className="gap-1"
+                        data-testid="badge-labor-cost-band"
+                      >
+                        {band.underPct}% / {band.overPct}% target
+                      </Badge>
+                    )}
+                    <Button
+                      variant="link"
+                      size="sm"
+                      className="h-auto px-0 text-xs gap-1"
+                      onClick={() => {
+                        const target = typeof document !== 'undefined'
+                          ? document.getElementById('labor-cost-band')
+                          : null;
+                        if (target) {
+                          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                          if (typeof window !== 'undefined' && window.history?.replaceState) {
+                            window.history.replaceState(null, '', '#labor-cost-band');
+                          }
+                        } else {
+                          navigate('/admin?section=ai-scheduling#labor-cost-band');
+                        }
+                      }}
+                      data-testid="button-adjust-labor-cost-band"
+                    >
+                      <Settings2 className="h-3 w-3" />
+                      Adjust band
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="pt-0 space-y-2">
+                {dailyWarnings.map((w) => (
+                  <div
+                    key={w.date}
+                    className="flex items-start justify-between gap-2 text-sm"
+                    data-testid={`row-daily-labor-cost-${w.date}`}
+                  >
+                    <p className="text-amber-700 dark:text-amber-300 flex-1">{w.message}</p>
+                    <Badge
+                      variant={w.type === 'over' ? 'destructive' : 'secondary'}
+                      className="shrink-0"
+                    >
+                      {w.laborCostPercent}%
+                    </Badge>
+                  </div>
+                ))}
               </CardContent>
             </Card>
           )}
@@ -408,7 +520,8 @@ export default function AIScheduleGenerator() {
             </div>
           </div>
         </>
-      )}
+        );
+      })()}
 
       {/* Schedule Review Modal */}
       <ScheduleReviewModal

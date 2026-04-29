@@ -889,14 +889,20 @@ Required JSON structure:
       const rawUnderPct = settingsRow?.laborCostUnderPct;
       const overThresholdPct = rawOverPct != null ? Number(rawOverPct) : NaN;
       const underThresholdPct = rawUnderPct != null ? Number(rawUnderPct) : NaN;
+      const effectiveOverPct = Number.isFinite(overThresholdPct) ? overThresholdPct : 30;
+      const effectiveUnderPct = Number.isFinite(underThresholdPct) ? underThresholdPct : 10;
       const dailyLaborCostWarnings = checkDailyLaborCostThresholds(
         dailyLaborCosts,
         projectedRevenueByDate,
         {
-          overThresholdPct: Number.isFinite(overThresholdPct) ? overThresholdPct : undefined,
-          underThresholdPct: Number.isFinite(underThresholdPct) ? underThresholdPct : undefined,
+          overThresholdPct: effectiveOverPct,
+          underThresholdPct: effectiveUnderPct,
         }
       );
+      const laborCostBand = {
+        overPct: effectiveOverPct,
+        underPct: effectiveUnderPct,
+      };
       for (const w of dailyLaborCostWarnings) {
         warnings.push(w.message);
       }
@@ -921,6 +927,7 @@ Required JSON structure:
         budgetWarning,
         dailyLaborCosts,
         dailyLaborCostWarnings,
+        laborCostBand,
         summary: typeof parsedSchedule.summary === 'string' ? parsedSchedule.summary.slice(0, 1000) : '',
         warnings,
         settings: {

@@ -860,6 +860,18 @@ export default function AISchedulingSection() {
   });
 
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (!settings) return;
+    const hash = window.location.hash.replace(/^#/, '');
+    if (!hash) return;
+    const id = window.requestAnimationFrame(() => {
+      const target = document.getElementById(hash);
+      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    return () => window.cancelAnimationFrame(id);
+  }, [settings]);
+
+  useEffect(() => {
     if (settings) {
       setShiftBlocks(settings.shiftBlocks?.length > 0 ? settings.shiftBlocks : [
         { name: "Morning", startTime: "09:00", endTime: "14:00" },
@@ -1387,7 +1399,7 @@ export default function AISchedulingSection() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card id="labor-cost-band" data-testid="card-labor-cost-band">
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <DollarSign className="h-4 w-4" />
