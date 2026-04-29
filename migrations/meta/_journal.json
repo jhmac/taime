@@ -148,6 +148,13 @@
       "when": 1746021600000,
       "tag": "0020_role_default_hourly_rate",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1746108000000,
+      "tag": "0021_labor_cost_target_band",
+      "breakpoints": true
     }
   ]
 }

@@ -830,6 +830,8 @@ export const aiSchedulingSettings = pgTable("ai_scheduling_settings", {
   shiftOverlapMinutes: integer("shift_overlap_minutes").default(60),
   overlapBudgetLimit: decimal("overlap_budget_limit", { precision: 10, scale: 2 }),
   customAiInstructions: text("custom_ai_instructions"),
+  laborCostOverPct: decimal("labor_cost_over_pct", { precision: 5, scale: 2 }).default("30"),
+  laborCostUnderPct: decimal("labor_cost_under_pct", { precision: 5, scale: 2 }).default("10"),
 });
 
 // AI Scheduling Rules — structured coverage rules (scoped per store/tenant)

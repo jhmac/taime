@@ -109,6 +109,37 @@ describe("checkDailyLaborCostThresholds", () => {
     expect(warnings).toEqual([]);
   });
 
+  it("uses the configured overThresholdPct when provided", () => {
+    const warnings = checkDailyLaborCostThresholds(
+      [{ date: "2026-04-27", laborCost: 150 }],
+      new Map([["2026-04-27", 1000]]),
+      { overThresholdPct: 12 },
+    );
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatchObject({ type: "over", laborCostPercent: 15 });
+    expect(warnings[0].message).toContain("12%");
+  });
+
+  it("uses the configured underThresholdPct when provided", () => {
+    const warnings = checkDailyLaborCostThresholds(
+      [{ date: "2026-04-27", laborCost: 220 }],
+      new Map([["2026-04-27", 1000]]),
+      { underThresholdPct: 25, overThresholdPct: 40 },
+    );
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatchObject({ type: "under", laborCostPercent: 22 });
+    expect(warnings[0].message).toContain("25%");
+  });
+
+  it("does not warn when labor cost falls within a custom band", () => {
+    const warnings = checkDailyLaborCostThresholds(
+      [{ date: "2026-04-27", laborCost: 200 }],
+      new Map([["2026-04-27", 1000]]),
+      { overThresholdPct: 25, underThresholdPct: 15 },
+    );
+    expect(warnings).toEqual([]);
+  });
+
   it("flags scheduled days with projected revenue but zero labor as understaffed", () => {
     const warnings = checkDailyLaborCostThresholds(
       [{ date: "2026-04-27", laborCost: 200 }],

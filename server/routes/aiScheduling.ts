@@ -331,6 +331,8 @@ export function registerAiSchedulingRoutes(
             { day: 5, openTime: "09:00", closeTime: "21:00", isClosed: false },
             { day: 6, openTime: "09:00", closeTime: "21:00", isClosed: false },
           ],
+          laborCostOverPct: "30",
+          laborCostUnderPct: "10",
         });
       }
     } catch (error) {
@@ -348,9 +350,39 @@ export function registerAiSchedulingRoutes(
         return res.status(403).json({ message: "Admin access required" });
       }
 
-      const { shiftBlocks, staffingTiers, minimumStaffing, storeHours, shiftOverlapMinutes, overlapBudgetLimit } = req.body;
+      const { shiftBlocks, staffingTiers, minimumStaffing, storeHours, shiftOverlapMinutes, overlapBudgetLimit, laborCostOverPct, laborCostUnderPct } = req.body;
+
+      let parsedOverPct: number | undefined;
+      let parsedUnderPct: number | undefined;
+      if (laborCostOverPct !== undefined) {
+        parsedOverPct = Number(laborCostOverPct);
+        if (!Number.isFinite(parsedOverPct) || parsedOverPct < 0 || parsedOverPct > 100) {
+          return res.status(400).json({ message: "laborCostOverPct must be a number between 0 and 100" });
+        }
+      }
+      if (laborCostUnderPct !== undefined) {
+        parsedUnderPct = Number(laborCostUnderPct);
+        if (!Number.isFinite(parsedUnderPct) || parsedUnderPct < 0 || parsedUnderPct > 100) {
+          return res.status(400).json({ message: "laborCostUnderPct must be a number between 0 and 100" });
+        }
+      }
 
       const existing = await db.select().from(aiSchedulingSettings).limit(1);
+
+      // Enforce under < over against the effective values (incoming overrides + existing/default).
+      // This catches partial updates where only one of the two fields is sent.
+      const existingRow: typeof aiSchedulingSettings.$inferSelect | undefined = existing[0];
+      const effectiveOverPct = parsedOverPct
+        ?? (existingRow?.laborCostOverPct != null ? Number(existingRow.laborCostOverPct) : 30);
+      const effectiveUnderPct = parsedUnderPct
+        ?? (existingRow?.laborCostUnderPct != null ? Number(existingRow.laborCostUnderPct) : 10);
+      if (
+        Number.isFinite(effectiveOverPct) &&
+        Number.isFinite(effectiveUnderPct) &&
+        effectiveUnderPct >= effectiveOverPct
+      ) {
+        return res.status(400).json({ message: "laborCostUnderPct must be less than laborCostOverPct" });
+      }
 
       if (existing.length > 0) {
         await db.update(aiSchedulingSettings)
@@ -377,6 +409,17 @@ export function registerAiSchedulingRoutes(
             await db.execute(sql`UPDATE ai_scheduling_settings SET overlap_budget_limit = ${budgetVal} WHERE id = ${id}`);
           }
         }
+
+        if (parsedOverPct !== undefined || parsedUnderPct !== undefined) {
+          const id = existing[0].id;
+          if (parsedOverPct !== undefined && parsedUnderPct !== undefined) {
+            await db.execute(sql`UPDATE ai_scheduling_settings SET labor_cost_over_pct = ${parsedOverPct}, labor_cost_under_pct = ${parsedUnderPct} WHERE id = ${id}`);
+          } else if (parsedOverPct !== undefined) {
+            await db.execute(sql`UPDATE ai_scheduling_settings SET labor_cost_over_pct = ${parsedOverPct} WHERE id = ${id}`);
+          } else if (parsedUnderPct !== undefined) {
+            await db.execute(sql`UPDATE ai_scheduling_settings SET labor_cost_under_pct = ${parsedUnderPct} WHERE id = ${id}`);
+          }
+        }
       } else {
         await db.insert(aiSchedulingSettings).values({
           shiftBlocks: shiftBlocks || [],
@@ -385,13 +428,15 @@ export function registerAiSchedulingRoutes(
           storeHours: storeHours || [],
           updatedBy: userId,
         });
-        if (shiftOverlapMinutes !== undefined || overlapBudgetLimit !== undefined) {
+        if (shiftOverlapMinutes !== undefined || overlapBudgetLimit !== undefined || parsedOverPct !== undefined || parsedUnderPct !== undefined) {
           const result = await db.select({ id: aiSchedulingSettings.id }).from(aiSchedulingSettings).limit(1);
           if (result.length > 0) {
             const id = result[0].id;
             const overlapVal = shiftOverlapMinutes !== undefined ? Number(shiftOverlapMinutes) : 60;
             const budgetVal = overlapBudgetLimit !== undefined ? (overlapBudgetLimit !== null ? Number(overlapBudgetLimit) : null) : null;
-            await db.execute(sql`UPDATE ai_scheduling_settings SET shift_overlap_minutes = ${overlapVal}, overlap_budget_limit = ${budgetVal} WHERE id = ${id}`);
+            const overPctVal = parsedOverPct ?? 30;
+            const underPctVal = parsedUnderPct ?? 10;
+            await db.execute(sql`UPDATE ai_scheduling_settings SET shift_overlap_minutes = ${overlapVal}, overlap_budget_limit = ${budgetVal}, labor_cost_over_pct = ${overPctVal}, labor_cost_under_pct = ${underPctVal} WHERE id = ${id}`);
           }
         }
       }
@@ -801,9 +846,18 @@ Required JSON structure:
       const projectedRevenueByDate = new Map<string, number>(
         days.map(d => [d.date, d.predictedRevenue])
       );
+      const settingsRow: typeof aiSchedulingSettings.$inferSelect | undefined = settingsResult[0];
+      const rawOverPct = settingsRow?.laborCostOverPct;
+      const rawUnderPct = settingsRow?.laborCostUnderPct;
+      const overThresholdPct = rawOverPct != null ? Number(rawOverPct) : NaN;
+      const underThresholdPct = rawUnderPct != null ? Number(rawUnderPct) : NaN;
       const dailyLaborCostWarnings = checkDailyLaborCostThresholds(
         dailyLaborCosts,
-        projectedRevenueByDate
+        projectedRevenueByDate,
+        {
+          overThresholdPct: Number.isFinite(overThresholdPct) ? overThresholdPct : undefined,
+          underThresholdPct: Number.isFinite(underThresholdPct) ? underThresholdPct : undefined,
+        }
       );
       for (const w of dailyLaborCostWarnings) {
         warnings.push(w.message);

@@ -317,6 +317,15 @@ export async function runSchemaMigrations(): Promise<void> {
       table: "availability_templates",
       sql: `ALTER TABLE availability_templates ADD COLUMN IF NOT EXISTS auto_apply_template boolean NOT NULL DEFAULT false`,
     },
+    // Task #397 — configurable per-store labor cost target band for daily warnings
+    {
+      table: "ai_scheduling_settings",
+      sql: `ALTER TABLE ai_scheduling_settings ADD COLUMN IF NOT EXISTS labor_cost_over_pct numeric(5,2) DEFAULT 30`,
+    },
+    {
+      table: "ai_scheduling_settings",
+      sql: `ALTER TABLE ai_scheduling_settings ADD COLUMN IF NOT EXISTS labor_cost_under_pct numeric(5,2) DEFAULT 10`,
+    },
   ];
 
   let altered = 0;

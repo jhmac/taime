@@ -742,6 +742,8 @@ export default function AISchedulingSection() {
   const [storeHours, setStoreHours] = useState<StoreHourEntry[]>(DEFAULT_STORE_HOURS);
   const [shiftOverlapMinutes, setShiftOverlapMinutes] = useState(60);
   const [overlapBudgetLimit, setOverlapBudgetLimit] = useState<number | null>(null);
+  const [laborCostOverPct, setLaborCostOverPct] = useState<number>(30);
+  const [laborCostUnderPct, setLaborCostUnderPct] = useState<number>(10);
   const [copyFromDay, setCopyFromDay] = useState<number | null>(null);
   const [copyTargets, setCopyTargets] = useState<number[]>([]);
   const [taskAutoAssign, setTaskAutoAssign] = useState(false);
@@ -811,21 +813,38 @@ export default function AISchedulingSection() {
       setShiftOverlapMinutes(settings.shift_overlap_minutes ?? settings.shiftOverlapMinutes ?? 60);
       const rawBudgetLimit = settings.overlapBudgetLimit ?? settings.overlap_budget_limit;
       setOverlapBudgetLimit(rawBudgetLimit ? parseFloat(rawBudgetLimit) : null);
+      const rawOverPct = settings.laborCostOverPct ?? settings.labor_cost_over_pct;
+      const rawUnderPct = settings.laborCostUnderPct ?? settings.labor_cost_under_pct;
+      setLaborCostOverPct(rawOverPct != null ? parseFloat(rawOverPct) : 30);
+      setLaborCostUnderPct(rawUnderPct != null ? parseFloat(rawUnderPct) : 10);
     }
   }, [settings]);
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      return apiRequest('PUT', '/api/ai-scheduling/settings', { shiftBlocks, staffingTiers, minimumStaffing, storeHours, shiftOverlapMinutes, overlapBudgetLimit });
+      return apiRequest('PUT', '/api/ai-scheduling/settings', { shiftBlocks, staffingTiers, minimumStaffing, storeHours, shiftOverlapMinutes, overlapBudgetLimit, laborCostOverPct, laborCostUnderPct });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/ai-scheduling/settings'] });
       toast({ title: "Saved", description: "AI scheduling settings updated successfully." });
     },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to save settings.", variant: "destructive" });
+    onError: (err: unknown) => {
+      const errMessage = err instanceof Error ? err.message : '';
+      const message = errMessage.includes('400')
+        ? 'Please check the labor cost target band — under % must be less than over % and both between 0 and 100.'
+        : 'Failed to save settings.';
+      toast({ title: "Error", description: message, variant: "destructive" });
     },
   });
+
+  const laborBandInvalid =
+    !Number.isFinite(laborCostOverPct) ||
+    !Number.isFinite(laborCostUnderPct) ||
+    laborCostOverPct < 0 ||
+    laborCostOverPct > 100 ||
+    laborCostUnderPct < 0 ||
+    laborCostUnderPct > 100 ||
+    laborCostUnderPct >= laborCostOverPct;
 
   const updateStoreHour = (dayIndex: number, field: keyof StoreHourEntry, value: any) => {
     const updated = [...storeHours];
@@ -1306,6 +1325,79 @@ export default function AISchedulingSection() {
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <DollarSign className="h-4 w-4" />
+            Labor Cost Target Band
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Daily warnings flag when projected labor cost falls outside this percentage of projected revenue.
+            Tune for your concept — luxury retail often runs lean (e.g. 12%), QSR runs higher (e.g. 28%).
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="laborCostUnderPct" className="text-sm font-medium">
+                Understaffing threshold (under %)
+              </Label>
+              <p className="text-xs text-muted-foreground mb-2">
+                Warn when labor is below this % of projected revenue.
+              </p>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="laborCostUnderPct"
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={0.5}
+                  value={laborCostUnderPct}
+                  onChange={(e) => setLaborCostUnderPct(parseFloat(e.target.value))}
+                  className="w-24"
+                  data-testid="input-labor-cost-under-pct"
+                />
+                <span className="text-sm text-muted-foreground">%</span>
+              </div>
+            </div>
+            <div>
+              <Label htmlFor="laborCostOverPct" className="text-sm font-medium">
+                Over-budget threshold (over %)
+              </Label>
+              <p className="text-xs text-muted-foreground mb-2">
+                Warn when labor exceeds this % of projected revenue.
+              </p>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="laborCostOverPct"
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={0.5}
+                  value={laborCostOverPct}
+                  onChange={(e) => setLaborCostOverPct(parseFloat(e.target.value))}
+                  className="w-24"
+                  data-testid="input-labor-cost-over-pct"
+                />
+                <span className="text-sm text-muted-foreground">%</span>
+              </div>
+            </div>
+          </div>
+          {laborBandInvalid ? (
+            <div className="flex items-start gap-2 text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+              <span>
+                Set a valid band: both values between 0 and 100, and the under % must be less than the over %.
+              </span>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Current band: warn when labor is below <strong>{laborCostUnderPct}%</strong> or above <strong>{laborCostOverPct}%</strong> of projected revenue.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
       {/* ── Daily task auto-assignment ─────────────────────────── */}
       <Card>
         <CardHeader>
@@ -1394,8 +1486,9 @@ export default function AISchedulingSection() {
       <div className="flex justify-end">
         <Button
           onClick={() => saveMutation.mutate()}
-          disabled={saveMutation.isPending}
+          disabled={saveMutation.isPending || laborBandInvalid}
           className="gap-2"
+          data-testid="button-save-ai-settings"
         >
           <Save className="h-4 w-4" />
           {saveMutation.isPending ? "Saving..." : "Save AI Scheduling Settings"}
