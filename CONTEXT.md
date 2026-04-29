@@ -173,7 +173,7 @@ Independent layers. A feature is accessible only if the **Store** has the **Enti
 
 > **Dev:** "When a Manager edits Alex's **Shift** to a different **Location**, do we send a notification?"
 >
-> **Domain expert:** "Yes — `shift.changed` to Alex on whatever channels Alex has enabled for that **NotificationType**. Also write an **ActivityLog** entry for the manager's action. The new **Location** must be one Alex is **LocationAssigned** to or the edit is rejected."
+> **Domain expert:** "Yes — `shift.changed` to Alex on whatever channels Alex has enabled for that **NotificationType**. Also write an **ActivityLog** entry for the manager's action. The new **Location** must be one Alex has a **LocationAssignment** to (today: matches Alex's `users.locationId`) or the edit is rejected."
 
 ## Flagged ambiguities
 
