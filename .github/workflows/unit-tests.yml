@@ -35,12 +35,13 @@ jobs:
           # See CAPACITOR_NOTES.md → "Husky version policy".
           HUSKY: "0"
 
+      # Run the Husky policy guard FIRST so it fails fast (it's a few ms)
+      # and surfaces as its own clearly-named step badge in the Actions UI.
+      # The same test also runs as part of the full suite below; the tiny
+      # duplication is intentional — it gives policy drift its own visible
+      # signal at the top of the job. Tasks #429 / #430.
+      - name: Husky policy guard (package.json scripts.prepare)
+        run: npx vitest run tests/packageJsonScripts.test.ts --reporter=verbose
+
       - name: Run vitest suite
         run: npx vitest run --reporter=verbose
-
-      # Explicit, named guardrail so the failure shows up at the top of the
-      # job logs (and as its own step badge) if scripts.prepare ever drifts
-      # back to the deprecated `husky install` form. Tasks #429 / #430.
-      - name: Husky policy guard (package.json scripts.prepare)
-        if: always()
-        run: npx vitest run tests/packageJsonScripts.test.ts --reporter=verbose

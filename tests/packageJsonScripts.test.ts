@@ -40,6 +40,11 @@ describe('package.json scripts policy', () => {
     });
   });
 
+  // Note: this assertion belongs to task #429 (the v9 pin) and is co-located
+  // here on purpose. Husky v10 will require a deliberate, reviewed upgrade
+  // pass — when that happens, update both this test and CAPACITOR_NOTES.md
+  // → "Husky version policy" together so the next person sees a coherent
+  // story instead of a stale guard.
   describe('devDependencies.husky (version pin)', () => {
     it('is pinned to a v9 range (no automatic v10 upgrade)', () => {
       const range = pkg.devDependencies?.husky;
