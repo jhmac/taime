@@ -31,11 +31,12 @@ The domain / HR identity. Same row as **User**, viewed through the lens of "pers
 _Avoid_: Team Member, Staff, Associate (as a noun for a person).
 
 **StoreMembership**:
-The auth boundary. A **User** belongs to one or more **Stores** via this. Without it, no access to that Store's data.
+The auth boundary. A **User** belongs to one or more **Stores** via this. Without it, no access to that Store's data. (Today this lives in the `user_shops` table; the rename to `store_memberships` is part of the cleanup sweep.)
 
 **LocationAssignment**:
 Explicit join row between **User** and **Location**. Defines where an **Employee** can clock in, be scheduled, and be reported on. Independent of **SchedulingTags**.
 _Avoid_: location tag, location membership.
+_Current state_: target-state vocabulary. Today, a User is linked to a single Location via `users.locationId`. The N:N join table is part of the cleanup sweep — see Flagged Ambiguities.
 
 **Role**:
 A single value per **User** that drives permissions. System roles are `owner | admin | manager | employee` plus runtime-defined custom roles. Flat — no inheritance.
@@ -162,7 +163,7 @@ Independent layers. A feature is accessible only if the **Store** has the **Enti
 
 - A **Company** is (today) 1:1 with a **Store**.
 - A **Store** has 1..N **Locations** and exactly one **ShopifyConnection**.
-- A **User** has one **Role**, 0..N **PermissionOverrides**, 1..N **StoreMemberships**, and 0..N **LocationAssignments** (within Stores they are a member of).
+- A **User** has one **Role**, 0..N **PermissionOverrides**, 1..N **StoreMemberships**, and (target-state) 0..N **LocationAssignments** within Stores they are a member of. Today this is a single `users.locationId` FK — see Flagged Ambiguities.
 - A **Shift** belongs to one **User** and one **Location**.
 - An **AvailabilityTemplate** has one **User**; **AvailabilityOverrides** are (User, date).
 - A **Subscription** belongs to one **Store**, billed via the **AccountOwner** **Employee**.
@@ -182,3 +183,5 @@ Independent layers. A feature is accessible only if the **Store** has the **Enti
 - `userAvailability` (per-payroll-period submissions) is deprecated in favor of templates + overrides.
 - The Permission registry previously had a duplicate `sales.view` / `sales.view_all` — consolidated to `sales.view_all` (see ADR-0002).
 - `comm.*` and `communication.*` permission prefixes coexist — being unified in the cleanup sweep.
+- **StoreMembership** is implemented today as the `user_shops` table; the rename to `store_memberships` is in the cleanup sweep.
+- **LocationAssignment** is target-state vocabulary — there is no N:N join table yet. Today a User is linked to one Location via `users.locationId`; multi-Location assignment will materialize as a `location_assignments` table when the first feature needs it.
