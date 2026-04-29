@@ -1141,7 +1141,7 @@ export async function seedDefaultRoles(): Promise<void> {
       { name: 'communication.manage_groups',displayName: 'Manage Groups',              description: 'Add/remove members from chat groups',                 category: 'communication' },
       { name: 'enable_clock_out_on_focus_loss', displayName: 'Enable clock-out on focus loss', description: 'Allow this role to be subject to automatic clock-out when the app loses focus', category: 'time_tracking' },
       { name: 'sales.view_own',             displayName: 'View Own Sales',             description: 'View own sales totals and commission data',            category: 'sales' },
-      { name: 'sales.view_all',             displayName: 'View All Sales',             description: 'View sales data for all team members',                category: 'sales' },
+      { name: 'sales.view_all',             displayName: 'View All Sales',             description: 'View sales data for all Employees',                   category: 'sales' },
       { name: 'sales.view_reports',         displayName: 'View Sales Reports',         description: 'Access full sales reports and analytics dashboards',   category: 'sales' },
     ];
 
