@@ -828,9 +828,14 @@ export const geofenceEvents = pgTable("geofence_events", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-// AI Scheduling Settings
+// AI Scheduling Settings — one row per store (Task #435).
+// store_id is nullable only to allow the column-add migration to land before
+// the legacy singleton row(s) are backfilled per active work_location; the
+// uq_ai_scheduling_settings_store_id unique index enforces "at most one row
+// per store" and the route layer only ever reads/writes store-scoped rows.
 export const aiSchedulingSettings = pgTable("ai_scheduling_settings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => workLocations.id, { onDelete: 'cascade' }),
   shiftBlocks: jsonb("shift_blocks").default(sql`'[]'::jsonb`),
   staffingTiers: jsonb("staffing_tiers").default(sql`'[]'::jsonb`),
   minimumStaffing: integer("minimum_staffing").default(2),
@@ -842,7 +847,9 @@ export const aiSchedulingSettings = pgTable("ai_scheduling_settings", {
   customAiInstructions: text("custom_ai_instructions"),
   laborCostOverPct: decimal("labor_cost_over_pct", { precision: 5, scale: 2 }).default("30"),
   laborCostUnderPct: decimal("labor_cost_under_pct", { precision: 5, scale: 2 }).default("10"),
-});
+}, (table) => [
+  uniqueIndex("uq_ai_scheduling_settings_store_id").on(table.storeId),
+]);
 
 // AI Scheduling Rules — structured coverage rules (scoped per store/tenant)
 export const aiSchedulingRules = pgTable("ai_scheduling_rules", {

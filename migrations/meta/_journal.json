@@ -162,6 +162,13 @@
       "when": 1746194400000,
       "tag": "0022_schedules_no_overlap",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1746280800000,
+      "tag": "0023_ai_scheduling_settings_per_store",
+      "breakpoints": true
     }
   ]
 }

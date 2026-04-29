@@ -330,6 +330,72 @@ async function backfillDayOrdersFromShopify(
   return { ordersFound: orders.length, dayRevenue: Math.round(dayRevenue * 100) / 100 };
 }
 
+/**
+ * Resolves the store_id that an /api/ai-scheduling/settings request applies
+ * to. Defaults to the requester's own store. If a `storeId` is explicitly
+ * passed in (chains with multiple stores), we authorize the requester for
+ * that store before returning it — never trust an admin's claim that they
+ * "manage" an arbitrary work_location id.
+ *
+ * Authorization rules for an explicit storeId:
+ *   1. If it matches the requester's own users.locationId, allow.
+ *   2. Otherwise the work_location must belong to the requester's company.
+ *      work_locations has no companyId column today, so we infer ownership
+ *      from users: a store belongs to the requester's company iff some user
+ *      with the same companyId has locationId = requested. The store must
+ *      also be active.
+ *   3. If neither holds, return null so the route can return 403/400. We do
+ *      NOT fall back to "any active store" — that would be a cross-tenant
+ *      IDOR.
+ */
+async function resolveSettingsStoreId(
+  userId: string,
+  storeIdParam: unknown,
+): Promise<string | null> {
+  const { tryResolveStoreIdForUser } = await import('../lib/storeResolver');
+  const requested = typeof storeIdParam === 'string' && storeIdParam.length > 0
+    ? storeIdParam
+    : null;
+  if (!requested) {
+    return await tryResolveStoreIdForUser(userId);
+  }
+
+  const userRow = await db.select({ locationId: users.locationId, companyId: users.companyId })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  if (userRow[0]?.locationId === requested) {
+    // Belt-and-suspenders: also confirm the location is still active so a
+    // soft-deleted store can't be edited via direct id.
+    const loc = await db.select({ id: workLocations.id })
+      .from(workLocations)
+      .where(and(eq(workLocations.id, requested), eq(workLocations.isActive, true)))
+      .limit(1);
+    return loc[0]?.id ?? null;
+  }
+
+  const requesterCompanyId = userRow[0]?.companyId;
+  if (!requesterCompanyId) {
+    // Without a company we can't prove same-tenant ownership. Deny.
+    return null;
+  }
+
+  // The store is in the requester's company iff some user in that company
+  // has it as their locationId. Joined with work_locations.is_active so a
+  // disabled store can't be edited.
+  const sameCompanyStore = await db
+    .select({ id: workLocations.id })
+    .from(workLocations)
+    .innerJoin(users, eq(users.locationId, workLocations.id))
+    .where(and(
+      eq(workLocations.id, requested),
+      eq(workLocations.isActive, true),
+      eq(users.companyId, requesterCompanyId),
+    ))
+    .limit(1);
+  return sameCompanyStore[0]?.id ?? null;
+}
+
 export function registerAiSchedulingRoutes(
   app: Express,
   storage: IStorage,
@@ -345,11 +411,19 @@ export function registerAiSchedulingRoutes(
         return res.status(403).json({ message: "Admin access required" });
       }
 
-      const result = await db.select().from(aiSchedulingSettings).limit(1);
+      const storeId = await resolveSettingsStoreId(userId, req.query.storeId);
+      if (!storeId) {
+        return res.status(400).json({ message: "No store associated with your account" });
+      }
+
+      const result = await db.select().from(aiSchedulingSettings)
+        .where(eq(aiSchedulingSettings.storeId, storeId))
+        .limit(1);
       if (result.length > 0) {
-        res.json(result[0]);
+        res.json({ ...result[0], storeId });
       } else {
         res.json({
+          storeId,
           shiftBlocks: [
             { name: "Morning", startTime: "09:00", endTime: "14:00" },
             { name: "Afternoon", startTime: "14:00", endTime: "21:00" },
@@ -388,6 +462,11 @@ export function registerAiSchedulingRoutes(
         return res.status(403).json({ message: "Admin access required" });
       }
 
+      const storeId = await resolveSettingsStoreId(userId, req.body?.storeId ?? req.query.storeId);
+      if (!storeId) {
+        return res.status(400).json({ message: "No store associated with your account" });
+      }
+
       const { shiftBlocks, staffingTiers, minimumStaffing, storeHours, shiftOverlapMinutes, overlapBudgetLimit, laborCostOverPct, laborCostUnderPct } = req.body;
 
       let parsedOverPct: number | undefined;
@@ -405,7 +484,9 @@ export function registerAiSchedulingRoutes(
         }
       }
 
-      const existing = await db.select().from(aiSchedulingSettings).limit(1);
+      const existing = await db.select().from(aiSchedulingSettings)
+        .where(eq(aiSchedulingSettings.storeId, storeId))
+        .limit(1);
 
       // Enforce under < over against the effective values (incoming overrides + existing/default).
       // This catches partial updates where only one of the two fields is sent.
@@ -432,34 +513,33 @@ export function registerAiSchedulingRoutes(
             updatedBy: userId,
             updatedAt: new Date(),
           })
-          .where(eq(aiSchedulingSettings.id, existing[0].id));
+          .where(eq(aiSchedulingSettings.storeId, storeId));
 
         if (shiftOverlapMinutes !== undefined || overlapBudgetLimit !== undefined) {
-          const id = existing[0].id;
           const overlapVal = shiftOverlapMinutes !== undefined ? Number(shiftOverlapMinutes) : null;
           const budgetVal = overlapBudgetLimit !== undefined ? (overlapBudgetLimit !== null ? Number(overlapBudgetLimit) : null) : undefined;
 
           if (overlapVal !== null && budgetVal !== undefined) {
-            await db.execute(sql`UPDATE ai_scheduling_settings SET shift_overlap_minutes = ${overlapVal}, overlap_budget_limit = ${budgetVal} WHERE id = ${id}`);
+            await db.execute(sql`UPDATE ai_scheduling_settings SET shift_overlap_minutes = ${overlapVal}, overlap_budget_limit = ${budgetVal} WHERE store_id = ${storeId}`);
           } else if (overlapVal !== null) {
-            await db.execute(sql`UPDATE ai_scheduling_settings SET shift_overlap_minutes = ${overlapVal} WHERE id = ${id}`);
+            await db.execute(sql`UPDATE ai_scheduling_settings SET shift_overlap_minutes = ${overlapVal} WHERE store_id = ${storeId}`);
           } else if (budgetVal !== undefined) {
-            await db.execute(sql`UPDATE ai_scheduling_settings SET overlap_budget_limit = ${budgetVal} WHERE id = ${id}`);
+            await db.execute(sql`UPDATE ai_scheduling_settings SET overlap_budget_limit = ${budgetVal} WHERE store_id = ${storeId}`);
           }
         }
 
         if (parsedOverPct !== undefined || parsedUnderPct !== undefined) {
-          const id = existing[0].id;
           if (parsedOverPct !== undefined && parsedUnderPct !== undefined) {
-            await db.execute(sql`UPDATE ai_scheduling_settings SET labor_cost_over_pct = ${parsedOverPct}, labor_cost_under_pct = ${parsedUnderPct} WHERE id = ${id}`);
+            await db.execute(sql`UPDATE ai_scheduling_settings SET labor_cost_over_pct = ${parsedOverPct}, labor_cost_under_pct = ${parsedUnderPct} WHERE store_id = ${storeId}`);
           } else if (parsedOverPct !== undefined) {
-            await db.execute(sql`UPDATE ai_scheduling_settings SET labor_cost_over_pct = ${parsedOverPct} WHERE id = ${id}`);
+            await db.execute(sql`UPDATE ai_scheduling_settings SET labor_cost_over_pct = ${parsedOverPct} WHERE store_id = ${storeId}`);
           } else if (parsedUnderPct !== undefined) {
-            await db.execute(sql`UPDATE ai_scheduling_settings SET labor_cost_under_pct = ${parsedUnderPct} WHERE id = ${id}`);
+            await db.execute(sql`UPDATE ai_scheduling_settings SET labor_cost_under_pct = ${parsedUnderPct} WHERE store_id = ${storeId}`);
           }
         }
       } else {
         await db.insert(aiSchedulingSettings).values({
+          storeId,
           shiftBlocks: shiftBlocks || [],
           staffingTiers: staffingTiers || [],
           minimumStaffing: minimumStaffing ?? 2,
@@ -467,20 +547,18 @@ export function registerAiSchedulingRoutes(
           updatedBy: userId,
         });
         if (shiftOverlapMinutes !== undefined || overlapBudgetLimit !== undefined || parsedOverPct !== undefined || parsedUnderPct !== undefined) {
-          const result = await db.select({ id: aiSchedulingSettings.id }).from(aiSchedulingSettings).limit(1);
-          if (result.length > 0) {
-            const id = result[0].id;
-            const overlapVal = shiftOverlapMinutes !== undefined ? Number(shiftOverlapMinutes) : 60;
-            const budgetVal = overlapBudgetLimit !== undefined ? (overlapBudgetLimit !== null ? Number(overlapBudgetLimit) : null) : null;
-            const overPctVal = parsedOverPct ?? 30;
-            const underPctVal = parsedUnderPct ?? 10;
-            await db.execute(sql`UPDATE ai_scheduling_settings SET shift_overlap_minutes = ${overlapVal}, overlap_budget_limit = ${budgetVal}, labor_cost_over_pct = ${overPctVal}, labor_cost_under_pct = ${underPctVal} WHERE id = ${id}`);
-          }
+          const overlapVal = shiftOverlapMinutes !== undefined ? Number(shiftOverlapMinutes) : 60;
+          const budgetVal = overlapBudgetLimit !== undefined ? (overlapBudgetLimit !== null ? Number(overlapBudgetLimit) : null) : null;
+          const overPctVal = parsedOverPct ?? 30;
+          const underPctVal = parsedUnderPct ?? 10;
+          await db.execute(sql`UPDATE ai_scheduling_settings SET shift_overlap_minutes = ${overlapVal}, overlap_budget_limit = ${budgetVal}, labor_cost_over_pct = ${overPctVal}, labor_cost_under_pct = ${underPctVal} WHERE store_id = ${storeId}`);
         }
       }
 
-      const updated = await db.select().from(aiSchedulingSettings).limit(1);
-      res.json(updated[0]);
+      const updated = await db.select().from(aiSchedulingSettings)
+        .where(eq(aiSchedulingSettings.storeId, storeId))
+        .limit(1);
+      res.json(updated[0] ? { ...updated[0], storeId } : { storeId });
     } catch (error) {
       console.error("Error updating AI scheduling settings:", error);
       res.status(500).json({ message: "Failed to update settings" });
@@ -501,7 +579,28 @@ export function registerAiSchedulingRoutes(
         return res.status(400).json({ message: "Start date and end date are required" });
       }
 
-      const settingsResult = await db.select().from(aiSchedulingSettings).limit(1);
+      // Resolve which store this generation run is for. The labor cost band,
+      // staffing tiers, and store hours are all per-store now (Task #435), so
+      // the wrong store would warn against the wrong target. Caller can
+      // override with `storeId` in the body, otherwise default to the
+      // requester's store.
+      //
+      // If the caller EXPLICITLY passed a storeId but failed authorization,
+      // we 403 rather than silently falling back to defaults — otherwise an
+      // attacker would get a "successful" generate run that quietly used the
+      // wrong band, masking the auth failure.
+      const explicitStoreId = typeof req.body?.storeId === 'string' && req.body.storeId.length > 0
+        ? req.body.storeId
+        : null;
+      const generateStoreId = await resolveSettingsStoreId(userId, explicitStoreId);
+      if (explicitStoreId && !generateStoreId) {
+        return res.status(403).json({ message: "You don't have access to that store" });
+      }
+      const settingsResult = generateStoreId
+        ? await db.select().from(aiSchedulingSettings)
+            .where(eq(aiSchedulingSettings.storeId, generateStoreId))
+            .limit(1)
+        : [];
       const settings = settingsResult[0] || {
         shiftBlocks: [
           { name: "Morning", startTime: "09:00", endTime: "14:00" },
@@ -1678,8 +1777,10 @@ Required JSON structure:
       const dateObj = new Date(dateParam + 'T12:00:00Z');
       const dow = dateObj.getUTCDay();
 
-      // Fetch settings for store hours
-      const settingsResult = await db.select().from(aiSchedulingSettings).limit(1);
+      // Fetch settings for store hours (per-store; Task #435)
+      const settingsResult = await db.select().from(aiSchedulingSettings)
+        .where(eq(aiSchedulingSettings.storeId, storeId))
+        .limit(1);
       const settings = settingsResult[0];
       const storeHoursArray = ((settings?.storeHours as any[]) || []);
       const todayHours = storeHoursArray.find((sh: any) => sh.day === dow);
@@ -2051,8 +2152,13 @@ Required JSON structure:
         dataSource = result.found ? result.source : 'synthetic';
       }
 
-      // Get AI scheduling settings for staffing tiers
-      const settingsResult = await db.select().from(aiSchedulingSettings).limit(1);
+      // Get AI scheduling settings for staffing tiers (per-store; Task #435)
+      const histStoreId = await resolveSettingsStoreId(userId, undefined);
+      const settingsResult = histStoreId
+        ? await db.select().from(aiSchedulingSettings)
+            .where(eq(aiSchedulingSettings.storeId, histStoreId))
+            .limit(1)
+        : [];
       const settings = settingsResult[0];
       const staffingTiers = ((settings?.staffingTiers as any[]) || [
         { minRevenue: 0, maxRevenue: 2000, employeeCount: 2 },
@@ -2511,7 +2617,10 @@ Required JSON structure:
       const todayDow = dayOfWeekMap[dow]; // used for storeHours in salesData below
 
       // Fetch AI settings for store hours (NUMERIC dow matching, mirrors today-availability)
-      const settingsResult2 = await db.select().from(aiSchedulingSettings).limit(1);
+      // Per-store (Task #435).
+      const settingsResult2 = await db.select().from(aiSchedulingSettings)
+        .where(eq(aiSchedulingSettings.storeId, storeId))
+        .limit(1);
       const settings2 = settingsResult2[0];
       const storeHoursArray2 = ((settings2?.storeHours as any[]) || []);
       const todayHours2 = storeHoursArray2.find((sh: any) => sh.day === dow); // numeric match
@@ -3240,7 +3349,10 @@ Respond ONLY with a valid JSON object (no markdown, no explanation) in this exac
         return res.status(400).json({ message: "No employees found for your store" });
       }
 
-      const settingsResult = await db.select().from(aiSchedulingSettings).limit(1);
+      // Per-store settings (Task #435)
+      const settingsResult = await db.select().from(aiSchedulingSettings)
+        .where(eq(aiSchedulingSettings.storeId, storeId))
+        .limit(1);
       const settings = settingsResult[0] || {
         shiftBlocks: [
           { name: "Morning", startTime: "09:00", endTime: "14:00" },
@@ -3512,10 +3624,15 @@ Return your findings as JSON only — no markdown, no text outside JSON:
         .limit(1);
       const storeTimezone = tzRow[0]?.timezone || 'America/Chicago';
 
-      // Resolve store hours from the AI scheduling settings (single row).
+      // Resolve store hours from the AI scheduling settings (per-store; Task #435).
       // Build a per-day lookup with explicit defaults for any missing day so
       // we always have something to compare each shift against.
-      const settingsResult = await db.select().from(aiSchedulingSettings).limit(1);
+      const fairnessStoreId = await resolveSettingsStoreId(userId, undefined);
+      const settingsResult = fairnessStoreId
+        ? await db.select().from(aiSchedulingSettings)
+            .where(eq(aiSchedulingSettings.storeId, fairnessStoreId))
+            .limit(1)
+        : [];
       const rawStoreHours: unknown = settingsResult[0]?.storeHours ?? [];
 
       interface StoreHourEntry {

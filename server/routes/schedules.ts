@@ -658,8 +658,14 @@ export function registerScheduleRoutes(
       const { date, startTime, endTime } = req.body;
       if (!date) return res.status(400).json({ message: "date is required" });
 
-      // Load AI scheduling settings (use sensible defaults if not configured)
-      const aiRows = await db.select().from(aiSchedulingSettings).limit(1);
+      // Load AI scheduling settings for the requester's store (per-store; Task #435).
+      // Sensible defaults if not configured.
+      const autoAssignStoreId = await tryResolveStoreIdForUser(requestingUserId);
+      const aiRows = autoAssignStoreId
+        ? await db.select().from(aiSchedulingSettings)
+            .where(eq(aiSchedulingSettings.storeId, autoAssignStoreId))
+            .limit(1)
+        : [];
       const aiSettings = aiRows[0] as any | null;
       const minimumStaffing: number = aiSettings?.minimumStaffing ?? 2;
       const storeHoursConfig: any[] = aiSettings?.storeHours ?? [];

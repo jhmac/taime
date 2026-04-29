@@ -32,11 +32,19 @@ const CATEGORY_KEYWORD_MAP: Record<string, string[]> = {
   training: ["training", "onboarding", "orientation"],
 };
 
-async function getStoreHours(): Promise<StoreHoursEntry[]> {
-  const cached = cache.get<StoreHoursEntry[]>("surfacing:store_hours");
+async function getStoreHours(storeId?: string): Promise<StoreHoursEntry[]> {
+  // Per-store cache key (Task #435). Without storeId we still cache under the
+  // "default" bucket and read whichever single row exists — this preserves
+  // legacy behavior for callers that haven't been threaded with a store yet.
+  const cacheKey = `surfacing:store_hours:${storeId || "default"}`;
+  const cached = cache.get<StoreHoursEntry[]>(cacheKey);
   if (cached) return cached;
 
-  const settings = await db.select().from(aiSchedulingSettings).limit(1);
+  const settings = storeId
+    ? await db.select().from(aiSchedulingSettings)
+        .where(eq(aiSchedulingSettings.storeId, storeId))
+        .limit(1)
+    : await db.select().from(aiSchedulingSettings).limit(1);
   const hours: StoreHoursEntry[] = (settings[0] as any)?.storeHours || [
     { day: 0, openTime: "09:00", closeTime: "21:00", isClosed: true },
     { day: 1, openTime: "09:00", closeTime: "21:00", isClosed: false },
@@ -47,7 +55,7 @@ async function getStoreHours(): Promise<StoreHoursEntry[]> {
     { day: 6, openTime: "09:00", closeTime: "21:00", isClosed: false },
   ];
 
-  cache.set("surfacing:store_hours", hours, 5 * 60 * 1000);
+  cache.set(cacheKey, hours, 5 * 60 * 1000);
   return hours;
 }
 
@@ -137,7 +145,7 @@ export async function getTimeBased(storeId?: string): Promise<SurfacedSOP[]> {
   const dayOfWeek = now.getDay();
   const currentMinutes = now.getHours() * 60 + now.getMinutes();
 
-  const storeHours = await getStoreHours();
+  const storeHours = await getStoreHours(storeId);
   const todayHours = storeHours.find((h) => h.day === dayOfWeek);
 
   if (!todayHours || todayHours.isClosed) return [];

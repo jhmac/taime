@@ -326,6 +326,13 @@ export async function runSchemaMigrations(): Promise<void> {
       table: "ai_scheduling_settings",
       sql: `ALTER TABLE ai_scheduling_settings ADD COLUMN IF NOT EXISTS labor_cost_under_pct numeric(5,2) DEFAULT 10`,
     },
+    // Task #435 — scope ai_scheduling_settings per store. The column is added
+    // here; the unique index, backfill, and orphan cleanup are handled in the
+    // dedicated block below so a single column-add failure can't block them.
+    {
+      table: "ai_scheduling_settings",
+      sql: `ALTER TABLE ai_scheduling_settings ADD COLUMN IF NOT EXISTS store_id varchar REFERENCES work_locations(id) ON DELETE CASCADE`,
+    },
   ];
 
   let altered = 0;
@@ -389,6 +396,65 @@ export async function runSchemaMigrations(): Promise<void> {
     const pgErr = err as { message?: string };
     console.warn(
       "[Migration] schedules_no_overlap_per_user constraint creation failed (non-fatal — likely existing overlapping rows):",
+      pgErr?.message ?? err,
+    );
+  }
+
+  // Task #435 — Per-store ai_scheduling_settings backfill + uniqueness.
+  // Before this migration the table was a singleton: every tenant on the same
+  // DB shared the SAME row, which the route returned with `limit(1)` and no
+  // store filter. We:
+  //   1) For each existing row whose store_id is NULL, copy its values into a
+  //      new row for every active work_location that doesn't already have one.
+  //      That preserves the previous "shared" config across all stores so
+  //      nobody loses their staffing tiers / store hours / labor cost band.
+  //   2) Delete the leftover NULL-store_id rows.
+  //   3) Enforce one row per store via a unique index.
+  // All three steps are idempotent — re-running them on a fully-migrated DB
+  // is a no-op.
+  try {
+    await db.execute(sql.raw(`
+      INSERT INTO ai_scheduling_settings (
+        shift_blocks, staffing_tiers, minimum_staffing, updated_by, updated_at,
+        store_hours, shift_overlap_minutes, overlap_budget_limit, custom_ai_instructions,
+        labor_cost_over_pct, labor_cost_under_pct, store_id
+      )
+      SELECT
+        s.shift_blocks, s.staffing_tiers, s.minimum_staffing, s.updated_by, NOW(),
+        s.store_hours, s.shift_overlap_minutes, s.overlap_budget_limit, s.custom_ai_instructions,
+        s.labor_cost_over_pct, s.labor_cost_under_pct, w.id
+      FROM ai_scheduling_settings s
+      CROSS JOIN work_locations w
+      WHERE s.store_id IS NULL
+        AND w.is_active = true
+        AND NOT EXISTS (
+          SELECT 1 FROM ai_scheduling_settings s2 WHERE s2.store_id = w.id
+        )
+    `));
+  } catch (err: unknown) {
+    const pgErr = err as { message?: string };
+    console.warn(
+      "[Migration] ai_scheduling_settings per-store backfill failed (non-fatal):",
+      pgErr?.message ?? err,
+    );
+  }
+  try {
+    await db.execute(sql.raw(`DELETE FROM ai_scheduling_settings WHERE store_id IS NULL`));
+  } catch (err: unknown) {
+    const pgErr = err as { message?: string };
+    console.warn(
+      "[Migration] ai_scheduling_settings NULL store_id cleanup failed (non-fatal):",
+      pgErr?.message ?? err,
+    );
+  }
+  try {
+    await db.execute(sql.raw(
+      `CREATE UNIQUE INDEX IF NOT EXISTS uq_ai_scheduling_settings_store_id ON ai_scheduling_settings (store_id)`
+    ));
+  } catch (err: unknown) {
+    const pgErr = err as { message?: string };
+    console.warn(
+      "[Migration] uq_ai_scheduling_settings_store_id creation failed (non-fatal):",
       pgErr?.message ?? err,
     );
   }
