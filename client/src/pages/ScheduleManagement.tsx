@@ -52,15 +52,11 @@ interface DayNote {
   updatedAt: string;
 }
 
-interface ScheduleEntry {
-  date: string;
-  employeeId: string;
-  employeeName: string;
-  shiftBlock: string;
-  startTime: string;
-  endTime: string;
-  reasoning: string;
-}
+// Single source of truth: the shape the AI generator returns matches the
+// `AiScheduleEntry` shape used by the in-memory edit helper, so we alias the
+// helper's type rather than redeclaring it. Eliminates type casts at the
+// edit/save boundary.
+type ScheduleEntry = AiScheduleEntry;
 
 interface GenerateResult {
   success: boolean;
@@ -1079,16 +1075,28 @@ export default function ScheduleManagement() {
       return;
     }
     const newName = `${newEmp.firstName ?? ""} ${newEmp.lastName ?? ""}`.trim() || newEmp.email || newEmp.id;
-    const next = applyAiEntryEdit(aiResult.generatedSchedule as AiScheduleEntry[], editingAiEntry.idx, {
+    const next = applyAiEntryEdit(aiResult.generatedSchedule, editingAiEntry.idx, {
       employeeId: editingAiEntry.employeeId,
       employeeName: newName,
       startTime: editingAiEntry.startTime,
       endTime: editingAiEntry.endTime,
     });
-    setAiResult({ ...aiResult, generatedSchedule: next as GenerateResult["generatedSchedule"] });
+    setAiResult({ ...aiResult, generatedSchedule: next });
     setReviewResult(null);
     setEditingAiEntry(null);
     toast({ title: "Shift updated", description: "Re-run Review to refresh the audit." });
+  };
+
+  // Toggle an AI draft entry between removed/active. Mirrors saveAiEntryEdit
+  // by clearing any stale Review audit, since changing what's in the proposal
+  // invalidates the prior audit too.
+  const toggleAiEntryRemoved = (idx: number) => {
+    setRemovedEntries((prev) => {
+      const next = new Set(prev);
+      next.has(idx) ? next.delete(idx) : next.add(idx);
+      return next;
+    });
+    setReviewResult(null);
   };
 
   const formatTime = (dateStr: string | Date) => {
@@ -1946,11 +1954,7 @@ export default function ScheduleManagement() {
                                       </button>
                                     )}
                                     <button
-                                      onClick={() => {
-                                        const next = new Set(removedEntries);
-                                        next.has(entry.idx) ? next.delete(entry.idx) : next.add(entry.idx);
-                                        setRemovedEntries(next);
-                                      }}
+                                      onClick={() => toggleAiEntryRemoved(entry.idx)}
                                       className="p-0.5 hover:bg-violet-100 dark:hover:bg-violet-900/50 rounded"
                                       title={isRemoved ? 'Restore' : 'Remove'}
                                       data-testid={`button-toggle-ai-shift-${entry.idx}`}
