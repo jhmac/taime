@@ -34,4 +34,3 @@
 | **Shopify API** | Integration | Sales data sync for staffing recommendations. |
 | **Nylas API** | Communications | Automated team invitation emails. |
 | **Web Push API** | Notifications | Browser/Mobile push alerts for schedule changes. |
-| **ELON/Sneebly** | Testing | Autonomous monitoring, health checks, and test runner. |
