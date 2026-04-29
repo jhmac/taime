@@ -8,7 +8,7 @@
 #   ./scripts/build-native.sh
 #
 # To target a specific deployment URL (overrides capacitor.config.ts default):
-#   TAIME_PRODUCTION_URL=https://taime.replit.app ./scripts/build-native.sh
+#   TAIME_PRODUCTION_URL=https://taime.us ./scripts/build-native.sh
 # =============================================================================
 set -euo pipefail
 
@@ -27,7 +27,7 @@ fi
 if [ -z "${TAIME_PRODUCTION_URL:-}" ]; then
   echo ""
   echo "ℹ️  TAIME_PRODUCTION_URL is not set."
-  echo "   Defaulting to: https://taime.replit.app"
+  echo "   Defaulting to: https://taime.us"
   echo "   To override: TAIME_PRODUCTION_URL=https://your-app.replit.app ./scripts/build-native.sh"
   echo ""
 fi

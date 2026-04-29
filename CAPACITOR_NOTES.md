@@ -60,7 +60,7 @@ The Capacitor config loads the web app from the deployed Replit URL. Make sure t
 production deployment is live before building:
 
 ```bash
-TAIME_PRODUCTION_URL=https://taime.replit.app ./scripts/build-native.sh
+TAIME_PRODUCTION_URL=https://taime.us ./scripts/build-native.sh
 ```
 
 The build script will:
@@ -174,7 +174,7 @@ After any change to the web app, run the native build pipeline before opening
 the native IDE or submitting an update:
 
 ```bash
-TAIME_PRODUCTION_URL=https://taime.replit.app ./scripts/build-native.sh
+TAIME_PRODUCTION_URL=https://taime.us ./scripts/build-native.sh
 ```
 
 Then increment the build number in Xcode / `android/app/build.gradle` before

@@ -20,9 +20,9 @@ Every field that the stores ask for is pre-filled below. Work through each secti
 | Age rating | `4+` |
 | Primary category | `Business` |
 | Secondary category (iOS) | `Productivity` |
-| Support URL | `https://taime.replit.app/support` |
-| Marketing URL | `https://taime.replit.app` |
-| Privacy Policy URL | `https://taime.replit.app/privacy` |
+| Support URL | `https://taime.us/support` |
+| Marketing URL | `https://taime.us` |
+| Privacy Policy URL | `https://taime.us/privacy` |
 
 ---
 
@@ -80,11 +80,11 @@ npx cap open android
 
 > **Or** use the combined pipeline script which runs build + sync in one step:
 > ```bash
-> TAIME_PRODUCTION_URL=https://taime.replit.app ./scripts/build-native.sh
+> TAIME_PRODUCTION_URL=https://taime.us ./scripts/build-native.sh
 > ```
 
 > **Important:** The native WebView loads all content (frontend + API calls) from
-> `https://taime.replit.app`. The Replit deployment must be live before building
+> `https://taime.us`. The Replit deployment must be live before building
 > native binaries.
 
 ---
@@ -270,9 +270,9 @@ time tracking,scheduling,team management,boutique,clock in,geofence,shifts,staff
 
 | Field | Value |
 |-------|-------|
-| Support URL | `https://taime.replit.app/support` |
-| Marketing URL | `https://taime.replit.app` |
-| Privacy Policy URL | `https://taime.replit.app/privacy` |
+| Support URL | `https://taime.us/support` |
+| Marketing URL | `https://taime.us` |
+| Privacy Policy URL | `https://taime.us/privacy` |
 
 ### 3.11 Screenshot Requirements
 
@@ -308,7 +308,7 @@ As of 2024, **iPhone 6.9"** and **iPad Pro 13"** screenshots are required for ev
 | Field | Value |
 |-------|-------|
 | Sign-in required | Yes |
-| Demo username | `reviewer@taime-demo.com` *(create this account at https://taime.replit.app before submitting; verify it can sign in)* |
+| Demo username | `reviewer@taime-demo.com` *(create this account at https://taime.us before submitting; verify it can sign in)* |
 | Demo password | **⚠ replace** — e.g. `TaimeReview2026!` *(set a memorable password when creating the account above)* |
 | Contact first name | **⚠ replace** — e.g. `Libby` |
 | Contact last name | **⚠ replace** — e.g. `Story` |
@@ -364,7 +364,7 @@ Choose one:
 |-----------------|------------|
 | Background location without clear justification | App only uses background location if the user explicitly enables background clock-out. Explained in permission dialog and reviewer notes above. |
 | Push notifications not justified | Push is used for clock-in approval, schedule changes, and task assignments — directly useful to the user. Described in reviewer notes. |
-| Missing or inaccessible privacy policy | Privacy policy at `https://taime.replit.app/privacy` must load without sign-in. |
+| Missing or inaccessible privacy policy | Privacy policy at `https://taime.us/privacy` must load without sign-in. |
 | Demo account not working at review time | Test the demo account fresh before submitting. Ensure the Replit deployment is live. |
 | Crashes on review device | Test on a real iPhone, not only in Simulator. |
 | Age rating inappropriate | No user-generated content shared publicly, no social features, no objectionable content. 4+ is correct. |
@@ -528,8 +528,8 @@ Taime requests location permission for geofenced clock-in verification. Location
 | App category | Business |
 | Tags | `Time Tracking`, `Scheduling`, `Team Management` |
 | Email address | *Your store or developer support email — e.g. `support@yourstore.com`* |
-| Website | `https://taime.replit.app` |
-| Privacy Policy URL | `https://taime.replit.app/privacy` |
+| Website | `https://taime.us` |
+| Privacy Policy URL | `https://taime.us/privacy` |
 
 ### 4.6 App Icon & Feature Graphic
 
@@ -621,7 +621,7 @@ Expected rating: **Everyone (E)**
 |-----------------|------------|
 | `ACCESS_BACKGROUND_LOCATION` without justification | Required for background clock-out. Justify in the Play Console declaration and in the app's runtime permission dialog. Google may request a demo video. |
 | Target API level below requirement | `targetSdkVersion` must be 34+ (Android 14). Verify in `android/app/build.gradle`. |
-| Privacy policy inaccessible | `https://taime.replit.app/privacy` must load without sign-in. |
+| Privacy policy inaccessible | `https://taime.us/privacy` must load without sign-in. |
 | Data Safety section incomplete | Declare every collected data type with collection purpose and retention policy. |
 | AAB signed with debug key | Always use `taime-release.keystore`, not the debug keystore. |
 | Signing enrolled in Play App Signing | Enroll on first upload — Google manages key security going forward. |
@@ -632,8 +632,8 @@ Expected rating: **Everyone (E)**
 
 - [ ] App Store Connect: build selected, all required fields green (no red indicators)
 - [ ] Google Play Console: store listing 100% complete
-- [ ] `https://taime.replit.app/privacy` loads publicly without sign-in
-- [ ] `https://taime.replit.app/support` loads publicly without sign-in
+- [ ] `https://taime.us/privacy` loads publicly without sign-in
+- [ ] `https://taime.us/support` loads publicly without sign-in
 - [ ] Demo account (`reviewer@taime-demo.com` or equivalent) tested and working
 - [ ] `resources/icon.png` is the final branded 1024×1024 asset (not the placeholder)
 - [ ] `resources/splash.png` is the final branded 2732×2732 asset (not the placeholder)

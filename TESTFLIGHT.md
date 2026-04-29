@@ -6,7 +6,7 @@ release after the first" section at the bottom is the only part you keep
 running.
 
 > **Why this is shorter than typical iOS runbooks**
-> `capacitor.config.ts` uses `server.url: https://taime.replit.app`, so the
+> `capacitor.config.ts` uses `server.url: https://taime.us`, so the
 > iOS app is a thin shell that loads your live web app. **You do not need a
 > new TestFlight build for code changes.** Push to Replit, redeploy, and
 > existing testers see the update on next app open. You only need a new
@@ -250,7 +250,7 @@ first, wire push later.
 | "An archive with this version and build number has already been uploaded" | Bump the **Build** number in Xcode → General |
 | Upload succeeds but build never appears in TestFlight | Wait 15 minutes; if still missing, check email for an Apple processing-rejection notice |
 | TestFlight invite email never arrives | Tester wasn't added to **Users and Access** first, or the email went to the spam folder of the Apple ID address (not the address you typed) |
-| White screen on launch | The web app at `https://taime.replit.app` is down or the deploy is broken. Check the Replit deployment first — the iOS shell just loads that URL |
+| White screen on launch | The web app at `https://taime.us` is down or the deploy is broken. Check the Replit deployment first — the iOS shell just loads that URL |
 | Location prompt doesn't appear | The Info.plist strings weren't added — re-run `./scripts/capacitor-setup.sh` |
 
 ---
