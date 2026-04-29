@@ -40,7 +40,7 @@ export default function MiddayPulseCard() {
     staleTime: 5 * 60 * 1000,
   });
 
-  const hasSalesView = isAdminOrOwner || permissions.some(p => p.name === 'sales.view' || p.name === 'admin.manage_all');
+  const hasSalesView = isAdminOrOwner || permissions.some(p => p.name === 'sales.view_all' || p.name === 'admin.manage_all');
 
   useEffect(() => {
     if (lastMessage?.type === 'midday_pulse') {

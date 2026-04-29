@@ -101,24 +101,24 @@ export function registerRoleRoutes(app: Express, storage: IStorage, isAuthentica
       throw new AppError(400, "permissionIds must be an array", "VALIDATION_ERROR");
     }
 
-    // Capture current state before updating to detect sales.view changes
+    // Capture current state before updating to detect sales.view_all changes
     const allPermsByCategory = await storage.getPermissionsByCategory();
     const allPerms = Object.values(allPermsByCategory).flat();
-    const salesViewPerm = allPerms.find(p => p.name === 'sales.view');
+    const salesViewPerm = allPerms.find(p => p.name === 'sales.view_all');
 
     const [prevPermissions, role, affectedEmployees] = await Promise.all([
       storage.getRolePermissions(id),
       storage.getRole(id),
       storage.getUsersByRole(id),
     ]);
-    const hadSalesView = prevPermissions.some(p => p.name === 'sales.view');
+    const hadSalesView = prevPermissions.some(p => p.name === 'sales.view_all');
     const newHasSalesView = salesViewPerm ? permissionIds.includes(salesViewPerm.id) : false;
 
     await storage.updateRolePermissions(id, permissionIds);
     cache.invalidatePrefix('roles:');
     invalidatePermissionCache();
 
-    // Log if sales.view access changed for this role
+    // Log if sales.view_all access changed for this role
     if (salesViewPerm && hadSalesView !== newHasSalesView) {
       const action = newHasSalesView ? 'grant' : 'revoke';
       const roleName = role?.displayName || role?.name || id;
@@ -154,7 +154,7 @@ export function registerRoleRoutes(app: Express, storage: IStorage, isAuthentica
       storage.getUserSalesAccessOverride(id),
       storage.getUserPermissions(id),
     ]);
-    const hasSalesAccess = userPerms.some(p => p.name === 'sales.view');
+    const hasSalesAccess = userPerms.some(p => p.name === 'sales.view_all');
     res.json({
       hasSalesAccess,
       isOverride: override !== null,
@@ -184,7 +184,7 @@ export function registerRoleRoutes(app: Express, storage: IStorage, isAuthentica
     const isNoOp = currentGrantValue === grant;
 
     await storage.setUserSalesAccessOverride(id, grant);
-    invalidatePermissionCache('sales.view');
+    invalidatePermissionCache('sales.view_all');
 
     // Log the individual override change only when the value actually changed
     if (!isNoOp) {
@@ -220,7 +220,7 @@ export function registerRoleRoutes(app: Express, storage: IStorage, isAuthentica
       storage.getUserSalesAccessOverride(id),
       storage.getUserPermissions(id),
     ]);
-    const hasSalesAccess = userPerms.some(p => p.name === 'sales.view');
+    const hasSalesAccess = userPerms.some(p => p.name === 'sales.view_all');
     res.json({
       hasSalesAccess,
       isOverride: override !== null,

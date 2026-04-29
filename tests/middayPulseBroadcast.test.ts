@@ -50,7 +50,7 @@ describe("broadcastMiddayPulse — sales data privacy", () => {
     wsConnections = new Map();
   });
 
-  it("does NOT send to a non-sales employee (regular role, no sales.view permission)", async () => {
+  it("does NOT send to a non-sales employee (regular role, no sales.view_all permission)", async () => {
     const { ws, send } = makeMockWs();
     wsConnections.set("user-no-sales", new Set([makeConnection(ws, "user-no-sales")]));
 
@@ -64,13 +64,13 @@ describe("broadcastMiddayPulse — sales data privacy", () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  it("DOES send to an employee who has the sales.view permission", async () => {
+  it("DOES send to an employee who has the sales.view_all permission", async () => {
     const { ws, send } = makeMockWs();
     wsConnections.set("user-sales", new Set([makeConnection(ws, "user-sales")]));
 
     const storage = makeStorage({
       roleName: "employee",
-      permissions: [makePermission("sales.view")],
+      permissions: [makePermission("sales.view_all")],
     });
 
     await broadcastMiddayPulse(pulseData, wsConnections, storage, silentLogger);
@@ -153,7 +153,7 @@ describe("broadcastMiddayPulse — sales data privacy", () => {
       getUserRoleName: vi.fn().mockResolvedValue("employee"),
       getUserPermissions: vi.fn().mockImplementation((userId: string) => {
         if (userId === "user-sales") {
-          return Promise.resolve([makePermission("sales.view")]);
+          return Promise.resolve([makePermission("sales.view_all")]);
         }
         return Promise.resolve([makePermission("time.view")]);
       }),
@@ -175,7 +175,7 @@ describe("broadcastMiddayPulse — sales data privacy", () => {
 
     const storage = makeStorage({
       roleName: "employee",
-      permissions: [makePermission("sales.view")],
+      permissions: [makePermission("sales.view_all")],
     });
 
     await broadcastMiddayPulse(pulseData, wsConnections, storage, silentLogger);

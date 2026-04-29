@@ -1074,7 +1074,7 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
       const userPerms = await storage.getUserPermissions(userId);
       const roleName = req.user?.role?.name ?? '';
       const isAdminOrOwner = roleName === 'owner' || roleName === 'admin';
-      if (!isAdminOrOwner && !userPerms.some(p => p.name === 'sales.view' || p.name === 'admin.manage_all')) {
+      if (!isAdminOrOwner && !userPerms.some(p => p.name === 'sales.view_all' || p.name === 'admin.manage_all')) {
         return res.status(403).json({ message: "You don't have access to sales data" });
       }
 
@@ -1206,7 +1206,7 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
       const userPerms = await storage.getUserPermissions(userId);
       const roleName = req.user?.role?.name ?? '';
       const isAdminOrOwner = roleName === 'owner' || roleName === 'admin';
-      if (!isAdminOrOwner && !userPerms.some(p => p.name === 'sales.view' || p.name === 'admin.manage_all')) {
+      if (!isAdminOrOwner && !userPerms.some(p => p.name === 'sales.view_all' || p.name === 'admin.manage_all')) {
         return res.status(403).json({ message: "You don't have access to sales data" });
       }
 
@@ -1333,7 +1333,7 @@ Keep your response concise, practical, and focused on actionable staffing advice
       const userPermissions = await storage.getUserPermissions(userId);
       const roleName = req.user?.role?.name ?? '';
       const isAdminOrOwner = roleName === 'owner' || roleName === 'admin';
-      const canView = isAdminOrOwner || userPermissions.some(p => p.name === 'sales.view' || p.name === 'admin.manage_all');
+      const canView = isAdminOrOwner || userPermissions.some(p => p.name === 'sales.view_all' || p.name === 'admin.manage_all');
 
       if (!canView) {
         return res.status(403).json({ message: "You don't have access to sales data" });

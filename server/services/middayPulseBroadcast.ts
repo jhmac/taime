@@ -30,7 +30,7 @@ export async function broadcastMiddayPulse(
       if (!isAdminOrOwner) {
         const perms = await storage.getUserPermissions(userId);
         const hasSalesAccess = perms.some(
-          (p) => p.name === "sales.view" || p.name === "admin.manage_all",
+          (p) => p.name === "sales.view_all" || p.name === "admin.manage_all",
         );
         if (!hasSalesAccess) continue;
       }

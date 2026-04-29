@@ -12,7 +12,7 @@ export function registerAnalyticsRoutes(app: Express, storage: IStorage, isAuthe
       const userPermissions = await storage.getUserPermissions(userId);
       const roleName = req.user?.role?.name ?? '';
       const isAdminOrOwner = roleName === 'owner' || roleName === 'admin';
-      const canView = isAdminOrOwner || userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'sales.view');
+      const canView = isAdminOrOwner || userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'sales.view_all');
 
       if (!canView) {
         return res.status(403).json({ message: "Access denied" });

@@ -76,7 +76,7 @@ export const rolePermissions = pgTable("role_permissions", {
 export const userPermissionOverrides = pgTable("user_permission_overrides", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").references(() => users.id).notNull(),
-  permissionName: varchar("permission_name").notNull(), // e.g. 'sales.view'
+  permissionName: varchar("permission_name").notNull(), // e.g. 'sales.view_all'
   grant: boolean("grant").notNull(), // true = explicitly granted, false = explicitly revoked
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

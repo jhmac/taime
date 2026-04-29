@@ -1941,7 +1941,7 @@ export class DatabaseStorage implements IStorage {
       .from(userPermissionOverrides)
       .where(and(
         eq(userPermissionOverrides.userId, userId),
-        eq(userPermissionOverrides.permissionName, 'sales.view')
+        eq(userPermissionOverrides.permissionName, 'sales.view_all')
       ))
       .limit(1);
     return override ?? null;
@@ -1954,13 +1954,13 @@ export class DatabaseStorage implements IStorage {
         .delete(userPermissionOverrides)
         .where(and(
           eq(userPermissionOverrides.userId, userId),
-          eq(userPermissionOverrides.permissionName, 'sales.view')
+          eq(userPermissionOverrides.permissionName, 'sales.view_all')
         ));
     } else {
       // Upsert the override
       await db
         .insert(userPermissionOverrides)
-        .values({ userId, permissionName: 'sales.view', grant })
+        .values({ userId, permissionName: 'sales.view_all', grant })
         .onConflictDoUpdate({
           target: [userPermissionOverrides.userId, userPermissionOverrides.permissionName],
           set: { grant, updatedAt: new Date() },

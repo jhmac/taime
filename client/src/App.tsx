@@ -281,7 +281,7 @@ function AuthenticatedApp() {
           <ProtectedRoute permission="hr.payroll_view"><PayPeriodManagement /></ProtectedRoute>
         </Route>
         <Route path="/analytics">
-          <ProtectedRoute permission="sales.view" deniedMessage="You don't have access to sales data."><Analytics /></ProtectedRoute>
+          <ProtectedRoute permission="sales.view_all" deniedMessage="You don't have access to sales data."><Analytics /></ProtectedRoute>
         </Route>
         <Route path="/performance">
           <ProtectedRoute><Performance /></ProtectedRoute>

@@ -1056,6 +1056,10 @@ export async function runSchemaMigrations(): Promise<void> {
     console.warn('[Migration] user_permission_overrides table creation failed (non-fatal):', pgErr?.message ?? err);
   }
 
+  // Now that user_permission_overrides exists, consolidate the legacy
+  // 'sales.view' permission into the canonical 'sales.view_all'.
+  await consolidateLegacySalesPermission();
+
   // Recurring weekly availability templates — one row per user
   try {
     await db.execute(sql.raw(`
@@ -1139,7 +1143,6 @@ export async function seedDefaultRoles(): Promise<void> {
       { name: 'sales.view_own',             displayName: 'View Own Sales',             description: 'View own sales totals and commission data',            category: 'sales' },
       { name: 'sales.view_all',             displayName: 'View All Sales',             description: 'View sales data for all team members',                category: 'sales' },
       { name: 'sales.view_reports',         displayName: 'View Sales Reports',         description: 'Access full sales reports and analytics dashboards',   category: 'sales' },
-      { name: 'sales.view',                 displayName: 'View Sales Data',            description: 'Access sales analytics, Shopify data, and revenue dashboards', category: 'sales' },
     ];
 
     for (const perm of permissionDefs) {
@@ -1176,7 +1179,7 @@ export async function seedDefaultRoles(): Promise<void> {
       'tasks.view_all', 'tasks.edit_all', 'tasks.create', 'tasks.ai_assign',
       'comm.view_messages', 'comm.send_messages', 'comm.send_announcements',
       'communication.create_groups', 'communication.manage_groups',
-      'sales.view_all', 'sales.view_reports', 'sales.view',
+      'sales.view_all', 'sales.view_reports',
       'enable_clock_out_on_focus_loss',
     ];
     const managerPerms = [
@@ -1186,7 +1189,7 @@ export async function seedDefaultRoles(): Promise<void> {
       'tasks.view_all', 'tasks.edit_all', 'tasks.view_own', 'tasks.edit_own', 'tasks.create', 'tasks.ai_assign',
       'comm.view_messages', 'comm.send_messages', 'comm.send_announcements',
       'communication.create_groups', 'communication.manage_groups',
-      'sales.view_all', 'sales.view_reports', 'sales.view_own', 'sales.view',
+      'sales.view_all', 'sales.view_reports', 'sales.view_own',
     ];
     const employeePerms = [
       'schedule.view_own', 'schedule.edit_own',
@@ -1227,6 +1230,49 @@ export async function seedDefaultRoles(): Promise<void> {
   } catch (err: unknown) {
     const pgErr = err as { message?: string };
     console.warn('[Migration] Default role seeding failed (non-fatal):', pgErr?.message ?? err);
+  }
+}
+
+/**
+ * Consolidates the legacy 'sales.view' permission into the canonical
+ * 'sales.view_all'. Runs idempotently on every boot. Mapping:
+ *   'sales.view' (legacy) -> 'sales.view_all' (canonical).
+ *
+ * MUST be called AFTER the user_permission_overrides table has been created,
+ * otherwise the first statement throws and the cleanup is skipped for that
+ * boot. Each statement is a no-op once the legacy data has been removed.
+ */
+export async function consolidateLegacySalesPermission(): Promise<void> {
+  try {
+    // (a) Migrate user-level overrides where the user has no canonical override yet.
+    await db.execute(sql.raw(`
+      UPDATE user_permission_overrides upo
+      SET permission_name = 'sales.view_all'
+      WHERE permission_name = 'sales.view'
+        AND NOT EXISTS (
+          SELECT 1 FROM user_permission_overrides u2
+          WHERE u2.user_id = upo.user_id
+            AND u2.permission_name = 'sales.view_all'
+        )
+    `));
+    // (b) Drop any leftover legacy override rows (these are duplicates because
+    // the user already had the canonical 'sales.view_all' override; the explicit
+    // canonical row wins).
+    await db.execute(sql.raw(`
+      DELETE FROM user_permission_overrides WHERE permission_name = 'sales.view'
+    `));
+    // (c) Drop role_permissions rows linking to the legacy permission.
+    await db.execute(sql.raw(`
+      DELETE FROM role_permissions
+      WHERE permission_id IN (SELECT id FROM permissions WHERE name = 'sales.view')
+    `));
+    // (d) Drop the legacy permission row itself.
+    await db.execute(sql.raw(`
+      DELETE FROM permissions WHERE name = 'sales.view'
+    `));
+  } catch (err: unknown) {
+    const pgErr = err as { message?: string };
+    console.warn('[Migration] sales.view consolidation failed (non-fatal):', pgErr?.message ?? err);
   }
 }
 

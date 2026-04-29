@@ -158,7 +158,7 @@ export default function ShopifyAnalytics({ shopDomain }: { shopDomain: string })
     enabled: !!user && !isAdminOrOwner,
     staleTime: 5 * 60 * 1000,
   });
-  const hasSalesView = isAdminOrOwner || permissions.some(p => p.name === 'sales.view' || p.name === 'admin.manage_all');
+  const hasSalesView = isAdminOrOwner || permissions.some(p => p.name === 'sales.view_all' || p.name === 'admin.manage_all');
 
   const [timeRange, setTimeRange] = useState<TimeRange>('monthly');
   const [copied, setCopied] = useState(false);

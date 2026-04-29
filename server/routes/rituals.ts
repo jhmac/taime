@@ -94,10 +94,10 @@ export function registerRitualRoutes(
     const userId = req.user.id;
     const isAdminOrOwner = req.user.role?.name === 'admin' || req.user.role?.name === 'owner';
     const userPerms = await storage.getUserPermissions(userId);
-    const hasSalesAccess = isAdminOrOwner || userPerms.some(p => p.name === 'sales.view' || p.name === 'admin.manage_all');
+    const hasSalesAccess = isAdminOrOwner || userPerms.some(p => p.name === 'sales.view_all' || p.name === 'admin.manage_all');
 
     if (!hasSalesAccess) {
-      return res.status(403).json({ success: false, message: 'Access denied: sales.view permission required' });
+      return res.status(403).json({ success: false, message: 'Access denied: sales.view_all permission required' });
     }
 
     const storeId = await getFirstStoreId();

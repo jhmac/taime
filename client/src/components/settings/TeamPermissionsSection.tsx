@@ -49,7 +49,7 @@ export default function TeamPermissionsSection() {
 
   const salesViewPermissionId = useMemo(() => {
     const salesPerms = permissionsByCategory['sales'] ?? [];
-    return salesPerms.find(p => p.name === 'sales.view')?.id ?? null;
+    return salesPerms.find(p => p.name === 'sales.view_all')?.id ?? null;
   }, [permissionsByCategory]);
 
   const updatePermissionsMutation = useMutation({
