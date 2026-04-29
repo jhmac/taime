@@ -53,6 +53,44 @@ function getLocalHourInTz(timestamp: Date, timezone: string): number {
 }
 
 /**
+ * Returns minutes-since-local-midnight (0..1439) for a UTC timestamp in the
+ * given IANA timezone. Falls back to UTC hours/minutes if the timezone is
+ * invalid. Useful for comparing against store open/close times like "09:30".
+ */
+function getLocalMinutesInTz(timestamp: Date, timezone: string): number {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(timestamp);
+    const h = parseInt(parts.find(p => p.type === 'hour')?.value ?? '0', 10) % 24;
+    const m = parseInt(parts.find(p => p.type === 'minute')?.value ?? '0', 10);
+    return h * 60 + m;
+  } catch {
+    return timestamp.getUTCHours() * 60 + timestamp.getUTCMinutes();
+  }
+}
+
+/**
+ * Returns the local day-of-week (0=Sun..6=Sat) for a UTC timestamp in the
+ * given IANA timezone. Falls back to the UTC day if the timezone is invalid.
+ */
+function getLocalDayOfWeekInTz(timestamp: Date, timezone: string): number {
+  try {
+    const wk = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      weekday: 'short',
+    }).format(timestamp);
+    const map: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+    return map[wk] ?? timestamp.getUTCDay();
+  } catch {
+    return timestamp.getUTCDay();
+  }
+}
+
+/**
  * Returns the timezone offset for a given UTC instant in a given IANA tz,
  * in minutes east of UTC (positive east, negative west). Handles DST
  * automatically because the offset is computed at the supplied instant.
@@ -3364,10 +3402,17 @@ Return your findings as JSON only — no markdown, no text outside JSON:
   // the trailing 4-week (28-day) window. Flags any employee whose count for a
   // category is ≥ 2× the team average for that category.
   //
-  // Definitions:
-  //   Opening shift  — startTime hour (UTC) <= 10
-  //   Closing shift  — endTime hour (UTC) >= 20
-  //   Weekend shift  — startTime falls on Saturday (6) or Sunday (0)
+  // Definitions (timezone-aware, evaluated in the requester's store timezone):
+  //   Opening shift  — startTime is within FAIRNESS_WINDOW_MIN minutes of the
+  //                    configured open time for that local day-of-week.
+  //   Closing shift  — endTime is within FAIRNESS_WINDOW_MIN minutes of the
+  //                    configured close time for that local day-of-week.
+  //   Weekend shift  — startTime falls on Saturday (6) or Sunday (0) in the
+  //                    store-local calendar.
+  //
+  // Store hours come from ai_scheduling_settings.storeHours; days that aren't
+  // configured fall back to a 09:00–21:00 default. Days marked isClosed do not
+  // produce opening/closing flags.
   app.get("/api/ai-scheduling/fairness-metrics", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
@@ -3394,6 +3439,100 @@ Return your findings as JSON only — no markdown, no text outside JSON:
       const now = new Date();
       const windowStart = new Date(now);
       windowStart.setDate(windowStart.getDate() - 28);
+
+      // Resolve the store timezone for the requester via their primary work
+      // location. Fall back to a sensible default if not configured so we
+      // never crash on missing data.
+      const tzRow = await db
+        .select({ timezone: workLocations.timezone })
+        .from(users)
+        .innerJoin(workLocations, eq(users.locationId, workLocations.id))
+        .where(eq(users.id, userId))
+        .limit(1);
+      const storeTimezone = tzRow[0]?.timezone || 'America/Chicago';
+
+      // Resolve store hours from the AI scheduling settings (single row).
+      // Build a per-day lookup with explicit defaults for any missing day so
+      // we always have something to compare each shift against.
+      const settingsResult = await db.select().from(aiSchedulingSettings).limit(1);
+      const rawStoreHours: unknown = settingsResult[0]?.storeHours ?? [];
+
+      interface StoreHourEntry {
+        day: number;
+        openTime: string;
+        closeTime: string;
+        isClosed: boolean;
+      }
+
+      // Parse a "HH:mm" string into minutes-since-midnight (0..1440). Returns
+      // null when the input isn't a well-formed clock value so the caller can
+      // fall back to a default rather than silently coerce garbage to 0.
+      // Accepts "24:00" as the end-of-day sentinel but rejects any other
+      // "24:xx" to avoid ambiguous normalization.
+      const parseClockMinutes = (raw: unknown): number | null => {
+        if (typeof raw !== 'string') return null;
+        const m = /^(\d{1,2}):(\d{2})$/.exec(raw.trim());
+        if (!m) return null;
+        const h = Number(m[1]);
+        const min = Number(m[2]);
+        if (!Number.isFinite(h) || !Number.isFinite(min)) return null;
+        if (h < 0 || min < 0 || min > 59) return null;
+        if (h > 24) return null;
+        if (h === 24 && min !== 0) return null;
+        return h * 60 + min;
+      };
+
+      // Narrow an unknown JSON value into a StoreHourEntry, or return null when
+      // it doesn't look like one. This keeps the rest of the route free of
+      // `any` casts while tolerating partially-valid rows.
+      const toStoreHourEntry = (value: unknown): StoreHourEntry | null => {
+        if (value === null || typeof value !== 'object') return null;
+        const v = value as Record<string, unknown>;
+        const day = typeof v.day === 'number' && Number.isInteger(v.day) && v.day >= 0 && v.day <= 6
+          ? v.day
+          : null;
+        if (day === null) return null;
+        return {
+          day,
+          openTime: typeof v.openTime === 'string' ? v.openTime : '09:00',
+          closeTime: typeof v.closeTime === 'string' ? v.closeTime : '21:00',
+          isClosed: v.isClosed === true,
+        };
+      };
+
+      const storeHourEntries: StoreHourEntry[] = Array.isArray(rawStoreHours)
+        ? rawStoreHours
+            .map(toStoreHourEntry)
+            .filter((e): e is StoreHourEntry => e !== null)
+        : [];
+
+      const FAIRNESS_DEFAULT_OPEN_MIN = 9 * 60;   // 09:00
+      const FAIRNESS_DEFAULT_CLOSE_MIN = 21 * 60; // 21:00
+      const FAIRNESS_WINDOW_MIN = 30;
+
+      // Circular minute distance on a 24h clock — keeps the window correct
+      // when the configured close is at/near midnight (e.g. 00:00 vs an
+      // 23:50 end is 10 min away, not 1430).
+      const minuteDistance = (a: number, b: number): number => {
+        const diff = Math.abs(a - b);
+        return Math.min(diff, 24 * 60 - diff);
+      };
+
+      const hoursByDay: Record<number, { openMin: number; closeMin: number; isClosed: boolean }> = {};
+      for (let d = 0; d < 7; d++) {
+        const entry = storeHourEntries.find(sh => sh.day === d);
+        if (entry && !entry.isClosed) {
+          const openMin = parseClockMinutes(entry.openTime) ?? FAIRNESS_DEFAULT_OPEN_MIN;
+          const closeMin = parseClockMinutes(entry.closeTime) ?? FAIRNESS_DEFAULT_CLOSE_MIN;
+          hoursByDay[d] = { openMin, closeMin, isClosed: false };
+        } else {
+          hoursByDay[d] = {
+            openMin: FAIRNESS_DEFAULT_OPEN_MIN,
+            closeMin: FAIRNESS_DEFAULT_CLOSE_MIN,
+            isClosed: !!entry?.isClosed,
+          };
+        }
+      }
 
       // Fetch all schedulable active users scoped strictly to the requester's company.
       const allActiveUsers = await db
@@ -3442,13 +3581,26 @@ Return your findings as JSON only — no markdown, no text outside JSON:
         if (!counts[s.userId]) continue;
         const start = new Date(s.startTime);
         const end = new Date(s.endTime);
-        const startHour = start.getUTCHours();
-        const endHour = end.getUTCHours();
-        const dayOfWeek = start.getUTCDay();
+        const startMin = getLocalMinutesInTz(start, storeTimezone);
+        const endMin = getLocalMinutesInTz(end, storeTimezone);
+        // Compare each end of the shift against the configured hours of the
+        // local day it actually falls on. For overnight shifts (close after
+        // local midnight), this means the closing comparison uses the
+        // following day's configured close time, not the start day's.
+        const startDow = getLocalDayOfWeekInTz(start, storeTimezone);
+        const endDow = getLocalDayOfWeekInTz(end, storeTimezone);
+        const startDayHours = hoursByDay[startDow];
+        const endDayHours = hoursByDay[endDow];
         counts[s.userId].total++;
-        if (startHour <= 10) counts[s.userId].opening++;
-        if (endHour >= 20) counts[s.userId].closing++;
-        if (dayOfWeek === 0 || dayOfWeek === 6) counts[s.userId].weekend++;
+        if (startDayHours && !startDayHours.isClosed) {
+          if (minuteDistance(startMin, startDayHours.openMin) <= FAIRNESS_WINDOW_MIN) counts[s.userId].opening++;
+        }
+        if (endDayHours && !endDayHours.isClosed) {
+          if (minuteDistance(endMin, endDayHours.closeMin) <= FAIRNESS_WINDOW_MIN) counts[s.userId].closing++;
+        }
+        // Weekend is anchored to the shift's start day (matches prior behavior
+        // and how managers think about a shift's calendar slot).
+        if (startDow === 0 || startDow === 6) counts[s.userId].weekend++;
       }
 
       const employeeMetrics = Object.entries(counts).map(([empId, data]) => ({
@@ -3475,6 +3627,29 @@ Return your findings as JSON only — no markdown, no text outside JSON:
         ] as string[],
       }));
 
+      // Build a serializable per-day hours summary for the UI footnote so it
+      // can describe the actual thresholds being applied.
+      const fmt = (m: number) => {
+        // Treat both 0 and the end-of-day sentinel 1440 ("24:00") as midnight.
+        if (m <= 0 || m >= 24 * 60) return 'Midnight';
+        const h24 = Math.floor(m / 60) % 24;
+        const mm = String(m % 60).padStart(2, '0');
+        const ampm = h24 >= 12 ? 'PM' : 'AM';
+        const h12 = ((h24 + 11) % 12) + 1;
+        return mm === '00' ? `${h12} ${ampm}` : `${h12}:${mm} ${ampm}`;
+      };
+      const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      const thresholdHours = Array.from({ length: 7 }, (_, d) => {
+        const h = hoursByDay[d];
+        return {
+          day: d,
+          label: DAY_LABELS[d],
+          isClosed: h.isClosed,
+          openLabel: h.isClosed ? null : fmt(h.openMin),
+          closeLabel: h.isClosed ? null : fmt(h.closeMin),
+        };
+      });
+
       res.json({
         windowDays: 28,
         teamAverages: {
@@ -3484,6 +3659,11 @@ Return your findings as JSON only — no markdown, no text outside JSON:
         },
         employees: employeesWithFlags,
         flaggedCount: employeesWithFlags.filter(e => e.flags.length > 0).length,
+        thresholds: {
+          timezone: storeTimezone,
+          windowMinutes: FAIRNESS_WINDOW_MIN,
+          hoursByDay: thresholdHours,
+        },
       });
     } catch (error) {
       logger.error("[fairness-metrics] error", { error: String(error) });

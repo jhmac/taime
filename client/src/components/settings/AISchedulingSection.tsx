@@ -546,6 +546,14 @@ interface FairnessEmployee {
   flags: string[];
 }
 
+interface FairnessThresholdDay {
+  day: number;
+  label: string;
+  isClosed: boolean;
+  openLabel: string | null;
+  closeLabel: string | null;
+}
+
 interface FairnessMetrics {
   windowDays: number;
   teamAverages: {
@@ -555,6 +563,63 @@ interface FairnessMetrics {
   };
   employees: FairnessEmployee[];
   flaggedCount: number;
+  thresholds?: {
+    timezone: string;
+    windowMinutes: number;
+    hoursByDay: FairnessThresholdDay[];
+  };
+}
+
+function FairnessThresholdsFootnote({ thresholds }: { thresholds?: FairnessMetrics['thresholds'] }) {
+  if (!thresholds) {
+    return (
+      <p className="text-xs text-muted-foreground px-1">
+        Thresholds: early opens = shifts starting within 30 minutes of the configured store open time,
+        late closes = shifts ending within 30 minutes of the configured store close time,
+        weekends = Saturday or Sunday. Employees with zero shifts in the window are shown with counts of 0.
+      </p>
+    );
+  }
+
+  // Group consecutive days that share identical hours to keep the footnote
+  // compact when the schedule is uniform across the week.
+  const days = thresholds.hoursByDay;
+  const groups: { startIdx: number; endIdx: number; isClosed: boolean; openLabel: string | null; closeLabel: string | null }[] = [];
+  for (const d of days) {
+    const last = groups[groups.length - 1];
+    const sameAsLast = last
+      && last.endIdx === d.day - 1
+      && last.isClosed === d.isClosed
+      && last.openLabel === d.openLabel
+      && last.closeLabel === d.closeLabel;
+    if (sameAsLast) {
+      last.endIdx = d.day;
+    } else {
+      groups.push({ startIdx: d.day, endIdx: d.day, isClosed: d.isClosed, openLabel: d.openLabel, closeLabel: d.closeLabel });
+    }
+  }
+
+  const groupLabel = (g: { startIdx: number; endIdx: number; isClosed: boolean; openLabel: string | null; closeLabel: string | null }) => {
+    const range = g.startIdx === g.endIdx ? days[g.startIdx].label : `${days[g.startIdx].label}–${days[g.endIdx].label}`;
+    if (g.isClosed) return `${range}: closed`;
+    return `${range}: ${g.openLabel}–${g.closeLabel}`;
+  };
+
+  return (
+    <div className="px-1 space-y-1">
+      <p className="text-xs text-muted-foreground">
+        Early opens = shifts starting within {thresholds.windowMinutes} minutes of the store's open time,
+        late closes = shifts ending within {thresholds.windowMinutes} minutes of the store's close time,
+        weekends = Saturday or Sunday. Times are evaluated in the store timezone (<span className="font-mono">{thresholds.timezone}</span>).
+      </p>
+      <p className="text-xs text-muted-foreground">
+        Configured hours: {groups.map(groupLabel).join(' · ')}.
+      </p>
+      <p className="text-xs text-muted-foreground">
+        Employees with zero shifts in the window are shown with counts of 0.
+      </p>
+    </div>
+  );
 }
 
 function FairnessTab() {
@@ -720,10 +785,7 @@ function FairnessTab() {
         </CardContent>
       </Card>
 
-      <p className="text-xs text-muted-foreground px-1">
-        Thresholds: early opens = shifts starting at or before 10 AM, late closes = shifts ending at or after 8 PM, weekends = Saturday or Sunday.
-        Employees with zero shifts in the window are shown with counts of 0.
-      </p>
+      <FairnessThresholdsFootnote thresholds={data.thresholds} />
     </div>
   );
 }
