@@ -950,6 +950,7 @@ export default function ScheduleManagement() {
       });
       setRemovedEntries(new Set());
       setReviewResult(null);
+      setEditingAiEntry(null);
       toast({ title: "Schedule Generated", description: data.summary || "AI schedule ready for review." });
     },
     onError: (error: any) => {
@@ -1020,6 +1021,7 @@ export default function ScheduleManagement() {
       setAiResultRange(null);
       setRemovedEntries(new Set());
       setReviewResult(null);
+      setEditingAiEntry(null);
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to apply schedule.", variant: "destructive" });
