@@ -1,0 +1,15 @@
+{
+  "filePath": "server/routes/schedules.ts",
+  "description": "[ELON] Create or fix schedules route handler with GET endpoint. Must support date range queries and respect RBAC (employees see own schedule, managers see all).",
+  "successCriteria": [
+    "Returns 200 with schedule data",
+    "Filters by date range query params",
+    "Respects role-based access control",
+    "Includes related shift and employee data",
+    "Has Zod validation for query parameters"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771513805451",
+  "priority": "high",
+  "step": 5
+}

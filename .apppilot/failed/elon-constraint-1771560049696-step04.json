@@ -1,0 +1,14 @@
+{
+  "filePath": "server/routes/clock.ts",
+  "description": "[ELON] Create or fix clock-in/out endpoints with proper auth checks and geofencing validation.",
+  "successCriteria": [
+    "POST /api/clock/in accepts valid clock-in requests",
+    "Geofencing validation works correctly",
+    "Response time under 200ms p95"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771560049696",
+  "priority": "high",
+  "step": 4,
+  "blockedCategory": "auth"
+}

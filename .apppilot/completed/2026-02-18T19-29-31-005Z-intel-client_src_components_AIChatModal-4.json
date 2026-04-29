@@ -1,0 +1,13 @@
+{
+  "filePath": "client/src/components/AIChatModal.tsx",
+  "description": "The chatMutation uses optimistic updates but doesn't wrap the apiRequest in try/catch at the mutation level. The onError handler catches failures but the mutation function itself could throw unhandled errors if apiRequest rejects before returning.",
+  "successCriteria": [
+    "mutationFn wraps apiRequest in try/catch",
+    "Any network error is caught and passed to onError",
+    "No unhandled promise rejections in console"
+  ],
+  "priority": "high",
+  "category": "error-handling",
+  "source": "codebase-intel",
+  "createdAt": "2026-02-18T19:29:31.005Z"
+}

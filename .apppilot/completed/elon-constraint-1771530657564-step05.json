@@ -1,0 +1,15 @@
+{
+  "filePath": "server/routes/tasks.ts",
+  "description": "[ELON] Apply RBAC to task assignment routes. View assigned tasks requires auth. Create/assign tasks requires Admin+. Complete task allows assignee only. Delete requires Admin+.",
+  "successCriteria": [
+    "View tasks protected with requireAuth",
+    "Task creation protected with requireRole(['Owner', 'Admin'])",
+    "Task completion validates assignee matches req.auth.userId",
+    "Task deletion requires Admin+"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771530657564",
+  "priority": "high",
+  "step": 5,
+  "blockedCategory": "auth"
+}

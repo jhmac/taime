@@ -1,0 +1,13 @@
+{
+  "filePath": "client/src/App.tsx",
+  "description": "The ProtectedRoute component queries permissions on every mount, but the permissions data rarely changes. Add staleTime and cacheTime to the useQuery config (e.g., staleTime: 5 * 60 * 1000 for 5 minutes) to reduce unnecessary API calls and improve performance.",
+  "successCriteria": [
+    "The permissions useQuery includes staleTime: 300000 (5 minutes)",
+    "The permissions useQuery includes gcTime: 600000 (10 minutes) for cache retention",
+    "Permissions are still refetched when user changes or on hard refresh"
+  ],
+  "priority": "medium",
+  "category": "performance",
+  "source": "codebase-intel",
+  "createdAt": "2026-02-18T19:40:04.161Z"
+}

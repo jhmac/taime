@@ -1,0 +1,15 @@
+{
+  "filePath": "server/routes/tasks.ts",
+  "description": "[ELON] Create or fix tasks route handler with GET endpoint. Must support filtering by assignee and status, with proper RBAC enforcement.",
+  "successCriteria": [
+    "Returns 200 with tasks array",
+    "Supports filtering by assignee, status, priority",
+    "Employees see own tasks, managers see all tasks",
+    "Has proper error handling",
+    "Uses Drizzle ORM with pagination"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771513805451",
+  "priority": "high",
+  "step": 6
+}

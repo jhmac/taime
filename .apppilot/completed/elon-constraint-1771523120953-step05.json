@@ -1,0 +1,14 @@
+{
+  "filePath": "server/routes/tasks.ts",
+  "description": "[ELON] Apply same error handling pattern: try/catch all handlers, Zod input validation, structured error responses, proper status codes, comprehensive logging.",
+  "successCriteria": [
+    "All handlers have try/catch",
+    "All inputs validated with Zod",
+    "Structured error responses on all paths",
+    "Database and auth errors handled gracefully"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771523120953",
+  "priority": "high",
+  "step": 5
+}

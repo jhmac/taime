@@ -22,13 +22,14 @@ import {
   ChevronLeft, ChevronRight, Plus, Trash2, Sparkles, Loader2,
   Check, X, Calendar, Clock, StickyNote, Bell, Wand2, Users,
   ChevronDown, ChevronUp, CalendarDays, UserCog, PanelRightOpen, PanelRightClose,
-  LayoutGrid, CalendarRange
+  LayoutGrid, CalendarRange, ShieldCheck
 } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import AvailabilityCommandPanel from "@/components/AvailabilityCommandPanel";
 import SuggestedScheduleReview from "@/components/SuggestedScheduleReview";
 import CreateShiftSplitPanel from "@/components/CreateShiftSplitPanel";
 import ScheduleTimelineView, { type ScheduleSubView } from "@/components/ScheduleTimelineView";
+import ScheduleReviewModal, { type ReviewResult, ratingConfig } from "@/components/ScheduleReviewModal";
 import { useWebSocketContext } from "@/contexts/WebSocketContext";
 
 // Edit Shift save-flow trace (Task #420). Mirrors the namespace used in
@@ -557,10 +558,12 @@ export default function ScheduleManagement() {
   const [modalEndTime, setModalEndTime] = useState('17:00');
   const [shiftFilter, setShiftFilter] = useState<'my' | 'all' | 'open'>('my');
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
-  const [showAIPanel, setShowAIPanel] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null);
   const [aiResult, setAiResult] = useState<GenerateResult | null>(null);
+  const [aiResultRange, setAiResultRange] = useState<{ startDate: string; endDate: string } | null>(null);
   const [removedEntries, setRemovedEntries] = useState<Set<number>>(new Set());
+  const [reviewResult, setReviewResult] = useState<ReviewResult | null>(null);
+  const [showReviewModal, setShowReviewModal] = useState(false);
   const [availabilityEditTarget, setAvailabilityEditTarget] = useState<{ userId: string; date: string; empName: string } | null>(null);
   const [showCommandPanel, setShowCommandPanel] = useState(() => {
     try { return localStorage.getItem('schedMgmt_showCommandPanel') !== 'false'; } catch { return true; }
@@ -931,14 +934,40 @@ export default function ScheduleManagement() {
         shopDomain: activeShop?.shopDomain,
       });
     },
-    onSuccess: async (response: any) => {
+    onSuccess: async (response: any, variables) => {
       const data = await response.json();
       setAiResult(data);
+      setAiResultRange({
+        startDate: variables.startDate.split('T')[0],
+        endDate: variables.endDate.split('T')[0],
+      });
       setRemovedEntries(new Set());
+      setReviewResult(null);
       toast({ title: "Schedule Generated", description: data.summary || "AI schedule ready for review." });
     },
     onError: (error: any) => {
       toast({ title: "Generation Failed", description: error.message || "Failed to generate.", variant: "destructive" });
+    },
+  });
+
+  const reviewMutation = useMutation({
+    mutationFn: async () => {
+      if (!aiResult || !aiResultRange) throw new Error('No schedule to review');
+      const entries = aiResult.generatedSchedule.filter((_, i) => !removedEntries.has(i));
+      return apiRequest('POST', '/api/ai-scheduling/review', {
+        scheduleEntries: entries,
+        startDate: aiResultRange.startDate,
+        endDate: aiResultRange.endDate,
+        days: aiResult.days,
+      });
+    },
+    onSuccess: async (response: any) => {
+      const data: ReviewResult = await response.json();
+      setReviewResult(data);
+      setShowReviewModal(true);
+    },
+    onError: () => {
+      toast({ title: "Review Failed", description: "Failed to audit the schedule. Please try again.", variant: "destructive" });
     },
   });
 
@@ -981,12 +1010,25 @@ export default function ScheduleManagement() {
       queryClient.invalidateQueries({ queryKey: ["/api/schedules"] });
       toast({ title: "Applied!", description: `${data.schedulesCreated} shifts created.` });
       setAiResult(null);
-      setShowAIPanel(false);
+      setAiResultRange(null);
+      setRemovedEntries(new Set());
+      setReviewResult(null);
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to apply schedule.", variant: "destructive" });
     },
   });
+
+  const activeAiEntriesCount = aiResult
+    ? aiResult.generatedSchedule.length - removedEntries.size
+    : 0;
+
+  const discardAiResult = () => {
+    setAiResult(null);
+    setAiResultRange(null);
+    setRemovedEntries(new Set());
+    setReviewResult(null);
+  };
 
   const formatTime = (dateStr: string | Date) => {
     const d = new Date(dateStr);
@@ -1412,6 +1454,22 @@ export default function ScheduleManagement() {
             <Button
               variant="outline"
               size="sm"
+              className="gap-1.5 text-xs border-violet-300 text-violet-700 dark:border-violet-700 dark:text-violet-300 hover:bg-violet-50 dark:hover:bg-violet-900/20"
+              onClick={handleAIGenerate}
+              disabled={generateMutation.isPending}
+              title="Generate an AI schedule for the entire visible week"
+              data-testid="button-generate-week"
+            >
+              {generateMutation.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Wand2 className="h-3.5 w-3.5" />
+              )}
+              Generate Week
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
               className="gap-1.5 text-xs"
               onClick={() => notifyTeamMutation.mutate()}
               disabled={notifyTeamMutation.isPending || schedules.length === 0}
@@ -1472,6 +1530,83 @@ export default function ScheduleManagement() {
         {/* Schedule Grid (Roster view) */}
         {scheduleView === 'roster' && (
         <div className="flex-1 overflow-x-auto min-w-0">
+        {/* AI-generated schedule banner */}
+        {aiResult && (
+          <div className="border-b bg-violet-50/60 dark:bg-violet-950/20 px-4 py-2.5" data-testid="banner-ai-schedule">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2 min-w-0">
+                <Sparkles className="h-4 w-4 text-violet-600 dark:text-violet-300 shrink-0" />
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-violet-900 dark:text-violet-100">
+                    AI proposed {activeAiEntriesCount} shift{activeAiEntriesCount !== 1 ? 's' : ''} for this week
+                    {removedEntries.size > 0 && (
+                      <span className="text-xs text-violet-700/70 dark:text-violet-300/70 ml-1">
+                        ({removedEntries.size} removed)
+                      </span>
+                    )}
+                  </div>
+                  {reviewResult && (
+                    <button
+                      onClick={() => setShowReviewModal(true)}
+                      className={cn(
+                        "text-xs flex items-center gap-1 mt-0.5 hover:underline",
+                        ratingConfig[reviewResult.overallRating].color
+                      )}
+                    >
+                      {ratingConfig[reviewResult.overallRating].icon}
+                      <span>Review: {ratingConfig[reviewResult.overallRating].label}</span>
+                      {reviewResult.issues.length > 0 && (
+                        <span className="text-muted-foreground">
+                          · {reviewResult.issues.length} issue{reviewResult.issues.length !== 1 ? 's' : ''}
+                        </span>
+                      )}
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-xs"
+                  onClick={discardAiResult}
+                  data-testid="button-ai-schedule-discard"
+                >
+                  Discard
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 text-xs border-blue-300 text-blue-700 dark:border-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950/20"
+                  onClick={() => reviewMutation.mutate()}
+                  disabled={reviewMutation.isPending || activeAiEntriesCount === 0}
+                  data-testid="button-ai-schedule-review"
+                >
+                  {reviewMutation.isPending ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                  )}
+                  Review before publishing
+                </Button>
+                <Button
+                  size="sm"
+                  className="gap-1.5 text-xs"
+                  onClick={() => applyMutation.mutate()}
+                  disabled={applyMutation.isPending || activeAiEntriesCount === 0}
+                  data-testid="button-ai-schedule-apply"
+                >
+                  {applyMutation.isPending ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Check className="h-3.5 w-3.5" />
+                  )}
+                  Apply Schedule ({activeAiEntriesCount})
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
         <table className="w-full border-collapse min-w-[900px]">
           <thead>
             <tr className="border-b">
@@ -1924,6 +2059,16 @@ export default function ScheduleManagement() {
           onClose={() => setAvailabilityEditTarget(null)}
         />
       )}
+
+      {/* AI Schedule Audit Report Modal */}
+      <ScheduleReviewModal
+        open={showReviewModal}
+        onOpenChange={setShowReviewModal}
+        reviewResult={reviewResult}
+        activeEntriesCount={activeAiEntriesCount}
+        onApply={() => applyMutation.mutate()}
+        isApplying={applyMutation.isPending}
+      />
 
       {/* Drag-to-reschedule Conflict Warning Dialog */}
       {pendingReschedule && (

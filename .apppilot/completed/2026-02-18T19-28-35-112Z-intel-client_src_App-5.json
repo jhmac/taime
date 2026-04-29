@@ -1,0 +1,13 @@
+{
+  "filePath": "client/src/App.tsx",
+  "description": "The ProtectedRoute component fetches permissions on every render when enabled. If a user navigates between protected routes quickly, this triggers multiple redundant API calls. Add staleTime to the permissions query to cache for at least 5 minutes.",
+  "successCriteria": [
+    "Permissions query includes staleTime: 5 * 60 * 1000",
+    "Multiple route navigations don't refetch permissions within the stale window",
+    "Cached permissions are still revalidated in the background"
+  ],
+  "priority": "medium",
+  "category": "performance",
+  "source": "codebase-intel",
+  "createdAt": "2026-02-18T19:28:35.112Z"
+}

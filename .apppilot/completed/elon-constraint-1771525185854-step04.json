@@ -1,0 +1,14 @@
+{
+  "filePath": "client/src/hooks/useAuth.ts",
+  "description": "[ELON] Verify auth hook properly syncs Clerk auth state with app state. Ensure it handles loading states, auth errors, and user data fetching correctly.",
+  "successCriteria": [
+    "Hook returns correct loading, authenticated, and user states",
+    "Auth errors are caught and displayed to user",
+    "User data is fetched immediately after Clerk auth succeeds"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771525185854",
+  "priority": "high",
+  "step": 4,
+  "blockedCategory": "auth"
+}

@@ -1,0 +1,13 @@
+{
+  "filePath": "server/routes/index.ts",
+  "description": "[ELON] Add missing route registrations for time-clock, schedule, tasks, and payroll endpoints. The route files likely exist but aren't mounted in the main router.",
+  "successCriteria": [
+    "All critical API endpoints return 200 OK instead of 404",
+    "Time entries load successfully",
+    "Schedule data displays correctly"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771560155195",
+  "priority": "high",
+  "step": 1
+}

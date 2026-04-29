@@ -1,0 +1,13 @@
+{
+  "filePath": "server/middleware/auth.ts",
+  "description": "[ELON] Create auth middleware to protect API routes and validate Clerk sessions",
+  "successCriteria": [
+    "Protected routes require valid auth",
+    "401 errors for unauthenticated requests"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771559928578",
+  "priority": "high",
+  "step": 5,
+  "blockedCategory": "auth"
+}

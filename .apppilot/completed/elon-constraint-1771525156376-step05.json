@@ -1,0 +1,14 @@
+{
+  "filePath": "server/routes/schedules.ts",
+  "description": "[ELON] Verify schedules endpoint works after auth fix. Essential for shift management.",
+  "successCriteria": [
+    "GET /api/schedules returns schedule data for authorized users",
+    "Proper date range filtering works",
+    "Response time under 500ms p95"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771525156376",
+  "priority": "high",
+  "step": 5,
+  "blockedCategory": "auth"
+}

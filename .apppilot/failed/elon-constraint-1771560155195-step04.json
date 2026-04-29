@@ -1,0 +1,12 @@
+{
+  "filePath": "server/routes/tasks.ts",
+  "description": "[ELON] Fix task routes to handle query parameters for filtering by assignee and status",
+  "successCriteria": [
+    "GET /api/tasks returns task list",
+    "Query parameter filtering works for assignedTo and status"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771560155195",
+  "priority": "high",
+  "step": 4
+}

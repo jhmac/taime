@@ -1,0 +1,14 @@
+{
+  "filePath": "server/middleware/auth.ts",
+  "description": "[ELON] Fix Clerk authentication middleware to properly validate requests. The 401 errors suggest auth tokens aren't being processed correctly.",
+  "successCriteria": [
+    "Authenticated requests receive proper user context",
+    "401 errors include proper WWW-Authenticate headers",
+    "Auth middleware correctly extracts Clerk session"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771560049696",
+  "priority": "high",
+  "step": 2,
+  "blockedCategory": "auth"
+}

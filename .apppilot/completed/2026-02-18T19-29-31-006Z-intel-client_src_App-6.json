@@ -1,0 +1,13 @@
+{
+  "filePath": "client/src/App.tsx",
+  "description": "The ProtectedRoute component checks permissions but the permissions query has retry: 2 without exponential backoff. If the permissions endpoint is flaky, rapid retries could hammer the server. Use exponential backoff or increase retry delay.",
+  "successCriteria": [
+    "useQuery includes retryDelay configuration",
+    "Retries use exponential backoff (e.g., 1s, 2s, 4s)",
+    "No rapid-fire requests to /api/auth/permissions on failure"
+  ],
+  "priority": "medium",
+  "category": "performance",
+  "source": "codebase-intel",
+  "createdAt": "2026-02-18T19:29:31.006Z"
+}

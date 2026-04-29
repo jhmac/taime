@@ -1,0 +1,14 @@
+{
+  "filePath": "client/src/lib/api-client.ts",
+  "description": "[ELON] Fix API client to properly include Clerk auth headers on all requests. Ensure error handling for 401 responses.",
+  "successCriteria": [
+    "All API requests include Authorization header",
+    "401 errors trigger re-authentication flow",
+    "Network errors are properly caught and logged"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771560049696",
+  "priority": "high",
+  "step": 5,
+  "blockedCategory": "auth"
+}

@@ -1,0 +1,15 @@
+{
+  "filePath": "server/integrations/shopify/webhook-queue.ts",
+  "description": "[ELON] Create webhook processing queue using in-memory queue (or Redis if available). Move webhook processing to async queue with retry logic (3 attempts with exponential backoff: 1s, 5s, 30s). Store failed webhooks in dead letter queue table for manual reconciliation.",
+  "successCriteria": [
+    "Webhook handler adds job to queue immediately, returns 200",
+    "Queue processes webhooks async with retry logic",
+    "Failed webhooks (after 3 retries) written to dead_letter_queue table",
+    "Queue processing duration tracked and logged"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771531453160",
+  "priority": "high",
+  "step": 3,
+  "blockedCategory": "database"
+}

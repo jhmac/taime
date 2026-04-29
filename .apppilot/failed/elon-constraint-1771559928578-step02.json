@@ -1,0 +1,13 @@
+{
+  "filePath": "server/routes/auth.ts",
+  "description": "[ELON] Create missing auth routes including /api/auth/me and /api/auth/setup endpoints",
+  "successCriteria": [
+    "Auth endpoints return 200 status",
+    "User authentication state properly retrieved"
+  ],
+  "testCommand": "curl -s http://localhost:5000/health",
+  "elonConstraintId": "constraint-1771559928578",
+  "priority": "high",
+  "step": 2,
+  "blockedCategory": "auth"
+}

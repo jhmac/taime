@@ -1,0 +1,13 @@
+{
+  "filePath": "client/src/App.tsx",
+  "description": "The ProtectedRoute component checks permissions but doesn't handle the case where the permissions query fails. If /api/auth/permissions returns an error, the permissions array defaults to empty and the user is denied access even if they should have it. Add error handling for the permissions query.",
+  "successCriteria": [
+    "Permissions query error is caught and handled appropriately",
+    "User sees error message if permissions check fails",
+    "Don't silently deny access on query failure"
+  ],
+  "priority": "high",
+  "category": "error-handling",
+  "source": "codebase-intel",
+  "createdAt": "2026-02-18T18:51:46.628Z"
+}
