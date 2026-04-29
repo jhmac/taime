@@ -6,6 +6,9 @@ Taime is an AI-powered Progressive Web App (PWA) designed to function as an AI b
 ## User Preferences
 Preferred communication style: Simple, everyday language.
 
+## Vocabulary
+Before naming a new feature, table, column, route, or UI string, consult [`CONTEXT.md`](./CONTEXT.md) at the repo root — it is the canonical glossary for Taime's domain language (Store, Location, User vs Employee, Shift vs Schedule, Permission vs Entitlement, etc.). Foundational decisions are recorded as ADRs in [`docs/adr/`](./docs/adr/).
+
 ## System Architecture
 
 ### Frontend

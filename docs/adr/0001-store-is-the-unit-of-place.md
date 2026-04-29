@@ -1,0 +1,3 @@
+# Store is the unit of physical place; Company is a 1:1 envelope
+
+We treat **Company** as a 1:1 envelope around **Store** in domain language until a real customer needs multi-Store-per-Company. The `companies` row is preserved as a future split point but is not its own noun in the glossary or UI. **ShopifyConnection** is 1:1 with Store; **Locations** are 1:N within a Store and mirror Shopify Locations (inventory, POS, and team are per-Location in Shopify, so Taime's geofence, hours, timezone, and **LocationAssignments** all live on Location too). When the multi-Store-per-Company case arrives, Subscription, branding, and AccountOwner move up to Company; Store keeps Locations, ShopifyConnection, and operational settings.
