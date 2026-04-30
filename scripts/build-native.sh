@@ -12,13 +12,13 @@
 # =============================================================================
 set -euo pipefail
 
-echo "🛍️  Taime — Native Build Pipeline"
+echo "Taime — Native Build Pipeline"
 echo "============================================================"
 
 # Validate that native platforms have been added first
 if [ ! -d "ios" ] && [ ! -d "android" ]; then
   echo ""
-  echo "⚠️  No native platform directories found (ios/ or android/)."
+  echo "WARNING: No native platform directories found (ios/ or android/)."
   echo "   Run scripts/capacitor-setup.sh first to generate them."
   echo ""
 fi
@@ -26,7 +26,7 @@ fi
 # Ensure production URL is set
 if [ -z "${TAIME_PRODUCTION_URL:-}" ]; then
   echo ""
-  echo "ℹ️  TAIME_PRODUCTION_URL is not set."
+  echo "INFO: TAIME_PRODUCTION_URL is not set."
   echo "   Defaulting to: https://taime.us"
   echo "   To override: TAIME_PRODUCTION_URL=https://your-app.replit.app ./scripts/build-native.sh"
   echo ""
@@ -36,15 +36,25 @@ fi
 echo ""
 echo "Building web application..."
 npm run build
-echo "✅  Web build complete."
+echo "OK  Web build complete."
 
-# ---- 2. Sync native projects (copies built assets + updates plugins) --------
+# ---- 2. Generate native icons and splash screens ---------------------------
+echo ""
+echo "Generating app icons and splash screens from resources/..."
+if [ -f "resources/icon.png" ] && [ -f "resources/splash.png" ]; then
+  npx @capacitor/assets generate
+  echo "OK  Icons and splash screens generated."
+else
+  echo "SKIP  resources/icon.png or resources/splash.png not found — skipping asset generation."
+fi
+
+# ---- 3. Sync native projects (copies built assets + updates plugins) --------
 echo ""
 echo "Syncing native projects with Capacitor..."
 npx cap sync
-echo "✅  Cap sync complete."
+echo "OK  Cap sync complete."
 
-# ---- 3. Next steps ----------------------------------------------------------
+# ---- 4. Next steps ----------------------------------------------------------
 echo ""
 echo "============================================================"
 echo "Native build pipeline complete."
