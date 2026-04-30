@@ -30,9 +30,11 @@ import {
   computeSopSignOffCompletedRecipients,
 } from "../lib/broadcastRecipients";
 
-async function requireAdmin(storage: IStorage, userId: string): Promise<boolean> {
-  const permissions = await storage.getUserPermissions(userId);
-  return permissions.some(p => p.name === 'admin.manage_all');
+async function requireAdmin(storage: IStorage, userId: string): Promise<void> {
+  const perms = await storage.getUserPermissions(userId);
+  if (!perms.some(p => p.name === "admin.manage_all")) {
+    throw new AppError(403, "Admin or Owner access required", "FORBIDDEN");
+  }
 }
 
 const stepSchema = z.object({
@@ -85,13 +87,6 @@ const completeStepSchema = z.object({
   }).nullable().optional(),
 });
 
-async function requireAdminOrOwner(storage: IStorage, userId: string): Promise<void> {
-  const perms = await storage.getUserPermissions(userId);
-  if (!perms.some(p => p.name === "admin.manage_all")) {
-    throw new AppError(403, "Admin or Owner access required", "FORBIDDEN");
-  }
-}
-
 async function requireManagerOrAbove(storage: IStorage, userId: string): Promise<boolean> {
   const perms = await storage.getUserPermissions(userId);
   return perms.some(p =>
@@ -110,7 +105,7 @@ export function registerSopLibraryRoutes(
   sendToUsers: (userIds: string[], data: Record<string, unknown>) => void
 ) {
   app.post("/api/sops/templates/ai-generate", isAuthenticated, asyncHandler(async (req: any, res) => {
-    await requireAdminOrOwner(storage, req.user.id);
+    await requireAdmin(storage, req.user.id);
     const body = z.object({
       description: z.string().min(10, "Description must be at least 10 characters").max(2000, "Description must be under 2000 characters"),
       storeId: z.string().min(1),
@@ -125,7 +120,7 @@ export function registerSopLibraryRoutes(
   }));
 
   app.post("/api/sops/templates", isAuthenticated, asyncHandler(async (req: any, res) => {
-    await requireAdminOrOwner(storage, req.user.id);
+    await requireAdmin(storage, req.user.id);
     const body = createTemplateSchema.parse(req.body);
 
     const result = await db.transaction(async (tx) => {
@@ -317,7 +312,7 @@ export function registerSopLibraryRoutes(
   }));
 
   app.put("/api/sops/templates/:id", isAuthenticated, asyncHandler(async (req: any, res) => {
-    await requireAdminOrOwner(storage, req.user.id);
+    await requireAdmin(storage, req.user.id);
     const { id } = req.params;
     const body = createTemplateSchema.parse(req.body);
 
@@ -381,7 +376,7 @@ export function registerSopLibraryRoutes(
   }));
 
   app.delete("/api/sops/templates/:id", isAuthenticated, asyncHandler(async (req: any, res) => {
-    await requireAdminOrOwner(storage, req.user.id);
+    await requireAdmin(storage, req.user.id);
     const { id } = req.params;
     const [template] = await db.select().from(sopTemplates).where(eq(sopTemplates.id, id));
     if (!template) throw new AppError(404, "Template not found", "NOT_FOUND");
@@ -402,7 +397,7 @@ export function registerSopLibraryRoutes(
   }));
 
   app.put("/api/sops/templates/:id/steps/:stepId/media", isAuthenticated, asyncHandler(async (req: any, res) => {
-    await requireAdminOrOwner(storage, req.user.id);
+    await requireAdmin(storage, req.user.id);
     const { id, stepId } = req.params;
     const body = z.object({
       trainingVideoUrl: z.string().nullable().optional(),
@@ -855,66 +850,45 @@ export function registerSopLibraryRoutes(
     }
   });
 
-  app.post('/api/sop/categories', isAuthenticated, async (req: any, res) => {
-    try {
-      if (!(await requireAdmin(storage, req.user.id))) {
-        return res.status(403).json({ message: "Admin access required" });
-      }
-      const storeId = await tryResolveStoreIdForUser(req.user.id);
-      const data = insertSopCategorySchema.parse({
-        ...req.body,
-        createdBy: req.user.id,
-        ...(storeId ? { storeId } : {}),
-      });
-      const category = await storage.createSopCategory(data);
-      res.json(category);
-    } catch (error: any) {
-      res.status(400).json({ message: error.message });
-    }
-  });
+  app.post('/api/sop/categories', isAuthenticated, asyncHandler(async (req: any, res) => {
+    await requireAdmin(storage, req.user.id);
+    const storeId = await tryResolveStoreIdForUser(req.user.id);
+    const data = insertSopCategorySchema.parse({
+      ...req.body,
+      createdBy: req.user.id,
+      ...(storeId ? { storeId } : {}),
+    });
+    const category = await storage.createSopCategory(data);
+    res.json(category);
+  }));
 
-  app.put('/api/sop/categories/:id', isAuthenticated, async (req: any, res) => {
-    try {
-      if (!(await requireAdmin(storage, req.user.id))) {
-        return res.status(403).json({ message: "Admin access required" });
-      }
-      const updateSchema = z.object({
-        name: z.string().optional(),
-        description: z.string().nullable().optional(),
-        icon: z.string().nullable().optional(),
-        sortOrder: z.number().optional(),
-        isActive: z.boolean().optional(),
-      });
-      const validated = updateSchema.parse(req.body);
-      const category = await storage.updateSopCategory(req.params.id, validated);
-      res.json(category);
-    } catch (error: any) {
-      res.status(400).json({ message: error.message });
-    }
-  });
+  app.put('/api/sop/categories/:id', isAuthenticated, asyncHandler(async (req: any, res) => {
+    await requireAdmin(storage, req.user.id);
+    const updateSchema = z.object({
+      name: z.string().optional(),
+      description: z.string().nullable().optional(),
+      icon: z.string().nullable().optional(),
+      sortOrder: z.number().optional(),
+      isActive: z.boolean().optional(),
+    });
+    const validated = updateSchema.parse(req.body);
+    const category = await storage.updateSopCategory(req.params.id, validated);
+    res.json(category);
+  }));
 
-  app.delete('/api/sop/categories/:id', isAuthenticated, async (req: any, res) => {
-    try {
-      if (!(await requireAdmin(storage, req.user.id))) {
-        return res.status(403).json({ message: "Admin access required" });
-      }
-      await storage.deleteSopCategory(req.params.id);
-      res.json({ success: true });
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
+  app.delete('/api/sop/categories/:id', isAuthenticated, asyncHandler(async (req: any, res) => {
+    await requireAdmin(storage, req.user.id);
+    await storage.deleteSopCategory(req.params.id);
+    res.json({ success: true });
+  }));
 
   app.get('/api/sop/documents', isAuthenticated, async (req: any, res) => {
     try {
-      const isAdmin = await requireAdmin(storage, req.user.id);
+      const perms = await storage.getUserPermissions(req.user.id);
+      const isAdmin = perms.some(p => p.name === "admin.manage_all");
       const categoryId = req.query.categoryId as string | undefined;
       const documents = await storage.getSopDocuments(categoryId);
-      if (isAdmin) {
-        res.json(documents);
-      } else {
-        res.json(documents.filter(d => d.isPublished));
-      }
+      res.json(isAdmin ? documents : documents.filter(d => d.isPublished));
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
@@ -926,7 +900,8 @@ export function registerSopLibraryRoutes(
       if (!doc) {
         return res.status(404).json({ message: "Document not found" });
       }
-      const isAdmin = await requireAdmin(storage, req.user.id);
+      const perms = await storage.getUserPermissions(req.user.id);
+      const isAdmin = perms.some(p => p.name === "admin.manage_all");
       if (!isAdmin && !doc.isPublished) {
         return res.status(404).json({ message: "Document not found" });
       }
@@ -936,58 +911,40 @@ export function registerSopLibraryRoutes(
     }
   });
 
-  app.post('/api/sop/documents', isAuthenticated, async (req: any, res) => {
-    try {
-      if (!(await requireAdmin(storage, req.user.id))) {
-        return res.status(403).json({ message: "Admin access required" });
-      }
-      const data = insertSopDocumentSchema.parse({
-        ...req.body,
-        createdBy: req.user.id,
-        updatedBy: req.user.id,
-      });
-      const doc = await storage.createSopDocument(data);
-      res.json(doc);
-    } catch (error: any) {
-      res.status(400).json({ message: error.message });
-    }
-  });
+  app.post('/api/sop/documents', isAuthenticated, asyncHandler(async (req: any, res) => {
+    await requireAdmin(storage, req.user.id);
+    const data = insertSopDocumentSchema.parse({
+      ...req.body,
+      createdBy: req.user.id,
+      updatedBy: req.user.id,
+    });
+    const doc = await storage.createSopDocument(data);
+    res.json(doc);
+  }));
 
-  app.put('/api/sop/documents/:id', isAuthenticated, async (req: any, res) => {
-    try {
-      if (!(await requireAdmin(storage, req.user.id))) {
-        return res.status(403).json({ message: "Admin access required" });
-      }
-      const updateSchema = z.object({
-        title: z.string().optional(),
-        content: z.string().optional(),
-        summary: z.string().nullable().optional(),
-        categoryId: z.string().nullable().optional(),
-        tags: z.array(z.string()).optional(),
-        isPublished: z.boolean().optional(),
-      });
-      const validated = updateSchema.parse(req.body);
-      const doc = await storage.updateSopDocument(req.params.id, {
-        ...validated,
-        updatedBy: req.user.id,
-      } as any);
-      res.json(doc);
-    } catch (error: any) {
-      res.status(400).json({ message: error.message });
-    }
-  });
+  app.put('/api/sop/documents/:id', isAuthenticated, asyncHandler(async (req: any, res) => {
+    await requireAdmin(storage, req.user.id);
+    const updateSchema = z.object({
+      title: z.string().optional(),
+      content: z.string().optional(),
+      summary: z.string().nullable().optional(),
+      categoryId: z.string().nullable().optional(),
+      tags: z.array(z.string()).optional(),
+      isPublished: z.boolean().optional(),
+    });
+    const validated = updateSchema.parse(req.body);
+    const doc = await storage.updateSopDocument(req.params.id, {
+      ...validated,
+      updatedBy: req.user.id,
+    } as any);
+    res.json(doc);
+  }));
 
-  app.delete('/api/sop/documents/:id', isAuthenticated, async (req: any, res) => {
-    try {
-      if (!(await requireAdmin(storage, req.user.id))) {
-        return res.status(403).json({ message: "Admin access required" });
-      }
-      await storage.deleteSopDocument(req.params.id);
-      res.json({ success: true });
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
+  app.delete('/api/sop/documents/:id', isAuthenticated, asyncHandler(async (req: any, res) => {
+    await requireAdmin(storage, req.user.id);
+    await storage.deleteSopDocument(req.params.id);
+    res.json({ success: true });
+  }));
 
   app.get('/api/sop/search', isAuthenticated, async (req: any, res) => {
     try {
@@ -1012,75 +969,51 @@ export function registerSopLibraryRoutes(
     }
   });
 
-  app.post('/api/training/modules', isAuthenticated, async (req: any, res) => {
-    try {
-      if (!(await requireAdmin(storage, req.user.id))) {
-        return res.status(403).json({ message: "Admin access required" });
-      }
-      const storeId = await tryResolveStoreIdForUser(req.user.id);
-      const data = insertTrainingModuleSchema.parse({
-        ...req.body,
-        createdBy: req.user.id,
-        ...(storeId ? { storeId } : {}),
-      });
-      const module = await storage.createTrainingModule(data);
-      res.json(module);
-    } catch (error: any) {
-      res.status(400).json({ message: error.message });
-    }
-  });
+  app.post('/api/training/modules', isAuthenticated, asyncHandler(async (req: any, res) => {
+    await requireAdmin(storage, req.user.id);
+    const storeId = await tryResolveStoreIdForUser(req.user.id);
+    const data = insertTrainingModuleSchema.parse({
+      ...req.body,
+      createdBy: req.user.id,
+      ...(storeId ? { storeId } : {}),
+    });
+    const module = await storage.createTrainingModule(data);
+    res.json(module);
+  }));
 
-  app.put('/api/training/modules/:id', isAuthenticated, async (req: any, res) => {
-    try {
-      if (!(await requireAdmin(storage, req.user.id))) {
-        return res.status(403).json({ message: "Admin access required" });
-      }
-      const updateSchema = z.object({
-        title: z.string().optional(),
-        description: z.string().nullable().optional(),
-        sopDocumentIds: z.array(z.string()).optional(),
-        quizQuestions: z.any().optional(),
-        sortOrder: z.number().optional(),
-        estimatedMinutes: z.number().optional(),
-        isRequired: z.boolean().optional(),
-        isActive: z.boolean().optional(),
-      });
-      const validated = updateSchema.parse(req.body);
-      const module = await storage.updateTrainingModule(req.params.id, validated);
-      res.json(module);
-    } catch (error: any) {
-      res.status(400).json({ message: error.message });
-    }
-  });
+  app.put('/api/training/modules/:id', isAuthenticated, asyncHandler(async (req: any, res) => {
+    await requireAdmin(storage, req.user.id);
+    const updateSchema = z.object({
+      title: z.string().optional(),
+      description: z.string().nullable().optional(),
+      sopDocumentIds: z.array(z.string()).optional(),
+      quizQuestions: z.any().optional(),
+      sortOrder: z.number().optional(),
+      estimatedMinutes: z.number().optional(),
+      isRequired: z.boolean().optional(),
+      isActive: z.boolean().optional(),
+    });
+    const validated = updateSchema.parse(req.body);
+    const module = await storage.updateTrainingModule(req.params.id, validated);
+    res.json(module);
+  }));
 
-  app.delete('/api/training/modules/:id', isAuthenticated, async (req: any, res) => {
-    try {
-      if (!(await requireAdmin(storage, req.user.id))) {
-        return res.status(403).json({ message: "Admin access required" });
-      }
-      await storage.deleteTrainingModule(req.params.id);
-      res.json({ success: true });
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
-    }
-  });
+  app.delete('/api/training/modules/:id', isAuthenticated, asyncHandler(async (req: any, res) => {
+    await requireAdmin(storage, req.user.id);
+    await storage.deleteTrainingModule(req.params.id);
+    res.json({ success: true });
+  }));
 
-  app.get('/api/training/progress', isAuthenticated, async (req: any, res) => {
-    try {
-      const queryUserId = req.query.userId as string | undefined;
-      let userId = req.user.id;
-      if (queryUserId && queryUserId !== req.user.id) {
-        if (!(await requireAdmin(storage, req.user.id))) {
-          return res.status(403).json({ message: "Admin access required to view other employees' progress" });
-        }
-        userId = queryUserId;
-      }
-      const progress = await storage.getEmployeeTrainingProgress(userId);
-      res.json(progress);
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
+  app.get('/api/training/progress', isAuthenticated, asyncHandler(async (req: any, res) => {
+    const queryUserId = req.query.userId as string | undefined;
+    let userId = req.user.id;
+    if (queryUserId && queryUserId !== req.user.id) {
+      await requireAdmin(storage, req.user.id);
+      userId = queryUserId;
     }
-  });
+    const progress = await storage.getEmployeeTrainingProgress(userId);
+    res.json(progress);
+  }));
 
   app.post('/api/training/progress', isAuthenticated, async (req: any, res) => {
     try {
