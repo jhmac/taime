@@ -850,37 +850,52 @@ export function registerSopLibraryRoutes(
     }
   });
 
-  app.post('/api/sop/categories', isAuthenticated, asyncHandler(async (req: any, res) => {
-    await requireAdmin(storage, req.user.id);
-    const storeId = await tryResolveStoreIdForUser(req.user.id);
-    const data = insertSopCategorySchema.parse({
-      ...req.body,
-      createdBy: req.user.id,
-      ...(storeId ? { storeId } : {}),
-    });
-    const category = await storage.createSopCategory(data);
-    res.json(category);
-  }));
+  app.post('/api/sop/categories', isAuthenticated, async (req: any, res) => {
+    try {
+      await requireAdmin(storage, req.user.id);
+      const storeId = await tryResolveStoreIdForUser(req.user.id);
+      const data = insertSopCategorySchema.parse({
+        ...req.body,
+        createdBy: req.user.id,
+        ...(storeId ? { storeId } : {}),
+      });
+      const category = await storage.createSopCategory(data);
+      res.json(category);
+    } catch (error: any) {
+      if (error instanceof AppError) return res.status(error.statusCode).json({ message: error.userMessage });
+      res.status(400).json({ message: error.message });
+    }
+  });
 
-  app.put('/api/sop/categories/:id', isAuthenticated, asyncHandler(async (req: any, res) => {
-    await requireAdmin(storage, req.user.id);
-    const updateSchema = z.object({
-      name: z.string().optional(),
-      description: z.string().nullable().optional(),
-      icon: z.string().nullable().optional(),
-      sortOrder: z.number().optional(),
-      isActive: z.boolean().optional(),
-    });
-    const validated = updateSchema.parse(req.body);
-    const category = await storage.updateSopCategory(req.params.id, validated);
-    res.json(category);
-  }));
+  app.put('/api/sop/categories/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      await requireAdmin(storage, req.user.id);
+      const updateSchema = z.object({
+        name: z.string().optional(),
+        description: z.string().nullable().optional(),
+        icon: z.string().nullable().optional(),
+        sortOrder: z.number().optional(),
+        isActive: z.boolean().optional(),
+      });
+      const validated = updateSchema.parse(req.body);
+      const category = await storage.updateSopCategory(req.params.id, validated);
+      res.json(category);
+    } catch (error: any) {
+      if (error instanceof AppError) return res.status(error.statusCode).json({ message: error.userMessage });
+      res.status(400).json({ message: error.message });
+    }
+  });
 
-  app.delete('/api/sop/categories/:id', isAuthenticated, asyncHandler(async (req: any, res) => {
-    await requireAdmin(storage, req.user.id);
-    await storage.deleteSopCategory(req.params.id);
-    res.json({ success: true });
-  }));
+  app.delete('/api/sop/categories/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      await requireAdmin(storage, req.user.id);
+      await storage.deleteSopCategory(req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      if (error instanceof AppError) return res.status(error.statusCode).json({ message: error.userMessage });
+      res.status(500).json({ message: error.message });
+    }
+  });
 
   app.get('/api/sop/documents', isAuthenticated, async (req: any, res) => {
     try {
@@ -911,40 +926,55 @@ export function registerSopLibraryRoutes(
     }
   });
 
-  app.post('/api/sop/documents', isAuthenticated, asyncHandler(async (req: any, res) => {
-    await requireAdmin(storage, req.user.id);
-    const data = insertSopDocumentSchema.parse({
-      ...req.body,
-      createdBy: req.user.id,
-      updatedBy: req.user.id,
-    });
-    const doc = await storage.createSopDocument(data);
-    res.json(doc);
-  }));
+  app.post('/api/sop/documents', isAuthenticated, async (req: any, res) => {
+    try {
+      await requireAdmin(storage, req.user.id);
+      const data = insertSopDocumentSchema.parse({
+        ...req.body,
+        createdBy: req.user.id,
+        updatedBy: req.user.id,
+      });
+      const doc = await storage.createSopDocument(data);
+      res.json(doc);
+    } catch (error: any) {
+      if (error instanceof AppError) return res.status(error.statusCode).json({ message: error.userMessage });
+      res.status(400).json({ message: error.message });
+    }
+  });
 
-  app.put('/api/sop/documents/:id', isAuthenticated, asyncHandler(async (req: any, res) => {
-    await requireAdmin(storage, req.user.id);
-    const updateSchema = z.object({
-      title: z.string().optional(),
-      content: z.string().optional(),
-      summary: z.string().nullable().optional(),
-      categoryId: z.string().nullable().optional(),
-      tags: z.array(z.string()).optional(),
-      isPublished: z.boolean().optional(),
-    });
-    const validated = updateSchema.parse(req.body);
-    const doc = await storage.updateSopDocument(req.params.id, {
-      ...validated,
-      updatedBy: req.user.id,
-    } as any);
-    res.json(doc);
-  }));
+  app.put('/api/sop/documents/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      await requireAdmin(storage, req.user.id);
+      const updateSchema = z.object({
+        title: z.string().optional(),
+        content: z.string().optional(),
+        summary: z.string().nullable().optional(),
+        categoryId: z.string().nullable().optional(),
+        tags: z.array(z.string()).optional(),
+        isPublished: z.boolean().optional(),
+      });
+      const validated = updateSchema.parse(req.body);
+      const doc = await storage.updateSopDocument(req.params.id, {
+        ...validated,
+        updatedBy: req.user.id,
+      } as any);
+      res.json(doc);
+    } catch (error: any) {
+      if (error instanceof AppError) return res.status(error.statusCode).json({ message: error.userMessage });
+      res.status(400).json({ message: error.message });
+    }
+  });
 
-  app.delete('/api/sop/documents/:id', isAuthenticated, asyncHandler(async (req: any, res) => {
-    await requireAdmin(storage, req.user.id);
-    await storage.deleteSopDocument(req.params.id);
-    res.json({ success: true });
-  }));
+  app.delete('/api/sop/documents/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      await requireAdmin(storage, req.user.id);
+      await storage.deleteSopDocument(req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      if (error instanceof AppError) return res.status(error.statusCode).json({ message: error.userMessage });
+      res.status(500).json({ message: error.message });
+    }
+  });
 
   app.get('/api/sop/search', isAuthenticated, async (req: any, res) => {
     try {
@@ -969,51 +999,71 @@ export function registerSopLibraryRoutes(
     }
   });
 
-  app.post('/api/training/modules', isAuthenticated, asyncHandler(async (req: any, res) => {
-    await requireAdmin(storage, req.user.id);
-    const storeId = await tryResolveStoreIdForUser(req.user.id);
-    const data = insertTrainingModuleSchema.parse({
-      ...req.body,
-      createdBy: req.user.id,
-      ...(storeId ? { storeId } : {}),
-    });
-    const module = await storage.createTrainingModule(data);
-    res.json(module);
-  }));
-
-  app.put('/api/training/modules/:id', isAuthenticated, asyncHandler(async (req: any, res) => {
-    await requireAdmin(storage, req.user.id);
-    const updateSchema = z.object({
-      title: z.string().optional(),
-      description: z.string().nullable().optional(),
-      sopDocumentIds: z.array(z.string()).optional(),
-      quizQuestions: z.any().optional(),
-      sortOrder: z.number().optional(),
-      estimatedMinutes: z.number().optional(),
-      isRequired: z.boolean().optional(),
-      isActive: z.boolean().optional(),
-    });
-    const validated = updateSchema.parse(req.body);
-    const module = await storage.updateTrainingModule(req.params.id, validated);
-    res.json(module);
-  }));
-
-  app.delete('/api/training/modules/:id', isAuthenticated, asyncHandler(async (req: any, res) => {
-    await requireAdmin(storage, req.user.id);
-    await storage.deleteTrainingModule(req.params.id);
-    res.json({ success: true });
-  }));
-
-  app.get('/api/training/progress', isAuthenticated, asyncHandler(async (req: any, res) => {
-    const queryUserId = req.query.userId as string | undefined;
-    let userId = req.user.id;
-    if (queryUserId && queryUserId !== req.user.id) {
+  app.post('/api/training/modules', isAuthenticated, async (req: any, res) => {
+    try {
       await requireAdmin(storage, req.user.id);
-      userId = queryUserId;
+      const storeId = await tryResolveStoreIdForUser(req.user.id);
+      const data = insertTrainingModuleSchema.parse({
+        ...req.body,
+        createdBy: req.user.id,
+        ...(storeId ? { storeId } : {}),
+      });
+      const module = await storage.createTrainingModule(data);
+      res.json(module);
+    } catch (error: any) {
+      if (error instanceof AppError) return res.status(error.statusCode).json({ message: error.userMessage });
+      res.status(400).json({ message: error.message });
     }
-    const progress = await storage.getEmployeeTrainingProgress(userId);
-    res.json(progress);
-  }));
+  });
+
+  app.put('/api/training/modules/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      await requireAdmin(storage, req.user.id);
+      const updateSchema = z.object({
+        title: z.string().optional(),
+        description: z.string().nullable().optional(),
+        sopDocumentIds: z.array(z.string()).optional(),
+        quizQuestions: z.any().optional(),
+        sortOrder: z.number().optional(),
+        estimatedMinutes: z.number().optional(),
+        isRequired: z.boolean().optional(),
+        isActive: z.boolean().optional(),
+      });
+      const validated = updateSchema.parse(req.body);
+      const module = await storage.updateTrainingModule(req.params.id, validated);
+      res.json(module);
+    } catch (error: any) {
+      if (error instanceof AppError) return res.status(error.statusCode).json({ message: error.userMessage });
+      res.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete('/api/training/modules/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      await requireAdmin(storage, req.user.id);
+      await storage.deleteTrainingModule(req.params.id);
+      res.json({ success: true });
+    } catch (error: any) {
+      if (error instanceof AppError) return res.status(error.statusCode).json({ message: error.userMessage });
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get('/api/training/progress', isAuthenticated, async (req: any, res) => {
+    try {
+      const queryUserId = req.query.userId as string | undefined;
+      let userId = req.user.id;
+      if (queryUserId && queryUserId !== req.user.id) {
+        await requireAdmin(storage, req.user.id);
+        userId = queryUserId;
+      }
+      const progress = await storage.getEmployeeTrainingProgress(userId);
+      res.json(progress);
+    } catch (error: any) {
+      if (error instanceof AppError) return res.status(error.statusCode).json({ message: error.userMessage });
+      res.status(500).json({ message: error.message });
+    }
+  });
 
   app.post('/api/training/progress', isAuthenticated, async (req: any, res) => {
     try {
