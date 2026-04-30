@@ -7,7 +7,7 @@ import { db } from "../db";
 import { eq, ne, and } from "drizzle-orm";
 import { gtdInboxItems, meetingTaskRecommendations, users } from "@shared/schema";
 import { asyncHandler, AppError } from "../lib/routeWrapper";
-import { resolveStoreId } from "../lib/storeResolver";
+import { resolveStoreId } from "../services/storeResolver";
 import type { IStorage } from "../storage";
 import type { Meeting, MeetingTaskRecommendation } from "@shared/schema";
 import { transcribeAudioFile } from "../services/meetingTranscriptionService";

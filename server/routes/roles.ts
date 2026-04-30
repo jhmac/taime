@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
 import { insertRoleSchema } from "@shared/schema";
-import { cache } from "../lib/cache";
+import { cache } from "../services/cache";
 import { asyncHandler, AppError } from "../lib/routeWrapper";
 import { invalidatePermissionCache } from "../lib/permissionUtils";
 

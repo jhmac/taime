@@ -15,7 +15,7 @@ import {
   checkBudgetThreshold,
   calculateDailyLaborCost,
   checkDailyLaborCostThresholds,
-} from "../services/shiftOverlap";
+} from "../lib/shiftOverlap";
 import { computeScheduleStoreRecipients } from "../lib/broadcastRecipients";
 import logger from "../lib/logger";
 
@@ -352,7 +352,7 @@ async function resolveSettingsStoreId(
   userId: string,
   storeIdParam: unknown,
 ): Promise<string | null> {
-  const { tryResolveStoreIdForUser } = await import('../lib/storeResolver');
+  const { tryResolveStoreIdForUser } = await import('../services/storeResolver');
   const requested = typeof storeIdParam === 'string' && storeIdParam.length > 0
     ? storeIdParam
     : null;
@@ -742,7 +742,7 @@ export function registerAiSchedulingRoutes(
       // Fetch active coverage rules and custom instructions for prompt injection.
       // Both are stored in ai_scheduling_rules (store-scoped via storeId) — custom instructions
       // use ruleType='custom_instructions' as a singleton row to avoid unscoped settings reads.
-      const { tryResolveStoreIdForUser } = await import('../lib/storeResolver');
+      const { tryResolveStoreIdForUser } = await import('../services/storeResolver');
       const promptStoreId = await tryResolveStoreIdForUser(userId);
       const allPromptRules = promptStoreId
         ? await db.select().from(aiSchedulingRules).where(and(eq(aiSchedulingRules.storeId, promptStoreId), eq(aiSchedulingRules.isEnabled, true)))
@@ -1069,7 +1069,7 @@ Required JSON structure:
       });
 
       // Scope employee authorization to the requester's store — prevents cross-tenant IDOR
-      const { tryResolveStoreIdForUser } = await import('../lib/storeResolver');
+      const { tryResolveStoreIdForUser } = await import('../services/storeResolver');
       const { getAllStoreUserIds } = await import('../lib/permissionUtils');
       const applyStoreId = await tryResolveStoreIdForUser(userId);
       if (!applyStoreId) return res.status(403).json({ message: "No store associated with your account" });
@@ -1447,7 +1447,7 @@ Required JSON structure:
       if (!isAdmin) return res.status(403).json({ message: "Admin access required" });
 
       // Scope to the requester's store to prevent cross-tenant data exposure
-      const { tryResolveStoreIdForUser } = await import('../lib/storeResolver');
+      const { tryResolveStoreIdForUser } = await import('../services/storeResolver');
       const { getAllStoreUserIds } = await import('../lib/permissionUtils');
       const storeId = await tryResolveStoreIdForUser(userId);
       if (!storeId) return res.status(403).json({ message: "No store associated with your account" });
@@ -1488,7 +1488,7 @@ Required JSON structure:
       const { employeeId } = req.params;
 
       // Scope: verify the target employee belongs to the requester's store
-      const { tryResolveStoreIdForUser } = await import('../lib/storeResolver');
+      const { tryResolveStoreIdForUser } = await import('../services/storeResolver');
       const { getAllStoreUserIds } = await import('../lib/permissionUtils');
       const storeId = await tryResolveStoreIdForUser(userId);
       if (!storeId) return res.status(403).json({ message: "No store associated with your account" });
@@ -1529,7 +1529,7 @@ Required JSON structure:
       const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'schedule.create');
       if (!isAdmin) return res.status(403).json({ message: "Admin access required" });
 
-      const { tryResolveStoreIdForUser } = await import('../lib/storeResolver');
+      const { tryResolveStoreIdForUser } = await import('../services/storeResolver');
       const storeId = await tryResolveStoreIdForUser(userId);
       if (!storeId) return res.status(403).json({ message: "No store associated with your account" });
 
@@ -1559,7 +1559,7 @@ Required JSON structure:
       const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'schedule.create');
       if (!isAdmin) return res.status(403).json({ message: "Admin access required" });
 
-      const { tryResolveStoreIdForUser } = await import('../lib/storeResolver');
+      const { tryResolveStoreIdForUser } = await import('../services/storeResolver');
       const storeId = await tryResolveStoreIdForUser(userId);
       if (!storeId) return res.status(403).json({ message: "No store associated with your account" });
 
@@ -1763,7 +1763,7 @@ Required JSON structure:
       );
       if (!isAdmin) return res.status(403).json({ message: "Manager access required" });
 
-      const { tryResolveStoreIdForUser } = await import('../lib/storeResolver');
+      const { tryResolveStoreIdForUser } = await import('../services/storeResolver');
       const { getAllStoreUserIds } = await import('../lib/permissionUtils');
 
       const storeId = await tryResolveStoreIdForUser(userId);
@@ -2232,7 +2232,7 @@ Required JSON structure:
       if (!isAdmin) return res.status(403).json({ message: "Manager access required" });
 
       const dateParam = (req.query.date as string) || new Date().toISOString().split('T')[0];
-      const { tryResolveStoreIdForUser } = await import('../lib/storeResolver');
+      const { tryResolveStoreIdForUser } = await import('../services/storeResolver');
       const { getAllStoreUserIds } = await import('../lib/permissionUtils');
       const storeId = await tryResolveStoreIdForUser(userId);
       if (!storeId) return res.json(null);
@@ -2305,7 +2305,7 @@ Required JSON structure:
       if (!isAdmin) return res.status(403).json({ message: "Manager access required" });
 
       const dateParam = (req.query.date as string) || new Date().toISOString().split('T')[0];
-      const { tryResolveStoreIdForUser } = await import('../lib/storeResolver');
+      const { tryResolveStoreIdForUser } = await import('../services/storeResolver');
       const storeId = await tryResolveStoreIdForUser(userId);
       if (!storeId) return res.json({ success: false });
       await db.delete(aiSuggestedSchedules)
@@ -2336,7 +2336,7 @@ Required JSON structure:
         return res.status(400).json({ message: "date, startTime, and endTime are required" });
       }
 
-      const { tryResolveStoreIdForUser } = await import('../lib/storeResolver');
+      const { tryResolveStoreIdForUser } = await import('../services/storeResolver');
       const storeId = await tryResolveStoreIdForUser(userId);
       if (!storeId) return res.status(403).json({ message: "No store associated with your account" });
 
@@ -2387,7 +2387,7 @@ Required JSON structure:
         return res.status(400).json({ message: "date and shiftIndex are required" });
       }
 
-      const { tryResolveStoreIdForUser } = await import('../lib/storeResolver');
+      const { tryResolveStoreIdForUser } = await import('../services/storeResolver');
       const storeId = await tryResolveStoreIdForUser(userId);
       if (!storeId) return res.status(403).json({ message: "No store associated with your account" });
 
@@ -2578,7 +2578,7 @@ Required JSON structure:
       const dateParam = date || new Date().toISOString().split('T')[0];
 
       // ── Resolve store and get availability data directly from DB ─────────────
-      const { tryResolveStoreIdForUser } = await import('../lib/storeResolver');
+      const { tryResolveStoreIdForUser } = await import('../services/storeResolver');
       const { getAllStoreUserIds } = await import('../lib/permissionUtils');
 
       const storeId = await tryResolveStoreIdForUser(userId);
@@ -3338,7 +3338,7 @@ Respond ONLY with a valid JSON object (no markdown, no explanation) in this exac
       }
 
       // ── Resolve store and scope all queries to the caller's store ─────────────
-      const { tryResolveStoreIdForUser } = await import('../lib/storeResolver');
+      const { tryResolveStoreIdForUser } = await import('../services/storeResolver');
       const { getAllStoreUserIds } = await import('../lib/permissionUtils');
       const storeId = await tryResolveStoreIdForUser(userId);
       if (!storeId) {

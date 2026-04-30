@@ -15,7 +15,7 @@ import {
 } from "@shared/schema";
 import { eq, and, lte, desc, sql, count } from "drizzle-orm";
 import { z } from "zod";
-import { tryResolveStoreIdForUser } from "../lib/storeResolver";
+import { tryResolveStoreIdForUser } from "../services/storeResolver";
 
 const TRAINING_SCORE_SETTINGS = [
   { eventType: "training-module-complete", pointValue: 50 },

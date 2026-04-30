@@ -10,7 +10,7 @@ import {
 } from "@shared/schema";
 import { eq, desc, sql, and } from "drizzle-orm";
 import { asyncHandler, AppError } from "../lib/routeWrapper";
-import { resolveStoreIdForUser, tryResolveStoreIdForUser } from "../lib/storeResolver";
+import { resolveStoreIdForUser, tryResolveStoreIdForUser } from "../services/storeResolver";
 import type { IStorage } from "../storage";
 import { runGenerationJob } from "../services/aiLearningGeneration";
 import Anthropic from "@anthropic-ai/sdk";

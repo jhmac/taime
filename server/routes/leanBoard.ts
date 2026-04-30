@@ -5,7 +5,7 @@ import { leanBoardSnapshots } from "@shared/schema";
 import { getLeanBoardData, generateDailySnapshot, generateWeeklyLeanSummary } from "../services/leanBoard";
 import type { IStorage } from "../storage";
 import logger from "../lib/logger";
-import { resolveStoreId } from "../lib/storeResolver";
+import { resolveStoreId } from "../services/storeResolver";
 
 export function registerLeanBoardRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
   app.get("/api/lean-board", isAuthenticated, async (req: any, res) => {

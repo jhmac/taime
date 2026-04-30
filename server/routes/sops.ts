@@ -16,7 +16,7 @@ import {
   insertTrainingModuleSchema,
 } from "@shared/schema";
 import { asyncHandler, AppError } from "../lib/routeWrapper";
-import { tryResolveStoreIdForUser } from "../lib/storeResolver";
+import { tryResolveStoreIdForUser } from "../services/storeResolver";
 import type { IStorage } from "../storage";
 import { generateSOPFromDescription } from "../services/sopAI";
 import { getSurfacedSOPsForEmployee } from "../services/sopSurfacing";

@@ -8,7 +8,7 @@ import {
   insertDrawerSessionSchema, insertCashDepositSchema,
 } from "@shared/schema";
 import type { IStorage } from "../storage";
-import { resolveStoreId } from "../lib/storeResolver";
+import { resolveStoreId } from "../services/storeResolver";
 import {
   calculateDenominations, captureEmployeesOnDuty, analyzeDepositSlip,
   getDailyCashReport, suggestRecountFocus, logDiscrepancy,

@@ -26,7 +26,7 @@ import {
 } from "@shared/schema";
 import { db } from "../db";
 import { eq, and, desc, isNull, or, inArray, sql } from "drizzle-orm";
-import { cache } from "../lib/cache";
+import { cache } from "../services/cache";
 import { timeEntries } from "@shared/schema";
 
 export interface IIdentityStorage {

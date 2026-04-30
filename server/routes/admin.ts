@@ -1,9 +1,9 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
 import { z } from "zod";
-import { cache } from "../lib/cache";
+import { cache } from "../services/cache";
 import { asyncHandler, AppError } from "../lib/routeWrapper";
-import { tryResolveStoreIdForUser } from "../lib/storeResolver";
+import { tryResolveStoreIdForUser } from "../services/storeResolver";
 import { getUserIdsWithPermission } from "../lib/permissionUtils";
 
 const companySettingsUpdateSchema = z.object({

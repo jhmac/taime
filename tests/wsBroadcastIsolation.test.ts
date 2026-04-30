@@ -26,7 +26,7 @@ import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 // These are the only module-level DB dependencies used by communication.ts.
 // Everything else (route logic, sendToUsers) is exercised for real.
 
-vi.mock("../server/lib/storeResolver", () => ({
+vi.mock("../server/services/storeResolver", () => ({
   tryResolveStoreIdForUser: vi.fn(),
 }));
 
@@ -41,7 +41,7 @@ import express, { type Express } from "express";
 import { WebSocketServer, WebSocket } from "ws";
 import type { AddressInfo } from "net";
 import { registerCommunicationRoutes } from "../server/routes/communication";
-import { tryResolveStoreIdForUser } from "../server/lib/storeResolver";
+import { tryResolveStoreIdForUser } from "../server/services/storeResolver";
 import { getAllStoreUserIds } from "../server/lib/permissionUtils";
 
 // ─── Type-cast mocks for easy configuration in each test ─────────────────────

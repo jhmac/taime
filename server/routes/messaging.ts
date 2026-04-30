@@ -4,7 +4,7 @@ import { z } from "zod";
 import { db } from "../db";
 import { messageThreads, threadParticipants, threadMessages, users } from "@shared/schema";
 import type { IStorage } from "../storage";
-import { resolveStoreId } from "../lib/storeResolver";
+import { resolveStoreId } from "../services/storeResolver";
 
 const createThreadSchema = z.object({
   thread_type: z.enum(["direct", "group", "channel"]),

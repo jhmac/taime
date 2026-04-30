@@ -4,7 +4,7 @@ import http2 from 'node:http2';
 import https from 'node:https';
 import { storage } from '../storage';
 import { config } from '../lib/config';
-import { getApnsCredentials, getFcmCredential, isApnsReady } from '../lib/pushCredentialStore';
+import { getApnsCredentials, getFcmCredential, isApnsReady } from './pushCredentialStore';
 
 if (config.vapid.publicKey && config.vapid.privateKey) {
   webpush.setVapidDetails(

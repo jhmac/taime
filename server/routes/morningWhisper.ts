@@ -4,7 +4,7 @@ import { db } from "../db";
 import { eq, and, desc } from "drizzle-orm";
 import { morningWhispers } from "@shared/schema";
 import { getOrGenerateWhisper } from "../services/morningWhisper";
-import { resolveStoreId } from "../lib/storeResolver";
+import { resolveStoreId } from "../services/storeResolver";
 
 export function registerMorningWhisperRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
   app.get("/api/whisper/today", isAuthenticated, async (req: any, res) => {

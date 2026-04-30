@@ -7,7 +7,7 @@ import {
   issues, users, leanBoardSnapshots,
 } from "@shared/schema";
 import logger from "../lib/logger";
-import { resolveStoreId } from "../lib/storeResolver";
+import { resolveStoreId } from "./storeResolver";
 
 const anthropic = new Anthropic({ apiKey: config.anthropic.apiKey });
 const MODEL = "claude-sonnet-4-20250514";

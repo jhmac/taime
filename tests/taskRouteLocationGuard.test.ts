@@ -41,7 +41,7 @@ const aiMock = vi.hoisted(() => ({
 
 // ─── Module mocks ─────────────────────────────────────────────────────────────
 
-vi.mock("../server/lib/storeResolver", () => storeResolverMock);
+vi.mock("../server/services/storeResolver", () => storeResolverMock);
 vi.mock("../server/services/notificationService", () => notificationMock);
 vi.mock("../server/routes/ai", () => aiMock);
 

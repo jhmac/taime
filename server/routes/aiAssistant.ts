@@ -10,7 +10,7 @@ import { indexAiGeneratedItem } from "../services/sopIndexer";
 import { db } from "../db";
 import { aiFeedback, aiChatConversations, aiChatMessages, unansweredQuestions, aiGeneratedItems, users } from "@shared/schema";
 import { eq, and, desc, gte, count } from "drizzle-orm";
-import { tryResolveStoreIdForUser } from "../lib/storeResolver";
+import { tryResolveStoreIdForUser } from "../services/storeResolver";
 import logger from "../lib/logger";
 
 const DEFAULT_MODEL_STR = "claude-sonnet-4-20250514";

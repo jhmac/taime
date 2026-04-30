@@ -6,7 +6,7 @@ import {
   drawerSessions, cashDeposits, cashDiscrepancyLog, cashManagementSettings,
   timeEntries, users,
 } from "@shared/schema";
-import { resolveStoreId } from "../lib/storeResolver";
+import { resolveStoreId } from "./storeResolver";
 import logger from "../lib/logger";
 
 const anthropic = new Anthropic({ apiKey: config.anthropic.apiKey });

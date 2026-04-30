@@ -10,7 +10,7 @@ import {
   sopCategories,
 } from "@shared/schema";
 import { asyncHandler, AppError } from "../lib/routeWrapper";
-import { resolveStoreIdForUser } from "../lib/storeResolver";
+import { resolveStoreIdForUser } from "../services/storeResolver";
 import type { IStorage } from "../storage";
 import Anthropic from "@anthropic-ai/sdk";
 import { config } from "../lib/config";

@@ -3,7 +3,7 @@ import type { IStorage } from "../storage";
 import { notificationService } from "../services/notificationService";
 import { sendAvailabilityUpdateEmail, sendAvailabilityOverrideEmail, resolveAppUrl } from "../services/emailService";
 import { getUserIdsWithPermission, getAllStoreUserIds } from "../lib/permissionUtils";
-import { tryResolveStoreIdForUser } from "../lib/storeResolver";
+import { tryResolveStoreIdForUser } from "../services/storeResolver";
 
 export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
   app.post('/api/availability', isAuthenticated, async (req: any, res) => {
@@ -373,7 +373,7 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
       const startStr = start as string;
       const endStr = end as string;
 
-      const { tryResolveStoreIdForUser } = await import('../lib/storeResolver');
+      const { tryResolveStoreIdForUser } = await import('../services/storeResolver');
       const { getAllStoreUserIds } = await import('../lib/permissionUtils');
 
       const storeId = await tryResolveStoreIdForUser(requestingUserId);
@@ -502,7 +502,7 @@ export function registerAvailabilityRoutes(app: Express, storage: IStorage, isAu
       }
       if (!hasPermission) return res.status(403).json({ message: "Managers only" });
 
-      const { tryResolveStoreIdForUser } = await import('../lib/storeResolver');
+      const { tryResolveStoreIdForUser } = await import('../services/storeResolver');
       const { getAllStoreUserIds } = await import('../lib/permissionUtils');
 
       const storeId = await tryResolveStoreIdForUser(requestingUserId);

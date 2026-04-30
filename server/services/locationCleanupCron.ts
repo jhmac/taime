@@ -1,4 +1,4 @@
-import { cleanupStaleLocationPermissions } from "../lib/locationPermissionStore";
+import { cleanupStaleLocationPermissions } from "./locationPermissionStore";
 
 let cronInterval: NodeJS.Timeout | null = null;
 

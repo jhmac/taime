@@ -27,7 +27,7 @@ const dbMock = vi.hoisted(() => ({
 }));
 
 vi.mock("../server/db", () => ({ db: dbMock }));
-vi.mock("../server/lib/storeResolver", () => ({
+vi.mock("../server/services/storeResolver", () => ({
   tryResolveStoreIdForUser: vi.fn().mockResolvedValue("store-xyz"),
 }));
 vi.mock("../server/lib/logger", () => ({

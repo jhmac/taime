@@ -3,9 +3,9 @@ import type { IStorage } from "../storage";
 import { db } from "../db";
 import { schedules, timeEntries, shopifyDailySales, userShops, users, locationPermissions } from "@shared/schema";
 import { eq, and, gte, lte, lt, desc, isNull, ne, inArray } from "drizzle-orm";
-import { cache } from "../lib/cache";
+import { cache } from "../services/cache";
 import { gamificationService } from "../services/gamificationService";
-import { setLocationPermission } from "../lib/locationPermissionStore";
+import { setLocationPermission } from "../services/locationPermissionStore";
 
 // Maximum time the init endpoint will wait for DB queries before responding
 // with a 503 so the client can show a retry prompt rather than hanging.

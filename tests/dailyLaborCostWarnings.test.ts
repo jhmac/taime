@@ -3,7 +3,7 @@ import {
   calculateDailyLaborCost,
   checkDailyLaborCostThresholds,
   type ScheduleShift,
-} from "../server/services/shiftOverlap";
+} from "../server/lib/shiftOverlap";
 
 const shift = (
   date: string,

@@ -5,7 +5,7 @@ import { eq, desc, or, isNull, and, sql as sqlExpr, gte, lte } from "drizzle-orm
 import { db } from "../db";
 import { sendTeamInviteEmail } from "../services/emailService";
 import { randomBytes } from "crypto";
-import { tryResolveStoreIdForUser } from "../lib/storeResolver";
+import { tryResolveStoreIdForUser } from "../services/storeResolver";
 import { clerkClient } from "@clerk/express";
 import { invalidatePermissionCache } from "../lib/permissionUtils";
 

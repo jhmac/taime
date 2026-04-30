@@ -1,0 +1,3 @@
+# server/lib/
+
+This directory contains **pure, side-effect-free utilities and thin wrappers with no internal state**. Files here should be safe to import anywhere without triggering I/O, cron scheduling, or mutable module-level state. Appropriate residents include: schema helpers, route wrappers (e.g. `asyncHandler`, `AppError`), config readers that parse environment variables once at startup, pure computation functions, and logger factory setup. If a file you are adding maintains a cache, opens a database connection, schedules a timer, or talks to an external service, it belongs in `server/services/` instead.

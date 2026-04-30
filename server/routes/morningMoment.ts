@@ -5,7 +5,7 @@ import { clockEvents, performanceScoreSettings, knowledgeDocuments } from "@shar
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import Anthropic from "@anthropic-ai/sdk";
-import { resolveStoreId } from "../lib/storeResolver";
+import { resolveStoreId } from "../services/storeResolver";
 
 const anthropic = new Anthropic();
 

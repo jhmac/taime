@@ -5,7 +5,7 @@ import { weeklyReviews } from "@shared/schema";
 import { generateWeeklyReview } from "../services/weeklyReviewAI";
 import logger from "../lib/logger";
 import type { IStorage } from "../storage";
-import { resolveStoreId } from "../lib/storeResolver";
+import { resolveStoreId } from "../services/storeResolver";
 
 function getWeekStart(date: Date = new Date()): string {
   const d = new Date(date);

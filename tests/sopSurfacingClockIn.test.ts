@@ -22,7 +22,7 @@ import {
   getShiftHandoffSOPs,
   getOpeningSOPsForClockIn,
 } from "../server/services/sopSurfacing";
-import { cache } from "../server/lib/cache";
+import { cache } from "../server/services/cache";
 
 // Minimal shape of the chain we exercise in sopSurfacing.ts. The result
 // of `.where(...)` is awaitable AND optionally exposes `.groupBy(...)`,

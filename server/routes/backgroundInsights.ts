@@ -6,9 +6,9 @@ import { backgroundInsights } from "@shared/schema";
 import { asyncHandler, AppError } from "../lib/routeWrapper";
 import type { IStorage } from "../storage";
 import { runAllInsightGenerators } from "../services/backgroundInsights";
-import { cache } from "../lib/cache";
+import { cache } from "../services/cache";
 import logger from "../lib/logger";
-import { resolveStoreId } from "../lib/storeResolver";
+import { resolveStoreId } from "../services/storeResolver";
 
 async function requireManagerOrAbove(storage: IStorage, userId: string): Promise<boolean> {
   const perms = await storage.getUserPermissions(userId);

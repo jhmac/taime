@@ -4,7 +4,7 @@ import { eq, and, gte, lte, desc } from 'drizzle-orm';
 import { shopifyDailySales, middayPulses, shops } from '@shared/schema';
 import { config } from '../lib/config';
 import logger from '../lib/logger';
-import { cache } from '../lib/cache';
+import { cache } from './cache';
 
 const anthropic = new Anthropic({ apiKey: config.anthropic.apiKey });
 const MODEL = 'claude-sonnet-4-20250514';

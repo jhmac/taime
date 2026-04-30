@@ -30,7 +30,7 @@ const dbMock = vi.hoisted(() => ({
 }));
 
 vi.mock("../server/db", () => ({ db: dbMock }));
-vi.mock("../server/lib/storeResolver", () => ({
+vi.mock("../server/services/storeResolver", () => ({
   // Default-store resolution should be irrelevant in these tests because we
   // always pass an explicit storeId. If anything calls it, fail loud.
   tryResolveStoreIdForUser: vi.fn().mockResolvedValue("default-store"),

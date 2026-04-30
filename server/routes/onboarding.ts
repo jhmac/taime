@@ -4,7 +4,7 @@ import { workLocations, companySettings, users, roles } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { IStorage } from "../storage";
-import { seedDefaultRoles } from "../lib/migrations";
+import { seedDefaultRoles } from "../services/migrations";
 import { invalidatePermissionCache } from "../lib/permissionUtils";
 
 const storeSetupSchema = z.object({
@@ -130,7 +130,7 @@ export function registerOnboardingRoutes(app: Express, storage: IStorage, isAuth
 
       // Bust the storeResolver cache so all services pick up the new location immediately
       try {
-        const { resolveStoreId } = await import("../lib/storeResolver");
+        const { resolveStoreId } = await import("../services/storeResolver");
         // We call it to warm the cache immediately (it will pick up new record)
         await resolveStoreId();
       } catch {

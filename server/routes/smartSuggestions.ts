@@ -2,8 +2,8 @@ import type { Express } from "express";
 import { asyncHandler } from "../lib/routeWrapper";
 import type { IStorage } from "../storage";
 import { generateTaskSuggestions } from "../services/smartTaskSuggestions";
-import { cache } from "../lib/cache";
-import { resolveStoreId } from "../lib/storeResolver";
+import { cache } from "../services/cache";
+import { resolveStoreId } from "../services/storeResolver";
 
 export function registerSmartSuggestionRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
   app.get("/api/ai/suggestions", isAuthenticated, asyncHandler(async (req: any, res) => {

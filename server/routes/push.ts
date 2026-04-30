@@ -8,7 +8,7 @@ import {
   isFcmReady,
   saveApnsCredentials,
   saveFcmCredentials,
-} from "../lib/pushCredentialStore";
+} from "../services/pushCredentialStore";
 import { z } from "zod";
 
 function platformReady(platform: string): boolean {

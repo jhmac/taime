@@ -1,7 +1,7 @@
 import { db } from "../db";
 import { sopTemplates, sopExecutions, timeEntries, workLocations, aiSchedulingSettings, users } from "@shared/schema";
 import { eq, and, gte, isNull, count, inArray } from "drizzle-orm";
-import { cache } from "../lib/cache";
+import { cache } from "./cache";
 import logger from "../lib/logger";
 
 export interface SurfacedSOP {

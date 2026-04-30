@@ -4,7 +4,7 @@ import path from "path";
 import fs from "fs";
 import { z } from "zod";
 import { asyncHandler, AppError } from "../lib/routeWrapper";
-import { resolveStoreIdForUser } from "../lib/storeResolver";
+import { resolveStoreIdForUser } from "../services/storeResolver";
 import type { IStorage } from "../storage";
 import { processKnowledgeDocument } from "../services/knowledgeExtractor";
 import logger from "../lib/logger";

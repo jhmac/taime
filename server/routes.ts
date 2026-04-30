@@ -68,7 +68,7 @@ import { startMiddayPulseCron, stopMiddayPulseCron } from "./services/middayPuls
 import { broadcastMiddayPulse as _broadcastMiddayPulse, type TrackedConnection } from "./services/middayPulseBroadcast";
 import { seedShiftHandoffSOP } from "./services/shiftHandoffSeed";
 import logger from "./lib/logger";
-import { initPushCredentialStore } from "./lib/pushCredentialStore";
+import { initPushCredentialStore } from "./services/pushCredentialStore";
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
 

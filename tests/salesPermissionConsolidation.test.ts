@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 
-const MIGRATIONS_PATH = resolve(__dirname, '..', 'server', 'lib', 'migrations.ts');
+const MIGRATIONS_PATH = resolve(__dirname, '..', 'server', 'services', 'migrations.ts');
 const STORAGE_PATH = resolve(__dirname, '..', 'server', 'storage', 'identity.ts');
 
 const CONSOLIDATION_HINT = [
@@ -71,7 +71,7 @@ describe('sales permission consolidation (task #445)', () => {
       const cleaned = migrationsSrcWithoutMigrationBlock(migrationsSrc);
       expect(
         cleaned.includes("'sales.view'"),
-        `server/lib/migrations.ts still references the legacy 'sales.view' permission outside the consolidation helper.${CONSOLIDATION_HINT}`,
+        `server/services/migrations.ts still references the legacy 'sales.view' permission outside the consolidation helper.${CONSOLIDATION_HINT}`,
       ).toBe(false);
     });
 
@@ -81,7 +81,7 @@ describe('sales permission consolidation (task #445)', () => {
       const seedLineMatch = /name:\s*'sales\.view_all'[\s\S]*?description:\s*'([^']+)'/m.exec(migrationsSrc);
       expect(
         seedLineMatch,
-        `server/lib/migrations.ts is missing the seed entry for 'sales.view_all'.${CONSOLIDATION_HINT}`,
+        `server/services/migrations.ts is missing the seed entry for 'sales.view_all'.${CONSOLIDATION_HINT}`,
       ).not.toBeNull();
       const description = seedLineMatch![1];
       expect(
@@ -106,7 +106,7 @@ describe('sales permission consolidation (task #445)', () => {
         const match = blockRegex.exec(migrationsSrc);
         expect(
           match,
-          `Could not locate the '${role}' grant array in server/lib/migrations.ts.${CONSOLIDATION_HINT}`,
+          `Could not locate the '${role}' grant array in server/services/migrations.ts.${CONSOLIDATION_HINT}`,
         ).not.toBeNull();
         const grants = match![1];
         expect(

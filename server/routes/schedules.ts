@@ -5,7 +5,7 @@ import { eq, and, inArray, gte, lte, desc } from "drizzle-orm";
 import { db } from "../db";
 import { notificationService } from "../services/notificationService";
 import { claudeService } from "../services/claudeService";
-import { tryResolveStoreIdForUser } from "../lib/storeResolver";
+import { tryResolveStoreIdForUser } from "../services/storeResolver";
 import { computeScheduleDmRecipients, computeScheduleStoreRecipients } from "../lib/broadcastRecipients";
 import { getAllStoreUserIds } from "../lib/permissionUtils";
 

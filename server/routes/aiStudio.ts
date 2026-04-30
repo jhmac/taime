@@ -16,7 +16,7 @@ import {
 } from "@shared/schema";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { asyncHandler, AppError } from "../lib/routeWrapper";
-import { resolveStoreId } from "../lib/storeResolver";
+import { resolveStoreId } from "../services/storeResolver";
 import type { IStorage } from "../storage";
 import type { InsertSopDocument, InsertTask } from "@shared/schema";
 import { processKnowledgeDocument } from "../services/knowledgeExtractor";

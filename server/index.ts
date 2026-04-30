@@ -13,8 +13,8 @@ import { startRitualScheduler } from "./services/ritualScheduler";
 import { startDailyQuestionnaireScheduler } from "./services/dailyQuestionnaireScheduler";
 import { startShopifyReportScheduler } from "./routes/shopify";
 import { storage } from "./storage";
-import { backfillLegacyUserRoles, backfillInactiveAuthenticatedUsers, backfillStoreCreatorOwnerRole } from "./lib/backfill";
-import { runSchemaMigrations, scheduleStaleTokenCleanup, scheduleDeliveryLogCleanup } from "./lib/migrations";
+import { backfillLegacyUserRoles, backfillInactiveAuthenticatedUsers, backfillStoreCreatorOwnerRole } from "./services/backfill";
+import { runSchemaMigrations, scheduleStaleTokenCleanup, scheduleDeliveryLogCleanup } from "./services/migrations";
 import { runStartupAiContentBackfill } from "./services/sopIndexer";
 import { validateMigrationJournal } from "./lib/validateMigrations";
 

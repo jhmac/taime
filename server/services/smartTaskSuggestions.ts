@@ -7,7 +7,7 @@ import {
   sopTemplates, gtdNextActions, workLocations,
 } from "@shared/schema";
 import { getSurfacedSOPsForEmployee } from "./sopSurfacing";
-import { cache } from "../lib/cache";
+import { cache } from "./cache";
 import logger from "../lib/logger";
 
 const anthropic = new Anthropic({ apiKey: config.anthropic.apiKey });

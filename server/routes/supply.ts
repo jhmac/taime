@@ -12,7 +12,7 @@ import {
   roles,
 } from "@shared/schema";
 import type { IStorage } from "../storage";
-import { resolveStoreId } from "../lib/storeResolver";
+import { resolveStoreId } from "../services/storeResolver";
 import logger from "../lib/logger";
 import { z } from "zod";
 

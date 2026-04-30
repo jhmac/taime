@@ -45,7 +45,7 @@ vi.mock("../server/lib/permissionUtils", () => ({
   invalidatePermissionCache: vi.fn(),
 }));
 
-vi.mock("../server/lib/storeResolver", () => ({
+vi.mock("../server/services/storeResolver", () => ({
   tryResolveStoreIdForUser: vi.fn().mockResolvedValue("store-1"),
 }));
 

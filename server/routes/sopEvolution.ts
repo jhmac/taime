@@ -6,7 +6,7 @@ import { generateRevisionProposals } from "../services/sopEvolution";
 import type { IStorage } from "../storage";
 import logger from "../lib/logger";
 import { z } from "zod";
-import { resolveStoreId } from "../lib/storeResolver";
+import { resolveStoreId } from "../services/storeResolver";
 
 async function requireManagerOrAbove(storage: IStorage, userId: string): Promise<boolean> {
   const user = await storage.getUserWithRole(userId);

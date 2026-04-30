@@ -1,7 +1,7 @@
 import { db } from "../db";
 import { workLocations, users } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
-import { AppError } from "./routeWrapper";
+import { AppError } from "../lib/routeWrapper";
 
 export async function resolveStoreIdForUser(userId: string): Promise<string> {
   const [user] = await db

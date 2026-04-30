@@ -3,7 +3,7 @@ import type { IStorage } from "../storage";
 import { users } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { db } from "../db";
-import { cache } from "../lib/cache";
+import { cache } from "../services/cache";
 
 export function registerAnalyticsRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
   app.get('/api/analytics/dashboard', isAuthenticated, async (req: any, res) => {

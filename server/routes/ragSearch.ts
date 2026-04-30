@@ -4,7 +4,7 @@ import { preloadModel } from "../services/embeddingService";
 import { asyncHandler, AppError } from "../lib/routeWrapper";
 import logger from "../lib/logger";
 import type { IStorage } from "../storage";
-import { resolveStoreId } from "../lib/storeResolver";
+import { resolveStoreId } from "../services/storeResolver";
 
 export function registerRAGRoutes(
   app: Express,

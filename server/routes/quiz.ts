@@ -10,7 +10,7 @@ import {
   type Permission,
 } from "@shared/schema";
 import { asyncHandler, AppError } from "../lib/routeWrapper";
-import { resolveStoreIdForUser } from "../lib/storeResolver";
+import { resolveStoreIdForUser } from "../services/storeResolver";
 import type { IStorage } from "../storage";
 
 const QUESTIONS_PER_SESSION = 5;

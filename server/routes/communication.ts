@@ -3,7 +3,7 @@ import type { IStorage } from "../storage";
 import { insertShoutoutSchema } from "@shared/schema";
 import { asyncHandler, AppError } from "../lib/routeWrapper";
 import logger from "../lib/logger";
-import { tryResolveStoreIdForUser } from "../lib/storeResolver";
+import { tryResolveStoreIdForUser } from "../services/storeResolver";
 import { getAllStoreUserIds } from "../lib/permissionUtils";
 import { computeShoutoutRecipients } from "../lib/broadcastRecipients";
 

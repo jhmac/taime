@@ -1,4 +1,4 @@
-import logger from "./logger";
+import logger from "../lib/logger";
 
 interface CacheEntry<T> {
   value: T;
