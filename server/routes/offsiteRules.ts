@@ -6,6 +6,7 @@ import { processOffsiteBreadcrumb } from "../services/routeTrackingService";
 import { postMileageReimbursement } from "../services/mileageReimbursementService";
 import { db } from "../db";
 import { inArray, eq } from "drizzle-orm";
+import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
 
 export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
   app.get('/api/offsite-rules', isAuthenticated, async (req: any, res) => {
@@ -25,8 +26,7 @@ export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAu
   app.post('/api/offsite-rules', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const isOwner = userPermissions.some((p: any) => p.name === 'admin.manage_all');
+      const isOwner = await resolvePermission(userId, 'admin.manage_all', storage);
       if (!isOwner) {
         return res.status(403).json({ message: "Owner access required" });
       }
@@ -73,8 +73,7 @@ export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAu
   app.patch('/api/offsite-rules/:id', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const isOwner = userPermissions.some((p: any) => p.name === 'admin.manage_all');
+      const isOwner = await resolvePermission(userId, 'admin.manage_all', storage);
       if (!isOwner) {
         return res.status(403).json({ message: "Owner access required" });
       }
@@ -148,8 +147,7 @@ export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAu
   app.delete('/api/offsite-rules/:id', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const isOwner = userPermissions.some((p: any) => p.name === 'admin.manage_all');
+      const isOwner = await resolvePermission(userId, 'admin.manage_all', storage);
       if (!isOwner) {
         return res.status(403).json({ message: "Owner access required" });
       }
@@ -171,10 +169,7 @@ export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAu
   app.get('/api/offsite-sessions', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const isAdmin = userPermissions.some((p: any) =>
-        p.name === 'admin.manage_all' || p.name === 'admin.manage_locations'
-      );
+      const isAdmin = await resolveAnyPermission(userId, ['admin.manage_all', 'admin.manage_locations'], storage);
       if (!isAdmin) {
         return res.status(403).json({ message: "Admin access required" });
       }
@@ -251,10 +246,7 @@ export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAu
       const userId = req.user.id;
       const { id } = req.params;
 
-      const userPermissions = await storage.getUserPermissions(userId);
-      const isAdmin = userPermissions.some((p: any) =>
-        p.name === 'admin.manage_all' || p.name === 'admin.manage_locations' || p.name === 'time.view_all'
-      );
+      const isAdmin = await resolveAnyPermission(userId, ['admin.manage_all', 'admin.manage_locations', 'time.view_all'], storage);
 
       const session = await storage.getOffsiteSession(id);
       if (!session) {
@@ -279,10 +271,7 @@ export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAu
       const { id } = req.params;
 
       if (requestingUserId !== id) {
-        const userPermissions = await storage.getUserPermissions(requestingUserId);
-        const isAdmin = userPermissions.some((p: any) =>
-          p.name === 'admin.manage_all' || p.name === 'admin.manage_locations' || p.name === 'time.view_all'
-        );
+        const isAdmin = await resolveAnyPermission(requestingUserId, ['admin.manage_all', 'admin.manage_locations', 'time.view_all'], storage);
         if (!isAdmin) {
           return res.status(403).json({ message: "You can only view your own off-site sessions" });
         }
@@ -307,10 +296,7 @@ export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAu
       }
 
       if (requestingUserId !== session.userId) {
-        const userPermissions = await storage.getUserPermissions(requestingUserId);
-        const isAdmin = userPermissions.some((p: any) =>
-          p.name === 'admin.manage_all' || p.name === 'admin.manage_locations' || p.name === 'time.view_all'
-        );
+        const isAdmin = await resolveAnyPermission(requestingUserId, ['admin.manage_all', 'admin.manage_locations', 'time.view_all'], storage);
         if (!isAdmin) {
           return res.status(403).json({ message: "Access denied" });
         }
@@ -374,10 +360,7 @@ export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAu
   app.patch('/api/offsite-sessions/:id/review', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const isAdmin = userPermissions.some((p: any) =>
-        p.name === 'admin.manage_all' || p.name === 'admin.manage_locations'
-      );
+      const isAdmin = await resolveAnyPermission(userId, ['admin.manage_all', 'admin.manage_locations'], storage);
       if (!isAdmin) {
         return res.status(403).json({ message: "Admin access required" });
       }
@@ -414,10 +397,7 @@ export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAu
   app.get('/api/trip-history', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const isAdmin = userPermissions.some((p: any) =>
-        p.name === 'admin.manage_all' || p.name === 'admin.manage_locations'
-      );
+      const isAdmin = await resolveAnyPermission(userId, ['admin.manage_all', 'admin.manage_locations'], storage);
       if (!isAdmin) {
         return res.status(403).json({ message: "Admin access required" });
       }
@@ -473,9 +453,8 @@ export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAu
 
   // Google Maps proxy endpoints — API key stays on the server; restricted to admin/owner
   async function requireOwner(storage: IStorage, userId: string): Promise<boolean> {
-    const perms = await storage.getUserPermissions(userId);
-    return perms.some((p: any) => p.name === 'admin.manage_all');
-  }
+  return resolvePermission(userId, 'admin.manage_all', storage);
+}
 
   app.get('/api/maps/places/autocomplete', isAuthenticated, async (req: any, res) => {
     const apiKey = config.googleMaps.apiKey;
@@ -537,20 +516,12 @@ export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAu
 
   // Helper for checking payroll access
   async function requirePayrollAccess(storage: IStorage, userId: string): Promise<boolean> {
-    const perms = await storage.getUserPermissions(userId);
-    return perms.some((p: any) =>
-      p.name === 'admin.manage_all' || p.name === 'hr.payroll_view' || p.name === 'time.view_all'
-    );
-  }
+  return resolveAnyPermission(userId, ['admin.manage_all', 'hr.payroll_view', 'time.view_all'], storage);
+}
 
   async function requirePayrollEdit(storage: IStorage, userId: string): Promise<boolean> {
-    const perms = await storage.getUserPermissions(userId);
-    return perms.some((p: any) =>
-      p.name === 'admin.manage_all' ||
-      p.name === 'admin.manage_locations' ||
-      p.name === 'hr.payroll_view'
-    );
-  }
+  return resolveAnyPermission(userId, ['admin.manage_all', 'admin.manage_locations', 'hr.payroll_view'], storage);
+}
 
   // Mileage reimbursement routes
   app.get('/api/mileage-reimbursements', isAuthenticated, async (req: any, res) => {

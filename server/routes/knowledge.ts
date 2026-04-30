@@ -7,6 +7,7 @@ import { asyncHandler, AppError } from "../lib/routeWrapper";
 import { resolveStoreIdForUser } from "../services/storeResolver";
 import type { IStorage } from "../storage";
 import { processKnowledgeDocument } from "../services/knowledgeExtractor";
+import { resolveAnyPermission } from "../services/permissionResolver";
 import logger from "../lib/logger";
 
 const UPLOAD_DIR = path.resolve(process.cwd(), "uploads", "knowledge");
@@ -79,13 +80,7 @@ async function extractFromFile(filePath: string, mimeType: string, originalName:
 }
 
 async function requireManagerOrOwner(storage: IStorage, userId: string): Promise<void> {
-  const perms = await storage.getUserPermissions(userId);
-  const hasAccess = perms.some(
-    (p) =>
-      p.name === "admin.manage_all" ||
-      p.name === "admin.role_management" ||
-      p.name === "hr.edit_team"
-  );
+  const hasAccess = await resolveAnyPermission(userId, ["admin.manage_all", "admin.role_management", "hr.edit_team"], storage);
   if (!hasAccess) {
     throw new AppError(403, "Manager or Owner access required", "FORBIDDEN");
   }

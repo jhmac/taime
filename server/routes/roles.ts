@@ -4,10 +4,10 @@ import { insertRoleSchema } from "@shared/schema";
 import { cache } from "../services/cache";
 import { asyncHandler, AppError } from "../lib/routeWrapper";
 import { invalidatePermissionCache } from "../lib/permissionUtils";
+import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
 
-async function requireRoleManagement(storage: IStorage, userId: string): Promise<void> {
-  const perms = await storage.getUserPermissions(userId);
-  const allowed = perms.some(p => p.name === 'admin.role_management' || p.name === 'admin.manage_all');
+async function requireRoleManagement(storageParam: IStorage, userId: string): Promise<void> {
+  const allowed = await resolveAnyPermission(userId, ['admin.role_management', 'admin.manage_all'], storageParam);
   if (!allowed) {
     throw new AppError(403, "Permission denied: Role management access required", "FORBIDDEN");
   }
@@ -150,11 +150,10 @@ export function registerRoleRoutes(app: Express, storage: IStorage, isAuthentica
     await requireRoleManagement(storage, req.user.id);
     const { id } = req.params;
     // Get effective sales access: role default + override
-    const [override, userPerms] = await Promise.all([
+    const [override, hasSalesAccess] = await Promise.all([
       storage.getUserSalesAccessOverride(id),
-      storage.getUserPermissions(id),
+      resolvePermission(id, 'sales.view_all', storage),
     ]);
-    const hasSalesAccess = userPerms.some(p => p.name === 'sales.view_all');
     res.json({
       hasSalesAccess,
       isOverride: override !== null,
@@ -216,11 +215,10 @@ export function registerRoleRoutes(app: Express, storage: IStorage, isAuthentica
       });
     }
 
-    const [override, userPerms] = await Promise.all([
+    const [override, hasSalesAccess] = await Promise.all([
       storage.getUserSalesAccessOverride(id),
-      storage.getUserPermissions(id),
+      resolvePermission(id, 'sales.view_all', storage),
     ]);
-    const hasSalesAccess = userPerms.some(p => p.name === 'sales.view_all');
     res.json({
       hasSalesAccess,
       isOverride: override !== null,

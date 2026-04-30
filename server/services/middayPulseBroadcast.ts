@@ -1,5 +1,6 @@
 import { WebSocket } from "ws";
 import type { Permission } from "../../shared/schema";
+import { resolveAnyPermission } from "./permissionResolver";
 
 export interface TrackedConnection {
   ws: WebSocket;
@@ -28,10 +29,7 @@ export async function broadcastMiddayPulse(
       const roleName = await storage.getUserRoleName(userId);
       const isAdminOrOwner = roleName === "admin" || roleName === "owner";
       if (!isAdminOrOwner) {
-        const perms = await storage.getUserPermissions(userId);
-        const hasSalesAccess = perms.some(
-          (p) => p.name === "sales.view_all" || p.name === "admin.manage_all",
-        );
+        const hasSalesAccess = await resolveAnyPermission(userId, ["sales.view_all", "admin.manage_all"], storage);
         if (!hasSalesAccess) continue;
       }
     } catch (err: unknown) {

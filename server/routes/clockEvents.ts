@@ -1,5 +1,6 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
+import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
 
 const DEFAULT_SCORE_SETTINGS = [
   { eventType: 'shift-start', category: 'attendance', displayName: 'On-Time Clock In', pointValue: 10 },
@@ -68,8 +69,7 @@ export function registerClockEventRoutes(app: Express, storage: IStorage, isAuth
   app.get('/api/clock-events', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canViewAll = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'hr.view_team');
+      const canViewAll = await resolveAnyPermission(userId, ['admin.manage_all', 'hr.view_team'], storage);
 
       const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
       const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
@@ -94,8 +94,7 @@ export function registerClockEventRoutes(app: Express, storage: IStorage, isAuth
   app.get('/api/performance/scores', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canViewAll = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'hr.view_team');
+      const canViewAll = await resolveAnyPermission(userId, ['admin.manage_all', 'hr.view_team'], storage);
 
       const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
       const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
@@ -118,8 +117,7 @@ export function registerClockEventRoutes(app: Express, storage: IStorage, isAuth
     try {
       const requestingUserId = req.user.id;
       const targetUserId = req.params.userId;
-      const userPermissions = await storage.getUserPermissions(requestingUserId);
-      const canViewAll = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'hr.view_team');
+      const canViewAll = await resolveAnyPermission(requestingUserId, ['admin.manage_all', 'hr.view_team'], storage);
 
       if (!canViewAll && requestingUserId !== targetUserId) {
         return res.status(403).json({ message: "Access denied" });
@@ -179,8 +177,7 @@ export function registerClockEventRoutes(app: Express, storage: IStorage, isAuth
   app.put('/api/performance/settings', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canManage = userPermissions.some(p => p.name === 'admin.manage_all');
+      const canManage = await resolvePermission(userId, 'admin.manage_all', storage);
 
       if (!canManage) {
         return res.status(403).json({ message: "Admin access required" });

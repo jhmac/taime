@@ -6,6 +6,7 @@ import { db } from "../db";
 import { claudeService } from "../services/claudeService";
 import { automationService } from "../services/automationService";
 import { payrollAutomationService } from "../services/payrollAutomationService";
+import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
 
 function sanitizeCsvField(field: string): string {
   const dangerous = /^[=+\-@\t\r]/;
@@ -71,8 +72,7 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
   app.post('/api/payroll/periods', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canManagePayroll = userPermissions.some(p => p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all');
+      const canManagePayroll = await resolveAnyPermission(userId, ['admin.manage_payroll', 'admin.manage_all'], storage);
       
       if (!canManagePayroll) {
         return res.status(403).json({ message: "Payroll management access required" });
@@ -99,8 +99,7 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
   app.post('/api/payroll/settings', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canManagePayroll = userPermissions.some(p => p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all');
+      const canManagePayroll = await resolveAnyPermission(userId, ['admin.manage_payroll', 'admin.manage_all'], storage);
       
       if (!canManagePayroll) {
         return res.status(403).json({ message: "Payroll management access required" });
@@ -118,8 +117,7 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
   app.post('/api/payroll/automation/trigger', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canManagePayroll = userPermissions.some(p => p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all');
+      const canManagePayroll = await resolveAnyPermission(userId, ['admin.manage_payroll', 'admin.manage_all'], storage);
       
       if (!canManagePayroll) {
         return res.status(403).json({ message: "Payroll management access required" });
@@ -136,8 +134,7 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
   app.get('/api/payroll/export', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canManage = userPermissions.some(p => p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all');
+      const canManage = await resolveAnyPermission(userId, ['admin.manage_payroll', 'admin.manage_all'], storage);
 
       if (!canManage) {
         return res.status(403).json({ message: "Payroll management access required" });
@@ -294,8 +291,7 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
   app.post('/api/payroll/automation/initialize', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canManagePayroll = userPermissions.some(p => p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all');
+      const canManagePayroll = await resolveAnyPermission(userId, ['admin.manage_payroll', 'admin.manage_all'], storage);
       
       if (!canManagePayroll) {
         return res.status(403).json({ message: "Payroll management access required" });
@@ -312,10 +308,7 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
   app.post('/api/payroll/setup', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canManagePayroll = userPermissions.some(p => 
-        p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all'
-      );
+            const canManagePayroll = await resolveAnyPermission(userId, ['admin.manage_payroll', 'admin.manage_all'], storage);
       
       if (!canManagePayroll) {
         return res.status(403).json({ message: "Payroll management access required" });
@@ -395,8 +388,7 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
   app.get('/api/payroll/periods/:id/review', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canManage = userPermissions.some(p => p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all');
+      const canManage = await resolveAnyPermission(userId, ['admin.manage_payroll', 'admin.manage_all'], storage);
       if (!canManage) return res.status(403).json({ message: "Payroll management access required" });
 
       const period = await storage.getPayrollPeriod(req.params.id);
@@ -600,8 +592,7 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
   app.post('/api/payroll/periods/:id/approve', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canManage = userPermissions.some(p => p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all');
+      const canManage = await resolveAnyPermission(userId, ['admin.manage_payroll', 'admin.manage_all'], storage);
       if (!canManage) return res.status(403).json({ message: "Payroll management access required" });
 
       const period = await storage.getPayrollPeriod(req.params.id);
@@ -624,8 +615,7 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
   app.post('/api/payroll/periods/:id/email-export', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canManage = userPermissions.some(p => p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all');
+      const canManage = await resolveAnyPermission(userId, ['admin.manage_payroll', 'admin.manage_all'], storage);
       if (!canManage) return res.status(403).json({ message: "Payroll management access required" });
 
       const { email } = req.body;
@@ -644,10 +634,7 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
   app.get('/api/payroll/setup-status', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canManagePayroll = userPermissions.some(p => 
-        p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all'
-      );
+            const canManagePayroll = await resolveAnyPermission(userId, ['admin.manage_payroll', 'admin.manage_all'], storage);
       
       const settings = await storage.getPayrollSettings();
       

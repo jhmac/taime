@@ -15,6 +15,7 @@ import type { IStorage } from "../storage";
 import logger from "../lib/logger";
 import { getUserIdsWithPermission, getAllStoreUserIds } from "../lib/permissionUtils";
 import { computeDebriefRecipients, computeKudoRecipients, computeHuddleRecipients } from "../lib/broadcastRecipients";
+import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
 
 async function getFirstStoreId(): Promise<string> {
   const [store] = await db.select({ id: workLocations.id }).from(workLocations).limit(1);
@@ -93,8 +94,7 @@ export function registerRitualRoutes(
   app.get('/api/rituals/pulse/today', isAuthenticated, asyncHandler(async (req: any, res) => {
     const userId = req.user.id;
     const isAdminOrOwner = req.user.role?.name === 'admin' || req.user.role?.name === 'owner';
-    const userPerms = await storage.getUserPermissions(userId);
-    const hasSalesAccess = isAdminOrOwner || userPerms.some(p => p.name === 'sales.view_all' || p.name === 'admin.manage_all');
+        const hasSalesAccess = isAdminOrOwner || (await resolveAnyPermission(userId, ['sales.view_all', 'admin.manage_all'], storage));
 
     if (!hasSalesAccess) {
       return res.status(403).json({ success: false, message: 'Access denied: sales.view_all permission required' });
@@ -181,8 +181,7 @@ export function registerRitualRoutes(
     const userId = req.user.id;
     const dateStr = (req.query.date as string) || new Date().toISOString().slice(0, 10);
 
-    const perms = await storage.getUserPermissions(userId);
-    const isManager = perms.some(p => p.name === 'admin.manage_all' || p.name === 'hr.view_team');
+    const isManager = await resolveAnyPermission(userId, ['admin.manage_all', 'hr.view_team'], storage);
 
     let debriefs;
     if (isManager) {

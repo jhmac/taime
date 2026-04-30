@@ -6,6 +6,7 @@ import { inArray } from "drizzle-orm";
 import { claudeService } from "../services/claudeService";
 import { notificationService } from "../services/notificationService";
 import rateLimit from "express-rate-limit";
+import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
 
 const aiRateLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -217,8 +218,7 @@ export function registerAIRoutes(app: Express, storage: IStorage, isAuthenticate
   app.post('/api/ai/detect-anomalies', isAuthenticated, aiRateLimiter, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canView = userPermissions.some(p => p.name === 'hr.view_team' || p.name === 'admin.manage_all');
+      const canView = await resolveAnyPermission(userId, ['hr.view_team', 'admin.manage_all'], storage);
 
       if (!canView) {
         return res.status(403).json({ message: "HR or admin access required" });
@@ -270,8 +270,7 @@ export function registerAIRoutes(app: Express, storage: IStorage, isAuthenticate
   app.post('/api/ai/parse-holiday-pay', isAuthenticated, aiRateLimiter, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canManage = userPermissions.some(p => p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all');
+      const canManage = await resolveAnyPermission(userId, ['admin.manage_payroll', 'admin.manage_all'], storage);
 
       if (!canManage) {
         return res.status(403).json({ message: "Admin or payroll management access required" });

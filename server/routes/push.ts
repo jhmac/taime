@@ -10,6 +10,7 @@ import {
   saveFcmCredentials,
 } from "../services/pushCredentialStore";
 import { z } from "zod";
+import { resolvePermission } from "../services/permissionResolver";
 
 function platformReady(platform: string): boolean {
   if (platform === 'ios') return isApnsReady();
@@ -18,8 +19,7 @@ function platformReady(platform: string): boolean {
 }
 
 async function requireAdmin(storage: IStorage, userId: string): Promise<void> {
-  const perms = await storage.getUserPermissions(userId);
-  if (!perms.some((p: any) => p.name === 'admin.manage_all')) {
+  if (!(await resolvePermission(userId, 'admin.manage_all', storage))) {
     throw Object.assign(new Error("Admin access required"), { status: 403 });
   }
 }

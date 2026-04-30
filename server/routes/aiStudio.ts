@@ -25,6 +25,7 @@ import { indexAiGeneratedItem } from "../services/sopIndexer";
 import Anthropic from "@anthropic-ai/sdk";
 import { config } from "../lib/config";
 import logger from "../lib/logger";
+import { resolveAnyPermission } from "../services/permissionResolver";
 
 const anthropic = new Anthropic({ apiKey: config.anthropic.apiKey });
 const DEFAULT_MODEL = "claude-sonnet-4-20250514";
@@ -147,13 +148,7 @@ async function extractFromFile(
 }
 
 async function requireManager(storage: IStorage, userId: string): Promise<void> {
-  const perms = await storage.getUserPermissions(userId);
-  const hasAccess = perms.some(
-    (p) =>
-      p.name === "admin.manage_all" ||
-      p.name === "admin.role_management" ||
-      p.name === "hr.edit_team"
-  );
+  const hasAccess = await resolveAnyPermission(userId, ["admin.manage_all", "admin.role_management", "hr.edit_team"], storage);
   if (!hasAccess) {
     throw new AppError(403, "Manager or Owner access required", "FORBIDDEN");
   }

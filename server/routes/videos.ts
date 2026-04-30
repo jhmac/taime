@@ -24,6 +24,7 @@ import {
   deleteVideoFile,
 } from "../services/videoUpload";
 import logger from "../lib/logger";
+import { resolveAnyPermission } from "../services/permissionResolver";
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -465,12 +466,7 @@ export function registerVideoRoutes(
       const isAuthor = video.employeeId === userId;
       let isManager = false;
       if (!isAuthor) {
-        const userPerms = await storage.getUserPermissions(userId);
-        isManager = userPerms.some(
-          (p) =>
-            p.name === "admin.manage_all" ||
-            p.name === "admin.manage_employees"
-        );
+        isManager = await resolveAnyPermission(userId, ["admin.manage_all", "admin.manage_employees"], storage);
       }
 
       if (!isAuthor && !isManager) {

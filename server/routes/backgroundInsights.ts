@@ -9,14 +9,10 @@ import { runAllInsightGenerators } from "../services/backgroundInsights";
 import { cache } from "../services/cache";
 import logger from "../lib/logger";
 import { resolveStoreId } from "../services/storeResolver";
+import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
 
 async function requireManagerOrAbove(storage: IStorage, userId: string): Promise<boolean> {
-  const perms = await storage.getUserPermissions(userId);
-  return perms.some(p =>
-    p.name === "admin.manage_all" ||
-    p.name === "manager.view_reports" ||
-    p.name === "manager.manage_schedules"
-  );
+  return resolveAnyPermission(userId, ["admin.manage_all", "manager.view_reports", "manager.manage_schedules"], storage);
 }
 
 export function registerBackgroundInsightRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
@@ -120,8 +116,7 @@ export function registerBackgroundInsightRoutes(app: Express, storage: IStorage,
   }));
 
   app.post("/api/background-insights/generate", isAuthenticated, asyncHandler(async (req: any, res) => {
-    const perms = await storage.getUserPermissions(req.user.id);
-    if (!perms.some(p => p.name === "admin.manage_all")) {
+    if (!(await resolvePermission(req.user.id, "admin.manage_all", storage))) {
       throw new AppError(403, "Admin access required", "FORBIDDEN");
     }
 

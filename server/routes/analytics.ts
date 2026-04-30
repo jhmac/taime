@@ -4,15 +4,15 @@ import { users } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { db } from "../db";
 import { cache } from "../services/cache";
+import { resolveAnyPermission } from "../services/permissionResolver";
 
 export function registerAnalyticsRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
   app.get('/api/analytics/dashboard', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
       const roleName = req.user?.role?.name ?? '';
       const isAdminOrOwner = roleName === 'owner' || roleName === 'admin';
-      const canView = isAdminOrOwner || userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'sales.view_all');
+      const canView = isAdminOrOwner || (await resolveAnyPermission(userId, ['admin.manage_all', 'sales.view_all'], storage));
 
       if (!canView) {
         return res.status(403).json({ message: "Access denied" });

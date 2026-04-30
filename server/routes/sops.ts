@@ -24,15 +24,16 @@ import { triggerClarification } from "../services/gtdClarificationAI";
 import { indexSOPTemplate } from "../services/sopIndexer";
 import logger from "../lib/logger";
 import { getUserIdsWithPermission } from "../lib/permissionUtils";
+import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
 import {
   computeSopManagerRecipients,
   computeSopSignOffEligibleRecipients,
   computeSopSignOffCompletedRecipients,
 } from "../lib/broadcastRecipients";
 
-async function requireAdmin(storage: IStorage, userId: string): Promise<void> {
-  const perms = await storage.getUserPermissions(userId);
-  if (!perms.some(p => p.name === "admin.manage_all")) {
+async function requireAdmin(storageParam: IStorage, userId: string): Promise<void> {
+  const allowed = await resolvePermission(userId, "admin.manage_all", storageParam);
+  if (!allowed) {
     throw new AppError(403, "Admin or Owner access required", "FORBIDDEN");
   }
 }
@@ -87,13 +88,12 @@ const completeStepSchema = z.object({
   }).nullable().optional(),
 });
 
-async function requireManagerOrAbove(storage: IStorage, userId: string): Promise<boolean> {
-  const perms = await storage.getUserPermissions(userId);
-  return perms.some(p =>
-    p.name === "admin.manage_all" ||
-    p.name === "admin.role_management" ||
-    p.name === "admin.manage_payroll"
-  );
+async function requireManagerOrAbove(storageParam: IStorage, userId: string): Promise<boolean> {
+  return resolveAnyPermission(userId, [
+    "admin.manage_all",
+    "admin.role_management",
+    "admin.manage_payroll",
+  ], storageParam);
 }
 
 
@@ -899,8 +899,7 @@ export function registerSopLibraryRoutes(
 
   app.get('/api/sop/documents', isAuthenticated, async (req: any, res) => {
     try {
-      const perms = await storage.getUserPermissions(req.user.id);
-      const isAdmin = perms.some(p => p.name === "admin.manage_all");
+      const isAdmin = await resolvePermission(req.user.id, "admin.manage_all", storage);
       const categoryId = req.query.categoryId as string | undefined;
       const documents = await storage.getSopDocuments(categoryId);
       res.json(isAdmin ? documents : documents.filter(d => d.isPublished));
@@ -915,8 +914,7 @@ export function registerSopLibraryRoutes(
       if (!doc) {
         return res.status(404).json({ message: "Document not found" });
       }
-      const perms = await storage.getUserPermissions(req.user.id);
-      const isAdmin = perms.some(p => p.name === "admin.manage_all");
+      const isAdmin = await resolvePermission(req.user.id, "admin.manage_all", storage);
       if (!isAdmin && !doc.isPublished) {
         return res.status(404).json({ message: "Document not found" });
       }

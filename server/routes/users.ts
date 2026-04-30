@@ -8,6 +8,7 @@ import { randomBytes } from "crypto";
 import { tryResolveStoreIdForUser } from "../services/storeResolver";
 import { clerkClient } from "@clerk/express";
 import { invalidatePermissionCache } from "../lib/permissionUtils";
+import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
 
 function generateInviteToken(): string {
   return randomBytes(32).toString("hex");
@@ -60,8 +61,7 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
   app.post('/api/users', isAuthenticated, async (req: any, res) => {
     try {
       const currentUserId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(currentUserId);
-      const canManage = userPermissions.some(p => p.name === 'hr.manage_employees' || p.name === 'hr.edit_team');
+      const canManage = await resolveAnyPermission(currentUserId, ['hr.manage_employees', 'hr.edit_team'], storage);
 
       if (!canManage) {
         return res.status(403).json({ message: "Employee management access required" });
@@ -115,8 +115,7 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
   app.post('/api/users/:userId/resend-invite', isAuthenticated, async (req: any, res) => {
     try {
       const currentUserId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(currentUserId);
-      const canManage = userPermissions.some(p => p.name === 'hr.manage_employees' || p.name === 'hr.edit_team');
+      const canManage = await resolveAnyPermission(currentUserId, ['hr.manage_employees', 'hr.edit_team'], storage);
 
       if (!canManage) {
         return res.status(403).json({ message: "Employee management access required" });
@@ -169,9 +168,8 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
       let canViewTeam = isOwnerOrAdmin;
 
       if (!canViewTeam) {
-        const userPermissions = await storage.getUserPermissions(userId);
-        canViewTeam = userPermissions.some(p => p.name === 'hr.view_team' || p.name === 'schedule.view_all');
-        console.log(`[/api/users] userId=${userId} roleName=${roleName} permissionsCount=${userPermissions.length} canViewTeam=${canViewTeam}`);
+        canViewTeam = await resolveAnyPermission(userId, ['hr.view_team', 'schedule.view_all'], storage);
+        console.log(`[/api/users] userId=${userId} roleName=${roleName} canViewTeam=${canViewTeam}`);
       } else {
         console.log(`[/api/users] userId=${userId} roleName=${roleName} canViewTeam=true (via role)`);
       }
@@ -261,8 +259,7 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
 
       // Users may update their own profile. Updating someone else requires hr.edit_team.
       if (requestingUserId !== userId) {
-        const userPermissions = await storage.getUserPermissions(requestingUserId);
-        const canEditTeam = userPermissions.some(p => p.name === 'hr.edit_team' || p.name === 'admin.manage_all');
+        const canEditTeam = await resolveAnyPermission(requestingUserId, ['hr.edit_team', 'admin.manage_all'], storage);
         const requesterRole = req.user.role?.name;
         const isOwnerOrAdmin = requesterRole === 'owner' || requesterRole === 'admin';
         if (!canEditTeam && !isOwnerOrAdmin) {
@@ -353,9 +350,7 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
       const { userId } = req.params;
       const { hourlyRate } = req.body;
 
-      const userPermissions = await storage.getUserPermissions(currentUserId);
-      const canEditPayRates = userPermissions.some(p => p.name === 'hr.edit_pay_rates');
-      
+      const canEditPayRates = await resolvePermission(currentUserId, 'hr.edit_pay_rates', storage);
       if (!canEditPayRates) {
         return res.status(403).json({ message: "Pay rate editing access required" });
       }
@@ -373,9 +368,7 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
       const currentUserId = req.user.id;
       const { userId } = req.params;
 
-      const userPermissions = await storage.getUserPermissions(currentUserId);
-      const canManageEmployees = userPermissions.some(p => p.name === 'hr.manage_employees');
-      
+      const canManageEmployees = await resolvePermission(currentUserId, 'hr.manage_employees', storage);
       if (!canManageEmployees) {
         return res.status(403).json({ message: "Employee management access required" });
       }
@@ -399,9 +392,7 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
       const { userId } = req.params;
       const { roleId } = req.body;
 
-      const userPermissions = await storage.getUserPermissions(currentUserId);
-      const canEditRoles = userPermissions.some(p => p.name === 'admin.role_management');
-      
+      const canEditRoles = await resolvePermission(currentUserId, 'admin.role_management', storage);
       if (!canEditRoles) {
         return res.status(403).json({ message: "Role management access required" });
       }
@@ -460,9 +451,7 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
   app.patch('/api/users/:id/role', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canEditTeam = userPermissions.some(p => p.name === 'hr.edit_team');
-      
+      const canEditTeam = await resolvePermission(userId, 'hr.edit_team', storage);
       if (!canEditTeam) {
         return res.status(403).json({ message: "Permission denied: Team editing access required" });
       }
@@ -486,9 +475,7 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
       const requestingUserId = req.user.id;
       
       if (id !== requestingUserId) {
-        const userPermissions = await storage.getUserPermissions(requestingUserId);
-        const canViewTeam = userPermissions.some(p => p.name === 'hr.view_team');
-        
+        const canViewTeam = await resolvePermission(requestingUserId, 'hr.view_team', storage);
         if (!canViewTeam) {
           return res.status(403).json({ message: "Permission denied" });
         }
@@ -506,8 +493,7 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
     try {
       const { userId } = req.params;
       const currentUserId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(currentUserId);
-      const canView = userPermissions.some(p => p.name === 'hr.view_team' || p.name === 'hr.edit_team');
+      const canView = await resolveAnyPermission(currentUserId, ['hr.view_team', 'hr.edit_team'], storage);
       if (!canView && currentUserId !== userId) {
         return res.status(403).json({ message: "Not authorized to view these documents" });
       }
@@ -526,8 +512,7 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
     try {
       const { userId } = req.params;
       const currentUserId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(currentUserId);
-      const canManage = userPermissions.some(p => p.name === 'hr.manage_employees' || p.name === 'hr.edit_team');
+      const canManage = await resolveAnyPermission(currentUserId, ['hr.manage_employees', 'hr.edit_team'], storage);
       if (!canManage && currentUserId !== userId) {
         return res.status(403).json({ message: "Not authorized to upload documents for this user" });
       }
@@ -571,8 +556,7 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
       if (!doc) {
         return res.status(404).json({ message: "Document not found" });
       }
-      const userPermissions = await storage.getUserPermissions(currentUserId);
-      const canView = userPermissions.some(p => p.name === 'hr.view_team' || p.name === 'hr.edit_team');
+      const canView = await resolveAnyPermission(currentUserId, ['hr.view_team', 'hr.edit_team'], storage);
       if (!canView && currentUserId !== doc.userId) {
         return res.status(403).json({ message: "Not authorized to download this document" });
       }
@@ -591,8 +575,7 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
     try {
       const { docId } = req.params;
       const currentUserId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(currentUserId);
-      const canManage = userPermissions.some(p => p.name === 'hr.manage_employees' || p.name === 'hr.edit_team');
+      const canManage = await resolveAnyPermission(currentUserId, ['hr.manage_employees', 'hr.edit_team'], storage);
 
       const [doc] = await db.select().from(employeeDocuments).where(eq(employeeDocuments.id, docId));
       if (!doc) {
@@ -615,8 +598,7 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
     try {
       const { userId } = req.params;
       const currentUserId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(currentUserId);
-      const canView = userPermissions.some(p => p.name === 'hr.view_team' || p.name === 'hr.edit_team');
+      const canView = await resolveAnyPermission(currentUserId, ['hr.view_team', 'hr.edit_team'], storage);
       if (!canView) {
         return res.status(403).json({ message: "Manager access required to view notes" });
       }
@@ -634,9 +616,7 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
     try {
       const { userId } = req.params;
       const currentUserId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(currentUserId);
-      const canManage = userPermissions.some(p => p.name === 'hr.manage_employees' || p.name === 'hr.edit_team');
-
+      const canManage = await resolveAnyPermission(currentUserId, ['hr.manage_employees', 'hr.edit_team'], storage);
       if (!canManage) {
         return res.status(403).json({ message: "Manager access required" });
       }
@@ -672,8 +652,7 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
       }
 
       if (note.managerId !== currentUserId) {
-        const userPermissions = await storage.getUserPermissions(currentUserId);
-        const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
+        const isAdmin = await resolvePermission(currentUserId, 'admin.manage_all', storage);
         if (!isAdmin) {
           return res.status(403).json({ message: "Can only delete your own notes" });
         }
@@ -876,8 +855,7 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
       const requesterId: string = req.user.id;
       const { userId } = req.params;
 
-      const userPermissions = await storage.getUserPermissions(requesterId);
-      const canEdit = userPermissions.some(p => p.name === 'hr.edit_team' || p.name === 'hr.edit_pay_rates');
+      const canEdit = await resolveAnyPermission(requesterId, ['hr.edit_team', 'hr.edit_pay_rates'], storage);
       if (!canEdit) return res.status(403).json({ message: "Insufficient permissions" });
 
       const { federalWithholdingPct, stateWithholdingPct, otherDeductionsCents } = req.body;

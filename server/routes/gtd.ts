@@ -13,6 +13,7 @@ import type { IStorage } from "../storage";
 import { triggerClarification } from "../services/gtdClarificationAI";
 import logger from "../lib/logger";
 import { computeGtdInboxRecipients, computeGtdActionRecipients } from "../lib/broadcastRecipients";
+import { resolveAnyPermission } from "../services/permissionResolver";
 
 const captureSchema = z.object({
   raw_input: z.string().min(1).max(2000),
@@ -129,12 +130,7 @@ async function getStoreId(): Promise<string> {
 }
 
 async function isManagerOrOwner(storage: IStorage, userId: string): Promise<boolean> {
-  const perms = await storage.getUserPermissions(userId);
-  return perms.some(p =>
-    p.name === "admin.manage_all" ||
-    p.name === "admin.role_management" ||
-    p.name === "admin.manage_payroll"
-  );
+  return resolveAnyPermission(userId, ["admin.manage_all", "admin.role_management", "admin.manage_payroll"], storage);
 }
 
 function parsePagination(query: any): { limit: number; offset: number } {

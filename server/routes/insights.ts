@@ -1,12 +1,12 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
+import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
 
 export function registerInsightRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
   app.get('/api/insights', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canViewAllInsights = userPermissions.some(p => p.name === 'hr.insights');
+      const canViewAllInsights = await resolvePermission(userId, 'hr.insights', storage);
       
       let insights;
       if (canViewAllInsights) {

@@ -8,6 +8,7 @@ import { claudeService } from "../services/claudeService";
 import { tryResolveStoreIdForUser } from "../services/storeResolver";
 import { computeScheduleDmRecipients, computeScheduleStoreRecipients } from "../lib/broadcastRecipients";
 import { getAllStoreUserIds } from "../lib/permissionUtils";
+import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
 
 /**
  * Returns the YYYY-MM-DD slice of a timestamp value (UTC), or undefined when
@@ -83,8 +84,7 @@ export function registerScheduleRoutes(
       const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
 
       let schedules;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canViewAll = userPermissions.some(p => p.name === 'schedule.view_all');
+      const canViewAll = await resolvePermission(userId, 'schedule.view_all', storage);
       
       if (canViewAll) {
         const locationId = await tryResolveStoreIdForUser(userId);
@@ -108,8 +108,7 @@ export function registerScheduleRoutes(
     if (req.params.id === 'bulk') return next();
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canManage = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'schedule.manage');
+      const canManage = await resolveAnyPermission(userId, ['admin.manage_all', 'schedule.manage'], storage);
       if (!canManage) return res.status(403).json({ message: "Permission denied" });
 
       const body = { ...req.body };
@@ -143,8 +142,7 @@ export function registerScheduleRoutes(
   app.post('/api/schedules/notify-week', isAuthenticated, async (req: any, res) => {
     try {
       const adminId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(adminId);
-      const canManage = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'schedule.manage');
+      const canManage = await resolveAnyPermission(adminId, ['admin.manage_all', 'schedule.manage'], storage);
       if (!canManage) return res.status(403).json({ message: "Permission denied" });
 
       const { startDate, endDate } = req.body;
@@ -285,8 +283,7 @@ export function registerScheduleRoutes(
   app.patch('/api/schedules/bulk', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canManage = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'schedule.manage');
+      const canManage = await resolveAnyPermission(userId, ['admin.manage_all', 'schedule.manage'], storage);
       if (!canManage) return res.status(403).json({ message: "Permission denied" });
 
       const { ids, op } = req.body as {
@@ -367,8 +364,7 @@ export function registerScheduleRoutes(
   app.delete('/api/schedules/bulk', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canManage = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'schedule.manage');
+      const canManage = await resolveAnyPermission(userId, ['admin.manage_all', 'schedule.manage'], storage);
       if (!canManage) return res.status(403).json({ message: "Permission denied" });
 
       const { ids } = req.body as { ids: string[] };
@@ -411,8 +407,7 @@ export function registerScheduleRoutes(
   app.post('/api/schedules/copy-day', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canManage = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'schedule.manage');
+      const canManage = await resolveAnyPermission(userId, ['admin.manage_all', 'schedule.manage'], storage);
       if (!canManage) return res.status(403).json({ message: "Permission denied" });
 
       const { sourceDate, targetDates, replace } = req.body as {
@@ -506,8 +501,7 @@ export function registerScheduleRoutes(
   app.get('/api/schedules/copy-day-preview', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canManage = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'schedule.manage');
+      const canManage = await resolveAnyPermission(userId, ['admin.manage_all', 'schedule.manage'], storage);
       if (!canManage) return res.status(403).json({ message: "Permission denied" });
 
       const sourceDate = req.query.sourceDate as string | undefined;
@@ -555,8 +549,7 @@ export function registerScheduleRoutes(
     if (req.params.id === 'bulk') return next();
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canManage = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'schedule.manage');
+      const canManage = await resolveAnyPermission(userId, ['admin.manage_all', 'schedule.manage'], storage);
       if (!canManage) {
         return res.status(403).json({ message: "Permission denied" });
       }
@@ -647,9 +640,8 @@ export function registerScheduleRoutes(
     try {
       const requestingUserId = req.user.id;
       const requesterRole = req.user.role?.name;
-      const requesterPerms = await storage.getUserPermissions(requestingUserId);
-      const hasScheduleAccess =
-        requesterPerms.some(p => p.name === 'schedule.create' || p.name === 'schedule.edit_all' || p.name === 'admin.manage_all') ||
+            const hasScheduleAccess =
+        (await resolveAnyPermission(requestingUserId, ['schedule.create', 'schedule.edit_all', 'admin.manage_all'], storage)) ||
         ['owner', 'admin', 'manager', 'assistant_manager'].includes(requesterRole);
       if (!hasScheduleAccess) {
         return res.status(403).json({ message: "Schedule management permission required" });

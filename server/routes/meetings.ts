@@ -13,6 +13,7 @@ import type { Meeting, MeetingTaskRecommendation } from "@shared/schema";
 import { transcribeAudioFile } from "../services/meetingTranscriptionService";
 import { generateSynopsis, generateTaskRecommendations } from "../services/meetingAI";
 import logger from "../lib/logger";
+import { resolveAnyPermission } from "../services/permissionResolver";
 
 const AUDIO_UPLOAD_DIR = path.resolve(process.cwd(), "uploads", "meetings");
 
@@ -66,10 +67,7 @@ async function getStoreId(): Promise<string> {
 }
 
 async function isManagerOrOwner(storage: IStorage, userId: string): Promise<boolean> {
-  const perms = await storage.getUserPermissions(userId);
-  return perms.some(
-    p => p.name === "admin.manage_all" || p.name === "admin.role_management" || p.name === "admin.manage_payroll"
-  );
+  return resolveAnyPermission(userId, ["admin.manage_all", "admin.role_management", "admin.manage_payroll"], storage);
 }
 
 function assertMeetingBelongsToStore(meeting: Meeting, storeId: string): void {

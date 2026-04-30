@@ -16,6 +16,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { config } from "../lib/config";
 import logger from "../lib/logger";
 import { z } from "zod";
+import { resolveAnyPermission } from "../services/permissionResolver";
 
 interface DQQuestion {
   id: string;
@@ -79,10 +80,7 @@ function getWeekStart(): Date {
 async function requireManagerAccess(req: any, storage: IStorage) {
   const userId = req.user?.id as string | undefined;
   if (!userId) throw new AppError(401, "Unauthorized", "UNAUTHORIZED");
-  const perms = await storage.getUserPermissions(userId);
-  const hasAccess = perms.some(
-    (p) => p.name === "admin.manage_all" || p.name === "admin.role_management" || p.name === "hr.edit_team"
-  );
+  const hasAccess = await resolveAnyPermission(userId, ["admin.manage_all", "admin.role_management", "hr.edit_team"], storage);
   if (!hasAccess) throw new AppError(403, "Manager or Owner access required", "FORBIDDEN");
 }
 

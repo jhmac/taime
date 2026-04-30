@@ -3,6 +3,7 @@ import type { IStorage } from "../storage";
 import { insertTimeEntrySchema } from "@shared/schema";
 import logger from "../lib/logger";
 import { OvertimePreventionService } from "../services/overtimePreventionService";
+import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
 
 function toEndOfDay(date: Date): Date {
   const d = new Date(date);
@@ -122,8 +123,7 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
   app.get("/api/timesheets/review", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canViewAll = userPermissions.some((p: any) => p.name === "time.view_all" || p.name === "admin.manage_all");
+      const canViewAll = await resolveAnyPermission(userId, ['time.view_all', 'admin.manage_all'], storage);
       if (!canViewAll) {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
@@ -438,8 +438,7 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
     try {
       const requestingUserId = req.user.id;
       const targetUserId = req.params.id;
-      const userPermissions = await storage.getUserPermissions(requestingUserId);
-      const canViewAll = userPermissions.some((p: any) => p.name === "time.view_all" || p.name === "admin.manage_all");
+      const canViewAll = await resolveAnyPermission(requestingUserId, ['time.view_all', 'admin.manage_all'], storage);
       const isOwner = requestingUserId === targetUserId;
 
       if (!canViewAll && !isOwner) {
@@ -512,8 +511,7 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
       const userId = req.user.id;
       const entryId = req.params.id;
 
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canApprove = userPermissions.some((p: any) => p.name === "time.approve" || p.name === "admin.manage_all");
+      const canApprove = await resolveAnyPermission(userId, ['time.approve', 'admin.manage_all'], storage);
       if (!canApprove) {
         return res.status(403).json({ message: "Insufficient permissions to approve time entries" });
       }
@@ -548,8 +546,7 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
   app.post("/api/timesheets/approve-all", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canApprove = userPermissions.some((p: any) => p.name === "time.approve" || p.name === "admin.manage_all");
+      const canApprove = await resolveAnyPermission(userId, ['time.approve', 'admin.manage_all'], storage);
       if (!canApprove) {
         return res.status(403).json({ message: "Insufficient permissions to approve time entries" });
       }
@@ -590,8 +587,7 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
   app.post("/api/timesheets/lock-period", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canApprove = userPermissions.some((p: any) => p.name === "time.approve" || p.name === "admin.manage_all");
+      const canApprove = await resolveAnyPermission(userId, ['time.approve', 'admin.manage_all'], storage);
       if (!canApprove) {
         return res.status(403).json({ message: "Insufficient permissions to lock periods" });
       }
@@ -633,8 +629,7 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
   app.post("/api/timesheets/resolve-discrepancy", isAuthenticated, async (req: any, res) => {
     try {
       const adminId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(adminId);
-      const canManage = userPermissions.some((p: any) => p.name === "time.approve" || p.name === "admin.manage_all");
+      const canManage = await resolveAnyPermission(adminId, ['time.approve', 'admin.manage_all'], storage);
       if (!canManage) {
         return res.status(403).json({ message: "Insufficient permissions to resolve discrepancies" });
       }
@@ -769,8 +764,7 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
   app.post("/api/timesheets/add-entry", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canManage = userPermissions.some((p: any) => p.name === "time.approve" || p.name === "admin.manage_all");
+      const canManage = await resolveAnyPermission(userId, ['time.approve', 'admin.manage_all'], storage);
       if (!canManage) {
         return res.status(403).json({ message: "Insufficient permissions to add manual time entries" });
       }
@@ -814,8 +808,7 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
   app.get("/api/timesheets/export", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canExport = userPermissions.some((p: any) => p.name === "time.view_all" || p.name === "admin.manage_all" || p.name === "hr.payroll_view");
+      const canExport = await resolveAnyPermission(userId, ['time.view_all', 'admin.manage_all', 'hr.payroll_view'], storage);
       if (!canExport) {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
@@ -1008,8 +1001,7 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
   app.get("/api/timesheets/overtime-alerts", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canView = userPermissions.some((p: any) => p.name === "time.view_all" || p.name === "admin.manage_all");
+      const canView = await resolveAnyPermission(userId, ['time.view_all', 'admin.manage_all'], storage);
       if (!canView) {
         return res.status(403).json({ message: "Insufficient permissions" });
       }
@@ -1036,8 +1028,7 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
       const userId = req.user.id;
       const alertId = req.params.id;
 
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canApprove = userPermissions.some((p: any) => p.name === "time.approve" || p.name === "admin.manage_all");
+      const canApprove = await resolveAnyPermission(userId, ['time.approve', 'admin.manage_all'], storage);
       if (!canApprove) {
         return res.status(403).json({ message: "Insufficient permissions to apply overtime swaps" });
       }
@@ -1060,8 +1051,7 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
       const userId = req.user.id;
       const alertId = req.params.id;
 
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canApprove = userPermissions.some((p: any) => p.name === "time.approve" || p.name === "admin.manage_all");
+      const canApprove = await resolveAnyPermission(userId, ['time.approve', 'admin.manage_all'], storage);
       if (!canApprove) {
         return res.status(403).json({ message: "Insufficient permissions to dismiss overtime alerts" });
       }

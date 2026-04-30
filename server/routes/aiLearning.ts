@@ -16,17 +16,13 @@ import { runGenerationJob } from "../services/aiLearningGeneration";
 import Anthropic from "@anthropic-ai/sdk";
 import { config } from "../lib/config";
 import logger from "../lib/logger";
+import { resolveAnyPermission } from "../services/permissionResolver";
 
 const anthropic = new Anthropic({ apiKey: config.anthropic.apiKey });
 const DEFAULT_MODEL = "claude-sonnet-4-20250514";
 
 async function requireManager(storage: IStorage, userId: string): Promise<void> {
-  const perms = await storage.getUserPermissions(userId);
-  const isManager = perms.some(p =>
-    p.name === "admin.manage_all" ||
-    p.name === "admin.role_management" ||
-    p.name === "admin.manage_payroll"
-  );
+  const isManager = await resolveAnyPermission(userId, ["admin.manage_all", "admin.role_management", "admin.manage_payroll"], storage);
   if (!isManager) {
     throw new AppError(403, "Manager access required", "FORBIDDEN");
   }

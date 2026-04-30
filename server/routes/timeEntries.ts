@@ -7,6 +7,7 @@ import { runClockInRedistribute } from "./ai";
 import logger from "../lib/logger";
 import { getUserIdsWithPermission } from "../lib/permissionUtils";
 import { computeTimeEntryRecipients } from "../lib/broadcastRecipients";
+import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
 
 async function withRetry<T>(fn: () => Promise<T>, retries = 2, delay = 500): Promise<T> {
   for (let i = 0; i <= retries; i++) {
@@ -132,8 +133,7 @@ export function registerTimeEntryRoutes(
       const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
 
       let timeEntries;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canViewAll = userPermissions.some(p => p.name === 'time.view_all');
+      const canViewAll = await resolvePermission(userId, 'time.view_all', storage);
       
       if (canViewAll) {
         timeEntries = await storage.getAllTimeEntries(startDate, endDate);
@@ -252,8 +252,7 @@ export function registerTimeEntryRoutes(
       }
 
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const isManager = userPermissions.some(p => p.name === 'time.approve' || p.name === 'admin.manage_all');
+      const isManager = await resolveAnyPermission(userId, ['time.approve', 'admin.manage_all'], storage);
       const isOwner = existing.userId === userId;
 
       if (!isOwner && !isManager) {
@@ -278,8 +277,7 @@ export function registerTimeEntryRoutes(
         return res.status(404).json({ message: "Time entry not found" });
       }
 
-      const userPermissions = await storage.getUserPermissions(userId);
-      const isManager = userPermissions.some(p => p.name === 'time.approve' || p.name === 'admin.manage_all');
+      const isManager = await resolveAnyPermission(userId, ['time.approve', 'admin.manage_all'], storage);
       const isOwner = existing.userId === userId;
 
       if (!isOwner && !isManager) {

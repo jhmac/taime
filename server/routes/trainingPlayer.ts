@@ -16,6 +16,7 @@ import {
 import { eq, and, lte, desc, sql, count } from "drizzle-orm";
 import { z } from "zod";
 import { tryResolveStoreIdForUser } from "../services/storeResolver";
+import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
 
 const TRAINING_SCORE_SETTINGS = [
   { eventType: "training-module-complete", pointValue: 50 },
@@ -237,8 +238,7 @@ export function registerTrainingPlayerRoutes(app: Express, storage: IStorage, is
   app.get("/api/training/manager/matrix", isAuthenticated, async (req: any, res: Response) => {
     try {
       const requesterId = req.user.id;
-      const perms = await storage.getUserPermissions(requesterId);
-      const isManager = perms.some(p => p.name === "admin.manage_all" || p.name === "hr.view_team");
+      const isManager = await resolveAnyPermission(requesterId, ['admin.manage_all', 'hr.view_team'], storage);
       if (!isManager) return res.status(403).json({ message: "Access denied" });
 
       const storeId = await tryResolveStoreIdForUser(requesterId);
@@ -268,8 +268,7 @@ export function registerTrainingPlayerRoutes(app: Express, storage: IStorage, is
   app.get("/api/training/manager/flags", isAuthenticated, async (req: any, res: Response) => {
     try {
       const requesterId = req.user.id;
-      const perms = await storage.getUserPermissions(requesterId);
-      const isManager = perms.some(p => p.name === "admin.manage_all" || p.name === "hr.view_team");
+      const isManager = await resolveAnyPermission(requesterId, ['admin.manage_all', 'hr.view_team'], storage);
       if (!isManager) return res.status(403).json({ message: "Access denied" });
 
       const flags = await storage.getTrainingFlags("open");
@@ -283,8 +282,7 @@ export function registerTrainingPlayerRoutes(app: Express, storage: IStorage, is
   app.patch("/api/training/manager/flags/:flagId", isAuthenticated, async (req: any, res: Response) => {
     try {
       const requesterId = req.user.id;
-      const perms = await storage.getUserPermissions(requesterId);
-      const isManager = perms.some(p => p.name === "admin.manage_all" || p.name === "hr.view_team");
+      const isManager = await resolveAnyPermission(requesterId, ['admin.manage_all', 'hr.view_team'], storage);
       if (!isManager) return res.status(403).json({ message: "Access denied" });
 
       const { flagId } = req.params;
@@ -299,8 +297,7 @@ export function registerTrainingPlayerRoutes(app: Express, storage: IStorage, is
   app.post("/api/training/manager/progress/:userId/:moduleId", isAuthenticated, async (req: any, res: Response) => {
     try {
       const requesterId = req.user.id;
-      const perms = await storage.getUserPermissions(requesterId);
-      const isManager = perms.some(p => p.name === "admin.manage_all" || p.name === "hr.view_team");
+      const isManager = await resolveAnyPermission(requesterId, ['admin.manage_all', 'hr.view_team'], storage);
       if (!isManager) return res.status(403).json({ message: "Access denied" });
 
       const { userId, moduleId } = req.params;
@@ -320,8 +317,7 @@ export function registerTrainingPlayerRoutes(app: Express, storage: IStorage, is
   app.get("/api/training/manager/export-csv", isAuthenticated, async (req: any, res: Response) => {
     try {
       const requesterId = req.user.id;
-      const perms = await storage.getUserPermissions(requesterId);
-      const isManager = perms.some(p => p.name === "admin.manage_all" || p.name === "hr.view_team");
+      const isManager = await resolveAnyPermission(requesterId, ['admin.manage_all', 'hr.view_team'], storage);
       if (!isManager) return res.status(403).json({ message: "Access denied" });
 
       const storeId = await tryResolveStoreIdForUser(requesterId);
@@ -357,8 +353,7 @@ export function registerTrainingPlayerRoutes(app: Express, storage: IStorage, is
   app.post("/api/training/modules/:moduleId/lessons", isAuthenticated, async (req: any, res: Response) => {
     try {
       const requesterId = req.user.id;
-      const perms = await storage.getUserPermissions(requesterId);
-      const isManager = perms.some(p => p.name === "admin.manage_all");
+      const isManager = await resolvePermission(requesterId, 'admin.manage_all', storage);
       if (!isManager) return res.status(403).json({ message: "Access denied" });
 
       const { moduleId } = req.params;

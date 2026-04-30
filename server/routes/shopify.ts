@@ -10,6 +10,7 @@ import { sendShopifyAnalyticsReport } from "../services/emailService";
 import { encryptToken, decryptToken } from "../utils/tokenEncryption";
 import rateLimit from "express-rate-limit";
 import { config } from "../lib/config";
+import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
 
 const aiRateLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -817,8 +818,7 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
   app.post("/api/shopify/admin/link-user-shop", isAuthenticated, async (req: any, res) => {
     try {
       const requesterId = req.user?.id || req.auth?.userId;
-      const userPermissions = await storage.getUserPermissions(requesterId);
-      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
+      const isAdmin = await resolvePermission(requesterId, 'admin.manage_all', storage);
 
       if (!isAdmin) {
         return res.status(403).json({ error: "Admin access required" });
@@ -1071,10 +1071,9 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
     try {
       const userId = req.user?.id || req.auth?.userId;
 
-      const userPerms = await storage.getUserPermissions(userId);
-      const roleName = req.user?.role?.name ?? '';
+            const roleName = req.user?.role?.name ?? '';
       const isAdminOrOwner = roleName === 'owner' || roleName === 'admin';
-      if (!isAdminOrOwner && !userPerms.some(p => p.name === 'sales.view_all' || p.name === 'admin.manage_all')) {
+      if (!isAdminOrOwner && !(await resolveAnyPermission(userId, ['sales.view_all', 'admin.manage_all'], storage))) {
         return res.status(403).json({ message: "You don't have access to sales data" });
       }
 
@@ -1203,10 +1202,9 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
   app.get("/api/shopify/staffing-recommendations", isAuthenticated, aiRateLimiter, async (req: any, res) => {
     try {
       const userId = req.user?.id || req.auth?.userId;
-      const userPerms = await storage.getUserPermissions(userId);
-      const roleName = req.user?.role?.name ?? '';
+            const roleName = req.user?.role?.name ?? '';
       const isAdminOrOwner = roleName === 'owner' || roleName === 'admin';
-      if (!isAdminOrOwner && !userPerms.some(p => p.name === 'sales.view_all' || p.name === 'admin.manage_all')) {
+      if (!isAdminOrOwner && !(await resolveAnyPermission(userId, ['sales.view_all', 'admin.manage_all'], storage))) {
         return res.status(403).json({ message: "You don't have access to sales data" });
       }
 
@@ -1330,10 +1328,9 @@ Keep your response concise, practical, and focused on actionable staffing advice
   app.get("/api/shopify/labor-cost-ratio", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const roleName = req.user?.role?.name ?? '';
+            const roleName = req.user?.role?.name ?? '';
       const isAdminOrOwner = roleName === 'owner' || roleName === 'admin';
-      const canView = isAdminOrOwner || userPermissions.some(p => p.name === 'sales.view_all' || p.name === 'admin.manage_all');
+      const canView = isAdminOrOwner || (await resolveAnyPermission(userId, ['sales.view_all', 'admin.manage_all'], storage));
 
       if (!canView) {
         return res.status(403).json({ message: "You don't have access to sales data" });

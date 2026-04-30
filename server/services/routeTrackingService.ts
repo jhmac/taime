@@ -1,6 +1,7 @@
 import { storage } from '../storage';
 import { notificationService } from './notificationService';
 import type { OffsiteSession, OffsiteAllowanceRule } from '@shared/schema';
+import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
 
 const DEVIATION_THRESHOLD_METERS = 400;
 const DESTINATION_ARRIVAL_RADIUS_METERS = 200;
@@ -94,9 +95,8 @@ async function getAlertRecipients(rule: OffsiteAllowanceRule): Promise<string[]>
   } else {
     const allUsers = await storage.getAllUsers();
     for (const u of allUsers) {
-      const perms = await storage.getUserPermissions(u.id);
-      const isOwner = perms.some((p: any) => p.name === 'admin.manage_all');
-      const isManager = perms.some((p: any) => p.name === 'scheduling.manage');
+            const isOwner = await resolvePermission(u.id, 'admin.manage_all', storage);
+      const isManager = await resolvePermission(u.id, 'scheduling.manage', storage);
       if (alertRecipients === 'owner' && isOwner) targetUserIds.push(u.id);
       else if (alertRecipients === 'manager' && isManager) targetUserIds.push(u.id);
       else if (alertRecipients === 'both' && (isOwner || isManager)) targetUserIds.push(u.id);

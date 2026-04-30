@@ -4,6 +4,7 @@ import { geofencingService } from "../services/geofencingService";
 import { db } from "../db";
 import { workLocations, geofenceEvents, users } from "@shared/schema";
 import { eq, desc } from "drizzle-orm";
+import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
 
 export function registerGeofenceRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
   app.post('/api/geofence/check', isAuthenticated, async (req: any, res) => {
@@ -149,8 +150,7 @@ export function registerGeofenceRoutes(app: Express, storage: IStorage, isAuthen
   app.get('/api/geofence/events', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const isAdmin = userPermissions.some((p: any) => p.name === 'admin.manage_all' || p.name === 'admin.manage_locations');
+      const isAdmin = await resolveAnyPermission(userId, ['admin.manage_all', 'admin.manage_locations'], storage);
       if (!isAdmin) {
         return res.status(403).json({ message: "Admin access required" });
       }
@@ -193,8 +193,7 @@ export function registerGeofenceRoutes(app: Express, storage: IStorage, isAuthen
   app.post('/api/work-locations', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canManage = userPermissions.some((p: any) => p.name === 'admin.manage_all' || p.name === 'admin.manage_locations');
+      const canManage = await resolveAnyPermission(userId, ['admin.manage_all', 'admin.manage_locations'], storage);
       if (!canManage) {
         return res.status(403).json({ message: "Admin access required" });
       }
@@ -232,8 +231,7 @@ export function registerGeofenceRoutes(app: Express, storage: IStorage, isAuthen
   app.put('/api/work-locations/:id', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canManage = userPermissions.some((p: any) => p.name === 'admin.manage_all' || p.name === 'admin.manage_locations');
+      const canManage = await resolveAnyPermission(userId, ['admin.manage_all', 'admin.manage_locations'], storage);
       if (!canManage) {
         return res.status(403).json({ message: "Admin access required" });
       }
@@ -290,8 +288,7 @@ export function registerGeofenceRoutes(app: Express, storage: IStorage, isAuthen
   app.delete('/api/work-locations/:id', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canManage = userPermissions.some((p: any) => p.name === 'admin.manage_all' || p.name === 'admin.manage_locations');
+      const canManage = await resolveAnyPermission(userId, ['admin.manage_all', 'admin.manage_locations'], storage);
       if (!canManage) {
         return res.status(403).json({ message: "Admin access required" });
       }

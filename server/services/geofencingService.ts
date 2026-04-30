@@ -5,6 +5,7 @@ import { geofenceEvents, timeEntries, workLocations, offsiteAllowanceRules, offs
 import { eq, and, isNull, isNotNull, desc } from 'drizzle-orm';
 import { fetchAndStoreRoute, clearWatchdogs } from './routeTrackingService';
 import { postMileageReimbursement } from './mileageReimbursementService';
+import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
 
 export interface GeofenceEvent {
   userId: string;
@@ -260,10 +261,7 @@ export class GeofencingService {
         }
 
         if (rule.appliesTo === 'managers_only') {
-          const userPerms = await storage.getUserPermissions(userId);
-          const isManager = userPerms.some((p: any) =>
-            p.name === 'admin.manage_all' || p.name === 'scheduling.manage'
-          );
+          const isManager = await resolveAnyPermission(userId, ['admin.manage_all', 'scheduling.manage'], storage);
           if (isManager) return rule;
           continue;
         }
@@ -309,9 +307,8 @@ export class GeofencingService {
       } else {
         const allUsers = await storage.getAllUsers();
         for (const u of allUsers) {
-          const perms = await storage.getUserPermissions(u.id);
-          const isOwner = perms.some((p: any) => p.name === 'admin.manage_all');
-          const isManager = perms.some((p: any) => p.name === 'scheduling.manage');
+                    const isOwner = await resolvePermission(u.id, 'admin.manage_all', storage);
+          const isManager = await resolvePermission(u.id, 'scheduling.manage', storage);
           if (alertRecipients === 'owner' && isOwner) targetUserIds.push(u.id);
           else if (alertRecipients === 'manager' && isManager) targetUserIds.push(u.id);
           else if (alertRecipients === 'both' && (isOwner || isManager)) targetUserIds.push(u.id);

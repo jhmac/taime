@@ -5,6 +5,7 @@ import { cache } from "../services/cache";
 import { asyncHandler, AppError } from "../lib/routeWrapper";
 import { tryResolveStoreIdForUser } from "../services/storeResolver";
 import { getUserIdsWithPermission } from "../lib/permissionUtils";
+import { resolveAnyPermission } from "../services/permissionResolver";
 
 const companySettingsUpdateSchema = z.object({
   companyName: z.string().max(200).optional(),
@@ -104,16 +105,16 @@ const companySettingsUpdateSchema = z.object({
   requireLocationPermission: z.boolean().optional(),
 }).strict();
 
-async function requireAdmin(storage: IStorage, userId: string): Promise<void> {
-  const perms = await storage.getUserPermissions(userId);
-  if (!perms.some(p => p.name === 'admin.manage_all')) {
+async function requireAdmin(storageParam: IStorage, userId: string): Promise<void> {
+  const allowed = await resolveAnyPermission(userId, ['admin.manage_all'], storageParam);
+  if (!allowed) {
     throw new AppError(403, "Admin access required", "FORBIDDEN");
   }
 }
 
-async function requirePayrollOrAdmin(storage: IStorage, userId: string): Promise<void> {
-  const perms = await storage.getUserPermissions(userId);
-  if (!perms.some(p => p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all')) {
+async function requirePayrollOrAdmin(storageParam: IStorage, userId: string): Promise<void> {
+  const allowed = await resolveAnyPermission(userId, ['admin.manage_payroll', 'admin.manage_all'], storageParam);
+  if (!allowed) {
     throw new AppError(403, "Admin or payroll management access required", "FORBIDDEN");
   }
 }

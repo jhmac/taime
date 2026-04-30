@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
 import { choreAssignmentSchema, choreSignOffSchema } from "@shared/schema";
+import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
 
 export function registerChoreRoutes(app: Express, storage: IStorage, isAuthenticated: any, broadcastToAll: (data: any) => void) {
   app.get('/api/chores/day/:dayOfWeek', isAuthenticated, async (req: any, res) => {
@@ -29,8 +30,7 @@ export function registerChoreRoutes(app: Express, storage: IStorage, isAuthentic
   app.post('/api/chores/assign', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canAssignTasks = userPermissions.some(p => p.name === 'tasks.create' || p.name === 'tasks.edit_all');
+      const canAssignTasks = await resolveAnyPermission(userId, ['tasks.create', 'tasks.edit_all'], storage);
       
       if (!canAssignTasks) {
         return res.status(403).json({ message: "Permission denied: Task assignment access required" });
@@ -57,8 +57,7 @@ export function registerChoreRoutes(app: Express, storage: IStorage, isAuthentic
       const data = choreSignOffSchema.parse(req.body);
       
       if (data.isManager) {
-        const userPermissions = await storage.getUserPermissions(userId);
-        const canApprove = userPermissions.some(p => p.name === 'time.approve' || p.name === 'tasks.edit_all');
+        const canApprove = await resolveAnyPermission(userId, ['time.approve', 'tasks.edit_all'], storage);
         
         if (!canApprove) {
           return res.status(403).json({ message: "Permission denied: Approval access required" });

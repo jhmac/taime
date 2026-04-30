@@ -10,6 +10,7 @@ import { triggerClarification } from "../services/gtdClarificationAI";
 import logger from "../lib/logger";
 import { getUserIdsWithPermission } from "../lib/permissionUtils";
 import { computeIssueRecipients, computeIssueCommentRecipients } from "../lib/broadcastRecipients";
+import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
 
 export function registerIssueRoutes(
   app: Express,
@@ -242,8 +243,7 @@ export function registerIssueRoutes(
 
     let isManager = false;
     if (needsPermCheck) {
-      const perms = await storage.getUserPermissions(userId);
-      isManager = perms.some(p => p.name === 'admin.manage_all' || p.name === 'hr.view_team');
+            isManager = await resolveAnyPermission(userId, ['admin.manage_all', 'hr.view_team'], storage);
     }
 
     if (statusChanging && ['in_progress', 'waiting', 'resolved', 'closed'].includes(updates.status!)) {

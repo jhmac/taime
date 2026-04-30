@@ -4,6 +4,7 @@ import { insertTaskSchema } from "@shared/schema";
 import { notificationService } from "../services/notificationService";
 import { tryResolveStoreIdForUser } from "../services/storeResolver";
 import { runAutoAssign } from "./ai";
+import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
 
 /**
  * Resolves the store/location for a non-admin manager and responds 403 if it cannot be determined.
@@ -64,8 +65,7 @@ export function registerTaskRoutes(
       const userId = req.user.id;
 
       let tasks;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const canViewAll = userPermissions.some(p => p.name === 'tasks.view_all');
+      const canViewAll = await resolvePermission(userId, 'tasks.view_all', storage);
       
       if (canViewAll) {
         const locationId = await tryResolveStoreIdForUser(userId);
@@ -91,8 +91,7 @@ export function registerTaskRoutes(
         return res.status(404).json({ message: "Task not found" });
       }
 
-      const userPermissions = await storage.getUserPermissions(userId);
-      const isManager = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'hr.manage_employees');
+      const isManager = await resolveAnyPermission(userId, ['admin.manage_all', 'hr.manage_employees'], storage);
       const isAssignee = existing.assignedTo === userId;
 
       if (!isAssignee && !isManager) {
@@ -148,8 +147,7 @@ export function registerTaskRoutes(
       }
 
       const isAssignee = existing.assignedTo === userId;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const isManager = userPermissions.some(p => p.name === 'admin.manage_all');
+      const isManager = await resolvePermission(userId, 'admin.manage_all', storage);
       if (!isAssignee && !isManager) {
         return res.status(403).json({ message: "You can only upload images to your own tasks" });
       }
@@ -173,8 +171,7 @@ export function registerTaskRoutes(
       const { id } = req.params;
       const userId = req.user.id;
 
-      const userPermissions = await storage.getUserPermissions(userId);
-      const isManager = userPermissions.some(p => p.name === 'admin.manage_all' || p.name === 'hr.manage_employees');
+      const isManager = await resolveAnyPermission(userId, ['admin.manage_all', 'hr.manage_employees'], storage);
       if (!isManager) {
         return res.status(403).json({ message: "Only managers can delete tasks" });
       }
@@ -199,9 +196,8 @@ export function registerTaskRoutes(
   app.get('/api/tasks/clocked-in-count', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const isAdmin = userPermissions.some((p: any) => p.name === 'admin.manage_all');
-      const isManager = isAdmin || userPermissions.some((p: any) => p.name === 'hr.manage_employees');
+      const isAdmin = await resolvePermission(userId, 'admin.manage_all', storage);
+      const isManager = isAdmin || (await resolvePermission(userId, 'hr.manage_employees', storage));
       if (!isManager) return res.status(403).json({ message: "Managers only" });
 
       // Non-admin managers must have a resolvable location (fail-closed)
@@ -223,9 +219,8 @@ export function registerTaskRoutes(
   app.get('/api/tasks/verification-queue', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(userId);
-      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
-      const isManager = isAdmin || userPermissions.some(p => p.name === 'hr.manage_employees');
+      const isAdmin = await resolvePermission(userId, 'admin.manage_all', storage);
+      const isManager = isAdmin || (await resolvePermission(userId, 'hr.manage_employees', storage));
       if (!isManager) {
         return res.status(403).json({ message: "Managers only" });
       }
@@ -262,9 +257,8 @@ export function registerTaskRoutes(
       const { id } = req.params;
       const userId = req.user.id;
 
-      const userPermissions = await storage.getUserPermissions(userId);
-      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
-      const isManager = isAdmin || userPermissions.some(p => p.name === 'hr.manage_employees');
+      const isAdmin = await resolvePermission(userId, 'admin.manage_all', storage);
+      const isManager = isAdmin || (await resolvePermission(userId, 'hr.manage_employees', storage));
       if (!isManager) {
         return res.status(403).json({ message: "Only managers can broadcast tasks" });
       }
@@ -321,9 +315,8 @@ export function registerTaskRoutes(
   app.get('/api/tasks/broadcast-summary', isAuthenticated, async (req: any, res) => {
     try {
       const callerId = req.user.id;
-      const userPermissions = await storage.getUserPermissions(callerId);
-      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
-      const isManager = isAdmin || userPermissions.some(p => p.name === 'hr.manage_employees');
+      const isAdmin = await resolvePermission(callerId, 'admin.manage_all', storage);
+      const isManager = isAdmin || (await resolvePermission(callerId, 'hr.manage_employees', storage));
       if (!isManager) return res.status(403).json({ message: "Managers only" });
 
       // Admins see all locations; non-admin managers must have a resolvable location (fail-closed)
@@ -347,9 +340,8 @@ export function registerTaskRoutes(
       const { id } = req.params;
       const callerId = req.user.id;
 
-      const userPermissions = await storage.getUserPermissions(callerId);
-      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
-      const isManager = isAdmin || userPermissions.some(p => p.name === 'hr.manage_employees');
+      const isAdmin = await resolvePermission(callerId, 'admin.manage_all', storage);
+      const isManager = isAdmin || (await resolvePermission(callerId, 'hr.manage_employees', storage));
       if (!isManager) return res.status(403).json({ message: "Managers only" });
 
       // Location scope: non-admins must have a resolvable location (fail-closed)
@@ -377,9 +369,8 @@ export function registerTaskRoutes(
       const callerId = req.user.id;
       const { broadcastGroupId } = req.query as { broadcastGroupId?: string };
 
-      const userPermissions = await storage.getUserPermissions(callerId);
-      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
-      const isManager = isAdmin || userPermissions.some(p => p.name === 'hr.manage_employees');
+      const isAdmin = await resolvePermission(callerId, 'admin.manage_all', storage);
+      const isManager = isAdmin || (await resolvePermission(callerId, 'hr.manage_employees', storage));
 
       const allAssignees = await storage.getTaskAssignees(id, broadcastGroupId);
 
@@ -510,9 +501,8 @@ export function registerTaskRoutes(
       const { id: taskId, assigneeId } = req.params;
       const managerId = req.user.id;
 
-      const userPermissions = await storage.getUserPermissions(managerId);
-      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
-      const isManager = isAdmin || userPermissions.some(p => p.name === 'hr.manage_employees');
+      const isAdmin = await resolvePermission(managerId, 'admin.manage_all', storage);
+      const isManager = isAdmin || (await resolvePermission(managerId, 'hr.manage_employees', storage));
       if (!isManager) {
         return res.status(403).json({ message: "Managers only" });
       }
@@ -573,9 +563,8 @@ export function registerTaskRoutes(
         return res.status(400).json({ message: "A rejection note is required to explain what needs to be redone" });
       }
 
-      const userPermissions = await storage.getUserPermissions(managerId);
-      const isAdmin = userPermissions.some(p => p.name === 'admin.manage_all');
-      const isManager = isAdmin || userPermissions.some(p => p.name === 'hr.manage_employees');
+      const isAdmin = await resolvePermission(managerId, 'admin.manage_all', storage);
+      const isManager = isAdmin || (await resolvePermission(managerId, 'hr.manage_employees', storage));
       if (!isManager) {
         return res.status(403).json({ message: "Managers only" });
       }

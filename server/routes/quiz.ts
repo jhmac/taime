@@ -12,6 +12,7 @@ import {
 import { asyncHandler, AppError } from "../lib/routeWrapper";
 import { resolveStoreIdForUser } from "../services/storeResolver";
 import type { IStorage } from "../storage";
+import { resolveAnyPermission } from "../services/permissionResolver";
 
 const QUESTIONS_PER_SESSION = 5;
 const BOSS_BATTLE_QUESTIONS = 10;
@@ -40,13 +41,7 @@ function computeStreakMultiplier(streak: number): number {
 async function requireManagerAccess(req: any, storage: IStorage) {
   const userId = req.user?.id as string | undefined;
   if (!userId) throw new AppError(401, "Unauthorized", "UNAUTHORIZED");
-  const perms: Permission[] = await storage.getUserPermissions(userId);
-  const hasAccess = perms.some(
-    (p) =>
-      p.name === "admin.manage_all" ||
-      p.name === "admin.role_management" ||
-      p.name === "hr.edit_team"
-  );
+  const hasAccess = await resolveAnyPermission(userId, ["admin.manage_all", "admin.role_management", "hr.edit_team"], storage);
   if (!hasAccess) throw new AppError(403, "Manager or Owner access required", "FORBIDDEN");
 }
 

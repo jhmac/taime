@@ -4,14 +4,10 @@ import { gamificationService } from "../services/gamificationService";
 import { db } from '../db';
 import { users } from '@shared/schema';
 import { eq } from 'drizzle-orm';
-import type { Permission } from '@shared/schema';
+import { resolvePermission } from '../services/permissionResolver';
 
 interface AuthRequest extends Request {
   user: { id: string };
-}
-
-function hasAdminPermission(permissions: Permission[]): boolean {
-  return permissions.some(p => p.name === 'admin.manage_all');
 }
 
 export function registerGamificationRoutes(app: Express, storage: IStorage, isAuthenticated: (req: Request, res: Response, next: () => void) => void) {
@@ -64,8 +60,7 @@ export function registerGamificationRoutes(app: Express, storage: IStorage, isAu
       const range = (req.query.range as string) || '30d';
 
       if (userId !== requesterId) {
-        const perms = await storage.getUserPermissions(requesterId);
-        if (!hasAdminPermission(perms)) {
+        if (!(await resolvePermission(requesterId, 'admin.manage_all', storage))) {
           return res.status(403).json({ message: "Access denied" });
         }
       }
@@ -81,9 +76,7 @@ export function registerGamificationRoutes(app: Express, storage: IStorage, isAu
   app.get('/api/gamification/team-scores', isAuthenticated, async (req: Request, res: Response) => {
     try {
       const userId = (req as AuthRequest).user.id;
-      const perms = await storage.getUserPermissions(userId);
-
-      if (!hasAdminPermission(perms)) {
+      if (!(await resolvePermission(userId, 'admin.manage_all', storage))) {
         return res.status(403).json({ message: "Admin access required" });
       }
 
@@ -98,9 +91,7 @@ export function registerGamificationRoutes(app: Express, storage: IStorage, isAu
   app.get('/api/gamification/settings', isAuthenticated, async (req: Request, res: Response) => {
     try {
       const userId = (req as AuthRequest).user.id;
-      const perms = await storage.getUserPermissions(userId);
-
-      if (!hasAdminPermission(perms)) {
+      if (!(await resolvePermission(userId, 'admin.manage_all', storage))) {
         return res.status(403).json({ message: "Admin access required" });
       }
 
@@ -115,9 +106,7 @@ export function registerGamificationRoutes(app: Express, storage: IStorage, isAu
   app.put('/api/gamification/settings', isAuthenticated, async (req: Request, res: Response) => {
     try {
       const userId = (req as AuthRequest).user.id;
-      const perms = await storage.getUserPermissions(userId);
-
-      if (!hasAdminPermission(perms)) {
+      if (!(await resolvePermission(userId, 'admin.manage_all', storage))) {
         return res.status(403).json({ message: "Admin access required" });
       }
 
@@ -132,9 +121,7 @@ export function registerGamificationRoutes(app: Express, storage: IStorage, isAu
   app.post('/api/gamification/snapshot', isAuthenticated, async (req: Request, res: Response) => {
     try {
       const userId = (req as AuthRequest).user.id;
-      const perms = await storage.getUserPermissions(userId);
-
-      if (!hasAdminPermission(perms)) {
+      if (!(await resolvePermission(userId, 'admin.manage_all', storage))) {
         return res.status(403).json({ message: "Admin access required" });
       }
 
