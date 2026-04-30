@@ -3,7 +3,7 @@ import { readFileSync } from 'fs';
 import { resolve } from 'path';
 
 const MIGRATIONS_PATH = resolve(__dirname, '..', 'server', 'lib', 'migrations.ts');
-const STORAGE_PATH = resolve(__dirname, '..', 'server', 'storage.ts');
+const STORAGE_PATH = resolve(__dirname, '..', 'server', 'storage', 'identity.ts');
 
 const CONSOLIDATION_HINT = [
   '',
@@ -180,11 +180,11 @@ describe('sales permission consolidation (task #445)', () => {
       // with no override row at this key and no role grant, getUserPermissions
       // returns no sales.view_all permission for the user.)
       const start = storageSrc.indexOf('async getUserSalesAccessOverride');
-      const end = storageSrc.indexOf('// Payroll settings operations');
+      const end = storageSrc.indexOf('async getCompanySettings');
       const helperBlock = start >= 0 && end > start ? storageSrc.slice(start, end) : '';
       expect(
         helperBlock.length > 0,
-        `Could not locate getUserSalesAccessOverride / setUserSalesAccessOverride in server/storage.ts.${CONSOLIDATION_HINT}`,
+        `Could not locate getUserSalesAccessOverride / setUserSalesAccessOverride in server/storage/identity.ts.${CONSOLIDATION_HINT}`,
       ).toBe(true);
       expect(
         helperBlock.includes("'sales.view'"),
