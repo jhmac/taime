@@ -71,6 +71,8 @@ export default function Landing() {
 
             <div data-testid="clerk-sign-in">
               <SignIn
+                afterSignInUrl="/"
+                afterSignUpUrl="/"
                 appearance={{
                   elements: {
                     rootBox: "w-full",

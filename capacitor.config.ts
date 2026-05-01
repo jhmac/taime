@@ -16,13 +16,35 @@ const config: CapacitorConfig = {
     url: PRODUCTION_URL,
     androidScheme: 'https',
     cleartext: false,
-    // Allow navigation to the app host AND Replit's auth endpoints.
-    // Without replit.com here the Replit OAuth redirect is intercepted by
-    // iOS and opened in Safari, breaking the login flow and session cookies.
+    // allowNavigation must cover every domain the WebView may navigate to,
+    // including Clerk's authentication pages and social-OAuth providers.
+    // Any URL NOT listed here is opened in Safari instead of the WebView,
+    // which breaks the auth session cookie (Safari and WKWebView have
+    // separate cookie stores).
     allowNavigation: [
-      productionHost,
+      // --- App host ---
+      productionHost,       // taime.us
+
+      // --- Replit SSO ---
       'replit.com',
       '*.replit.com',
+
+      // --- Clerk authentication (all environments) ---
+      // Production custom domain (set in Clerk Dashboard → Domains)
+      'clerk.taime.us',
+      // Clerk-hosted accounts pages (dev + staging instances)
+      '*.clerk.accounts.dev',
+      '*.clerk.com',
+      // Wildcard that covers all Clerk FAPI and BAPI subdomains
+      '*.clerk.dev',
+
+      // --- Social OAuth providers that Clerk may redirect to ---
+      'accounts.google.com',
+      '*.google.com',          // Google token endpoint sub-pages
+      'appleid.apple.com',
+      '*.apple.com',
+      'github.com',
+      '*.github.com',
     ],
   },
   plugins: {
@@ -56,10 +78,9 @@ const config: CapacitorConfig = {
   ios: {
     backgroundColor: '#FFFBF5',
     contentInset: 'automatic',
-    // Disabled: limitsNavigationsToAppBoundDomains was preventing the Replit
-    // auth redirect from staying inside the WebView, forcing it into Safari
-    // and breaking the login session. With allowNavigation covering all
-    // required domains this restriction is not needed.
+    // Keep limitsNavigationsToAppBoundDomains OFF — the Clerk and social-OAuth
+    // redirects span multiple domains that would otherwise be blocked and forced
+    // into Safari, breaking the login session.
     limitsNavigationsToAppBoundDomains: false,
   },
   android: {
