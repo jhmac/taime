@@ -377,70 +377,109 @@ export default function ChoresWidget() {
                 </div>
 
                 {/* Expand completion form inline */}
-                {isExpanded && (
-                  <div className="mt-3 space-y-2 border-t pt-3">
-                    <p className="text-xs text-muted-foreground">Take a completion photo to submit for approval:</p>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      className="hidden"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (!file) return;
-                        const reader = new FileReader();
-                        reader.onloadend = () => setCapturedImage(reader.result as string);
-                        reader.readAsDataURL(file);
-                      }}
-                    />
-                    {capturedImage ? (
-                      <div className="relative">
-                        <img src={capturedImage} alt="Captured" className="w-full h-32 object-cover rounded-lg border" />
+                {isExpanded && (() => {
+                  const photoRequired = !!(assignment.task as any).requiresPhoto;
+                  const photoMissing = photoRequired && !capturedImage;
+                  return (
+                    <div className="mt-3 space-y-2 border-t pt-3">
+                      {photoRequired ? (
+                        <div className="flex items-center gap-1.5">
+                          <i className="fas fa-camera text-orange-500 text-xs"></i>
+                          <p className="text-xs font-semibold text-orange-600 dark:text-orange-400">
+                            Photo required — take a picture when done
+                          </p>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">Optional: add a completion photo</p>
+                      )}
+
+                      {/* Previous week's photo reference */}
+                      {assignment.previousImageUrl && (
+                        <div>
+                          <p className="text-[10px] text-muted-foreground mb-1 flex items-center gap-1">
+                            <i className="fas fa-history text-[9px]"></i>
+                            Last week's photo (for reference)
+                          </p>
+                          <img
+                            src={assignment.previousImageUrl}
+                            alt="Last approved"
+                            className="w-full h-24 object-cover rounded-lg border border-dashed opacity-70"
+                          />
+                        </div>
+                      )}
+
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          const reader = new FileReader();
+                          reader.onloadend = () => setCapturedImage(reader.result as string);
+                          reader.readAsDataURL(file);
+                        }}
+                      />
+                      {capturedImage ? (
+                        <div className="relative">
+                          <img src={capturedImage} alt="Captured" className="w-full h-32 object-cover rounded-lg border" />
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="absolute top-1 right-1 h-6 px-2 text-xs bg-black/50 text-white hover:bg-black/70"
+                            onClick={() => { setCapturedImage(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}
+                          >
+                            Retake
+                          </Button>
+                        </div>
+                      ) : (
                         <Button
+                          variant="outline"
                           size="sm"
-                          variant="ghost"
-                          className="absolute top-1 right-1 h-6 px-2 text-xs bg-black/50 text-white hover:bg-black/70"
-                          onClick={() => { setCapturedImage(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}
+                          className={`w-full h-20 border-dashed flex-col gap-1 ${photoRequired ? 'border-orange-400 bg-orange-50/50 dark:bg-orange-950/10 hover:bg-orange-50 dark:hover:bg-orange-950/20' : ''}`}
+                          onClick={() => fileInputRef.current?.click()}
                         >
-                          Retake
+                          <i className={`fas fa-camera text-lg ${photoRequired ? 'text-orange-500' : 'text-muted-foreground'}`}></i>
+                          <span className={`text-xs ${photoRequired ? 'text-orange-600 dark:text-orange-400 font-semibold' : 'text-muted-foreground'}`}>
+                            {photoRequired ? 'Tap to take required photo' : 'Tap to take photo (optional)'}
+                          </span>
                         </Button>
-                      </div>
-                    ) : (
+                      )}
+                      <textarea
+                        placeholder="Optional note..."
+                        value={completionNote}
+                        onChange={e => setCompletionNote(e.target.value)}
+                        className="w-full text-xs border rounded-md p-2 min-h-[56px] resize-none bg-background"
+                      />
+                      {photoMissing && (
+                        <p className="text-xs text-orange-600 dark:text-orange-400 flex items-center gap-1">
+                          <i className="fas fa-exclamation-triangle text-[10px]"></i>
+                          A photo is required to submit this task.
+                        </p>
+                      )}
                       <Button
-                        variant="outline"
+                        className="w-full bg-green-600 hover:bg-green-700 text-white"
                         size="sm"
-                        className="w-full h-20 border-dashed flex-col gap-1"
-                        onClick={() => fileInputRef.current?.click()}
+                        disabled={completeAssigneeMutation.isPending || photoMissing}
+                        onClick={() => completeAssigneeMutation.mutate({
+                          taskId: assignment.taskId,
+                          assigneeId: assignment.id,
+                          completionImageUrl: capturedImage || undefined,
+                          note: completionNote || undefined,
+                        })}
                       >
-                        <i className="fas fa-camera text-lg text-muted-foreground"></i>
-                        <span className="text-xs text-muted-foreground">Tap to take photo</span>
+                        {completeAssigneeMutation.isPending
+                          ? <><i className="fas fa-spinner fa-spin mr-2"></i>Submitting...</>
+                          : photoMissing
+                            ? <><i className="fas fa-camera mr-2"></i>Take Photo to Submit</>
+                            : <><i className="fas fa-paper-plane mr-2"></i>Submit for Approval</>
+                        }
                       </Button>
-                    )}
-                    <textarea
-                      placeholder="Optional note..."
-                      value={completionNote}
-                      onChange={e => setCompletionNote(e.target.value)}
-                      className="w-full text-xs border rounded-md p-2 min-h-[56px] resize-none bg-background"
-                    />
-                    <Button
-                      className="w-full bg-green-600 hover:bg-green-700 text-white"
-                      size="sm"
-                      disabled={completeAssigneeMutation.isPending}
-                      onClick={() => completeAssigneeMutation.mutate({
-                        taskId: assignment.taskId,
-                        assigneeId: assignment.id,
-                        completionImageUrl: capturedImage || undefined,
-                        note: completionNote || undefined,
-                      })}
-                    >
-                      {completeAssigneeMutation.isPending
-                        ? <><i className="fas fa-spinner fa-spin mr-2"></i>Submitting...</>
-                        : <><i className="fas fa-paper-plane mr-2"></i>Submit for Approval</>
-                      }
-                    </Button>
-                  </div>
-                )}
+                    </div>
+                  );
+                })()}
 
                 {/* Show submitted state */}
                 {assignment.status === 'completed' && assignment.completionImageUrl && (

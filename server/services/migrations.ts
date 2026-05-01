@@ -342,6 +342,14 @@ export async function runSchemaMigrations(): Promise<void> {
       table: "score_notices",
       sql: `ALTER TABLE score_notices ALTER COLUMN title DROP NOT NULL`,
     },
+    // Photo verification toggle for broadcast tasks (Task #photo-verify).
+    // When enabled, team members must submit a photo before the task is accepted.
+    // The manager's verification queue already shows the previous week's photo
+    // alongside the new one for a side-by-side comparison.
+    {
+      table: "tasks",
+      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS requires_photo boolean DEFAULT false`,
+    },
   ];
 
   let altered = 0;

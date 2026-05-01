@@ -44,6 +44,7 @@ export const tasks = pgTable("tasks", {
   timeOfDay: varchar("time_of_day"),
   isRecurring: boolean("is_recurring").default(false),
   requiresSignature: boolean("requires_signature").default(false),
+  requiresPhoto: boolean("requires_photo").default(false),
   employeeSignedAt: timestamp("employee_signed_at"),
   managerSignedAt: timestamp("manager_signed_at"),
   signedBy: varchar("signed_by").references(() => users.id),

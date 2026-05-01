@@ -53,6 +53,7 @@ const emptyForm = {
   priority: 'medium',
   isRecurring: false,
   requiresSignature: false,
+  requiresPhoto: false,
   estimatedMinutes: 30,
   dueDate: '',
 };
@@ -329,6 +330,7 @@ export default function TaskManagement() {
       priority: form.priority,
       isRecurring: form.isRecurring,
       requiresSignature: form.requiresSignature,
+      requiresPhoto: form.requiresPhoto,
       estimatedMinutes: form.estimatedMinutes || null,
       dueDate: form.dueDate ? new Date(form.dueDate).toISOString() : null,
     };
@@ -352,6 +354,7 @@ export default function TaskManagement() {
       priority: task.priority || 'medium',
       isRecurring: task.isRecurring || false,
       requiresSignature: task.requiresSignature || false,
+      requiresPhoto: (task as any).requiresPhoto || false,
       estimatedMinutes: task.estimatedMinutes || 30,
       dueDate: task.dueDate ? new Date(task.dueDate).toISOString().slice(0, 16) : '',
     });
@@ -800,6 +803,11 @@ export default function TaskManagement() {
                                   <i className="fas fa-signature mr-1"></i>sign-off
                                 </Badge>
                               )}
+                              {(task as any).requiresPhoto && (
+                                <Badge variant="outline" className="text-[10px] border-orange-400 text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-950/20">
+                                  <i className="fas fa-camera mr-1"></i>photo required
+                                </Badge>
+                              )}
                               {task.estimatedMinutes && (
                                 <Badge variant="outline" className="text-[10px]">
                                   <i className="fas fa-hourglass-half mr-1"></i>{task.estimatedMinutes}m
@@ -1161,7 +1169,7 @@ export default function TaskManagement() {
                 onChange={e => setForm(prev => ({ ...prev, dueDate: e.target.value }))}
               />
             </div>
-            <div className="flex items-center gap-6">
+            <div className="flex items-center gap-6 flex-wrap">
               <div className="flex items-center gap-2">
                 <Switch checked={form.isRecurring} onCheckedChange={val => setForm(prev => ({ ...prev, isRecurring: val }))} />
                 <Label className="text-sm">Recurring</Label>
@@ -1170,7 +1178,20 @@ export default function TaskManagement() {
                 <Switch checked={form.requiresSignature} onCheckedChange={val => setForm(prev => ({ ...prev, requiresSignature: val }))} />
                 <Label className="text-sm">Requires Sign-off</Label>
               </div>
+              <div className="flex items-center gap-2">
+                <Switch checked={form.requiresPhoto} onCheckedChange={val => setForm(prev => ({ ...prev, requiresPhoto: val }))} />
+                <Label className="text-sm flex items-center gap-1">
+                  <i className="fas fa-camera text-xs text-orange-500"></i>
+                  Requires Photo
+                </Label>
+              </div>
             </div>
+            {form.requiresPhoto && (
+              <p className="text-xs text-muted-foreground bg-orange-50 dark:bg-orange-950/20 border border-orange-200 dark:border-orange-800/40 rounded-lg px-3 py-2">
+                <i className="fas fa-camera mr-1.5 text-orange-500"></i>
+                Team members must take a photo when completing this task. The manager's verification view will show this week's photo next to last week's for easy comparison.
+              </p>
+            )}
           </div>
           <DialogFooter className="flex-col sm:flex-row gap-2">
             <Button variant="outline" onClick={() => { setShowCreateDialog(false); setEditingTask(null); setForm(emptyForm); }}>
