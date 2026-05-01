@@ -14,12 +14,9 @@
  * cache (keyed `permissions:<userId>`).  `resolvePermission` delegates to that
  * function so there is no additional cache layer here — no regression in DB load.
  *
- * TODO: Add unit tests in `tests/permissionResolver.test.ts` covering:
- *   - override=false beats role grant
- *   - override=true beats role deny
- *   - no override falls through to role grant
- *   - no override, no role grant → deny (false)
- *   - owner/admin short-circuit → always true
+ * Unit tests live in `tests/permissionResolver.test.ts` and cover all
+ * five cases: deny override, grant override, role fall-through, implicit
+ * deny, and owner/admin short-circuit.
  */
 
 import { storage as defaultStorage } from "../storage";
@@ -73,13 +70,15 @@ export function buildPermissionResolver(
   const overrideMap = new Map(overrides.map((o) => [o.permissionName, o.grant]));
 
   return (permissionKey: string): boolean => {
+    // Tier 0 — owner/admin short-circuit: always true, bypasses all overrides
+    if (isOwnerOrAdmin) return true;
+
     // Tier 1 — explicit override row
     const override = overrideMap.get(permissionKey);
-    if (override === false) return false; // explicit deny beats everything
-    if (override === true) return true;   // explicit grant
+    if (override === false) return false; // explicit deny beats role default
+    if (override === true) return true;   // explicit grant beats role default
 
-    // Tier 2 — role default (owner/admin always have all permissions)
-    if (isOwnerOrAdmin) return true;
+    // Tier 2 — role default
     return rolePermSet.has(permissionKey);
 
     // Tier 3 — implicit deny (fall-through to false)
