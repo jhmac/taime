@@ -1169,20 +1169,22 @@ export default function TaskManagement() {
                 onChange={e => setForm(prev => ({ ...prev, dueDate: e.target.value }))}
               />
             </div>
-            <div className="flex items-center gap-6 flex-wrap">
-              <div className="flex items-center gap-2">
+            <div className="grid grid-cols-3 gap-3 border rounded-lg p-3 bg-muted/30">
+              <div className="flex flex-col items-center gap-1.5 text-center">
                 <Switch checked={form.isRecurring} onCheckedChange={val => setForm(prev => ({ ...prev, isRecurring: val }))} />
-                <Label className="text-sm">Recurring</Label>
+                <Label className="text-xs text-muted-foreground leading-tight">Recurring</Label>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-col items-center gap-1.5 text-center">
                 <Switch checked={form.requiresSignature} onCheckedChange={val => setForm(prev => ({ ...prev, requiresSignature: val }))} />
-                <Label className="text-sm">Requires Sign-off</Label>
+                <Label className="text-xs text-muted-foreground leading-tight">Sign-off</Label>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-col items-center gap-1.5 text-center">
                 <Switch checked={form.requiresPhoto} onCheckedChange={val => setForm(prev => ({ ...prev, requiresPhoto: val }))} />
-                <Label className="text-sm flex items-center gap-1">
-                  <i className="fas fa-camera text-xs text-orange-500"></i>
-                  Requires Photo
+                <Label className="text-xs leading-tight flex flex-col items-center gap-0.5">
+                  <i className="fas fa-camera text-orange-500"></i>
+                  <span className={form.requiresPhoto ? 'text-orange-600 dark:text-orange-400 font-semibold' : 'text-muted-foreground'}>
+                    Photo
+                  </span>
                 </Label>
               </div>
             </div>
