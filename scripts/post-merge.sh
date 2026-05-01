@@ -100,6 +100,11 @@ await run('offsite_allowance_rules.destination_lat', `ALTER TABLE offsite_allowa
 // users
 await run('users.invite_token', `ALTER TABLE users ADD COLUMN IF NOT EXISTS invite_token varchar`);
 
+// score_notices.title was added NOT NULL in an older migration but is not
+// populated by gamificationService.ts, causing crashes on every cron tick.
+// Make it nullable — it's harmless and stops the constraint violation.
+await run('score_notices.title nullable', `ALTER TABLE score_notices ALTER COLUMN title DROP NOT NULL`);
+
 // ── Unique indexes (avoids drizzle "truncate?" prompt) ───────────────────────
 await run('idx shops_shop_domain_unique', `CREATE UNIQUE INDEX IF NOT EXISTS shops_shop_domain_unique ON shops (shop_domain)`);
 await run('idx permissions_name_unique', `CREATE UNIQUE INDEX IF NOT EXISTS permissions_name_unique ON permissions (name)`);

@@ -333,6 +333,15 @@ export async function runSchemaMigrations(): Promise<void> {
       table: "ai_scheduling_settings",
       sql: `ALTER TABLE ai_scheduling_settings ADD COLUMN IF NOT EXISTS store_id varchar REFERENCES work_locations(id) ON DELETE CASCADE`,
     },
+    // score_notices.title was added as NOT NULL in an older migration but is
+    // not in the Drizzle schema and not populated by gamificationService.ts,
+    // causing "null value in column title" crashes. Make it nullable so inserts
+    // without a title succeed. The column is harmless as nullable; drizzle-push
+    // will eventually clean it up.
+    {
+      table: "score_notices",
+      sql: `ALTER TABLE score_notices ALTER COLUMN title DROP NOT NULL`,
+    },
   ];
 
   let altered = 0;
