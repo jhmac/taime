@@ -362,6 +362,21 @@ export async function runSchemaMigrations(): Promise<void> {
     }
   }
 
+  // Backfill: tasks created before location scoping was enforced have
+  // location_id = NULL, making them invisible to store-scoped queries.
+  // Assign them to the first work_location (safe for single-store installs).
+  try {
+    await db.execute(sql.raw(`
+      UPDATE tasks
+      SET location_id = (SELECT id FROM work_locations ORDER BY name LIMIT 1)
+      WHERE location_id IS NULL
+        AND EXISTS (SELECT 1 FROM work_locations LIMIT 1)
+    `));
+  } catch (err: unknown) {
+    const pgErr = err as { message?: string };
+    console.warn("[Migration] tasks location_id backfill failed (non-fatal):", pgErr?.message ?? err);
+  }
+
   // Index on users.location_id for fast store-scoped queries
   try {
     await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_users_location_id ON users (location_id)`));
