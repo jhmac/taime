@@ -395,6 +395,131 @@ export function registerAiStudioRoutes(
     })
   );
 
+  // Quick-action: prompt + optional file → AI creates tasks / other objects directly
+  app.post(
+    "/api/ai-studio/quick-action",
+    isAuthenticated,
+    upload.single("file"),
+    asyncHandler(async (req: any, res) => {
+      await requireManager(storage, req.user.id);
+      const storeId = await resolveStoreId() as string;
+      const prompt = (req.body?.prompt ?? "").toString().trim();
+      if (!prompt) throw new AppError(400, "A prompt is required", "NO_PROMPT");
+
+      // Extract text from the attached file (if any)
+      let fileText = "";
+      if (req.file) {
+        try {
+          const extracted = await extractFromFile(req.file.path, req.file.mimetype, req.file.originalname);
+          fileText = extracted.rawText ?? "";
+        } finally {
+          fs.unlink(req.file.path, () => {});
+        }
+      }
+
+      const systemPrompt = `You are an AI assistant for Taime, a retail boutique scheduling and operations app.
+When given a document and a user prompt, extract the relevant data and return a JSON object describing the action to take.
+
+ALWAYS respond with valid JSON only — no markdown, no explanation, just the JSON object.
+
+Supported actions:
+1. create_tasks — create recurring or one-off tasks from the document
+   Response shape:
+   {
+     "action": "create_tasks",
+     "summary": "Short description of what was created",
+     "tasks": [
+       {
+         "title": "Task name",
+         "description": "Optional detail",
+         "dayOfWeek": "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | "sunday" | null,
+         "timeOfDay": "morning" | "afternoon" | "evening" | null,
+         "isRecurring": true | false,
+         "estimatedMinutes": 15,
+         "choreZone": "zone 1" | "dressing room" | etc or null,
+         "priority": "low" | "medium" | "high"
+       }
+     ]
+   }
+
+2. answer — answer a question from the document without creating anything
+   Response shape:
+   { "action": "answer", "text": "Your answer here" }
+
+Infer the action from the user prompt. If the prompt asks to create, add, generate, or schedule tasks/chores, use create_tasks.`;
+
+      const userContent = fileText
+        ? `Document content:\n\n${fileText}\n\n---\nUser request: ${prompt}`
+        : prompt;
+
+      let parsed: Record<string, unknown>;
+      try {
+        const response = await anthropic.messages.create({
+          model: DEFAULT_MODEL,
+          max_tokens: 4096,
+          system: systemPrompt,
+          messages: [{ role: "user", content: userContent }],
+        });
+        const raw = response.content
+          .filter((c) => c.type === "text")
+          .map((c) => (c as any).text)
+          .join("");
+        // Strip markdown code fences if present
+        const cleaned = raw.replace(/^```(?:json)?\n?/i, "").replace(/\n?```$/i, "").trim();
+        parsed = JSON.parse(cleaned);
+      } catch (err: unknown) {
+        throw new AppError(502, "AI failed to process your request. Please try again.", "AI_ERROR");
+      }
+
+      if (parsed.action === "create_tasks") {
+        type QuickTask = {
+          title: string;
+          description?: string;
+          dayOfWeek?: string;
+          timeOfDay?: string;
+          isRecurring?: boolean;
+          estimatedMinutes?: number;
+          choreZone?: string;
+          priority?: string;
+        };
+        const taskList = Array.isArray(parsed.tasks) ? (parsed.tasks as QuickTask[]) : [];
+        const createdTasks = [];
+        for (const t of taskList) {
+          if (!t.title) continue;
+          const created = await storage.createTask({
+            title: t.title,
+            description: t.description ?? null,
+            createdBy: req.user.id,
+            locationId: storeId,
+            dayOfWeek: t.dayOfWeek ?? null,
+            timeOfDay: t.timeOfDay ?? null,
+            isRecurring: t.isRecurring ?? false,
+            estimatedMinutes: t.estimatedMinutes ?? null,
+            choreZone: t.choreZone ?? null,
+            priority: (t.priority as any) ?? "medium",
+            status: "pending",
+            isAIAssigned: true,
+            aiReasoning: `Created via Quick Action: "${prompt}"`,
+          });
+          createdTasks.push(created);
+        }
+        return res.json({
+          success: true,
+          action: "create_tasks",
+          summary: parsed.summary ?? `Created ${createdTasks.length} tasks`,
+          count: createdTasks.length,
+          tasks: createdTasks,
+        });
+      }
+
+      if (parsed.action === "answer") {
+        return res.json({ success: true, action: "answer", text: parsed.text ?? "" });
+      }
+
+      res.json({ success: true, action: "unknown", raw: parsed });
+    })
+  );
+
   app.get(
     "/api/ai-studio/documents",
     isAuthenticated,

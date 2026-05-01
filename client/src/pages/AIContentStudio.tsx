@@ -46,6 +46,9 @@ import {
   Eye,
   EyeOff,
   Pencil,
+  Paperclip,
+  Zap,
+  ListChecks,
 } from "lucide-react";
 import type { KnowledgeDocument, AiGeneratedItem, QuizQuestion } from "@shared/schema";
 
@@ -106,6 +109,169 @@ type TaskContent = { role?: string; description?: string; frequency?: string; ta
 type KbParagraph = { heading?: string; body: string };
 type KbContent = { category?: string; summary?: string; paragraphs?: KbParagraph[]; tags?: string[] };
 type AiItemContent = SopContent | TrainingContent | TaskContent | KbContent;
+
+type QuickActionResult =
+  | { action: "create_tasks"; summary: string; count: number; tasks: { id: string; title: string; dayOfWeek?: string; timeOfDay?: string }[] }
+  | { action: "answer"; text: string }
+  | null;
+
+function QuickActionPanel() {
+  const { toast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [prompt, setPrompt] = useState("");
+  const [attachedFile, setAttachedFile] = useState<File | null>(null);
+  const [result, setResult] = useState<QuickActionResult>(null);
+  const [loading, setLoading] = useState(false);
+
+  const handleFile = (file: File) => setAttachedFile(file);
+
+  const removeFile = () => {
+    setAttachedFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const run = async () => {
+    if (!prompt.trim()) {
+      toast({ title: "Enter a prompt first", variant: "destructive" });
+      return;
+    }
+    setLoading(true);
+    setResult(null);
+    try {
+      const formData = new FormData();
+      formData.append("prompt", prompt.trim());
+      if (attachedFile) formData.append("file", attachedFile);
+
+      const res = await fetch("/api/ai-studio/quick-action", {
+        method: "POST",
+        body: formData,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message ?? "Request failed");
+      }
+      const data = await res.json();
+      setResult(data);
+      if (data.action === "create_tasks") {
+        toast({ title: `Created ${data.count} tasks`, description: data.summary });
+        qc.invalidateQueries({ queryKey: ["/api/tasks"] });
+      }
+    } catch (err: unknown) {
+      toast({ title: "Error", description: err instanceof Error ? err.message : "Something went wrong", variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const DAY_LABELS: Record<string, string> = {
+    monday: "Mon", tuesday: "Tue", wednesday: "Wed", thursday: "Thu",
+    friday: "Fri", saturday: "Sat", sunday: "Sun",
+  };
+
+  const grouped = result?.action === "create_tasks"
+    ? result.tasks.reduce<Record<string, typeof result.tasks>>((acc, t) => {
+        const key = t.dayOfWeek ?? "unscheduled";
+        if (!acc[key]) acc[key] = [];
+        acc[key].push(t);
+        return acc;
+      }, {})
+    : null;
+
+  return (
+    <Card className="border-primary/20 bg-primary/[0.02] dark:bg-primary/[0.04]">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <Zap className="w-4 h-4 text-primary" />
+          Quick Action
+          <span className="text-xs font-normal text-muted-foreground ml-1">
+            Attach a file and describe what you want to do
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {/* File attachment row */}
+        <div className="flex items-center gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf,.docx,.txt,.jpg,.jpeg,.png"
+            className="hidden"
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
+          />
+          {attachedFile ? (
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-muted rounded-md text-sm flex-1 min-w-0">
+              <FileText className="w-4 h-4 text-primary shrink-0" />
+              <span className="truncate flex-1">{attachedFile.name}</span>
+              <button onClick={removeFile} className="text-muted-foreground hover:text-foreground shrink-0">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 text-muted-foreground"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Paperclip className="w-4 h-4" />
+              Attach file
+            </Button>
+          )}
+        </div>
+
+        {/* Prompt + send */}
+        <div className="flex gap-2">
+          <Textarea
+            placeholder='e.g. "Scan this chore list and create recurring weekly tasks assigned to each day"'
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            rows={2}
+            className="resize-none flex-1 text-sm"
+            onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) run(); }}
+          />
+          <Button onClick={run} disabled={loading || !prompt.trim()} className="self-end gap-1.5 shrink-0">
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+            {loading ? "Running…" : "Run"}
+          </Button>
+        </div>
+
+        {/* Results */}
+        {result?.action === "create_tasks" && grouped && (
+          <div className="mt-2 space-y-3 animate-in fade-in-0 duration-300">
+            <div className="flex items-center gap-2 text-sm font-medium text-green-700 dark:text-green-400">
+              <ListChecks className="w-4 h-4" />
+              {result.summary}
+            </div>
+            {Object.entries(grouped).map(([day, dayTasks]) => (
+              <div key={day} className="space-y-1">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  {DAY_LABELS[day] ?? day}
+                </p>
+                <div className="grid gap-1">
+                  {dayTasks.map((t) => (
+                    <div key={t.id} className="flex items-center gap-2 text-sm px-2 py-1 rounded bg-muted/60">
+                      <CheckCircle className="w-3.5 h-3.5 text-green-500 shrink-0" />
+                      <span className="flex-1 truncate">{t.title}</span>
+                      {t.timeOfDay && (
+                        <Badge variant="outline" className="text-xs capitalize shrink-0">{t.timeOfDay}</Badge>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {result?.action === "answer" && (
+          <div className="mt-2 p-3 bg-muted rounded-md text-sm animate-in fade-in-0 duration-300">
+            {result.text}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 function SourceLibrary() {
   const { toast } = useToast();
@@ -1644,6 +1810,8 @@ export default function AIContentStudio() {
           Generate
         </Button>
       </div>
+
+      <QuickActionPanel />
 
       <Card>
         <CardHeader className="pb-3">
