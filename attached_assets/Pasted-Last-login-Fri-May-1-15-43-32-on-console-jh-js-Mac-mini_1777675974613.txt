@@ -1,0 +1,52 @@
+Last login: Fri May  1 15:43:32 on console
+jh@js-Mac-mini ~ % cd taime
+jh@js-Mac-mini taime % git pull
+npm run generate:icons    # also fixes the blank icon issue
+npx cap sync ios
+Already up to date.
+
+> rest-express@1.0.0 generate:icons
+> npx @capacitor/assets generate # also fixes the blank icon issue
+
+[warn] Android platform not found at /Users/jh/taime/android, skipping android
+       generation
+Generating assets for ios, pwa
+CREATE ios icon /Users/jh/taime/ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png (40.04 KB)
+CREATE ios splash /Users/jh/taime/ios/App/App/Assets.xcassets/Splash.imageset/Default@1x~universal~anyany.png (47.3 KB)
+CREATE ios splash /Users/jh/taime/ios/App/App/Assets.xcassets/Splash.imageset/Default@2x~universal~anyany.png (47.3 KB)
+CREATE ios splash /Users/jh/taime/ios/App/App/Assets.xcassets/Splash.imageset/Default@3x~universal~anyany.png (47.3 KB)
+CREATE ios splash-dark /Users/jh/taime/ios/App/App/Assets.xcassets/Splash.imageset/Default@1x~universal~anyany-dark.png (163.04 KB)
+CREATE ios splash-dark /Users/jh/taime/ios/App/App/Assets.xcassets/Splash.imageset/Default@2x~universal~anyany-dark.png (163.04 KB)
+CREATE ios splash-dark /Users/jh/taime/ios/App/App/Assets.xcassets/Splash.imageset/Default@3x~universal~anyany-dark.png (163.04 KB)
+CREATE ios splash /Users/jh/taime/ios/App/App/Assets.xcassets/Splash.imageset/Default@1x~universal~anyany.png (2.72 MB)
+CREATE ios splash /Users/jh/taime/ios/App/App/Assets.xcassets/Splash.imageset/Default@2x~universal~anyany.png (2.72 MB)
+CREATE ios splash /Users/jh/taime/ios/App/App/Assets.xcassets/Splash.imageset/Default@3x~universal~anyany.png (2.72 MB)
+CREATE pwa icon /Users/jh/taime/www/assets/icons/icon-48.webp (1.78 KB)
+CREATE pwa icon /Users/jh/taime/www/assets/icons/icon-72.webp (2.83 KB)
+CREATE pwa icon /Users/jh/taime/www/assets/icons/icon-96.webp (3.82 KB)
+CREATE pwa icon /Users/jh/taime/www/assets/icons/icon-128.webp (5.36 KB)
+CREATE pwa icon /Users/jh/taime/www/assets/icons/icon-192.webp (8.74 KB)
+CREATE pwa icon /Users/jh/taime/www/assets/icons/icon-256.webp (11.22 KB)
+CREATE pwa icon /Users/jh/taime/www/assets/icons/icon-512.webp (24.93 KB)
+
+
+Totals:
+ios: 10 generated, 8.82 MB total
+pwa: 7 generated, 58.68 KB total
+✔ Copying web assets from public to ios/App/App/public in 69.59ms
+✔ Creating capacitor.config.json in ios/App/App in 291.21μs
+✔ copy ios in 108.19ms
+✔ Updating iOS plugins in 5.88ms
+✔ Updating iOS native dependencies with pod install in 1.87s
+[info] Found 8 Capacitor plugins for ios:
+       @capacitor/app@8.1.0
+       @capacitor/camera@8.1.0
+       @capacitor/geolocation@8.2.0
+       @capacitor/haptics@8.0.2
+       @capacitor/push-notifications@8.0.3
+       @capacitor/splash-screen@8.0.1
+       @capacitor/status-bar@8.0.2
+       capacitor-native-settings@8.1.0
+✔ update ios in 1.90s
+[info] Sync finished in 2.071s
+jh@js-Mac-mini taime % 
