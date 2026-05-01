@@ -112,6 +112,36 @@ app.use((req, res, next) => {
 (async () => {
   const server = await registerRoutes(app);
 
+  // Apple App Site Association — enables Universal Links so iOS/iPadOS opens the native
+  // Taime app (com.taime.app) when users tap taime.us links instead of Safari.
+  // The developer must also add "applinks:taime.us" to the iOS target's Associated Domains
+  // entitlement in Xcode for this to take effect.
+  const aasaPayload = JSON.stringify({
+    applinks: {
+      apps: [],
+      details: [
+        {
+          appIDs: ["TAIMEAPPTEAMID.com.taime.app"],
+          components: [
+            { "/": "/*", comment: "All paths open in the native app" },
+          ],
+        },
+      ],
+    },
+  });
+  app.get("/.well-known/apple-app-site-association", (_req: Request, res: Response) => {
+    res.set("Content-Type", "application/json");
+    res.send(aasaPayload);
+  });
+  // Android App Links (fallback for future Android release)
+  app.get("/.well-known/assetlinks.json", (_req: Request, res: Response) => {
+    res.set("Content-Type", "application/json");
+    res.json([{
+      relation: ["delegate_permission/common.handle_all_urls"],
+      target: { namespace: "android_app", package_name: "com.taime.app", sha256_cert_fingerprints: [] },
+    }]);
+  });
+
   app.use(globalErrorHandler);
 
   // Stable build identifier used for SW cache versioning.

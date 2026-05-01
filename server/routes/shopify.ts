@@ -1119,6 +1119,55 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
       const daysBack = parseInt(req.query.daysBack as string || '365');
       const startDate = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000);
 
+      // Auto-sync today's data from Shopify if missing from the DB.
+      // This self-heals on every first load of the day without a manual trigger.
+      const todayKeyCheck = new Date().toISOString().split('T')[0];
+      const todayRow = await db.select({ id: shopifyDailySales.id })
+        .from(shopifyDailySales)
+        .where(and(
+          eq(shopifyDailySales.shopDomain, resolvedDomain),
+          gte(shopifyDailySales.date, new Date(todayKeyCheck + 'T00:00:00Z'))
+        ))
+        .limit(1);
+
+      if (!todayRow.length) {
+        // Today is missing — pull the last 7 days from Shopify and upsert silently.
+        try {
+          const creds = await getShopifyCredentials(resolvedDomain);
+          if (creds) {
+            const svc = new ShopifyService(creds.shopDomain, creds.accessToken);
+            const syncStart = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+            const orders = await svc.getOrders({ first: 250, createdAtMin: syncStart.toISOString(), createdAtMax: new Date().toISOString(), maxPages: 5 });
+            const agg: Record<string, { date: Date; dayOfWeek: number; orderCount: number; totalRevenue: number; itemCount: number }> = {};
+            for (const o of orders) {
+              const d = new Date(o.createdAt);
+              const k = d.toISOString().split('T')[0];
+              if (!agg[k]) agg[k] = { date: new Date(k + 'T00:00:00Z'), dayOfWeek: new Date(k + 'T00:00:00Z').getUTCDay(), orderCount: 0, totalRevenue: 0, itemCount: 0 };
+              agg[k].orderCount++;
+              agg[k].totalRevenue += parseFloat(o.totalPriceSet?.shopMoney?.amount || '0');
+              for (const li of (o.lineItems?.nodes || [])) agg[k].itemCount += li.quantity || 1;
+            }
+            for (const dayData of Object.values(agg)) {
+              const aov = dayData.orderCount > 0 ? Math.round((dayData.totalRevenue / dayData.orderCount) * 100) / 100 : 0;
+              await db.insert(shopifyDailySales).values({
+                shopDomain: resolvedDomain,
+                date: dayData.date,
+                dayOfWeek: dayData.dayOfWeek,
+                orderCount: dayData.orderCount,
+                totalRevenue: String(Math.round(dayData.totalRevenue * 100) / 100),
+                itemCount: dayData.itemCount,
+                averageOrderValue: String(aov),
+              }).onConflictDoUpdate({
+                target: [shopifyDailySales.shopDomain, shopifyDailySales.date],
+                set: { orderCount: dayData.orderCount, totalRevenue: String(Math.round(dayData.totalRevenue * 100) / 100), itemCount: dayData.itemCount, averageOrderValue: String(aov) },
+              });
+            }
+          }
+        } catch (syncErr) {
+          console.warn('[shopify/sales-data] Auto-sync failed, returning DB cache:', syncErr instanceof Error ? syncErr.message : syncErr);
+        }
+      }
+
       const salesData = await db.select()
         .from(shopifyDailySales)
         .where(and(
