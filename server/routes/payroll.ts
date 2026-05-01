@@ -7,6 +7,8 @@ import { claudeService } from "../services/claudeService";
 import { automationService } from "../services/automationService";
 import { payrollAutomationService } from "../services/payrollAutomationService";
 import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
+import { tryResolveStoreIdForUser } from "../services/storeResolver";
+import { hasEntitlement } from "../services/entitlements";
 
 function sanitizeCsvField(field: string): string {
   const dangerous = /^[=+\-@\t\r]/;
@@ -138,6 +140,12 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
 
       if (!canManage) {
         return res.status(403).json({ message: "Payroll management access required" });
+      }
+
+      // Entitlement check (ADR-0005): payroll CSV export is a paid feature.
+      const storeId = await tryResolveStoreIdForUser(userId);
+      if (storeId && !await hasEntitlement(storeId, "payroll.export")) {
+        return res.status(403).json({ message: "Your plan does not include payroll export. Please upgrade to continue." });
       }
 
       const { startDate, endDate } = req.query;

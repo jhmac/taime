@@ -975,6 +975,24 @@ export async function runSchemaMigrations(): Promise<void> {
         `CREATE INDEX IF NOT EXISTS "idx_notif_delivery_logs_sent_at" ON notification_delivery_logs (sent_at)`,
       ],
     },
+    // Task #457 — Entitlement read module
+    // Read-side cache written exclusively by the Stripe webhook handler.
+    // One row per (store_id, feature_key). When no rows exist for a store the
+    // entitlement module defaults to full access (trial / pre-subscription state).
+    {
+      name: "store_entitlements",
+      ddl: `CREATE TABLE IF NOT EXISTS store_entitlements (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        store_id varchar NOT NULL REFERENCES work_locations(id) ON DELETE CASCADE,
+        feature_key varchar(100) NOT NULL,
+        granted_at timestamp DEFAULT now(),
+        updated_at timestamp DEFAULT now()
+      )`,
+      indexes: [
+        `CREATE UNIQUE INDEX IF NOT EXISTS "uq_store_entitlements_store_key" ON store_entitlements (store_id, feature_key)`,
+        `CREATE INDEX IF NOT EXISTS "idx_store_entitlements_store_id" ON store_entitlements (store_id)`,
+      ],
+    },
     // Task #256 — Shopify POS register data
     {
       name: "shopify_register_sessions",

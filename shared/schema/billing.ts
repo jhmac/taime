@@ -108,6 +108,22 @@ export const shopifyReportSchedules = pgTable("shopify_report_schedules", {
   uniqueIndex("uq_shopify_report_schedules_shop").on(table.shopDomain),
 ]);
 
+// Store Entitlements — the read-side cache that maps a Store to the feature keys its
+// current Plan grants. Populated exclusively by the Stripe webhook handler; the rest
+// of the app reads this table through server/services/entitlements.ts and never calls
+// Stripe directly. One row per (storeId, featureKey). When no rows exist for a store
+// the entitlement module defaults to full access (trial / pre-subscription state).
+export const storeEntitlements = pgTable("store_entitlements", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").notNull().references(() => workLocations.id, { onDelete: "cascade" }),
+  featureKey: varchar("feature_key", { length: 100 }).notNull(),
+  grantedAt: timestamp("granted_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  uniqueIndex("uq_store_entitlements_store_key").on(table.storeId, table.featureKey),
+  index("idx_store_entitlements_store_id").on(table.storeId),
+]);
+
 // Shopify Register Sessions (snapshot from Shopify POS cashTrackingSessions API)
 export const shopifyRegisterSessions = pgTable("shopify_register_sessions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -136,6 +152,7 @@ export const shopifyRegisterSessions = pgTable("shopify_register_sessions", {
 ]);
 
 // Insert schemas
+export const insertStoreEntitlementSchema = createInsertSchema(storeEntitlements).omit({ id: true, grantedAt: true, updatedAt: true });
 export const insertShopSchema = createInsertSchema(shops).omit({ id: true, installedAt: true, updatedAt: true });
 export const insertUserShopSchema = createInsertSchema(userShops).omit({ id: true, createdAt: true });
 export const insertShopifyDailySalesSchema = createInsertSchema(shopifyDailySales).omit({ id: true, createdAt: true });
@@ -144,6 +161,8 @@ export const insertShopifyReportScheduleSchema = createInsertSchema(shopifyRepor
 export const insertShopifyRegisterSessionSchema = createInsertSchema(shopifyRegisterSessions).omit({ id: true, createdAt: true });
 
 // Types
+export type StoreEntitlement = typeof storeEntitlements.$inferSelect;
+export type InsertStoreEntitlement = z.infer<typeof insertStoreEntitlementSchema>;
 export type Shop = typeof shops.$inferSelect;
 export type UserShop = typeof userShops.$inferSelect;
 export type ShopifyDailySale = typeof shopifyDailySales.$inferSelect;

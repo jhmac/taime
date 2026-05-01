@@ -5,6 +5,8 @@ import { eq } from "drizzle-orm";
 import { db } from "../db";
 import { cache } from "../services/cache";
 import { resolveAnyPermission } from "../services/permissionResolver";
+import { tryResolveStoreIdForUser } from "../services/storeResolver";
+import { hasEntitlement } from "../services/entitlements";
 
 export function registerAnalyticsRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
   app.get('/api/analytics/dashboard', isAuthenticated, async (req: any, res) => {
@@ -16,6 +18,14 @@ export function registerAnalyticsRoutes(app: Express, storage: IStorage, isAuthe
 
       if (!canView) {
         return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Entitlement check (ADR-0005): gate on analytics.dashboard feature key.
+      // When storeId cannot be resolved the check is skipped so users without a
+      // store assignment are not inadvertently blocked.
+      const storeId = await tryResolveStoreIdForUser(userId);
+      if (storeId && !await hasEntitlement(storeId, "analytics.dashboard")) {
+        return res.status(403).json({ message: "Your plan does not include access to the analytics dashboard. Please upgrade to continue." });
       }
 
       const now = new Date();
