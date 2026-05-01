@@ -1,4 +1,5 @@
 import type { Request, Response, NextFunction } from "express";
+import { ZodError } from "zod";
 import logger from "./logger";
 
 export class AppError extends Error {
@@ -59,6 +60,12 @@ export function globalErrorHandler(
   if (isOperational) {
     return res.status(statusCode).json(
       formatErrorResponse(statusCode, err.userMessage, err.code)
+    );
+  }
+
+  if (err instanceof ZodError) {
+    return res.status(400).json(
+      formatErrorResponse(400, "Invalid request data", "VALIDATION_ERROR")
     );
   }
 
