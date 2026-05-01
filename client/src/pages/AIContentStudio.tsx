@@ -1365,6 +1365,27 @@ function ItemsTab({ type }: { type: string }) {
     },
   });
 
+  const approveAndPublishAllMutation = useMutation({
+    mutationFn: () =>
+      apiRequest("POST", "/api/ai-studio/items/approve-and-publish-all", {
+        type: type === "all" ? undefined : type,
+      }),
+    onSuccess: (data: any) => {
+      qc.invalidateQueries({ queryKey: ["/api/ai-studio/items"] });
+      qc.invalidateQueries({ queryKey: ["/api/sop/documents"] });
+      qc.invalidateQueries({ queryKey: ["/api/knowledge-base"] });
+      const published = data?.published ?? 0;
+      const errs = data?.errors?.length ?? 0;
+      toast({
+        title: `${published} item${published !== 1 ? "s" : ""} published to library!`,
+        description: errs > 0 ? `${errs} item(s) had errors.` : "They are now visible in the Knowledge Base.",
+      });
+    },
+    onError: () => {
+      toast({ title: "Publish all failed", variant: "destructive" });
+    },
+  });
+
   const handleUpdate = (id: string, data: AiItemUpdatePayload) => {
     updateMutation.mutate({ id, data });
   };
@@ -1419,9 +1440,25 @@ function ItemsTab({ type }: { type: string }) {
 
       {reviewItems.length > 0 && (
         <div className="space-y-3">
-          <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-            In Review ({reviewItems.length})
-          </h3>
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+              In Review ({reviewItems.length})
+            </h3>
+            <Button
+              size="sm"
+              className="gap-1.5 bg-primary/90 hover:bg-primary text-primary-foreground text-xs h-8 px-3"
+              onClick={() => approveAndPublishAllMutation.mutate()}
+              disabled={approveAndPublishAllMutation.isPending}
+              title="Approve and publish all items currently in review — they will appear immediately in the Knowledge Base"
+            >
+              {approveAndPublishAllMutation.isPending ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Send className="w-3 h-3" />
+              )}
+              Approve & Publish All
+            </Button>
+          </div>
           {reviewItems.map((item) => (
             <ItemCard
               key={item.id}

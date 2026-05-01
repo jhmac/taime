@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { z } from "zod";
 import { db } from "../db";
-import { eq, and, desc, asc, sql, ilike, or, gte, lte, count } from "drizzle-orm";
+import { eq, and, desc, asc, sql, ilike, or, gte, lte, count, inArray } from "drizzle-orm";
 import {
   sopTemplates,
   sopSteps,
@@ -1008,24 +1008,25 @@ export function registerSopLibraryRoutes(
     const q = req.query.q as string | undefined;
     const tag = req.query.tag as string | undefined;
 
-    const [kbCat] = await db
-      .select({ id: sopCategories.id })
-      .from(sopCategories)
-      .where(
-        and(
-          eq(sopCategories.storeId, storeId),
-          eq(sopCategories.name, "Knowledge Base")
-        )
-      )
-      .limit(1);
+    const searchTerm = q ? q.trim() : "";
 
-    if (!kbCat) {
-      return res.json({ success: true, data: [], tags: [] });
+    // Fetch all categories for this store so we can label articles
+    const categories = await db
+      .select({ id: sopCategories.id, name: sopCategories.name })
+      .from(sopCategories)
+      .where(eq(sopCategories.storeId, storeId));
+
+    const catMap = new Map(categories.map(c => [c.id, c.name]));
+
+    // Pull ALL published sop_documents for this store (not just KB category)
+    // so that SOPs generated in AI Studio appear in the library too.
+    const allCatIds = categories.map(c => c.id);
+    if (allCatIds.length === 0) {
+      return res.json({ success: true, data: [], tags: [], categories: [] });
     }
 
-    const searchTerm = q ? q.trim() : "";
     const whereClause = and(
-      eq(sopDocuments.categoryId, kbCat.id),
+      inArray(sopDocuments.categoryId, allCatIds),
       eq(sopDocuments.isPublished, true),
       searchTerm
         ? or(
@@ -1044,21 +1045,27 @@ export function registerSopLibraryRoutes(
         content: sopDocuments.content,
         tags: sopDocuments.tags,
         source: sopDocuments.source,
+        categoryId: sopDocuments.categoryId,
         updatedAt: sopDocuments.updatedAt,
         createdAt: sopDocuments.createdAt,
       })
       .from(sopDocuments)
       .where(whereClause)
       .orderBy(desc(sopDocuments.updatedAt))
-      .limit(100);
+      .limit(200);
+
+    const withCategory = articles.map(a => ({
+      ...a,
+      categoryName: catMap.get(a.categoryId ?? '') ?? 'General',
+    }));
 
     const filtered = tag
-      ? articles.filter(a => Array.isArray(a.tags) && a.tags.includes(tag))
-      : articles;
+      ? withCategory.filter(a => Array.isArray(a.tags) && a.tags.includes(tag))
+      : withCategory;
 
     const allTags = Array.from(
       new Set(
-        articles.flatMap(a =>
+        withCategory.flatMap(a =>
           (Array.isArray(a.tags) ? a.tags : []).filter(
             t => t !== "ai-generated" && t !== "knowledge-base"
           )
@@ -1066,7 +1073,9 @@ export function registerSopLibraryRoutes(
       )
     ).sort();
 
-    res.json({ success: true, data: filtered, tags: allTags });
+    const presentCategories = Array.from(new Set(filtered.map(a => a.categoryName))).sort();
+
+    res.json({ success: true, data: filtered, tags: allTags, categories: presentCategories });
   }));
 
   app.get('/api/knowledge-base/:id', isAuthenticated, asyncHandler(async (req: any, res) => {

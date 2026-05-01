@@ -980,4 +980,73 @@ INSTRUCTIONS:
       res.json({ success: true, results, errors });
     })
   );
+
+  // Approve all in-review items for this store (optionally filtered by type) then publish them.
+  // This lets a manager one-click publish everything generated from their uploaded documents.
+  app.post(
+    "/api/ai-studio/items/approve-and-publish-all",
+    isAuthenticated,
+    asyncHandler(async (req: any, res) => {
+      await requireManager(storage, req.user.id);
+      const storeId = await resolveStoreId() as string;
+      const { type, categoryId } = z.object({
+        type: z.string().optional(),
+        categoryId: z.string().optional(),
+      }).parse(req.body);
+
+      // Fetch all in_review items for this store
+      const conditions: ReturnType<typeof and>[] = [
+        eq(aiGeneratedItems.storeId, storeId),
+        eq(aiGeneratedItems.status, "in_review"),
+      ];
+      if (type) conditions.push(eq(aiGeneratedItems.type, type));
+
+      const inReviewItems = await db
+        .select()
+        .from(aiGeneratedItems)
+        .where(and(...conditions));
+
+      if (inReviewItems.length === 0) {
+        return res.json({ success: true, results: [], errors: [], approved: 0, published: 0 });
+      }
+
+      // Step 1: approve all
+      const ids = inReviewItems.map(i => i.id);
+      await db
+        .update(aiGeneratedItems)
+        .set({ status: "approved", updatedAt: new Date() })
+        .where(inArray(aiGeneratedItems.id, ids));
+
+      // Step 2: publish all
+      const results = [];
+      const errors = [];
+      for (const item of inReviewItems) {
+        try {
+          const approved = { ...item, status: "approved" as const };
+          let result: Record<string, unknown>;
+          if (approved.type === "sop") {
+            result = await publishSopItem(approved, storeId, categoryId, storage);
+          } else if (approved.type === "training") {
+            result = await publishTrainingItem(approved, storeId, storage);
+          } else if (approved.type === "task") {
+            result = await publishTaskItem(approved, storeId, approved.createdBy || req.user.id, storage);
+          } else if (approved.type === "knowledge_base") {
+            result = await publishKnowledgeBaseItem(approved, storeId, storage);
+          } else {
+            errors.push({ id: item.id, error: `Unknown type: ${approved.type}` });
+            continue;
+          }
+          await db
+            .update(aiGeneratedItems)
+            .set({ status: "published", updatedAt: new Date() })
+            .where(eq(aiGeneratedItems.id, item.id));
+          results.push({ id: item.id, ...result });
+        } catch (err: unknown) {
+          errors.push({ id: item.id, error: err instanceof Error ? err.message : "Unknown error" });
+        }
+      }
+
+      res.json({ success: true, results, errors, approved: ids.length, published: results.length });
+    })
+  );
 }
