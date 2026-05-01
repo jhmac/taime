@@ -406,16 +406,11 @@ export function registerAiStudioRoutes(
       const prompt = (req.body?.prompt ?? "").toString().trim();
       if (!prompt) throw new AppError(400, "A prompt is required", "NO_PROMPT");
 
-      // Extract text from the attached file (if any)
-      let fileText = "";
-      if (req.file) {
-        try {
-          const extracted = await extractFromFile(req.file.path, req.file.mimetype, req.file.originalname);
-          fileText = extracted.rawText ?? "";
-        } finally {
-          fs.unlink(req.file.path, () => {});
-        }
-      }
+      // Build the Claude message content — PDFs and images are sent natively
+      // (one API call) instead of extracting text first (which would be two
+      // slow sequential calls for a PDF that needs the Claude fallback).
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let messageContent: string | any[];
 
       const systemPrompt = `You are an AI assistant for Taime, a retail boutique scheduling and operations app.
 When given a document and a user prompt, extract the relevant data and return a JSON object describing the action to take.
@@ -448,17 +443,52 @@ Supported actions:
 
 Infer the action from the user prompt. If the prompt asks to create, add, generate, or schedule tasks/chores, use create_tasks.`;
 
-      const userContent = fileText
-        ? `Document content:\n\n${fileText}\n\n---\nUser request: ${prompt}`
-        : prompt;
+      if (req.file) {
+        const file = req.file;
+        const ext = path.extname(file.originalname).toLowerCase();
+        const buffer = fs.readFileSync(file.path);
+        fs.unlink(file.path, () => {});
+
+        if (ext === ".pdf" || file.mimetype === "application/pdf") {
+          // Send PDF directly to Claude — avoids a slow pre-extraction call
+          messageContent = [
+            {
+              type: "document",
+              source: { type: "base64", media_type: "application/pdf", data: buffer.toString("base64") },
+            } as any,
+            { type: "text", text: `User request: ${prompt}` },
+          ];
+        } else if ([".jpg", ".jpeg", ".png"].includes(ext) || file.mimetype.startsWith("image/")) {
+          const imageMime: ImageMediaType = ext === ".png" ? "image/png" : "image/jpeg";
+          messageContent = [
+            { type: "image", source: { type: "base64", media_type: imageMime, data: buffer.toString("base64") } } as any,
+            { type: "text", text: `User request: ${prompt}` },
+          ];
+        } else {
+          // TXT / DOCX — fast local extraction, then one Claude call
+          let fileText = "";
+          try {
+            if (ext === ".txt" || file.mimetype === "text/plain") {
+              fileText = buffer.toString("utf-8");
+            } else if (ext === ".docx") {
+              const mammoth = await import("mammoth");
+              const result = await mammoth.extractRawText({ buffer });
+              fileText = result.value;
+            }
+          } catch {}
+          messageContent = `Document content:\n\n${fileText}\n\n---\nUser request: ${prompt}`;
+        }
+      } else {
+        messageContent = prompt;
+      }
 
       let parsed: Record<string, unknown>;
       try {
         const response = await anthropic.messages.create({
           model: DEFAULT_MODEL,
-          max_tokens: 4096,
+          max_tokens: 8192,
           system: systemPrompt,
-          messages: [{ role: "user", content: userContent }],
+          messages: [{ role: "user", content: messageContent }],
         });
         const raw = response.content
           .filter((c) => c.type === "text")
@@ -468,6 +498,8 @@ Infer the action from the user prompt. If the prompt asks to create, add, genera
         const cleaned = raw.replace(/^```(?:json)?\n?/i, "").replace(/\n?```$/i, "").trim();
         parsed = JSON.parse(cleaned);
       } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        logger.error({ err: msg }, "[QuickAction] Claude call failed");
         throw new AppError(502, "AI failed to process your request. Please try again.", "AI_ERROR");
       }
 
