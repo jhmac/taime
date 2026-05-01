@@ -10,21 +10,31 @@ export async function resolveStoreIdForUser(userId: string): Promise<string> {
     .where(eq(users.id, userId))
     .limit(1);
 
-  if (!user?.locationId) {
-    throw new AppError(400, "Your account has no store location assigned. Contact your administrator.", "NO_STORE");
+  if (user?.locationId) {
+    const [loc] = await db
+      .select({ id: workLocations.id })
+      .from(workLocations)
+      .where(and(eq(workLocations.id, user.locationId), eq(workLocations.isActive, true)))
+      .limit(1);
+
+    if (loc) return loc.id;
   }
 
-  const [loc] = await db
+  // Fallback for single-store installs: if the user has no explicit store
+  // assignment but there is exactly one active store, use it automatically.
+  // This handles users who were created before location scoping was enforced
+  // and have not yet been backfilled by the startup migration.
+  const activeStores = await db
     .select({ id: workLocations.id })
     .from(workLocations)
-    .where(and(eq(workLocations.id, user.locationId), eq(workLocations.isActive, true)))
-    .limit(1);
+    .where(eq(workLocations.isActive, true))
+    .limit(2);
 
-  if (!loc) {
-    throw new AppError(400, "No active store found matching your location. Contact your administrator.", "NO_STORE");
+  if (activeStores.length === 1) {
+    return activeStores[0].id;
   }
 
-  return loc.id;
+  throw new AppError(400, "Your account has no store location assigned. Contact your administrator.", "NO_STORE");
 }
 
 export async function tryResolveStoreIdForUser(userId: string): Promise<string | null> {

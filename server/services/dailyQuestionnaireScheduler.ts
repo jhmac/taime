@@ -174,11 +174,13 @@ Rules:
 
   const message = await anthropic.messages.create({
     model: DEFAULT_MODEL,
-    max_tokens: 2000,
+    max_tokens: 3000,
     messages: [{ role: "user", content: prompt }],
   });
 
-  const text = message.content[0].type === "text" ? message.content[0].text : "";
+  const rawText = message.content[0].type === "text" ? message.content[0].text : "";
+  // Strip markdown code fences that Claude sometimes adds despite instructions
+  const text = rawText.replace(/```json?\s*/gi, "").replace(/```\s*/g, "");
   const jsonMatch = text.match(/\{[\s\S]*\}/);
   if (!jsonMatch) throw new Error("No JSON found in AI response");
 

@@ -377,6 +377,21 @@ export async function runSchemaMigrations(): Promise<void> {
     console.warn("[Migration] tasks location_id backfill failed (non-fatal):", pgErr?.message ?? err);
   }
 
+  // Backfill: users without a location_id cannot access any store-scoped feature.
+  // On a single-store install this is always an oversight — assign them to the
+  // one active store so they can clock in, see training, etc.
+  try {
+    await db.execute(sql.raw(`
+      UPDATE users
+      SET location_id = (SELECT id FROM work_locations WHERE is_active = true ORDER BY name LIMIT 1)
+      WHERE location_id IS NULL
+        AND (SELECT count(*) FROM work_locations WHERE is_active = true) = 1
+    `));
+  } catch (err: unknown) {
+    const pgErr = err as { message?: string };
+    console.warn("[Migration] users location_id backfill failed (non-fatal):", pgErr?.message ?? err);
+  }
+
   // Index on users.location_id for fast store-scoped queries
   try {
     await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_users_location_id ON users (location_id)`));

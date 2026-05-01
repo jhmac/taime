@@ -252,35 +252,37 @@ ${docContent.slice(0, 10000)}
 
 Create 1 training module from this document.
 
-Return a JSON array:
+Return a JSON array. IMPORTANT: all field values must be plain strings with no embedded newlines, no markdown, no special characters that would break JSON.parse.
 [
   {
     "title": "Module title",
     "role": "target role",
-    "description": "Module description",
-    "objectives": ["Objective 1", "Objective 2"],
-    "markdownContent": "# Module Title\n\nFull content in markdown...",
+    "description": "2-3 sentence module description",
+    "objectives": ["Objective 1", "Objective 2", "Objective 3"],
+    "keyPoints": ["Key point 1", "Key point 2", "Key point 3", "Key point 4"],
     "exercises": [
       {
-        "scenario": "Customer scenario",
+        "scenario": "Brief customer scenario description",
         "question": "What would you do?",
-        "guidance": "Ideal response guidance"
+        "guidance": "Ideal response guidance in 1-2 sentences"
       }
     ],
     "estimatedMinutes": 20
   }
 ]
 
-Return ONLY the JSON array, no other text.`;
+Return ONLY valid JSON. No markdown, no code fences, no extra text.`;
 
         try {
           const response = await claudeCall({
             model: DEFAULT_MODEL,
-            max_tokens: 2048,
+            max_tokens: 3000,
             messages: [{ role: "user", content: trainingPrompt }],
           }, 120_000);
 
-          const text = response.content[0].type === "text" ? response.content[0].text : "";
+          const rawText = response.content[0].type === "text" ? response.content[0].text : "";
+          // Strip markdown code fences before extracting JSON
+          const text = rawText.replace(/```json?\s*/gi, "").replace(/```\s*/g, "");
           const jsonMatch = text.match(/\[[\s\S]*\]/);
           if (jsonMatch) {
             const modules = JSON.parse(jsonMatch[0]);
