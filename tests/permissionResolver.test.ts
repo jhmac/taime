@@ -220,4 +220,150 @@ describe('resolveAnyPermission (DB-backed)', () => {
 
     expect(mockStorage.getUserPermissions).toHaveBeenCalledOnce();
   });
+
+  // -------------------------------------------------------------------------
+  // Edge cases — empty key lists, single-element lists, large sets, and
+  // ordering of matches inside the requested key list.
+  // -------------------------------------------------------------------------
+
+  it('returns false for an empty permissionKeys array', async () => {
+    const mockStorage = {
+      getUserPermissions: vi.fn().mockResolvedValue([
+        { name: 'sales.view_all' },
+        { name: 'hr.edit_team' },
+      ]),
+    };
+
+    const result = await resolveAnyPermission('user-1', [], mockStorage);
+
+    expect(result).toBe(false);
+  });
+
+  it('returns false for an empty permissionKeys array even when the user has no permissions', async () => {
+    const mockStorage = {
+      getUserPermissions: vi.fn().mockResolvedValue([]),
+    };
+
+    const result = await resolveAnyPermission('user-1', [], mockStorage);
+
+    expect(result).toBe(false);
+  });
+
+  it('returns true for a single-element list when the key is present', async () => {
+    const mockStorage = {
+      getUserPermissions: vi.fn().mockResolvedValue([
+        { name: 'sales.view_all' },
+      ]),
+    };
+
+    const result = await resolveAnyPermission(
+      'user-1',
+      ['sales.view_all'],
+      mockStorage,
+    );
+
+    expect(result).toBe(true);
+  });
+
+  it('returns false for a single-element list when the key is absent', async () => {
+    const mockStorage = {
+      getUserPermissions: vi.fn().mockResolvedValue([
+        { name: 'reports.view' },
+      ]),
+    };
+
+    const result = await resolveAnyPermission(
+      'user-1',
+      ['sales.view_all'],
+      mockStorage,
+    );
+
+    expect(result).toBe(false);
+  });
+
+  it('returns true when the first key is absent but a later key is present (no false short-circuit)', async () => {
+    // Guards against a regression where `.some()` would be replaced by an
+    // early `return false` on the first miss. The user only has the third
+    // requested key, so the helper must scan past the first two misses.
+    const mockStorage = {
+      getUserPermissions: vi.fn().mockResolvedValue([
+        { name: 'admin.manage_all' },
+      ]),
+    };
+
+    const result = await resolveAnyPermission(
+      'user-1',
+      ['sales.view_all', 'hr.edit_team', 'admin.manage_all'],
+      mockStorage,
+    );
+
+    expect(result).toBe(true);
+  });
+
+  it('returns true when only the last key in a long list matches', async () => {
+    const requestedKeys = Array.from({ length: 50 }, (_, i) => `perm.key_${i}`);
+    const mockStorage = {
+      getUserPermissions: vi.fn().mockResolvedValue([
+        { name: 'perm.key_49' },
+      ]),
+    };
+
+    const result = await resolveAnyPermission(
+      'user-1',
+      requestedKeys,
+      mockStorage,
+    );
+
+    expect(result).toBe(true);
+  });
+
+  it('returns true with a large permission set (1000 perms) when one key matches', async () => {
+    const userPerms = Array.from({ length: 1000 }, (_, i) => ({
+      name: `perm.key_${i}`,
+    }));
+    const mockStorage = {
+      getUserPermissions: vi.fn().mockResolvedValue(userPerms),
+    };
+
+    const result = await resolveAnyPermission(
+      'user-1',
+      ['perm.key_999', 'unrelated.key'],
+      mockStorage,
+    );
+
+    expect(result).toBe(true);
+    expect(mockStorage.getUserPermissions).toHaveBeenCalledOnce();
+  });
+
+  it('returns false with a large permission set (1000 perms) when no requested key matches', async () => {
+    const userPerms = Array.from({ length: 1000 }, (_, i) => ({
+      name: `perm.key_${i}`,
+    }));
+    const mockStorage = {
+      getUserPermissions: vi.fn().mockResolvedValue(userPerms),
+    };
+
+    const result = await resolveAnyPermission(
+      'user-1',
+      ['missing.one', 'missing.two', 'missing.three'],
+      mockStorage,
+    );
+
+    expect(result).toBe(false);
+  });
+
+  it('returns true with a large requested key list (1000 keys) when one matches', async () => {
+    const requestedKeys = Array.from({ length: 1000 }, (_, i) => `req.key_${i}`);
+    const mockStorage = {
+      getUserPermissions: vi.fn().mockResolvedValue([{ name: 'req.key_500' }]),
+    };
+
+    const result = await resolveAnyPermission(
+      'user-1',
+      requestedKeys,
+      mockStorage,
+    );
+
+    expect(result).toBe(true);
+  });
 });
