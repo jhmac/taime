@@ -70,117 +70,133 @@ async function isPeriodFullyApproved(periodStart: string, periodEnd: string): Pr
   }
 }
 
-async function runTimesheetReminderCheck(): Promise<void> {
-  try {
-    // Resolve store context from workflow settings (storeId may be null for legacy single-store)
-    const workflowSettings = await storage.getTimesheetWorkflowSettings();
-    if (!workflowSettings) return;
-    const storeId: string | null = (workflowSettings as any).storeId ?? null;
+async function runTimesheetReminderCheckForStore(
+  storeId: string | null,
+  workflowSettings: import("@shared/schema").TimesheetWorkflowSettings
+): Promise<void> {
+  const payPeriodSettings = await storage.getPayPeriodSettings();
+  if (!payPeriodSettings?.firstPayPeriodStart) return;
 
-    const payPeriodSettings = await storage.getPayPeriodSettings();
-    if (!payPeriodSettings?.firstPayPeriodStart) return;
+  const intervalType = payPeriodSettings.intervalType || "bi-weekly";
+  const intervalDays =
+    intervalType === "weekly" ? 7
+    : intervalType === "bi-weekly" ? 14
+    : intervalType === "semi-monthly" ? 15
+    : 30;
 
-    const intervalType = payPeriodSettings.intervalType || "bi-weekly";
-    const intervalDays =
-      intervalType === "weekly" ? 7
-      : intervalType === "bi-weekly" ? 14
-      : intervalType === "semi-monthly" ? 15
-      : 30;
+  const today = new Date().toISOString().split("T")[0];
+  const periods = computeRecentPeriods(
+    new Date(payPeriodSettings.firstPayPeriodStart),
+    intervalDays,
+    6
+  );
 
-    const today = new Date().toISOString().split("T")[0];
-    const periods = computeRecentPeriods(
-      new Date(payPeriodSettings.firstPayPeriodStart),
-      intervalDays,
-      6
-    );
+  const managerReminderDays = workflowSettings.managerReminderDaysAfterPeriod ?? 2;
+  const escalationDays = workflowSettings.managerEscalationDaysAfterReminder ?? 3;
+  const managerUserIds = (workflowSettings.managerUserIds as string[]) || [];
+  const adminUserId = workflowSettings.adminUserId;
 
-    const managerReminderDays = workflowSettings.managerReminderDaysAfterPeriod ?? 2;
-    const escalationDays = workflowSettings.managerEscalationDaysAfterReminder ?? 3;
-    const managerUserIds = (workflowSettings.managerUserIds as string[]) || [];
-    const adminUserId = workflowSettings.adminUserId;
+  for (const period of periods) {
+    const isPastPeriod = period.endDate < today;
 
-    for (const period of periods) {
-      const isPastPeriod = period.endDate < today;
-
-      // ── Employee self-review: send on the last day of the current period ──
-      if (workflowSettings.employeeSelfReviewReminder && period.endDate === today) {
-        const allUsers = await storage.getAllUsers();
-        for (const user of allUsers) {
-          if (!user.isActive) continue;
-          const alreadySent = await hasReminderBeenSent(period.startDate, period.endDate, "employee_self_review", user.id, storeId);
-          if (!alreadySent) {
-            await notificationService.sendToUser(user.id, {
-              title: "Please Review Your Hours",
-              body: `Today is the last day of your pay period (ending ${period.endDate}). Please check your clock-in/out entries and flag any issues.`,
-              data: { type: "employee_self_review", periodStart: period.startDate, periodEnd: period.endDate },
-            });
-            await storage.createTimesheetReminderLog({
-              storeId: storeId ?? undefined,
-              periodStart: period.startDate,
-              periodEnd: period.endDate,
-              reminderType: "employee_self_review",
-              userId: user.id,
-            });
-          }
-        }
-      }
-
-      // ── Manager reminder & escalation: only for past periods ──
-      if (!isPastPeriod) continue;
-
-      const daysAfterPeriodEnd = daysBetween(period.endDate);
-
-      // Check period-level approval chain instead of entry-by-entry
-      let alreadyApproved = false;
-      if (storeId) {
-        const periodApproval = await storage.getTimesheetPeriodApproval(storeId, period.startDate, period.endDate);
-        alreadyApproved = periodApproval?.status === "final_approved";
-      }
-      if (!alreadyApproved) {
-        alreadyApproved = await isPeriodFullyApproved(period.startDate, period.endDate);
-      }
-      if (alreadyApproved) continue;
-
-      // Manager reminder — send N days after period end
-      if (daysAfterPeriodEnd === managerReminderDays && managerUserIds.length > 0) {
-        for (const managerId of managerUserIds) {
-          const alreadySent = await hasReminderBeenSent(period.startDate, period.endDate, "manager_reminder", managerId, storeId);
-          if (!alreadySent) {
-            await notificationService.sendToUser(managerId, {
-              title: "Timesheet Review Reminder",
-              body: `Please review and approve timesheets for the pay period ending ${period.endDate}.`,
-              data: { type: "timesheet_reminder", periodStart: period.startDate, periodEnd: period.endDate },
-            });
-            await storage.createTimesheetReminderLog({
-              storeId: storeId ?? undefined,
-              periodStart: period.startDate,
-              periodEnd: period.endDate,
-              reminderType: "manager_reminder",
-              userId: managerId,
-            });
-            logger.info({ managerId, period }, "[TimesheetReminder] Manager reminder sent");
-          }
-        }
-      }
-
-      // Admin escalation — send N + M days after period end
-      if (daysAfterPeriodEnd === managerReminderDays + escalationDays && adminUserId) {
-        const alreadySent = await hasReminderBeenSent(period.startDate, period.endDate, "manager_escalation", adminUserId, storeId);
+    // ── Employee self-review: send on the last day of the current period ──
+    if (workflowSettings.employeeSelfReviewReminder && period.endDate === today) {
+      const allUsers = await storage.getAllUsers();
+      for (const user of allUsers) {
+        if (!user.isActive) continue;
+        // Only remind users belonging to this store
+        if (storeId && user.locationId !== storeId) continue;
+        const alreadySent = await hasReminderBeenSent(period.startDate, period.endDate, "employee_self_review", user.id, storeId);
         if (!alreadySent) {
-          await notificationService.sendToUser(adminUserId, {
-            title: "Timesheet Approval Escalation",
-            body: `Timesheets for the pay period ending ${period.endDate} have not been approved yet. Please review.`,
-            data: { type: "timesheet_escalation", periodStart: period.startDate, periodEnd: period.endDate },
+          await notificationService.sendToUser(user.id, {
+            title: "Please Review Your Hours",
+            body: `Today is the last day of your pay period (ending ${period.endDate}). Please check your clock-in/out entries and flag any issues.`,
+            data: { type: "employee_self_review", periodStart: period.startDate, periodEnd: period.endDate },
           });
           await storage.createTimesheetReminderLog({
-            storeId: storeId ?? undefined,
+            storeId,
             periodStart: period.startDate,
             periodEnd: period.endDate,
-            reminderType: "manager_escalation",
-            userId: adminUserId,
+            reminderType: "employee_self_review",
+            userId: user.id,
           });
-          logger.info({ adminUserId, period }, "[TimesheetReminder] Escalation sent to admin");
         }
+      }
+    }
+
+    // ── Manager reminder & escalation: only for past periods ──
+    if (!isPastPeriod) continue;
+
+    const daysAfterPeriodEnd = daysBetween(period.endDate);
+
+    // Check period-level approval chain status first (most accurate)
+    let alreadyApproved = false;
+    if (storeId) {
+      const periodApproval = await storage.getTimesheetPeriodApproval(storeId, period.startDate, period.endDate);
+      alreadyApproved = periodApproval?.status === "final_approved";
+    }
+    if (!alreadyApproved) {
+      alreadyApproved = await isPeriodFullyApproved(period.startDate, period.endDate);
+    }
+    if (alreadyApproved) continue;
+
+    // Manager reminder — send N days after period end
+    if (daysAfterPeriodEnd === managerReminderDays && managerUserIds.length > 0) {
+      for (const managerId of managerUserIds) {
+        const alreadySent = await hasReminderBeenSent(period.startDate, period.endDate, "manager_reminder", managerId, storeId);
+        if (!alreadySent) {
+          await notificationService.sendToUser(managerId, {
+            title: "Timesheet Review Reminder",
+            body: `Please review and approve timesheets for the pay period ending ${period.endDate}.`,
+            data: { type: "timesheet_reminder", periodStart: period.startDate, periodEnd: period.endDate },
+          });
+          await storage.createTimesheetReminderLog({
+            storeId,
+            periodStart: period.startDate,
+            periodEnd: period.endDate,
+            reminderType: "manager_reminder",
+            userId: managerId,
+          });
+          logger.info({ managerId, period, storeId }, "[TimesheetReminder] Manager reminder sent");
+        }
+      }
+    }
+
+    // Admin escalation — send N + M days after period end
+    if (daysAfterPeriodEnd === managerReminderDays + escalationDays && adminUserId) {
+      const alreadySent = await hasReminderBeenSent(period.startDate, period.endDate, "manager_escalation", adminUserId, storeId);
+      if (!alreadySent) {
+        await notificationService.sendToUser(adminUserId, {
+          title: "Timesheet Approval Escalation",
+          body: `Timesheets for the pay period ending ${period.endDate} have not been approved yet. Please review.`,
+          data: { type: "timesheet_escalation", periodStart: period.startDate, periodEnd: period.endDate },
+        });
+        await storage.createTimesheetReminderLog({
+          storeId,
+          periodStart: period.startDate,
+          periodEnd: period.endDate,
+          reminderType: "manager_escalation",
+          userId: adminUserId,
+        });
+        logger.info({ adminUserId, period, storeId }, "[TimesheetReminder] Escalation sent to admin");
+      }
+    }
+  }
+}
+
+async function runTimesheetReminderCheck(): Promise<void> {
+  try {
+    // Iterate all store-scoped workflow settings rows so every store is processed independently
+    const allSettings = await storage.getAllTimesheetWorkflowSettings();
+    if (allSettings.length === 0) return;
+
+    for (const ws of allSettings) {
+      const storeId: string | null = ws.storeId ?? null;
+      try {
+        await runTimesheetReminderCheckForStore(storeId, ws);
+      } catch (storeErr: unknown) {
+        const e = storeErr as { message?: string };
+        logger.warn({ error: e?.message, storeId }, "[TimesheetReminder] Per-store check failed (non-fatal)");
       }
     }
   } catch (err: unknown) {

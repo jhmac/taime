@@ -142,6 +142,7 @@ export interface ISchedulingStorage {
   updateMileageReimbursement(id: string, updates: Partial<MileageReimbursement>): Promise<MileageReimbursement>;
 
   getTimesheetWorkflowSettings(storeId?: string | null): Promise<TimesheetWorkflowSettings | undefined>;
+  getAllTimesheetWorkflowSettings(): Promise<TimesheetWorkflowSettings[]>;
   upsertTimesheetWorkflowSettings(settings: Partial<Omit<TimesheetWorkflowSettings, 'id'>>, storeId?: string | null): Promise<TimesheetWorkflowSettings>;
   createTimesheetReminderLog(log: { storeId?: string | null; periodStart: string; periodEnd: string; reminderType: string; userId?: string | null }): Promise<TimesheetReminderLog>;
   getTimesheetReminderLogs(periodStart?: string, periodEnd?: string, storeId?: string | null): Promise<TimesheetReminderLog[]>;
@@ -755,17 +756,31 @@ export class SchedulingStorage implements ISchedulingStorage {
 
   async getTimesheetWorkflowSettings(storeId?: string | null): Promise<TimesheetWorkflowSettings | undefined> {
     if (storeId) {
-      const [row] = await db.select().from(timesheetWorkflowSettings).where(eq(timesheetWorkflowSettings.storeId, storeId)).limit(1);
-      if (row) return row;
+      // Strict store-scoped lookup — never fall back to a different store's row
+      const [row] = await db
+        .select()
+        .from(timesheetWorkflowSettings)
+        .where(eq(timesheetWorkflowSettings.storeId, storeId))
+        .limit(1);
+      return row;
     }
-    // Fallback: return the first row (singleton / unscoped legacy row)
-    const [row] = await db.select().from(timesheetWorkflowSettings).limit(1);
+    // No storeId provided — legacy/unscoped singleton row only
+    const [row] = await db
+      .select()
+      .from(timesheetWorkflowSettings)
+      .where(isNull(timesheetWorkflowSettings.storeId))
+      .limit(1);
     return row;
   }
 
+  async getAllTimesheetWorkflowSettings(): Promise<TimesheetWorkflowSettings[]> {
+    return await db.select().from(timesheetWorkflowSettings);
+  }
+
   async upsertTimesheetWorkflowSettings(settings: Partial<Omit<TimesheetWorkflowSettings, 'id'>>, storeId?: string | null): Promise<TimesheetWorkflowSettings> {
+    // Fetch ONLY this store's row (or the unscoped row when storeId is null) — never update another store
     const existing = await this.getTimesheetWorkflowSettings(storeId);
-    const merged = { ...settings, storeId: storeId ?? settings.storeId ?? null };
+    const merged = { ...settings, storeId: storeId ?? null };
     if (existing) {
       const [updated] = await db
         .update(timesheetWorkflowSettings)

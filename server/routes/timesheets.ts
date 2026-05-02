@@ -695,6 +695,19 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
         return res.status(400).json({ message: "Unable to resolve store context for this user" });
       }
 
+      // Enforce: manager must have reviewed first when two-step is active
+      const workflowSettings = await storage.getTimesheetWorkflowSettings(storeId);
+      const singleStep = workflowSettings?.singleStepApproval ?? false;
+      if (!singleStep) {
+        const periodApproval = await storage.getTimesheetPeriodApproval(storeId, startDate, endDate);
+        if (!periodApproval || (periodApproval.status !== "manager_approved" && periodApproval.status !== "final_approved")) {
+          return res.status(409).json({ message: "Period must be reviewed by a manager before admin can finalize" });
+        }
+        if (periodApproval.status === "final_approved") {
+          return res.status(409).json({ message: "Period is already finalized" });
+        }
+      }
+
       const entries = await storage.getAllTimeEntries(new Date(startDate), toEndOfDay(new Date(endDate)));
       const unapproved = entries.filter((e: any) => !e.isApproved && e.clockOutTime);
 

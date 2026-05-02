@@ -2111,6 +2111,11 @@ export default function Timesheets() {
     queryKey: ["/api/timesheets/pay-period-settings"],
   });
 
+  const { data: workflowSettings } = useQuery<{ singleStepApproval?: boolean } | null>({
+    queryKey: ["/api/timesheets/workflow-settings"],
+  });
+  const singleStepApproval = workflowSettings?.singleStepApproval ?? false;
+
   // Initialize date range from pay period settings when they load
   const payPeriods = useMemo(() => computePayPeriods(payPeriodSettings || null), [payPeriodSettings]);
   const currentPeriod = payPeriods.length > 0 ? payPeriods[payPeriods.length - 1] : null;
@@ -2318,7 +2323,7 @@ export default function Timesheets() {
       {data?.periodApproval !== undefined && (
         <ApprovalChainPanel
           periodApproval={data.periodApproval}
-          singleStep={false}
+          singleStep={singleStepApproval}
           onFinalize={() => finalizePeriodMutation.mutate()}
           isFinalizing={finalizePeriodMutation.isPending}
         />
