@@ -24,12 +24,13 @@ import SuppliesCard from '@/components/SuppliesCard';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
 import {
-  Briefcase, ShieldCheck, AlertTriangle, TrendingUp,
+  Briefcase, ShieldCheck, AlertTriangle, TrendingUp, TrendingDown,
   Calendar, DollarSign, ClipboardList, BarChart3, Settings,
   Clock, Video, ShoppingBag, ExternalLink,
   AlertCircle, CheckCircle2, CalendarDays, Inbox, CalendarCheck, Zap, ArrowRight,
   LogOut, Moon, ChevronRight, Circle,
 } from 'lucide-react';
+import { PayrollSummary, BENCHMARKS } from '@/lib/payrollBenchmarks';
 
 type ClockOutTarget = {
   timeEntryId: string;
@@ -365,6 +366,12 @@ export default function OwnerDashboard() {
   const { data: improvementVideos } = useQuery<any[]>({
     queryKey: ['/api/improvement-videos'],
     enabled: deferredEnabled,
+  });
+
+  const { data: payrollSummary, isLoading: payrollLoading } = useQuery<PayrollSummary>({
+    queryKey: ['/api/payroll-intelligence/summary'],
+    enabled: deferredEnabled,
+    staleTime: 5 * 60 * 1000,
   });
 
   const { data: gtdData, isLoading: gtdLoading } = useQuery<{ success: boolean; data: { inbox_count: number; actions_today_count: number; actions_overdue_count: number; waiting_overdue_count: number; two_minute_actions_count: number } }>({
@@ -730,6 +737,90 @@ export default function OwnerDashboard() {
               </div>{/* end flex container */}
             </CardContent>
           </Card>
+        </DashboardErrorBoundary>
+
+        <DashboardErrorBoundary fallback="Payroll health card failed to load">
+          {(() => {
+            const benchmark = payrollSummary?.settings?.storeType
+              ? BENCHMARKS[payrollSummary.settings.storeType]
+              : null;
+            const target = payrollSummary?.settings?.payrollTargetPct ?? benchmark?.payrollPct?.ideal ?? null;
+            const laborPct = payrollSummary?.laborPct ?? 0;
+            const splh = payrollSummary?.splh ?? 0;
+            const totalLaborCost = payrollSummary?.totalLaborCost ?? 0;
+            const isOnTarget = target !== null && laborPct > 0 ? laborPct <= target : null;
+
+            return (
+              <Card
+                className="cursor-pointer hover:shadow-md transition-shadow border-border"
+                onClick={() => navigate('/payroll-intelligence')}
+              >
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <TrendingUp className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                      Payroll Health
+                    </CardTitle>
+                    <div className="flex items-center gap-1.5">
+                      {payrollLoading ? (
+                        <Skeleton className="h-5 w-16" />
+                      ) : isOnTarget === true ? (
+                        <Badge className="bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400 border-0 text-[11px] font-semibold flex items-center gap-1">
+                          <TrendingUp className="h-3 w-3" />
+                          On target
+                        </Badge>
+                      ) : isOnTarget === false ? (
+                        <Badge className="bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400 border-0 text-[11px] font-semibold flex items-center gap-1">
+                          <TrendingDown className="h-3 w-3" />
+                          Over target
+                        </Badge>
+                      ) : null}
+                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {payrollLoading ? (
+                    <div className="flex gap-4">
+                      <Skeleton className="h-12 w-20" />
+                      <Skeleton className="h-12 w-20" />
+                      <Skeleton className="h-12 w-20" />
+                    </div>
+                  ) : (
+                    <div className="flex gap-0 divide-x divide-border">
+                      <div className="flex-1 pr-4 text-center">
+                        <p className={`text-2xl font-extrabold tabular-nums leading-tight ${isOnTarget === false ? 'text-red-600 dark:text-red-400' : isOnTarget === true ? 'text-green-600 dark:text-green-400' : 'text-foreground'}`}>
+                          {payrollSummary?.shopConnected === false ? '—' : `${laborPct.toFixed(1)}%`}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground leading-tight mt-0.5">Payroll %</p>
+                        {target !== null && (
+                          <p className="text-[10px] text-muted-foreground/70 leading-tight">target {target}%</p>
+                        )}
+                      </div>
+                      <div className="flex-1 px-4 text-center">
+                        <p className="text-2xl font-extrabold tabular-nums leading-tight text-foreground">
+                          {payrollSummary?.shopConnected === false ? '—' : splh > 0 ? `$${splh.toFixed(0)}` : '—'}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground leading-tight mt-0.5">SPLH</p>
+                        {benchmark && (
+                          <p className="text-[10px] text-muted-foreground/70 leading-tight">target ${benchmark.splh.ideal}</p>
+                        )}
+                      </div>
+                      <div className="flex-1 pl-4 text-center">
+                        <p className="text-2xl font-extrabold tabular-nums leading-tight text-foreground">
+                          {totalLaborCost > 0
+                            ? totalLaborCost.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
+                            : '—'}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground leading-tight mt-0.5">Labor cost</p>
+                        <p className="text-[10px] text-muted-foreground/70 leading-tight">this week</p>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })()}
         </DashboardErrorBoundary>
 
         <DashboardErrorBoundary fallback="Supplies failed to load">

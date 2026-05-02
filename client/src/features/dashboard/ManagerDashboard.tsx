@@ -38,8 +38,11 @@ import {
   ArrowRight,
   Video,
   Timer,
+  TrendingUp,
+  TrendingDown,
 } from 'lucide-react';
 import { DELIVERY_FAILURE_HIGH_THRESHOLD } from '@/lib/notificationConstants';
+import { PayrollSummary, BENCHMARKS } from '@/lib/payrollBenchmarks';
 
 export default function ManagerDashboard() {
   const { user } = useAuth();
@@ -115,6 +118,12 @@ export default function ManagerDashboard() {
     queryKey: ['/api/improvement-videos'],
     enabled: deferredEnabled,
     staleTime: 60_000,
+  });
+
+  const { data: payrollSummary, isLoading: payrollLoading } = useQuery<PayrollSummary>({
+    queryKey: ['/api/payroll-intelligence/summary'],
+    enabled: isAdminOrOwner && deferredEnabled,
+    staleTime: 5 * 60 * 1000,
   });
 
   const { data: deliveryStats } = useQuery<{ userId: string; total: number; failures: number }[]>({
@@ -301,6 +310,94 @@ export default function ManagerDashboard() {
               <ChevronRight className="h-4 w-4 text-amber-500 shrink-0" />
             </CardContent>
           </Card>
+        </div>
+      )}
+
+      {isAdminOrOwner && (
+        <div className={isMobile ? "px-4 pb-2" : "px-6 pb-2"}>
+          <DashboardErrorBoundary fallback="Payroll health card failed to load">
+            {(() => {
+              const benchmark = payrollSummary?.settings?.storeType
+                ? BENCHMARKS[payrollSummary.settings.storeType]
+                : null;
+              const target = payrollSummary?.settings?.payrollTargetPct ?? benchmark?.payrollPct?.ideal ?? null;
+              const laborPct = payrollSummary?.laborPct ?? 0;
+              const splh = payrollSummary?.splh ?? 0;
+              const totalLaborCost = payrollSummary?.totalLaborCost ?? 0;
+              const isOnTarget = target !== null && laborPct > 0 ? laborPct <= target : null;
+
+              return (
+                <Card
+                  className="cursor-pointer hover:shadow-md transition-shadow border-border"
+                  onClick={() => navigate('/payroll-intelligence')}
+                >
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-sm flex items-center gap-2">
+                        <TrendingUp className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                        Payroll Health
+                      </CardTitle>
+                      <div className="flex items-center gap-1.5">
+                        {payrollLoading ? (
+                          <Skeleton className="h-5 w-16" />
+                        ) : isOnTarget === true ? (
+                          <Badge className="bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400 border-0 text-[11px] font-semibold flex items-center gap-1">
+                            <TrendingUp className="h-3 w-3" />
+                            On target
+                          </Badge>
+                        ) : isOnTarget === false ? (
+                          <Badge className="bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400 border-0 text-[11px] font-semibold flex items-center gap-1">
+                            <TrendingDown className="h-3 w-3" />
+                            Over target
+                          </Badge>
+                        ) : null}
+                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    {payrollLoading ? (
+                      <div className="flex gap-4">
+                        <Skeleton className="h-12 w-20" />
+                        <Skeleton className="h-12 w-20" />
+                        <Skeleton className="h-12 w-20" />
+                      </div>
+                    ) : (
+                      <div className="flex gap-0 divide-x divide-border">
+                        <div className="flex-1 pr-4 text-center">
+                          <p className={`text-2xl font-extrabold tabular-nums leading-tight ${isOnTarget === false ? 'text-red-600 dark:text-red-400' : isOnTarget === true ? 'text-green-600 dark:text-green-400' : 'text-foreground'}`}>
+                            {payrollSummary?.shopConnected === false ? '—' : laborPct > 0 ? `${laborPct.toFixed(1)}%` : '—'}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground leading-tight mt-0.5">Payroll %</p>
+                          {target !== null && (
+                            <p className="text-[10px] text-muted-foreground/70 leading-tight">target {target}%</p>
+                          )}
+                        </div>
+                        <div className="flex-1 px-4 text-center">
+                          <p className="text-2xl font-extrabold tabular-nums leading-tight text-foreground">
+                            {payrollSummary?.shopConnected === false ? '—' : splh > 0 ? `$${splh.toFixed(0)}` : '—'}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground leading-tight mt-0.5">SPLH</p>
+                          {benchmark && (
+                            <p className="text-[10px] text-muted-foreground/70 leading-tight">target ${benchmark.splh.ideal}</p>
+                          )}
+                        </div>
+                        <div className="flex-1 pl-4 text-center">
+                          <p className="text-2xl font-extrabold tabular-nums leading-tight text-foreground">
+                            {totalLaborCost > 0
+                              ? totalLaborCost.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
+                              : '—'}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground leading-tight mt-0.5">Labor cost</p>
+                          <p className="text-[10px] text-muted-foreground/70 leading-tight">this week</p>
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })()}
+          </DashboardErrorBoundary>
         </div>
       )}
 
