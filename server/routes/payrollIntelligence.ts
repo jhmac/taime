@@ -42,7 +42,7 @@ export function registerPayrollIntelligenceRoutes(
           savedSettings = {
             payrollTargetPct: settingsRow[0].payrollTargetPct != null
               ? parseFloat(String(settingsRow[0].payrollTargetPct)) : 30,
-            storeType: (settingsRow[0] as any).storeType ?? 'fashion_boutique',
+            storeType: settingsRow[0].storeType ?? 'fashion_boutique',
           };
         }
       }
@@ -71,7 +71,7 @@ export function registerPayrollIntelligenceRoutes(
         ))
         .orderBy(shopifyDailySales.date);
 
-      // Time entries joined with users
+      // Time entries joined with users — scoped to this store via users.locationId
       const entryRows = await db.select({
         userId: timeEntries.userId,
         clockInTime: timeEntries.clockInTime,
@@ -86,6 +86,7 @@ export function registerPayrollIntelligenceRoutes(
         .where(and(
           gte(timeEntries.clockInTime, startDate),
           eq(users.isActive, true),
+          storeId ? eq(users.locationId, storeId) : undefined,
         ));
 
       // Build revenue maps

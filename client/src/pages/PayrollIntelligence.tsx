@@ -605,17 +605,34 @@ function TeamTab({
   const totalHours = sorted.reduce((s, e) => s + e.totalHours, 0);
   const avgHours = sorted.length > 0 ? totalHours / sorted.length : 0;
 
-  const perfBadge = (emp: { totalHours: number }) => {
+  // Performance badge: SPLH-first when available; fall back to hours vs avg
+  const perfBadge = (emp: { totalHours: number; splh: number | null }) => {
+    if (emp.splh !== null) {
+      // SPLH-based: star = top quartile, coach = bottom quartile
+      const allSplh = sorted.map(e => e.splh).filter((s): s is number => s !== null);
+      if (allSplh.length > 1) {
+        allSplh.sort((a, b) => a - b);
+        const q1 = allSplh[Math.floor(allSplh.length * 0.25)];
+        const q3 = allSplh[Math.floor(allSplh.length * 0.75)];
+        if (emp.splh >= q3) return <Badge className="text-[10px] bg-green-100 text-green-700 border-green-200 whitespace-nowrap">⭐ Star</Badge>;
+        if (emp.splh <= q1) return <Badge className="text-[10px] bg-amber-100 text-amber-700 border-amber-200 whitespace-nowrap">Coach</Badge>;
+        return <Badge className="text-[10px] bg-blue-100 text-blue-700 border-blue-200 whitespace-nowrap">Solid</Badge>;
+      }
+    }
+    // Hours-based fallback (used when SPLH is unavailable — Shopify store-wide only)
     const ratio = avgHours > 0 ? emp.totalHours / avgHours : 0;
-    if (ratio >= 1.3) return <Badge className="text-[10px] bg-green-100 text-green-700 border-green-200">Top Contributor</Badge>;
-    if (ratio >= 0.7) return <Badge className="text-[10px] bg-blue-100 text-blue-700 border-blue-200">On Track</Badge>;
-    return <Badge className="text-[10px] bg-amber-100 text-amber-700 border-amber-200">Low Hours</Badge>;
+    if (ratio >= 1.3) return <Badge className="text-[10px] bg-green-100 text-green-700 border-green-200 whitespace-nowrap">Top Hours</Badge>;
+    if (ratio >= 0.7) return <Badge className="text-[10px] bg-blue-100 text-blue-700 border-blue-200 whitespace-nowrap">On Track</Badge>;
+    return <Badge className="text-[10px] bg-amber-100 text-amber-700 border-amber-200 whitespace-nowrap">Low Hours</Badge>;
   };
 
   // Mentorship gap: highest wage + below-average hours = expensive and underutilized
   const mentorGap = sorted.length > 1
     ? [...sorted].sort((a, b) => b.wageRate - a.wageRate).find(e => e.totalHours < avgHours)
     : null;
+
+  // Whether any employee has per-employee SPLH data (future: shift-level attribution)
+  const hasSplhData = sorted.some(e => e.splh !== null);
 
   return (
     <div className="space-y-4">
@@ -641,10 +658,11 @@ function TeamTab({
                   <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleSort('laborCost')}>
                     Cost <SortIcon k="laborCost" />
                   </TableHead>
+                  <TableHead className="text-right text-muted-foreground">Sales</TableHead>
                   <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleSort('splh')}>
                     SPLH <SortIcon k="splh" />
                   </TableHead>
-                  <TableHead className="text-right">ROI</TableHead>
+                  <TableHead className="text-right text-muted-foreground">ROI</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -664,8 +682,15 @@ function TeamTab({
                       <TableCell className="text-right text-sm">{fmtHrs(emp.totalHours)}</TableCell>
                       <TableCell className="text-right text-sm">${emp.wageRate.toFixed(2)}/h</TableCell>
                       <TableCell className="text-right text-sm font-semibold">{fmt$(emp.laborCost)}</TableCell>
-                      <TableCell className="text-right text-sm text-muted-foreground">—</TableCell>
-                      <TableCell className="text-right text-sm text-muted-foreground">—</TableCell>
+                      <TableCell className="text-right text-sm text-muted-foreground">
+                        {emp.splh !== null ? fmt$(emp.splh * emp.totalHours) : '—'}
+                      </TableCell>
+                      <TableCell className="text-right text-sm text-muted-foreground">
+                        {emp.splh !== null ? fmt$(emp.splh) : '—'}
+                      </TableCell>
+                      <TableCell className="text-right text-sm text-muted-foreground">
+                        {emp.roi !== null ? `${emp.roi.toFixed(1)}×` : '—'}
+                      </TableCell>
                     </TableRow>
                   );
                 })}
@@ -677,6 +702,7 @@ function TeamTab({
                     <TableCell className="text-right">{fmt$(totalCost)}</TableCell>
                     <TableCell />
                     <TableCell />
+                    <TableCell />
                   </TableRow>
                 )}
               </TableBody>
@@ -685,12 +711,14 @@ function TeamTab({
         </CardContent>
       </Card>
 
-      <InsightCard
-        icon="fas fa-info-circle text-blue-500"
-        title="SPLH & ROI: Team-Level Only"
-        body="Shopify sales are store-wide, not per-employee. Individual SPLH and ROI show '—' by design. Team-level SPLH is on the Dashboard tab. Sort by Rate or Cost to identify your highest-leverage scheduling decisions."
-        color="blue"
-      />
+      {!hasSplhData && (
+        <InsightCard
+          icon="fas fa-info-circle text-blue-500"
+          title="Sales, SPLH & ROI: Store-Level Only"
+          body="Shopify reports sales store-wide, not per employee. Sales, SPLH, and ROI show '—' for each person. Performance badges use hours vs team average as a proxy. Future support for shift-level attribution via traffic counters will unlock individual SPLH."
+          color="blue"
+        />
+      )}
 
       {mentorGap && (
         <InsightCard
