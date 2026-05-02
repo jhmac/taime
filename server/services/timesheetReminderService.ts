@@ -129,13 +129,14 @@ async function runTimesheetReminderCheckForStore(
 
     const daysAfterPeriodEnd = daysBetween(period.endDate);
 
-    // Check period-level approval chain status first (most accurate)
+    // Check period-level approval chain status — store-scoped
     let alreadyApproved = false;
     if (storeId) {
+      // When running for a specific store, use only that store's period approval record
       const periodApproval = await storage.getTimesheetPeriodApproval(storeId, period.startDate, period.endDate);
       alreadyApproved = periodApproval?.status === "final_approved";
-    }
-    if (!alreadyApproved) {
+    } else {
+      // Legacy/unscoped fallback: check entries directly (no cross-store risk when storeId is null)
       alreadyApproved = await isPeriodFullyApproved(period.startDate, period.endDate);
     }
     if (alreadyApproved) continue;

@@ -1281,6 +1281,7 @@ export async function runSchemaMigrations(): Promise<void> {
     await db.execute(sql.raw(`
       CREATE TABLE IF NOT EXISTS timesheet_workflow_settings (
         id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        store_id varchar REFERENCES work_locations(id) ON DELETE SET NULL,
         manager_reminder_days_after_period integer DEFAULT 2,
         manager_escalation_days_after_reminder integer DEFAULT 3,
         notify_admin_on_manager_approval boolean DEFAULT true,
@@ -1302,6 +1303,7 @@ export async function runSchemaMigrations(): Promise<void> {
     await db.execute(sql.raw(`
       CREATE TABLE IF NOT EXISTS timesheet_reminder_log (
         id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        store_id varchar REFERENCES work_locations(id) ON DELETE SET NULL,
         period_start varchar NOT NULL,
         period_end varchar NOT NULL,
         reminder_type varchar NOT NULL,
