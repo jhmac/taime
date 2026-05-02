@@ -594,8 +594,11 @@ export default function OffsiteAllowanceSection() {
   };
 
   const getTripStatusBadge = (trip: any) => {
-    if (trip.reviewedAt) {
-      return <Badge className="bg-green-100 text-green-700 border-green-200 text-xs">Reviewed</Badge>;
+    if (trip.reviewStatus === 'flagged') {
+      return <Badge className="bg-red-100 text-red-700 border-red-200 text-xs" data-testid={`badge-trip-${trip.id}-flagged`}>Flagged</Badge>;
+    }
+    if (trip.reviewStatus === 'approved' || trip.reviewedAt) {
+      return <Badge className="bg-green-100 text-green-700 border-green-200 text-xs" data-testid={`badge-trip-${trip.id}-approved`}>Approved</Badge>;
     }
     if (trip.status === 'returned') {
       return <Badge variant="secondary" className="text-xs">Pending Review</Badge>;
@@ -721,7 +724,9 @@ export default function OffsiteAllowanceSection() {
                     </div>
                     <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
                       <div className="text-muted-foreground">
-                        {trip.reviewedAt ? (
+                        {trip.reviewStatus === 'flagged' ? (
+                          <AlertTriangle className="w-4 h-4 text-red-600" />
+                        ) : trip.reviewedAt ? (
                           <CheckCircle2 className="w-4 h-4 text-green-600" />
                         ) : (
                           <AlertTriangle className="w-4 h-4 text-amber-500" />
@@ -751,6 +756,7 @@ export default function OffsiteAllowanceSection() {
           <TripMapModal
             sessionId={selectedMapSessionId}
             onClose={() => setSelectedMapSessionId(null)}
+            isAdmin={true}
           />
         </div>
       )}

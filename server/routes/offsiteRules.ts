@@ -372,15 +372,42 @@ export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAu
         return res.status(404).json({ message: "Session not found" });
       }
 
-      const { adminNote, markReviewed } = req.body;
+      const { adminNote, markReviewed, reviewStatus } = req.body;
       const updates: any = {};
-      if (adminNote !== undefined) updates.adminNote = adminNote;
-      if (markReviewed === true) {
+      if (adminNote !== undefined) {
+        if (adminNote !== null && typeof adminNote !== 'string') {
+          return res.status(400).json({ message: "adminNote must be a string" });
+        }
+        if (typeof adminNote === 'string' && adminNote.length > 2000) {
+          return res.status(400).json({ message: "adminNote must be 2000 characters or fewer" });
+        }
+        updates.adminNote = adminNote;
+      }
+      if (reviewStatus !== undefined) {
+        if (reviewStatus !== null && reviewStatus !== 'approved' && reviewStatus !== 'flagged') {
+          return res.status(400).json({ message: "reviewStatus must be 'approved', 'flagged', or null" });
+        }
+        updates.reviewStatus = reviewStatus;
+        if (reviewStatus === 'approved') {
+          updates.reviewedBy = userId;
+          updates.reviewedAt = new Date();
+        } else if (reviewStatus === 'flagged') {
+          updates.reviewedBy = userId;
+          updates.reviewedAt = new Date();
+        } else if (reviewStatus === null) {
+          updates.reviewedBy = null;
+          updates.reviewedAt = null;
+        }
+      } else if (markReviewed === true) {
         updates.reviewedBy = userId;
         updates.reviewedAt = new Date();
+        if (session.reviewStatus !== 'flagged') {
+          updates.reviewStatus = 'approved';
+        }
       } else if (markReviewed === false) {
         updates.reviewedBy = null;
         updates.reviewedAt = null;
+        updates.reviewStatus = null;
       }
 
       if (Object.keys(updates).length === 0) {

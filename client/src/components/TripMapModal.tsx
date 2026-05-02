@@ -1,14 +1,19 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { apiRequest } from '@/lib/queryClient';
+import { useToast } from '@/hooks/use-toast';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
-import { AlertTriangle, CheckCircle2, MapPin, Route, Clock } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import { AlertTriangle, CheckCircle2, MapPin, Route, Clock, CheckCheck, Flag, X } from 'lucide-react';
 
 interface TripMapModalProps {
   sessionId: string | null;
   onClose: () => void;
+  isAdmin?: boolean;
 }
 
 function formatDuration(seconds: number) {
@@ -29,8 +34,17 @@ function formatTime(dateStr: string | null | undefined) {
   return new Date(dateStr).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 }
 
-export default function TripMapModal({ sessionId, onClose }: TripMapModalProps) {
+function formatDate(dateStr: string | null | undefined) {
+  if (!dateStr) return '—';
+  return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+export default function TripMapModal({ sessionId, onClose, isAdmin = false }: TripMapModalProps) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
   const [mapError, setMapError] = useState(false);
+  const [showFlagInput, setShowFlagInput] = useState(false);
+  const [flagNote, setFlagNote] = useState('');
 
   const { data: receipt, isLoading } = useQuery<any>({
     queryKey: ['/api/offsite-sessions', sessionId, 'receipt'],
@@ -52,6 +66,29 @@ export default function TripMapModal({ sessionId, onClose }: TripMapModalProps) 
     enabled: !!sessionId,
   });
 
+  const reviewMutation = useMutation({
+    mutationFn: async (data: { reviewStatus?: 'approved' | 'flagged' | null; adminNote?: string | null }) => {
+      const res = await apiRequest('PATCH', `/api/offsite-sessions/${sessionId}/review`, data);
+      return res.json();
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/offsite-sessions', sessionId, 'receipt'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/trip-history'] });
+      setShowFlagInput(false);
+      setFlagNote('');
+      const action =
+        variables.reviewStatus === 'approved'
+          ? 'Trip approved.'
+          : variables.reviewStatus === 'flagged'
+          ? 'Trip flagged for review.'
+          : 'Trip review cleared.';
+      toast({ title: 'Updated', description: action });
+    },
+    onError: (err: any) => {
+      toast({ title: 'Error', description: err.message || 'Failed to update trip review.', variant: 'destructive' });
+    },
+  });
+
   if (!sessionId) return null;
 
   const waypoints = receipt?.sessionWaypoints as Array<{ name: string; lat: number; lng: number; address?: string; arrivedAt?: string }> | null;
@@ -59,6 +96,26 @@ export default function TripMapModal({ sessionId, onClose }: TripMapModalProps) 
   const hasRoute = !!(receipt?.routePolyline);
   const hasBreadcrumbs = breadcrumbs.length > 0;
   const hasTripData = hasRoute || hasBreadcrumbs;
+  const reviewStatus: string | null = receipt?.reviewStatus ?? null;
+  const isApproved = reviewStatus === 'approved' || (!reviewStatus && !!receipt?.reviewedAt);
+  const isFlagged = reviewStatus === 'flagged';
+
+  const handleApprove = () => {
+    reviewMutation.mutate({ reviewStatus: isApproved ? null : 'approved' });
+  };
+
+  const handleOpenFlag = () => {
+    setFlagNote(receipt?.adminNote || '');
+    setShowFlagInput(true);
+  };
+
+  const handleSaveFlag = () => {
+    reviewMutation.mutate({ reviewStatus: 'flagged', adminNote: flagNote.trim() || null });
+  };
+
+  const handleClearFlag = () => {
+    reviewMutation.mutate({ reviewStatus: null, adminNote: null });
+  };
 
   // Compute per-leg durations from waypoint arrivedAt times and session exitTime
   const legBreakdown: Array<{ label: string; durationMin: number | null; arrivedAt: string | null }> = [];
@@ -88,6 +145,16 @@ export default function TripMapModal({ sessionId, onClose }: TripMapModalProps) 
           <DialogTitle className="flex items-center gap-2">
             <Route className="w-4 h-4" />
             Trip Route Map
+            {isApproved && (
+              <Badge className="ml-2 bg-green-100 text-green-700 border-green-200" data-testid="badge-trip-approved">
+                Approved
+              </Badge>
+            )}
+            {isFlagged && (
+              <Badge className="ml-2 bg-red-100 text-red-700 border-red-200" data-testid="badge-trip-flagged">
+                Flagged
+              </Badge>
+            )}
           </DialogTitle>
         </DialogHeader>
 
@@ -305,6 +372,106 @@ export default function TripMapModal({ sessionId, onClose }: TripMapModalProps) 
                 <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 rounded-lg p-3">
                   <AlertTriangle className="w-4 h-4 flex-shrink-0" />
                   <span>This trip was automatically ended due to repeated route deviations.</span>
+                </div>
+              </>
+            )}
+
+            {isAdmin && (
+              <>
+                <Separator />
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Admin Review
+                    </p>
+                    {receipt?.reviewedAt && receipt?.reviewer && (
+                      <p className="text-xs text-muted-foreground">
+                        {isFlagged ? 'Flagged' : 'Reviewed'} by{' '}
+                        {receipt.reviewer.firstName} {receipt.reviewer.lastName} on{' '}
+                        {formatDate(receipt.reviewedAt)}
+                      </p>
+                    )}
+                  </div>
+
+                  {receipt?.adminNote && !showFlagInput && (
+                    <div className={`rounded-md p-2.5 text-sm ${isFlagged ? 'bg-red-50 border border-red-100' : 'bg-muted'}`}>
+                      <p className="text-xs font-medium text-muted-foreground mb-0.5">
+                        {isFlagged ? 'Flag note' : 'Admin note'}
+                      </p>
+                      <p>{receipt.adminNote}</p>
+                    </div>
+                  )}
+
+                  {showFlagInput ? (
+                    <div className="space-y-2">
+                      <Textarea
+                        value={flagNote}
+                        onChange={(e) => setFlagNote(e.target.value)}
+                        placeholder="Add a short note about why this trip is flagged..."
+                        rows={3}
+                        maxLength={2000}
+                        className="text-sm"
+                        data-testid="textarea-flag-note"
+                      />
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={handleSaveFlag}
+                          disabled={reviewMutation.isPending}
+                          data-testid="button-save-flag"
+                        >
+                          <Flag className="w-3.5 h-3.5 mr-1.5" />
+                          {reviewMutation.isPending ? 'Saving…' : 'Flag Trip'}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => { setShowFlagInput(false); setFlagNote(''); }}
+                          disabled={reviewMutation.isPending}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        variant={isApproved ? 'outline' : 'default'}
+                        onClick={handleApprove}
+                        disabled={reviewMutation.isPending}
+                        data-testid="button-approve-trip"
+                      >
+                        <CheckCheck className="w-3.5 h-3.5 mr-1.5" />
+                        {isApproved ? 'Unapprove' : 'Approve Trip'}
+                      </Button>
+                      {isFlagged ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={handleClearFlag}
+                          disabled={reviewMutation.isPending}
+                          data-testid="button-clear-flag"
+                        >
+                          <X className="w-3.5 h-3.5 mr-1.5" />
+                          Clear Flag
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={handleOpenFlag}
+                          disabled={reviewMutation.isPending}
+                          className="border-red-200 text-red-700 hover:bg-red-50 hover:text-red-700"
+                          data-testid="button-flag-trip"
+                        >
+                          <Flag className="w-3.5 h-3.5 mr-1.5" />
+                          Flag for Review
+                        </Button>
+                      )}
+                    </div>
+                  )}
                 </div>
               </>
             )}

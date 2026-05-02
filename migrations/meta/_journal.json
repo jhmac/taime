@@ -190,6 +190,13 @@
       "when": 1746540000000,
       "tag": "0026_special_circumstances",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1746626400000,
+      "tag": "0027_add_offsite_review_status",
+      "breakpoints": true
     }
   ]
 }

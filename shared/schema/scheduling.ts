@@ -344,6 +344,7 @@ export const offsiteSessions = pgTable("offsite_sessions", {
   breadcrumbs: jsonb("breadcrumbs").$type<Array<{ lat: number; lng: number; ts: number }>>(),
   reviewedBy: varchar("reviewed_by").references(() => users.id),
   reviewedAt: timestamp("reviewed_at"),
+  reviewStatus: varchar("review_status"),
   adminNote: text("admin_note"),
   sessionWaypoints: jsonb("session_waypoints").$type<Array<{ name: string; placeId: string; lat: number; lng: number; address: string; arrivedAt?: string }>>(),
   currentLegIndex: integer("current_leg_index").default(0),
