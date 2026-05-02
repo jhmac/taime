@@ -1,6 +1,6 @@
 import type { ComponentType, SVGProps } from "react";
 import { useState, useRef, useCallback, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -8,7 +8,6 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
@@ -20,8 +19,8 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { queryClient as qc } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
+import { useLocation } from "wouter";
 import {
-  Wand2,
   Upload,
   FileText,
   Loader2,
@@ -33,9 +32,7 @@ import {
   ChevronRight,
   ChevronLeft,
   Sparkles,
-  Edit3,
   Check,
-  ThumbsUp,
   BookOpen,
   ClipboardList,
   GraduationCap,
@@ -43,18 +40,33 @@ import {
   Plus,
   RefreshCw,
   Send,
-  Eye,
-  EyeOff,
   Pencil,
   Paperclip,
   Zap,
   ListChecks,
+  ArrowRight,
+  PartyPopper,
+  Keyboard,
 } from "lucide-react";
 import type { KnowledgeDocument, AiGeneratedItem, QuizQuestion } from "@shared/schema";
 
+// ── Ara branding ────────────────────────────────────────────────────────────
+
+function AraAvatar({ size = "sm" }: { size?: "xs" | "sm" | "md" | "lg" }) {
+  const sizes = { xs: "w-5 h-5", sm: "w-7 h-7", md: "w-9 h-9", lg: "w-12 h-12" };
+  const iconSizes = { xs: "w-2.5 h-2.5", sm: "w-3.5 h-3.5", md: "w-4.5 h-4.5", lg: "w-6 h-6" };
+  return (
+    <div className={`${sizes[size]} rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center shrink-0 shadow-sm`}>
+      <Sparkles className={`${iconSizes[size]} text-white`} />
+    </div>
+  );
+}
+
+// ── Shared types & constants ─────────────────────────────────────────────────
+
 const STATUS_CONFIG = {
   pending: { icon: Clock, label: "Pending", class: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200" },
-  processing: { icon: Loader2, label: "Processing", class: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200" },
+  processing: { icon: Loader2, label: "Reading…", class: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200" },
   ready: { icon: CheckCircle, label: "Ready", class: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" },
   failed: { icon: AlertCircle, label: "Failed", class: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200" },
 };
@@ -68,11 +80,11 @@ const OUTPUT_TYPES = [
 
 type LucideIcon = ComponentType<SVGProps<SVGSVGElement> & { className?: string }>;
 
-const TYPE_CONFIG: Record<string, { label: string; icon: LucideIcon; color: string }> = {
-  sop: { label: "SOP", icon: ClipboardList, color: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200" },
-  training: { label: "Training", icon: GraduationCap, color: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200" },
-  task: { label: "Task List", icon: CheckCircle, color: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" },
-  knowledge_base: { label: "Knowledge Base", icon: Library, color: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200" },
+const TYPE_CONFIG: Record<string, { label: string; icon: LucideIcon; color: string; accent: string }> = {
+  sop: { label: "SOP", icon: ClipboardList, color: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200", accent: "bg-blue-500" },
+  training: { label: "Training", icon: GraduationCap, color: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200", accent: "bg-purple-500" },
+  task: { label: "Task List", icon: CheckCircle, color: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200", accent: "bg-green-500" },
+  knowledge_base: { label: "Knowledge Base", icon: Library, color: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200", accent: "bg-orange-500" },
 };
 
 interface UploadingFile {
@@ -108,12 +120,63 @@ type TaskItem = { title: string; description?: string; estimatedMinutes?: number
 type TaskContent = { role?: string; description?: string; frequency?: string; tasks?: TaskItem[] };
 type KbParagraph = { heading?: string; body: string };
 type KbContent = { category?: string; summary?: string; paragraphs?: KbParagraph[]; tags?: string[] };
-type AiItemContent = SopContent | TrainingContent | TaskContent | KbContent;
 
 type QuickActionResult =
   | { action: "create_tasks"; summary: string; count: number; tasks: { id: string; title: string; dayOfWeek?: string; timeOfDay?: string }[] }
   | { action: "answer"; text: string }
   | null;
+
+// ── Pipeline Progress Bar ────────────────────────────────────────────────────
+
+type PipelineStage = "upload" | "generate" | "review";
+
+function PipelineProgressBar({ stage }: { stage: PipelineStage }) {
+  const stages: { id: PipelineStage; label: string; icon: LucideIcon }[] = [
+    { id: "upload", label: "Upload", icon: Upload },
+    { id: "generate", label: "Generate", icon: Sparkles },
+    { id: "review", label: "Review & Publish", icon: BookOpen },
+  ];
+
+  const stageIndex = stages.findIndex((s) => s.id === stage);
+
+  return (
+    <div className="flex items-center gap-0 w-full">
+      {stages.map((s, i) => {
+        const isComplete = i < stageIndex;
+        const isActive = i === stageIndex;
+        const Icon = s.icon;
+        return (
+          <div key={s.id} className="flex items-center flex-1">
+            <div className="flex items-center gap-2 flex-1">
+              {i > 0 && (
+                <div className={`h-0.5 flex-1 transition-colors duration-500 ${isComplete || isActive ? "bg-primary" : "bg-border"}`} />
+              )}
+              <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all duration-300 whitespace-nowrap ${
+                isActive
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : isComplete
+                    ? "bg-primary/15 text-primary"
+                    : "bg-muted text-muted-foreground"
+              }`}>
+                {isComplete ? (
+                  <Check className="w-3 h-3" />
+                ) : (
+                  <Icon className={`w-3 h-3 ${isActive ? "animate-pulse" : ""}`} />
+                )}
+                {s.label}
+              </div>
+              {i < stages.length - 1 && (
+                <div className={`h-0.5 flex-1 transition-colors duration-500 ${isComplete ? "bg-primary" : "bg-border"}`} />
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Quick Action Panel (unchanged) ───────────────────────────────────────────
 
 function QuickActionPanel() {
   const { toast } = useToast();
@@ -189,7 +252,6 @@ function QuickActionPanel() {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        {/* File attachment row */}
         <div className="flex items-center gap-2">
           <input
             ref={fileInputRef}
@@ -219,7 +281,6 @@ function QuickActionPanel() {
           )}
         </div>
 
-        {/* Prompt + send */}
         <div className="flex gap-2">
           <Textarea
             placeholder='e.g. "Scan this chore list and create recurring weekly tasks assigned to each day"'
@@ -235,7 +296,6 @@ function QuickActionPanel() {
           </Button>
         </div>
 
-        {/* Results */}
         {result?.action === "create_tasks" && grouped && (
           <div className="mt-2 space-y-3 animate-in fade-in-0 duration-300">
             <div className="flex items-center gap-2 text-sm font-medium text-green-700 dark:text-green-400">
@@ -273,7 +333,9 @@ function QuickActionPanel() {
   );
 }
 
-function SourceLibrary() {
+// ── Source Library (enhanced) ────────────────────────────────────────────────
+
+function SourceLibrary({ onStartGenerate }: { onStartGenerate: () => void }) {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -289,6 +351,8 @@ function SourceLibrary() {
   });
 
   const docs = docsResponse?.data ?? [];
+  const allReady = docs.length > 0 && docs.every((d) => d.processingStatus === "ready");
+  const hasProcessing = docs.some((d) => d.processingStatus === "pending" || d.processingStatus === "processing");
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => apiRequest("DELETE", `/api/ai-studio/documents/${id}`),
@@ -330,17 +394,26 @@ function SourceLibrary() {
     if (e.dataTransfer.files.length > 0) handleFiles(e.dataTransfer.files);
   }, [handleFiles]);
 
+  const READING_LABELS = ["Extracting structure…", "Summarizing…", "Analyzing content…", "Classifying document…"];
+
   return (
     <div className="space-y-4">
+      {/* Drop zone */}
       <div
-        className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors ${isDragOver ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"}`}
+        className={`border-2 border-dashed rounded-xl p-8 text-center transition-all duration-200 ${
+          isDragOver
+            ? "border-primary bg-primary/5 scale-[1.01]"
+            : "border-border hover:border-primary/40 hover:bg-muted/30"
+        }`}
         onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
         onDragLeave={() => setIsDragOver(false)}
         onDrop={handleDrop}
       >
-        <Upload className="w-8 h-8 text-muted-foreground mx-auto mb-3" />
-        <p className="font-medium mb-1">Drop files here or click to upload</p>
-        <p className="text-sm text-muted-foreground mb-3">PDF, DOCX, TXT, JPG, PNG — up to 50MB</p>
+        <div className="w-10 h-10 rounded-2xl bg-muted flex items-center justify-center mx-auto mb-3">
+          <Upload className="w-5 h-5 text-muted-foreground" />
+        </div>
+        <p className="font-semibold mb-1 text-foreground">Drop files here or click to upload</p>
+        <p className="text-sm text-muted-foreground mb-4">PDF, DOCX, TXT, JPG, PNG — up to 50MB</p>
         <Button size="sm" variant="outline" onClick={() => fileInputRef.current?.click()}>
           <Upload className="w-4 h-4 mr-2" />
           Choose Files
@@ -355,6 +428,7 @@ function SourceLibrary() {
         />
       </div>
 
+      {/* Uploading indicators */}
       {uploadingFiles.length > 0 && (
         <div className="space-y-2">
           {uploadingFiles.map((f) => (
@@ -363,40 +437,61 @@ function SourceLibrary() {
               {f.progress === "done" && <CheckCircle className="w-4 h-4 text-green-500 shrink-0" />}
               {f.progress === "error" && <AlertCircle className="w-4 h-4 text-destructive shrink-0" />}
               <span className="truncate flex-1">{f.name}</span>
-              {f.progress === "uploading" && <span className="text-xs text-muted-foreground">Uploading...</span>}
+              {f.progress === "uploading" && <span className="text-xs text-muted-foreground">Uploading…</span>}
               {f.progress === "error" && <span className="text-xs text-destructive">{f.error}</span>}
             </div>
           ))}
         </div>
       )}
 
+      {/* Empty state */}
       {isLoading ? (
         <div className="space-y-2">
-          <Skeleton className="h-16 w-full rounded-xl" />
-          <Skeleton className="h-16 w-full rounded-xl" />
+          <Skeleton className="h-14 w-full rounded-xl" />
+          <Skeleton className="h-14 w-full rounded-xl" />
         </div>
       ) : docs.length === 0 ? (
-        <div className="text-center py-8 text-muted-foreground text-sm">
-          No documents uploaded yet. Upload your first document above to get started.
+        <div className="text-center py-10 rounded-xl border border-dashed border-border">
+          <FileText className="w-8 h-8 text-muted-foreground/30 mx-auto mb-3" />
+          <p className="font-medium text-muted-foreground">No documents yet</p>
+          <p className="text-sm text-muted-foreground/60 mt-1 max-w-xs mx-auto">
+            Upload your training manuals, SOPs, or reference documents above — Ara will read and understand them.
+          </p>
         </div>
       ) : (
         <div className="space-y-2">
-          {docs.map((doc) => {
+          {docs.map((doc, idx) => {
             const status = STATUS_CONFIG[doc.processingStatus as keyof typeof STATUS_CONFIG] ?? STATUS_CONFIG.pending;
             const StatusIcon = status.icon;
+            const isProcessing = doc.processingStatus === "pending" || doc.processingStatus === "processing";
+            const readingLabel = READING_LABELS[idx % READING_LABELS.length];
             return (
-              <div key={doc.id} className="flex items-start gap-3 p-3 border border-border rounded-xl">
-                <FileText className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
+              <div key={doc.id} className="flex items-start gap-3 p-3 border border-border rounded-xl bg-card transition-all">
+                {/* Ara reading animation */}
+                <div className="shrink-0 mt-0.5">
+                  {isProcessing ? (
+                    <div className="relative w-7 h-7">
+                      <div className="w-7 h-7 rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center animate-pulse">
+                        <Sparkles className="w-3.5 h-3.5 text-white" />
+                      </div>
+                    </div>
+                  ) : (
+                    <FileText className="w-4 h-4 text-muted-foreground mt-0.5" />
+                  )}
+                </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-medium text-sm truncate">{doc.originalFileName}</span>
                     <Badge className={`text-xs flex items-center gap-1 ${status.class}`}>
-                      <StatusIcon className={`w-3 h-3 ${doc.processingStatus === "processing" ? "animate-spin" : ""}`} />
-                      {status.label}
+                      <StatusIcon className={`w-3 h-3 ${isProcessing ? "animate-spin" : ""}`} />
+                      {isProcessing ? readingLabel : status.label}
                     </Badge>
                   </div>
-                  {doc.summaryFromClaude && (
+                  {doc.summaryFromClaude && !isProcessing && (
                     <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{doc.summaryFromClaude}</p>
+                  )}
+                  {isProcessing && (
+                    <p className="text-xs text-violet-600 dark:text-violet-400 mt-1">Ara is reading this document…</p>
                   )}
                 </div>
                 <Button
@@ -412,9 +507,48 @@ function SourceLibrary() {
           })}
         </div>
       )}
+
+      {/* Post-upload CTA — only when all docs ready */}
+      {allReady && (
+        <div className="rounded-2xl border-2 border-violet-200 dark:border-violet-800 bg-gradient-to-br from-violet-50 to-indigo-50 dark:from-violet-950/30 dark:to-indigo-950/30 p-6 text-center animate-in fade-in-0 slide-in-from-bottom-2 duration-500">
+          <div className="flex items-center justify-center gap-2 mb-3">
+            <AraAvatar size="md" />
+            <span className="font-bold text-lg text-violet-800 dark:text-violet-200">Ready to generate!</span>
+          </div>
+          <p className="text-sm text-violet-700 dark:text-violet-300 mb-1 font-medium">
+            Ara has read {docs.length} document{docs.length !== 1 ? "s" : ""} and is ready to create your knowledge base.
+          </p>
+          <p className="text-xs text-muted-foreground mb-5">
+            She'll generate SOPs, training modules, task lists, and knowledge base articles — all tailored to your content.
+          </p>
+          <Button
+            size="lg"
+            className="bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white gap-2 shadow-lg shadow-violet-500/20 px-8"
+            onClick={onStartGenerate}
+          >
+            <Sparkles className="w-5 h-5" />
+            Generate Knowledge Base with Ara
+            <ArrowRight className="w-4 h-4" />
+          </Button>
+        </div>
+      )}
+
+      {/* Processing state message */}
+      {hasProcessing && docs.length > 0 && !allReady && (
+        <div className="flex items-center gap-3 p-3 rounded-xl bg-violet-50 dark:bg-violet-950/30 border border-violet-200 dark:border-violet-800">
+          <AraAvatar size="sm" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-violet-800 dark:text-violet-200">Ara is reading your documents…</p>
+            <p className="text-xs text-violet-600 dark:text-violet-400 mt-0.5">She'll be ready to generate in a moment.</p>
+          </div>
+          <Loader2 className="w-4 h-4 animate-spin text-violet-500 shrink-0" />
+        </div>
+      )}
     </div>
   );
 }
+
+// ── Generation Wizard ────────────────────────────────────────────────────────
 
 function GenerationWizard({ onComplete }: { onComplete: () => void }) {
   const { toast } = useToast();
@@ -535,9 +669,12 @@ function GenerationWizard({ onComplete }: { onComplete: () => void }) {
   if (step === 0) {
     return (
       <div className="space-y-4">
+        <div className="flex items-center gap-2 mb-1">
+          <AraAvatar size="sm" />
+          <p className="text-sm font-medium text-foreground">Select documents for Ara to analyze</p>
+        </div>
         <p className="text-sm text-muted-foreground">
-          Select the documents Claude will analyze to generate content.
-          Only <strong>Ready</strong> documents are available.
+          Only <strong>Ready</strong> documents are available. Ara will read each one and generate content.
         </p>
 
         {resumableJob && (
@@ -546,7 +683,7 @@ function GenerationWizard({ onComplete }: { onComplete: () => void }) {
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-amber-800 dark:text-amber-300">Previous generation was interrupted</p>
               <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
-                {resumableJob.itemsGenerated} items saved — {resumableJob.totalDocuments - resumableJob.itemsGenerated < 1 ? "a few" : ""} documents still need processing.
+                {resumableJob.itemsGenerated} items saved — click Continue to process the remaining documents.
               </p>
             </div>
             <Button
@@ -566,10 +703,16 @@ function GenerationWizard({ onComplete }: { onComplete: () => void }) {
 
         {docs.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground text-sm border border-dashed rounded-xl">
-            No ready documents available. Upload and wait for processing to complete.
+            No ready documents available. Upload and wait for Ara to finish reading them.
           </div>
         ) : (
           <div className="space-y-2">
+            <button
+              className="text-xs text-primary underline-offset-2 hover:underline mb-1"
+              onClick={() => setSelectedDocIds(docs.map(d => d.id))}
+            >
+              Select all
+            </button>
             {docs.map((doc) => (
               <label
                 key={doc.id}
@@ -606,25 +749,22 @@ function GenerationWizard({ onComplete }: { onComplete: () => void }) {
   if (step === 1) {
     return (
       <div className="space-y-6">
-        {/* Let AI Decide */}
         <button
           onClick={() => handleGenerate(true)}
           disabled={generateMutation.isPending}
-          className="w-full flex items-start gap-4 p-4 rounded-xl border-2 border-primary bg-primary/5 hover:bg-primary/10 transition-colors text-left group"
+          className="w-full flex items-start gap-4 p-4 rounded-xl border-2 border-violet-300 dark:border-violet-700 bg-gradient-to-br from-violet-50 to-indigo-50 dark:from-violet-950/30 dark:to-indigo-950/30 hover:from-violet-100 hover:to-indigo-100 dark:hover:from-violet-950/50 dark:hover:to-indigo-950/50 transition-colors text-left group"
         >
-          <div className="w-10 h-10 rounded-full bg-primary/15 flex items-center justify-center shrink-0 mt-0.5 group-hover:bg-primary/25 transition-colors">
-            <Sparkles className="w-5 h-5 text-primary" />
-          </div>
-          <div>
-            <p className="font-semibold text-sm text-primary">Let AI Decide</p>
+          <AraAvatar size="md" />
+          <div className="flex-1">
+            <p className="font-semibold text-sm text-violet-800 dark:text-violet-200">Let Ara Decide</p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Claude reads each document and automatically picks the best format — SOPs for scripts and processes, Training for skills content, Tasks for operational checklists, Knowledge Base for reference material.
+              Ara reads each document and automatically picks the best format — SOPs for scripts and processes, Training for skills content, Tasks for operational checklists, Knowledge Base for reference material.
             </p>
           </div>
           {generateMutation.isPending ? (
-            <Loader2 className="w-4 h-4 animate-spin text-primary shrink-0 ml-auto mt-1" />
+            <Loader2 className="w-4 h-4 animate-spin text-violet-600 shrink-0 ml-auto mt-1" />
           ) : (
-            <ChevronRight className="w-4 h-4 text-primary shrink-0 ml-auto mt-1 opacity-60 group-hover:opacity-100 transition-opacity" />
+            <ChevronRight className="w-4 h-4 text-violet-500 shrink-0 ml-auto mt-1 opacity-60 group-hover:opacity-100 transition-opacity" />
           )}
         </button>
 
@@ -635,7 +775,7 @@ function GenerationWizard({ onComplete }: { onComplete: () => void }) {
         </div>
 
         <div>
-          <p className="text-sm font-medium mb-3">What would you like Claude to generate?</p>
+          <p className="text-sm font-medium mb-3">What would you like Ara to generate?</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {OUTPUT_TYPES.map((type) => {
               const Icon = type.icon;
@@ -697,11 +837,12 @@ function GenerationWizard({ onComplete }: { onComplete: () => void }) {
           <Button
             onClick={() => handleGenerate(false)}
             disabled={selectedOutputTypes.length === 0 || generateMutation.isPending}
+            className="bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white"
           >
             {generateMutation.isPending ? (
-              <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Starting...</>
+              <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Starting…</>
             ) : (
-              <><Wand2 className="w-4 h-4 mr-2" />Generate Content</>
+              <><Sparkles className="w-4 h-4 mr-2" />Generate with Ara</>
             )}
           </Button>
         </div>
@@ -710,36 +851,39 @@ function GenerationWizard({ onComplete }: { onComplete: () => void }) {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-2 mb-2">
-        <Sparkles className="w-5 h-5 text-primary" />
-        <span className="font-medium">Claude is generating your content...</span>
+    <div className="space-y-5">
+      <div className="flex items-center gap-3 p-4 rounded-xl bg-violet-50 dark:bg-violet-950/30 border border-violet-200 dark:border-violet-800">
+        <AraAvatar size="md" />
+        <div>
+          <p className="font-semibold text-violet-800 dark:text-violet-200">Ara is generating your content…</p>
+          <p className="text-xs text-violet-600 dark:text-violet-400 mt-0.5">This may take a minute. You can watch her work below.</p>
+        </div>
       </div>
 
-      <div className="bg-muted/50 rounded-xl p-4 font-mono text-xs space-y-1 max-h-64 overflow-y-auto">
+      <div className="bg-muted/50 rounded-xl p-4 font-mono text-xs space-y-1.5 max-h-64 overflow-y-auto">
         {progressLog.map((line, i) => (
           <div key={i} className="flex items-start gap-2">
             {i === progressLog.length - 1 && jobStatus?.status === "running" ? (
-              <Loader2 className="w-3 h-3 animate-spin text-primary shrink-0 mt-0.5" />
+              <Loader2 className="w-3 h-3 animate-spin text-violet-500 shrink-0 mt-0.5" />
             ) : (
               <Check className="w-3 h-3 text-green-500 shrink-0 mt-0.5" />
             )}
-            <span>{line}</span>
+            <span className="text-foreground/80">{line}</span>
           </div>
         ))}
         {progressLog.length === 0 && (
           <div className="flex items-center gap-2 text-muted-foreground">
             <Loader2 className="w-3 h-3 animate-spin" />
-            <span>Initializing...</span>
+            <span>Initializing…</span>
           </div>
         )}
         <div ref={logEndRef} />
       </div>
 
       {jobStatus?.status === "complete" && (
-        <div className="flex items-center gap-2 text-green-600 dark:text-green-400 font-medium text-sm">
+        <div className="flex items-center gap-2 text-green-600 dark:text-green-400 font-medium text-sm p-3 rounded-xl bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800">
           <CheckCircle className="w-5 h-5" />
-          Generation complete! Redirecting to review...
+          Generation complete! Opening Review Theater…
         </div>
       )}
 
@@ -747,10 +891,10 @@ function GenerationWizard({ onComplete }: { onComplete: () => void }) {
         <div className="space-y-3">
           <div className="flex items-center gap-2 text-destructive font-medium text-sm">
             <AlertCircle className="w-5 h-5" />
-            Generation was interrupted (the server restarted mid-job).
+            Generation was interrupted.
             {(jobStatus.itemsGenerated ?? 0) > 0 && (
               <span className="text-muted-foreground font-normal ml-1">
-                {jobStatus.itemsGenerated} item{jobStatus.itemsGenerated !== 1 ? "s" : ""} already saved — click Continue to process the remaining documents.
+                {jobStatus.itemsGenerated} item{jobStatus.itemsGenerated !== 1 ? "s" : ""} already saved.
               </span>
             )}
           </div>
@@ -758,7 +902,7 @@ function GenerationWizard({ onComplete }: { onComplete: () => void }) {
             {(jobStatus.itemsGenerated ?? 0) > 0 && jobId && (
               <Button
                 size="sm"
-                className="gap-2 bg-[#F47D31] hover:bg-[#E06A20] text-white"
+                className="gap-2 bg-amber-600 hover:bg-amber-700 text-white"
                 onClick={() => resumeMutation.mutate(jobId)}
                 disabled={resumeMutation.isPending}
               >
@@ -781,77 +925,7 @@ function GenerationWizard({ onComplete }: { onComplete: () => void }) {
   );
 }
 
-function SectionRefineBox({
-  sectionKey,
-  label,
-  itemId,
-  editable,
-}: {
-  sectionKey: string;
-  label: string;
-  itemId: string;
-  editable: boolean;
-}) {
-  const { toast } = useToast();
-  const [open, setOpen] = useState(false);
-  const [feedback, setFeedback] = useState("");
-
-  const refineMutation = useMutation({
-    mutationFn: (data: RefinePayload) => apiRequest("POST", `/api/ai-studio/items/${itemId}/refine`, data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["/api/ai-studio/items"] });
-      setFeedback("");
-      setOpen(false);
-      toast({ title: `"${label}" section refined by Claude` });
-    },
-    onError: () => {
-      toast({ title: "Refinement failed", variant: "destructive" });
-    },
-  });
-
-  if (!editable) return null;
-
-  return (
-    <div className="mt-2">
-      {!open ? (
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-6 text-xs gap-1 text-muted-foreground hover:text-primary px-1"
-          onClick={() => setOpen(true)}
-        >
-          <RefreshCw className="w-3 h-3" />
-          Refine this section
-        </Button>
-      ) : (
-        <div className="mt-2 space-y-2 border border-dashed border-primary/40 rounded-lg p-3 bg-primary/5">
-          <p className="text-xs font-medium text-primary">Refine "{label}" with Claude</p>
-          <Textarea
-            value={feedback}
-            onChange={(e) => setFeedback(e.target.value)}
-            placeholder={`Describe how to improve the "${label}" section...`}
-            className="min-h-[60px] text-xs"
-            rows={2}
-          />
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              className="h-7 text-xs gap-1.5"
-              onClick={() => refineMutation.mutate({ feedback, sectionKey })}
-              disabled={!feedback.trim() || refineMutation.isPending}
-            >
-              {refineMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
-              Refine
-            </Button>
-            <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => { setOpen(false); setFeedback(""); }}>
-              Cancel
-            </Button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+// ── Inline text field ────────────────────────────────────────────────────────
 
 function InlineTextField({
   value,
@@ -931,45 +1005,27 @@ function InlineTextField({
   );
 }
 
-function ItemCard({
+// ── Full-page document renderer ──────────────────────────────────────────────
+
+function DocumentFullPage({
   item,
   onUpdate,
-  onPublish,
-  onDiscard,
 }: {
   item: AiGeneratedItem;
   onUpdate: (id: string, data: AiItemUpdatePayload) => void;
-  onPublish: (id: string) => void;
-  onDiscard: (id: string) => void;
 }) {
-  const { toast } = useToast();
-  const [expanded, setExpanded] = useState(false);
-  const [globalFeedback, setGlobalFeedback] = useState("");
-
-  const typeConf = TYPE_CONFIG[item.type] || TYPE_CONFIG.sop;
-  const TypeIcon = typeConf.icon;
   const contentRaw = item.content as Record<string, unknown>;
   const sopContent = contentRaw as SopContent;
   const trainingContent = contentRaw as TrainingContent;
   const taskContent = contentRaw as TaskContent;
   const kbContent = contentRaw as KbContent;
 
-  const isPublished = item.status === "published";
-  const isApproved = item.status === "approved";
   const isDiscarded = item.status === "discarded";
+  const isPublished = item.status === "published";
   const editable = !isPublished && !isDiscarded;
 
-  const globalRefineMutation = useMutation({
-    mutationFn: (data: RefinePayload) => apiRequest("POST", `/api/ai-studio/items/${item.id}/refine`, data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["/api/ai-studio/items"] });
-      setGlobalFeedback("");
-      toast({ title: "Content refined by Claude" });
-    },
-    onError: () => {
-      toast({ title: "Refinement failed", variant: "destructive" });
-    },
-  });
+  const typeConf = TYPE_CONFIG[item.type] || TYPE_CONFIG.sop;
+  const TypeIcon = typeConf.icon;
 
   const handleFieldSave = (fieldKey: string, newValue: unknown) => {
     onUpdate(item.id, { content: { ...contentRaw, [fieldKey]: newValue } });
@@ -997,336 +1053,473 @@ function ItemCard({
     onUpdate(item.id, { title: newTitle });
   };
 
-  const renderContent = () => {
-    if (item.type === "sop") {
-      return (
-        <div className="space-y-4">
-          {sopContent.role && (
-            <p className="text-sm text-muted-foreground"><strong>Role:</strong> {sopContent.role}</p>
-          )}
-          {sopContent.summary !== undefined && (
-            <div>
-              <p className="text-xs text-muted-foreground font-medium mb-1 uppercase tracking-wide">Summary</p>
-              <InlineTextField value={sopContent.summary || ""} onSave={(v) => handleFieldSave("summary", v)} editable={editable} multiline className="text-sm" />
-              <SectionRefineBox sectionKey="summary" label="Summary" itemId={item.id} editable={editable} />
-            </div>
-          )}
-          {Array.isArray(sopContent.steps) && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-medium">Steps</p>
-                <SectionRefineBox sectionKey="steps" label="Steps" itemId={item.id} editable={editable} />
-              </div>
-              {sopContent.steps.map((step, i) => (
-                <div key={i} className="flex gap-3 text-sm border border-border rounded-lg p-3">
-                  <span className="w-6 h-6 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center shrink-0 font-bold mt-0.5">
+  const renderSop = () => (
+    <div className="space-y-8">
+      {sopContent.role && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">For role</span>
+          <Badge variant="outline" className="text-xs">{sopContent.role}</Badge>
+        </div>
+      )}
+      {sopContent.summary !== undefined && (
+        <div className="p-4 rounded-xl bg-muted/40 border-l-4 border-primary">
+          <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2">Summary</p>
+          <InlineTextField value={sopContent.summary || ""} onSave={(v) => handleFieldSave("summary", v)} editable={editable} multiline className="text-base text-foreground/90 leading-relaxed" />
+        </div>
+      )}
+      {Array.isArray(sopContent.steps) && sopContent.steps.length > 0 && (
+        <div>
+          <h2 className="text-lg font-bold text-foreground mb-5 pb-2 border-b border-border">Steps</h2>
+          <div className="space-y-4">
+            {sopContent.steps.map((step, i) => (
+              <div key={i} className="flex gap-4">
+                <div className="flex flex-col items-center">
+                  <div className="w-9 h-9 rounded-full bg-primary/10 text-primary text-sm flex items-center justify-center shrink-0 font-bold border-2 border-primary/20">
                     {i + 1}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <InlineTextField value={step.title || ""} onSave={(v) => handleStepFieldSave(i, "title", v)} editable={editable} className="font-medium block" />
-                    <InlineTextField value={step.description || ""} onSave={(v) => handleStepFieldSave(i, "description", v)} editable={editable} multiline className="text-muted-foreground text-xs mt-0.5 block" />
-                    {step.decisionOptions && step.decisionOptions.length > 0 && (
-                      <div className="mt-1 space-y-1">
-                        {step.decisionOptions.map((opt, j) => (
-                          <div key={j} className="text-xs bg-muted/50 rounded px-2 py-1">
-                            <span className="font-medium">{opt.condition}</span> → {opt.action}
-                          </div>
-                        ))}
-                      </div>
-                    )}
                   </div>
+                  {i < (sopContent.steps?.length ?? 0) - 1 && (
+                    <div className="w-0.5 flex-1 bg-border mt-2 min-h-[24px]" />
+                  )}
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
-      );
-    }
-
-    if (item.type === "training") {
-      return (
-        <div className="space-y-4">
-          {trainingContent.role && (
-            <p className="text-sm text-muted-foreground"><strong>Role:</strong> {trainingContent.role}</p>
-          )}
-          {trainingContent.description !== undefined && (
-            <div>
-              <p className="text-xs text-muted-foreground font-medium mb-1 uppercase tracking-wide">Description</p>
-              <InlineTextField value={trainingContent.description || ""} onSave={(v) => handleFieldSave("description", v)} editable={editable} multiline className="text-sm" />
-              <SectionRefineBox sectionKey="description" label="Description" itemId={item.id} editable={editable} />
-            </div>
-          )}
-          {Array.isArray(trainingContent.objectives) && trainingContent.objectives.length > 0 && (
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <p className="text-sm font-medium">Learning Objectives</p>
-                <SectionRefineBox sectionKey="objectives" label="Objectives" itemId={item.id} editable={editable} />
-              </div>
-              <ul className="space-y-1">
-                {trainingContent.objectives.map((obj, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm">
-                    <CheckCircle className="w-3.5 h-3.5 text-green-500 shrink-0 mt-0.5" />
-                    <InlineTextField value={obj} onSave={(v) => { const newObjs = [...(trainingContent.objectives ?? [])]; newObjs[i] = v; handleFieldSave("objectives", newObjs); }} editable={editable} className="flex-1" />
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {trainingContent.markdownContent !== undefined && (
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <p className="text-sm font-medium">Training Content</p>
-                <SectionRefineBox sectionKey="markdownContent" label="Training Content" itemId={item.id} editable={editable} />
-              </div>
-              <InlineTextField value={trainingContent.markdownContent || ""} onSave={(v) => handleFieldSave("markdownContent", v)} editable={editable} multiline className="text-sm font-mono" />
-            </div>
-          )}
-          {Array.isArray(trainingContent.exercises) && trainingContent.exercises.length > 0 && (
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-sm font-medium">Practice Exercises</p>
-                <SectionRefineBox sectionKey="exercises" label="Exercises" itemId={item.id} editable={editable} />
-              </div>
-              {trainingContent.exercises.map((ex, i) => (
-                <div key={i} className="bg-muted/50 rounded-lg p-3 text-sm space-y-1 mb-2">
-                  <p className="font-medium">{ex.scenario}</p>
-                  <p className="text-muted-foreground italic">{ex.question}</p>
-                  <p className="text-xs text-green-700 dark:text-green-400">{ex.guidance}</p>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      );
-    }
-
-    if (item.type === "task") {
-      return (
-        <div className="space-y-3">
-          {taskContent.role && <p className="text-sm text-muted-foreground"><strong>Role:</strong> {taskContent.role}</p>}
-          {taskContent.description !== undefined && (
-            <div>
-              <InlineTextField value={taskContent.description || ""} onSave={(v) => handleFieldSave("description", v)} editable={editable} multiline className="text-sm" />
-              <SectionRefineBox sectionKey="description" label="Description" itemId={item.id} editable={editable} />
-            </div>
-          )}
-          {taskContent.frequency && (
-            <Badge variant="outline" className="text-xs capitalize">{taskContent.frequency}</Badge>
-          )}
-          {Array.isArray(taskContent.tasks) && (
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <p className="text-sm font-medium">Task Items</p>
-                <SectionRefineBox sectionKey="tasks" label="Task Items" itemId={item.id} editable={editable} />
-              </div>
-              <div className="space-y-1">
-                {taskContent.tasks.map((task, i) => (
-                  <div key={i} className="flex items-start gap-2 text-sm py-1 border border-border rounded-lg px-3">
-                    <div className="w-5 h-5 border border-border rounded mt-0.5 shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <InlineTextField value={task.title || ""} onSave={(v) => handleTaskFieldSave(i, "title", v)} editable={editable} className="font-medium block" />
-                      {task.description !== undefined && (
-                        <InlineTextField value={task.description || ""} onSave={(v) => handleTaskFieldSave(i, "description", v)} editable={editable} multiline className="text-xs text-muted-foreground block" />
-                      )}
-                      {task.estimatedMinutes && (
-                        <p className="text-xs text-muted-foreground">{task.estimatedMinutes} min</p>
-                      )}
+                <div className="flex-1 min-w-0 pb-4">
+                  <InlineTextField value={step.title || ""} onSave={(v) => handleStepFieldSave(i, "title", v)} editable={editable} className="font-semibold text-base text-foreground block mb-1" />
+                  <InlineTextField value={step.description || ""} onSave={(v) => handleStepFieldSave(i, "description", v)} editable={editable} multiline className="text-sm text-muted-foreground leading-relaxed block" />
+                  {step.decisionOptions && step.decisionOptions.length > 0 && (
+                    <div className="mt-3 space-y-1.5 pl-2 border-l-2 border-amber-300 dark:border-amber-700">
+                      {step.decisionOptions.map((opt, j) => (
+                        <div key={j} className="text-xs bg-amber-50 dark:bg-amber-950/30 rounded-lg px-3 py-1.5">
+                          <span className="font-semibold text-amber-800 dark:text-amber-300">{opt.condition}</span>
+                          <span className="text-muted-foreground mx-2">→</span>
+                          <span>{opt.action}</span>
+                        </div>
+                      ))}
                     </div>
-                    {task.isRequired && (
-                      <Badge variant="outline" className="text-xs shrink-0">Required</Badge>
-                    )}
-                  </div>
-                ))}
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            ))}
+          </div>
         </div>
-      );
-    }
-
-    if (item.type === "knowledge_base") {
-      return (
-        <div className="space-y-3">
-          {kbContent.category && <Badge variant="outline" className="text-xs">{kbContent.category}</Badge>}
-          {kbContent.summary !== undefined && (
-            <div>
-              <p className="text-xs text-muted-foreground font-medium mb-1 uppercase tracking-wide">Summary</p>
-              <InlineTextField value={kbContent.summary || ""} onSave={(v) => handleFieldSave("summary", v)} editable={editable} multiline className="text-sm" />
-              <SectionRefineBox sectionKey="summary" label="Summary" itemId={item.id} editable={editable} />
-            </div>
-          )}
-          {Array.isArray(kbContent.paragraphs) && (
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-sm font-medium">Article Sections</p>
-                <SectionRefineBox sectionKey="paragraphs" label="Article Sections" itemId={item.id} editable={editable} />
-              </div>
-              <div className="space-y-3">
-                {kbContent.paragraphs.map((para, i) => (
-                  <div key={i} className="border border-border rounded-lg p-3">
-                    {para.heading !== undefined && (
-                      <InlineTextField value={para.heading || ""} onSave={(v) => handleParaFieldSave(i, "heading", v)} editable={editable} className="text-sm font-semibold block mb-1" />
-                    )}
-                    <InlineTextField value={para.body || ""} onSave={(v) => handleParaFieldSave(i, "body", v)} editable={editable} multiline className="text-sm text-muted-foreground block" />
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-          {Array.isArray(kbContent.tags) && kbContent.tags.length > 0 && (
-            <div className="flex flex-wrap gap-1">
-              {kbContent.tags.map((tag) => (
-                <span key={tag} className="text-xs bg-secondary text-secondary-foreground px-2 py-0.5 rounded-full">{tag}</span>
-              ))}
-            </div>
-          )}
+      )}
+      {Array.isArray(sopContent.tags) && sopContent.tags.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 pt-2">
+          {sopContent.tags.map((tag) => (
+            <span key={tag} className="text-xs bg-secondary text-secondary-foreground px-2.5 py-1 rounded-full">{tag}</span>
+          ))}
         </div>
-      );
-    }
+      )}
+    </div>
+  );
 
-    return <pre className="text-xs text-muted-foreground overflow-auto">{JSON.stringify(contentRaw, null, 2)}</pre>;
-  };
+  const renderTraining = () => (
+    <div className="space-y-8">
+      {trainingContent.role && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">For role</span>
+          <Badge variant="outline" className="text-xs">{trainingContent.role}</Badge>
+        </div>
+      )}
+      {trainingContent.estimatedMinutes && (
+        <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+          <Clock className="w-4 h-4" />
+          <span>~{trainingContent.estimatedMinutes} minutes</span>
+        </div>
+      )}
+      {trainingContent.description !== undefined && (
+        <div className="p-4 rounded-xl bg-muted/40 border-l-4 border-purple-400">
+          <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2">Overview</p>
+          <InlineTextField value={trainingContent.description || ""} onSave={(v) => handleFieldSave("description", v)} editable={editable} multiline className="text-base text-foreground/90 leading-relaxed" />
+        </div>
+      )}
+      {Array.isArray(trainingContent.objectives) && trainingContent.objectives.length > 0 && (
+        <div>
+          <h2 className="text-lg font-bold text-foreground mb-4 pb-2 border-b border-border">Learning Objectives</h2>
+          <ul className="space-y-2.5">
+            {trainingContent.objectives.map((obj, i) => (
+              <li key={i} className="flex items-start gap-3">
+                <div className="w-5 h-5 rounded-full bg-green-100 dark:bg-green-900/40 flex items-center justify-center shrink-0 mt-0.5">
+                  <Check className="w-3 h-3 text-green-600 dark:text-green-400" />
+                </div>
+                <InlineTextField value={obj} onSave={(v) => { const newObjs = [...(trainingContent.objectives ?? [])]; newObjs[i] = v; handleFieldSave("objectives", newObjs); }} editable={editable} className="text-sm text-foreground/90 leading-relaxed flex-1" />
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {trainingContent.markdownContent !== undefined && (
+        <div>
+          <h2 className="text-lg font-bold text-foreground mb-4 pb-2 border-b border-border">Training Content</h2>
+          <InlineTextField value={trainingContent.markdownContent || ""} onSave={(v) => handleFieldSave("markdownContent", v)} editable={editable} multiline className="text-sm text-foreground/85 leading-relaxed whitespace-pre-wrap block" />
+        </div>
+      )}
+      {Array.isArray(trainingContent.exercises) && trainingContent.exercises.length > 0 && (
+        <div>
+          <h2 className="text-lg font-bold text-foreground mb-4 pb-2 border-b border-border">Practice Exercises</h2>
+          <div className="space-y-4">
+            {trainingContent.exercises.map((ex, i) => (
+              <div key={i} className="rounded-xl border border-border bg-muted/30 p-4 space-y-2">
+                <p className="text-xs font-bold uppercase tracking-widest text-purple-600 dark:text-purple-400">Scenario {i + 1}</p>
+                <p className="font-semibold text-sm text-foreground">{ex.scenario}</p>
+                <p className="text-sm text-muted-foreground italic">{ex.question}</p>
+                <div className="mt-2 p-2 rounded-lg bg-green-50 dark:bg-green-950/30 text-xs text-green-700 dark:text-green-300">
+                  <strong>Guidance:</strong> {ex.guidance}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  const renderTask = () => (
+    <div className="space-y-8">
+      {taskContent.role && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">For role</span>
+          <Badge variant="outline" className="text-xs">{taskContent.role}</Badge>
+        </div>
+      )}
+      {taskContent.description !== undefined && (
+        <div className="p-4 rounded-xl bg-muted/40 border-l-4 border-green-400">
+          <InlineTextField value={taskContent.description || ""} onSave={(v) => handleFieldSave("description", v)} editable={editable} multiline className="text-base text-foreground/90 leading-relaxed" />
+        </div>
+      )}
+      {taskContent.frequency && (
+        <Badge variant="outline" className="text-xs capitalize">{taskContent.frequency}</Badge>
+      )}
+      {Array.isArray(taskContent.tasks) && taskContent.tasks.length > 0 && (
+        <div>
+          <h2 className="text-lg font-bold text-foreground mb-4 pb-2 border-b border-border">Task Items</h2>
+          <div className="space-y-2">
+            {taskContent.tasks.map((task, i) => (
+              <div key={i} className="flex items-start gap-3 p-3.5 border border-border rounded-xl bg-card hover:bg-muted/20 transition-colors">
+                <div className="w-5 h-5 border-2 border-border rounded mt-0.5 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <InlineTextField value={task.title || ""} onSave={(v) => handleTaskFieldSave(i, "title", v)} editable={editable} className="font-semibold text-sm text-foreground block" />
+                  {task.description !== undefined && (
+                    <InlineTextField value={task.description || ""} onSave={(v) => handleTaskFieldSave(i, "description", v)} editable={editable} multiline className="text-xs text-muted-foreground block mt-0.5" />
+                  )}
+                  {task.estimatedMinutes && (
+                    <p className="text-xs text-muted-foreground mt-1">{task.estimatedMinutes} min</p>
+                  )}
+                </div>
+                {task.isRequired && (
+                  <Badge variant="outline" className="text-xs shrink-0">Required</Badge>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  const renderKnowledgeBase = () => (
+    <div className="space-y-8">
+      {kbContent.category && (
+        <Badge variant="outline" className="text-xs">{kbContent.category}</Badge>
+      )}
+      {kbContent.summary !== undefined && (
+        <div className="p-4 rounded-xl bg-muted/40 border-l-4 border-orange-400">
+          <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-2">Overview</p>
+          <InlineTextField value={kbContent.summary || ""} onSave={(v) => handleFieldSave("summary", v)} editable={editable} multiline className="text-base text-foreground/90 leading-relaxed" />
+        </div>
+      )}
+      {Array.isArray(kbContent.paragraphs) && kbContent.paragraphs.length > 0 && (
+        <div className="space-y-6">
+          {kbContent.paragraphs.map((para, i) => (
+            <div key={i}>
+              {para.heading !== undefined && (
+                <h2 className="text-base font-bold text-foreground mb-2 pb-1 border-b border-border">
+                  <InlineTextField value={para.heading || ""} onSave={(v) => handleParaFieldSave(i, "heading", v)} editable={editable} className="block" />
+                </h2>
+              )}
+              <InlineTextField value={para.body || ""} onSave={(v) => handleParaFieldSave(i, "body", v)} editable={editable} multiline className="text-sm text-foreground/85 leading-relaxed block" />
+            </div>
+          ))}
+        </div>
+      )}
+      {Array.isArray(kbContent.tags) && kbContent.tags.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 pt-2">
+          {kbContent.tags.map((tag) => (
+            <span key={tag} className="text-xs bg-secondary text-secondary-foreground px-2.5 py-1 rounded-full">{tag}</span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 
   return (
-    <Card className={`border ${isPublished ? "border-green-200 dark:border-green-800" : isDiscarded ? "opacity-50 border-border" : isApproved ? "border-primary" : "border-border"}`}>
-      <CardContent className="p-4">
-        <div className="flex items-start justify-between gap-3 mb-3">
-          <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
-            <TypeIcon className="w-4 h-4 text-muted-foreground shrink-0" />
-            <InlineTextField value={item.title} onSave={handleTitleSave} editable={editable} className="font-semibold text-sm" />
-            <Badge className={`text-xs ${typeConf.color}`}>{typeConf.label}</Badge>
-            <Badge className="text-xs bg-violet-100 text-violet-800 dark:bg-violet-900 dark:text-violet-200">
-              <Sparkles className="w-3 h-3 mr-1" />
-              AI Generated
-            </Badge>
-            {isPublished && (
-              <Badge className="text-xs bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
-                <CheckCircle className="w-3 h-3 mr-1" />
-                Published
-              </Badge>
-            )}
-            {isApproved && (
-              <Badge className="text-xs bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
-                <ThumbsUp className="w-3 h-3 mr-1" />
-                Approved
-              </Badge>
-            )}
-            {isDiscarded && (
-              <Badge variant="secondary" className="text-xs">Discarded</Badge>
-            )}
+    <div className="max-w-2xl">
+      {/* Document title */}
+      <div className="mb-8">
+        <div className="flex items-center gap-2 mb-3">
+          <div className={`w-7 h-7 rounded-lg ${typeConf.accent} flex items-center justify-center`}>
+            <TypeIcon className="w-3.5 h-3.5 text-white" />
           </div>
-
-          <div className="flex items-center gap-1 shrink-0">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 w-7 p-0"
-              onClick={() => setExpanded(!expanded)}
-            >
-              {expanded ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-            </Button>
-          </div>
+          <Badge className={`text-xs ${typeConf.color}`}>{typeConf.label}</Badge>
+          <Badge className="text-xs bg-violet-100 text-violet-800 dark:bg-violet-900 dark:text-violet-200 gap-1">
+            <Sparkles className="w-2.5 h-2.5" />
+            Generated by Ara
+          </Badge>
         </div>
+        <h1 className="text-2xl font-extrabold text-foreground leading-tight">
+          <InlineTextField value={item.title} onSave={handleTitleSave} editable={editable} className="block" />
+        </h1>
+      </div>
 
-        {expanded && (
-          <>
-            <div className="border border-border rounded-xl p-4 mb-4">
-              {renderContent()}
-            </div>
-
-            {editable && (
-              <div className="space-y-2 mb-4 border border-dashed border-border rounded-lg p-3 bg-muted/20">
-                <p className="text-xs font-medium text-muted-foreground">Refine entire document with Claude</p>
-                <Textarea
-                  value={globalFeedback}
-                  onChange={(e) => setGlobalFeedback(e.target.value)}
-                  placeholder="Describe overall changes... (e.g., 'Make the tone more friendly' or 'Add safety warnings to all steps')"
-                  className="min-h-[60px] text-sm"
-                  rows={2}
-                />
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    if (!globalFeedback.trim()) return;
-                    globalRefineMutation.mutate({ feedback: globalFeedback });
-                  }}
-                  disabled={!globalFeedback.trim() || globalRefineMutation.isPending}
-                  className="gap-1.5"
-                >
-                  {globalRefineMutation.isPending ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <RefreshCw className="w-3.5 h-3.5" />
-                  )}
-                  Refine Entire Document
-                </Button>
-              </div>
-            )}
-
-            {editable && (
-              <div className="flex gap-2 flex-wrap pt-2 border-t border-border">
-                {!isApproved ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="gap-1.5 border-green-300 text-green-700 hover:bg-green-50 dark:hover:bg-green-950/30"
-                    onClick={() => onUpdate(item.id, { status: "approved" })}
-                  >
-                    <ThumbsUp className="w-3.5 h-3.5" />
-                    Approve
-                  </Button>
-                ) : (
-                  <Button
-                    size="sm"
-                    onClick={() => onPublish(item.id)}
-                    className="gap-1.5"
-                  >
-                    <Send className="w-3.5 h-3.5" />
-                    Publish
-                  </Button>
-                )}
-                {isApproved && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="gap-1.5"
-                    onClick={() => onUpdate(item.id, { status: "in_review" })}
-                  >
-                    Return to Review
-                  </Button>
-                )}
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="gap-1.5 text-destructive hover:text-destructive"
-                  onClick={() => onDiscard(item.id)}
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  Discard
-                </Button>
-              </div>
-            )}
-          </>
-        )}
-      </CardContent>
-    </Card>
+      {/* Content */}
+      {item.type === "sop" && renderSop()}
+      {item.type === "training" && renderTraining()}
+      {item.type === "task" && renderTask()}
+      {item.type === "knowledge_base" && renderKnowledgeBase()}
+      {!["sop", "training", "task", "knowledge_base"].includes(item.type) && (
+        <pre className="text-xs text-muted-foreground overflow-auto">{JSON.stringify(contentRaw, null, 2)}</pre>
+      )}
+    </div>
   );
 }
 
-function ItemsTab({ type }: { type: string }) {
+// ── Floating Ara refine bar ──────────────────────────────────────────────────
+
+function FloatingRefineBar({ itemId, editable, focusTrigger, onFocused }: {
+  itemId: string;
+  editable: boolean;
+  focusTrigger?: boolean;
+  onFocused?: () => void;
+}) {
   const { toast } = useToast();
+  const [feedback, setFeedback] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (focusTrigger && editable) {
+      textareaRef.current?.focus();
+      onFocused?.();
+    }
+  }, [focusTrigger, editable]);
+
+  const refineMutation = useMutation({
+    mutationFn: (data: RefinePayload) => apiRequest("POST", `/api/ai-studio/items/${itemId}/refine`, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/ai-studio/items"] });
+      setFeedback("");
+      toast({ title: "Ara refined the document" });
+    },
+    onError: () => {
+      toast({ title: "Refinement failed", variant: "destructive" });
+    },
+  });
+
+  if (!editable) return null;
+
+  const handleSubmit = () => {
+    if (!feedback.trim() || refineMutation.isPending) return;
+    refineMutation.mutate({ feedback });
+  };
+
+  return (
+    <div className="border-t border-border bg-background/95 backdrop-blur-sm px-5 py-3">
+      <div className="flex items-center gap-2">
+        <AraAvatar size="xs" />
+        <div className="flex-1 flex items-center gap-2 bg-muted/60 border border-border rounded-xl px-3 py-2 focus-within:border-violet-400 focus-within:bg-background transition-all">
+          <Textarea
+            ref={textareaRef}
+            value={feedback}
+            onChange={(e) => setFeedback(e.target.value)}
+            placeholder="Ask Ara to refine this document… (e.g. 'Make the tone more friendly' or 'Add a safety step after step 3')"
+            className="resize-none border-0 bg-transparent p-0 text-sm min-h-0 h-auto focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground/60"
+            rows={1}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleSubmit();
+            }}
+          />
+          <Button
+            size="sm"
+            onClick={handleSubmit}
+            disabled={!feedback.trim() || refineMutation.isPending}
+            className="shrink-0 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white h-7 px-3 text-xs gap-1.5"
+          >
+            {refineMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+            {refineMutation.isPending ? "Refining…" : "Ask Ara"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Completion / summary screen ──────────────────────────────────────────────
+
+function CompletionSummaryScreen({
+  items,
+  onPublish,
+  isPublishing,
+  publishedCount,
+  celebrationMode,
+}: {
+  items: AiGeneratedItem[];
+  onPublish: () => void;
+  isPublishing: boolean;
+  publishedCount: number;
+  celebrationMode: boolean;
+}) {
+  const [, setLocation] = useLocation();
+  const [tickerCount, setTickerCount] = useState(0);
+
+  const approved = items.filter((i) => i.status === "approved");
+  const discarded = items.filter((i) => i.status === "discarded");
+  const inReview = items.filter((i) => i.status === "in_review");
+  const published = items.filter((i) => i.status === "published");
+
+  // Drive the publishing ticker animation while isPublishing is true
+  useEffect(() => {
+    if (!isPublishing || approved.length === 0) return;
+    setTickerCount(0);
+    const total = approved.length;
+    const interval = Math.max(200, Math.min(600, 2000 / total));
+    let current = 0;
+    const timer = setInterval(() => {
+      current += 1;
+      setTickerCount(current);
+      if (current >= total) clearInterval(timer);
+    }, interval);
+    return () => clearInterval(timer);
+  }, [isPublishing]);
+
+  if (isPublishing) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full py-20 text-center px-6 animate-in fade-in-0 duration-300">
+        <div className="relative mb-6">
+          <AraAvatar size="lg" />
+          <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-violet-600 flex items-center justify-center">
+            <Loader2 className="w-3 h-3 text-white animate-spin" />
+          </div>
+        </div>
+        <h2 className="text-xl font-extrabold text-foreground mb-2">Publishing to Knowledge Base…</h2>
+        <p className="text-sm text-muted-foreground mb-6">
+          Ara is sending your articles live — your team will be able to find them right away.
+        </p>
+        <div className="flex flex-col items-center gap-3 w-full max-w-xs">
+          <div className="flex items-center justify-between w-full text-xs text-muted-foreground">
+            <span>Publishing articles</span>
+            <span className="font-semibold text-violet-600">{tickerCount} / {approved.length}</span>
+          </div>
+          <div className="w-full h-2 rounded-full bg-muted overflow-hidden">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-violet-500 to-indigo-500 transition-all duration-300"
+              style={{ width: `${approved.length > 0 ? (tickerCount / approved.length) * 100 : 0}%` }}
+            />
+          </div>
+          <div className="flex flex-wrap gap-1.5 justify-center mt-2">
+            {approved.map((item, i) => (
+              <div
+                key={item.id}
+                className={`text-[10px] px-2 py-0.5 rounded-full border transition-all duration-300 ${
+                  i < tickerCount
+                    ? "bg-violet-100 dark:bg-violet-900/30 border-violet-300 dark:border-violet-700 text-violet-700 dark:text-violet-300"
+                    : "bg-muted border-border text-muted-foreground/40"
+                }`}
+              >
+                {item.title.length > 22 ? item.title.slice(0, 22) + "…" : item.title}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (celebrationMode) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full py-20 text-center px-6 animate-in fade-in-0 zoom-in-95 duration-500">
+        <div className="w-16 h-16 rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center mb-6 shadow-xl shadow-violet-500/30">
+          <PartyPopper className="w-8 h-8 text-white" />
+        </div>
+        <h2 className="text-2xl font-extrabold text-foreground mb-2">Your knowledge base is live!</h2>
+        <p className="text-muted-foreground text-sm mb-8 max-w-sm leading-relaxed">
+          Your team can now learn from {publishedCount} article{publishedCount !== 1 ? "s" : ""} generated by Ara. They're searchable and ready to read right now.
+        </p>
+        <Button
+          size="lg"
+          className="bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white gap-2 px-8"
+          onClick={() => setLocation("/knowledge-base")}
+        >
+          <BookOpen className="w-5 h-5" />
+          Open Knowledge Base
+          <ArrowRight className="w-4 h-4" />
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col items-center justify-center h-full py-16 px-6 text-center animate-in fade-in-0 duration-300">
+      <AraAvatar size="lg" />
+      <h2 className="text-xl font-extrabold text-foreground mt-5 mb-2">Review complete!</h2>
+      <p className="text-sm text-muted-foreground mb-8">Here's a summary of what Ara generated and what you reviewed.</p>
+
+      <div className="flex gap-4 mb-8 flex-wrap justify-center">
+        <div className="flex flex-col items-center gap-1 px-6 py-4 rounded-2xl bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 min-w-[100px]">
+          <span className="text-3xl font-extrabold text-green-600 dark:text-green-400">{approved.length}</span>
+          <span className="text-xs font-semibold text-green-700 dark:text-green-300">Approved</span>
+        </div>
+        {inReview.length > 0 && (
+          <div className="flex flex-col items-center gap-1 px-6 py-4 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 min-w-[100px]">
+            <span className="text-3xl font-extrabold text-amber-600 dark:text-amber-400">{inReview.length}</span>
+            <span className="text-xs font-semibold text-amber-700 dark:text-amber-300">Still in review</span>
+          </div>
+        )}
+        <div className="flex flex-col items-center gap-1 px-6 py-4 rounded-2xl bg-muted border border-border min-w-[100px]">
+          <span className="text-3xl font-extrabold text-muted-foreground">{discarded.length + published.length}</span>
+          <span className="text-xs font-semibold text-muted-foreground">Discarded / Published</span>
+        </div>
+      </div>
+
+      {approved.length > 0 ? (
+        <Button
+          size="lg"
+          className="bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white gap-2 px-8 shadow-lg shadow-violet-500/20"
+          onClick={onPublish}
+          disabled={isPublishing}
+        >
+          <Sparkles className="w-5 h-5" />
+          Publish {approved.length} Article{approved.length !== 1 ? "s" : ""} to Knowledge Base
+        </Button>
+      ) : inReview.length > 0 ? (
+        <p className="text-sm text-muted-foreground">Go back and approve documents to publish them.</p>
+      ) : (
+        <p className="text-sm text-muted-foreground">All documents have been handled. Nothing left to publish.</p>
+      )}
+    </div>
+  );
+}
+
+// ── Document Review Theater ──────────────────────────────────────────────────
+
+function DocumentReviewTheater() {
+  const { toast } = useToast();
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [showCompletion, setShowCompletion] = useState(false);
+  const [celebrationMode, setCelebrationMode] = useState(false);
+  const [publishedCount, setPublishedCount] = useState(0);
+  const [refineBarFocused, setRefineBarFocused] = useState(false);
+  // Optimistic local status overrides to avoid stale-closure issues in callbacks
+  const [localStatuses, setLocalStatuses] = useState<Record<string, string>>({});
+  const mainPanelRef = useRef<HTMLDivElement>(null);
 
   const { data: allItemsResponse, isLoading } = useQuery<{ success: boolean; data: AiGeneratedItem[] }>({
     queryKey: ["/api/ai-studio/items"],
   });
 
+  const { data: docsResponse } = useQuery<{ success: boolean; data: KnowledgeDocument[] }>({
+    queryKey: ["/api/sop/documents"],
+  });
+  const allDocuments = docsResponse?.data ?? [];
+
   const allItems = allItemsResponse?.data ?? [];
-  const items = type === "all" ? allItems : allItems.filter((i) => i.type === type);
-  const reviewItems = items.filter((i) => i.status === "in_review");
-  const approvedItems = items.filter((i) => i.status === "approved");
-  const publishedItems = items.filter((i) => i.status === "published");
-  const discardedItems = items.filter((i) => i.status === "discarded");
+  const reviewableItems = allItems.filter((i) => i.type === "sop" || i.type === "training" || i.type === "task" || i.type === "knowledge_base");
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: AiItemUpdatePayload }) =>
@@ -1343,189 +1536,458 @@ function ItemsTab({ type }: { type: string }) {
     mutationFn: (id: string) => apiRequest("POST", `/api/ai-studio/items/${id}/publish`, {}),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/ai-studio/items"] });
-      qc.invalidateQueries({ queryKey: ["/api/sop/documents"] });
-      qc.invalidateQueries({ queryKey: ["/api/training/modules"] });
-      toast({ title: "Item published successfully!" });
-    },
-    onError: () => {
-      toast({ title: "Publish failed", variant: "destructive" });
     },
   });
 
   const publishBatchMutation = useMutation({
     mutationFn: (itemIds: string[]) =>
       apiRequest("POST", "/api/ai-studio/items/publish-batch", { itemIds }),
-    onSuccess: () => {
+    onSuccess: async (res: any) => {
       qc.invalidateQueries({ queryKey: ["/api/ai-studio/items"] });
       qc.invalidateQueries({ queryKey: ["/api/sop/documents"] });
-      toast({ title: "All approved items published!" });
+      qc.invalidateQueries({ queryKey: ["/api/knowledge-base"] });
+      const data = await res.json();
+      const count = data?.published ?? 0;
+      setPublishedCount(count);
+      // Clear local status overrides so the UI reflects fresh server data
+      // (items will now show as "published" instead of "approved")
+      setLocalStatuses({});
+      setCelebrationMode(true);
     },
     onError: () => {
       toast({ title: "Batch publish failed", variant: "destructive" });
     },
   });
 
-  const approveAndPublishAllMutation = useMutation({
-    mutationFn: () =>
-      apiRequest("POST", "/api/ai-studio/items/approve-and-publish-all", {
-        type: type === "all" ? undefined : type,
-      }),
-    onSuccess: (data: any) => {
-      qc.invalidateQueries({ queryKey: ["/api/ai-studio/items"] });
-      qc.invalidateQueries({ queryKey: ["/api/sop/documents"] });
-      qc.invalidateQueries({ queryKey: ["/api/knowledge-base"] });
-      const published = data?.published ?? 0;
-      const errs = data?.errors?.length ?? 0;
-      toast({
-        title: `${published} item${published !== 1 ? "s" : ""} published to library!`,
-        description: errs > 0 ? `${errs} item(s) had errors.` : "They are now visible in the Knowledge Base.",
-      });
-    },
-    onError: () => {
-      toast({ title: "Publish all failed", variant: "destructive" });
-    },
-  });
+  // Merge server statuses with optimistic local overrides
+  const effectiveItems = reviewableItems.map((item) =>
+    localStatuses[item.id] ? { ...item, status: localStatuses[item.id] as AiGeneratedItem["status"] } : item
+  );
+
+  const selectedItem = effectiveItems[selectedIndex] ?? effectiveItems[0];
 
   const handleUpdate = (id: string, data: AiItemUpdatePayload) => {
+    if (data.status) setLocalStatuses((prev) => ({ ...prev, [id]: data.status as string }));
     updateMutation.mutate({ id, data });
   };
 
-  const handlePublish = (id: string) => {
-    publishMutation.mutate(id);
+  const advanceAfterAction = (currentIdx: number, newStatusForCurrentItem: string) => {
+    // Build the effective status map with the just-applied action already included
+    const merged: Record<string, string> = { ...localStatuses };
+    if (effectiveItems[currentIdx]) {
+      merged[effectiveItems[currentIdx].id] = newStatusForCurrentItem;
+    }
+    const mergedItems = reviewableItems.map((item) =>
+      merged[item.id] ? { ...item, status: merged[item.id] as AiGeneratedItem["status"] } : item
+    );
+
+    // Look forward first
+    let next = mergedItems.findIndex(
+      (item, i) => i > currentIdx && item.status === "in_review"
+    );
+    // Then wrap to look from the start
+    if (next === -1) {
+      next = mergedItems.findIndex((item) => item.status === "in_review");
+    }
+    if (next !== -1) {
+      setSelectedIndex(next);
+    } else {
+      const allHandled = mergedItems.every((i) => i.status !== "in_review");
+      if (allHandled) {
+        setShowCompletion(true);
+      }
+    }
   };
 
-  const handleDiscard = (id: string) => {
-    updateMutation.mutate({ id, data: { status: "discarded" } });
+  const handleApprove = (item: AiGeneratedItem) => {
+    const idx = effectiveItems.indexOf(item);
+    setLocalStatuses((prev) => ({ ...prev, [item.id]: "approved" }));
+    updateMutation.mutate({ id: item.id, data: { status: "approved" } });
+    toast({ title: "Approved!" });
+    advanceAfterAction(idx, "approved");
   };
+
+  const handleDiscard = (item: AiGeneratedItem) => {
+    const idx = effectiveItems.indexOf(item);
+    setLocalStatuses((prev) => ({ ...prev, [item.id]: "discarded" }));
+    updateMutation.mutate({ id: item.id, data: { status: "discarded" } });
+    advanceAfterAction(idx, "discarded");
+  };
+
+  // Smart navigation: prefer next/prev in_review item, fall back to sequential
+  const goNext = () => {
+    setSelectedIndex((i) => {
+      const nextInReview = effectiveItems.findIndex(
+        (item, idx) => idx > i && item.status === "in_review"
+      );
+      if (nextInReview !== -1) return nextInReview;
+      return Math.min(i + 1, effectiveItems.length - 1);
+    });
+  };
+
+  const goPrev = () => {
+    setSelectedIndex((i) => {
+      let prevInReview = -1;
+      for (let idx = i - 1; idx >= 0; idx--) {
+        if (effectiveItems[idx]?.status === "in_review") {
+          prevInReview = idx;
+          break;
+        }
+      }
+      if (prevInReview !== -1) return prevInReview;
+      return Math.max(i - 1, 0);
+    });
+  };
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    if (showCompletion) return;
+    const handleKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
+
+      if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+        e.preventDefault();
+        goNext();
+      } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+        e.preventDefault();
+        goPrev();
+      } else if (e.key === "a" || e.key === "A") {
+        if (selectedItem && selectedItem.status === "in_review") {
+          handleApprove(selectedItem);
+        }
+      } else if (e.key === "e" || e.key === "E") {
+        if (selectedItem && selectedItem.status === "in_review") {
+          setRefineBarFocused(true);
+        }
+      } else if (e.key === "d" || e.key === "D") {
+        if (selectedItem && (selectedItem.status === "in_review" || selectedItem.status === "approved")) {
+          handleDiscard(selectedItem);
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [selectedItem, effectiveItems, showCompletion]);
+
+  // Scroll main panel to top on doc change
+  useEffect(() => {
+    mainPanelRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+  }, [selectedIndex]);
 
   if (isLoading) {
     return (
-      <div className="space-y-3">
-        <Skeleton className="h-24 w-full rounded-xl" />
-        <Skeleton className="h-24 w-full rounded-xl" />
+      <div className="flex gap-4 h-[600px]">
+        <div className="w-64 space-y-2">
+          <Skeleton className="h-14 w-full rounded-xl" />
+          <Skeleton className="h-14 w-full rounded-xl" />
+          <Skeleton className="h-14 w-full rounded-xl" />
+        </div>
+        <Skeleton className="flex-1 rounded-xl" />
       </div>
     );
   }
 
-  if (items.length === 0) {
+  if (reviewableItems.length === 0) {
     return (
-      <div className="text-center py-12 border border-dashed rounded-xl">
-        <Sparkles className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />
-        <p className="font-medium text-muted-foreground">No items generated yet</p>
-        <p className="text-sm text-muted-foreground/60 mt-1">
-          Use the "Generate" button above to create content from your uploaded documents.
+      <div className="text-center py-16 border border-dashed rounded-2xl">
+        <AraAvatar size="lg" />
+        <p className="font-bold text-lg mt-5 text-foreground">No content generated yet</p>
+        <p className="text-sm text-muted-foreground/60 mt-2 max-w-xs mx-auto">
+          Upload documents above and click "Generate Knowledge Base with Ara" to create content for review here.
         </p>
       </div>
     );
   }
 
-  return (
-    <div className="space-y-6">
-      {approvedItems.length > 0 && (
-        <div className="flex justify-end">
-          <Button
-            onClick={() => publishBatchMutation.mutate(approvedItems.map((i) => i.id))}
-            disabled={publishBatchMutation.isPending}
-            className="gap-1.5"
-          >
-            {publishBatchMutation.isPending ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Send className="w-4 h-4" />
-            )}
-            Publish All Approved ({approvedItems.length})
-          </Button>
-        </div>
-      )}
+  const getStatusDot = (status: string) => {
+    if (status === "approved") return "bg-green-500";
+    if (status === "discarded") return "bg-muted-foreground/30";
+    if (status === "published") return "bg-blue-500";
+    return "bg-amber-400";
+  };
 
-      {reviewItems.length > 0 && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between gap-2">
-            <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-              In Review ({reviewItems.length})
-            </h3>
+  const isApprovedOrPublished = selectedItem?.status === "approved" || selectedItem?.status === "published";
+  const isDiscarded = selectedItem?.status === "discarded";
+  const editable = selectedItem && !isApprovedOrPublished && !isDiscarded;
+
+  const approvedCount = effectiveItems.filter((i) => i.status === "approved").length;
+  const inReviewCount = effectiveItems.filter((i) => i.status === "in_review").length;
+
+  if (showCompletion) {
+    return (
+      <div className="border border-border rounded-2xl overflow-hidden" style={{ height: "calc(100vh - 220px)", minHeight: "560px" }}>
+        <CompletionSummaryScreen
+          items={effectiveItems}
+          onPublish={() => {
+            const approved = effectiveItems.filter((i) => i.status === "approved");
+            publishBatchMutation.mutate(approved.map((i) => i.id));
+          }}
+          isPublishing={publishBatchMutation.isPending}
+          publishedCount={publishedCount}
+          celebrationMode={celebrationMode}
+        />
+      </div>
+    );
+  }
+
+  // Build "Ara understood" summary from source documents and item metadata
+  const sourceIds = (selectedItem?.sourceDocumentIds as string[] | null) ?? [];
+  const sourceDocs = sourceIds
+    .map((id) => allDocuments.find((d) => d.id === id))
+    .filter(Boolean) as KnowledgeDocument[];
+  const sourceNames = sourceDocs.map((d) => d.filename).filter(Boolean);
+  const hasBeenRefined = !!selectedItem?.feedbackNotes;
+  const confidenceLabel = hasBeenRefined ? "Refined with your feedback" : "High confidence";
+  const confidenceColor = hasBeenRefined
+    ? "text-violet-600 dark:text-violet-400"
+    : "text-emerald-600 dark:text-emerald-400";
+  const sourceSummary =
+    sourceNames.length === 0
+      ? "Generated from your library"
+      : sourceNames.length === 1
+        ? `Understood from ${sourceNames[0]}`
+        : `Understood from ${sourceNames[0]} +${sourceNames.length - 1} more`;
+
+  return (
+    <div className="border border-border rounded-2xl overflow-hidden flex flex-col bg-background" style={{ height: "calc(100vh - 220px)", minHeight: "560px" }}>
+      {/* Theater top bar */}
+      <div className="flex items-center justify-between gap-4 px-4 py-2.5 border-b border-border bg-muted/30 shrink-0">
+        <div className="flex items-center gap-3 min-w-0">
+          <AraAvatar size="xs" />
+          <span className="text-sm font-semibold text-foreground shrink-0">
+            Review {selectedIndex + 1} of {effectiveItems.length}
+          </span>
+          {selectedItem?.status === "in_review" && (
+            <span className="text-xs text-amber-600 dark:text-amber-400 font-medium shrink-0">Awaiting review</span>
+          )}
+          {selectedItem?.status === "approved" && (
+            <span className="text-xs text-green-600 dark:text-green-400 font-medium shrink-0">✓ Approved</span>
+          )}
+          {selectedItem?.status === "discarded" && (
+            <span className="text-xs text-muted-foreground font-medium shrink-0">Discarded</span>
+          )}
+
+          {/* Ara confidence + source summary */}
+          {selectedItem && (
+            <div className="hidden lg:flex items-center gap-2 ml-2 pl-3 border-l border-border min-w-0">
+              <Sparkles className={`w-3.5 h-3.5 shrink-0 ${confidenceColor}`} />
+              <div className="flex flex-col leading-tight min-w-0">
+                <span className={`text-[11px] font-semibold ${confidenceColor}`}>
+                  Ara · {confidenceLabel}
+                </span>
+                <span className="text-[10px] text-muted-foreground truncate" title={sourceNames.join(", ") || undefined}>
+                  {sourceSummary}
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-3">
+          {inReviewCount === 0 && reviewableItems.length > 0 && (
             <Button
               size="sm"
-              className="gap-1.5 bg-primary/90 hover:bg-primary text-primary-foreground text-xs h-8 px-3"
-              onClick={() => approveAndPublishAllMutation.mutate()}
-              disabled={approveAndPublishAllMutation.isPending}
-              title="Approve and publish all items currently in review — they will appear immediately in the Knowledge Base"
+              variant="outline"
+              className="h-7 text-xs gap-1.5 border-violet-300 text-violet-700 dark:text-violet-300 hover:bg-violet-50 dark:hover:bg-violet-950/30"
+              onClick={() => setShowCompletion(true)}
             >
-              {approveAndPublishAllMutation.isPending ? (
-                <Loader2 className="w-3 h-3 animate-spin" />
-              ) : (
-                <Send className="w-3 h-3" />
-              )}
-              Approve & Publish All
+              <Sparkles className="w-3 h-3" />
+              Publish Summary
             </Button>
+          )}
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/60 px-2.5 py-1 rounded-full border border-border">
+            <Keyboard className="w-3 h-3" />
+            <span>A approve · E refine · D discard · ←→ navigate</span>
           </div>
-          {reviewItems.map((item) => (
-            <ItemCard
-              key={item.id}
-              item={item}
-              onUpdate={handleUpdate}
-              onPublish={handlePublish}
-              onDiscard={handleDiscard}
-            />
-          ))}
         </div>
-      )}
+      </div>
 
-      {approvedItems.length > 0 && (
-        <div className="space-y-3">
-          <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-            Approved ({approvedItems.length})
-          </h3>
-          {approvedItems.map((item) => (
-            <ItemCard
-              key={item.id}
-              item={item}
-              onUpdate={handleUpdate}
-              onPublish={handlePublish}
-              onDiscard={handleDiscard}
-            />
-          ))}
-        </div>
-      )}
+      {/* Theater body */}
+      <div className="flex flex-1 min-h-0">
+        {/* Left rail */}
+        <div className="w-60 shrink-0 border-r border-border bg-muted/20 overflow-y-auto">
+          <div className="p-2 space-y-1">
+            {effectiveItems.map((item, i) => {
+              const conf = TYPE_CONFIG[item.type] || TYPE_CONFIG.sop;
+              const Icon = conf.icon;
+              const isSelected = i === selectedIndex;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setSelectedIndex(i)}
+                  className={`w-full text-left flex items-start gap-2.5 p-2.5 rounded-lg transition-all ${
+                    isSelected
+                      ? "bg-primary/10 border border-primary/20"
+                      : "hover:bg-muted/60 border border-transparent"
+                  }`}
+                >
+                  <div className={`w-7 h-7 rounded-lg ${conf.accent} flex items-center justify-center shrink-0 mt-0.5`}>
+                    <Icon className="w-3.5 h-3.5 text-white" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-xs font-semibold truncate leading-tight ${isSelected ? "text-primary" : "text-foreground"}`}>
+                      {item.title}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">{conf.label}</p>
+                  </div>
+                  <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${getStatusDot(item.status)}`} />
+                </button>
+              );
+            })}
+          </div>
 
-      {publishedItems.length > 0 && (
-        <div className="space-y-3">
-          <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-            Published ({publishedItems.length})
-          </h3>
-          {publishedItems.map((item) => (
-            <ItemCard
-              key={item.id}
-              item={item}
-              onUpdate={handleUpdate}
-              onPublish={handlePublish}
-              onDiscard={handleDiscard}
-            />
-          ))}
+          {/* Rail footer stats */}
+          <div className="p-3 border-t border-border mt-2">
+            <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
+              <span>Approved</span>
+              <span className="font-semibold text-green-600">{approvedCount}/{effectiveItems.length}</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+              <div
+                className="h-full rounded-full bg-green-500 transition-all duration-500"
+                style={{ width: `${effectiveItems.length > 0 ? (approvedCount / effectiveItems.length) * 100 : 0}%` }}
+              />
+            </div>
+          </div>
         </div>
-      )}
 
-      {discardedItems.length > 0 && (
-        <div className="space-y-3">
-          <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-            Discarded ({discardedItems.length})
-          </h3>
-          {discardedItems.map((item) => (
-            <ItemCard
-              key={item.id}
-              item={item}
-              onUpdate={handleUpdate}
-              onPublish={handlePublish}
-              onDiscard={handleDiscard}
-            />
-          ))}
+        {/* Main document panel */}
+        <div className="flex-1 flex flex-col min-h-0 min-w-0">
+          {selectedItem ? (
+            <>
+              <div ref={mainPanelRef} className="flex-1 overflow-y-auto px-8 py-6">
+                <div className={`transition-all duration-200 ${isDiscarded ? "opacity-40" : ""}`}>
+                  <DocumentFullPage item={selectedItem} onUpdate={handleUpdate} />
+                </div>
+              </div>
+
+              {/* Floating Ara refine bar */}
+              <FloatingRefineBar
+                itemId={selectedItem.id}
+                editable={!isApprovedOrPublished && !isDiscarded}
+                focusTrigger={refineBarFocused}
+                onFocused={() => setRefineBarFocused(false)}
+              />
+
+              {/* Action bar */}
+              <div className="border-t border-border bg-background/95 backdrop-blur-sm px-5 py-3 flex items-center justify-between gap-3 shrink-0">
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 h-8"
+                    onClick={goPrev}
+                    disabled={selectedIndex === 0}
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                    Prev
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 h-8"
+                    onClick={goNext}
+                    disabled={selectedIndex === effectiveItems.length - 1}
+                  >
+                    Next
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {selectedItem.status === "in_review" && (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1.5 h-8 border-destructive/30 text-destructive hover:bg-destructive/5"
+                        onClick={() => handleDiscard(selectedItem)}
+                        disabled={updateMutation.isPending}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Discard <span className="text-[10px] opacity-50 ml-0.5">D</span>
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1.5 h-8 border-violet-300 text-violet-700 dark:text-violet-300 hover:bg-violet-50 dark:hover:bg-violet-950/30"
+                        onClick={() => setRefineBarFocused(true)}
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                        Edit & Refine <span className="text-[10px] opacity-50 ml-0.5">E</span>
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="gap-1.5 h-8 bg-green-600 hover:bg-green-700 text-white"
+                        onClick={() => handleApprove(selectedItem)}
+                        disabled={updateMutation.isPending}
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        Approve <span className="text-[10px] opacity-70 ml-0.5">A</span>
+                      </Button>
+                    </>
+                  )}
+                  {selectedItem.status === "approved" && (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1.5 h-8 border-violet-300 text-violet-700 dark:text-violet-300 hover:bg-violet-50 dark:hover:bg-violet-950/30"
+                        onClick={() => {
+                          handleUpdate(selectedItem.id, { status: "in_review" });
+                          setRefineBarFocused(true);
+                        }}
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                        Edit & Refine
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1.5 h-8 border-destructive/30 text-destructive hover:bg-destructive/5"
+                        onClick={() => handleDiscard(selectedItem)}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Discard
+                      </Button>
+                      <Badge className="text-xs bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 gap-1.5">
+                        <Check className="w-3 h-3" />
+                        Approved
+                      </Badge>
+                    </>
+                  )}
+                  {selectedItem.status === "discarded" && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5 h-8"
+                      onClick={() => handleUpdate(selectedItem.id, { status: "in_review" })}
+                    >
+                      Restore
+                    </Button>
+                  )}
+                  {selectedItem.status === "published" && (
+                    <Badge className="text-xs bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 gap-1.5">
+                      <CheckCircle className="w-3 h-3" />
+                      Published
+                    </Badge>
+                  )}
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
+              Select a document from the left
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }
 
-// ── Question Bank Tab ──────────────────────────────────────────────────────
+// ── Question Bank Tab ────────────────────────────────────────────────────────
 
 function QuestionBankTab() {
   const [topicFilter, setTopicFilter] = useState("");
@@ -1645,7 +2107,7 @@ function QuestionBankTab() {
   );
 }
 
-// ── Learning Analytics Tab ─────────────────────────────────────────────────
+// ── Learning Analytics Tab ───────────────────────────────────────────────────
 
 interface AnalyticsData {
   participation: Array<{ id: string; first_name: string; last_name: string; quizzes_done: number; streak: number; season_points: number; accuracy: number }>;
@@ -1675,7 +2137,6 @@ function LearningAnalyticsTab() {
 
   return (
     <div className="space-y-6">
-      {/* Coverage Gaps */}
       {analytics.coverageGaps.length > 0 && (
         <Card className="border-orange-200 dark:border-orange-800">
           <CardHeader className="pb-2">
@@ -1697,7 +2158,6 @@ function LearningAnalyticsTab() {
         </Card>
       )}
 
-      {/* Topic Difficulty Heatmap */}
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-sm">Topic Difficulty Heatmap</CardTitle>
@@ -1741,7 +2201,6 @@ function LearningAnalyticsTab() {
         </CardContent>
       </Card>
 
-      {/* High-Miss Questions */}
       {(analytics.highMissQuestions?.length ?? 0) > 0 && (
         <Card className="border-red-200 dark:border-red-800">
           <CardHeader className="pb-2">
@@ -1774,7 +2233,6 @@ function LearningAnalyticsTab() {
         </Card>
       )}
 
-      {/* Team Participation */}
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-sm">Team Participation — Season Standings</CardTitle>
@@ -1807,10 +2265,34 @@ function LearningAnalyticsTab() {
   );
 }
 
+// ── Main page ────────────────────────────────────────────────────────────────
+
+function derivePipelineStage(
+  docs: KnowledgeDocument[],
+  items: AiGeneratedItem[],
+  showWizard: boolean,
+): PipelineStage {
+  if (showWizard) return "generate";
+  if (items.length > 0) return "review";
+  if (docs.length > 0) return "generate";
+  return "upload";
+}
+
 export default function AIContentStudio() {
   const { user } = useAuth();
   const [showWizard, setShowWizard] = useState(false);
-  const [activeTab, setActiveTab] = useState("sop");
+  const [activeTab, setActiveTab] = useState("review");
+
+  const { data: docsResponse } = useQuery<{ success: boolean; data: KnowledgeDocument[] }>({
+    queryKey: ["/api/ai-studio/documents"],
+  });
+  const { data: itemsResponse } = useQuery<{ success: boolean; data: AiGeneratedItem[] }>({
+    queryKey: ["/api/ai-studio/items"],
+  });
+
+  const docs = docsResponse?.data ?? [];
+  const items = itemsResponse?.data ?? [];
+  const pipelineStage = derivePipelineStage(docs, items, showWizard);
 
   const roleName = user?.role?.name;
   const isManagerOrOwner = roleName === "owner" || roleName === "admin" || roleName === "manager";
@@ -1818,8 +2300,8 @@ export default function AIContentStudio() {
   if (!isManagerOrOwner) {
     return (
       <div className="max-w-xl mx-auto mt-20 text-center p-8">
-        <Sparkles className="w-12 h-12 text-muted-foreground/30 mx-auto mb-4" />
-        <h2 className="text-lg font-semibold">AI Content Studio</h2>
+        <AraAvatar size="lg" />
+        <h2 className="text-lg font-semibold mt-4">AI Content Studio</h2>
         <p className="text-muted-foreground mt-2">
           This feature is available to managers and admins only.
         </p>
@@ -1828,28 +2310,37 @@ export default function AIContentStudio() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
+    <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
+      {/* Page header */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2 mb-1">
-            <Sparkles className="w-5 h-5 text-primary" />
-            <h1 className="text-xl font-bold">AI Content Studio</h1>
+          <div className="flex items-center gap-2.5 mb-1">
+            <AraAvatar size="sm" />
+            <h1 className="text-xl font-bold text-foreground">AI Content Studio</h1>
             <Badge className="bg-violet-100 text-violet-800 dark:bg-violet-900 dark:text-violet-200 text-xs">
               Manager Only
             </Badge>
           </div>
           <p className="text-sm text-muted-foreground">
-            Upload documents and let Claude generate SOPs, training modules, task lists, and knowledge base articles.
+            Upload documents and let Ara generate SOPs, training modules, task lists, and knowledge base articles.
           </p>
         </div>
-        <Button onClick={() => setShowWizard(true)} className="gap-1.5 shrink-0">
-          <Wand2 className="w-4 h-4" />
-          Generate
+        <Button
+          onClick={() => setShowWizard(true)}
+          className="gap-1.5 shrink-0 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white"
+        >
+          <Sparkles className="w-4 h-4" />
+          Generate with Ara
         </Button>
       </div>
 
+      {/* Pipeline progress bar */}
+      <PipelineProgressBar stage={pipelineStage} />
+
+      {/* Quick Action */}
       <QuickActionPanel />
 
+      {/* Source Library */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center gap-2">
@@ -1858,31 +2349,28 @@ export default function AIContentStudio() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <SourceLibrary />
+          <SourceLibrary onStartGenerate={() => setShowWizard(true)} />
         </CardContent>
       </Card>
 
+      {/* Review Theater + other tabs */}
       <div>
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="mb-4 flex-wrap h-auto gap-1">
-            <TabsTrigger value="sop">SOPs</TabsTrigger>
-            <TabsTrigger value="training">Training</TabsTrigger>
-            <TabsTrigger value="task">Tasks</TabsTrigger>
-            <TabsTrigger value="knowledge_base">Knowledge Base</TabsTrigger>
+            <TabsTrigger value="review" className="gap-1.5">
+              <Sparkles className="w-3.5 h-3.5" />
+              Review & Publish
+              {items.filter(i => i.status === "in_review").length > 0 && (
+                <span className="ml-1 w-4 h-4 rounded-full bg-amber-500 text-white text-[9px] font-bold flex items-center justify-center">
+                  {items.filter(i => i.status === "in_review").length}
+                </span>
+              )}
+            </TabsTrigger>
             <TabsTrigger value="question_bank">Question Bank</TabsTrigger>
             <TabsTrigger value="analytics">Learning Analytics</TabsTrigger>
           </TabsList>
-          <TabsContent value="sop">
-            <ItemsTab type="sop" />
-          </TabsContent>
-          <TabsContent value="training">
-            <ItemsTab type="training" />
-          </TabsContent>
-          <TabsContent value="task">
-            <ItemsTab type="task" />
-          </TabsContent>
-          <TabsContent value="knowledge_base">
-            <ItemsTab type="knowledge_base" />
+          <TabsContent value="review">
+            <DocumentReviewTheater />
           </TabsContent>
           <TabsContent value="question_bank">
             <QuestionBankTab />
@@ -1893,18 +2381,19 @@ export default function AIContentStudio() {
         </Tabs>
       </div>
 
+      {/* Generation wizard dialog */}
       <Dialog open={showWizard} onOpenChange={setShowWizard}>
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Wand2 className="w-5 h-5 text-primary" />
-              Generate Content with Claude
+              <AraAvatar size="sm" />
+              Generate Content with Ara
             </DialogTitle>
           </DialogHeader>
           <GenerationWizard
             onComplete={() => {
               setShowWizard(false);
-              setActiveTab("sop");
+              setActiveTab("review");
             }}
           />
         </DialogContent>
