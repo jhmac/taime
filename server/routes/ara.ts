@@ -3,7 +3,7 @@ import type { IStorage } from "../storage";
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { config } from "../lib/config";
-import { searchSOPs } from "../services/sopIndexer";
+import { searchSOPs, type SOPSearchResult } from "../services/sopIndexer";
 import { tryResolveStoreIdForUser } from "../services/storeResolver";
 import logger from "../lib/logger";
 
@@ -21,6 +21,64 @@ const askSchema = z.object({
   history: z.array(historyMessageSchema).max(20).optional(),
 });
 
+const RAG_TOP_K = 10;
+const RAG_MIN_SIMILARITY = 0.25;
+const RAG_EXCERPT_CHARS = 900;
+const RAG_MAX_EXCERPTS = 6;
+const RAG_TOTAL_CONTEXT_CHARS = 6000;
+
+const SOURCE_TYPE_LABELS: Record<string, string> = {
+  sop_template: "SOP",
+  sop_training_notes: "SOP training notes",
+  sop_step: "SOP step",
+  ai_item: "Knowledge item",
+  knowledge_doc: "Knowledge document",
+};
+
+function formatSourceLabel(sourceType: string): string {
+  return SOURCE_TYPE_LABELS[sourceType] ?? "Store content";
+}
+
+function buildKnowledgeContext(results: SOPSearchResult[]): {
+  contextBlock: string;
+  used: SOPSearchResult[];
+} {
+  const filtered = results.filter((r) => r.similarityScore >= RAG_MIN_SIMILARITY);
+  if (filtered.length === 0) return { contextBlock: "", used: [] };
+
+  // De-duplicate by templateId so a single doc with many similar chunks doesn't
+  // crowd out other relevant sources. Keep the highest-scoring chunk per doc.
+  const bestByTemplate = new Map<string, SOPSearchResult>();
+  for (const r of filtered) {
+    const existing = bestByTemplate.get(r.templateId);
+    if (!existing || r.similarityScore > existing.similarityScore) {
+      bestByTemplate.set(r.templateId, r);
+    }
+  }
+
+  const ordered = Array.from(bestByTemplate.values())
+    .sort((a, b) => b.similarityScore - a.similarityScore)
+    .slice(0, RAG_MAX_EXCERPTS);
+
+  const used: SOPSearchResult[] = [];
+  const parts: string[] = [];
+  let totalChars = 0;
+  for (const r of ordered) {
+    const label = formatSourceLabel(r.sourceType);
+    const excerpt = r.contentText.slice(0, RAG_EXCERPT_CHARS).trim();
+    const block = `[${label}: ${r.templateTitle}]\n${excerpt}`;
+    if (totalChars + block.length > RAG_TOTAL_CONTEXT_CHARS && used.length > 0) break;
+    parts.push(block);
+    used.push(r);
+    totalChars += block.length;
+  }
+
+  return {
+    contextBlock: parts.length > 0 ? `\n\nRelevant store knowledge (use this first, cite by name):\n${parts.join("\n\n---\n\n")}` : "",
+    used,
+  };
+}
+
 export function registerAraRoutes(app: Express, _storage: IStorage, isAuthenticated: any) {
   app.post("/api/ara/ask", isAuthenticated, async (req: any, res) => {
     const parsed = askSchema.safeParse(req.body);
@@ -33,31 +91,30 @@ export function registerAraRoutes(app: Express, _storage: IStorage, isAuthentica
 
     try {
       let knowledgeContext = "";
+      let usedResults: SOPSearchResult[] = [];
 
       const storeId = await tryResolveStoreIdForUser(userId);
       if (storeId) {
         try {
-          const results = await searchSOPs(storeId, question, 5);
-          if (results.length > 0) {
-            const excerpts = results
-              .map((r) => `[${r.templateTitle}]\n${r.contentText.slice(0, 500)}`)
-              .join("\n\n---\n\n");
-            knowledgeContext = `\n\nRelevant store knowledge:\n${excerpts}`;
-          }
+          const results = await searchSOPs(storeId, question, RAG_TOP_K);
+          const built = buildKnowledgeContext(results);
+          knowledgeContext = built.contextBlock;
+          usedResults = built.used;
         } catch (ragErr: any) {
           logger.warn({ error: ragErr.message }, "ara: RAG search failed, proceeding without KB context");
         }
       }
 
-      const systemPrompt = `You are Ara, a helpful AI assistant for a retail store team. You answer questions clearly and concisely based on store procedures, policies, and best practices.${knowledgeContext}
+      const systemPrompt = `You are Ara, a helpful AI assistant for a retail store team. You answer questions clearly and accurately based on this store's specific procedures, policies, training materials, and uploaded knowledge documents.${knowledgeContext}
 
 Guidelines:
-- Give direct, actionable answers
-- Keep responses concise (2-4 sentences for simple questions, up to a short paragraph for complex ones)
-- When you reference a specific procedure or policy from the knowledge base, mention it by name
-- If the answer isn't covered in the store's knowledge base, say so and offer general retail best-practice guidance
-- Be friendly and supportive
-- If the user is asking a follow-up question, use the prior conversation context to give a coherent answer`;
+- ALWAYS prefer the store's own knowledge above general retail advice. Quote, paraphrase, or summarize the relevant excerpts when answering.
+- When you draw from a specific SOP, training note, or knowledge document, mention it by its exact title in your reply (e.g. "According to the 'Opening Checklist' SOP...").
+- If multiple sources are relevant, you may reference more than one.
+- If the store's knowledge does not cover the question, say so explicitly ("I don't see this in your store's documented procedures") and then offer general retail best-practice guidance, clearly labeled as such.
+- Give direct, actionable answers. Use short paragraphs or bullet points when steps are involved; keep simple answers to 2-4 sentences.
+- Be friendly and supportive.
+- If the user is asking a follow-up question, use the prior conversation context to give a coherent answer.`;
 
       // Build the messages array: prior conversation history + the new question.
       // Anthropic requires strict user/assistant alternation starting from user, so defensively
@@ -81,7 +138,7 @@ Guidelines:
 
       const response = await anthropic.messages.create({
         model: "claude-haiku-4-20250514",
-        max_tokens: 512,
+        max_tokens: 900,
         system: systemPrompt,
         messages: conversationMessages,
       });
@@ -98,7 +155,9 @@ Guidelines:
           questionLength: question.length,
           historyLength: history.length,
           normalizedHistoryLength: normalizedHistory.length,
-          ragResults: knowledgeContext ? "yes" : "no",
+          ragResultsUsed: usedResults.length,
+          ragSourceTypes: Array.from(new Set(usedResults.map((r) => r.sourceType))),
+          ragTopScore: usedResults[0]?.similarityScore ?? null,
         },
         "ara: answered question"
       );
