@@ -657,6 +657,13 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
       if (configuredManagerIds.length > 0 && !configuredManagerIds.includes(userId) && !isAdmin) {
         return res.status(403).json({ message: "Only configured managers or admins can perform manager review" });
       }
+
+      // Guard: do not downgrade a period that is already fully finalized
+      const existingApproval = await storage.getTimesheetPeriodApproval(storeId, startDate, endDate);
+      if (existingApproval?.status === "final_approved") {
+        return res.status(409).json({ message: "Period is already finalized — no further manager review required", status: "final_approved" });
+      }
+
       await storage.upsertTimesheetPeriodApproval({
         storeId,
         periodStart: startDate,

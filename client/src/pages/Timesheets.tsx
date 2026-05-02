@@ -326,6 +326,8 @@ interface WorkflowSettings {
   notifyAdminOnManagerApproval: boolean;
   employeeSelfReviewReminder: boolean;
   singleStepApproval: boolean;
+  emailRemindersEnabled: boolean;
+  reminderFromEmail: string | null;
   managerUserIds: string[];
   adminUserId: string | null;
 }
@@ -348,6 +350,8 @@ function WorkflowSettingsTab() {
     notifyAdminOnManagerApproval: true,
     employeeSelfReviewReminder: false,
     singleStepApproval: false,
+    emailRemindersEnabled: false,
+    reminderFromEmail: null,
     managerUserIds: [],
     adminUserId: null,
   });
@@ -361,6 +365,8 @@ function WorkflowSettingsTab() {
       notifyAdminOnManagerApproval: s.notifyAdminOnManagerApproval ?? true,
       employeeSelfReviewReminder: s.employeeSelfReviewReminder ?? false,
       singleStepApproval: s.singleStepApproval ?? false,
+      emailRemindersEnabled: s.emailRemindersEnabled ?? false,
+      reminderFromEmail: s.reminderFromEmail ?? null,
       managerUserIds: (s.managerUserIds as string[]) || [],
       adminUserId: s.adminUserId || null,
     });
@@ -581,6 +587,67 @@ function WorkflowSettingsTab() {
           </div>
         </CardContent>
       </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Mail className="h-4 w-4" />
+            Email reminders
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <Label className="text-sm font-medium">Send email reminders via SendGrid</Label>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                In addition to in-app notifications, send emails. Requires SENDGRID_API_KEY to be configured.
+              </p>
+            </div>
+            <Switch
+              checked={form.emailRemindersEnabled}
+              onCheckedChange={(v) => updateField("emailRemindersEnabled", v)}
+            />
+          </div>
+          {form.emailRemindersEnabled && (
+            <div className="space-y-1.5">
+              <Label className="text-xs">From email address</Label>
+              <Input
+                type="email"
+                placeholder="no-reply@yourstore.com"
+                value={form.reminderFromEmail || ""}
+                onChange={(e) => updateField("reminderFromEmail", e.target.value || null)}
+                className="h-8 text-sm"
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Leave blank to use the default sender (no-reply@taime.app)
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {!form.singleStepApproval && (
+        <Card className="bg-muted/30">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+              Reminder sequence preview (two-step mode)
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ol className="text-xs text-muted-foreground space-y-1.5 list-decimal list-inside">
+              {form.employeeSelfReviewReminder && (
+                <li>Last day of period — employees reminded to review their hours</li>
+              )}
+              <li>Day {form.managerReminderDaysAfterPeriod} after period end — manager(s) reminded to review timesheets</li>
+              <li>Day {form.managerReminderDaysAfterPeriod + form.managerEscalationDaysAfterReminder} after period end — admin escalation if manager hasn't reviewed</li>
+              <li>After manager approves — admin nudged to finalize within {form.managerEscalationDaysAfterReminder} days</li>
+              {form.notifyAdminOnManagerApproval && (
+                <li>Immediately on manager approval — admin notified to finalize</li>
+              )}
+            </ol>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="text-xs text-muted-foreground flex items-center gap-1.5 pt-2 border-t">
         <Bell className="h-3.5 w-3.5 flex-shrink-0" />
