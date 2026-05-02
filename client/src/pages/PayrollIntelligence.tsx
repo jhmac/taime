@@ -35,17 +35,7 @@ const fmt$ = (n: number) => `$${n.toLocaleString('en-US', { minimumFractionDigit
 const fmtPct = (n: number) => `${n.toFixed(1)}%`;
 const fmtHrs = (n: number) => `${n.toFixed(1)}h`;
 
-function statusColor(actual: number, min: number, max: number, lower_is_better = false) {
-  const ok = lower_is_better ? actual <= max : actual >= min && actual <= max;
-  const warn = lower_is_better
-    ? actual <= max * 1.15
-    : actual >= min * 0.85 && actual <= max * 1.15;
-  if (ok) return 'text-green-600 dark:text-green-400';
-  if (warn) return 'text-yellow-600 dark:text-yellow-400';
-  return 'text-red-600 dark:text-red-400';
-}
-
-// ── RangeBar — segment-based, CSS-custom-property positioning ────────────────
+// ── RangeBar — SVG-based, zero inline style props ────────────────────────────
 function RangeBar({
   label,
   unit,
@@ -68,53 +58,64 @@ function RangeBar({
   const fmt = format ?? ((n: number) => `${n}${unit ?? ''}`);
   const barMin = min * 0.7;
   const barMax = max * 1.3;
-  const range = barMax - barMin;
 
-  const toPct = (v: number) => Math.min(100, Math.max(0, ((v - barMin) / range) * 100));
+  const toPct = (v: number) =>
+    Math.min(100, Math.max(0, ((v - barMin) / (barMax - barMin)) * 100));
 
   const isGood = actual == null ? null
     : lowerIsBetter ? actual <= max
     : actual >= min && actual <= max;
 
-  // Segment widths (sum to 100%) — no absolute positioning needed
-  const w1 = toPct(min);
-  const w2 = toPct(ideal) - toPct(min);
-  const w3 = toPct(max) - toPct(ideal);
-  const w4 = 100 - toPct(max);
-  const actualPct = actual != null ? toPct(actual) : null;
+  const labelColor = isGood === true  ? 'text-green-600 dark:text-green-400'
+                   : isGood === false ? 'text-red-600 dark:text-red-400'
+                   :                    'text-yellow-600 dark:text-yellow-400';
 
-  const markerColor =
-    isGood === true  ? 'bg-green-500'  :
-    isGood === false ? 'bg-red-500'    :
-                       'bg-yellow-500';
+  // SVG marker fill class — no inline style needed on SVG elements
+  const markerFill = isGood === true  ? 'fill-green-500'
+                   : isGood === false ? 'fill-red-500'
+                   :                    'fill-yellow-500';
+
+  const bandX    = toPct(min);
+  const bandW    = Math.max(0, toPct(max) - toPct(min));
+  const idealX   = toPct(ideal);
+  const actualX  = actual != null ? toPct(actual) : null;
 
   return (
     <div className="mb-4">
       <div className="flex justify-between items-center mb-1 text-xs">
         <span className="font-medium text-foreground">{label}</span>
         {actual != null && (
-          <span className={`font-bold ${isGood === true ? 'text-green-600 dark:text-green-400' : isGood === false ? 'text-red-600 dark:text-red-400' : 'text-yellow-600 dark:text-yellow-400'}`}>
+          <span className={`font-bold ${labelColor}`}>
             {fmt(actual)} {isGood === true ? '✓' : isGood === false ? '↑' : '~'}
           </span>
         )}
       </div>
-      {/* Segment bar — flex layout eliminates absolute left/width inline styles */}
-      <div
-        className="relative h-5 flex rounded-full overflow-hidden bg-muted"
-        {...(actualPct != null ? { style: { '--actual-pct': `${actualPct}%` } as React.CSSProperties } : {})}
+      {/* SVG bar — all positioning expressed as SVG attributes, never style={} */}
+      <svg
+        viewBox="0 0 100 12"
+        preserveAspectRatio="none"
+        className="w-full h-3 rounded-sm overflow-visible"
+        aria-hidden="true"
       >
-        <div className="h-full bg-muted shrink-0"               style={{ width: `${w1}%` }} />
-        <div className="h-full bg-green-500/20 shrink-0"        style={{ width: `${w2}%` }} />
-        <div className="h-full bg-green-500/20 border-r-2 border-green-600/60 shrink-0" style={{ width: `${w3}%` }} />
-        <div className="h-full bg-muted shrink-0"               style={{ width: `${w4}%` }} />
-        {/* Actual value marker — positioned via CSS custom property */}
-        {actualPct != null && (
-          <div
-            className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 rounded-full border-2 border-background shadow-md z-10 ${markerColor}`}
-            style={{ left: 'var(--actual-pct)' }}
+        {/* track */}
+        <rect x="0" y="0" width="100" height="12" rx="2" className="fill-muted" />
+        {/* benchmark band */}
+        <rect x={bandX} y="0" width={bandW} height="12" className="fill-green-500/20" />
+        {/* ideal line */}
+        <line x1={idealX} x2={idealX} y1="0" y2="12" className="stroke-green-600 dark:stroke-green-400" strokeWidth="1.5" />
+        {/* actual marker — narrow rounded rect avoids distortion from preserveAspectRatio="none" */}
+        {actualX != null && (
+          <rect
+            x={Math.max(1.5, Math.min(98.5, actualX)) - 1.5}
+            y="0"
+            width="3"
+            height="12"
+            rx="1.5"
+            className={`${markerFill} stroke-background`}
+            strokeWidth="1"
           />
         )}
-      </div>
+      </svg>
       <div className="flex justify-between text-[10px] text-muted-foreground mt-0.5">
         <span>{fmt(min)}</span>
         <span className="text-green-600 dark:text-green-400">Ideal: {fmt(ideal)}</span>
@@ -644,25 +645,22 @@ function TeamTab({
   const totalHours = sorted.reduce((s, e) => s + e.totalHours, 0);
   const avgHours = sorted.length > 0 ? totalHours / sorted.length : 0;
 
-  // Performance badge: SPLH-first when available; fall back to hours vs avg
+  // Performance badges: 10% above avg hours → Star, 15% below → Coach, else Solid.
+  // When per-employee SPLH becomes available (shift-level POS attribution), swap
+  // avgHours threshold for avgSplh threshold using the same 10%/15% constants.
   const perfBadge = (emp: { totalHours: number; splh: number | null }) => {
-    if (emp.splh !== null) {
-      // SPLH-based: star = top quartile, coach = bottom quartile
-      const allSplh = sorted.map(e => e.splh).filter((s): s is number => s !== null);
-      if (allSplh.length > 1) {
-        allSplh.sort((a, b) => a - b);
-        const q1 = allSplh[Math.floor(allSplh.length * 0.25)];
-        const q3 = allSplh[Math.floor(allSplh.length * 0.75)];
-        if (emp.splh >= q3) return <Badge className="text-[10px] bg-green-100 text-green-700 border-green-200 whitespace-nowrap">⭐ Star</Badge>;
-        if (emp.splh <= q1) return <Badge className="text-[10px] bg-amber-100 text-amber-700 border-amber-200 whitespace-nowrap">Coach</Badge>;
-        return <Badge className="text-[10px] bg-blue-100 text-blue-700 border-blue-200 whitespace-nowrap">Solid</Badge>;
-      }
+    const allSplh = sorted.map(e => e.splh).filter((s): s is number => s !== null);
+    if (emp.splh !== null && allSplh.length > 1) {
+      const avgSplh = allSplh.reduce((a, b) => a + b, 0) / allSplh.length;
+      if (emp.splh >= avgSplh * 1.10) return <Badge className="text-[10px] bg-green-100 text-green-700 border-green-200 whitespace-nowrap">⭐ Star</Badge>;
+      if (emp.splh <  avgSplh * 0.85) return <Badge className="text-[10px] bg-amber-100 text-amber-700 border-amber-200 whitespace-nowrap">Coach</Badge>;
+      return <Badge className="text-[10px] bg-blue-100 text-blue-700 border-blue-200 whitespace-nowrap">Solid</Badge>;
     }
-    // Hours-based fallback (used when SPLH is unavailable — Shopify store-wide only)
-    const ratio = avgHours > 0 ? emp.totalHours / avgHours : 0;
-    if (ratio >= 1.3) return <Badge className="text-[10px] bg-green-100 text-green-700 border-green-200 whitespace-nowrap">Top Hours</Badge>;
-    if (ratio >= 0.7) return <Badge className="text-[10px] bg-blue-100 text-blue-700 border-blue-200 whitespace-nowrap">On Track</Badge>;
-    return <Badge className="text-[10px] bg-amber-100 text-amber-700 border-amber-200 whitespace-nowrap">Low Hours</Badge>;
+    // Hours-based (Shopify provides store-level totals only, not per-employee)
+    const ratio = avgHours > 0 ? emp.totalHours / avgHours : 1;
+    if (ratio >= 1.10) return <Badge className="text-[10px] bg-green-100 text-green-700 border-green-200 whitespace-nowrap">⭐ Star</Badge>;
+    if (ratio <  0.85) return <Badge className="text-[10px] bg-amber-100 text-amber-700 border-amber-200 whitespace-nowrap">Coach</Badge>;
+    return <Badge className="text-[10px] bg-blue-100 text-blue-700 border-blue-200 whitespace-nowrap">Solid</Badge>;
   };
 
   // Mentorship gap: highest wage + below-average hours = expensive and underutilized
@@ -1077,6 +1075,26 @@ export default function PayrollIntelligence() {
       </section>
 
       <div className="px-4 py-4 md:px-6 md:py-5 space-y-4">
+        {/* Top-level Shopify connect prompt — shown on every tab when not connected */}
+        {summary && !summary.shopConnected && (
+          <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 p-4">
+            <i className="fab fa-shopify text-amber-600 dark:text-amber-400 text-xl mt-0.5 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">Connect Shopify to unlock sales metrics</p>
+              <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+                Dashboard, Team SPLH, and Profit First calculations require Shopify sales data.
+                Benchmarks are available without it.
+              </p>
+            </div>
+            <a
+              href="/settings/integrations"
+              className="shrink-0 text-xs font-semibold text-amber-700 dark:text-amber-300 underline underline-offset-2 mt-0.5"
+            >
+              Connect
+            </a>
+          </div>
+        )}
+
         {activeTab === 'benchmark' && (
           <BenchmarkTab
             summary={summaryWithLocal}
