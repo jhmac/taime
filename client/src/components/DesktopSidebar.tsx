@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
+import { useWebSocket } from '@/hooks/useWebSocket';
+import { queryClient } from '@/lib/queryClient';
 import { cn } from '@/lib/utils';
 import { Sparkles, ChevronDown, ChevronRight } from 'lucide-react';
 
@@ -123,6 +125,15 @@ export default function DesktopSidebar() {
     refetchInterval: 30000,
   });
   const unreadCount = unreadData?.data?.count || 0;
+
+  // Live-update the unread badge when WebSocket events arrive (no 30s wait)
+  const { lastMessage: wsMessage } = useWebSocket();
+  useEffect(() => {
+    if (!wsMessage) return;
+    if (wsMessage.type === 'new_message' || wsMessage.type === 'message_confirmed') {
+      queryClient.invalidateQueries({ queryKey: ['/api/messages/unread-count'] });
+    }
+  }, [wsMessage]);
 
   const { data: miniScore } = useQuery<{ overallScore: number; tier: string }>({
     queryKey: ['/api/gamification/my-score'],

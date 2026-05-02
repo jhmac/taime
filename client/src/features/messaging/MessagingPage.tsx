@@ -687,6 +687,8 @@ export default function MessagingPage() {
   useEffect(() => {
     if (threadData?.data?.messages) {
       setLocalMessages(threadData.data.messages);
+      // Backend marked this thread read on GET — refresh unread count so badges clear immediately
+      queryClient.invalidateQueries({ queryKey: ["/api/messages/unread-count"] });
     }
   }, [threadData]);
 
