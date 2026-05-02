@@ -66,6 +66,97 @@ async function getStoreId(): Promise<string> {
   return id;
 }
 
+function audioPathFromUrl(audioUrl: string | null | undefined): string | null {
+  if (!audioUrl) return null;
+  // audioUrl is `/uploads/meetings/<basename>`. Resolve to the on-disk path
+  // and ensure it stays inside AUDIO_UPLOAD_DIR to prevent path traversal.
+  const basename = path.basename(audioUrl);
+  if (!basename || basename === "." || basename === "..") return null;
+  const resolved = path.resolve(AUDIO_UPLOAD_DIR, basename);
+  if (path.dirname(resolved) !== AUDIO_UPLOAD_DIR) return null;
+  return resolved;
+}
+
+async function runMeetingPipeline(
+  meetingId: string,
+  audioPath: string,
+  meetingForBroadcast: { createdBy: string; participantIds: unknown },
+  storage: IStorage,
+  broadcastToMeeting: (
+    m: { createdBy: string; participantIds: unknown },
+    payload: Record<string, unknown>
+  ) => Promise<void>,
+): Promise<void> {
+  try {
+    // Clear pending/rejected recommendations from any previous run before inserting fresh AI output.
+    const existingRecs = await storage.getMeetingTaskRecommendations(meetingId);
+    for (const existingRec of existingRecs) {
+      if (existingRec.status !== "accepted") {
+        await storage.deleteMeetingTaskRecommendation(existingRec.id);
+      }
+    }
+
+    const transcript = await transcribeAudioFile(audioPath);
+    await storage.updateMeeting(meetingId, { transcript });
+    await broadcastToMeeting(meetingForBroadcast, { type: "meeting_transcribed", data: { meetingId } });
+
+    const synopsis = await generateSynopsis(transcript);
+    await storage.updateMeeting(meetingId, { synopsis });
+    await broadcastToMeeting(meetingForBroadcast, { type: "meeting_synopsis_ready", data: { meetingId } });
+
+    // Defensively normalize participantIds to avoid null runtime errors
+    const participantIds = (meetingForBroadcast.participantIds ?? []) as string[];
+    const participantUsers: Array<{ id: string; name: string }> = [];
+    for (const pid of participantIds) {
+      const u = await storage.getUser(pid);
+      if (u) {
+        participantUsers.push({
+          id: u.id,
+          name: `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim(),
+        });
+      }
+    }
+
+    const recommendations = await generateTaskRecommendations(synopsis, participantUsers);
+
+    for (const rec of recommendations) {
+      let assigneeId: string | null = null;
+      if (rec.suggestedAssigneeHint) {
+        const hintLower = rec.suggestedAssigneeHint.toLowerCase();
+        const matched = participantUsers.find(p => p.name.toLowerCase().includes(hintLower));
+        if (matched) assigneeId = matched.id;
+      }
+
+      await storage.createMeetingTaskRecommendation({
+        meetingId,
+        description: rec.description,
+        context: rec.context,
+        priority: rec.priority,
+        assigneeId,
+        status: "pending",
+      });
+    }
+
+    await storage.updateMeeting(meetingId, { status: "ready" });
+    await broadcastToMeeting(meetingForBroadcast, { type: "meeting_ready", data: { meetingId } });
+    logger.info({ meetingId, recommendationCount: recommendations.length }, "Meeting pipeline complete");
+
+    // On success, clean up the audio file to prevent disk bloat.
+    fs.unlink(audioPath, (unlinkErr) => {
+      if (unlinkErr) logger.warn({ meetingId, audioPath }, "Failed to delete audio temp file");
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    logger.error({ meetingId, error: message }, "Meeting pipeline failed");
+    await storage.updateMeeting(meetingId, { status: "failed" }).catch(() => {});
+    await broadcastToMeeting(meetingForBroadcast, {
+      type: "meeting_failed",
+      data: { meetingId, error: message },
+    });
+    // Intentionally keep the audio file so the user can retry transcription.
+  }
+}
+
 async function isManagerOrOwner(storage: IStorage, userId: string): Promise<boolean> {
   return resolveAnyPermission(userId, ["admin.manage_all", "admin.role_management", "admin.manage_payroll"], storage);
 }
@@ -218,8 +309,14 @@ export function registerMeetingRoutes(
 
       if (!req.file) throw new AppError(400, "No audio file provided", "NO_FILE");
 
-      const audioPath = req.file.path as string;
-      const audioUrl = `/uploads/meetings/${path.basename(audioPath)}`;
+      const newAudioPath = req.file.path as string;
+      const audioUrl = `/uploads/meetings/${path.basename(newAudioPath)}`;
+
+      // If a previous audio file exists for this meeting, remove it now that we have a fresh upload.
+      const previousAudioPath = audioPathFromUrl(meeting.audioUrl);
+      if (previousAudioPath && previousAudioPath !== newAudioPath) {
+        fs.unlink(previousAudioPath, () => {});
+      }
 
       // Update duration if provided
       const durationSeconds = req.body.durationSeconds ? parseInt(req.body.durationSeconds, 10) : undefined;
@@ -228,71 +325,49 @@ export function registerMeetingRoutes(
 
       res.json({ success: true, data: { meetingId: id, status: "processing" } });
 
-      setImmediate(async () => {
-        try {
-          // Clear pending/rejected recommendations from any previous upload before inserting new AI output
-          const existingRecs = await storage.getMeetingTaskRecommendations(id);
-          for (const existingRec of existingRecs) {
-            if (existingRec.status !== "accepted") {
-              await storage.deleteMeetingTaskRecommendation(existingRec.id);
-            }
-          }
+      setImmediate(() => {
+        runMeetingPipeline(id, newAudioPath, meeting, storage, broadcastToMeeting).catch(() => {});
+      });
+    })
+  );
 
-          const transcript = await transcribeAudioFile(audioPath);
-          await storage.updateMeeting(id, { transcript });
-          await broadcastToMeeting(meeting, { type: "meeting_transcribed", data: { meetingId: id } });
+  app.post(
+    "/api/meetings/:id/retry",
+    isAuthenticated,
+    asyncHandler(async (req: any, res) => {
+      const userId = req.user.id as string;
+      const { id } = req.params as { id: string };
+      const storeId = await getStoreId();
 
-          const synopsis = await generateSynopsis(transcript);
-          await storage.updateMeeting(id, { synopsis });
-          await broadcastToMeeting(meeting, { type: "meeting_synopsis_ready", data: { meetingId: id } });
+      const meeting = await storage.getMeeting(id);
+      if (!meeting) throw new AppError(404, "Meeting not found", "NOT_FOUND");
+      assertMeetingBelongsToStore(meeting, storeId);
 
-          // Defensively normalize participantIds to avoid null runtime errors
-          const participantIds = (meeting.participantIds ?? []) as string[];
-          const participantUsers: Array<{ id: string; name: string }> = [];
-          for (const pid of participantIds) {
-            const u = await storage.getUser(pid);
-            if (u) {
-              participantUsers.push({
-                id: u.id,
-                name: `${u.firstName ?? ""} ${u.lastName ?? ""}`.trim(),
-              });
-            }
-          }
+      const isManager = await isManagerOrOwner(storage, userId);
+      if (!isManager && meeting.createdBy !== userId) {
+        throw new AppError(403, "Not authorized to retry this meeting", "FORBIDDEN");
+      }
 
-          const recommendations = await generateTaskRecommendations(synopsis, participantUsers);
+      if (meeting.status !== "failed") {
+        throw new AppError(409, "Only failed meetings can be retried", "INVALID_STATE");
+      }
 
-          for (const rec of recommendations) {
-            let assigneeId: string | null = null;
-            if (rec.suggestedAssigneeHint) {
-              const hintLower = rec.suggestedAssigneeHint.toLowerCase();
-              const matched = participantUsers.find(p => p.name.toLowerCase().includes(hintLower));
-              if (matched) assigneeId = matched.id;
-            }
+      const audioPath = audioPathFromUrl(meeting.audioUrl);
+      if (!audioPath || !fs.existsSync(audioPath)) {
+        throw new AppError(
+          409,
+          "Original audio is no longer available. Please record or upload again.",
+          "AUDIO_MISSING"
+        );
+      }
 
-            await storage.createMeetingTaskRecommendation({
-              meetingId: id,
-              description: rec.description,
-              context: rec.context,
-              priority: rec.priority,
-              assigneeId,
-              status: "pending",
-            });
-          }
+      await storage.updateMeeting(id, { status: "processing" });
+      await broadcastToMeeting(meeting, { type: "meeting_processing_started", data: { meetingId: id } });
 
-          await storage.updateMeeting(id, { status: "ready" });
-          await broadcastToMeeting(meeting, { type: "meeting_ready", data: { meetingId: id } });
-          logger.info({ meetingId: id, recommendationCount: recommendations.length }, "Meeting pipeline complete");
-        } catch (err: unknown) {
-          const message = err instanceof Error ? err.message : "Unknown error";
-          logger.error({ meetingId: id, error: message }, "Meeting pipeline failed");
-          await storage.updateMeeting(id, { status: "failed" }).catch(() => {});
-          await broadcastToMeeting(meeting, { type: "meeting_failed", data: { meetingId: id, error: message } });
-        } finally {
-          // Always clean up the temp audio file to prevent disk bloat
-          fs.unlink(audioPath, (unlinkErr) => {
-            if (unlinkErr) logger.warn({ meetingId: id, audioPath }, "Failed to delete audio temp file");
-          });
-        }
+      res.json({ success: true, data: { meetingId: id, status: "processing" } });
+
+      setImmediate(() => {
+        runMeetingPipeline(id, audioPath, meeting, storage, broadcastToMeeting).catch(() => {});
       });
     })
   );
@@ -473,6 +548,13 @@ export function registerMeetingRoutes(
     }
 
     await storage.deleteMeeting(id);
+
+    // Best-effort cleanup of the underlying audio file (if still present).
+    const audioPath = audioPathFromUrl(meeting.audioUrl);
+    if (audioPath) {
+      fs.unlink(audioPath, () => {});
+    }
+
     res.json({ success: true });
   }));
 

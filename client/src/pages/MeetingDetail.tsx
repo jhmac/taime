@@ -13,7 +13,7 @@ import { useWebSocket } from "@/hooks/useWebSocket";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
   ArrowLeft, Clock, Users, Search, CheckCircle2, XCircle, Inbox,
-  AlertTriangle, ArrowUpCircle, Minus, Loader2, Circle,
+  AlertTriangle, ArrowUpCircle, Minus, Loader2, Circle, RefreshCw,
 } from "lucide-react";
 
 const MEETING_PROGRESS_EVENTS = new Set([
@@ -361,6 +361,60 @@ function MeetingProgressIndicator({ meeting }: { meeting: MeetingDetail }) {
   );
 }
 
+function RetryBanner({ meetingId }: { meetingId: string }) {
+  const { toast } = useToast();
+
+  const retryMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/meetings/${meetingId}/retry`, {});
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error || body?.message || "Failed to retry transcription");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/meetings", meetingId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/meetings"] });
+      toast({
+        title: "Retrying transcription",
+        description: "We're processing the audio again. This usually takes a minute.",
+      });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Couldn't retry", description: err.message, variant: "destructive" });
+    },
+  });
+
+  return (
+    <Card className="mb-4 border-destructive/40 bg-destructive/5" data-testid="card-retry-banner">
+      <CardContent className="p-4 flex items-start gap-3">
+        <AlertTriangle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-foreground">Couldn't transcribe this meeting</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            You can retry the transcription pipeline without re-uploading the audio.
+          </p>
+        </div>
+        <Button
+          size="sm"
+          onClick={() => retryMutation.mutate()}
+          disabled={retryMutation.isPending}
+          className="gap-1.5 shrink-0"
+          data-testid="button-retry-transcription"
+        >
+          {retryMutation.isPending ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <RefreshCw className="h-3.5 w-3.5" />
+          )}
+          Retry transcription
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function MeetingDetail() {
   const params = useParams<{ id: string }>();
   const id = params.id;
@@ -451,6 +505,7 @@ export default function MeetingDetail() {
         </div>
 
         <MeetingProgressIndicator meeting={meeting} />
+        {meeting.status === "failed" && <RetryBanner meetingId={meeting.id} />}
 
         <Tabs defaultValue="synopsis" className="mt-4">
           <TabsList className="w-full grid grid-cols-3 mb-4">

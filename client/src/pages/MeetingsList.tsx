@@ -134,7 +134,11 @@ export default function MeetingsList() {
               <Card
                 key={meeting.id}
                 className={`cursor-pointer transition-colors hover:bg-muted/30 ${meeting.status !== "ready" ? "opacity-80" : ""}`}
-                onClick={() => meeting.status === "ready" && navigate(`/meetings/${meeting.id}`)}
+                onClick={() => {
+                  if (meeting.status === "ready" || meeting.status === "failed") {
+                    navigate(`/meetings/${meeting.id}`);
+                  }
+                }}
               >
                 <CardContent className="p-4">
                   <div className="flex items-start justify-between gap-3">
