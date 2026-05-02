@@ -2997,23 +2997,37 @@ Required JSON structure:
       const minStaffPost2 = settings2?.minStaffingPostHours ?? settings2?.minimumStaffing ?? 1;
       const minimumStaffing2 = minStaffDuring2; // peak-zone floor used as overall default
 
+      // Determine zone boundaries from shift blocks:
+      // - Opening zone  = hours of the first shift block
+      // - Closing zone  = hours of the last shift block
+      // - Peak zone     = all middle shift blocks
+      // Falls back to store-hours thirds when shift blocks are unavailable.
+      const shiftBlocksEarly: any[] = ((settings2?.shiftBlocks as any[]) || [
+        { name: 'Morning', startTime: '09:00', endTime: '14:00' },
+        { name: 'Afternoon', startTime: '14:00', endTime: '21:00' },
+      ]).sort((a: any, b: any) => a.startTime.localeCompare(b.startTime));
+
+      function hourToZoneFloor2(h: number): number {
+        if (shiftBlocksEarly.length === 0) return minStaffDuring2;
+        const [firstS] = shiftBlocksEarly[0].startTime.split(':').map(Number);
+        const [firstE] = shiftBlocksEarly[0].endTime.split(':').map(Number);
+        const last = shiftBlocksEarly[shiftBlocksEarly.length - 1];
+        const [lastS] = last.startTime.split(':').map(Number);
+        if (h >= firstS && h < firstE) return minStaffPre2;    // first block = Opening
+        if (h >= lastS) return minStaffPost2;                   // last block = Closing
+        return minStaffDuring2;                                  // middle = Peak
+      }
+
       // Peak computation mirrors /historical-sales exactly: avg-based threshold over store hours
       const dailyRevTotal2 = hourlyRevenue2.slice(openH2, closeH2).reduce((s, v) => s + v, 0);
       const avgHourlyRevenue2 = dailyRevTotal2 / Math.max(1, closeH2 - openH2);
-      const storeSpanH2 = closeH2 - openH2;
       const hourlyData: any[] = [];
       for (let h = openH2; h < closeH2; h++) {
         const rev = hourlyRevenue2[h];
         const hLabel = `${(h % 12) || 12}${h < 12 ? 'am' : 'pm'}`;
         const isPeak = rev > avgHourlyRevenue2 * 1.3;
         const tier = staffingTiers2.find((t: any) => rev >= t.minRevenue && rev <= t.maxRevenue);
-        // zone-aware floor: pre=first third, post=last third, during=middle
-        const relH = h - openH2;
-        const zoneFloor = relH < Math.ceil(storeSpanH2 / 3)
-          ? minStaffPre2
-          : relH >= storeSpanH2 - Math.ceil(storeSpanH2 / 3)
-            ? minStaffPost2
-            : minStaffDuring2;
+        const zoneFloor = hourToZoneFloor2(h);
         const suggestedStaff = Math.max(zoneFloor, tier?.employeeCount || zoneFloor);
         hourlyData.push({ hour: h, label: hLabel, revenue: Math.round(rev * 100) / 100, isPeak, suggestedStaff });
       }
