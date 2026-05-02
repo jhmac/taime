@@ -771,6 +771,9 @@ export function registerAiSchedulingRoutes(
         dayName: string;
         predictedRevenue: number;
         requiredStaff: number;
+        requiredStaffPre: number;
+        requiredStaffDuring: number;
+        requiredStaffPost: number;
         matchedLastYearDate?: string;
       }> = [];
 
@@ -792,11 +795,14 @@ export function registerAiSchedulingRoutes(
           }
         }
 
-        const requiredStaff = getStaffingForRevenue(
-          predictedRevenue,
-          settings.staffingTiers as any[],
-          settings.minStaffingDuringHours ?? settings.minimumStaffing ?? 2
-        );
+        const genMinPre = settings.minStaffingPreHours ?? settings.minimumStaffing ?? 1;
+        const genMinDuring = settings.minStaffingDuringHours ?? settings.minimumStaffing ?? 2;
+        const genMinPost = settings.minStaffingPostHours ?? settings.minimumStaffing ?? 1;
+        const tiers = settings.staffingTiers as any[];
+        const requiredStaffPre = getStaffingForRevenue(predictedRevenue, tiers, genMinPre);
+        const requiredStaffDuring = getStaffingForRevenue(predictedRevenue, tiers, genMinDuring);
+        const requiredStaffPost = getStaffingForRevenue(predictedRevenue, tiers, genMinPost);
+        const requiredStaff = requiredStaffDuring; // peak zone as primary indicator
 
         days.push({
           date: dateStr,
@@ -804,6 +810,9 @@ export function registerAiSchedulingRoutes(
           dayName: dayNames[dow],
           predictedRevenue: Math.round(predictedRevenue * 100) / 100,
           requiredStaff,
+          requiredStaffPre,
+          requiredStaffDuring,
+          requiredStaffPost,
           matchedLastYearDate: matchedDate,
         });
       }
@@ -1008,8 +1017,8 @@ ${activeRules.map((r, i) => {
 CUSTOM INSTRUCTIONS FROM ADMIN:
 ${customAiInstructions}
 ` : ''}${enabledSpecialCircumstances.length > 0 ? `
-SPECIAL CIRCUMSTANCES (factor these into scheduling decisions this week):
-${enabledSpecialCircumstances.map((c: any) => `- ${c.name}${c.category ? ` [${c.category}]` : ''}${c.description ? ': ' + c.description : ''}`).join('\n')}
+SPECIAL CIRCUMSTANCES — apply these when assigning shifts this week:
+${enabledSpecialCircumstances.map((c: any, i: number) => `${i + 1}. ${c.name}${c.category ? ` [${c.category}]` : ''}${c.description ? ': ' + c.description : ''}`).join('\n')}
 ` : ''}
 OUTPUT INSTRUCTIONS: Return ONLY a single JSON object. Do NOT include any text, markdown formatting, or code fences. The response must start with { and end with }.
 
@@ -2276,7 +2285,26 @@ Required JSON structure:
         { minRevenue: 2001, maxRevenue: 5000, employeeCount: 3 },
         { minRevenue: 5001, maxRevenue: 10000, employeeCount: 5 },
       ]);
-      const minimumStaffing = settings?.minimumStaffing || 2;
+      // Zone-aware minimums — fall back to minimumStaffing for backward compat
+      const histMinPre = settings?.minStaffingPreHours ?? settings?.minimumStaffing ?? 1;
+      const histMinDuring = settings?.minStaffingDuringHours ?? settings?.minimumStaffing ?? 2;
+      const histMinPost = settings?.minStaffingPostHours ?? settings?.minimumStaffing ?? 1;
+
+      // Determine zone boundaries from configured shift blocks
+      const histShiftBlocks: any[] = ((settings?.shiftBlocks as any[]) || [
+        { name: 'Morning', startTime: '09:00', endTime: '14:00' },
+        { name: 'Afternoon', startTime: '14:00', endTime: '21:00' },
+      ]).sort((a: any, b: any) => a.startTime.localeCompare(b.startTime));
+
+      function hourToZoneFloor(h: number): number {
+        if (histShiftBlocks.length === 0) return histMinDuring;
+        const [fS] = histShiftBlocks[0].startTime.split(':').map(Number);
+        const [fE] = histShiftBlocks[0].endTime.split(':').map(Number);
+        const [lS] = histShiftBlocks[histShiftBlocks.length - 1].startTime.split(':').map(Number);
+        if (h >= fS && h < fE) return histMinPre;   // Opening zone = first block
+        if (h >= lS) return histMinPost;             // Closing zone = last block
+        return histMinDuring;                         // Peak zone = middle
+      }
 
       const storeHoursArray = ((settings?.storeHours as any[]) || []);
       const todayHours = storeHoursArray.find((sh: any) => sh.day === targetDow);
@@ -2309,7 +2337,8 @@ Required JSON structure:
       for (let h = openH; h < closeH; h++) {
         const revenue = hourlyRevenue[h];
         const isPeak = revenue > avgHourlyRevenue * 1.3;
-        const suggestedStaff = getStaffingForRevenue(revenue, staffingTiers, minimumStaffing);
+        const zoneFloor = hourToZoneFloor(h);
+        const suggestedStaff = getStaffingForRevenue(revenue, staffingTiers, zoneFloor);
         hourlyData.push({
           hour: h,
           label: `${(h % 12) || 12}${h < 12 ? 'am' : 'pm'}`,

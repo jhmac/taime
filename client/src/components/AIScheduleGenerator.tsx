@@ -31,6 +31,9 @@ interface DayPrediction {
   dayName: string;
   predictedRevenue: number;
   requiredStaff: number;
+  requiredStaffPre?: number;
+  requiredStaffDuring?: number;
+  requiredStaffPost?: number;
   matchedLastYearDate?: string;
 }
 
@@ -401,12 +404,12 @@ export default function AIScheduleGenerator() {
                               ${day.predictedRevenue.toLocaleString()}
                             </Badge>
                           )}
-                          <Badge variant="secondary" className="gap-1">
+                          <Badge variant="secondary" className="gap-1" title={day.requiredStaffPre != null ? `Opening: ${day.requiredStaffPre} · Peak: ${day.requiredStaffDuring} · Closing: ${day.requiredStaffPost}` : undefined}>
                             <Users className="h-3 w-3" />
-                            {day.requiredStaff} needed
+                            {day.requiredStaffDuring ?? day.requiredStaff} peak needed
                           </Badge>
                           <Badge
-                            variant={activeCount >= day.requiredStaff ? "default" : "destructive"}
+                            variant={activeCount >= (day.requiredStaffDuring ?? day.requiredStaff) ? "default" : "destructive"}
                             className="gap-1"
                           >
                             {activeCount} assigned
