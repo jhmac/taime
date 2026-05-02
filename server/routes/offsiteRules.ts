@@ -873,6 +873,22 @@ export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAu
     }
     try {
       const breadcrumbs = await storage.getOffsiteBreadcrumbs(sessionId);
+      const isLive = req.query.live === '1' || req.query.live === 'true';
+
+      // Optional caller-supplied current GPS (used in live view for fresh pin)
+      const currentLatRaw = req.query.currentLat as string | undefined;
+      const currentLngRaw = req.query.currentLng as string | undefined;
+      let currentLat: number | null = null;
+      let currentLng: number | null = null;
+      if (currentLatRaw && currentLngRaw) {
+        const lat = parseFloat(currentLatRaw);
+        const lng = parseFloat(currentLngRaw);
+        if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+          currentLat = lat;
+          currentLng = lng;
+        }
+      }
+
       const url = new URL('https://maps.googleapis.com/maps/api/staticmap');
       url.searchParams.set('size', '640x360');
       url.searchParams.set('scale', '2');
@@ -917,13 +933,31 @@ export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAu
         url.searchParams.append('markers', `color:green|label:S|${first.latitude},${first.longitude}`);
       }
 
+      // Current location pin (live view only)
+      if (isLive) {
+        let pinLat: number | string | null = null;
+        let pinLng: number | string | null = null;
+        if (currentLat != null && currentLng != null) {
+          pinLat = currentLat;
+          pinLng = currentLng;
+        } else if (breadcrumbs.length > 0) {
+          const last = breadcrumbs[breadcrumbs.length - 1];
+          pinLat = last.latitude;
+          pinLng = last.longitude;
+        }
+        if (pinLat != null && pinLng != null) {
+          url.searchParams.append('markers', `color:0x9333EA|label:Y|${pinLat},${pinLng}`);
+        }
+      }
+
       const response = await fetch(url.toString());
       if (!response.ok) {
         return res.status(502).json({ message: "Failed to fetch trip map" });
       }
       const contentType = response.headers.get('content-type') || 'image/png';
       res.set('Content-Type', contentType);
-      res.set('Cache-Control', 'public, max-age=3600');
+      // Live maps must not be cached so refreshes show the latest position
+      res.set('Cache-Control', isLive ? 'no-store, max-age=0' : 'public, max-age=3600');
       const buffer = await response.arrayBuffer();
       res.send(Buffer.from(buffer));
     } catch (error) {

@@ -12,11 +12,12 @@ import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
 import { isUnauthorizedError } from '@/lib/authUtils';
 import type { TimeEntry, WorkLocation, CompanySettings } from '@shared/schema';
-import { MapPin, Shield, AlertTriangle, CheckCircle2, XCircle, Wifi, ExternalLink, Smartphone, Coffee, Route, X as XIcon } from 'lucide-react';
+import { MapPin, Shield, AlertTriangle, CheckCircle2, XCircle, Wifi, ExternalLink, Smartphone, Coffee, Route, X as XIcon, Navigation } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
 import { App as CapacitorApp } from '@capacitor/app';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import LocationHelpSheet from '@/components/LocationHelpSheet';
+import LiveTripMapSheet from '@/components/LiveTripMapSheet';
 import ErrorWithRetry from '@/components/ErrorWithRetry';
 import MyTripsSection from '@/components/MyTripsSection';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from '@/components/ui/sheet';
@@ -77,6 +78,7 @@ export default function TimeClockWidget({ greetingSlot, footerSlot, hideClock = 
   const totalGraceSecondsRef = useRef<number>(0);
   const [showLocationHelp, setShowLocationHelp] = useState(false);
   const [showStartTripSheet, setShowStartTripSheet] = useState(false);
+  const [showLiveTripSheet, setShowLiveTripSheet] = useState(false);
   const [selectedRuleId, setSelectedRuleId] = useState<string>('');
   const lastMonitorTimeRef = useRef<number>(0);
   const prevActiveEntryRef = useRef<any>(null);
@@ -1194,7 +1196,16 @@ export default function TimeClockWidget({ greetingSlot, footerSlot, hideClock = 
               {activeOffsiteSession && (
                 <div className="flex items-center gap-2 text-xs text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30 rounded-xl px-3 py-2">
                   <Route className="h-3.5 w-3.5 flex-shrink-0" />
-                  <span>Off-site trip in progress</span>
+                  <span className="flex-1">Off-site trip in progress</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowLiveTripSheet(true)}
+                    className="inline-flex items-center gap-1 font-semibold text-blue-700 dark:text-blue-400 underline underline-offset-2 hover:text-blue-800 dark:hover:text-blue-300"
+                    data-testid="view-trip-route-button"
+                  >
+                    <Navigation className="h-3 w-3" />
+                    View Route
+                  </button>
                 </div>
               )}
             </div>
@@ -1260,6 +1271,12 @@ export default function TimeClockWidget({ greetingSlot, footerSlot, hideClock = 
     </Card>
 
     <LocationHelpSheet open={showLocationHelp} onOpenChange={setShowLocationHelp} />
+
+    <LiveTripMapSheet
+      open={showLiveTripSheet}
+      onOpenChange={setShowLiveTripSheet}
+      sessionId={activeOffsiteSession?.id ?? null}
+    />
 
     <Sheet open={showStartTripSheet} onOpenChange={setShowStartTripSheet}>
       <SheetContent side="bottom" className="rounded-t-2xl max-h-[85vh] overflow-y-auto">
