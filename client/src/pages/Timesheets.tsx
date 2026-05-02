@@ -684,6 +684,7 @@ function ReminderLogTable() {
       case "manager_escalation": return "Admin escalation";
       case "employee_self_review": return "Employee self-review";
       case "manager_approval_notify": return "Admin notified (approval)";
+      case "admin_finalize_nudge": return "Admin finalize nudge";
       default: return type;
     }
   };

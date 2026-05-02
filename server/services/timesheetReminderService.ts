@@ -281,7 +281,13 @@ async function runTimesheetReminderCheck(): Promise<void> {
   try {
     // Iterate all store-scoped workflow settings rows so every store is processed independently
     const allSettings = await storage.getAllTimesheetWorkflowSettings();
-    if (allSettings.length === 0) return;
+
+    // If no settings rows exist yet no store has ever saved workflow settings.
+    // Reminders can only run once a store saves settings (or a migration seeds a default row).
+    if (allSettings.length === 0) {
+      logger.info("[TimesheetReminder] No workflow settings rows found — skipping until a store configures the workflow");
+      return;
+    }
 
     for (const ws of allSettings) {
       const storeId: string | null = ws.storeId ?? null;
