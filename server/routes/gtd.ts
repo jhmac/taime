@@ -181,15 +181,26 @@ export function registerGtdRoutes(
     const isManager = await isManagerOrOwner(storage, userId);
 
     const statusFilter = req.query.status as string | undefined;
+    const sourceFilter = req.query.source as string | undefined;
+    const capturedByFilter = req.query.captured_by as string | undefined;
     const conditions = [eq(gtdInboxItems.storeId, storeId)];
 
+    // Non-managers always see only their own items.
+    // Managers can optionally scope to a specific user via captured_by=me or a userId.
     if (!isManager) {
       conditions.push(eq(gtdInboxItems.capturedBy, userId));
+    } else if (capturedByFilter) {
+      const targetUser = capturedByFilter === 'me' ? userId : capturedByFilter;
+      conditions.push(eq(gtdInboxItems.capturedBy, targetUser));
     }
 
-    if (statusFilter) {
+    if (sourceFilter) {
+      conditions.push(eq(gtdInboxItems.source, sourceFilter));
+    }
+
+    if (statusFilter && statusFilter !== 'all') {
       conditions.push(eq(gtdInboxItems.status, statusFilter));
-    } else {
+    } else if (!statusFilter) {
       conditions.push(
         or(eq(gtdInboxItems.status, 'unprocessed'), eq(gtdInboxItems.status, 'clarified'))!
       );
@@ -202,6 +213,38 @@ export function registerGtdRoutes(
       .offset(offset);
 
     res.json({ success: true, data: items });
+  }));
+
+  app.post('/api/gtd/inbox/:id/resolve', isAuthenticated, asyncHandler(async (req: any, res) => {
+    const userId = req.user.id;
+    const { id } = req.params;
+
+    const isManager = await isManagerOrOwner(storage, userId);
+    if (!isManager) {
+      throw new AppError(403, "Only admins can resolve submissions", "FORBIDDEN");
+    }
+
+    const [item] = await db.select().from(gtdInboxItems).where(eq(gtdInboxItems.id, id));
+    if (!item) throw new AppError(404, "Inbox item not found", "NOT_FOUND");
+
+    if (item.status === 'processed' && item.processedIntoType === 'resolved') {
+      return res.json({ success: true, data: item });
+    }
+
+    const [updated] = await db.update(gtdInboxItems).set({
+      status: 'processed',
+      processedAt: new Date(),
+      processedIntoType: 'resolved',
+      processedIntoId: null,
+      updatedAt: new Date(),
+    }).where(eq(gtdInboxItems.id, id)).returning();
+
+    sendToUsers(computeGtdInboxRecipients(item.capturedBy), {
+      type: 'inbox_item_processed',
+      data: { itemId: id, destination: 'resolved', createdId: null },
+    });
+
+    res.json({ success: true, data: updated });
   }));
 
   app.post('/api/gtd/inbox/:id/process', isAuthenticated, asyncHandler(async (req: any, res) => {
