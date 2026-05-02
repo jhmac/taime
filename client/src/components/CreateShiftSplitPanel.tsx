@@ -456,16 +456,10 @@ function DataSourceBanner({
 function SalesChart({
   data,
   isLoading,
-  onCorrect,
-  isCorrecting,
 }: {
   data: HistoricalSalesData | null | undefined;
   isLoading: boolean;
-  onCorrect?: (historicalDate: string, newTotal: number) => void;
-  isCorrecting?: boolean;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [correctionVal, setCorrectionVal] = useState("");
 
   if (isLoading) {
     return (
@@ -504,14 +498,6 @@ function SalesChart({
       })
     : "";
 
-  const handleSaveCorrection = () => {
-    const val = parseFloat(correctionVal.replace(/[^0-9.]/g, ""));
-    if (isNaN(val) || val < 0) return;
-    onCorrect?.(data.historicalDate, val);
-    setEditing(false);
-    setCorrectionVal("");
-  };
-
   return (
     <div className="mb-3">
       <div className="flex items-center justify-between mb-1">
@@ -521,50 +507,9 @@ function SalesChart({
         </span>
         <div className="flex items-center gap-2">
           <span className="text-[9px] text-muted-foreground italic">Based on {historicalLabel}</span>
-          {editing ? (
-            <div className="flex items-center gap-1">
-              <span className="text-[11px] text-muted-foreground">$</span>
-              <Input
-                autoFocus
-                className="h-6 w-24 text-[11px] px-1 py-0"
-                value={correctionVal}
-                onChange={(e) => setCorrectionVal(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleSaveCorrection();
-                  if (e.key === "Escape") { setEditing(false); setCorrectionVal(""); }
-                }}
-                placeholder={String(Math.round(data.dailyTotal))}
-              />
-              <button
-                onClick={handleSaveCorrection}
-                disabled={isCorrecting}
-                className="text-emerald-600 hover:text-emerald-700 disabled:opacity-50"
-                title="Save correction"
-              >
-                {isCorrecting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
-              </button>
-              <button
-                onClick={() => { setEditing(false); setCorrectionVal(""); }}
-                className="text-muted-foreground hover:text-foreground"
-                title="Cancel"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </div>
-          ) : (
-            <div className="flex items-center gap-1 group">
-              <span className="text-[11px] font-semibold text-foreground">{dailyFmt} total</span>
-              {onCorrect && (
-                <button
-                  onClick={() => { setEditing(true); setCorrectionVal(String(Math.round(data.dailyTotal))); }}
-                  title="Correct this revenue total"
-                  className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
-                >
-                  <Pencil className="h-2.5 w-2.5" />
-                </button>
-              )}
-            </div>
-          )}
+          <div className="flex items-center gap-1">
+            <span className="text-[11px] font-semibold text-foreground">{dailyFmt} total</span>
+          </div>
         </div>
       </div>
       <div className="h-28 w-full">
@@ -609,9 +554,6 @@ function SalesChart({
         <span className="flex items-center gap-1 text-[9px] text-muted-foreground">
           <span className="inline-block w-3 h-2 rounded-sm bg-slate-400" />standard
         </span>
-        {onCorrect && (
-          <span className="text-[9px] text-muted-foreground italic ml-auto">Hover total to correct</span>
-        )}
       </div>
     </div>
   );
@@ -2148,11 +2090,6 @@ export default function CreateShiftSplitPanel({
     setShiftSaved(false);
   }, [selectedShiftIdx, selectedActualSchedule?.id]);
   const [showPillsUnavailable, setShowPillsUnavailable] = useState(false);
-  const [pendingCorrectionWarning, setPendingCorrectionWarning] = useState<{
-    historicalDate: string;
-    totalRevenue: number;
-    message: string;
-  } | null>(null);
   // A1 confirm-on-close dialog state.
   const [pendingCloseConfirm, setPendingCloseConfirm] = useState(false);
   // C6 keyboard cheat-sheet, toggled by ? and /.
@@ -3294,29 +3231,6 @@ export default function CreateShiftSplitPanel({
     },
     onError: () => {
       toast({ title: "Error", description: "Failed to delete shift.", variant: "destructive" });
-    },
-  });
-
-  // Mutation to correct a historical revenue total
-  const correctRevenueMutation = useMutation({
-    mutationFn: async ({ historicalDate, totalRevenue, confirmed }: { historicalDate: string; totalRevenue: number; confirmed?: boolean }) => {
-      const res = await apiRequest("POST", "/api/schedules/historical-sales/correct", { date: historicalDate, totalRevenue, confirmed });
-      return res.json();
-    },
-    onSuccess: (data, variables) => {
-      if (data?.requiresConfirmation) {
-        setPendingCorrectionWarning({
-          historicalDate: variables.historicalDate,
-          totalRevenue: variables.totalRevenue,
-          message: data.message,
-        });
-        return;
-      }
-      queryClient.invalidateQueries({ queryKey: ["/api/schedules/historical-sales", modalDate] });
-      toast({ title: "Revenue corrected", description: "The historical total has been updated." });
-    },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to correct revenue total.", variant: "destructive" });
     },
   });
 
@@ -4799,10 +4713,6 @@ export default function CreateShiftSplitPanel({
               <SalesChart
                 data={salesData}
                 isLoading={salesLoading && !!modalDate}
-                onCorrect={isAdmin ? (historicalDate, newTotal) =>
-                  correctRevenueMutation.mutate({ historicalDate, totalRevenue: newTotal })
-                : undefined}
-                isCorrecting={correctRevenueMutation.isPending}
               />
 
               {/* Divider */}
@@ -5742,38 +5652,6 @@ export default function CreateShiftSplitPanel({
     </AlertDialog>
 
 
-    {/* ── Suspicious revenue correction confirmation dialog ── */}
-    <AlertDialog
-      open={!!pendingCorrectionWarning}
-      onOpenChange={(open) => { if (!open) setPendingCorrectionWarning(null); }}
-    >
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle className="flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4 text-amber-500" />
-            Unusual Revenue Total
-          </AlertDialogTitle>
-          <AlertDialogDescription>
-            {pendingCorrectionWarning?.message}
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel onClick={() => setPendingCorrectionWarning(null)}>
-            Cancel
-          </AlertDialogCancel>
-          <AlertDialogAction
-            onClick={() => {
-              if (!pendingCorrectionWarning) return;
-              const { historicalDate, totalRevenue } = pendingCorrectionWarning;
-              setPendingCorrectionWarning(null);
-              correctRevenueMutation.mutate({ historicalDate, totalRevenue, confirmed: true });
-            }}
-          >
-            Yes, save it
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
     </>
   );
 }
