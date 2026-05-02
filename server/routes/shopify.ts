@@ -354,6 +354,7 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
             } else {
               // Atomic incremental upsert keyed on (shop_domain, date) — see
               // uq_shopify_daily_sales_shop_date.
+              // AUTHORIZED SYNC WRITE: totalRevenue may only be set here (Shopify ingestion path).
               await db.insert(shopifyDailySales)
                 .values({
                   shopDomain: normalizedDomain,
@@ -927,6 +928,7 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
         // uq_shopify_daily_sales_shop_date. Sync recomputes the day's
         // totals from the entire fetched batch, so the conflict path
         // overwrites rather than incrementing.
+        // AUTHORIZED SYNC WRITE: totalRevenue may only be set here (Shopify ingestion path).
         await db.insert(shopifyDailySales)
           .values({
             shopDomain: credentials.shopDomain,
@@ -1048,11 +1050,13 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
         .limit(1);
 
       if (existingDay.length > 0) {
+        // AUTHORIZED SYNC WRITE: totalRevenue may only be set here (Shopify ingestion path).
         await db.update(shopifyDailySales).set({
           orderCount: orders.length, totalRevenue: String(Math.round(dayRevenue * 100) / 100),
           itemCount, averageOrderValue: String(avgOrderValue), dayOfWeek,
         }).where(eq(shopifyDailySales.id, existingDay[0].id));
       } else {
+        // AUTHORIZED SYNC WRITE: totalRevenue may only be set here (Shopify ingestion path).
         await db.insert(shopifyDailySales).values({
           shopDomain: normalizedDomain, date: dateObj, dayOfWeek,
           orderCount: orders.length, totalRevenue: String(Math.round(dayRevenue * 100) / 100),
@@ -1149,6 +1153,7 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
             }
             for (const dayData of Object.values(agg)) {
               const aov = dayData.orderCount > 0 ? Math.round((dayData.totalRevenue / dayData.orderCount) * 100) / 100 : 0;
+              // AUTHORIZED SYNC WRITE: totalRevenue may only be set here (Shopify ingestion path).
               await db.insert(shopifyDailySales).values({
                 shopDomain: resolvedDomain,
                 date: dayData.date,

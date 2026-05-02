@@ -307,6 +307,7 @@ async function backfillDayOrdersFromShopify(
   const dayOfWeek = dateObj.getUTCDay();
   const avgOrderValue = orders.length > 0 ? Math.round((dayRevenue / orders.length) * 100) / 100 : 0;
 
+  // AUTHORIZED SYNC WRITE: totalRevenue may only be set here (Shopify ingestion path).
   await db.insert(shopifyDailySales)
     .values({
       shopDomain,

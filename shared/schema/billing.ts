@@ -53,6 +53,10 @@ export const shopifyDailySales = pgTable("shopify_daily_sales", {
   date: timestamp("date").notNull(),
   dayOfWeek: integer("day_of_week"),
   orderCount: integer("order_count").default(0),
+  // SYNC-ONLY: totalRevenue must only be written by the Shopify ingestion path
+  // (server/routes/shopify.ts and server/routes/aiScheduling.ts sync functions).
+  // It is intentionally excluded from insertShopifyDailySalesSchema to prevent
+  // accidental writes from non-sync API routes.
   totalRevenue: decimal("total_revenue", { precision: 12, scale: 2 }).default("0.00"),
   itemCount: integer("item_count").default(0),
   averageOrderValue: decimal("average_order_value", { precision: 10, scale: 2 }).default("0.00"),
@@ -155,7 +159,9 @@ export const shopifyRegisterSessions = pgTable("shopify_register_sessions", {
 export const insertStoreEntitlementSchema = createInsertSchema(storeEntitlements).omit({ id: true, grantedAt: true, updatedAt: true });
 export const insertShopSchema = createInsertSchema(shops).omit({ id: true, installedAt: true, updatedAt: true });
 export const insertUserShopSchema = createInsertSchema(userShops).omit({ id: true, createdAt: true });
-export const insertShopifyDailySalesSchema = createInsertSchema(shopifyDailySales).omit({ id: true, createdAt: true });
+// totalRevenue is omitted here to prevent non-sync routes from writing to it.
+// Only the Shopify ingestion path (shopify.ts / aiScheduling.ts) may set this field.
+export const insertShopifyDailySalesSchema = createInsertSchema(shopifyDailySales).omit({ id: true, createdAt: true, totalRevenue: true });
 export const insertShopifyOrderSchema = createInsertSchema(shopifyOrders).omit({ id: true, syncedAt: true, createdAt: true, updatedAt: true });
 export const insertShopifyReportScheduleSchema = createInsertSchema(shopifyReportSchedules).omit({ id: true, createdAt: true, updatedAt: true, lastSentAt: true });
 export const insertShopifyRegisterSessionSchema = createInsertSchema(shopifyRegisterSessions).omit({ id: true, createdAt: true });
