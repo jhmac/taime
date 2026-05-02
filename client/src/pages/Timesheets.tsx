@@ -128,6 +128,7 @@ interface DiscrepancyAlert {
   scheduledEnd?: string;
   scheduledHours?: number;
   actualHours?: number;
+  actualClockIn?: string;
 }
 
 interface ActiveOffsite {
@@ -722,6 +723,12 @@ function IssueBadge({ type }: { type: string }) {
   );
 }
 
+function toTimeInput(dateStr?: string | null): string {
+  if (!dateStr) return "";
+  const d = new Date(dateStr);
+  return `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
+}
+
 function ResolveDiscrepancyDialog({
   open,
   onOpenChange,
@@ -741,6 +748,20 @@ function ResolveDiscrepancyDialog({
   const [clockInTime, setClockInTime] = useState("09:00");
   const [clockOutTime, setClockOutTime] = useState("17:00");
   const [breakMins, setBreakMins] = useState("0");
+
+  useEffect(() => {
+    if (open && alert) {
+      setClockInTime(
+        toTimeInput(alert.actualClockIn) ||
+        toTimeInput(alert.scheduledStart) ||
+        "09:00"
+      );
+      setClockOutTime(toTimeInput(alert.scheduledEnd) || "17:00");
+      setAction("excuse");
+      setReason("");
+      setBreakMins("0");
+    }
+  }, [open, alert]);
 
   const employee = employees.find((e) => e.userId === alert?.userId);
   const employeeName = employee
@@ -826,6 +847,14 @@ function ResolveDiscrepancyDialog({
 
           {action === "add_time_card" && (
             <>
+              {alert?.scheduledStart && (
+                <div className="flex items-center justify-between rounded-md bg-muted/60 px-3 py-2 text-sm text-muted-foreground">
+                  <span>Scheduled shift</span>
+                  <span className="font-medium">
+                    {formatTime(alert.scheduledStart)} – {formatTime(alert.scheduledEnd ?? null)}
+                  </span>
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-4">
                 <div className="grid gap-2">
                   <Label>Clock In</Label>

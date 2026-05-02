@@ -209,9 +209,16 @@ export default function TimeCardModal({
   const [isResolving, setIsResolving] = useState(false);
   const [resolveAction, setResolveAction] = useState<ResolveAction>("excuse");
   const [resolveReason, setResolveReason] = useState("");
-  const [resolveClockIn, setResolveClockIn] = useState("09:00");
-  const [resolveClockOut, setResolveClockOut] = useState("17:00");
+  const [resolveClockIn, setResolveClockIn] = useState("");
+  const [resolveClockOut, setResolveClockOut] = useState("");
   const [resolveBreakMins, setResolveBreakMins] = useState("0");
+
+  function toTimeInput(dateStr?: string | null): string {
+    if (!dateStr) return "";
+    const d = new Date(dateStr);
+    return `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
+  }
+
   const [editingMileageId, setEditingMileageId] = useState<string | null>(null);
   const [editMileageValue, setEditMileageValue] = useState("");
 
@@ -778,7 +785,14 @@ export default function TimeCardModal({
                     variant="outline"
                     size="sm"
                     className="border-amber-400 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950"
-                    onClick={() => setIsResolving(true)}
+                    onClick={() => {
+                      setResolveClockIn(toTimeInput(entry.clockInTime) || "09:00");
+                      setResolveClockOut(toTimeInput(entry.scheduledEnd) || "17:00");
+                      setResolveBreakMins("0");
+                      setResolveAction("excuse");
+                      setResolveReason("");
+                      setIsResolving(true);
+                    }}
                   >
                     <ShieldCheck className="h-3.5 w-3.5 mr-1" />
                     Resolve
@@ -836,20 +850,30 @@ export default function TimeCardModal({
               </div>
 
               {resolveAction === "add_time_card" && (
-                <div className="grid grid-cols-3 gap-2">
-                  <div>
-                    <Label className="text-xs">Clock In</Label>
-                    <Input type="time" value={resolveClockIn} onChange={(e) => setResolveClockIn(e.target.value)} className="h-8 text-sm" />
+                <>
+                  {entry.scheduledStart && (
+                    <div className="flex items-center justify-between rounded bg-muted/60 px-2 py-1.5 text-xs text-muted-foreground">
+                      <span>Scheduled shift</span>
+                      <span className="font-medium">
+                        {formatTimeDisplay(entry.scheduledStart)} – {formatTimeDisplay(entry.scheduledEnd ?? null)}
+                      </span>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <Label className="text-xs">Clock In</Label>
+                      <Input type="time" value={resolveClockIn} onChange={(e) => setResolveClockIn(e.target.value)} className="h-8 text-sm" />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Clock Out</Label>
+                      <Input type="time" value={resolveClockOut} onChange={(e) => setResolveClockOut(e.target.value)} className="h-8 text-sm" />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Break (min)</Label>
+                      <Input type="number" min="0" value={resolveBreakMins} onChange={(e) => setResolveBreakMins(e.target.value)} className="h-8 text-sm" />
+                    </div>
                   </div>
-                  <div>
-                    <Label className="text-xs">Clock Out</Label>
-                    <Input type="time" value={resolveClockOut} onChange={(e) => setResolveClockOut(e.target.value)} className="h-8 text-sm" />
-                  </div>
-                  <div>
-                    <Label className="text-xs">Break (min)</Label>
-                    <Input type="number" min="0" value={resolveBreakMins} onChange={(e) => setResolveBreakMins(e.target.value)} className="h-8 text-sm" />
-                  </div>
-                </div>
+                </>
               )}
 
               <div>

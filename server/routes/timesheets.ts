@@ -72,6 +72,7 @@ interface DiscrepancyAlert {
   scheduledEnd?: string;
   scheduledHours?: number;
   actualHours?: number;
+  actualClockIn?: string;
 }
 
 function detectNeedsReview(entry: any, schedule?: any): NeedsReviewFlag[] {
@@ -275,6 +276,7 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
                     scheduledEnd: matchingSchedule?.endTime,
                     scheduledHours: matchingSchedule ? calculateHours(matchingSchedule.startTime, matchingSchedule.endTime, 0) : undefined,
                     actualHours: calculateHours(entry.clockInTime, entry.clockOutTime, entry.breakMinutes || 0),
+                    actualClockIn: entry.clockInTime,
                   });
                 }
               }
