@@ -998,6 +998,72 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
     }
   });
 
+  app.get("/api/timesheets/workflow-settings", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const canView = await resolveAnyPermission(userId, ['time.approve', 'admin.manage_all'], storage);
+      if (!canView) return res.status(403).json({ message: "Insufficient permissions" });
+      const settings = await storage.getTimesheetWorkflowSettings();
+      res.json(settings || {
+        managerReminderDaysAfterPeriod: 2,
+        managerEscalationDaysAfterReminder: 3,
+        notifyAdminOnManagerApproval: true,
+        employeeSelfReviewReminder: false,
+        singleStepApproval: false,
+        managerUserIds: [],
+        adminUserId: null,
+      });
+    } catch (error: any) {
+      logger.error({ error: error.message }, "Error fetching timesheet workflow settings");
+      res.status(500).json({ message: "Failed to fetch settings" });
+    }
+  });
+
+  app.post("/api/timesheets/workflow-settings", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const canManage = await resolveAnyPermission(userId, ['admin.manage_all'], storage);
+      if (!canManage) return res.status(403).json({ message: "Insufficient permissions" });
+      const {
+        managerReminderDaysAfterPeriod,
+        managerEscalationDaysAfterReminder,
+        notifyAdminOnManagerApproval,
+        employeeSelfReviewReminder,
+        singleStepApproval,
+        managerUserIds,
+        adminUserId,
+      } = req.body;
+      const settings = await storage.upsertTimesheetWorkflowSettings({
+        managerReminderDaysAfterPeriod: managerReminderDaysAfterPeriod ?? 2,
+        managerEscalationDaysAfterReminder: managerEscalationDaysAfterReminder ?? 3,
+        notifyAdminOnManagerApproval: notifyAdminOnManagerApproval ?? true,
+        employeeSelfReviewReminder: employeeSelfReviewReminder ?? false,
+        singleStepApproval: singleStepApproval ?? false,
+        managerUserIds: managerUserIds || [],
+        adminUserId: adminUserId || null,
+        updatedBy: userId,
+      });
+      res.json(settings);
+    } catch (error: any) {
+      logger.error({ error: error.message }, "Error saving timesheet workflow settings");
+      res.status(500).json({ message: "Failed to save settings" });
+    }
+  });
+
+  app.get("/api/timesheets/reminder-log", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const canView = await resolveAnyPermission(userId, ['time.approve', 'admin.manage_all'], storage);
+      if (!canView) return res.status(403).json({ message: "Insufficient permissions" });
+      const { periodStart, periodEnd } = req.query as { periodStart?: string; periodEnd?: string };
+      const logs = await storage.getTimesheetReminderLogs(periodStart, periodEnd);
+      res.json(logs);
+    } catch (error: any) {
+      logger.error({ error: error.message }, "Error fetching reminder log");
+      res.status(500).json({ message: "Failed to fetch reminder log" });
+    }
+  });
+
   const overtimeService = new OvertimePreventionService(storage);
 
   app.get("/api/timesheets/overtime-alerts", isAuthenticated, async (req: any, res) => {

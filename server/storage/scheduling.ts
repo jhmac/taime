@@ -15,6 +15,8 @@ import {
   offsiteBreadcrumbs,
   overtimeAlerts,
   mileageReimbursements,
+  timesheetWorkflowSettings,
+  timesheetReminderLog,
   type TimeEntry,
   type InsertTimeEntry,
   type Schedule,
@@ -47,6 +49,8 @@ import {
   type InsertOvertimeAlert,
   type MileageReimbursement,
   type InsertMileageReimbursement,
+  type TimesheetWorkflowSettings,
+  type TimesheetReminderLog,
 } from "@shared/schema";
 import { db } from "../db";
 import { eq, and, desc, gte, lte, isNull, sql } from "drizzle-orm";
@@ -134,6 +138,12 @@ export interface ISchedulingStorage {
   getMileageReimbursementBySession(sessionId: string): Promise<MileageReimbursement | undefined>;
   getMileageReimbursements(filters?: { userId?: string; startDate?: Date; endDate?: Date }): Promise<MileageReimbursement[]>;
   updateMileageReimbursement(id: string, updates: Partial<MileageReimbursement>): Promise<MileageReimbursement>;
+
+  getTimesheetWorkflowSettings(): Promise<TimesheetWorkflowSettings | undefined>;
+  upsertTimesheetWorkflowSettings(settings: Partial<TimesheetWorkflowSettings>): Promise<TimesheetWorkflowSettings>;
+  createTimesheetReminderLog(log: { periodStart: string; periodEnd: string; reminderType: string; userId?: string | null }): Promise<TimesheetReminderLog>;
+  getTimesheetReminderLogs(periodStart?: string, periodEnd?: string): Promise<TimesheetReminderLog[]>;
+  markReminderActedOn(id: string): Promise<void>;
 }
 
 export class SchedulingStorage implements ISchedulingStorage {
@@ -727,5 +737,52 @@ export class SchedulingStorage implements ISchedulingStorage {
       .where(eq(mileageReimbursements.id, id))
       .returning();
     return updated;
+  }
+
+  async getTimesheetWorkflowSettings(): Promise<TimesheetWorkflowSettings | undefined> {
+    const [row] = await db.select().from(timesheetWorkflowSettings).limit(1);
+    return row;
+  }
+
+  async upsertTimesheetWorkflowSettings(settings: Partial<TimesheetWorkflowSettings>): Promise<TimesheetWorkflowSettings> {
+    const existing = await this.getTimesheetWorkflowSettings();
+    if (existing) {
+      const [updated] = await db
+        .update(timesheetWorkflowSettings)
+        .set({ ...settings, updatedAt: new Date() })
+        .where(eq(timesheetWorkflowSettings.id, existing.id))
+        .returning();
+      return updated;
+    }
+    const [created] = await db
+      .insert(timesheetWorkflowSettings)
+      .values({ ...settings, updatedAt: new Date() } as any)
+      .returning();
+    return created;
+  }
+
+  async createTimesheetReminderLog(log: { periodStart: string; periodEnd: string; reminderType: string; userId?: string | null }): Promise<TimesheetReminderLog> {
+    const [created] = await db
+      .insert(timesheetReminderLog)
+      .values({ ...log, sentAt: new Date() } as any)
+      .returning();
+    return created;
+  }
+
+  async getTimesheetReminderLogs(periodStart?: string, periodEnd?: string): Promise<TimesheetReminderLog[]> {
+    const conditions: any[] = [];
+    if (periodStart) conditions.push(sql`${timesheetReminderLog.periodStart} >= ${periodStart}`);
+    if (periodEnd) conditions.push(sql`${timesheetReminderLog.periodEnd} <= ${periodEnd}`);
+    const query = conditions.length > 0
+      ? db.select().from(timesheetReminderLog).where(and(...conditions))
+      : db.select().from(timesheetReminderLog);
+    return await query.orderBy(desc(timesheetReminderLog.sentAt)).limit(200);
+  }
+
+  async markReminderActedOn(id: string): Promise<void> {
+    await db
+      .update(timesheetReminderLog)
+      .set({ wasActedOn: true, actedOnAt: new Date() })
+      .where(eq(timesheetReminderLog.id, id));
   }
 }

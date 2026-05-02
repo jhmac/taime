@@ -39,6 +39,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient as qc } from "@/lib/queryClient";
+import { Switch } from "@/components/ui/switch";
 import {
   Download,
   CheckCircle2,
@@ -60,6 +61,10 @@ import {
   UserX,
   LogOut,
   TrendingDown,
+  Settings,
+  Bell,
+  ClockIcon,
+  MinusCircle,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -264,11 +269,302 @@ function StatusBadge({ status }: { status: string }) {
       </Badge>
     );
   }
+  if (status === "pending_clock_out") {
+    return (
+      <Badge variant="outline" className="border-orange-400 text-orange-600 dark:text-orange-400">
+        <ClockIcon className="h-3 w-3 mr-1" />
+        Clocked In
+      </Badge>
+    );
+  }
+  if (status === "no_entries") {
+    return (
+      <Badge variant="outline" className="border-muted text-muted-foreground">
+        <MinusCircle className="h-3 w-3 mr-1" />
+        No entries
+      </Badge>
+    );
+  }
   return (
     <Badge variant="secondary">
       <Clock className="h-3 w-3 mr-1" />
       Pending
     </Badge>
+  );
+}
+
+interface WorkflowSettings {
+  id?: string;
+  managerReminderDaysAfterPeriod: number;
+  managerEscalationDaysAfterReminder: number;
+  notifyAdminOnManagerApproval: boolean;
+  employeeSelfReviewReminder: boolean;
+  singleStepApproval: boolean;
+  managerUserIds: string[];
+  adminUserId: string | null;
+}
+
+function WorkflowSettingsTab() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const { data: settings, isLoading } = useQuery<WorkflowSettings>({
+    queryKey: ["/api/timesheets/workflow-settings"],
+  });
+
+  const { data: allUsersData } = useQuery<{ id: string; firstName: string | null; lastName: string | null; email: string | null }[]>({
+    queryKey: ["/api/users"],
+  });
+
+  const [form, setForm] = useState<WorkflowSettings>({
+    managerReminderDaysAfterPeriod: 2,
+    managerEscalationDaysAfterReminder: 3,
+    notifyAdminOnManagerApproval: true,
+    employeeSelfReviewReminder: false,
+    singleStepApproval: false,
+    managerUserIds: [],
+    adminUserId: null,
+  });
+
+  const [dirty, setDirty] = useState(false);
+
+  const mergeSettings = (s: WorkflowSettings) => {
+    setForm({
+      managerReminderDaysAfterPeriod: s.managerReminderDaysAfterPeriod ?? 2,
+      managerEscalationDaysAfterReminder: s.managerEscalationDaysAfterReminder ?? 3,
+      notifyAdminOnManagerApproval: s.notifyAdminOnManagerApproval ?? true,
+      employeeSelfReviewReminder: s.employeeSelfReviewReminder ?? false,
+      singleStepApproval: s.singleStepApproval ?? false,
+      managerUserIds: (s.managerUserIds as string[]) || [],
+      adminUserId: s.adminUserId || null,
+    });
+    setDirty(false);
+  };
+
+  useEffect(() => {
+    if (settings) mergeSettings(settings);
+  }, [settings]);
+
+  const saveMutation = useMutation({
+    mutationFn: async (data: WorkflowSettings) => {
+      await apiRequest("POST", "/api/timesheets/workflow-settings", data);
+    },
+    onSuccess: () => {
+      toast({ title: "Workflow settings saved" });
+      queryClient.invalidateQueries({ queryKey: ["/api/timesheets/workflow-settings"] });
+      setDirty(false);
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const updateField = <K extends keyof WorkflowSettings>(key: K, value: WorkflowSettings[K]) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+    setDirty(true);
+  };
+
+  const userOptions = allUsersData || [];
+  const getUserLabel = (id: string) => {
+    const u = userOptions.find((u) => u.id === id);
+    if (!u) return id;
+    return [u.firstName, u.lastName].filter(Boolean).join(" ") || u.email || id;
+  };
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4 py-4">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <Skeleton key={i} className="h-12 w-full" />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6 py-2 max-w-2xl">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-base font-semibold">Approval workflow</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Configure how timesheets are reviewed and approved each pay period.
+          </p>
+        </div>
+        <Button
+          size="sm"
+          disabled={!dirty || saveMutation.isPending}
+          onClick={() => saveMutation.mutate(form)}
+        >
+          {saveMutation.isPending ? "Saving…" : "Save settings"}
+        </Button>
+      </div>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Settings className="h-4 w-4" />
+            Approval mode
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <Label className="text-sm font-medium">Single-step approval</Label>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                When enabled, "Approve All" immediately finalizes the period without a second confirmation step.
+              </p>
+            </div>
+            <Switch
+              checked={form.singleStepApproval}
+              onCheckedChange={(v) => updateField("singleStepApproval", v)}
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <div>
+              <Label className="text-sm font-medium">Notify admin on manager approval</Label>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Admin receives a notification when a manager approves the period.
+              </p>
+            </div>
+            <Switch
+              checked={form.notifyAdminOnManagerApproval}
+              onCheckedChange={(v) => updateField("notifyAdminOnManagerApproval", v)}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Bell className="h-4 w-4" />
+            Reminder schedule
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Manager reminder (days after period end)</Label>
+              <Input
+                type="number"
+                min={0}
+                max={30}
+                value={form.managerReminderDaysAfterPeriod}
+                onChange={(e) => updateField("managerReminderDaysAfterPeriod", Number(e.target.value))}
+                className="h-8 text-sm"
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Reminder sent this many days after pay period ends
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Escalation (days after reminder)</Label>
+              <Input
+                type="number"
+                min={0}
+                max={30}
+                value={form.managerEscalationDaysAfterReminder}
+                onChange={(e) => updateField("managerEscalationDaysAfterReminder", Number(e.target.value))}
+                className="h-8 text-sm"
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Admin escalation sent this many days after the manager reminder
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between pt-2 border-t">
+            <div>
+              <Label className="text-sm font-medium">Employee self-review reminder</Label>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Notify employees on the last day of their pay period to review their own hours.
+              </p>
+            </div>
+            <Switch
+              checked={form.employeeSelfReviewReminder}
+              onCheckedChange={(v) => updateField("employeeSelfReviewReminder", v)}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Users className="h-4 w-4" />
+            Approval chain
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-1.5">
+            <Label className="text-xs">Manager(s) — who reviews timesheets first</Label>
+            <div className="space-y-2">
+              {form.managerUserIds.map((uid) => (
+                <div key={uid} className="flex items-center justify-between rounded-md border px-3 py-1.5 bg-muted/30 text-sm">
+                  <span>{getUserLabel(uid)}</span>
+                  <button
+                    className="text-muted-foreground hover:text-destructive transition-colors"
+                    onClick={() => updateField("managerUserIds", form.managerUserIds.filter((id) => id !== uid))}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+              <Select
+                value=""
+                onValueChange={(v) => {
+                  if (v && !form.managerUserIds.includes(v)) {
+                    updateField("managerUserIds", [...form.managerUserIds, v]);
+                  }
+                }}
+              >
+                <SelectTrigger className="h-8 text-xs text-muted-foreground">
+                  <SelectValue placeholder="+ Add manager" />
+                </SelectTrigger>
+                <SelectContent>
+                  {userOptions
+                    .filter((u) => !form.managerUserIds.includes(u.id))
+                    .map((u) => (
+                      <SelectItem key={u.id} value={u.id}>
+                        {[u.firstName, u.lastName].filter(Boolean).join(" ") || u.email || u.id}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-xs">Admin — receives escalations</Label>
+            <Select
+              value={form.adminUserId || "none"}
+              onValueChange={(v) => updateField("adminUserId", v === "none" ? null : v)}
+            >
+              <SelectTrigger className="h-8 text-sm">
+                <SelectValue placeholder="Select admin" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">None</SelectItem>
+                {userOptions.map((u) => (
+                  <SelectItem key={u.id} value={u.id}>
+                    {[u.firstName, u.lastName].filter(Boolean).join(" ") || u.email || u.id}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="text-xs text-muted-foreground flex items-center gap-1.5 pt-2 border-t">
+        <Bell className="h-3.5 w-3.5 flex-shrink-0" />
+        Reminders run once daily. Configure pay period intervals in{" "}
+        <a href="/settings?tab=pay-period" className="underline hover:text-foreground">
+          Pay Period Settings
+        </a>
+        .
+      </div>
+    </div>
   );
 }
 
@@ -1762,6 +2058,10 @@ export default function Timesheets() {
             )}
           </TabsTrigger>
           <TabsTrigger value="pay-period">Pay period review</TabsTrigger>
+          <TabsTrigger value="workflow" className="gap-1.5">
+            <Settings className="h-3.5 w-3.5" />
+            Workflow
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="daily" className="mt-4">
@@ -1770,6 +2070,10 @@ export default function Timesheets() {
 
         <TabsContent value="pay-period" className="mt-4">
           <PayPeriodReviewTab data={data} isLoading={isLoading} isError={isError} onEntryClick={handleEntryClick} />
+        </TabsContent>
+
+        <TabsContent value="workflow" className="mt-4">
+          <WorkflowSettingsTab />
         </TabsContent>
       </Tabs>
 

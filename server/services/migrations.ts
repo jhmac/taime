@@ -1246,6 +1246,49 @@ export async function runSchemaMigrations(): Promise<void> {
     console.warn('[Migration] availability_templates table creation failed (non-fatal):', pgErr?.message ?? err);
   }
 
+  // Timesheet workflow settings table (Task #496)
+  try {
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS timesheet_workflow_settings (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        manager_reminder_days_after_period integer DEFAULT 2,
+        manager_escalation_days_after_reminder integer DEFAULT 3,
+        notify_admin_on_manager_approval boolean DEFAULT true,
+        employee_self_review_reminder boolean DEFAULT false,
+        single_step_approval boolean DEFAULT false,
+        manager_user_ids jsonb DEFAULT '[]'::jsonb,
+        admin_user_id varchar REFERENCES users(id) ON DELETE SET NULL,
+        updated_by varchar REFERENCES users(id) ON DELETE SET NULL,
+        updated_at timestamp DEFAULT now()
+      )
+    `));
+  } catch (err: unknown) {
+    const pgErr = err as { message?: string };
+    console.warn('[Migration] timesheet_workflow_settings table creation failed (non-fatal):', pgErr?.message ?? err);
+  }
+
+  // Timesheet reminder log table (Task #496)
+  try {
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS timesheet_reminder_log (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        period_start varchar NOT NULL,
+        period_end varchar NOT NULL,
+        reminder_type varchar NOT NULL,
+        user_id varchar REFERENCES users(id) ON DELETE SET NULL,
+        sent_at timestamp DEFAULT now(),
+        was_acted_on boolean DEFAULT false,
+        acted_on_at timestamp
+      )
+    `));
+    await db.execute(sql.raw(`
+      CREATE INDEX IF NOT EXISTS idx_timesheet_reminder_log_period ON timesheet_reminder_log(period_start, period_end)
+    `));
+  } catch (err: unknown) {
+    const pgErr = err as { message?: string };
+    console.warn('[Migration] timesheet_reminder_log table creation failed (non-fatal):', pgErr?.message ?? err);
+  }
+
   // Mark any generation jobs that were still "running" when the server last shut down.
   // These are orphaned — the setImmediate background task was lost on restart — so
   // they will never complete. Reset them to "failed" so users can retry.

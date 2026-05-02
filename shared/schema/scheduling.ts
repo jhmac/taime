@@ -439,6 +439,37 @@ export const insertMileageReimbursementSchema = createInsertSchema(mileageReimbu
 export const insertAiSuggestedScheduleSchema = createInsertSchema(aiSuggestedSchedules).omit({ id: true, generatedAt: true });
 export const insertSpecialCircumstanceSchema = createInsertSchema(specialCircumstances).omit({ id: true, createdAt: true, updatedAt: true });
 
+// Timesheet workflow settings — one row per company (singleton)
+export const timesheetWorkflowSettings = pgTable("timesheet_workflow_settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  managerReminderDaysAfterPeriod: integer("manager_reminder_days_after_period").default(2),
+  managerEscalationDaysAfterReminder: integer("manager_escalation_days_after_reminder").default(3),
+  notifyAdminOnManagerApproval: boolean("notify_admin_on_manager_approval").default(true),
+  employeeSelfReviewReminder: boolean("employee_self_review_reminder").default(false),
+  singleStepApproval: boolean("single_step_approval").default(false),
+  managerUserIds: jsonb("manager_user_ids").$type<string[]>().default(sql`'[]'::jsonb`),
+  adminUserId: varchar("admin_user_id").references(() => users.id),
+  updatedBy: varchar("updated_by").references(() => users.id),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Timesheet reminder log — tracks when each reminder/escalation was sent
+export const timesheetReminderLog = pgTable("timesheet_reminder_log", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  periodStart: varchar("period_start").notNull(),
+  periodEnd: varchar("period_end").notNull(),
+  reminderType: varchar("reminder_type").notNull(),
+  userId: varchar("user_id").references(() => users.id),
+  sentAt: timestamp("sent_at").defaultNow(),
+  wasActedOn: boolean("was_acted_on").default(false),
+  actedOnAt: timestamp("acted_on_at"),
+}, (table) => [
+  index("idx_timesheet_reminder_log_period").on(table.periodStart, table.periodEnd),
+]);
+
+export const insertTimesheetWorkflowSettingsSchema = createInsertSchema(timesheetWorkflowSettings).omit({ id: true, updatedAt: true });
+export const insertTimesheetReminderLogSchema = createInsertSchema(timesheetReminderLog).omit({ id: true, sentAt: true });
+
 // Chore assignment and sign-off schemas
 export const choreAssignmentSchema = z.object({
   choreId: z.string().uuid(),
@@ -487,5 +518,9 @@ export type MileageReimbursement = typeof mileageReimbursements.$inferSelect;
 export type InsertMileageReimbursement = z.infer<typeof insertMileageReimbursementSchema>;
 export type AiSuggestedSchedule = typeof aiSuggestedSchedules.$inferSelect;
 export type InsertAiSuggestedSchedule = z.infer<typeof insertAiSuggestedScheduleSchema>;
+export type TimesheetWorkflowSettings = typeof timesheetWorkflowSettings.$inferSelect;
+export type InsertTimesheetWorkflowSettings = z.infer<typeof insertTimesheetWorkflowSettingsSchema>;
+export type TimesheetReminderLog = typeof timesheetReminderLog.$inferSelect;
+export type InsertTimesheetReminderLog = z.infer<typeof insertTimesheetReminderLogSchema>;
 export type SpecialCircumstance = typeof specialCircumstances.$inferSelect;
 export type InsertSpecialCircumstance = z.infer<typeof insertSpecialCircumstanceSchema>;

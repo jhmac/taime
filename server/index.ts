@@ -227,7 +227,7 @@ app.use((req, res, next) => {
     startDailyQuestionnaireScheduler(storage);
     // Run migrations first so default roles are seeded, then run backfills that depend on them
     let stopShopifyReportScheduler: (() => void) | null = null;
-    runSchemaMigrations().then(() => {
+    runSchemaMigrations().then(async () => {
       backfillLegacyUserRoles();
       backfillInactiveAuthenticatedUsers();
       backfillStoreCreatorOwnerRole();
@@ -235,6 +235,8 @@ app.use((req, res, next) => {
       scheduleDeliveryLogCleanup();
       // Start after migrations so the shopify_report_schedules table is guaranteed to exist
       stopShopifyReportScheduler = startShopifyReportScheduler();
+      const { scheduleTimesheetReminders } = await import('./services/timesheetReminderService');
+      scheduleTimesheetReminders();
     }).catch((err) => console.error('[Startup] Migration failed:', err));
 
     // Graceful shutdown: stop all background schedulers
