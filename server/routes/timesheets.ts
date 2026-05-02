@@ -759,6 +759,21 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
         return res.status(400).json({ message: "startDate and endDate are required" });
       }
 
+      // Approval-chain gating: in two-step mode, the period must be fully finalized before locking
+      const storeId = await tryResolveStoreIdForUser(userId);
+      if (storeId) {
+        const workflowSettings = await storage.getTimesheetWorkflowSettings(storeId);
+        const singleStep = workflowSettings?.singleStepApproval ?? false;
+        if (!singleStep) {
+          const periodApproval = await storage.getTimesheetPeriodApproval(storeId, startDate, endDate);
+          if (!periodApproval || periodApproval.status !== "final_approved") {
+            return res.status(409).json({
+              message: "Period must be fully approved (manager + admin) before it can be locked",
+            });
+          }
+        }
+      }
+
       const entries = await storage.getAllTimeEntries(new Date(startDate), toEndOfDay(new Date(endDate)));
       let lockedCount = 0;
 

@@ -2174,7 +2174,8 @@ export default function Timesheets() {
 
   const approveAllMutation = useMutation({
     mutationFn: async () => {
-      return await apiRequest("POST", "/api/timesheets/approve-all", { startDate, endDate });
+      const res = await apiRequest("POST", "/api/timesheets/approve-all", { startDate, endDate });
+      return res.json();
     },
     onSuccess: (result: any) => {
       if (result?.singleStep || result?.status === "final_approved") {
@@ -2191,7 +2192,8 @@ export default function Timesheets() {
 
   const finalizePeriodMutation = useMutation({
     mutationFn: async () => {
-      return await apiRequest("POST", "/api/timesheets/finalize-period", { startDate, endDate });
+      const res = await apiRequest("POST", "/api/timesheets/finalize-period", { startDate, endDate });
+      return res.json();
     },
     onSuccess: (result: any) => {
       toast({ title: "Period finalized", description: `${result?.approvedCount ?? 0} entries approved. Two-step chain complete.` });
