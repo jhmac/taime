@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { useAuth } from '@/hooks/useAuth';
+import PayrollIntelligence from '@/pages/PayrollIntelligence';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
@@ -379,6 +381,9 @@ function GamificationSettingsPanel() {
 
 export default function Analytics() {
   const isMobile = useIsMobile();
+  const { user } = useAuth();
+  const isAdmin = user?.role?.name === 'owner' || user?.role?.name === 'admin';
+  const [section, setSection] = useState<'labor' | 'payroll-intelligence'>('labor');
   const [analyticsRange, setAnalyticsRange] = useState<AnalyticsTimeRange>('monthly');
   const selectedAnalyticsRange = ANALYTICS_TIME_RANGES.find(r => r.key === analyticsRange)!;
 
@@ -451,25 +456,47 @@ export default function Analytics() {
             <h1 className="text-lg md:text-xl font-bold">Analytics Dashboard</h1>
             <p className="text-sm opacity-80">Labor costs, punctuality & task insights</p>
           </div>
-          <div className="flex rounded-lg border border-white/20 bg-white/10 p-1 gap-1">
-            {ANALYTICS_TIME_RANGES.map(r => (
-              <button
-                key={r.key}
-                onClick={() => setAnalyticsRange(r.key)}
-                className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
-                  analyticsRange === r.key
-                    ? 'bg-white/30 text-white shadow-sm'
-                    : 'text-white/70 hover:text-white'
-                }`}
-              >
-                {r.label}
-              </button>
-            ))}
-          </div>
+          {section === 'labor' && (
+            <div className="flex rounded-lg border border-white/20 bg-white/10 p-1 gap-1">
+              {ANALYTICS_TIME_RANGES.map(r => (
+                <button
+                  key={r.key}
+                  onClick={() => setAnalyticsRange(r.key)}
+                  className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                    analyticsRange === r.key
+                      ? 'bg-white/30 text-white shadow-sm'
+                      : 'text-white/70 hover:text-white'
+                  }`}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
+        {isAdmin && (
+          <div className="flex gap-1 mt-3 rounded-lg bg-white/10 p-1">
+            <button
+              onClick={() => setSection('labor')}
+              className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-colors ${section === 'labor' ? 'bg-white/30 text-white shadow-sm' : 'text-white/70 hover:text-white'}`}
+            >
+              <i className="fas fa-hard-hat mr-1.5" />Labor & Ops
+            </button>
+            <button
+              onClick={() => setSection('payroll-intelligence')}
+              className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-colors ${section === 'payroll-intelligence' ? 'bg-white/30 text-white shadow-sm' : 'text-white/70 hover:text-white'}`}
+            >
+              <i className="fas fa-chart-line mr-1.5" />Payroll Intelligence
+            </button>
+          </div>
+        )}
       </section>
 
-      <div className={isMobile ? "px-4 py-3" : "px-6 py-4"}>
+      {section === 'payroll-intelligence' && isAdmin ? (
+        <PayrollIntelligence />
+      ) : null}
+
+      <div className={`${section === 'payroll-intelligence' ? 'hidden' : ''} ${isMobile ? 'px-4 py-3' : 'px-6 py-4'}`}>
         {isLoading ? (
           <div className="space-y-4">
             <div className={isMobile ? "grid grid-cols-2 gap-3" : "grid grid-cols-4 gap-4"}>

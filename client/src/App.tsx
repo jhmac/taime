@@ -129,6 +129,7 @@ const CashManagement = lazy(() => import("@/pages/CashManagement"));
 const MileageReport = lazy(() => import("@/pages/MileageReport"));
 const Timesheets = lazy(() => import("@/pages/Timesheets"));
 const PayrollExport = lazy(() => import("@/pages/PayrollExport"));
+const PayrollIntelligence = lazy(() => import("@/pages/PayrollIntelligence"));
 const MyScore = lazy(() => import("@/pages/MyScore"));
 const JoinPage = lazy(() => import("@/pages/JoinPage"));
 const MeetingsList = lazy(() => import("@/pages/MeetingsList"));
@@ -338,6 +339,9 @@ function AuthenticatedApp() {
         </Route>
         <Route path="/payroll-export">
           <ProtectedRoute permission="hr.payroll_view"><PayrollExport /></ProtectedRoute>
+        </Route>
+        <Route path="/payroll-intelligence">
+          <ProtectedRoute permission="sales.view_all"><PayrollIntelligence /></ProtectedRoute>
         </Route>
         <Route path="/meetings/new">
           <ProtectedRoute permission="admin.manage_all"><MeetingsNew /></ProtectedRoute>

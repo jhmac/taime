@@ -169,6 +169,13 @@
       "when": 1746280800000,
       "tag": "0023_ai_scheduling_settings_per_store",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1746367200000,
+      "tag": "0024_payroll_intelligence_settings",
+      "breakpoints": true
     }
   ]
 }

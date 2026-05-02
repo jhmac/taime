@@ -198,6 +198,8 @@ export const aiSchedulingSettings = pgTable("ai_scheduling_settings", {
   customAiInstructions: text("custom_ai_instructions"),
   laborCostOverPct: decimal("labor_cost_over_pct", { precision: 5, scale: 2 }).default("30"),
   laborCostUnderPct: decimal("labor_cost_under_pct", { precision: 5, scale: 2 }).default("10"),
+  payrollTargetPct: decimal("payroll_target_pct", { precision: 5, scale: 2 }).default("30"),
+  storeType: varchar("store_type").default("fashion_boutique"),
 }, (table) => [
   uniqueIndex("uq_ai_scheduling_settings_store_id").on(table.storeId),
 ]);

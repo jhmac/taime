@@ -59,6 +59,7 @@ import { registerTrainingPlayerRoutes } from "./routes/trainingPlayer";
 import { registerMorningMomentRoutes } from "./routes/morningMoment";
 import { registerSupplyRoutes } from "./routes/supply";
 import { registerSupplyRequestRoutes } from "./routes/supplyRequests";
+import { registerPayrollIntelligenceRoutes } from "./routes/payrollIntelligence";
 import { startBackgroundInsightsCron, stopBackgroundInsightsCron } from "./services/backgroundInsights";
 import { startGamificationCron, stopGamificationCron } from "./services/gamificationCron";
 import { startLocationCleanupCron, stopLocationCleanupCron } from "./services/locationCleanupCron";
@@ -204,6 +205,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerQuizRoutes(app, storage, isAuthenticated);
   registerDailyQuestionnaireRoutes(app, storage, isAuthenticated);
   registerSupplyRequestRoutes(app, storage, isAuthenticated);
+  registerPayrollIntelligenceRoutes(app, storage, isAuthenticated);
 
   const httpServer = createServer(app);
 
