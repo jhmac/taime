@@ -296,12 +296,10 @@ interface SpecialCircumstanceItem {
 }
 
 const CIRCUMSTANCE_CATEGORIES = [
-  'Seasonal Event',
-  'Holiday Rush',
-  'Local Event',
-  'Weather',
-  'Promotion',
-  'Other',
+  'Coverage',
+  'Employee',
+  'Event',
+  'Preference',
 ];
 
 function AIRulesTab() {

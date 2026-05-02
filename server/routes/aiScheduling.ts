@@ -2992,18 +2992,29 @@ Required JSON structure:
         { minRevenue: 2001, maxRevenue: 5000, employeeCount: 3 },
         { minRevenue: 5001, maxRevenue: 10000, employeeCount: 5 },
       ]);
-      const minimumStaffing2 = settings2?.minimumStaffing || 2;
+      const minStaffPre2 = settings2?.minStaffingPreHours ?? settings2?.minimumStaffing ?? 1;
+      const minStaffDuring2 = settings2?.minStaffingDuringHours ?? settings2?.minimumStaffing ?? 2;
+      const minStaffPost2 = settings2?.minStaffingPostHours ?? settings2?.minimumStaffing ?? 1;
+      const minimumStaffing2 = minStaffDuring2; // peak-zone floor used as overall default
 
       // Peak computation mirrors /historical-sales exactly: avg-based threshold over store hours
       const dailyRevTotal2 = hourlyRevenue2.slice(openH2, closeH2).reduce((s, v) => s + v, 0);
       const avgHourlyRevenue2 = dailyRevTotal2 / Math.max(1, closeH2 - openH2);
+      const storeSpanH2 = closeH2 - openH2;
       const hourlyData: any[] = [];
       for (let h = openH2; h < closeH2; h++) {
         const rev = hourlyRevenue2[h];
         const hLabel = `${(h % 12) || 12}${h < 12 ? 'am' : 'pm'}`;
         const isPeak = rev > avgHourlyRevenue2 * 1.3;
         const tier = staffingTiers2.find((t: any) => rev >= t.minRevenue && rev <= t.maxRevenue);
-        const suggestedStaff = Math.max(minimumStaffing2, tier?.employeeCount || minimumStaffing2);
+        // zone-aware floor: pre=first third, post=last third, during=middle
+        const relH = h - openH2;
+        const zoneFloor = relH < Math.ceil(storeSpanH2 / 3)
+          ? minStaffPre2
+          : relH >= storeSpanH2 - Math.ceil(storeSpanH2 / 3)
+            ? minStaffPost2
+            : minStaffDuring2;
+        const suggestedStaff = Math.max(zoneFloor, tier?.employeeCount || zoneFloor);
         hourlyData.push({ hour: h, label: hLabel, revenue: Math.round(rev * 100) / 100, isPeak, suggestedStaff });
       }
 
@@ -3063,7 +3074,7 @@ Required JSON structure:
             return h.hour >= bS && h.hour < bE;
           });
           const blockRev = blockHrs.reduce((s: number, h: any) => s + h.revenue, 0);
-          const maxStaff = blockHrs.length > 0 ? Math.max(...blockHrs.map((h: any) => h.suggestedStaff)) : minimumStaffing2;
+          const maxStaff = blockHrs.length > 0 ? Math.max(...blockHrs.map((h: any) => h.suggestedStaff)) : minStaffDuring2;
           return `  ${b.name} (${b.startTime}–${b.endTime}): $${Math.round(blockRev)} revenue → ${maxStaff} staff recommended`;
         }).join('\n');
 
@@ -3097,7 +3108,7 @@ RULES:
 5. Prioritize higher-scored employees for peak revenue hours
 6. Do not assign the same employee to two overlapping blocks
 7. Each shift block needs the recommended number of staff (see SHIFT BLOCKS above)
-8. If no historical data, use the minimum staffing of ${minimumStaffing2} per block
+8. If no historical data, use zone-based minimums: Opening zone ${minStaffPre2}, Peak zone ${minStaffDuring2}, Closing zone ${minStaffPost2} employee(s) per block
 9. Apply the configured shift handoff overlap to shift end/start times as described above
 10. Only schedule "prefers day off" employees if the staffing minimum cannot otherwise be met
 
@@ -3366,6 +3377,9 @@ Respond ONLY with a valid JSON object (no markdown, no explanation) in this exac
           { name: "Afternoon", startTime: "14:00", endTime: "21:00" },
         ],
         minimumStaffing: 2,
+        minStaffingPreHours: 1,
+        minStaffingDuringHours: 2,
+        minStaffingPostHours: 1,
         storeHours: [],
       };
 
@@ -3501,7 +3515,7 @@ Respond ONLY with a valid JSON object (no markdown, no explanation) in this exac
 STORE CONFIGURATION:
 - Store hours: ${storeHoursStr}
 - Shift blocks: ${JSON.stringify(shiftBlocks.map((b: any) => ({ name: b.name, startTime: b.startTime, endTime: b.endTime })))}
-- Minimum staffing: ${settings.minimumStaffing}
+- Minimum staffing by zone — Opening: ${settings.minStaffingPreHours ?? 1}, Peak: ${settings.minStaffingDuringHours ?? settings.minimumStaffing ?? 2}, Closing: ${settings.minStaffingPostHours ?? 1}
 - Labor cost target: 15–25% of daily revenue
 
 EMPLOYEES (with availability, hour targets, scores, and role classifications):
