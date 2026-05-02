@@ -173,8 +173,10 @@ interface PeriodApproval {
   status: string;
   managerApprovedBy?: string | null;
   managerApprovedAt?: string | null;
+  managerApproverName?: string | null;
   adminApprovedBy?: string | null;
   adminApprovedAt?: string | null;
+  adminApproverName?: string | null;
 }
 
 interface HealthSummary {
@@ -1963,9 +1965,10 @@ function ApprovalChainPanel({
           <span className={`text-xs font-medium text-center ${stepManagerDone ? "text-green-700 dark:text-green-400" : "text-muted-foreground"}`}>
             Manager review
           </span>
-          {stepManagerDone && periodApproval?.managerApprovedAt && (
+          {stepManagerDone && (
             <span className="text-[10px] text-muted-foreground text-center">
-              {new Date(periodApproval.managerApprovedAt).toLocaleDateString()}
+              {periodApproval?.managerApproverName && <span className="block font-medium">{periodApproval.managerApproverName}</span>}
+              {periodApproval?.managerApprovedAt && new Date(periodApproval.managerApprovedAt).toLocaleDateString()}
             </span>
           )}
           {!stepManagerDone && <span className="text-[10px] text-muted-foreground">Pending</span>}
@@ -1982,9 +1985,10 @@ function ApprovalChainPanel({
           <span className={`text-xs font-medium text-center ${stepAdminDone ? "text-green-700 dark:text-green-400" : stepManagerDone ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground"}`}>
             Admin final
           </span>
-          {stepAdminDone && periodApproval?.adminApprovedAt && (
+          {stepAdminDone && (
             <span className="text-[10px] text-muted-foreground text-center">
-              {new Date(periodApproval.adminApprovedAt).toLocaleDateString()}
+              {periodApproval?.adminApproverName && <span className="block font-medium">{periodApproval.adminApproverName}</span>}
+              {periodApproval?.adminApprovedAt && new Date(periodApproval.adminApprovedAt).toLocaleDateString()}
             </span>
           )}
           {!stepAdminDone && stepManagerDone && (

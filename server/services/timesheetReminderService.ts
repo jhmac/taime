@@ -196,8 +196,9 @@ async function runTimesheetReminderCheckForStore(
     if (periodStatus === "final_approved") continue;
 
     // ── Manager reminder ──
-    // Only send when manager has NOT yet approved and N days have passed
-    if (periodStatus !== "manager_approved" && daysAfterPeriodEnd === managerReminderDays && managerUserIds.length > 0) {
+    // Only send when manager has NOT yet approved and at least N days have passed
+    // Use >= (not ===) so a missed scheduler window doesn't skip the reminder permanently
+    if (periodStatus !== "manager_approved" && daysAfterPeriodEnd >= managerReminderDays && managerUserIds.length > 0) {
       for (const managerId of managerUserIds) {
         const alreadySent = await hasReminderBeenSent(period.startDate, period.endDate, "manager_reminder", managerId, storeId);
         if (!alreadySent) {
@@ -226,8 +227,8 @@ async function runTimesheetReminderCheckForStore(
     //   (a) manager has NOT approved by N+M days — escalate to admin that manager is overdue
     //   (b) manager has approved but admin has NOT finalized by M days after manager_approved — nudge admin
     if (adminUserId) {
-      // Case (a): manager still hasn't reviewed N+M days after period end
-      if (periodStatus !== "manager_approved" && daysAfterPeriodEnd === managerReminderDays + escalationDays) {
+      // Case (a): manager still hasn't reviewed by N+M days after period end (>= for resilience)
+      if (periodStatus !== "manager_approved" && daysAfterPeriodEnd >= managerReminderDays + escalationDays) {
         const alreadySent = await hasReminderBeenSent(period.startDate, period.endDate, "manager_escalation", adminUserId, storeId);
         if (!alreadySent) {
           await sendTimesheetNotification({

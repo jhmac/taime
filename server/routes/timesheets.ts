@@ -430,12 +430,30 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
         otHours: Math.round(employeeReviews.reduce((sum: number, e: any) => sum + e.otHours, 0) * 100) / 100,
       };
 
-      // Attach period approval chain status
+      // Attach period approval chain status with resolved approver names
       const storeId = await tryResolveStoreIdForUser(req.user.id);
-      let periodApproval = null;
+      let periodApproval: any = null;
       if (storeId && startDateStr && endDateStr) {
         try {
-          periodApproval = await storage.getTimesheetPeriodApproval(storeId, startDateStr, endDateStr) ?? null;
+          const pa = await storage.getTimesheetPeriodApproval(storeId, startDateStr, endDateStr);
+          if (pa) {
+            // Resolve approver display names
+            let managerApproverName: string | null = null;
+            let adminApproverName: string | null = null;
+            if (pa.managerApprovedBy) {
+              const u = await storage.getUser(pa.managerApprovedBy);
+              managerApproverName = u
+                ? [u.firstName, u.lastName].filter(Boolean).join(" ") || u.email || null
+                : null;
+            }
+            if (pa.adminApprovedBy) {
+              const u = await storage.getUser(pa.adminApprovedBy);
+              adminApproverName = u
+                ? [u.firstName, u.lastName].filter(Boolean).join(" ") || u.email || null
+                : null;
+            }
+            periodApproval = { ...pa, managerApproverName, adminApproverName };
+          }
         } catch {
           // non-fatal
         }
@@ -630,9 +648,14 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
         return res.json({ approvedCount, totalEntries: entries.length, singleStep: true, status: "final_approved" });
       }
 
-      // Two-step: manager approval — record period-level state, notify admin
+      // Two-step: enforce that the caller is a configured manager (or admin)
       if (!storeId) {
         return res.status(400).json({ message: "Unable to resolve store context for this user" });
+      }
+      const configuredManagerIds: string[] = (workflowSettings?.managerUserIds as string[]) || [];
+      const isAdmin = await resolveAnyPermission(userId, ['admin.manage_all'], storage);
+      if (configuredManagerIds.length > 0 && !configuredManagerIds.includes(userId) && !isAdmin) {
+        return res.status(403).json({ message: "Only configured managers or admins can perform manager review" });
       }
       await storage.upsertTimesheetPeriodApproval({
         storeId,
@@ -1186,6 +1209,8 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
         notifyAdminOnManagerApproval: true,
         employeeSelfReviewReminder: false,
         singleStepApproval: false,
+        emailRemindersEnabled: false,
+        reminderFromEmail: null,
         managerUserIds: [],
         adminUserId: null,
       });
@@ -1206,6 +1231,8 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
         notifyAdminOnManagerApproval,
         employeeSelfReviewReminder,
         singleStepApproval,
+        emailRemindersEnabled,
+        reminderFromEmail,
         managerUserIds,
         adminUserId,
       } = req.body;
@@ -1216,6 +1243,8 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
         notifyAdminOnManagerApproval: notifyAdminOnManagerApproval ?? true,
         employeeSelfReviewReminder: employeeSelfReviewReminder ?? false,
         singleStepApproval: singleStepApproval ?? false,
+        emailRemindersEnabled: emailRemindersEnabled ?? false,
+        reminderFromEmail: reminderFromEmail || null,
         managerUserIds: managerUserIds || [],
         adminUserId: adminUserId || null,
         updatedBy: userId,
