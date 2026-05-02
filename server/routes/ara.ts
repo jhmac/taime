@@ -59,10 +59,23 @@ Guidelines:
 - Be friendly and supportive
 - If the user is asking a follow-up question, use the prior conversation context to give a coherent answer`;
 
-      // Build the messages array: prior conversation history + the new question
-      // History should already alternate user/assistant; ensure the last message is the user's new question.
+      // Build the messages array: prior conversation history + the new question.
+      // Anthropic requires strict user/assistant alternation starting from user, so defensively
+      // normalize the client-supplied history (drop any role that breaks alternation, then drop
+      // a trailing user turn so we can append the new question without violating alternation).
+      const normalizedHistory: Array<{ role: "user" | "assistant"; content: string }> = [];
+      let expected: "user" | "assistant" = "user";
+      for (const h of history) {
+        if (h.role !== expected) continue;
+        normalizedHistory.push(h);
+        expected = expected === "user" ? "assistant" : "user";
+      }
+      if (normalizedHistory.length > 0 && normalizedHistory[normalizedHistory.length - 1].role === "user") {
+        normalizedHistory.pop();
+      }
+
       const conversationMessages: Array<{ role: "user" | "assistant"; content: string }> = [
-        ...history,
+        ...normalizedHistory,
         { role: "user", content: question },
       ];
 
@@ -84,6 +97,7 @@ Guidelines:
           storeId,
           questionLength: question.length,
           historyLength: history.length,
+          normalizedHistoryLength: normalizedHistory.length,
           ragResults: knowledgeContext ? "yes" : "no",
         },
         "ara: answered question"

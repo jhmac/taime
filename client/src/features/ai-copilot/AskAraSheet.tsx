@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -7,20 +7,32 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle,
 } from "@/components/ui/sheet";
-import { Sparkles, Send, Loader2, X, RotateCcw } from "lucide-react";
+import { Sparkles, Send, Loader2, X, RotateCcw, User, AlertCircle } from "lucide-react";
 
 interface AraAnswer {
   answer: string;
 }
 
+type ChatRole = "user" | "assistant";
+
 interface ChatMessage {
   id: string;
-  role: "user" | "assistant";
+  role: ChatRole;
   content: string;
+  isError?: boolean;
 }
 
 const STORAGE_KEY = "ara-conversation-v1";
 const MAX_HISTORY_FOR_CONTEXT = 10;
+
+let __idCounter = 0;
+function makeId(prefix: string): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `${prefix}-${crypto.randomUUID()}`;
+  }
+  __idCounter += 1;
+  return `${prefix}-${Date.now()}-${__idCounter}`;
+}
 
 function loadMessages(): ChatMessage[] {
   if (typeof window === "undefined") return [];
@@ -57,12 +69,104 @@ function clearStoredMessages() {
   }
 }
 
+// Build a clean conversation history of only complete user→assistant pairs where the
+// assistant reply was a real answer (not an error). When an assistant reply was an
+// error, we also drop the user message it was answering so we don't accidentally pair
+// that user question with a later, unrelated assistant reply.
+//
+// This protects the Anthropic API call from rejecting malformed message sequences and
+// avoids feeding the model its own "Sorry, I had trouble..." error replies.
+function buildHistoryForApi(messages: ChatMessage[]): { role: ChatRole; content: string }[] {
+  const pairs: { role: ChatRole; content: string }[] = [];
+  let i = 0;
+  while (i < messages.length) {
+    const userMsg = messages[i];
+    if (userMsg.role !== "user") {
+      i += 1;
+      continue;
+    }
+    const assistantMsg = messages[i + 1];
+    if (assistantMsg && assistantMsg.role === "assistant" && !assistantMsg.isError) {
+      pairs.push({ role: "user", content: userMsg.content });
+      pairs.push({ role: "assistant", content: assistantMsg.content });
+      i += 2;
+    } else {
+      // Either no reply yet, or the reply was an error — drop this user turn from history.
+      i += assistantMsg && assistantMsg.role === "assistant" ? 2 : 1;
+    }
+  }
+  // Slice to the most recent N messages (always an even number to keep pairs intact).
+  const maxMessages = MAX_HISTORY_FOR_CONTEXT - (MAX_HISTORY_FOR_CONTEXT % 2);
+  return pairs.slice(-maxMessages);
+}
+
+interface ChatBubbleProps {
+  message: ChatMessage;
+}
+
+function ChatBubble({ message }: ChatBubbleProps) {
+  if (message.role === "user") {
+    return (
+      <div className="rounded-xl bg-muted/60 p-3.5" data-testid={`message-user-${message.id}`}>
+        <p className="text-xs font-medium text-muted-foreground mb-1.5 flex items-center gap-1">
+          <User className="h-3 w-3" />
+          You
+        </p>
+        <p className="text-sm whitespace-pre-wrap break-words">{message.content}</p>
+      </div>
+    );
+  }
+
+  if (message.isError) {
+    return (
+      <div
+        className="rounded-xl border border-destructive/30 bg-destructive/5 p-3.5"
+        data-testid={`message-error-${message.id}`}
+      >
+        <p className="text-xs font-medium text-destructive mb-1.5 flex items-center gap-1">
+          <AlertCircle className="h-3 w-3" />
+          Couldn't answer
+        </p>
+        <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">{message.content}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="rounded-xl border border-violet-200 dark:border-violet-800/40 bg-violet-50 dark:bg-violet-950/20 p-3.5"
+      data-testid={`message-assistant-${message.id}`}
+    >
+      <p className="text-xs font-medium text-violet-700 dark:text-violet-300 mb-1.5 flex items-center gap-1">
+        <Sparkles className="h-3 w-3" />
+        Ara
+      </p>
+      <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">{message.content}</p>
+    </div>
+  );
+}
+
 export default function AskAraSheet() {
   const [open, setOpen] = useState(false);
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>(() => loadMessages());
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollEndRef = useRef<HTMLDivElement>(null);
+  const pendingTimeoutsRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+  // Bumped whenever the user starts a new conversation. Mutations capture the
+  // version at start time and discard their result if the version changed
+  // (e.g. user reset while the request was in flight).
+  const conversationVersionRef = useRef(0);
+
+  // Helper that registers a timeout so we can clear pending ones on unmount.
+  const trackTimeout = useCallback((cb: () => void, ms: number) => {
+    const id = setTimeout(() => {
+      pendingTimeoutsRef.current.delete(id);
+      cb();
+    }, ms);
+    pendingTimeoutsRef.current.add(id);
+    return id;
+  }, []);
 
   useEffect(() => {
     const handler = () => setOpen(true);
@@ -70,61 +174,66 @@ export default function AskAraSheet() {
     return () => window.removeEventListener("open-ask-ara", handler);
   }, []);
 
+  // Clear all pending timeouts on unmount to prevent late callbacks.
   useEffect(() => {
-    if (open && textareaRef.current) {
-      setTimeout(() => textareaRef.current?.focus(), 200);
-      setTimeout(() => scrollEndRef.current?.scrollIntoView({ behavior: "auto" }), 250);
-    }
-  }, [open]);
+    return () => {
+      pendingTimeoutsRef.current.forEach((id) => clearTimeout(id));
+      pendingTimeoutsRef.current.clear();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    trackTimeout(() => textareaRef.current?.focus(), 200);
+    trackTimeout(() => scrollEndRef.current?.scrollIntoView({ behavior: "auto" }), 250);
+  }, [open, trackTimeout]);
 
   useEffect(() => {
     saveMessages(messages);
     if (messages.length > 0) {
-      setTimeout(() => scrollEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+      trackTimeout(() => scrollEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
     }
-  }, [messages]);
+  }, [messages, trackTimeout]);
 
-  const askMutation = useMutation({
+  const askMutation = useMutation<AraAnswer, Error, string, { versionAtStart: number }>({
     mutationFn: async (q: string): Promise<AraAnswer> => {
-      const history = messages.slice(-MAX_HISTORY_FOR_CONTEXT).map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
+      const history = buildHistoryForApi(messages);
       const res = await apiRequest("POST", "/api/ara/ask", { question: q, history });
       return res.json();
     },
-    onSuccess: (data) => {
+    // onMutate runs before mutationFn and its return value is passed as `context`
+    // to onSuccess/onError. We snapshot the conversation version here so both
+    // success and error handlers can discard stale (post-reset) responses.
+    onMutate: () => ({ versionAtStart: conversationVersionRef.current }),
+    onSuccess: (data, _q, context) => {
+      if (context && context.versionAtStart !== conversationVersionRef.current) return;
       setMessages((prev) => [
         ...prev,
-        {
-          id: `a-${Date.now()}`,
-          role: "assistant",
-          content: data.answer,
-        },
+        { id: makeId("a"), role: "assistant", content: data.answer },
       ]);
     },
-    onError: () => {
+    onError: (err, _q, context) => {
+      if (context && context.versionAtStart !== conversationVersionRef.current) return;
+      const detail = err?.message && !err.message.startsWith("4") && !err.message.startsWith("5")
+        ? err.message
+        : "Sorry, I had trouble answering that. Please try again.";
       setMessages((prev) => [
         ...prev,
-        {
-          id: `a-${Date.now()}`,
-          role: "assistant",
-          content: "Sorry, I had trouble answering that. Please try again.",
-        },
+        { id: makeId("a"), role: "assistant", content: detail, isError: true },
       ]);
     },
   });
 
-  const handleSubmit = () => {
+  const handleSubmit = useCallback(() => {
     const q = question.trim();
     if (!q || askMutation.isPending) return;
     setMessages((prev) => [
       ...prev,
-      { id: `q-${Date.now()}`, role: "user", content: q },
+      { id: makeId("q"), role: "user", content: q },
     ]);
     setQuestion("");
     askMutation.mutate(q);
-  };
+  }, [question, askMutation]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -134,10 +243,14 @@ export default function AskAraSheet() {
   };
 
   const handleNewConversation = () => {
+    // Bump the conversation version so any in-flight response is discarded
+    // when it eventually resolves (prevents stale answers leaking into a
+    // freshly cleared chat).
+    conversationVersionRef.current += 1;
     setMessages([]);
     clearStoredMessages();
     setQuestion("");
-    setTimeout(() => textareaRef.current?.focus(), 100);
+    trackTimeout(() => textareaRef.current?.focus(), 100);
   };
 
   const hasMessages = messages.length > 0;
@@ -171,6 +284,7 @@ export default function AskAraSheet() {
               <button
                 onClick={() => setOpen(false)}
                 className="p-1.5 hover:bg-white/20 rounded-full transition-colors"
+                aria-label="Close"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -192,32 +306,15 @@ export default function AskAraSheet() {
               </div>
             )}
 
-            {messages.map((m) =>
-              m.role === "user" ? (
-                <div key={m.id} className="rounded-xl bg-muted/60 p-3.5" data-testid={`message-user-${m.id}`}>
-                  <p className="text-xs font-medium text-muted-foreground mb-1.5 flex items-center gap-1">
-                    <Sparkles className="h-3 w-3 text-violet-500" />
-                    Your question
-                  </p>
-                  <p className="text-sm whitespace-pre-wrap">{m.content}</p>
-                </div>
-              ) : (
-                <div
-                  key={m.id}
-                  className="rounded-xl border border-violet-200 dark:border-violet-800/40 bg-violet-50 dark:bg-violet-950/20 p-3.5"
-                  data-testid={`message-assistant-${m.id}`}
-                >
-                  <p className="text-xs font-medium text-violet-700 dark:text-violet-300 mb-1.5 flex items-center gap-1">
-                    <Sparkles className="h-3 w-3" />
-                    Ara's answer
-                  </p>
-                  <p className="text-sm whitespace-pre-wrap leading-relaxed">{m.content}</p>
-                </div>
-              )
-            )}
+            {messages.map((m) => (
+              <ChatBubble key={m.id} message={m} />
+            ))}
 
             {askMutation.isPending && (
-              <div className="flex items-center gap-2 px-1 py-2 text-muted-foreground">
+              <div
+                className="flex items-center gap-2 px-1 py-2 text-muted-foreground"
+                data-testid="ara-thinking-indicator"
+              >
                 <Loader2 className="h-4 w-4 animate-spin text-violet-500" />
                 <span className="text-xs">Ara is thinking...</span>
               </div>
