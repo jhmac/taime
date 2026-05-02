@@ -8,7 +8,7 @@ import {
   FileSpreadsheet, UserCog, ShieldCheck, BarChart, Medal,
   Settings, Cog, LogOut, ChevronRight, Banknote,
   Coffee, Lightbulb, LifeBuoy, History, FileDown, Mic, Brain,
-  Package, Wand2, Wallet,
+  Package, Wand2, Wallet, LineChart,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -20,6 +20,7 @@ interface MenuItem {
   action?: () => void;
   iconBg: string;
   iconColor: string;
+  ownerAdminOnly?: boolean;
 }
 
 interface Section {
@@ -56,6 +57,7 @@ export default function MoreMenu() {
   const [, navigate] = useLocation();
 
   const isAdmin = user?.role?.name === 'admin' || user?.role?.name === 'owner' || user?.role?.name === 'manager';
+  const isOwnerOrAdmin = user?.role?.name === 'admin' || user?.role?.name === 'owner';
   const initials = `${(user?.firstName || '')[0] || ''}${(user?.lastName || '')[0] || ''}`.toUpperCase();
 
   const sections: Section[] = [
@@ -113,6 +115,7 @@ export default function MoreMenu() {
         { icon: UserCog, label: 'HR', subtitle: 'Onboarding & compliance', path: '/hr', iconBg: 'bg-indigo-100', iconColor: 'text-indigo-600' },
         { icon: ShieldCheck, label: 'Roles & Permissions', subtitle: 'Access control', path: '/hr/roles', iconBg: 'bg-red-100', iconColor: 'text-red-500' },
         { icon: BarChart, label: 'Analytics', subtitle: 'Reports & insights', path: '/analytics', iconBg: 'bg-purple-100', iconColor: 'text-purple-600' },
+        { icon: LineChart, label: 'Payroll Intelligence', subtitle: 'Labor cost analytics & forecasts', path: '/payroll-intelligence', iconBg: 'bg-emerald-100', iconColor: 'text-emerald-600', ownerAdminOnly: true },
         { icon: Medal, label: 'Performance', subtitle: 'Team scorecards', path: '/performance', iconBg: 'bg-yellow-100', iconColor: 'text-yellow-600' },
         { icon: Wand2, label: 'AI Studio', subtitle: 'Generate SOPs, training, quizzes & more', path: '/ai-studio', iconBg: 'bg-pink-100', iconColor: 'text-pink-600' },
         { icon: Cog, label: 'Operations', subtitle: 'Store ops & SOPs', path: '/operations', iconBg: 'bg-orange-100', iconColor: 'text-orange-500' },
@@ -131,7 +134,9 @@ export default function MoreMenu() {
     },
   ];
 
-  const visibleSections = sections.filter(s => !s.adminOnly || isAdmin);
+  const visibleSections = sections
+    .filter(s => !s.adminOnly || isAdmin)
+    .map(s => ({ ...s, items: s.items.filter(i => !i.ownerAdminOnly || isOwnerOrAdmin) }));
 
   return (
     <div className="min-h-screen bg-background">
