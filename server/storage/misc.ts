@@ -3,6 +3,7 @@ import {
   chatGroups,
   groupMembers,
   shoutouts,
+  kudos,
   commuteAlerts,
   knowledgeDocuments,
   supplies,
@@ -75,6 +76,7 @@ export interface IMiscStorage {
   createShoutout(shoutout: InsertShoutout): Promise<Shoutout>;
   getShoutouts(limit?: number): Promise<Shoutout[]>;
   addShoutoutReaction(id: string, userId: string, emoji: string): Promise<Shoutout>;
+  addKudoReaction(id: string, userId: string, emoji: string): Promise<typeof kudos.$inferSelect>;
 
   createCommuteAlert(alert: InsertCommuteAlert): Promise<CommuteAlert>;
   getUserCommuteAlerts(userId: string): Promise<CommuteAlert[]>;
@@ -244,6 +246,22 @@ export class MiscStorage implements IMiscStorage {
       .update(shoutouts)
       .set({ reactions: newReactions })
       .where(eq(shoutouts.id, id))
+      .returning();
+    return updated;
+  }
+
+  async addKudoReaction(id: string, userId: string, emoji: string): Promise<typeof kudos.$inferSelect> {
+    const [existing] = await db.select().from(kudos).where(eq(kudos.id, id));
+    if (!existing) throw new Error("Kudo not found");
+    const currentReactions = (existing.reactions || []) as Array<{ userId: string; emoji: string }>;
+    const alreadyReacted = currentReactions.find(r => r.userId === userId && r.emoji === emoji);
+    const newReactions = alreadyReacted
+      ? currentReactions.filter(r => !(r.userId === userId && r.emoji === emoji))
+      : [...currentReactions, { userId, emoji }];
+    const [updated] = await db
+      .update(kudos)
+      .set({ reactions: newReactions })
+      .where(eq(kudos.id, id))
       .returning();
     return updated;
   }

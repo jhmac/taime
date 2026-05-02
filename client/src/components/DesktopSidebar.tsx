@@ -19,8 +19,6 @@ const generalNavItems = [
   { path: '/availability', icon: 'fas fa-clock', label: 'Availability' },
   { path: '/cash', icon: 'fas fa-cash-register', label: 'Open/Close' },
   { path: '/messages', icon: 'fas fa-comments', label: 'Messages' },
-  { path: '/kudos', icon: 'fas fa-heart', label: 'Kudos' },
-  { path: '/communication', icon: 'fas fa-bullhorn', label: 'Shoutouts' },
   { path: '/huddle', icon: 'fas fa-mug-hot', label: 'Morning Huddle' },
   { path: '/whisper', icon: 'fas fa-coffee', label: 'Morning Whisper' },
   { path: '/learning', icon: 'fas fa-graduation-cap', label: 'Learning' },

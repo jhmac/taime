@@ -57,7 +57,7 @@ export default function BottomNavigation() {
 
   const moreRoutes = [
     '/more', '/requests', '/team-directory', '/employee-settings', '/support',
-    '/profile', '/my-score', '/availability', '/kudos', '/communication',
+    '/profile', '/my-score', '/availability',
     '/learning', '/lean-board', '/improvements', '/issues', '/gtd',
     '/tasks', '/payroll', '/timesheets', '/payroll-export', '/cash',
     '/hr', '/analytics', '/performance', '/operations', '/admin',

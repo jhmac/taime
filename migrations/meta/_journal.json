@@ -176,6 +176,13 @@
       "when": 1746367200000,
       "tag": "0024_payroll_intelligence_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1746453600000,
+      "tag": "0025_thread_messages_reactions",
+      "breakpoints": true
     }
   ]
 }

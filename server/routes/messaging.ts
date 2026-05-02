@@ -2,7 +2,7 @@ import type { Express, RequestHandler } from "express";
 import { eq, and, desc, sql, lt, inArray, ne } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db";
-import { messageThreads, threadParticipants, threadMessages, users } from "@shared/schema";
+import { messageThreads, threadParticipants, threadMessages, users, kudos, shoutouts } from "@shared/schema";
 import type { IStorage } from "../storage";
 import { resolveStoreId } from "../services/storeResolver";
 
@@ -14,14 +14,20 @@ const createThreadSchema = z.object({
 
 const sendMessageSchema = z.object({
   content: z.string().min(1).max(5000),
-  message_type: z.enum(["text", "image", "system"]).default("text"),
+  message_type: z.enum(["text", "image", "system", "kudo", "shoutout"]).default("text"),
   image_url: z.string().optional(),
   reply_to_id: z.string().optional(),
   temp_id: z.string().optional(),
+  to_employee_id: z.string().optional(),
+  kudo_category: z.string().optional(),
 });
 
 const editMessageSchema = z.object({
   content: z.string().min(1).max(5000),
+});
+
+const reactSchema = z.object({
+  emoji: z.string().min(1).max(10),
 });
 
 export function registerMessageRoutes(
@@ -263,7 +269,9 @@ export function registerMessageRoutes(
 
       const pUserIds = Array.from(new Set(participants.map(p => p.userId)));
       const senderIds = Array.from(new Set(messages.map(m => m.senderId)));
-      const allUserIds = Array.from(new Set([...pUserIds, ...senderIds]));
+      // Collect toEmployeeIds from kudo/shoutout messages
+      const toEmployeeIds = messages.filter(m => m.toEmployeeId).map(m => m.toEmployeeId!);
+      const allUserIds = Array.from(new Set([...pUserIds, ...senderIds, ...toEmployeeIds]));
 
       const userRows = allUserIds.length > 0
         ? await db.select({ id: users.id, firstName: users.firstName, lastName: users.lastName })
@@ -272,7 +280,8 @@ export function registerMessageRoutes(
         : [];
       const userMap = new Map(userRows.map(u => [u.id, u]));
 
-      let replyMessages: any[] = [];
+      type ThreadMessageRow = typeof threadMessages.$inferSelect;
+      let replyMessages: ThreadMessageRow[] = [];
       const replyIds = messages.filter(m => m.replyToId).map(m => m.replyToId!);
       if (replyIds.length > 0) {
         replyMessages = await db
@@ -296,7 +305,7 @@ export function registerMessageRoutes(
 
       sendToUsers(otherParticipantIds, {
         type: "thread_read",
-        data: { threadId, userId: user.id },
+        data: { threadId, userId: user.id, readAt: new Date().toISOString() },
       });
 
       const formattedMessages = messages.map(m => ({
@@ -304,6 +313,8 @@ export function registerMessageRoutes(
         content: m.deletedAt ? "[Message deleted]" : m.content,
         senderName: userMap.get(m.senderId)?.firstName || "Unknown",
         senderLastName: userMap.get(m.senderId)?.lastName || "",
+        toEmployeeName: m.toEmployeeId ? (userMap.get(m.toEmployeeId)?.firstName || "Unknown") : null,
+        reactions: m.reactions || [],
         replyTo: m.replyToId ? (() => {
           const r = replyMap.get(m.replyToId!);
           return r ? {
@@ -353,14 +364,41 @@ export function registerMessageRoutes(
 
       const parsed = sendMessageSchema.parse(req.body);
 
-      const [message] = await db.insert(threadMessages).values({
-        threadId,
-        senderId: user.id,
-        content: parsed.content,
-        messageType: parsed.message_type || "text",
-        imageUrl: parsed.image_url || null,
-        replyToId: parsed.reply_to_id || null,
-      }).returning();
+      const message = await db.transaction(async (tx) => {
+        const [msg] = await tx.insert(threadMessages).values({
+          threadId,
+          senderId: user.id,
+          content: parsed.content,
+          messageType: parsed.message_type || "text",
+          imageUrl: parsed.image_url || null,
+          replyToId: parsed.reply_to_id || null,
+          toEmployeeId: parsed.to_employee_id || null,
+          kudoCategory: parsed.kudo_category || null,
+          reactions: [],
+        }).returning();
+
+        if (parsed.message_type === "kudo" && parsed.to_employee_id) {
+          const storeId = await resolveStoreId() || "default";
+          await tx.insert(kudos).values({
+            storeId,
+            fromEmployeeId: user.id,
+            toEmployeeId: parsed.to_employee_id,
+            message: parsed.content,
+          });
+        }
+
+        if (parsed.message_type === "shoutout" && parsed.to_employee_id) {
+          await tx.insert(shoutouts).values({
+            senderId: user.id,
+            recipientId: parsed.to_employee_id,
+            category: parsed.kudo_category || "great_attitude",
+            message: parsed.content,
+            reactions: [],
+          });
+        }
+
+        return msg;
+      });
 
       await db
         .update(messageThreads)
@@ -377,6 +415,14 @@ export function registerMessageRoutes(
 
       const senderUser = await db.select({ firstName: users.firstName, lastName: users.lastName })
         .from(users).where(eq(users.id, user.id)).then(r => r[0]);
+
+      // Get toEmployee name if applicable
+      let toEmployeeName: string | null = null;
+      if (parsed.to_employee_id) {
+        const toUser = await db.select({ firstName: users.firstName })
+          .from(users).where(eq(users.id, parsed.to_employee_id)).then(r => r[0]);
+        toEmployeeName = toUser?.firstName || null;
+      }
 
       const allParticipants = await db
         .select({ userId: threadParticipants.userId })
@@ -406,6 +452,8 @@ export function registerMessageRoutes(
         ...message,
         senderName: senderUser?.firstName || "Unknown",
         senderLastName: senderUser?.lastName || "",
+        toEmployeeName,
+        reactions: [],
         replyTo,
         tempId: parsed.temp_id,
       };
@@ -425,6 +473,202 @@ export function registerMessageRoutes(
       if (err instanceof z.ZodError) {
         return res.status(400).json({ error: err.errors });
       }
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/messages/:messageId/react", isAuthenticated, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+      const parsed = reactSchema.parse(req.body);
+      const messageId = req.params.messageId;
+
+      const [message] = await db
+        .select()
+        .from(threadMessages)
+        .where(eq(threadMessages.id, messageId));
+
+      if (!message) return res.status(404).json({ error: "Message not found" });
+
+      // Verify user is participant
+      const [participant] = await db
+        .select()
+        .from(threadParticipants)
+        .where(and(
+          eq(threadParticipants.threadId, message.threadId),
+          eq(threadParticipants.userId, user.id),
+        ));
+      if (!participant) return res.status(403).json({ error: "Not a participant" });
+
+      const currentReactions: Array<{ userId: string; emoji: string }> =
+        (message.reactions as Array<{ userId: string; emoji: string }> | null) ?? [];
+
+      // Toggle: if user already reacted with this emoji, remove it; otherwise add
+      const existingIndex = currentReactions.findIndex(r => r.userId === user.id && r.emoji === parsed.emoji);
+      let updatedReactions: Array<{ userId: string; emoji: string }>;
+      if (existingIndex >= 0) {
+        updatedReactions = currentReactions.filter((_, i) => i !== existingIndex);
+      } else {
+        // Remove any existing reaction from this user (one emoji per user)
+        const withoutUser = currentReactions.filter(r => r.userId !== user.id);
+        updatedReactions = [...withoutUser, { userId: user.id, emoji: parsed.emoji }];
+      }
+
+      const [updated] = await db
+        .update(threadMessages)
+        .set({ reactions: updatedReactions })
+        .where(eq(threadMessages.id, messageId))
+        .returning();
+
+      // Broadcast to all participants
+      const allParticipants = await db
+        .select({ userId: threadParticipants.userId })
+        .from(threadParticipants)
+        .where(eq(threadParticipants.threadId, message.threadId));
+
+      const allIds = allParticipants.map(p => p.userId);
+
+      sendToUsers(allIds, {
+        type: "message_reacted",
+        data: {
+          threadId: message.threadId,
+          messageId,
+          reactions: updatedReactions,
+        },
+      });
+
+      res.json({ success: true, data: { reactions: updatedReactions } });
+    } catch (err: any) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ error: err.errors });
+      }
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/messages/wall", isAuthenticated, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+      const limit = Math.min(parseInt(req.query.limit as string) || 30, 100);
+      const offset = parseInt(req.query.offset as string) || 0;
+
+      // Resolve the user's store (locationId on the user row)
+      const [userRow] = await db
+        .select({ locationId: users.locationId })
+        .from(users)
+        .where(eq(users.id, user.id));
+      const userLocationId = userRow?.locationId;
+
+      type WallRow = {
+        id: string;
+        item_type: string;
+        sender_id: string;
+        recipient_id: string;
+        message: string;
+        created_at: string;
+        category: string | null;
+        emoji: string | null;
+        reactions: Array<{ userId: string; emoji: string }> | null;
+        sender_first_name: string | null;
+        sender_last_name: string | null;
+        recipient_first_name: string | null;
+        recipient_last_name: string | null;
+      };
+
+      // Kudos scoped to the user's store
+      const kudosList = userLocationId
+        ? await db.execute(sql`
+            SELECT
+              k.id,
+              'kudo' as item_type,
+              k.from_employee_id as sender_id,
+              k.to_employee_id as recipient_id,
+              k.message,
+              k.created_at,
+              NULL::text as category,
+              NULL::text as emoji,
+              NULL::jsonb as reactions,
+              fu.first_name as sender_first_name,
+              fu.last_name as sender_last_name,
+              tu.first_name as recipient_first_name,
+              tu.last_name as recipient_last_name
+            FROM kudos k
+            LEFT JOIN users fu ON fu.id = k.from_employee_id
+            LEFT JOIN users tu ON tu.id = k.to_employee_id
+            WHERE k.store_id = ${userLocationId}
+            ORDER BY k.created_at DESC
+            LIMIT ${limit + offset}
+          `)
+        : { rows: [] };
+
+      // Shoutouts scoped to the user's store (via sender's locationId)
+      const shoutoutsList = userLocationId
+        ? await db.execute(sql`
+            SELECT
+              s.id,
+              'shoutout' as item_type,
+              s.sender_id,
+              s.recipient_id,
+              s.message,
+              s.created_at,
+              s.category,
+              s.emoji,
+              s.reactions,
+              fu.first_name as sender_first_name,
+              fu.last_name as sender_last_name,
+              tu.first_name as recipient_first_name,
+              tu.last_name as recipient_last_name
+            FROM shoutouts s
+            JOIN users fu ON fu.id = s.sender_id
+            LEFT JOIN users tu ON tu.id = s.recipient_id
+            WHERE fu.location_id = ${userLocationId}
+            ORDER BY s.created_at DESC
+            LIMIT ${limit + offset}
+          `)
+        : { rows: [] };
+
+      const allItems = [
+        ...(kudosList.rows as unknown as WallRow[]).map(r => ({
+          id: r.id,
+          itemType: "kudo" as const,
+          senderId: r.sender_id,
+          recipientId: r.recipient_id,
+          message: r.message,
+          createdAt: r.created_at,
+          category: null as string | null,
+          emoji: null as string | null,
+          reactions: [] as Array<{ userId: string; emoji: string }>,
+          senderName: `${r.sender_first_name ?? ""} ${r.sender_last_name ?? ""}`.trim() || "Unknown",
+          recipientName: `${r.recipient_first_name ?? ""} ${r.recipient_last_name ?? ""}`.trim() || "Unknown",
+        })),
+        ...(shoutoutsList.rows as unknown as WallRow[]).map(r => ({
+          id: r.id,
+          itemType: "shoutout" as const,
+          senderId: r.sender_id,
+          recipientId: r.recipient_id,
+          message: r.message,
+          createdAt: r.created_at,
+          category: r.category,
+          emoji: r.emoji,
+          reactions: (r.reactions ?? []) as Array<{ userId: string; emoji: string }>,
+          senderName: `${r.sender_first_name ?? ""} ${r.sender_last_name ?? ""}`.trim() || "Unknown",
+          recipientName: `${r.recipient_first_name ?? ""} ${r.recipient_last_name ?? ""}`.trim() || "Unknown",
+        })),
+      ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+      const paged = allItems.slice(offset, offset + limit);
+
+      res.json({
+        success: true,
+        data: paged,
+        hasMore: allItems.length > offset + limit,
+        total: allItems.length,
+      });
+    } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });

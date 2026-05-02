@@ -258,9 +258,13 @@ function AuthenticatedApp() {
         <Route path="/operations">
           <ProtectedRoute permission="admin.manage_all"><Operations /></ProtectedRoute>
         </Route>
-        <Route path="/communication" component={Communication} />
+        <Route path="/communication">
+          {() => { window.location.replace("/messages"); return null; }}
+        </Route>
+        <Route path="/kudos">
+          {() => { window.location.replace("/messages"); return null; }}
+        </Route>
         <Route path="/messages" component={MessagingPage} />
-        <Route path="/kudos" component={KudosWallPage} />
         <Route path="/hr">
           <ProtectedRoute permission="hr.view_team"><HR /></ProtectedRoute>
         </Route>

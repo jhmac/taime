@@ -150,6 +150,9 @@ export const threadMessages = pgTable("thread_messages", {
   editedAt: timestamp("edited_at", { withTimezone: true }),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  reactions: jsonb("reactions").$type<Array<{ userId: string; emoji: string }>>().default([]),
+  toEmployeeId: text("to_employee_id"),
+  kudoCategory: text("kudo_category"),
 }, (table) => [
   index("idx_thread_messages_thread_created").on(table.threadId, table.createdAt),
   index("idx_thread_messages_sender").on(table.senderId, table.createdAt),
@@ -174,6 +177,7 @@ export const kudos = pgTable("kudos", {
   fromEmployeeId: varchar("from_employee_id").notNull(),
   toEmployeeId: varchar("to_employee_id").notNull(),
   message: text("message").notNull(),
+  reactions: jsonb("reactions").$type<Array<{ userId: string; emoji: string }>>().default([]),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 }, (table) => [
   index("idx_kudos_store_created").on(table.storeId, table.createdAt),

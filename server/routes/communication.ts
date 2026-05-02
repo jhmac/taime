@@ -48,4 +48,15 @@ export function registerCommunicationRoutes(
     sendToUsers(shoutoutReactionRecipients, { type: 'shoutout_reaction', data: { shoutoutId: id, userId, emoji } });
     res.json(shoutout);
   }));
+
+  app.post('/api/kudos/:id/react', isAuthenticated, asyncHandler(async (req: any, res) => {
+    const userId = req.user.id;
+    const { id } = req.params;
+    const emoji = req.body.emoji || '❤️';
+    const kudo = await storage.addKudoReaction(id, userId, emoji);
+    const reactionStoreId = (await tryResolveStoreIdForUser(userId)) || 'default';
+    const kudoReactionRecipients = await computeShoutoutRecipients(reactionStoreId, getAllStoreUserIds);
+    sendToUsers(kudoReactionRecipients, { type: 'kudo_reaction', data: { kudoId: id, userId, emoji } });
+    res.json(kudo);
+  }));
 }
