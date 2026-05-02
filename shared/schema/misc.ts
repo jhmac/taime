@@ -710,6 +710,41 @@ export const backgroundInsights = pgTable("background_insights", {
   index("idx_bg_insights_store_type").on(table.storeId, table.insightType, table.createdAt),
 ]);
 
+// ── Operational Insights (Queryable Company AI Intelligence) ─────────────────
+
+export const operationalInsights = pgTable("operational_insights", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => workLocations.id, { onDelete: "cascade" }).notNull(),
+  insightType: varchar("insight_type").notNull(),
+  affectedArea: varchar("affected_area").notNull(),
+  severity: varchar("severity").notNull().default("info"),
+  observation: text("observation").notNull(),
+  whyItMatters: text("why_it_matters"),
+  recommendedAction: text("recommended_action").notNull(),
+  dataPayload: jsonb("data_payload"),
+  status: varchar("status").notNull().default("active"),
+  dismissedBy: varchar("dismissed_by").references(() => users.id),
+  dismissedAt: timestamp("dismissed_at", { withTimezone: true }),
+  dismissReason: text("dismiss_reason"),
+  actedOnBy: varchar("acted_on_by").references(() => users.id),
+  actedOnAt: timestamp("acted_on_at", { withTimezone: true }),
+  linkedTaskId: varchar("linked_task_id").references(() => tasks.id, { onDelete: "set null" }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  generatedAt: timestamp("generated_at", { withTimezone: true }).defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => [
+  index("idx_op_insights_store_status_sev").on(table.storeId, table.status, table.severity, table.createdAt),
+  index("idx_op_insights_store_type").on(table.storeId, table.insightType),
+]);
+
+export const insertOperationalInsightSchema = createInsertSchema(operationalInsights).omit({
+  id: true,
+  createdAt: true,
+  generatedAt: true,
+});
+export type InsertOperationalInsight = z.infer<typeof insertOperationalInsightSchema>;
+export type OperationalInsight = typeof operationalInsights.$inferSelect;
+
 // ── Cash Management ───────────────────────────────────────────────────────────
 
 export const drawerSessions = pgTable("drawer_sessions", {

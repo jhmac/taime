@@ -4,7 +4,7 @@ import { eq, and, gte, lte, desc, sql, count } from "drizzle-orm";
 import {
   users, schedules, tasks, issues, timeEntries, workLocations,
   sopExecutions, dailyDebriefs, shopifyDailySales, morningWhispers,
-  gtdWaitingFor, improvementVideos,
+  gtdWaitingFor, improvementVideos, operationalInsights, roles,
 } from "@shared/schema";
 import { config } from "../lib/config";
 import logger from "../lib/logger";
@@ -226,9 +226,44 @@ async function gatherWhisperData(storeId: string, userId: string) {
     .from(workLocations).where(eq(workLocations.id, storeId))
     .then(r => r[0]?.name || "the store");
 
-  const employeeName = await db.select({ firstName: users.firstName })
-    .from(users).where(eq(users.id, userId))
-    .then(r => r[0]?.firstName || "");
+  const userRow = await db.select({
+    firstName: users.firstName,
+    roleId: users.roleId,
+  }).from(users).where(eq(users.id, userId)).then(r => r[0]);
+  const employeeName = userRow?.firstName || "";
+
+  // Determine if this user is owner/manager — only they get ops insight injection
+  let isOwnerOrManager = false;
+  if (userRow?.roleId) {
+    const roleRow = await db.select({ name: roles.name }).from(roles).where(eq(roles.id, userRow.roleId)).then(r => r[0]);
+    if (roleRow?.name === "owner" || roleRow?.name === "admin" || roleRow?.name === "manager") {
+      isOwnerOrManager = true;
+    }
+  }
+
+  // Pull top 2-3 active operational insights, severity-prioritised, for owners/managers only
+  let topOperationalInsights: Array<{ severity: string; observation: string; whyItMatters: string | null; recommendedAction: string; affectedArea: string }> = [];
+  if (isOwnerOrManager) {
+    try {
+      const sevRank = sql`CASE severity WHEN 'action_needed' THEN 1 WHEN 'warning' THEN 2 WHEN 'suggestion' THEN 3 ELSE 4 END`;
+      topOperationalInsights = await db.select({
+        severity: operationalInsights.severity,
+        observation: operationalInsights.observation,
+        whyItMatters: operationalInsights.whyItMatters,
+        recommendedAction: operationalInsights.recommendedAction,
+        affectedArea: operationalInsights.affectedArea,
+      }).from(operationalInsights)
+        .where(and(
+          eq(operationalInsights.storeId, storeId),
+          eq(operationalInsights.status, "active"),
+        ))
+        .orderBy(sevRank, desc(operationalInsights.createdAt))
+        .limit(3)
+        .catch(() => []);
+    } catch {
+      topOperationalInsights = [];
+    }
+  }
 
   const dayName = now.toLocaleDateString("en-US", { weekday: "long" });
 
@@ -262,6 +297,8 @@ async function gatherWhisperData(storeId: string, userId: string) {
       urgentIssues: urgentIssues.map(i => `${i.title} (${i.category || "general"})`),
       overdueWaitingFor: overdueWaitingFor,
     },
+    isOwnerOrManager,
+    topOperationalInsights,
   };
 }
 
@@ -314,7 +351,10 @@ TODAY'S OUTLOOK:
 - Schedule: ${data.today.scheduleSummary} (${data.today.scheduledCount} scheduled)
 - Open tasks: ${data.today.openTasks} (${data.today.overdueTasks} overdue)
 - Open issues: ${data.today.openIssuesCount}${data.today.urgentIssues.length > 0 ? `\n- Urgent issues: ${data.today.urgentIssues.join(", ")}` : ""}
-- Overdue waiting-for items: ${data.today.overdueWaitingFor}`;
+- Overdue waiting-for items: ${data.today.overdueWaitingFor}${data.isOwnerOrManager && data.topOperationalInsights.length > 0 ? `
+
+TOP OPERATIONAL AI INSIGHTS (owner/manager-only — surface the most important 1-2 of these in flagged_items if appropriate):
+${data.topOperationalInsights.map((i, idx) => `${idx + 1}. [${i.severity.toUpperCase()} / ${i.affectedArea}] ${i.observation}${i.whyItMatters ? ` — Why it matters: ${i.whyItMatters}` : ""} → Recommended: ${i.recommendedAction}`).join("\n")}` : ""}`;
 
   try {
     let timeoutId: ReturnType<typeof setTimeout>;

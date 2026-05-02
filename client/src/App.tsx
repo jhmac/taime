@@ -165,6 +165,7 @@ const MessagingPage = lazy(() => import("@/features/messaging/MessagingPage"));
 const KudosWallPage = lazy(() => import("@/features/kudos/KudosWallPage"));
 const LeanBoard = lazy(() => import("@/pages/LeanBoard"));
 const InsightsPage = lazy(() => import("@/pages/InsightsPage"));
+const OperationalInsights = lazy(() => import("@/pages/OperationalInsights"));
 const SupplyCatalog = lazy(() => import("@/pages/SupplyCatalog"));
 const InventoryCount = lazy(() => import("@/pages/InventoryCount"));
 const CashManagement = lazy(() => import("@/pages/CashManagement"));
@@ -411,6 +412,9 @@ function AuthenticatedApp() {
         </Route>
         <Route path="/my-score" component={MyScore} />
         <Route path="/insights" component={InsightsPage} />
+        <Route path="/insights/operational">
+          <ProtectedRoute permission="manager.view_reports"><OperationalInsights /></ProtectedRoute>
+        </Route>
         <Route path="/support" component={SupportPage} />
         <Route path="/admin">
           <ProtectedRoute permission="admin.manage_all"><AdminSettings /></ProtectedRoute>

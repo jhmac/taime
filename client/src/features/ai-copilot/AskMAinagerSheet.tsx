@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
+import type { Permission } from "@shared/schema";
 import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -9,7 +10,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Sparkles, X, Minus, Send, Loader2, ThumbsUp, ThumbsDown,
   BookOpen, AlertTriangle, ClipboardList, Calendar,
-  CheckCircle2, MessageSquarePlus,
+  CheckCircle2, MessageSquarePlus, BarChart3,
 } from "lucide-react";
 import { useLocation } from "wouter";
 
@@ -81,6 +82,29 @@ export default function AskMAinagerSheet() {
   const [feedbackText, setFeedbackText] = useState("");
   const [feedbackMsgId, setFeedbackMsgId] = useState<string | null>(null);
   const [pulseVisible, setPulseVisible] = useState(true);
+  const [opsMode, setOpsMode] = useState(false);
+
+  // Ops mode is a manager/owner-only capability — gate the UI on the same
+  // server-side permission set that the API check enforces.
+  const { data: userPermissions = [] } = useQuery<Permission[]>({
+    queryKey: ["/api/auth/permissions"],
+    enabled: !!user,
+    staleTime: 5 * 60 * 1000,
+  });
+  const canUseOpsMode =
+    user?.role?.name === "owner" ||
+    user?.role?.name === "admin" ||
+    user?.role?.name === "manager" ||
+    userPermissions.some(p =>
+      p.name === "admin.manage_all" ||
+      p.name === "manager.view_reports" ||
+      p.name === "manager.manage_schedules"
+    );
+
+  // If a user loses ops permission while the panel is open, force the toggle off.
+  useEffect(() => {
+    if (!canUseOpsMode && opsMode) setOpsMode(false);
+  }, [canUseOpsMode, opsMode]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -121,7 +145,8 @@ export default function AskMAinagerSheet() {
       return fetchWithTimeout("POST", "/api/ai/ask", {
         question,
         conversationId: conversationId || undefined,
-      }, 15000) as Promise<MAinagerResponse>;
+        mode: opsMode ? "ops" : "default",
+      }, canUseOpsMode && opsMode ? 30000 : 15000) as Promise<MAinagerResponse>;
     },
     onSuccess: (data) => {
       setConversationId(data.conversationId);
@@ -473,10 +498,35 @@ export default function AskMAinagerSheet() {
           )}
 
           <div className="border-t border-border p-3 shrink-0">
+            {canUseOpsMode && (
+              <div className="flex items-center justify-between mb-2 px-1">
+                <button
+                  type="button"
+                  onClick={() => setOpsMode(v => !v)}
+                  className={`inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full border transition-colors ${
+                    opsMode
+                      ? "bg-violet-100 dark:bg-violet-900/40 border-violet-300 dark:border-violet-700 text-violet-700 dark:text-violet-300"
+                      : "bg-muted/40 border-border text-muted-foreground hover:bg-accent"
+                  }`}
+                  data-testid="ops-mode-toggle"
+                  title={opsMode
+                    ? "Ops mode ON — I'll answer using your store's operations data (last 14 days)"
+                    : "Switch to Ops mode for data-driven questions about your operations"}
+                >
+                  <BarChart3 className="h-3 w-3" />
+                  Ops mode {opsMode ? "ON" : "OFF"}
+                </button>
+                {opsMode && (
+                  <span className="text-[10px] text-muted-foreground">Using ops data + active AI insights</span>
+                )}
+              </div>
+            )}
             <div className="flex items-end gap-2">
               <Textarea
                 ref={inputRef}
-                placeholder="Ask me anything about the store..."
+                placeholder={opsMode
+                  ? "Ask about staffing, tasks, issues, SOPs, day-of-week patterns…"
+                  : "Ask me anything about the store..."}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}

@@ -8,6 +8,8 @@ import {
   unansweredQuestions,
 } from "@shared/schema";
 import { searchSOPs } from "./sopIndexer";
+import { aggregateOperations, summarizeForAI } from "./operationsIntelligence";
+import { operationalInsights } from "@shared/schema";
 import logger from "../lib/logger";
 
 const anthropic = new Anthropic({ apiKey: config.anthropic.apiKey });
@@ -28,6 +30,7 @@ interface AskParams {
   employeeId: string;
   storeId: string;
   conversationId?: string;
+  mode?: "default" | "ops"; // Ops mode primes Claude with the operations aggregate
 }
 
 async function gatherContext(storeId: string, employeeId: string, question: string) {
@@ -223,11 +226,47 @@ async function gatherContext(storeId: string, employeeId: string, question: stri
   };
 }
 
-export async function askMAinager(params: AskParams): Promise<MAinagerResponse> {
-  const { question, originalQuestion, employeeId, storeId } = params;
-  const queueQuestion = originalQuestion ?? question; // Always store raw user text in the queue
+async function gatherOpsContext(storeId: string) {
+  try {
+    const agg = await aggregateOperations(storeId);
+    const summary = summarizeForAI(agg);
 
-  const ctx = await gatherContext(storeId, employeeId, question);
+    const activeInsights = await db.select({
+      severity: operationalInsights.severity,
+      insightType: operationalInsights.insightType,
+      observation: operationalInsights.observation,
+      whyItMatters: operationalInsights.whyItMatters,
+      recommendedAction: operationalInsights.recommendedAction,
+    }).from(operationalInsights)
+      .where(and(
+        eq(operationalInsights.storeId, storeId),
+        eq(operationalInsights.status, "active"),
+      ))
+      .orderBy(sql`CASE severity WHEN 'action_needed' THEN 1 WHEN 'warning' THEN 2 WHEN 'suggestion' THEN 3 ELSE 4 END`)
+      .limit(10);
+
+    const insightsList = activeInsights.length === 0
+      ? "(no active AI insights yet)"
+      : activeInsights.map((i, idx) =>
+          `${idx + 1}. [${i.severity.toUpperCase()} / ${i.insightType}] ${i.observation}${i.whyItMatters ? `\n   Why it matters: ${i.whyItMatters}` : ""}\n   → Recommended: ${i.recommendedAction}`
+        ).join("\n");
+
+    return { summary, activeInsightsList: insightsList };
+  } catch (err: any) {
+    logger.warn({ error: err.message }, "[AskMAinager:Ops] Aggregator failed, continuing with empty ops context");
+    return { summary: "(operations data unavailable)", activeInsightsList: "(no active AI insights)" };
+  }
+}
+
+export async function askMAinager(params: AskParams): Promise<MAinagerResponse> {
+  const { question, originalQuestion, employeeId, storeId, mode } = params;
+  const queueQuestion = originalQuestion ?? question; // Always store raw user text in the queue
+  const isOpsMode = mode === "ops";
+
+  const [ctx, opsContext] = await Promise.all([
+    gatherContext(storeId, employeeId, question),
+    isOpsMode ? gatherOpsContext(storeId) : Promise.resolve(null),
+  ]);
 
   let convId = params.conversationId || "";
   let conversationHistory: { role: "user" | "assistant"; content: string }[] = [];
@@ -257,6 +296,17 @@ export async function askMAinager(params: AskParams): Promise<MAinagerResponse> 
     role: "user",
     content: question,
   });
+
+  const opsSystemAddendum = isOpsMode && opsContext ? `
+
+OPS QUERY MODE:
+The user is asking an OPERATIONS question. They have manager/owner access. Answer using the OPERATIONS DATA SUMMARY below as the primary source of truth. You may quote specific numbers, day-of-week patterns, assignee names, issue categories, and SOP completion rates directly. When asked open-ended questions like "what tasks have been incomplete for more than 3 days?", "which days were we overstaffed?", or "what issues keep coming back?" — derive the answer entirely from the OPERATIONS DATA SUMMARY. If the data does not contain the answer, say so plainly rather than guessing.
+
+ACTIVE AI-GENERATED INSIGHTS (review these, reference them where relevant):
+${opsContext.activeInsightsList}
+
+OPERATIONS DATA SUMMARY (last 14 days, aggregated):
+${opsContext.summary}` : "";
 
   const systemPrompt = `You are MAinager, the AI assistant for ${ctx.storeName}, a retail boutique. You help team members with their daily work by answering questions using the store's actual procedures, schedules, and data.
 
@@ -312,7 +362,7 @@ ${ctx.issuesSummary}
 ${ctx.bugThemes}
 
 Relevant Knowledge Base Content (SOPs, training modules, knowledge base articles):
-${ctx.sopChunks}`;
+${ctx.sopChunks}${opsSystemAddendum}`;
 
   const messages: Anthropic.MessageParam[] = [
     ...conversationHistory.map(m => ({ role: m.role, content: m.content } as Anthropic.MessageParam)),

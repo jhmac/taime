@@ -11,6 +11,7 @@ import ScheduleWidget from '@/components/ScheduleWidget';
 import ChoresWidget from '@/components/ChoresWidget';
 import TeamActivityFeed from '@/components/TeamActivityFeed';
 import AIInsightsWidget from '@/components/AIInsightsWidget';
+import OperationalInsightsCard from '@/components/OperationalInsightsCard';
 import TodaySchedulePanel from '@/components/TodaySchedulePanel';
 import DailyGoalWidget from '@/components/DailyGoalWidget';
 import DailyQuoteCard from '@/components/DailyQuoteCard';
@@ -328,11 +329,14 @@ export default function Dashboard() {
               <KudosWidget />
             </div>
             <div className="col-span-4">
-              <AIInsightsWidget />
+              <OperationalInsightsCard />
             </div>
             <div className="col-span-4">
-              <TeamActivityFeed />
+              <AIInsightsWidget />
             </div>
+          </div>
+          <div className="px-6 pb-6">
+            <TeamActivityFeed />
           </div>
         </>
       ) : (

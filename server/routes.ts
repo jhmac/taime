@@ -43,6 +43,7 @@ import { startSOPInsightsCron, stopSOPInsightsCron } from "./services/sopIntelli
 import { registerSOPEvolutionRoutes } from "./routes/sopEvolution";
 import { startSOPEvolutionCron, stopSOPEvolutionCron } from "./services/sopEvolution";
 import { registerBackgroundInsightRoutes } from "./routes/backgroundInsights";
+import { registerOperationalInsightRoutes } from "./routes/operationalInsights";
 import { registerSmartSuggestionRoutes } from "./routes/smartSuggestions";
 import { registerCashManagementRoutes } from "./routes/cashManagement";
 import { registerTimesheetRoutes } from "./routes/timesheets";
@@ -62,6 +63,8 @@ import { registerSupplyRequestRoutes } from "./routes/supplyRequests";
 import { registerPayrollIntelligenceRoutes } from "./routes/payrollIntelligence";
 import { registerAraRoutes } from "./routes/ara";
 import { startBackgroundInsightsCron, stopBackgroundInsightsCron } from "./services/backgroundInsights";
+import { startOperationalInsightsCron, stopOperationalInsightsCron } from "./services/insightGenerator";
+import { startWeeklyOpsDigestCron, stopWeeklyOpsDigestCron } from "./services/weeklyOpsDigest";
 import { startGamificationCron, stopGamificationCron } from "./services/gamificationCron";
 import { startLocationCleanupCron, stopLocationCleanupCron } from "./services/locationCleanupCron";
 import { createActionLoggerMiddleware, handleClientErrorReport, getActionSummary } from "./services/actionLogger";
@@ -190,6 +193,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerSOPIntelligenceRoutes(app, storage, isAuthenticated);
   registerSOPEvolutionRoutes(app, storage, isAuthenticated);
   registerBackgroundInsightRoutes(app, storage, isAuthenticated);
+  registerOperationalInsightRoutes(app, storage, isAuthenticated);
   registerSmartSuggestionRoutes(app, storage, isAuthenticated);
   registerCashManagementRoutes(app, storage, isAuthenticated);
   registerOffsiteRulesRoutes(app, storage, isAuthenticated);
@@ -271,6 +275,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     { fn: () => startSOPInsightsCron(), label: 'SOP Insights', delay: 45_000 },
     { fn: () => startSOPEvolutionCron(), label: 'SOP Evolution', delay: 55_000 },
     { fn: () => startBackgroundInsightsCron(), label: 'Background Insights', delay: 65_000 },
+    { fn: () => startOperationalInsightsCron(), label: 'Operational Insights', delay: 95_000 },
+    { fn: () => startWeeklyOpsDigestCron(), label: 'Weekly Ops Digest', delay: 105_000 },
     { fn: () => startGamificationCron(), label: 'Gamification', delay: 75_000 },
     { fn: () => startLocationCleanupCron(), label: 'Location Cleanup', delay: 85_000 },
     {
@@ -301,6 +307,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     stopSOPInsightsCron();
     stopSOPEvolutionCron();
     stopBackgroundInsightsCron();
+    stopOperationalInsightsCron();
+    stopWeeklyOpsDigestCron();
     stopGamificationCron();
     stopLocationCleanupCron();
 

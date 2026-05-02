@@ -11,6 +11,7 @@ import { db } from "../db";
 import { aiFeedback, aiChatConversations, aiChatMessages, unansweredQuestions, aiGeneratedItems, users } from "@shared/schema";
 import { eq, and, desc, gte, count } from "drizzle-orm";
 import { tryResolveStoreIdForUser } from "../services/storeResolver";
+import { resolveAnyPermission } from "../services/permissionResolver";
 import logger from "../lib/logger";
 
 const DEFAULT_MODEL_STR = "claude-sonnet-4-20250514";
@@ -372,8 +373,23 @@ Available SOPs: ${publishedSops.length > 0 ? publishedSops.map(s => s.title).joi
       const schema = z.object({
         question: z.string().min(1).max(1000),
         conversationId: z.string().optional(),
+        mode: z.enum(["default", "ops"]).optional(),
       });
-      const { question, conversationId } = schema.parse(req.body);
+      const { question, conversationId, mode } = schema.parse(req.body);
+
+      // Ops mode is gated to managers / admins / owners — it surfaces aggregate
+      // operations data and active AI insights that non-management staff must
+      // not see. Reject early before any storage or AI work.
+      if (mode === "ops") {
+        const allowed = await resolveAnyPermission(
+          req.user.id,
+          ["admin.manage_all", "manager.view_reports", "manager.manage_schedules"],
+          storage,
+        );
+        if (!allowed) {
+          return res.status(403).json({ message: "Ops mode requires manager or owner access." });
+        }
+      }
 
       if (conversationId) {
         const conv = await db.select({ userId: aiChatConversations.userId })
@@ -407,6 +423,7 @@ Available SOPs: ${publishedSops.length > 0 ? publishedSops.map(s => s.title).joi
         employeeId: req.user.id,
         storeId,
         conversationId,
+        mode,
       });
 
       res.json(result);

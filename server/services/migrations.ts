@@ -404,6 +404,13 @@ export async function runSchemaMigrations(): Promise<void> {
       table: "offsite_sessions",
       sql: `ALTER TABLE offsite_sessions ADD COLUMN IF NOT EXISTS clocked_out_off_route boolean DEFAULT false`,
     },
+    // Task #474 — Operational Insights: "why it matters" rationale separate
+    // from the observation, populated by the AI generator and rendered on
+    // dashboard widget + insights page.
+    {
+      table: "operational_insights",
+      sql: `ALTER TABLE operational_insights ADD COLUMN IF NOT EXISTS why_it_matters text`,
+    },
   ];
 
   let altered = 0;
@@ -843,6 +850,35 @@ export async function runSchemaMigrations(): Promise<void> {
       )`,
       indexes: [
         `CREATE INDEX IF NOT EXISTS idx_ai_store_qa_messages_session ON ai_store_qa_messages (session_id)`,
+      ],
+    },
+    // ── Operational Insights (Queryable Company AI Intelligence) ─────────────
+    {
+      name: "operational_insights",
+      ddl: `CREATE TABLE IF NOT EXISTS operational_insights (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        store_id varchar REFERENCES work_locations(id) ON DELETE CASCADE NOT NULL,
+        insight_type varchar NOT NULL,
+        affected_area varchar NOT NULL,
+        severity varchar NOT NULL DEFAULT 'info',
+        observation text NOT NULL,
+        why_it_matters text,
+        recommended_action text NOT NULL,
+        data_payload jsonb,
+        status varchar NOT NULL DEFAULT 'active',
+        dismissed_by varchar REFERENCES users(id) ON DELETE SET NULL,
+        dismissed_at timestamptz,
+        dismiss_reason text,
+        acted_on_by varchar REFERENCES users(id) ON DELETE SET NULL,
+        acted_on_at timestamptz,
+        linked_task_id varchar REFERENCES tasks(id) ON DELETE SET NULL,
+        expires_at timestamptz,
+        generated_at timestamptz DEFAULT now(),
+        created_at timestamptz DEFAULT now()
+      )`,
+      indexes: [
+        `CREATE INDEX IF NOT EXISTS idx_op_insights_store_status_sev ON operational_insights (store_id, status, severity, created_at)`,
+        `CREATE INDEX IF NOT EXISTS idx_op_insights_store_type ON operational_insights (store_id, insight_type)`,
       ],
     },
     // ── Unified AI Learning Platform ─────────────────────────────────────────
