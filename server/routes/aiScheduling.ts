@@ -2619,11 +2619,11 @@ Required JSON structure:
   app.post("/api/schedules/suggest", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      logger.info("[suggest] request received", { userId, body: req.body });
+      logger.info({ userId, body: req.body }, "[suggest] request received");
 
             const isAdmin = await resolveAnyPermission(userId, ['admin.manage_all', 'schedule.view_all', 'schedule.create'], storage);
       if (!isAdmin) {
-        logger.warn("[suggest] 403 — missing permission", { userId });
+        logger.warn({ userId }, "[suggest] 403 — missing permission");
         return res.status(403).json({ message: "Manager access required" });
       }
 
@@ -2635,7 +2635,7 @@ Required JSON structure:
 
       const storeId = await tryResolveStoreIdForUser(userId);
       if (!storeId) {
-        logger.warn("[suggest] 403 — no store for user", { userId });
+        logger.warn({ userId }, "[suggest] 403 — no store for user");
         return res.status(403).json({ message: "No store associated with your account" });
       }
 
@@ -2662,13 +2662,13 @@ Required JSON structure:
           .where(and(eq(aiSuggestedSchedules.storeId, storeId), eq(aiSuggestedSchedules.date, dateParam)))
           .limit(1);
         if (cachedRows.length > 0) {
-          logger.info("[suggest] short-circuit — returning cached payload", { storeId, dateParam });
+          logger.info({ storeId, dateParam }, "[suggest] short-circuit — returning cached payload");
           return res.json(cachedRows[0].scheduleData);
         }
       }
 
       const storeUserIds = await getAllStoreUserIds(storeId);
-      logger.info("[suggest] store resolved", { storeId, userCount: storeUserIds.length, dateParam, force: force === true });
+      logger.info({ storeId, userCount: storeUserIds.length, dateParam, force: force === true }, "[suggest] store resolved");
       if (storeUserIds.length === 0) return res.json({ date: dateParam, proposedShifts: [], historicalDate: '', dataSource: 'synthetic', hourlyData: [], storeHours: { open: '09:00', close: '21:00' } });
 
       // ── Mirror today-availability data gathering exactly ─────────────────────
@@ -2994,10 +2994,10 @@ Required JSON structure:
             ));
           if ((existingOrderCount[0]?.cnt ?? 0) === 0) {
             try {
-              logger.info("[suggest] auto-backfill: fetching Shopify orders for", { dateStr, shopDomain: shopDomain2, tz: storeTimezone2 });
+              logger.info({ dateStr, shopDomain: shopDomain2, tz: storeTimezone2 }, "[suggest] auto-backfill: fetching Shopify orders for");
               await backfillDayOrdersFromShopify(shopDomain2, shopCreds.service, dateStr, storeTimezone2);
             } catch (backfillErr) {
-              logger.warn("[suggest] auto-backfill failed (non-fatal)", { dateStr, error: String(backfillErr) });
+              logger.warn({ dateStr, error: String(backfillErr) }, "[suggest] auto-backfill failed (non-fatal)");
             }
           }
 
@@ -3226,16 +3226,16 @@ Respond ONLY with a valid JSON object (no markdown, no explanation) in this exac
               });
             }
             claudeSucceeded = proposedShiftShape.length > 0;
-            logger.info("[suggest] Claude generated shifts", { count: proposedShiftShape.length, dateParam });
+            logger.info({ count: proposedShiftShape.length, dateParam }, "[suggest] Claude generated shifts");
           }
         }
       } catch (claudeErr) {
-        logger.warn("[suggest] Claude call failed, falling back to algorithm", { error: String(claudeErr) });
+        logger.warn({ error: String(claudeErr) }, "[suggest] Claude call failed, falling back to algorithm");
       }
 
       // ── Fallback: algorithmic shift assignment if Claude failed or returned nothing ──
       if (!claudeSucceeded) {
-        logger.info("[suggest] using algorithmic fallback", { dateParam });
+        logger.info({ dateParam }, "[suggest] using algorithmic fallback");
         const assignedMemberShifts: Record<string, string[]> = {};
         for (const block of shiftBlocks) {
           const [blockStartH] = block.startTime.split(':').map(Number);
@@ -3334,7 +3334,7 @@ Respond ONLY with a valid JSON object (no markdown, no explanation) in this exac
           rationale: `Required work pattern for this day — must be scheduled`,
           revenue: Math.round(blockRevenue * 100) / 100,
         });
-        logger.info("[suggest] forced Required employee into schedule", { userId: rm.userId, block: bestBlock.name });
+        logger.info({ userId: rm.userId, block: bestBlock.name }, "[suggest] forced Required employee into schedule");
       }
 
       // ── Post-processing: apply shift handoff overlap to adjacent block boundaries ──
@@ -3365,12 +3365,12 @@ Respond ONLY with a valid JSON object (no markdown, no explanation) in this exac
 
       const proposedShifts = proposedShiftShape;
 
-      logger.info("[suggest] responding", {
+      logger.info({
         dateParam,
         proposedShifts: proposedShifts.length,
         dataSource: salesData.dataSource,
         availableMembers: availableMembers.length,
-      });
+      }, "[suggest] responding");
 
       const responsePayload = {
         date: dateParam,
@@ -3391,13 +3391,13 @@ Respond ONLY with a valid JSON object (no markdown, no explanation) in this exac
               set: { scheduleData: responsePayload as any, generatedAt: new Date() },
             });
         } catch (saveErr) {
-          logger.warn("[suggest] failed to persist schedule (non-fatal):", { saveErr: String(saveErr) });
+          logger.warn({ saveErr: String(saveErr) }, "[suggest] failed to persist schedule (non-fatal):");
         }
       }
 
       res.json(responsePayload);
     } catch (error) {
-      logger.error("[suggest] unhandled error", { error: String(error) });
+      logger.error({ error: String(error) }, "[suggest] unhandled error");
       console.error("Error generating suggested schedule:", error);
       res.status(500).json({ message: "Failed to generate suggested schedule", detail: String(error) });
     }
@@ -3645,7 +3645,7 @@ Return your findings as JSON only — no markdown, no text outside JSON:
         if (lastBrace !== -1 && lastBrace < jsonStr.length - 1) jsonStr = jsonStr.slice(0, lastBrace + 1);
         parsedReview = JSON.parse(jsonStr);
       } catch (parseErr) {
-        logger.error("[review] failed to parse AI response", { parseErr: String(parseErr) });
+        logger.error({ parseErr: String(parseErr) }, "[review] failed to parse AI response");
         return res.status(500).json({ message: "AI returned an unparseable response. Please try again." });
       }
 
@@ -3657,7 +3657,7 @@ Return your findings as JSON only — no markdown, no text outside JSON:
         overallRating: ['pass', 'warn', 'fail'].includes(parsedReview.overallRating) ? parsedReview.overallRating : 'warn',
       });
     } catch (error) {
-      logger.error("[review] unhandled error", { error: String(error) });
+      logger.error({ error: String(error) }, "[review] unhandled error");
       res.status(500).json({ message: "Failed to review schedule" });
     }
   });
@@ -3933,7 +3933,7 @@ Return your findings as JSON only — no markdown, no text outside JSON:
         },
       });
     } catch (error) {
-      logger.error("[fairness-metrics] error", { error: String(error) });
+      logger.error({ error: String(error) }, "[fairness-metrics] error");
       res.status(500).json({ message: "Failed to fetch fairness metrics" });
     }
   });

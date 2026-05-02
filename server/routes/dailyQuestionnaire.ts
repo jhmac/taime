@@ -483,7 +483,9 @@ export function registerDailyQuestionnaireRoutes(
 
     let knowledgeContent = "";
     for (const doc of kbDocs.slice(0, 5)) {
-      if (doc.content) knowledgeContent += `\n\n## ${doc.title}\n${doc.content}`;
+      const docTitle = doc.originalFileName?.replace(/\.[^.]+$/, "") || "Untitled";
+      const docContent = doc.extractedText || doc.summaryFromClaude || doc.rawContent;
+      if (docContent) knowledgeContent += `\n\n## ${docTitle}\n${docContent}`;
     }
     for (const doc of scopedSopDocs) {
       if (doc.content) knowledgeContent += `\n\n## ${doc.title}\n${doc.content}`;

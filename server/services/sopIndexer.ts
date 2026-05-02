@@ -384,12 +384,12 @@ export async function searchSOPs(storeId: string, query: string, topK: number = 
   }
 
   if (knowledgeDocChunkIds.length > 0) {
-    const uniqueDocIds = Array.from(new Set(knowledgeDocChunkIds));
+    const uniqueDocIds: string[] = Array.from(new Set(knowledgeDocChunkIds));
     const docRows = await db.select({
       id: knowledgeDocuments.id,
       originalFileName: knowledgeDocuments.originalFileName,
     }).from(knowledgeDocuments)
-      .where(sql`${knowledgeDocuments.id} IN (${sql.join(uniqueDocIds.map((id: string) => sql`${id}`), sql`, `)})`);
+      .where(sql`${knowledgeDocuments.id} IN (${sql.join(uniqueDocIds.map((id) => sql`${id}`), sql`, `)})`);
 
     for (const doc of docRows) {
       const displayTitle = doc.originalFileName.replace(/\.[^.]+$/, "");

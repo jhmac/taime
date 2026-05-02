@@ -248,7 +248,7 @@ function CoverageRuleRow({ rule, index, onChange, onDelete }: {
                   type="number"
                   min={1}
                   max={10}
-                  value={rule.params.count || 1}
+                  value={typeof rule.params.count === 'number' ? rule.params.count : 1}
                   onChange={e => onChange(index, { ...rule, params: { ...rule.params, count: parseInt(e.target.value) || 1 } })}
                   className="h-7 w-16 text-xs"
                 />
@@ -258,7 +258,7 @@ function CoverageRuleRow({ rule, index, onChange, onDelete }: {
               <div className="flex items-center gap-1.5">
                 <Label className="text-xs text-muted-foreground">Role:</Label>
                 <Select
-                  value={rule.params.classification || 'Key Holder'}
+                  value={typeof rule.params.classification === 'string' ? rule.params.classification : 'Key Holder'}
                   onValueChange={v => onChange(index, { ...rule, params: { ...rule.params, classification: v } })}
                 >
                   <SelectTrigger className="h-7 w-36 text-xs">
@@ -450,7 +450,7 @@ function AIRulesTab() {
   const addRule = (template: typeof RULE_TEMPLATES[number]) => {
     setCoverageRules(prev => [...prev, {
       ruleType: template.ruleType,
-      params: { ...template.defaultParams },
+      params: { ...template.defaultParams } as Record<string, string | number | boolean>,
       isEnabled: true,
     }]);
     setShowRuleDropdown(false);

@@ -61,7 +61,7 @@ async function claudeCall(
   const timeout = new Promise<never>((_, reject) =>
     setTimeout(() => reject(new Error(`Claude call timed out after ${timeoutMs / 1000}s`)), timeoutMs)
   );
-  return Promise.race([anthropic.messages.create(params), timeout]);
+  return Promise.race([anthropic.messages.create(params), timeout]) as Promise<Anthropic.Message>;
 }
 
 async function appendProgress(jobId: string, message: string) {

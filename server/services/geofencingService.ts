@@ -776,7 +776,7 @@ export class GeofencingService {
       const locationId = exitLocation?.id || activeTimeEntry.locationId || '';
       if (!locationId) {
         console.warn(`[Geofence] Skipping exit event insert for user ${userId} — no valid locationId`);
-        return recentExitEvents;
+        return { isOutside: true, autoClockOutTriggered: false, graceMinutes, graceRemaining: null, exitedAt: null };
       }
       const [newEvent] = await db.insert(geofenceEvents).values({
         userId,

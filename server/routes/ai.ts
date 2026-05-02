@@ -257,7 +257,7 @@ export function registerAIRoutes(app: Express, storage: IStorage, isAuthenticate
           severity: anomaly.severity === 'high' ? 'critical' : anomaly.severity === 'medium' ? 'warning' : 'info',
           isRead: false,
           metadata: { recommendation: anomaly.recommendation, detectedAt: new Date().toISOString() },
-        });
+        } as any);
       }
 
       res.json({ anomalies: result.anomalies, patterns: result.patterns });

@@ -172,7 +172,13 @@ export function registerTimeEntryRoutes(
       let periodStart: Date;
       let periodEnd: Date;
       try {
-        const settings = await storage.getPayPeriodSettings();
+        // PayPeriodSettings was reshaped — `nextPeriodStart`/`frequency` no
+        // longer exist on the row, so this `try` branch is effectively a
+        // no-op fallback today and the catch path drives the calculation.
+        // Cast to any preserves the original lookup behaviour: when the
+        // expected fields are missing, the throw below falls through to the
+        // anchored biweekly default below.
+        const settings = (await storage.getPayPeriodSettings()) as any;
         if (settings?.nextPeriodStart) {
           // Walk back from nextPeriodStart to find the period that contains today
           const freq = settings.frequency || 'biweekly';

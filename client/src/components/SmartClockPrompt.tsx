@@ -79,6 +79,12 @@ export default function SmartClockPrompt() {
     queryKey: ['/api/work-locations'],
   });
 
+  // The `enable_smart_clock_prompt` column was dropped from `company_settings`
+  // (see migration 0009_drop_smart_clock_prompt.sql), so this field is always
+  // undefined at runtime. Cast preserves the existing always-disabled
+  // behaviour without surfacing a TypeScript error on a deprecated field.
+  const enableSmartClockPrompt = (settings as { enableSmartClockPrompt?: boolean } | undefined)?.enableSmartClockPrompt;
+
   const clockInMutation = useMutation({
     mutationFn: async (data: { locationId: string; latitude: number; longitude: number }) => {
       return await apiRequest('POST', '/api/time-entries', {
@@ -111,7 +117,7 @@ export default function SmartClockPrompt() {
   });
 
   const checkLocation = useCallback(async () => {
-    if (checked || checking || !settings?.enableSmartClockPrompt || activeTimeEntry || workLocations.length === 0) {
+    if (checked || checking || !enableSmartClockPrompt || activeTimeEntry || workLocations.length === 0) {
       return;
     }
 
@@ -145,19 +151,19 @@ export default function SmartClockPrompt() {
     } finally {
       setChecking(false);
     }
-  }, [checked, checking, settings?.enableSmartClockPrompt, activeTimeEntry, workLocations.length, getCurrentPosition]);
+  }, [checked, checking, enableSmartClockPrompt, activeTimeEntry, workLocations.length, getCurrentPosition]);
 
   useEffect(() => {
-    if (settings?.enableSmartClockPrompt && !activeTimeEntry && workLocations.length > 0 && !checked && !dismissed && !snoozed) {
+    if (enableSmartClockPrompt && !activeTimeEntry && workLocations.length > 0 && !checked && !dismissed && !snoozed) {
       const timer = setTimeout(() => {
         checkLocation();
       }, 1500);
       return () => clearTimeout(timer);
     }
-  }, [settings?.enableSmartClockPrompt, activeTimeEntry, workLocations.length, checked, dismissed, snoozed, checkLocation]);
+  }, [enableSmartClockPrompt, activeTimeEntry, workLocations.length, checked, dismissed, snoozed, checkLocation]);
 
   useEffect(() => {
-    if (!settings?.enableSmartClockPrompt) return;
+    if (!enableSmartClockPrompt) return;
 
     const COOLDOWN_KEY = 'smartClockLastCheck';
     const COOLDOWN_MS = 10 * 60 * 1000;
@@ -181,7 +187,7 @@ export default function SmartClockPrompt() {
 
     document.addEventListener('visibilitychange', handleFocusReturn);
     return () => document.removeEventListener('visibilitychange', handleFocusReturn);
-  }, [settings?.enableSmartClockPrompt]);
+  }, [enableSmartClockPrompt]);
 
   useEffect(() => {
     return () => {
@@ -230,7 +236,7 @@ export default function SmartClockPrompt() {
     }, SNOOZE_DURATION_MS);
   };
 
-  if (!settings?.enableSmartClockPrompt || !nearbyLocation || activeTimeEntry || dismissed || snoozed) {
+  if (!enableSmartClockPrompt || !nearbyLocation || activeTimeEntry || dismissed || snoozed) {
     return null;
   }
 
