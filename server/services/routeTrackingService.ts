@@ -289,7 +289,10 @@ export async function processOffsiteBreadcrumb(
 
   if (isDeviation) {
     const newConsecutive = (session.consecutiveOffRouteCount ?? 0) + 1;
-    await storage.updateOffsiteSession(sessionId, { consecutiveOffRouteCount: newConsecutive });
+    await storage.updateOffsiteSession(sessionId, {
+      consecutiveOffRouteCount: newConsecutive,
+      deviationEventCount: (session.deviationEventCount ?? 0) + 1,
+    });
 
     if (rule) {
       // On first consecutive deviation: notify manager/owner once. On second: auto clock-out (no extra alert needed).

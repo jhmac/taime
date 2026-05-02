@@ -18,6 +18,7 @@ import { App as CapacitorApp } from '@capacitor/app';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import LocationHelpSheet from '@/components/LocationHelpSheet';
 import ErrorWithRetry from '@/components/ErrorWithRetry';
+import MyTripsSection from '@/components/MyTripsSection';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from '@/components/ui/sheet';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 
@@ -129,7 +130,7 @@ export default function TimeClockWidget({ greetingSlot, footerSlot, hideClock = 
 
   const { data: activeRulesData } = useQuery<{ rules: any[]; todayTripCounts: Record<string, number> }>({
     queryKey: ['/api/offsite-rules/active'],
-    enabled: !!activeTimeEntry && !activeOffsiteSession,
+    enabled: !!activeTimeEntry,
     refetchOnWindowFocus: false,
   });
   const activeRules = activeRulesData?.rules ?? [];
@@ -1243,6 +1244,15 @@ export default function TimeClockWidget({ greetingSlot, footerSlot, hideClock = 
               <div className="border-t border-border -mx-5 pt-4">{footerSlot}</div>
             </>
           )}
+
+          {/* My Trips — employee-facing trip history with deviation alerts and trips remaining.
+              MyTripsSection returns null when there's nothing to show, so the border/spacing
+              applied via wrapperClassName only appears when the section actually has content. */}
+          <MyTripsSection
+            activeRules={activeRules}
+            todayTripCounts={todayTripCounts}
+            wrapperClassName="border-t border-border -mx-5 px-5 pt-4 text-left"
+          />
 
         </CardContent>
       )}
