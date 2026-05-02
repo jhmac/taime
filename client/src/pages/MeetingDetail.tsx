@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation, useParams } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -9,11 +9,20 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
+import { useWebSocket } from "@/hooks/useWebSocket";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import {
   ArrowLeft, Clock, Users, Search, CheckCircle2, XCircle, Inbox,
-  AlertTriangle, ArrowUpCircle, Minus, Loader2,
+  AlertTriangle, ArrowUpCircle, Minus, Loader2, Circle,
 } from "lucide-react";
+
+const MEETING_PROGRESS_EVENTS = new Set([
+  "meeting_processing_started",
+  "meeting_transcribed",
+  "meeting_synopsis_ready",
+  "meeting_ready",
+  "meeting_failed",
+]);
 
 interface TeamMember {
   id: string;
@@ -269,16 +278,112 @@ function RecommendationCard({
   );
 }
 
+interface ProgressStep {
+  key: "transcribing" | "summarizing" | "extracting";
+  label: string;
+}
+
+const PROGRESS_STEPS: ProgressStep[] = [
+  { key: "transcribing", label: "Transcribing audio" },
+  { key: "summarizing", label: "Summarizing" },
+  { key: "extracting", label: "Extracting action items" },
+];
+
+function getCurrentStepIndex(meeting: Pick<MeetingDetail, "status" | "transcript" | "synopsis">): number {
+  if (meeting.status === "ready") return PROGRESS_STEPS.length;
+  if (meeting.transcript && meeting.synopsis) return 2;
+  if (meeting.transcript) return 1;
+  return 0;
+}
+
+function MeetingProgressIndicator({ meeting }: { meeting: MeetingDetail }) {
+  const isProcessing = meeting.status === "processing" || meeting.status === "recording";
+  const isFailed = meeting.status === "failed";
+  if (!isProcessing && !isFailed) return null;
+
+  const currentStep = getCurrentStepIndex(meeting);
+
+  return (
+    <Card className="mb-4 border-primary/20 bg-primary/5" data-testid="meeting-progress-indicator">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm font-semibold flex items-center gap-2">
+          {isFailed ? (
+            <>
+              <AlertTriangle className="h-4 w-4 text-destructive" />
+              <span className="text-destructive">Processing failed</span>
+            </>
+          ) : (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+              <span>Processing meeting…</span>
+            </>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="pt-0">
+        <ul className="space-y-3">
+          {PROGRESS_STEPS.map((step, i) => {
+            const done = i < currentStep;
+            const active = i === currentStep && !isFailed;
+            const failedHere = isFailed && i === currentStep;
+
+            let icon;
+            let labelClass = "text-sm";
+            if (done) {
+              icon = <CheckCircle2 className="h-5 w-5 text-green-500 shrink-0" />;
+              labelClass += " text-foreground";
+            } else if (active) {
+              icon = <Loader2 className="h-5 w-5 text-primary animate-spin shrink-0" />;
+              labelClass += " text-foreground font-medium";
+            } else if (failedHere) {
+              icon = <XCircle className="h-5 w-5 text-destructive shrink-0" />;
+              labelClass += " text-destructive font-medium";
+            } else {
+              icon = <Circle className="h-5 w-5 text-muted-foreground/40 shrink-0" />;
+              labelClass += " text-muted-foreground";
+            }
+
+            return (
+              <li
+                key={step.key}
+                className="flex items-center gap-3"
+                data-testid={`meeting-progress-step-${step.key}`}
+                data-state={done ? "done" : active ? "active" : failedHere ? "failed" : "pending"}
+              >
+                {icon}
+                <span className={labelClass}>{step.label}</span>
+              </li>
+            );
+          })}
+        </ul>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function MeetingDetail() {
   const params = useParams<{ id: string }>();
   const id = params.id;
   const [, navigate] = useLocation();
+  const { lastMessage } = useWebSocket();
 
   const { data, isLoading, error } = useQuery<{ success: boolean; data: MeetingDetail }>({
     queryKey: ["/api/meetings", id],
+    refetchInterval: (query) => {
+      const status = query.state.data?.data?.status;
+      return status === "processing" || status === "recording" ? 5000 : false;
+    },
   });
 
   const meeting = data?.data;
+
+  useEffect(() => {
+    if (!lastMessage || !id) return;
+    if (!MEETING_PROGRESS_EVENTS.has(lastMessage.type)) return;
+    const eventMeetingId = (lastMessage.data as { meetingId?: string } | undefined)?.meetingId;
+    if (eventMeetingId !== id) return;
+    queryClient.invalidateQueries({ queryKey: ["/api/meetings", id] });
+  }, [lastMessage, id]);
 
   if (isLoading) {
     return (
@@ -344,6 +449,8 @@ export default function MeetingDetail() {
             </div>
           </div>
         </div>
+
+        <MeetingProgressIndicator meeting={meeting} />
 
         <Tabs defaultValue="synopsis" className="mt-4">
           <TabsList className="w-full grid grid-cols-3 mb-4">
