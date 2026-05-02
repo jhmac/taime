@@ -4,6 +4,7 @@ import { insertTimeEntrySchema } from "@shared/schema";
 import logger from "../lib/logger";
 import { OvertimePreventionService } from "../services/overtimePreventionService";
 import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
+import { notificationService } from "../services/notificationService";
 
 function toEndOfDay(date: Date): Date {
   const d = new Date(date);
@@ -373,12 +374,17 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
 
           const allApproved = entries.length > 0 && entries.every((e: any) => e.isApproved);
           const hasNeedsReview = needsReviewFlags.length > 0;
+          const hasPendingClockOut = entries.some((e: any) => !e.clockOutTime);
 
           let status: string;
           if (allApproved && entries.length > 0) {
             status = "approved";
           } else if (hasNeedsReview) {
             status = "needs-review";
+          } else if (entries.length === 0) {
+            status = "no_entries";
+          } else if (hasPendingClockOut) {
+            status = "pending_clock_out";
           } else {
             status = "pending";
           }
@@ -558,6 +564,12 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
         return res.status(400).json({ message: "startDate and endDate are required" });
       }
 
+      // Check workflow settings for single-step approval and admin notification
+      const workflowSettings = await storage.getTimesheetWorkflowSettings();
+      const singleStep = workflowSettings?.singleStepApproval ?? false;
+      const notifyAdmin = workflowSettings?.notifyAdminOnManagerApproval ?? false;
+      const adminUserId = workflowSettings?.adminUserId ?? null;
+
       const entries = await storage.getAllTimeEntries(new Date(startDate), toEndOfDay(new Date(endDate)));
       const unapproved = entries.filter((e: any) => !e.isApproved && e.clockOutTime);
 
@@ -574,12 +586,35 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
           fieldChanged: "isApproved",
           oldValue: "false",
           newValue: "true",
-          reason: "Bulk approved via timesheets review",
+          reason: singleStep ? "Single-step approved via timesheets review" : "Bulk approved via timesheets review",
         });
         approvedCount++;
       }
 
-      res.json({ approvedCount, totalEntries: entries.length });
+      // Notify admin when a manager approves (and there's an admin to notify, and it's not the same user)
+      if (approvedCount > 0 && notifyAdmin && adminUserId && adminUserId !== userId) {
+        const approvingUser = await storage.getUser(userId);
+        const approverName = approvingUser
+          ? [approvingUser.firstName, approvingUser.lastName].filter(Boolean).join(" ") || approvingUser.email || "A manager"
+          : "A manager";
+        try {
+          await notificationService.sendToUser(adminUserId, {
+            title: "Timesheets Approved",
+            body: `${approverName} approved ${approvedCount} time ${approvedCount === 1 ? "entry" : "entries"} for the period ${startDate} – ${endDate}.`,
+            data: { type: "timesheet_approved", periodStart: startDate, periodEnd: endDate, approvedCount },
+          });
+          await storage.createTimesheetReminderLog({
+            periodStart: startDate,
+            periodEnd: endDate,
+            reminderType: "manager_approval_notify",
+            userId: adminUserId,
+          });
+        } catch (notifyErr: any) {
+          logger.warn({ error: notifyErr?.message }, "[approve-all] Admin notification failed (non-fatal)");
+        }
+      }
+
+      res.json({ approvedCount, totalEntries: entries.length, singleStep });
     } catch (error: any) {
       logger.error({ error: error.message }, "Error bulk approving time entries");
       res.status(500).json({ message: "Failed to bulk approve time entries" });

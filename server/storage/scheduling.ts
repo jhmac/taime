@@ -140,7 +140,7 @@ export interface ISchedulingStorage {
   updateMileageReimbursement(id: string, updates: Partial<MileageReimbursement>): Promise<MileageReimbursement>;
 
   getTimesheetWorkflowSettings(): Promise<TimesheetWorkflowSettings | undefined>;
-  upsertTimesheetWorkflowSettings(settings: Partial<TimesheetWorkflowSettings>): Promise<TimesheetWorkflowSettings>;
+  upsertTimesheetWorkflowSettings(settings: Partial<Omit<TimesheetWorkflowSettings, 'id'>>): Promise<TimesheetWorkflowSettings>;
   createTimesheetReminderLog(log: { periodStart: string; periodEnd: string; reminderType: string; userId?: string | null }): Promise<TimesheetReminderLog>;
   getTimesheetReminderLogs(periodStart?: string, periodEnd?: string): Promise<TimesheetReminderLog[]>;
   markReminderActedOn(id: string): Promise<void>;
@@ -744,7 +744,7 @@ export class SchedulingStorage implements ISchedulingStorage {
     return row;
   }
 
-  async upsertTimesheetWorkflowSettings(settings: Partial<TimesheetWorkflowSettings>): Promise<TimesheetWorkflowSettings> {
+  async upsertTimesheetWorkflowSettings(settings: Partial<Omit<TimesheetWorkflowSettings, 'id'>>): Promise<TimesheetWorkflowSettings> {
     const existing = await this.getTimesheetWorkflowSettings();
     if (existing) {
       const [updated] = await db
@@ -756,7 +756,7 @@ export class SchedulingStorage implements ISchedulingStorage {
     }
     const [created] = await db
       .insert(timesheetWorkflowSettings)
-      .values({ ...settings, updatedAt: new Date() } as any)
+      .values({ ...settings, updatedAt: new Date() })
       .returning();
     return created;
   }
@@ -764,7 +764,15 @@ export class SchedulingStorage implements ISchedulingStorage {
   async createTimesheetReminderLog(log: { periodStart: string; periodEnd: string; reminderType: string; userId?: string | null }): Promise<TimesheetReminderLog> {
     const [created] = await db
       .insert(timesheetReminderLog)
-      .values({ ...log, sentAt: new Date() } as any)
+      .values({
+        periodStart: log.periodStart,
+        periodEnd: log.periodEnd,
+        reminderType: log.reminderType,
+        userId: log.userId ?? null,
+        sentAt: new Date(),
+        wasActedOn: false,
+        actedOnAt: null,
+      })
       .returning();
     return created;
   }

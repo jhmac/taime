@@ -564,7 +564,92 @@ function WorkflowSettingsTab() {
         </a>
         .
       </div>
+
+      <ReminderLogTable />
     </div>
+  );
+}
+
+function ReminderLogTable() {
+  const { data: logs, isLoading } = useQuery<{
+    id: string;
+    periodStart: string;
+    periodEnd: string;
+    reminderType: string;
+    userId: string | null;
+    sentAt: string | null;
+    wasActedOn: boolean | null;
+    actedOnAt: string | null;
+  }[]>({
+    queryKey: ["/api/timesheets/reminder-log"],
+    staleTime: 30000,
+  });
+
+  const reminderTypeLabel = (type: string) => {
+    switch (type) {
+      case "manager_reminder": return "Manager reminder";
+      case "manager_escalation": return "Admin escalation";
+      case "employee_self_review": return "Employee self-review";
+      case "manager_approval_notify": return "Admin notified (approval)";
+      default: return type;
+    }
+  };
+
+  if (isLoading) {
+    return <Skeleton className="h-24 w-full mt-4" />;
+  }
+
+  if (!logs || logs.length === 0) {
+    return (
+      <div className="mt-4 rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+        No reminders have been sent yet. They will appear here once the daily schedule runs.
+      </div>
+    );
+  }
+
+  return (
+    <Card className="mt-4">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <Bell className="h-4 w-4" />
+          Recent reminder activity
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-0">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="text-xs pl-4">Type</TableHead>
+              <TableHead className="text-xs">Pay period</TableHead>
+              <TableHead className="text-xs">Sent</TableHead>
+              <TableHead className="text-xs">Acted on</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {logs.slice(0, 30).map((log) => (
+              <TableRow key={log.id} className="text-xs">
+                <TableCell className="pl-4 py-2 font-medium">{reminderTypeLabel(log.reminderType)}</TableCell>
+                <TableCell className="py-2 text-muted-foreground">
+                  {log.periodStart} – {log.periodEnd}
+                </TableCell>
+                <TableCell className="py-2 text-muted-foreground">
+                  {log.sentAt ? new Date(log.sentAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
+                </TableCell>
+                <TableCell className="py-2">
+                  {log.wasActedOn ? (
+                    <span className="text-green-600 dark:text-green-400 flex items-center gap-1">
+                      <CheckCircle2 className="h-3 w-3" /> Yes
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground">No</span>
+                  )}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1953,13 +2038,32 @@ export default function Timesheets() {
   return (
     <div className="max-w-7xl mx-auto p-4 md:p-6 space-y-6 pb-24 md:pb-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <h1 className="text-2xl font-bold">Timesheets</h1>
           {data && data.totalNeedsReview > 0 && (
             <Badge variant="destructive" className="bg-amber-500 hover:bg-amber-600">
               <AlertTriangle className="h-3 w-3 mr-1" />
               {data.totalNeedsReview} Needs Review
             </Badge>
+          )}
+          {!payPeriodSettings?.firstPayPeriodStart && (
+            <a
+              href="/settings?tab=pay-period"
+              className="inline-flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-700 rounded-full px-2.5 py-1 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors"
+            >
+              <Settings className="h-3 w-3" />
+              Set up pay periods
+            </a>
+          )}
+          {payPeriodSettings?.firstPayPeriodStart && (
+            <a
+              href="/settings?tab=pay-period"
+              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              title="Pay period settings"
+            >
+              <Settings className="h-3 w-3" />
+              Pay period settings
+            </a>
           )}
         </div>
 

@@ -7,20 +7,22 @@ interface PayPeriodWindow {
   endDate: string;
 }
 
-function computeCurrentAndRecentPeriods(
+function computeRecentPeriods(
   firstStart: Date,
   intervalDays: number,
-  count: number = 4
+  count: number = 6
 ): PayPeriodWindow[] {
   const now = new Date();
   const periods: PayPeriodWindow[] = [];
   let ps = new Date(firstStart);
   ps.setHours(0, 0, 0, 0);
 
-  while (new Date(ps.getTime() + intervalDays * 86400000) < now) {
+  // Advance to the period that contains today
+  while (new Date(ps.getTime() + intervalDays * 86400000) <= now) {
     ps = new Date(ps.getTime() + intervalDays * 86400000);
   }
 
+  // Include current period and count-1 prior periods
   for (let i = count - 1; i >= 0; i--) {
     const periodStart = new Date(ps.getTime() - i * intervalDays * 86400000);
     const periodEnd = new Date(periodStart.getTime() + (intervalDays - 1) * 86400000);
@@ -53,6 +55,20 @@ async function hasReminderBeenSent(
   );
 }
 
+async function isPeriodFullyApproved(periodStart: string, periodEnd: string): Promise<boolean> {
+  try {
+    const entries = await storage.getAllTimeEntries(
+      new Date(periodStart + "T00:00:00"),
+      new Date(periodEnd + "T23:59:59")
+    );
+    if (entries.length === 0) return false;
+    const completed = entries.filter((e) => e.clockOutTime);
+    return completed.length > 0 && completed.every((e) => e.isApproved);
+  } catch {
+    return false;
+  }
+}
+
 async function runTimesheetReminderCheck(): Promise<void> {
   try {
     const workflowSettings = await storage.getTimesheetWorkflowSettings();
@@ -68,25 +84,54 @@ async function runTimesheetReminderCheck(): Promise<void> {
       : intervalType === "semi-monthly" ? 15
       : 30;
 
-    const periods = computeCurrentAndRecentPeriods(
+    const today = new Date().toISOString().split("T")[0];
+    const periods = computeRecentPeriods(
       new Date(payPeriodSettings.firstPayPeriodStart),
       intervalDays,
-      4
+      6
     );
 
-    const now = new Date();
-    const today = now.toISOString().split("T")[0];
+    const managerReminderDays = workflowSettings.managerReminderDaysAfterPeriod ?? 2;
+    const escalationDays = workflowSettings.managerEscalationDaysAfterReminder ?? 3;
+    const managerUserIds = (workflowSettings.managerUserIds as string[]) || [];
+    const adminUserId = workflowSettings.adminUserId;
 
     for (const period of periods) {
-      if (period.endDate >= today) continue;
+      const isCurrentPeriod = period.startDate <= today && period.endDate >= today;
+      const isPastPeriod = period.endDate < today;
+
+      // ── Employee self-review: send on the last day of the current period ──
+      if (workflowSettings.employeeSelfReviewReminder && period.endDate === today) {
+        const allUsers = await storage.getAllUsers();
+        for (const user of allUsers) {
+          if (!user.isActive) continue;
+          const alreadySent = await hasReminderBeenSent(period.startDate, period.endDate, "employee_self_review", user.id);
+          if (!alreadySent) {
+            await notificationService.sendToUser(user.id, {
+              title: "Please Review Your Hours",
+              body: `Today is the last day of your pay period (ending ${period.endDate}). Please check your clock-in/out entries and flag any issues.`,
+              data: { type: "employee_self_review", periodStart: period.startDate, periodEnd: period.endDate },
+            });
+            await storage.createTimesheetReminderLog({
+              periodStart: period.startDate,
+              periodEnd: period.endDate,
+              reminderType: "employee_self_review",
+              userId: user.id,
+            });
+          }
+        }
+      }
+
+      // ── Manager reminder & escalation: only for past periods ──
+      if (!isPastPeriod) continue;
 
       const daysAfterPeriodEnd = daysBetween(period.endDate);
 
-      const managerReminderDays = workflowSettings.managerReminderDaysAfterPeriod ?? 2;
-      const escalationDays = workflowSettings.managerEscalationDaysAfterReminder ?? 3;
-      const managerUserIds = (workflowSettings.managerUserIds as string[]) || [];
-      const adminUserId = workflowSettings.adminUserId;
+      // Only send reminders if the period isn't already fully approved
+      const alreadyApproved = await isPeriodFullyApproved(period.startDate, period.endDate);
+      if (alreadyApproved) continue;
 
+      // Manager reminder — send N days after period end
       if (daysAfterPeriodEnd === managerReminderDays && managerUserIds.length > 0) {
         for (const managerId of managerUserIds) {
           const alreadySent = await hasReminderBeenSent(period.startDate, period.endDate, "manager_reminder", managerId);
@@ -107,6 +152,7 @@ async function runTimesheetReminderCheck(): Promise<void> {
         }
       }
 
+      // Admin escalation — send N + M days after period end
       if (daysAfterPeriodEnd === managerReminderDays + escalationDays && adminUserId) {
         const alreadySent = await hasReminderBeenSent(period.startDate, period.endDate, "manager_escalation", adminUserId);
         if (!alreadySent) {
@@ -124,27 +170,6 @@ async function runTimesheetReminderCheck(): Promise<void> {
           logger.info({ adminUserId, period }, "[TimesheetReminder] Escalation sent to admin");
         }
       }
-
-      if (workflowSettings.employeeSelfReviewReminder && period.endDate === today) {
-        const allUsers = await storage.getAllUsers();
-        for (const user of allUsers) {
-          if (!user.isActive) continue;
-          const alreadySent = await hasReminderBeenSent(period.startDate, period.endDate, "employee_self_review", user.id);
-          if (!alreadySent) {
-            await notificationService.sendToUser(user.id, {
-              title: "Please Review Your Hours",
-              body: `Today is the last day of your pay period. Please check your clock-in/out entries and flag any issues.`,
-              data: { type: "employee_self_review", periodStart: period.startDate, periodEnd: period.endDate },
-            });
-            await storage.createTimesheetReminderLog({
-              periodStart: period.startDate,
-              periodEnd: period.endDate,
-              reminderType: "employee_self_review",
-              userId: user.id,
-            });
-          }
-        }
-      }
     }
   } catch (err: unknown) {
     const e = err as { message?: string };
@@ -155,6 +180,7 @@ async function runTimesheetReminderCheck(): Promise<void> {
 const REMINDER_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 export function scheduleTimesheetReminders(): void {
+  // Run 30s after boot so migrations are done, then daily
   setTimeout(() => {
     runTimesheetReminderCheck();
     setInterval(runTimesheetReminderCheck, REMINDER_INTERVAL_MS);
