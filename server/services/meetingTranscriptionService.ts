@@ -24,7 +24,7 @@ export async function transcribeAudioFile(filePath: string): Promise<string> {
 
   const transcription = await openai.audio.transcriptions.create({
     file,
-    model: "whisper-1",
+    model: "gpt-4o-transcribe",
     response_format: "text",
   });
 
@@ -42,7 +42,7 @@ export async function transcribeAudioBuffer(buffer: Buffer, mimeType = "audio/we
 
   const transcription = await openai.audio.transcriptions.create({
     file,
-    model: "whisper-1",
+    model: "gpt-4o-transcribe",
     response_format: "text",
   });
 
