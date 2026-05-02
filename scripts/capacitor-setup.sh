@@ -143,7 +143,7 @@ if [[ "$(uname)" == "Darwin" ]] && [ -f "ios/App/App/Info.plist" ]; then
   echo "  ✅  Info.plist permissions verified."
 fi
 
-# ---- 7. Patch Android AndroidManifest.xml for permissions ------------------
+# ---- 7. Patch Android AndroidManifest.xml for permissions & deep links -----
 if [ -f "android/app/src/main/AndroidManifest.xml" ]; then
   echo ""
   echo "Checking Android permissions in AndroidManifest.xml..."
@@ -169,6 +169,52 @@ if [ -f "android/app/src/main/AndroidManifest.xml" ]; then
   add_permission "android.permission.READ_MEDIA_VIDEO"
 
   echo "  ✅  AndroidManifest.xml permissions verified."
+
+  # ---- 7b. Patch Android deep-link intent filter for OAuth callbacks -------
+  # After the user completes Google/Apple OAuth inside a Chrome Custom Tab,
+  # Android needs an intent filter on the main activity so it routes the
+  # com.taimetaime://oauth-callback URL back into the app instead of opening
+  # a full browser window. This mirrors the CFBundleURLTypes entry on iOS.
+  echo ""
+  echo "Checking Android OAuth deep-link intent filter..."
+
+  if ! grep -q "com.taimetaime" "$MANIFEST"; then
+    # Use Python to precisely target the MainActivity closing tag rather than
+    # any </activity> in the file. This avoids accidentally inserting the
+    # intent-filter into a secondary activity (e.g. a custom FileProvider activity).
+    python3 - "$MANIFEST" << 'PYEOF'
+import sys, re
+
+path = sys.argv[1]
+with open(path, 'r') as f:
+    content = f.read()
+
+INTENT_FILTER = (
+    '        <intent-filter>\n'
+    '            <action android:name="android.intent.action.VIEW" />\n'
+    '            <category android:name="android.intent.category.DEFAULT" />\n'
+    '            <category android:name="android.intent.category.BROWSABLE" />\n'
+    '            <data android:scheme="com.taimetaime" />\n'
+    '        </intent-filter>'
+)
+
+# Target the activity block that contains "MainActivity", insert before its closing tag.
+pattern = r'(android:name="[^"]*MainActivity[^"]*"[\s\S]*?)([ \t]*</activity>)'
+replacement = r'\g<1>' + INTENT_FILTER + '\n        </activity>'
+new_content, count = re.subn(pattern, replacement, content, count=1)
+
+if count == 0:
+    # Fallback: insert before the first </activity> if MainActivity is not found by name.
+    new_content = content.replace('        </activity>', INTENT_FILTER + '\n        </activity>', 1)
+
+with open(path, 'w') as f:
+    f.write(new_content)
+PYEOF
+
+    echo "  ✅  Added OAuth deep-link intent filter for com.taimetaime:// scheme"
+  else
+    echo "  ℹ️   OAuth deep-link intent filter already present."
+  fi
 fi
 
 # ---- 8. App icon & splash screen -------------------------------------------

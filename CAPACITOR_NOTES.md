@@ -359,6 +359,59 @@ The fix uses `@capacitor/browser`, which on iOS is backed by Apple's `ASWebAuthe
 
 ---
 
+## Android OAuth Sign-In (Chrome Custom Tabs)
+
+Clerk's social OAuth (Google, etc.) previously opened the full Chrome browser on Android, breaking
+the session because Chrome and the WebView have separate cookie stores.
+
+The fix uses `@capacitor/browser`, which on Android is backed by **Chrome Custom Tabs** —
+a sanctioned in-app browser overlay that keeps the user inside the app.
+
+### How it works
+
+1. On native platforms, `Landing.tsx` renders `NativeLanding.tsx` instead of the embedded Clerk
+   `<SignIn>` component. The native landing shows "Continue with Google" / "Continue with Apple" buttons.
+2. Tapping "Continue with Google" calls `useNativeClerkSignIn`, which initiates the Clerk OAuth flow
+   via `signIn.create({ strategy, redirectUrl: 'com.taimetaime://oauth-callback', ... })` to obtain
+   the external authorization URL, then opens it with `Browser.open()`.
+3. After the user completes OAuth, Google redirects to `com.taimetaime://oauth-callback`.
+   Android intercepts this via the registered intent filter and re-opens the app.
+4. `DeepLinkHandler` (in `App.tsx`) listens for `appUrlOpen` events. When the URL matches the scheme,
+   it closes the Chrome Custom Tab overlay and calls `clerk.handleRedirectCallback()` to establish the
+   Clerk session.
+
+### Required setup steps
+
+1. **Clerk Dashboard** — Add `com.taimetaime://oauth-callback` as an allowed OAuth redirect URL in
+   your Clerk instance settings (Dashboard → Redirect URLs). This is the same entry needed for iOS.
+2. **AndroidManifest.xml** — Register an intent filter on the main activity so Android routes the
+   deep link back to the app. The `scripts/capacitor-setup.sh` script patches this automatically.
+   After running the setup script, verify the intent filter is present in
+   `android/app/src/main/AndroidManifest.xml`:
+   ```xml
+   <intent-filter>
+       <action android:name="android.intent.action.VIEW" />
+       <category android:name="android.intent.category.DEFAULT" />
+       <category android:name="android.intent.category.BROWSABLE" />
+       <data android:scheme="com.taimetaime" />
+   </intent-filter>
+   ```
+3. **`capacitor.config.ts`** — `android.backgroundColor` is already set. No extra scheme config is
+   required for Android (unlike iOS which uses `ios.scheme`); the intent filter handles routing.
+
+### Relevant files
+
+| File | Purpose |
+|------|---------|
+| `client/src/hooks/useNativeClerkSignIn.ts` | Hook that opens OAuth URLs via `Browser.open()` (shared iOS + Android) |
+| `client/src/pages/NativeLanding.tsx` | Native-only sign-in screen (Google + Apple buttons) |
+| `client/src/pages/Landing.tsx` | Routes to `NativeLanding` on native, `<SignIn>` on web |
+| `client/src/App.tsx` — `DeepLinkHandler` | Handles `appUrlOpen`, closes browser, calls Clerk (shared iOS + Android) |
+| `capacitor.config.ts` | `allowNavigation`, `androidScheme` |
+| `scripts/capacitor-setup.sh` | Auto-patches intent filter in `AndroidManifest.xml` |
+
+---
+
 ## Troubleshooting
 
 | Issue | Fix |
@@ -370,3 +423,5 @@ The fix uses `@capacitor/browser`, which on iOS is backed by Apple's `ASWebAuthe
 | Capacitor version mismatch | All `@capacitor/*` packages must be on the same major version |
 | iOS OAuth opens Safari instead of in-app browser | Verify `com.taimetaime://oauth-callback` is in Clerk Dashboard → Redirect URLs and `CFBundleURLTypes` is in `Info.plist` |
 | OAuth callback not received after sign-in | Check that `ios.scheme: 'com.taimetaime'` is in `capacitor.config.ts` and `cap sync ios` was run |
+| Android OAuth opens full Chrome instead of Custom Tab | Verify `@capacitor/browser` is installed (`npm ls @capacitor/browser`) and `cap sync android` was run after install |
+| Android OAuth callback not received | Check that the `com.taimetaime` intent filter is in `AndroidManifest.xml` (run `scripts/capacitor-setup.sh` to auto-patch) and `com.taimetaime://oauth-callback` is in Clerk Dashboard → Redirect URLs |
