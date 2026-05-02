@@ -130,10 +130,10 @@ export function registerPayrollIntelligenceRoutes(
         totalOrders += orders;
       }
 
-      // Build labor maps
       const laborByDate = new Map<string, number>();
       const hoursByDate = new Map<string, number>();
       const employeeMap = new Map<string, { name: string; totalHours: number; laborCost: number; wageRate: number }>();
+      const empHoursByDate = new Map<string, Map<string, number>>();
 
       let totalHours = 0;
       let totalLaborCost = 0;
@@ -162,6 +162,10 @@ export function registerPayrollIntelligenceRoutes(
           laborCost: prev.laborCost + cost,
           wageRate: rate,
         });
+
+        if (!empHoursByDate.has(entry.userId)) empHoursByDate.set(entry.userId, new Map());
+        const dMap = empHoursByDate.get(entry.userId)!;
+        dMap.set(dateKey, (dMap.get(dateKey) ?? 0) + hours);
       }
 
       // Daily breakdown
@@ -185,18 +189,37 @@ export function registerPayrollIntelligenceRoutes(
       const avgTicket = totalOrders > 0 ? Math.round((grossSales / totalOrders) * 100) / 100 : 0;
       const laborPct = grossSales > 0 ? Math.round((totalLaborCost / grossSales) * 10000) / 100 : 0;
 
-      // Employee breakdown
+      // Per-employee attributed sales: proportional share of daily revenue by hours worked
       const employees = Array.from(employeeMap.entries())
-        .map(([uid, emp]) => ({
-          userId: uid,
-          name: emp.name,
-          totalHours: Math.round(emp.totalHours * 100) / 100,
-          laborCost: Math.round(emp.laborCost * 100) / 100,
-          wageRate: emp.wageRate,
-          splh: null,
-          roi: null,
-        }))
-        .sort((a, b) => b.totalHours - a.totalHours);
+        .map(([uid, emp]) => {
+          let attributedSales = 0;
+          const dMap = empHoursByDate.get(uid);
+          if (dMap && grossSales > 0) {
+            for (const [date, empHrs] of dMap) {
+              const dayHrs = hoursByDate.get(date) ?? 0;
+              const dayRev = revenueByDate.get(date)?.revenue ?? 0;
+              if (dayHrs > 0) attributedSales += (empHrs / dayHrs) * dayRev;
+            }
+          }
+          const roundedHours = Math.round(emp.totalHours * 100) / 100;
+          const roundedCost  = Math.round(emp.laborCost * 100) / 100;
+          const empSplh = grossSales > 0 && roundedHours > 0
+            ? Math.round((attributedSales / roundedHours) * 100) / 100
+            : null;
+          const empRoi = roundedCost > 0 && grossSales > 0
+            ? Math.round((attributedSales / roundedCost) * 100) / 100
+            : null;
+          return {
+            userId: uid,
+            name: emp.name,
+            totalHours: roundedHours,
+            laborCost: roundedCost,
+            wageRate: emp.wageRate,
+            splh: empSplh,
+            roi: empRoi,
+          };
+        })
+        .sort((a, b) => (b.splh ?? -1) - (a.splh ?? -1));
 
       return res.json({
         shopConnected: true,
@@ -257,7 +280,6 @@ export function registerPayrollIntelligenceRoutes(
         .where(eq(aiSchedulingSettings.storeId, storeId))
         .limit(1);
 
-      // Build typed partial — no `as any` casts needed
       const typedUpdate: {
         payrollTargetPct?: string;
         storeType?: string;
