@@ -1424,7 +1424,7 @@ function NeedsReviewBanner({
           return (
             <button
               key={idx}
-              className="flex-shrink-0 flex items-center gap-2 bg-white dark:bg-amber-950/40 border border-amber-200 dark:border-amber-700 rounded-lg px-3 py-2 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors text-left min-w-[170px]"
+              className="flex-shrink-0 flex items-center gap-2 bg-white dark:bg-amber-950/40 border border-amber-200 dark:border-amber-700 rounded-lg px-3 py-2 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors text-left min-w-[240px]"
               onClick={() => onAlertClick(alert)}
             >
               <Avatar className="h-7 w-7 flex-shrink-0">
@@ -1440,6 +1440,15 @@ function NeedsReviewBanner({
                     {getDiscrepancyLabel(alert.type)}
                   </span>
                 </div>
+                {alert.actualClockIn && alert.scheduledStart && alert.scheduledEnd && (
+                  <p
+                    className="text-[10px] text-muted-foreground truncate mt-0.5"
+                    data-testid={`text-alert-times-${idx}`}
+                  >
+                    Actual in: {formatTime(alert.actualClockIn)} / Scheduled:{" "}
+                    {formatTime(alert.scheduledStart)} – {formatTime(alert.scheduledEnd ?? null)}
+                  </p>
+                )}
               </div>
             </button>
           );
