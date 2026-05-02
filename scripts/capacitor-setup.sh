@@ -118,6 +118,28 @@ if [[ "$(uname)" == "Darwin" ]] && [ -f "ios/App/App/Info.plist" ]; then
     echo "  ✅  Added NSPhotoLibraryUsageDescription"
   fi
 
+  # Custom URL scheme for deep-link OAuth callbacks (com.taimetaime://)
+  # Required so iOS routes the Clerk OAuth redirect back into the app instead
+  # of opening Safari. ASWebAuthenticationSession respects CFBundleURLTypes.
+  if ! grep -q "com.taimetaime" "$PLIST"; then
+    /usr/libexec/PlistBuddy -c \
+      "Add :CFBundleURLTypes array" \
+      "$PLIST" 2>/dev/null || true
+    /usr/libexec/PlistBuddy -c \
+      "Add :CFBundleURLTypes:0 dict" \
+      "$PLIST" 2>/dev/null || true
+    /usr/libexec/PlistBuddy -c \
+      "Add :CFBundleURLTypes:0:CFBundleURLName string com.taimetaime" \
+      "$PLIST"
+    /usr/libexec/PlistBuddy -c \
+      "Add :CFBundleURLTypes:0:CFBundleURLSchemes array" \
+      "$PLIST"
+    /usr/libexec/PlistBuddy -c \
+      "Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string com.taimetaime" \
+      "$PLIST"
+    echo "  ✅  Registered custom URL scheme: com.taimetaime"
+  fi
+
   echo "  ✅  Info.plist permissions verified."
 fi
 

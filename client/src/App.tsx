@@ -14,6 +14,8 @@ import { usePayrollSetup } from "@/hooks/usePayrollSetup";
 import { useNativePushNotifications } from "@/hooks/useNativePushNotifications";
 import OfflineIndicator from "@/components/OfflineIndicator";
 import { WebSocketProvider } from "@/contexts/WebSocketContext";
+import { isNativePlatform } from "@/lib/capacitor";
+import { NATIVE_OAUTH_REDIRECT } from "@/hooks/useNativeClerkSignIn";
 import type { Permission } from "@shared/schema";
 const OnboardingGuard = lazy(() => import("@/components/OnboardingGuard"));
 
@@ -24,6 +26,45 @@ function ClerkSessionWatcher() {
       if (!session) clearTokenCache();
     });
   }, [clerk]);
+  return null;
+}
+
+function DeepLinkHandler() {
+  const clerk = useClerk();
+
+  useEffect(() => {
+    if (!isNativePlatform()) return;
+
+    let cleanup: (() => void) | undefined;
+
+    import('@capacitor/app').then(({ App: CapApp }) => {
+      const subscription = CapApp.addListener('appUrlOpen', async (event) => {
+        if (!event.url.startsWith(NATIVE_OAUTH_REDIRECT)) return;
+
+        try {
+          const { Browser } = await import('@capacitor/browser');
+          await Browser.close();
+        } catch {
+        }
+
+        try {
+          const url = new URL(event.url);
+          const params: Record<string, string> = {};
+          url.searchParams.forEach((v, k) => { params[k] = v; });
+          await clerk.handleRedirectCallback(params);
+        } catch (err) {
+          console.error('DeepLinkHandler: failed to handle OAuth callback', err);
+        }
+      });
+
+      subscription.then((handle) => {
+        cleanup = () => handle.remove();
+      });
+    }).catch(() => {});
+
+    return () => { cleanup?.(); };
+  }, [clerk]);
+
   return null;
 }
 
@@ -563,6 +604,7 @@ function App() {
     <AppErrorBoundary>
       <ClerkProvider publishableKey={clerkKey}>
         <ClerkSessionWatcher />
+        <DeepLinkHandler />
         <QueryClientProvider client={queryClient}>
           <WebSocketProvider>
             <TooltipProvider>

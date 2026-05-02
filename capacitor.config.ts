@@ -41,6 +41,7 @@ const config: CapacitorConfig = {
       // --- Social OAuth providers that Clerk may redirect to ---
       'accounts.google.com',
       '*.google.com',          // Google token endpoint sub-pages
+      'oauth2.googleapis.com', // Google OAuth2 token endpoint
       'appleid.apple.com',
       '*.apple.com',
       'github.com',
@@ -82,6 +83,10 @@ const config: CapacitorConfig = {
     // redirects span multiple domains that would otherwise be blocked and forced
     // into Safari, breaking the login session.
     limitsNavigationsToAppBoundDomains: false,
+    // Custom URL scheme for deep-link OAuth callbacks.
+    // iOS will open the app when it receives a URL like com.taimetaime://...
+    // This must also be registered in Info.plist under CFBundleURLTypes.
+    scheme: 'com.taimetaime',
   },
   android: {
     backgroundColor: '#FFFBF5',

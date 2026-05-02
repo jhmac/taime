@@ -315,6 +315,50 @@ CI/CD secret store and share them only through encrypted channels.
 
 ---
 
+## iOS OAuth Sign-In (ASWebAuthenticationSession)
+
+Clerk's social OAuth (Google, Apple, etc.) previously opened the full Safari browser on iOS, breaking
+the session because Safari and WKWebView have separate cookie stores.
+
+The fix uses `@capacitor/browser`, which on iOS is backed by Apple's `ASWebAuthenticationSession`
+— a sanctioned in-app OAuth overlay that keeps the user inside the app.
+
+### How it works
+
+1. On native platforms, `Landing.tsx` renders `NativeLanding.tsx` instead of the embedded Clerk
+   `<SignIn>` component. The native landing shows "Continue with Google" / "Continue with Apple" buttons.
+2. Tapping a button calls `useNativeClerkSignIn`, which initiates the Clerk OAuth flow via
+   `signIn.create({ strategy, redirectUrl: 'com.taimetaime://oauth-callback', ... })` to obtain the
+   external authorization URL, then opens it with `Browser.open()`.
+3. After the user completes OAuth, the provider redirects to `com.taimetaime://oauth-callback`.
+   iOS intercepts this via the registered custom URL scheme and re-opens the app.
+4. `DeepLinkHandler` (in `App.tsx`) listens for `appUrlOpen` events. When the URL matches the scheme,
+   it closes the in-app browser overlay and calls `clerk.handleRedirectCallback()` to establish the
+   Clerk session.
+
+### Required setup steps
+
+1. **Clerk Dashboard** — Add `com.taimetaime://oauth-callback` as an allowed OAuth redirect URL in
+   your Clerk instance settings (Dashboard → Redirect URLs).
+2. **Info.plist** — Register the custom URL scheme so iOS routes the deep link back to the app.
+   The `scripts/capacitor-setup.sh` script patches this automatically under `CFBundleURLTypes`.
+   After running the setup script on macOS, verify the entry in Xcode:
+   - Target → Info → URL Types → `com.taimetaime`
+3. **`capacitor.config.ts`** — `ios.scheme: 'com.taimetaime'` is already set.
+
+### Relevant files
+
+| File | Purpose |
+|------|---------|
+| `client/src/hooks/useNativeClerkSignIn.ts` | Hook that opens OAuth URLs via `Browser.open()` |
+| `client/src/pages/NativeLanding.tsx` | Native-only sign-in screen (Google + Apple buttons) |
+| `client/src/pages/Landing.tsx` | Routes to `NativeLanding` on native, `<SignIn>` on web |
+| `client/src/App.tsx` — `DeepLinkHandler` | Handles `appUrlOpen`, closes browser, calls Clerk |
+| `capacitor.config.ts` | `ios.scheme`, `allowNavigation` |
+| `scripts/capacitor-setup.sh` | Auto-patches `CFBundleURLTypes` in `Info.plist` |
+
+---
+
 ## Troubleshooting
 
 | Issue | Fix |
@@ -324,3 +368,5 @@ CI/CD secret store and share them only through encrypted channels.
 | Android FCM not working | Ensure `google-services.json` is in `android/app/` and FCM service account is configured |
 | Location not working on Android | Check that `ACCESS_BACKGROUND_LOCATION` is granted by user in system settings |
 | Capacitor version mismatch | All `@capacitor/*` packages must be on the same major version |
+| iOS OAuth opens Safari instead of in-app browser | Verify `com.taimetaime://oauth-callback` is in Clerk Dashboard → Redirect URLs and `CFBundleURLTypes` is in `Info.plist` |
+| OAuth callback not received after sign-in | Check that `ios.scheme: 'com.taimetaime'` is in `capacitor.config.ts` and `cap sync ios` was run |

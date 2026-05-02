@@ -1,6 +1,12 @@
 import { SignIn } from '@clerk/clerk-react';
+import { isNativePlatform } from '@/lib/capacitor';
+import NativeLanding from './NativeLanding';
 
 export default function Landing() {
+  if (isNativePlatform()) {
+    return <NativeLanding />;
+  }
+
   return (
     <div className="min-h-screen flex flex-col bg-[#F47D31]">
       <div className="flex-1 flex flex-col w-full max-w-md mx-auto bg-[#FFFBF5] shadow-2xl relative min-h-screen">
