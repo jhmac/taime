@@ -39,6 +39,14 @@ vi.mock("../server/db", () => ({ db: dbMock }));
 vi.mock("../server/services/storeResolver", () => ({
   tryResolveStoreIdForUser: vi.fn().mockResolvedValue("store-xyz"),
 }));
+// The apply route now consults the entitlements service to gate the
+// ai.scheduling paid feature (Task #469). These tests focus on the conflict
+// guard behavior, not on billing — short-circuit the check so it never
+// reaches the database mock chain (which is configured per test for the
+// timezone + overlap-window selects only).
+vi.mock("../server/services/entitlements", () => ({
+  hasEntitlement: vi.fn().mockResolvedValue(true),
+}));
 vi.mock("../server/lib/permissionUtils", () => ({
   getAllStoreUserIds: vi.fn().mockResolvedValue(["emp-A", "emp-B", "emp-C"]),
 }));

@@ -19,6 +19,8 @@ import {
 import { computeScheduleStoreRecipients } from "../lib/broadcastRecipients";
 import logger from "../lib/logger";
 import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
+import { tryResolveStoreIdForUser } from "../services/storeResolver";
+import { hasEntitlement } from "../services/entitlements";
 
 const anthropic = new Anthropic({ apiKey: config.anthropic.apiKey });
 
@@ -710,6 +712,12 @@ export function registerAiSchedulingRoutes(
       if (explicitStoreId && !generateStoreId) {
         return res.status(403).json({ message: "You don't have access to that store" });
       }
+
+      // Entitlement check (ADR-0005): AI schedule generation is a paid feature.
+      if (generateStoreId && !await hasEntitlement(generateStoreId, "ai.scheduling")) {
+        return res.status(403).json({ message: "Your plan does not include AI scheduling. Please upgrade to continue." });
+      }
+
       const settingsResult = generateStoreId
         ? await db.select().from(aiSchedulingSettings)
             .where(eq(aiSchedulingSettings.storeId, generateStoreId))
@@ -1205,10 +1213,16 @@ Required JSON structure:
       });
 
       // Scope employee authorization to the requester's store — prevents cross-tenant IDOR
-      const { tryResolveStoreIdForUser } = await import('../services/storeResolver');
       const { getAllStoreUserIds } = await import('../lib/permissionUtils');
       const applyStoreId = await tryResolveStoreIdForUser(userId);
       if (!applyStoreId) return res.status(403).json({ message: "No store associated with your account" });
+
+      // Entitlement check (ADR-0005): applying AI-generated schedules is part of the
+      // paid ai.scheduling feature.
+      if (!await hasEntitlement(applyStoreId, "ai.scheduling")) {
+        return res.status(403).json({ message: "Your plan does not include AI scheduling. Please upgrade to continue." });
+      }
+
       const authorizedUserIds = await getAllStoreUserIds(applyStoreId);
       const validUserIds = new Set(authorizedUserIds);
 
@@ -2617,13 +2631,21 @@ Required JSON structure:
       const dateParam = date || new Date().toISOString().split('T')[0];
 
       // ── Resolve store and get availability data directly from DB ─────────────
-      const { tryResolveStoreIdForUser } = await import('../services/storeResolver');
       const { getAllStoreUserIds } = await import('../lib/permissionUtils');
 
       const storeId = await tryResolveStoreIdForUser(userId);
       if (!storeId) {
         logger.warn("[suggest] 403 — no store for user", { userId });
         return res.status(403).json({ message: "No store associated with your account" });
+      }
+
+      // Entitlement check (ADR-0005): /suggest is the AI scheduling
+      // generation/cache endpoint — gate it on the paid ai.scheduling
+      // feature. Run before the cache short-circuit so a downgraded store
+      // can no longer access premium suggestions previously generated on a
+      // higher plan.
+      if (!await hasEntitlement(storeId, "ai.scheduling")) {
+        return res.status(403).json({ message: "Your plan does not include AI scheduling. Please upgrade to continue." });
       }
 
       // Short-circuit: if a cached suggestion row already exists for this
@@ -3399,12 +3421,18 @@ Respond ONLY with a valid JSON object (no markdown, no explanation) in this exac
       }
 
       // ── Resolve store and scope all queries to the caller's store ─────────────
-      const { tryResolveStoreIdForUser } = await import('../services/storeResolver');
       const { getAllStoreUserIds } = await import('../lib/permissionUtils');
       const storeId = await tryResolveStoreIdForUser(userId);
       if (!storeId) {
         return res.status(403).json({ message: "No store associated with your account" });
       }
+
+      // Entitlement check (ADR-0005): AI schedule review is part of the paid
+      // ai.scheduling feature.
+      if (!await hasEntitlement(storeId, "ai.scheduling")) {
+        return res.status(403).json({ message: "Your plan does not include AI scheduling. Please upgrade to continue." });
+      }
+
       const storeUserIds = await getAllStoreUserIds(storeId);
       if (storeUserIds.length === 0) {
         return res.status(400).json({ message: "No employees found for your store" });

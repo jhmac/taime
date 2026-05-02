@@ -57,6 +57,13 @@ vi.mock("@anthropic-ai/sdk", () => ({
 vi.mock("../server/services/storeResolver", () => ({
   tryResolveStoreIdForUser: vi.fn().mockResolvedValue("store-xyz"),
 }));
+// The /generate route now consults the entitlements service to gate the
+// ai.scheduling paid feature (Task #469). These tests focus on prompt
+// construction and CRUD authorization — short-circuit the entitlement
+// check so it never reaches the database mock chain.
+vi.mock("../server/services/entitlements", () => ({
+  hasEntitlement: vi.fn().mockResolvedValue(true),
+}));
 vi.mock("../server/lib/permissionUtils", () => ({
   getAllStoreUserIds: vi.fn().mockResolvedValue([]),
 }));

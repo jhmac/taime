@@ -125,6 +125,12 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
         return res.status(403).json({ message: "Payroll management access required" });
       }
 
+      // Entitlement check (ADR-0005): payroll automation is a paid feature.
+      const storeId = await tryResolveStoreIdForUser(userId);
+      if (storeId && !await hasEntitlement(storeId, "payroll.automation")) {
+        return res.status(403).json({ message: "Your plan does not include payroll automation. Please upgrade to continue." });
+      }
+
       await automationService.checkAndTriggerAutomation();
       res.json({ success: true, message: "Automation triggered successfully" });
     } catch (error) {
@@ -305,6 +311,12 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
         return res.status(403).json({ message: "Payroll management access required" });
       }
 
+      // Entitlement check (ADR-0005): payroll automation is a paid feature.
+      const storeId = await tryResolveStoreIdForUser(userId);
+      if (storeId && !await hasEntitlement(storeId, "payroll.automation")) {
+        return res.status(403).json({ message: "Your plan does not include payroll automation. Please upgrade to continue." });
+      }
+
       await automationService.initializeDefaultSettings(userId);
       res.json({ success: true, message: "Automation settings initialized" });
     } catch (error) {
@@ -333,6 +345,18 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
         scheduleGenerationDays,
         payDayOfWeek,
       } = req.body;
+
+      // Entitlement check (ADR-0005): payroll automation is a paid feature.
+      // Run BEFORE any settings/period writes so a denied request leaves no
+      // partial state (e.g. settings flipped to isAutomationEnabled=true with
+      // no scheduled periods). Only enforced when the caller is actually
+      // requesting automation.
+      if (isAutomationEnabled) {
+        const storeId = await tryResolveStoreIdForUser(userId);
+        if (storeId && !await hasEntitlement(storeId, "payroll.automation")) {
+          return res.status(403).json({ message: "Your plan does not include payroll automation. Please upgrade to enable automated payroll periods." });
+        }
+      }
 
       const settingsPayload: any = {
         intervalType,

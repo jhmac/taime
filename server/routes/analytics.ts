@@ -28,6 +28,15 @@ export function registerAnalyticsRoutes(app: Express, storage: IStorage, isAuthe
         return res.status(403).json({ message: "Your plan does not include access to the analytics dashboard. Please upgrade to continue." });
       }
 
+      // Per-employee breakdowns and week-over-week trend comparisons are part of
+      // the paid analytics.advanced feature. Starter plans get the headline
+      // dashboard (labor cost, punctuality score, task completion, team
+      // summary) but not the deeper drilldowns. Resolved here so the same
+      // handler serves both tiers without an extra route.
+      const hasAdvancedAnalytics = storeId
+        ? await hasEntitlement(storeId, "analytics.advanced")
+        : true;
+
       const now = new Date();
       const rawDaysBack = parseInt((req.query.daysBack as string) || '30', 10);
       const daysBack = [1, 7, 30, 90].includes(rawDaysBack) ? rawDaysBack : 30;
@@ -237,7 +246,19 @@ export function registerAnalyticsRoutes(app: Express, storage: IStorage, isAuthe
         },
       };
 
-      res.json({ laborCostByDay, punctualityScore, taskCompletion, teamSummary, employeePunctualityBreakdown, weeklyComparison, daysBack });
+      res.json({
+        laborCostByDay,
+        punctualityScore,
+        taskCompletion,
+        teamSummary,
+        // Advanced sub-features: empty when the store lacks analytics.advanced
+        // so the basic dashboard still loads on Starter plans without leaking
+        // Pro-only data.
+        employeePunctualityBreakdown: hasAdvancedAnalytics ? employeePunctualityBreakdown : [],
+        weeklyComparison: hasAdvancedAnalytics ? weeklyComparison : null,
+        hasAdvancedAnalytics,
+        daysBack,
+      });
     } catch (error) {
       console.error("Error fetching analytics dashboard:", error);
       res.status(500).json({ message: "Failed to fetch analytics data" });
