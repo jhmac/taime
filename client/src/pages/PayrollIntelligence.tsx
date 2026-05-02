@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -35,7 +35,7 @@ const fmt$ = (n: number) => `$${n.toLocaleString('en-US', { minimumFractionDigit
 const fmtPct = (n: number) => `${n.toFixed(1)}%`;
 const fmtHrs = (n: number) => `${n.toFixed(1)}h`;
 
-// ── RangeBar — SVG-based, zero inline style props ────────────────────────────
+// ── RangeBar ─────────────────────────────────────────────────────────────────
 function RangeBar({
   label,
   unit,
@@ -90,7 +90,6 @@ function RangeBar({
           </span>
         )}
       </div>
-      {/* SVG bar — all positioning expressed as SVG attributes, never style={} */}
       <svg
         viewBox="0 0 100 12"
         preserveAspectRatio="none"
@@ -103,7 +102,6 @@ function RangeBar({
         <rect x={bandX} y="0" width={bandW} height="12" className="fill-green-500/20" />
         {/* ideal line */}
         <line x1={idealX} x2={idealX} y1="0" y2="12" className="stroke-green-600 dark:stroke-green-400" strokeWidth="1.5" />
-        {/* actual marker — narrow rounded rect avoids distortion from preserveAspectRatio="none" */}
         {actualX != null && (
           <rect
             x={Math.max(1.5, Math.min(98.5, actualX)) - 1.5}
@@ -462,7 +460,7 @@ function DashboardTab({
             </CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col items-center pt-2">
-            <GaugeArc pct={laborPct} label={`${laborPct.toFixed(1)}% of sales → target ${target}%`} color={gaugeColor} />
+            <GaugeArc pct={gauge} label={`${laborPct.toFixed(1)}% of sales → target ${target}%`} color={gaugeColor} />
             <div className="mt-3 grid grid-cols-3 gap-2 w-full text-center">
               <div>
                 <p className="text-xs font-bold">{fmtHrs(summary.totalHours)}</p>
@@ -599,13 +597,12 @@ function TeamTab({
   summary: PayrollSummary | null;
   isLoading: boolean;
 }) {
-  const [sortKey, setSortKey] = useState<TeamSortKey>('totalHours');
+  const [sortKey, setSortKey] = useState<TeamSortKey>('splh');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
   const sorted = useMemo(() => {
     if (!summary?.employees) return [];
     return [...summary.employees].sort((a, b) => {
-      // SPLH is null for all employees — fall back to hours for tie-breaking
       const aVal = sortKey === 'splh' ? (a.splh ?? -1) : a[sortKey as Exclude<TeamSortKey, 'splh'>];
       const bVal = sortKey === 'splh' ? (b.splh ?? -1) : b[sortKey as Exclude<TeamSortKey, 'splh'>];
       const diff = (aVal as number) - (bVal as number);
@@ -645,9 +642,6 @@ function TeamTab({
   const totalHours = sorted.reduce((s, e) => s + e.totalHours, 0);
   const avgHours = sorted.length > 0 ? totalHours / sorted.length : 0;
 
-  // Performance badges: 10% above avg hours → Star, 15% below → Coach, else Solid.
-  // When per-employee SPLH becomes available (shift-level POS attribution), swap
-  // avgHours threshold for avgSplh threshold using the same 10%/15% constants.
   const perfBadge = (emp: { totalHours: number; splh: number | null }) => {
     const allSplh = sorted.map(e => e.splh).filter((s): s is number => s !== null);
     if (emp.splh !== null && allSplh.length > 1) {
@@ -656,7 +650,6 @@ function TeamTab({
       if (emp.splh <  avgSplh * 0.85) return <Badge className="text-[10px] bg-amber-100 text-amber-700 border-amber-200 whitespace-nowrap">Coach</Badge>;
       return <Badge className="text-[10px] bg-blue-100 text-blue-700 border-blue-200 whitespace-nowrap">Solid</Badge>;
     }
-    // Hours-based (Shopify provides store-level totals only, not per-employee)
     const ratio = avgHours > 0 ? emp.totalHours / avgHours : 1;
     if (ratio >= 1.10) return <Badge className="text-[10px] bg-green-100 text-green-700 border-green-200 whitespace-nowrap">⭐ Star</Badge>;
     if (ratio <  0.85) return <Badge className="text-[10px] bg-amber-100 text-amber-700 border-amber-200 whitespace-nowrap">Coach</Badge>;
@@ -668,7 +661,6 @@ function TeamTab({
     ? [...sorted].sort((a, b) => b.wageRate - a.wageRate).find(e => e.totalHours < avgHours)
     : null;
 
-  // Whether any employee has per-employee SPLH data (future: shift-level attribution)
   const hasSplhData = sorted.some(e => e.splh !== null);
 
   return (
@@ -985,7 +977,6 @@ export default function PayrollIntelligence() {
   const [localTarget, setLocalTarget] = useState(30);
   const [settingsInitialized, setSettingsInitialized] = useState(false);
 
-  // Fetch settings independently so controls are seeded immediately on mount
   const { data: savedSettings } = useQuery<PayrollSettings>({
     queryKey: ['/api/payroll-intelligence/settings'],
     queryFn: async () => {
@@ -1006,12 +997,13 @@ export default function PayrollIntelligence() {
     staleTime: 2 * 60 * 1000,
   });
 
-  // Seed local controls from dedicated settings endpoint (once)
-  if (savedSettings && !settingsInitialized) {
-    setLocalStoreType(savedSettings.storeType);
-    setLocalTarget(savedSettings.payrollTargetPct);
-    setSettingsInitialized(true);
-  }
+  useEffect(() => {
+    if (savedSettings && !settingsInitialized) {
+      setLocalStoreType(savedSettings.storeType);
+      setLocalTarget(savedSettings.payrollTargetPct);
+      setSettingsInitialized(true);
+    }
+  }, [savedSettings, settingsInitialized]);
 
   const saveSettings = useMutation({
     mutationFn: async () => {
