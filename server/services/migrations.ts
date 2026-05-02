@@ -476,8 +476,67 @@ export async function runSchemaMigrations(): Promise<void> {
   // inside an index expression ("functions in index expression must be
   // marked IMMUTABLE"). The route layer already maps wall-clock entries
   // to the correct UTC instants before they hit the DB.
+  //
+  // Task #461 — Pre-cleanup of pre-existing overlapping rows. Earlier
+  // environments accumulated overlapping `schedules` before this guard
+  // existed (the very race the constraint is meant to prevent). Adding
+  // the constraint to such a database fails with `conflicting key value
+  // violates exclusion constraint`, leaving the DB unprotected. To make
+  // this migration self-healing, we first merge each per-user cluster of
+  // mutually-overlapping shifts into a single covering row [min(start),
+  // max(end)] and delete the duplicates. The kept row is the one with
+  // the widest range (deterministic tiebreak by id). Cluster detection
+  // uses gaps-and-islands with the half-open `[start, end)` rule
+  // (`start >= prev_max_end` ⇒ new cluster) so back-to-back shifts that
+  // merely touch at the boundary are NOT merged. Wrapped in a DO block
+  // so the loop and DDL run in a single round-trip; the whole step is
+  // idempotent (no clusters of size > 1 ⇒ no rows updated/deleted).
   try {
     await db.execute(sql.raw(`CREATE EXTENSION IF NOT EXISTS btree_gist`));
+    await db.execute(sql.raw(`
+      DO $$
+      DECLARE
+        rec RECORD;
+      BEGIN
+        FOR rec IN
+          WITH ordered AS (
+            SELECT id, user_id, start_time, end_time,
+              MAX(end_time) OVER (
+                PARTITION BY user_id ORDER BY start_time, end_time
+                ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+              ) AS prev_max_end
+            FROM schedules
+          ),
+          flagged AS (
+            SELECT *,
+              CASE WHEN prev_max_end IS NULL OR start_time >= prev_max_end
+                   THEN 1 ELSE 0 END AS is_new
+            FROM ordered
+          ),
+          numbered AS (
+            SELECT *, SUM(is_new) OVER (
+              PARTITION BY user_id ORDER BY start_time, end_time
+              ROWS UNBOUNDED PRECEDING
+            ) AS cluster_id
+            FROM flagged
+          )
+          SELECT user_id, cluster_id,
+                 MIN(start_time) AS new_start,
+                 MAX(end_time) AS new_end,
+                 (array_agg(id ORDER BY (end_time - start_time) DESC, id))[1] AS keep_id,
+                 array_agg(id) AS all_ids
+          FROM numbered
+          GROUP BY user_id, cluster_id
+          HAVING count(*) > 1
+        LOOP
+          UPDATE schedules
+            SET start_time = rec.new_start, end_time = rec.new_end
+            WHERE id = rec.keep_id;
+          DELETE FROM schedules
+            WHERE id = ANY(rec.all_ids) AND id <> rec.keep_id;
+        END LOOP;
+      END$$;
+    `));
     await db.execute(sql.raw(`
       DO $$
       BEGIN
