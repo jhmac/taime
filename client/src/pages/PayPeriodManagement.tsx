@@ -12,10 +12,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest } from "@/lib/queryClient";
-import { Download, Calendar, CalendarClock, RefreshCw, ChevronRight, Settings2, Gift, Plus, Trash2, Sparkles, AlertTriangle, CheckCircle, Clock, Edit2, Send, FileText, Users } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from "@/components/ui/dialog";
-import { Textarea } from "@/components/ui/textarea";
-import type { PayrollPeriod, PayPeriodSettings, WorkflowLog, Permission, HolidayPayRule } from "@shared/schema";
+import { Calendar, CalendarClock, ChevronRight, Settings2, Gift, Plus, Trash2, Sparkles } from "lucide-react";
+import type { PayPeriodSettings, Permission, HolidayPayRule } from "@shared/schema";
 
 function getNthWeekday(year: number, month: number, weekday: number, n: number): { month: number; day: number } {
   const firstDay = new Date(year, month - 1, 1);
@@ -74,7 +72,6 @@ export default function PayPeriodManagement() {
   const isAdmin = user?.role?.name === 'owner' || user?.role?.name === 'admin';
   const canManagePayroll = isAdmin || userPermissions?.some?.(p => p.name === 'admin.manage_payroll' || p.name === 'admin.manage_all') || false;
 
-  const [selectedPeriodId, setSelectedPeriodId] = useState<string>("");
   const [anchorDate, setAnchorDate] = useState("");
   const [intervalType, setIntervalType] = useState<'weekly' | 'bi-weekly' | 'monthly'>('bi-weekly');
   const [isAutomationEnabled, setIsAutomationEnabled] = useState(true);
@@ -88,14 +85,6 @@ export default function PayPeriodManagement() {
   const [holidayYear, setHolidayYear] = useState(0);
   const suggestedHolidays = getSuggestedHolidays(holidayYear === 0 ? new Date().getFullYear() : holidayYear);
   const [payDayOfWeek, setPayDayOfWeek] = useState(5);
-  const [expandedEmployee, setExpandedEmployee] = useState<string>("");
-  const [editingEntry, setEditingEntry] = useState<any>(null);
-  const [editClockOut, setEditClockOut] = useState("");
-  const [accountantEmail, setAccountantEmail] = useState("");
-
-  const { data: payPeriods = [] } = useQuery<PayrollPeriod[]>({
-    queryKey: ['/api/payroll/periods'],
-  });
 
   const { data: settings } = useQuery<PayPeriodSettings>({
     queryKey: ['/api/payroll/settings'],
@@ -105,18 +94,8 @@ export default function PayPeriodManagement() {
     queryKey: ['/api/payroll/setup-status'],
   });
 
-  const { data: workflowLogs = [] } = useQuery<WorkflowLog[]>({
-    queryKey: ['/api/payroll/periods', selectedPeriodId, 'workflow-logs'],
-    enabled: !!selectedPeriodId,
-  });
-
   const { data: holidayPayRules = [] } = useQuery<HolidayPayRule[]>({
     queryKey: ['/api/holiday-pay-rules'],
-  });
-
-  const { data: reviewData, isLoading: reviewLoading } = useQuery<any>({
-    queryKey: ['/api/payroll/periods', selectedPeriodId, 'review'],
-    enabled: !!selectedPeriodId,
   });
 
   useEffect(() => {
@@ -175,24 +154,6 @@ export default function PayPeriodManagement() {
     },
   });
 
-  const createNextMutation = useMutation({
-    mutationFn: async () => {
-      const response = await fetch('/api/payroll/periods', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      if (!response.ok) throw new Error('Failed to create pay period');
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/payroll/periods'] });
-      toast({ title: "Created", description: "Next pay period created." });
-    },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to create pay period.", variant: "destructive" });
-    },
-  });
-
   const saveHolidaysMutation = useMutation({
     mutationFn: async (holidays: Array<{ name: string; month: number; day: number; payMultiplier: number }>) => {
       const res = await apiRequest('POST', '/api/holiday-pay-rules/bulk', { holidays });
@@ -205,51 +166,6 @@ export default function PayPeriodManagement() {
     },
     onError: (err: any) => {
       toast({ title: "Error", description: err.message || "Failed to save holidays.", variant: "destructive" });
-    },
-  });
-
-  const approveMutation = useMutation({
-    mutationFn: async (periodId: string) => {
-      const res = await apiRequest('POST', `/api/payroll/periods/${periodId}/approve`);
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/payroll/periods'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/payroll/periods', selectedPeriodId, 'review'] });
-      toast({ title: "Approved", description: "Payroll has been approved and marked as processed." });
-    },
-    onError: (err: any) => {
-      toast({ title: "Error", description: err.message || "Failed to approve.", variant: "destructive" });
-    },
-  });
-
-  const editTimeMutation = useMutation({
-    mutationFn: async ({ entryId, updates }: { entryId: string; updates: any }) => {
-      const res = await apiRequest('PATCH', `/api/time-entries/${entryId}`, updates);
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/payroll/periods', selectedPeriodId, 'review'] });
-      setEditingEntry(null);
-      setEditClockOut("");
-      toast({ title: "Updated", description: "Time entry has been updated." });
-    },
-    onError: (err: any) => {
-      toast({ title: "Error", description: err.message || "Failed to update.", variant: "destructive" });
-    },
-  });
-
-  const emailExportMutation = useMutation({
-    mutationFn: async ({ periodId, email }: { periodId: string; email: string }) => {
-      const res = await apiRequest('POST', `/api/payroll/periods/${periodId}/email-export`, { email });
-      return res.json();
-    },
-    onSuccess: (data) => {
-      toast({ title: "Sent", description: data.message });
-      setAccountantEmail("");
-    },
-    onError: (err: any) => {
-      toast({ title: "Error", description: err.message || "Failed to email.", variant: "destructive" });
     },
   });
 
@@ -306,25 +222,6 @@ export default function PayPeriodManagement() {
   }
 
   const monthName = (m: number) => ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m - 1];
-
-  const getWorkflowStateBadge = (state: string) => {
-    const colorMap: Record<string, string> = {
-      'created': 'bg-gray-500',
-      'availability_requested': 'bg-blue-500',
-      'availability_collected': 'bg-green-500',
-      'schedule_generated': 'bg-purple-500',
-      'schedule_sent_for_review': 'bg-orange-500',
-      'schedule_confirmed': 'bg-teal-500',
-      'conflicts_resolved': 'bg-indigo-500',
-      'finalized': 'bg-green-600',
-      'processed': 'bg-gray-600'
-    };
-    return (
-      <Badge className={`${colorMap[state] || 'bg-gray-500'} text-white text-[10px]`}>
-        {state.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
-      </Badge>
-    );
-  };
 
   const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleDateString('en-US', {
@@ -688,414 +585,6 @@ export default function PayPeriodManagement() {
           </CardContent>
         </Card>}
 
-        {/* Pay Periods List */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <div>
-              <CardTitle className="text-base flex items-center gap-2">
-                <Calendar className="h-4 w-4" />
-                Pay Periods
-              </CardTitle>
-              <CardDescription>
-                {payPeriods.length === 0 ? 'No pay periods yet. Set up your start date above.' : `${payPeriods.length} pay period${payPeriods.length > 1 ? 's' : ''}`}
-              </CardDescription>
-            </div>
-            {payPeriods.length > 0 && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1"
-                onClick={() => createNextMutation.mutate()}
-                disabled={createNextMutation.isPending}
-              >
-                <RefreshCw className={`h-3 w-3 ${createNextMutation.isPending ? 'animate-spin' : ''}`} />
-                Add Next
-              </Button>
-            )}
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {payPeriods.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">Set up your pay period start date above to get started.</p>
-            ) : (
-              payPeriods.map((period) => {
-                const now = new Date();
-                const start = new Date(period.startDate);
-                const end = new Date(period.endDate);
-                const isCurrent = now >= start && now <= end;
-                const isPast = now > end;
-                const isFuture = now < start;
-
-                return (
-                  <div
-                    key={period.id}
-                    className={`p-3 border rounded-lg cursor-pointer transition-colors ${
-                      selectedPeriodId === period.id ? 'ring-2 ring-primary' : ''
-                    } ${isCurrent ? 'bg-primary/5 border-primary/30' : isPast ? 'opacity-60' : 'hover:bg-muted/50'}`}
-                    onClick={() => setSelectedPeriodId(period.id === selectedPeriodId ? '' : period.id)}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <div className="text-sm font-medium">
-                          {formatDate(period.startDate.toString())} - {formatDate(period.endDate.toString())}
-                        </div>
-                        {isCurrent && <Badge className="bg-primary text-primary-foreground text-[10px]">Current</Badge>}
-                        {isFuture && <Badge variant="outline" className="text-[10px]">Upcoming</Badge>}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {getWorkflowStateBadge(period.workflowState || 'created')}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 w-7 p-0"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const sd = new Date(period.startDate).toISOString().split('T')[0];
-                            const ed = new Date(period.endDate).toISOString().split('T')[0];
-                            window.open(`/api/payroll/export?startDate=${sd}&endDate=${ed}`, '_blank');
-                          }}
-                        >
-                          <Download className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Detailed Payroll Review */}
-        {selectedPeriodId && (
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <Users className="h-4 w-4" />
-                    Payroll Review
-                  </CardTitle>
-                  <CardDescription>
-                    {reviewData ? `${reviewData.employees?.length || 0} employees` : 'Loading...'}
-                  </CardDescription>
-                </div>
-                <div className="flex gap-2">
-                  {reviewData && !reviewData.period?.processedAt && (
-                    <Button
-                      size="sm"
-                      onClick={() => approveMutation.mutate(selectedPeriodId)}
-                      disabled={approveMutation.isPending}
-                      className="gap-1"
-                    >
-                      <CheckCircle className="h-3 w-3" />
-                      {approveMutation.isPending ? 'Approving...' : 'Approve Payroll'}
-                    </Button>
-                  )}
-                  {reviewData?.period?.processedAt && (
-                    <Badge className="bg-green-600 text-white">
-                      <CheckCircle className="h-3 w-3 mr-1" />
-                      Approved {new Date(reviewData.period.processedAt).toLocaleDateString()}
-                    </Badge>
-                  )}
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {reviewLoading ? (
-                <p className="text-sm text-muted-foreground text-center py-4">Loading payroll data...</p>
-              ) : reviewData?.employees?.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-4">No employee data for this period.</p>
-              ) : (
-                <>
-                  {/* Summary Stats */}
-                  {reviewData && (
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
-                      <div className="p-2 bg-muted/30 rounded text-center">
-                        <p className="text-lg font-bold">{reviewData.employees?.length || 0}</p>
-                        <p className="text-[10px] text-muted-foreground">Employees</p>
-                      </div>
-                      <div className="p-2 bg-muted/30 rounded text-center">
-                        <p className="text-lg font-bold">
-                          {reviewData.employees?.reduce((sum: number, e: any) => sum + (e.workedHours || 0), 0).toFixed(1)}h
-                        </p>
-                        <p className="text-[10px] text-muted-foreground">Total Hours</p>
-                      </div>
-                      <div className="p-2 bg-muted/30 rounded text-center">
-                        <p className="text-lg font-bold">
-                          ${reviewData.employees?.reduce((sum: number, e: any) => sum + (e.totalPay || 0), 0).toFixed(2)}
-                        </p>
-                        <p className="text-[10px] text-muted-foreground">Total Pay</p>
-                      </div>
-                      <div className="p-2 bg-muted/30 rounded text-center">
-                        <p className="text-lg font-bold text-yellow-600">
-                          {reviewData.employees?.reduce((sum: number, e: any) => sum + (e.discrepancies?.length || 0), 0)}
-                        </p>
-                        <p className="text-[10px] text-muted-foreground">Discrepancies</p>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Employee List */}
-                  {reviewData?.employees?.map((emp: any) => (
-                    <div key={emp.userId} className="border rounded-lg overflow-hidden">
-                      <div
-                        className="p-3 flex items-center justify-between cursor-pointer hover:bg-muted/30"
-                        onClick={() => setExpandedEmployee(expandedEmployee === emp.userId ? '' : emp.userId)}
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold">
-                            {(emp.firstName?.[0] || '') + (emp.lastName?.[0] || '')}
-                          </div>
-                          <div>
-                            <p className="text-sm font-medium">{emp.firstName} {emp.lastName}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {emp.workedHours?.toFixed(1)}h worked
-                              {emp.overtimeHours > 0 && <span className="text-orange-500 ml-1">({emp.overtimeHours.toFixed(1)}h OT)</span>}
-                              {emp.scheduledHours > 0 && <span className="ml-1">/ {emp.scheduledHours.toFixed(1)}h scheduled</span>}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {emp.discrepancies?.length > 0 && (
-                            <Badge variant="destructive" className="text-[10px] gap-1">
-                              <AlertTriangle className="h-3 w-3" />
-                              {emp.discrepancies.length}
-                            </Badge>
-                          )}
-                          <span className="text-sm font-medium">${emp.totalPay?.toFixed(2)}</span>
-                          <ChevronRight className={`h-4 w-4 transition-transform ${expandedEmployee === emp.userId ? 'rotate-90' : ''}`} />
-                        </div>
-                      </div>
-
-                      {/* Expanded Employee Details */}
-                      {expandedEmployee === emp.userId && (
-                        <div className="border-t p-3 bg-muted/10 space-y-3">
-                          {/* Hours Breakdown */}
-                          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-                            <div className="p-2 bg-background rounded">
-                              <p className="text-muted-foreground">Regular Hours</p>
-                              <p className="font-medium">{emp.regularHours?.toFixed(1)}h</p>
-                            </div>
-                            <div className="p-2 bg-background rounded">
-                              <p className="text-muted-foreground">Overtime</p>
-                              <p className="font-medium text-orange-500">{emp.overtimeHours?.toFixed(1)}h</p>
-                            </div>
-                            <div className="p-2 bg-background rounded">
-                              <p className="text-muted-foreground">Holiday Pay</p>
-                              <p className="font-medium text-green-600">${emp.holidayPay?.toFixed(2) || '0.00'}</p>
-                            </div>
-                            <div className="p-2 bg-background rounded">
-                              <p className="text-muted-foreground">Total Pay</p>
-                              <p className="font-bold">${emp.totalPay?.toFixed(2)}</p>
-                            </div>
-                          </div>
-
-                          {/* Discrepancies */}
-                          {emp.discrepancies?.length > 0 && (
-                            <div className="space-y-1">
-                              <p className="text-xs font-medium flex items-center gap-1 text-yellow-600">
-                                <AlertTriangle className="h-3 w-3" /> Discrepancies
-                              </p>
-                              {emp.discrepancies.map((d: any, i: number) => (
-                                <div key={i} className="p-2 bg-yellow-50 dark:bg-yellow-900/20 rounded text-xs flex items-start gap-2">
-                                  <AlertTriangle className="h-3 w-3 mt-0.5 text-yellow-600 flex-shrink-0" />
-                                  <div>
-                                    <p className="font-medium">{d.type === 'missing_clock_out' ? 'Missing Clock Out' : d.type === 'no_show' ? 'No Show' : d.type}</p>
-                                    <p className="text-muted-foreground">{d.description}</p>
-                                    {d.scheduledShift && (
-                                      <p className="text-muted-foreground">Scheduled: {d.scheduledShift.start} - {d.scheduledShift.end}</p>
-                                    )}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-
-                          {/* Time Entries */}
-                          {emp.timeEntries?.length > 0 && (
-                            <div className="space-y-1">
-                              <p className="text-xs font-medium flex items-center gap-1">
-                                <Clock className="h-3 w-3" /> Time Cards
-                              </p>
-                              {emp.timeEntries.map((entry: any) => (
-                                <div key={entry.id} className="p-2 bg-background rounded text-xs flex items-center justify-between">
-                                  <div>
-                                    <p className="font-medium">
-                                      {new Date(entry.clockInTime).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-                                    </p>
-                                    <p className="text-muted-foreground">
-                                      {new Date(entry.clockInTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                                      {entry.clockOutTime ? ` - ${new Date(entry.clockOutTime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : ' - Missing'}
-                                    </p>
-                                    {entry.hours != null && <p className="text-muted-foreground">{Number(entry.hours).toFixed(2)}h</p>}
-                                  </div>
-                                  <div className="flex items-center gap-1">
-                                    {!entry.clockOutTime && (
-                                      <Badge variant="destructive" className="text-[10px]">Open</Badge>
-                                    )}
-                                    <Dialog>
-                                      <DialogTrigger asChild>
-                                        <Button
-                                          variant="ghost"
-                                          size="sm"
-                                          className="h-6 w-6 p-0"
-                                          onClick={() => {
-                                            setEditingEntry(entry);
-                                            setEditClockOut(entry.clockOutTime ? new Date(entry.clockOutTime).toISOString().slice(0, 16) : '');
-                                          }}
-                                        >
-                                          <Edit2 className="h-3 w-3" />
-                                        </Button>
-                                      </DialogTrigger>
-                                      <DialogContent>
-                                        <DialogHeader>
-                                          <DialogTitle>Edit Time Entry</DialogTitle>
-                                        </DialogHeader>
-                                        <div className="space-y-3">
-                                          <div>
-                                            <Label className="text-sm">Clock In</Label>
-                                            <p className="text-sm text-muted-foreground">
-                                              {new Date(entry.clockInTime).toLocaleString()}
-                                            </p>
-                                          </div>
-                                          <div>
-                                            <Label className="text-sm">Clock Out</Label>
-                                            <Input
-                                              type="datetime-local"
-                                              value={editingEntry?.id === entry.id ? editClockOut : ''}
-                                              onChange={(e) => setEditClockOut(e.target.value)}
-                                            />
-                                          </div>
-                                        </div>
-                                        <DialogFooter>
-                                          <DialogClose asChild>
-                                            <Button variant="outline" size="sm">Cancel</Button>
-                                          </DialogClose>
-                                          <DialogClose asChild>
-                                            <Button
-                                              size="sm"
-                                              disabled={editTimeMutation.isPending}
-                                              onClick={() => {
-                                                if (editClockOut) {
-                                                  editTimeMutation.mutate({
-                                                    entryId: entry.id,
-                                                    updates: { clockOutTime: new Date(editClockOut).toISOString() },
-                                                  });
-                                                }
-                                              }}
-                                            >
-                                              Save
-                                            </Button>
-                                          </DialogClose>
-                                        </DialogFooter>
-                                      </DialogContent>
-                                    </Dialog>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-
-                  {/* Export Actions */}
-                  <Separator />
-                  <div className="flex flex-wrap gap-2 pt-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="gap-1"
-                      onClick={() => {
-                        const period = payPeriods.find(p => p.id === selectedPeriodId);
-                        if (period) {
-                          const sd = new Date(period.startDate).toISOString().split('T')[0];
-                          const ed = new Date(period.endDate).toISOString().split('T')[0];
-                          window.open(`/api/payroll/export?startDate=${sd}&endDate=${ed}`, '_blank');
-                        }
-                      }}
-                    >
-                      <Download className="h-3 w-3" />
-                      Export CSV
-                    </Button>
-
-                    <Dialog>
-                      <DialogTrigger asChild>
-                        <Button variant="outline" size="sm" className="gap-1">
-                          <Send className="h-3 w-3" />
-                          Email to Accountant
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent>
-                        <DialogHeader>
-                          <DialogTitle>Email Payroll Report</DialogTitle>
-                        </DialogHeader>
-                        <div className="space-y-3">
-                          <div>
-                            <Label className="text-sm">Accountant Email</Label>
-                            <Input
-                              type="email"
-                              placeholder="accountant@company.com"
-                              value={accountantEmail}
-                              onChange={(e) => setAccountantEmail(e.target.value)}
-                            />
-                          </div>
-                        </div>
-                        <DialogFooter>
-                          <DialogClose asChild>
-                            <Button variant="outline" size="sm">Cancel</Button>
-                          </DialogClose>
-                          <DialogClose asChild>
-                            <Button
-                              size="sm"
-                              disabled={!accountantEmail || emailExportMutation.isPending}
-                              onClick={() => {
-                                emailExportMutation.mutate({ periodId: selectedPeriodId, email: accountantEmail });
-                              }}
-                            >
-                              <Send className="h-3 w-3 mr-1" />
-                              Send
-                            </Button>
-                          </DialogClose>
-                        </DialogFooter>
-                      </DialogContent>
-                    </Dialog>
-                  </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Workflow Logs for selected period */}
-        {selectedPeriodId && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm">Workflow Activity</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {workflowLogs.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center">No activity logged yet for this period.</p>
-              ) : (
-                workflowLogs.slice(0, 10).map((log) => (
-                  <div key={log.id} className="p-2 bg-muted/30 rounded text-xs">
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium">{log.workflowStep.replace(/_/g, ' ')}</span>
-                      <Badge variant={log.status === 'success' ? 'default' : 'destructive'} className="text-[10px]">
-                        {log.status}
-                      </Badge>
-                    </div>
-                    <p className="text-muted-foreground mt-1">{log.details}</p>
-                    <p className="text-muted-foreground">
-                      {log.createdAt ? new Date(log.createdAt).toLocaleString() : ''}
-                    </p>
-                  </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
-        )}
       </div>
     </div>
   );
