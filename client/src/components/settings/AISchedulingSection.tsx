@@ -14,7 +14,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Plus, Trash2, Clock, DollarSign, Users, Save, UserCheck, UserX, Target, Store, Copy, Wand2, CalendarCheck, Loader2, Tag, ShieldCheck, BookOpen, X, ChevronDown, Scale, Sunrise, Moon, CalendarDays, AlertTriangle } from 'lucide-react';
+import { Plus, Trash2, Clock, DollarSign, Users, Save, UserCheck, UserX, Target, Store, Copy, Wand2, CalendarCheck, Loader2, Tag, ShieldCheck, BookOpen, X, ChevronDown, Scale, Sunrise, Moon, CalendarDays, AlertTriangle, Pencil } from 'lucide-react';
 import AIScheduleGenerator from '@/components/AIScheduleGenerator';
 
 interface ShiftBlock {
@@ -328,6 +328,10 @@ function AIRulesTab() {
   const [newCircumName, setNewCircumName] = useState('');
   const [newCircumDescription, setNewCircumDescription] = useState('');
   const [newCircumCategory, setNewCircumCategory] = useState('');
+  const [editingCircumId, setEditingCircumId] = useState<string | null>(null);
+  const [editCircumName, setEditCircumName] = useState('');
+  const [editCircumDescription, setEditCircumDescription] = useState('');
+  const [editCircumCategory, setEditCircumCategory] = useState('');
 
   useEffect(() => {
     if (classificationsData) setLocalClassifications(classificationsData);
@@ -373,11 +377,26 @@ function AIRulesTab() {
 
   const toggleCircumstanceMutation = useMutation({
     mutationFn: async ({ id, isEnabled }: { id: string; isEnabled: boolean }) => {
-      const res = await apiRequest('PUT', `/api/scheduling/special-circumstances/${id}`, { isEnabled });
+      const res = await apiRequest('PATCH', `/api/scheduling/special-circumstances/${id}`, { isEnabled });
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/scheduling/special-circumstances'] });
+    },
+    onError: () => {
+      toast({ title: 'Error', description: 'Failed to update special circumstance.', variant: 'destructive' });
+    },
+  });
+
+  const editCircumstanceMutation = useMutation({
+    mutationFn: async ({ id, name, description, category }: { id: string; name: string; description: string; category: string }) => {
+      const res = await apiRequest('PATCH', `/api/scheduling/special-circumstances/${id}`, { name, description, category });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/scheduling/special-circumstances'] });
+      setEditingCircumId(null);
+      toast({ title: 'Updated', description: 'Special circumstance updated.' });
     },
     onError: () => {
       toast({ title: 'Error', description: 'Failed to update special circumstance.', variant: 'destructive' });
@@ -610,37 +629,100 @@ function AIRulesTab() {
             <p className="text-sm text-muted-foreground italic">No special circumstances defined yet. Add one below to let the AI factor it into scheduling.</p>
           )}
           {circumstances.map(c => (
-            <div key={c.id} className={`p-3 rounded-lg border transition-opacity ${c.isEnabled ? 'bg-muted/40 border-border' : 'bg-muted/20 border-border/50 opacity-60'}`}>
-              <div className="flex items-start gap-3">
-                <Switch
-                  checked={c.isEnabled}
-                  onCheckedChange={(v) => toggleCircumstanceMutation.mutate({ id: c.id, isEnabled: v })}
-                  className="mt-0.5 shrink-0"
-                />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-sm font-medium">{c.name}</span>
-                    {c.category && (
-                      <Badge variant="outline" className="text-[10px] px-1.5 py-0">{c.category}</Badge>
-                    )}
-                    {!c.isEnabled && (
-                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Disabled</Badge>
+            <div key={c.id} className={`rounded-lg border transition-opacity ${c.isEnabled ? 'bg-muted/40 border-border' : 'bg-muted/20 border-border/50 opacity-60'}`}>
+              {editingCircumId === c.id ? (
+                <div className="p-3 space-y-3">
+                  <div>
+                    <Label className="text-xs text-muted-foreground mb-1 block">Name *</Label>
+                    <Input
+                      value={editCircumName}
+                      onChange={e => setEditCircumName(e.target.value)}
+                      className="text-sm"
+                      maxLength={200}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground mb-1 block">Category</Label>
+                    <Select value={editCircumCategory} onValueChange={setEditCircumCategory}>
+                      <SelectTrigger className="text-sm h-9">
+                        <SelectValue placeholder="Select a category (optional)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {CIRCUMSTANCE_CATEGORIES.map(cat => (
+                          <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground mb-1 block">Description</Label>
+                    <Textarea
+                      value={editCircumDescription}
+                      onChange={e => setEditCircumDescription(e.target.value)}
+                      className="text-sm resize-none min-h-[72px]"
+                      maxLength={2000}
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() => editCircumstanceMutation.mutate({ id: c.id, name: editCircumName, description: editCircumDescription, category: editCircumCategory })}
+                      disabled={!editCircumName.trim() || editCircumstanceMutation.isPending}
+                      className="gap-1.5"
+                    >
+                      {editCircumstanceMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                      Save
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setEditingCircumId(null)}>Cancel</Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3 flex items-start gap-3">
+                  <Switch
+                    checked={c.isEnabled}
+                    onCheckedChange={(v) => toggleCircumstanceMutation.mutate({ id: c.id, isEnabled: v })}
+                    className="mt-0.5 shrink-0"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-medium">{c.name}</span>
+                      {c.category && (
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0">{c.category}</Badge>
+                      )}
+                      {!c.isEnabled && (
+                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Disabled</Badge>
+                      )}
+                    </div>
+                    {c.description && (
+                      <p className="text-xs text-muted-foreground mt-0.5">{c.description}</p>
                     )}
                   </div>
-                  {c.description && (
-                    <p className="text-xs text-muted-foreground mt-0.5">{c.description}</p>
-                  )}
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={() => {
+                        setEditingCircumId(c.id);
+                        setEditCircumName(c.name);
+                        setEditCircumDescription(c.description ?? '');
+                        setEditCircumCategory(c.category ?? '');
+                      }}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-destructive hover:text-destructive"
+                      onClick={() => deleteCircumstanceMutation.mutate(c.id)}
+                      disabled={deleteCircumstanceMutation.isPending}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 text-destructive hover:text-destructive shrink-0"
-                  onClick={() => deleteCircumstanceMutation.mutate(c.id)}
-                  disabled={deleteCircumstanceMutation.isPending}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
-              </div>
+              )}
             </div>
           ))}
 

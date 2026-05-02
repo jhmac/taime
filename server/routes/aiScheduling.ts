@@ -623,7 +623,7 @@ export function registerAiSchedulingRoutes(
     }
   });
 
-  app.put("/api/scheduling/special-circumstances/:id", isAuthenticated, async (req: any, res) => {
+  app.patch("/api/scheduling/special-circumstances/:id", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
       const isAdmin = await resolveAnyPermission(userId, ['admin.manage_all', 'schedule.create'], storage);
@@ -726,6 +726,9 @@ export function registerAiSchedulingRoutes(
           { minRevenue: 5001, maxRevenue: 10000, employeeCount: 5 },
         ],
         minimumStaffing: 2,
+        minStaffingPreHours: 1,
+        minStaffingDuringHours: 2,
+        minStaffingPostHours: 1,
         storeHours: [],
       };
 
@@ -792,7 +795,7 @@ export function registerAiSchedulingRoutes(
         const requiredStaff = getStaffingForRevenue(
           predictedRevenue,
           settings.staffingTiers as any[],
-          settings.minimumStaffing || 2
+          settings.minStaffingDuringHours ?? settings.minimumStaffing ?? 2
         );
 
         days.push({
@@ -943,9 +946,9 @@ SCHEDULE PERIOD:
 ${schedulableDays.map(d => `${d.date} (${d.dayName}): revenue=$${d.predictedRevenue}, need ${d.requiredStaff} staff${d.matchedLastYearDate ? ` (matched ${d.matchedLastYearDate})` : ''}`).join('\n')}
 ${closedDays.size > 0 ? `\nCLOSED DAYS (DO NOT schedule anyone): ${days.filter(d => closedDays.has(d.dayOfWeek)).map(d => `${d.date} (${d.dayName})`).join(', ')}\n` : ''}
 MIN STAFFING BY TIME ZONE:
-- Opening zone (first shift block / pre-hours): ${(settings as any).minStaffingPreHours ?? 1} employee(s) minimum
-- Peak zone (middle shift blocks / during-hours): ${(settings as any).minStaffingDuringHours ?? settings.minimumStaffing ?? 2} employee(s) minimum
-- Closing zone (last shift block / post-hours): ${(settings as any).minStaffingPostHours ?? 1} employee(s) minimum
+- Opening zone (first shift block / pre-hours): ${settings.minStaffingPreHours ?? 1} employee(s) minimum
+- Peak zone (middle shift blocks / during-hours): ${settings.minStaffingDuringHours ?? settings.minimumStaffing ?? 2} employee(s) minimum
+- Closing zone (last shift block / post-hours): ${settings.minStaffingPostHours ?? 1} employee(s) minimum
 
 EMPLOYEES:
 ${employeeList.map(e => {
@@ -1157,6 +1160,9 @@ Required JSON structure:
           shiftBlocks,
           staffingTiers: settings.staffingTiers,
           minimumStaffing: settings.minimumStaffing,
+          minStaffingPreHours: settings.minStaffingPreHours ?? 1,
+          minStaffingDuringHours: settings.minStaffingDuringHours ?? settings.minimumStaffing ?? 2,
+          minStaffingPostHours: settings.minStaffingPostHours ?? 1,
           shiftOverlapMinutes: overlapMinutes,
         },
         salesDataAvailable: salesData.length > 0,
