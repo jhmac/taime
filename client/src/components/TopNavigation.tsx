@@ -8,7 +8,7 @@ import { apiRequest } from '@/lib/queryClient';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Bell, Clock, Target, Award, Users, CheckCheck } from 'lucide-react';
+import { Bell, Clock, Target, Award, Users, CheckCheck, Pencil, Sparkles } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
 const pageTitles: Record<string, string> = {
@@ -239,6 +239,9 @@ export default function TopNavigation() {
 
   const pageTitle = pageTitles[location] || 'Taime';
 
+  const openLetUsKnow = () => window.dispatchEvent(new Event("open-let-us-know"));
+  const openAskAra = () => window.dispatchEvent(new Event("open-ask-ara"));
+
   if (isMobile) {
     return (
       <header className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -249,7 +252,21 @@ export default function TopNavigation() {
             </div>
             <h1 className="text-base font-semibold">{pageTitle}</h1>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={openLetUsKnow}
+              className="p-1.5 rounded-lg hover:bg-muted transition-colors"
+              aria-label="Let us Know"
+            >
+              <Pencil className="h-4 w-4 text-muted-foreground" />
+            </button>
+            <button
+              onClick={openAskAra}
+              className="p-1.5 rounded-lg hover:bg-muted transition-colors"
+              aria-label="Ask Ara"
+            >
+              <Sparkles className="h-4 w-4 text-muted-foreground" />
+            </button>
             <MobileBellButton />
             {user && <UserButton afterSignOutUrl="/" />}
           </div>
@@ -264,7 +281,25 @@ export default function TopNavigation() {
         <div>
           <h1 className="text-lg font-semibold">{pageTitle}</h1>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 gap-1.5 text-xs font-medium"
+            onClick={openLetUsKnow}
+          >
+            <Pencil className="h-3.5 w-3.5" />
+            Let us Know
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 gap-1.5 text-xs font-medium"
+            onClick={openAskAra}
+          >
+            <Sparkles className="h-3.5 w-3.5 text-violet-500" />
+            Ask Ara
+          </Button>
           <NotificationsDropdown />
           {user && (
             <div className="flex items-center gap-3">

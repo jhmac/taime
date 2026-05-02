@@ -72,13 +72,6 @@ export default function Dashboard() {
                 <h1 className="text-base font-bold">Dashboard</h1>
               </div>
             </div>
-            <Button
-              onClick={() => window.dispatchEvent(new Event("open-ask-mainager"))}
-              size="icon"
-              className="bg-white/20 hover:bg-white/30 text-white rounded-full h-9 w-9"
-            >
-              <i className="fas fa-robot text-sm"></i>
-            </Button>
           </div>
           <div className="text-center py-2">
             <p className="text-sm opacity-80 mb-2">{getGreeting()}</p>
