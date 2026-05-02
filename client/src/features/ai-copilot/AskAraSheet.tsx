@@ -7,18 +7,62 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle,
 } from "@/components/ui/sheet";
-import { Sparkles, Send, Loader2, X } from "lucide-react";
+import { Sparkles, Send, Loader2, X, RotateCcw } from "lucide-react";
 
 interface AraAnswer {
   answer: string;
 }
 
+interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+}
+
+const STORAGE_KEY = "ara-conversation-v1";
+const MAX_HISTORY_FOR_CONTEXT = 10;
+
+function loadMessages(): ChatMessage[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = sessionStorage.getItem(STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (m): m is ChatMessage =>
+        m && typeof m.id === "string" && typeof m.content === "string" &&
+        (m.role === "user" || m.role === "assistant")
+    );
+  } catch {
+    return [];
+  }
+}
+
+function saveMessages(messages: ChatMessage[]) {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
+  } catch {
+    // ignore quota / private-mode errors
+  }
+}
+
+function clearStoredMessages() {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
 export default function AskAraSheet() {
   const [open, setOpen] = useState(false);
   const [question, setQuestion] = useState("");
-  const [answer, setAnswer] = useState<string | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => loadMessages());
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const answerEndRef = useRef<HTMLDivElement>(null);
+  const scrollEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handler = () => setOpen(true);
@@ -29,36 +73,56 @@ export default function AskAraSheet() {
   useEffect(() => {
     if (open && textareaRef.current) {
       setTimeout(() => textareaRef.current?.focus(), 200);
-    }
-    if (!open) {
-      setQuestion("");
-      setAnswer(null);
+      setTimeout(() => scrollEndRef.current?.scrollIntoView({ behavior: "auto" }), 250);
     }
   }, [open]);
 
   useEffect(() => {
-    if (answer) {
-      setTimeout(() => answerEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+    saveMessages(messages);
+    if (messages.length > 0) {
+      setTimeout(() => scrollEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
     }
-  }, [answer]);
+  }, [messages]);
 
   const askMutation = useMutation({
     mutationFn: async (q: string): Promise<AraAnswer> => {
-      const res = await apiRequest("POST", "/api/ara/ask", { question: q });
+      const history = messages.slice(-MAX_HISTORY_FOR_CONTEXT).map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
+      const res = await apiRequest("POST", "/api/ara/ask", { question: q, history });
       return res.json();
     },
     onSuccess: (data) => {
-      setAnswer(data.answer);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `a-${Date.now()}`,
+          role: "assistant",
+          content: data.answer,
+        },
+      ]);
     },
     onError: () => {
-      setAnswer("Sorry, I had trouble answering that. Please try again.");
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `a-${Date.now()}`,
+          role: "assistant",
+          content: "Sorry, I had trouble answering that. Please try again.",
+        },
+      ]);
     },
   });
 
   const handleSubmit = () => {
     const q = question.trim();
     if (!q || askMutation.isPending) return;
-    setAnswer(null);
+    setMessages((prev) => [
+      ...prev,
+      { id: `q-${Date.now()}`, role: "user", content: q },
+    ]);
+    setQuestion("");
     askMutation.mutate(q);
   };
 
@@ -69,11 +133,14 @@ export default function AskAraSheet() {
     }
   };
 
-  const handleNewQuestion = () => {
+  const handleNewConversation = () => {
+    setMessages([]);
+    clearStoredMessages();
     setQuestion("");
-    setAnswer(null);
     setTimeout(() => textareaRef.current?.focus(), 100);
   };
+
+  const hasMessages = messages.length > 0;
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
@@ -89,18 +156,31 @@ export default function AskAraSheet() {
                 <p className="text-[11px] text-white/80 leading-tight">AI-powered knowledge assistant</p>
               </div>
             </div>
-            <button
-              onClick={() => setOpen(false)}
-              className="p-1.5 hover:bg-white/20 rounded-full transition-colors"
-            >
-              <X className="h-4 w-4" />
-            </button>
+            <div className="flex items-center gap-1">
+              {hasMessages && (
+                <button
+                  onClick={handleNewConversation}
+                  className="p-1.5 hover:bg-white/20 rounded-full transition-colors flex items-center gap-1 text-[11px] px-2"
+                  title="Start a new conversation"
+                  data-testid="button-ara-new-conversation"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  <span>New</span>
+                </button>
+              )}
+              <button
+                onClick={() => setOpen(false)}
+                className="p-1.5 hover:bg-white/20 rounded-full transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         </SheetHeader>
 
         <ScrollArea className="flex-1 overflow-y-auto">
-          <div className="px-4 py-4 space-y-4">
-            {!answer && !askMutation.isPending && (
+          <div className="px-4 py-4 space-y-3">
+            {!hasMessages && !askMutation.isPending && (
               <div className="text-center py-8">
                 <div className="w-16 h-16 mx-auto mb-3 rounded-full bg-gradient-to-br from-violet-100 to-indigo-100 dark:from-violet-900/30 dark:to-indigo-900/30 flex items-center justify-center">
                   <Sparkles className="h-8 w-8 text-violet-600 dark:text-violet-400" />
@@ -112,76 +192,70 @@ export default function AskAraSheet() {
               </div>
             )}
 
-            {askMutation.isPending && (
-              <div className="flex flex-col items-center py-8 gap-3">
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-violet-600 to-indigo-600 flex items-center justify-center">
-                  <Loader2 className="h-5 w-5 text-white animate-spin" />
-                </div>
-                <p className="text-sm text-muted-foreground">Ara is thinking...</p>
-              </div>
-            )}
-
-            {answer && (
-              <div className="space-y-3">
-                <div className="rounded-xl bg-muted/60 p-3.5">
+            {messages.map((m) =>
+              m.role === "user" ? (
+                <div key={m.id} className="rounded-xl bg-muted/60 p-3.5" data-testid={`message-user-${m.id}`}>
                   <p className="text-xs font-medium text-muted-foreground mb-1.5 flex items-center gap-1">
                     <Sparkles className="h-3 w-3 text-violet-500" />
                     Your question
                   </p>
-                  <p className="text-sm">{question}</p>
+                  <p className="text-sm whitespace-pre-wrap">{m.content}</p>
                 </div>
-
-                <div className="rounded-xl border border-violet-200 dark:border-violet-800/40 bg-violet-50 dark:bg-violet-950/20 p-3.5">
+              ) : (
+                <div
+                  key={m.id}
+                  className="rounded-xl border border-violet-200 dark:border-violet-800/40 bg-violet-50 dark:bg-violet-950/20 p-3.5"
+                  data-testid={`message-assistant-${m.id}`}
+                >
                   <p className="text-xs font-medium text-violet-700 dark:text-violet-300 mb-1.5 flex items-center gap-1">
                     <Sparkles className="h-3 w-3" />
                     Ara's answer
                   </p>
-                  <p className="text-sm whitespace-pre-wrap leading-relaxed">{answer}</p>
+                  <p className="text-sm whitespace-pre-wrap leading-relaxed">{m.content}</p>
                 </div>
+              )
+            )}
 
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full"
-                  onClick={handleNewQuestion}
-                >
-                  Ask another question
-                </Button>
-                <div ref={answerEndRef} />
+            {askMutation.isPending && (
+              <div className="flex items-center gap-2 px-1 py-2 text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin text-violet-500" />
+                <span className="text-xs">Ara is thinking...</span>
               </div>
             )}
+
+            <div ref={scrollEndRef} />
           </div>
         </ScrollArea>
 
-        {!answer && (
-          <div className="border-t border-border px-4 py-3 shrink-0">
-            <div className="flex items-end gap-2">
-              <Textarea
-                ref={textareaRef}
-                placeholder="Ask anything about store procedures, policies..."
-                value={question}
-                onChange={(e) => setQuestion(e.target.value)}
-                onKeyDown={handleKeyDown}
-                disabled={askMutation.isPending}
-                className="min-h-[40px] max-h-[120px] resize-none text-sm rounded-xl border-border focus-visible:ring-violet-500"
-                rows={2}
-              />
-              <Button
-                onClick={handleSubmit}
-                disabled={!question.trim() || askMutation.isPending}
-                size="icon"
-                className="h-10 w-10 rounded-xl bg-gradient-to-br from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 shrink-0"
-              >
-                {askMutation.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Send className="h-4 w-4" />
-                )}
-              </Button>
-            </div>
-            <p className="text-[10px] text-muted-foreground mt-1.5">Press Enter to send, Shift+Enter for new line</p>
+        <div className="border-t border-border px-4 py-3 shrink-0">
+          <div className="flex items-end gap-2">
+            <Textarea
+              ref={textareaRef}
+              placeholder={hasMessages ? "Ask a follow-up question..." : "Ask anything about store procedures, policies..."}
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              onKeyDown={handleKeyDown}
+              disabled={askMutation.isPending}
+              className="min-h-[40px] max-h-[120px] resize-none text-sm rounded-xl border-border focus-visible:ring-violet-500"
+              rows={2}
+              data-testid="input-ara-question"
+            />
+            <Button
+              onClick={handleSubmit}
+              disabled={!question.trim() || askMutation.isPending}
+              size="icon"
+              className="h-10 w-10 rounded-xl bg-gradient-to-br from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 shrink-0"
+              data-testid="button-ara-send"
+            >
+              {askMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Send className="h-4 w-4" />
+              )}
+            </Button>
           </div>
-        )}
+          <p className="text-[10px] text-muted-foreground mt-1.5">Press Enter to send, Shift+Enter for new line</p>
+        </div>
       </SheetContent>
     </Sheet>
   );

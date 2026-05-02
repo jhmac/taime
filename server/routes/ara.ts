@@ -11,8 +11,14 @@ const anthropic = new Anthropic({
   apiKey: config.anthropic.apiKey,
 });
 
+const historyMessageSchema = z.object({
+  role: z.enum(["user", "assistant"]),
+  content: z.string().min(1).max(4000),
+});
+
 const askSchema = z.object({
   question: z.string().min(1).max(2000),
+  history: z.array(historyMessageSchema).max(20).optional(),
 });
 
 export function registerAraRoutes(app: Express, _storage: IStorage, isAuthenticated: any) {
@@ -22,7 +28,7 @@ export function registerAraRoutes(app: Express, _storage: IStorage, isAuthentica
       return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
     }
 
-    const { question } = parsed.data;
+    const { question, history = [] } = parsed.data;
     const userId = req.user?.id;
 
     try {
@@ -50,13 +56,21 @@ Guidelines:
 - Keep responses concise (2-4 sentences for simple questions, up to a short paragraph for complex ones)
 - When you reference a specific procedure or policy from the knowledge base, mention it by name
 - If the answer isn't covered in the store's knowledge base, say so and offer general retail best-practice guidance
-- Be friendly and supportive`;
+- Be friendly and supportive
+- If the user is asking a follow-up question, use the prior conversation context to give a coherent answer`;
+
+      // Build the messages array: prior conversation history + the new question
+      // History should already alternate user/assistant; ensure the last message is the user's new question.
+      const conversationMessages: Array<{ role: "user" | "assistant"; content: string }> = [
+        ...history,
+        { role: "user", content: question },
+      ];
 
       const response = await anthropic.messages.create({
         model: "claude-haiku-4-20250514",
         max_tokens: 512,
         system: systemPrompt,
-        messages: [{ role: "user", content: question }],
+        messages: conversationMessages,
       });
 
       const answer =
@@ -64,7 +78,16 @@ Guidelines:
           ? response.content[0].text
           : "I wasn't able to generate an answer. Please try again.";
 
-      logger.info({ userId, storeId, questionLength: question.length, ragResults: knowledgeContext ? "yes" : "no" }, "ara: answered question");
+      logger.info(
+        {
+          userId,
+          storeId,
+          questionLength: question.length,
+          historyLength: history.length,
+          ragResults: knowledgeContext ? "yes" : "no",
+        },
+        "ara: answered question"
+      );
       return res.json({ answer });
     } catch (error: any) {
       logger.error({ userId, error: error.message }, "ara: failed to answer question");
