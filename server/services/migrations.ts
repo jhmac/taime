@@ -360,6 +360,15 @@ export async function runSchemaMigrations(): Promise<void> {
       table: "timesheet_reminder_log",
       sql: `ALTER TABLE timesheet_reminder_log ADD COLUMN IF NOT EXISTS store_id varchar REFERENCES work_locations(id) ON DELETE SET NULL`,
     },
+    // Task #496 — Optional email reminder channel
+    {
+      table: "timesheet_workflow_settings",
+      sql: `ALTER TABLE timesheet_workflow_settings ADD COLUMN IF NOT EXISTS email_reminders_enabled boolean DEFAULT false`,
+    },
+    {
+      table: "timesheet_workflow_settings",
+      sql: `ALTER TABLE timesheet_workflow_settings ADD COLUMN IF NOT EXISTS reminder_from_email varchar`,
+    },
   ];
 
   let altered = 0;
@@ -1287,6 +1296,8 @@ export async function runSchemaMigrations(): Promise<void> {
         notify_admin_on_manager_approval boolean DEFAULT true,
         employee_self_review_reminder boolean DEFAULT false,
         single_step_approval boolean DEFAULT false,
+        email_reminders_enabled boolean DEFAULT false,
+        reminder_from_email varchar,
         manager_user_ids jsonb DEFAULT '[]'::jsonb,
         admin_user_id varchar REFERENCES users(id) ON DELETE SET NULL,
         updated_by varchar REFERENCES users(id) ON DELETE SET NULL,
