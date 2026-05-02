@@ -90,6 +90,7 @@ export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAu
         'alertRecipients', 'customAlertUserIds', 'isActive',
         'destinationAddress', 'destinationPlaceId', 'destinationLat',
         'destinationLng', 'destinationName', 'mileageRateCents',
+        'maxTripsPerDay', 'deviationToleranceMeters', 'waypoints', 'chosenRoutePolyline',
       ] as const;
       const updates: Record<string, any> = {};
       for (const field of allowedFields) {
@@ -451,6 +452,158 @@ export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAu
     }
   });
 
+  // Active offsite rules for the current user (used by TimeClockWidget to show Start Trip button)
+  app.get('/api/offsite-rules/active', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+
+      // Find active offsite sessions for user
+      const existingActiveSessions = await storage.getOffsiteSessions({ userId, status: 'active' }).catch(() => [] as any[]);
+      const activeSession = (existingActiveSessions as any[])[0] || null;
+
+      // Get user's current location via active time entry
+      const activeEntry = await storage.getActiveTimeEntry(userId).catch(() => null);
+      const locationId = activeEntry?.locationId;
+      if (!locationId) {
+        return res.json({ rules: [], todayTripCounts: {} });
+      }
+
+      const allRules = await storage.getOffsiteRules(locationId);
+      const activeRules = allRules.filter(r => r.isActive);
+
+      // Count trips today per rule for this user
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const allSessions = await storage.getOffsiteSessions({ userId, from: todayStart });
+      const todayTripCounts: Record<string, number> = {};
+      for (const rule of activeRules) {
+        todayTripCounts[rule.id] = allSessions.filter(s => s.ruleId === rule.id && s.status !== 'active').length;
+      }
+
+      const currentHour = new Date().getHours();
+      const currentMinute = new Date().getMinutes();
+      const currentTimeStr = `${String(currentHour).padStart(2, '0')}:${String(currentMinute).padStart(2, '0')}`;
+
+      // Filter rules by time window
+      const applicableRules = activeRules.filter(rule => {
+        if (rule.allowedTimeStart && rule.allowedTimeEnd) {
+          return currentTimeStr >= rule.allowedTimeStart && currentTimeStr <= rule.allowedTimeEnd;
+        }
+        return true;
+      });
+
+      res.json({ rules: applicableRules, todayTripCounts, activeSession });
+    } catch (error) {
+      console.error("Error fetching active offsite rules:", error);
+      res.status(500).json({ message: "Failed to fetch active offsite rules" });
+    }
+  });
+
+  // Start an off-site trip manually
+  app.post('/api/offsite-sessions/start', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { ruleId, latitude, longitude } = req.body;
+
+      if (!ruleId) {
+        return res.status(400).json({ message: "ruleId is required" });
+      }
+
+      const rule = await storage.getOffsiteRule(ruleId);
+      if (!rule || !rule.isActive) {
+        return res.status(404).json({ message: "Rule not found or inactive" });
+      }
+
+      const activeEntry = await storage.getActiveTimeEntry(userId).catch(() => null);
+      if (!activeEntry) {
+        return res.status(409).json({ message: "You must be clocked in to start an off-site trip" });
+      }
+
+      // Validate the rule applies to this location
+      if (rule.locationId && activeEntry.locationId && rule.locationId !== activeEntry.locationId) {
+        return res.status(403).json({ message: "This trip rule is not for your current work location" });
+      }
+
+      // Validate appliesTo eligibility
+      const appliesTo = rule.appliesTo as string;
+      if (appliesTo === 'managers_only') {
+        const isManager = await resolveAnyPermission(userId, ['scheduling.manage', 'admin.manage_all', 'admin.manage_locations'], storage);
+        if (!isManager) {
+          return res.status(403).json({ message: "This trip rule is for managers only" });
+        }
+      } else if (appliesTo === 'specific_employees') {
+        const allowedIds = (rule.specificEmployeeIds as string[]) || [];
+        if (!allowedIds.includes(userId)) {
+          return res.status(403).json({ message: "You are not authorized to use this trip rule" });
+        }
+      }
+
+      // Validate time window
+      if (rule.allowedTimeStart && rule.allowedTimeEnd) {
+        const now = new Date();
+        const hh = now.getHours().toString().padStart(2, '0');
+        const mm = now.getMinutes().toString().padStart(2, '0');
+        const currentTime = `${hh}:${mm}`;
+        if (currentTime < rule.allowedTimeStart || currentTime > rule.allowedTimeEnd) {
+          return res.status(409).json({
+            message: `This trip rule is only available between ${rule.allowedTimeStart} and ${rule.allowedTimeEnd}`,
+          });
+        }
+      }
+
+      // Check daily trip limit
+      if (rule.maxTripsPerDay && rule.maxTripsPerDay > 0) {
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const todaySessions = await storage.getOffsiteSessions({ userId, ruleId, from: todayStart });
+        const todayCount = todaySessions.filter(s => s.status !== 'active').length;
+        if (todayCount >= rule.maxTripsPerDay) {
+          return res.status(409).json({
+            message: `Daily trip limit of ${rule.maxTripsPerDay} reached for this rule`,
+            limitReached: true,
+          });
+        }
+      }
+
+      // Check if there's already an active offsite session
+      const existingSessions = await storage.getOffsiteSessions({ userId, status: 'active' });
+      if (existingSessions.length > 0) {
+        return res.status(409).json({ message: "You already have an active off-site trip" });
+      }
+
+      const waypoints = rule.waypoints as Array<{ name: string; placeId: string; lat: number; lng: number; address: string }> | null;
+
+      const session = await storage.createOffsiteSession({
+        userId,
+        locationId: rule.locationId,
+        ruleId: rule.id,
+        timeEntryId: activeEntry.id,
+        exitTime: new Date(),
+        status: 'active',
+        sessionWaypoints: waypoints ? (waypoints.map(w => ({ ...w, arrivedAt: undefined })) as any) : null,
+        currentLegIndex: 0,
+        consecutiveOffRouteCount: 0,
+      } as any);
+
+      // Fetch route in background
+      if (latitude != null && longitude != null) {
+        const { fetchAndStoreRoute } = await import('../services/routeTrackingService');
+        fetchAndStoreRoute(session, rule, latitude, longitude).catch((err) => {
+          console.error('[StartTrip] Error fetching route:', err);
+        });
+      } else if (rule.chosenRoutePolyline) {
+        await storage.updateOffsiteSession(session.id, {
+          routePolyline: rule.chosenRoutePolyline,
+        });
+      }
+
+      res.json(session);
+    } catch (error) {
+      console.error("Error starting off-site trip:", error);
+      res.status(500).json({ message: "Failed to start off-site trip" });
+    }
+  });
+
   // Google Maps proxy endpoints — API key stays on the server; restricted to admin/owner
   async function requireOwner(storage: IStorage, userId: string): Promise<boolean> {
   return resolvePermission(userId, 'admin.manage_all', storage);
@@ -481,6 +634,35 @@ export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAu
     } catch (error) {
       console.error("Error calling Google Places Autocomplete:", error);
       res.status(500).json({ message: "Failed to fetch autocomplete suggestions" });
+    }
+  });
+
+  app.get('/api/maps/directions', isAuthenticated, async (req: any, res) => {
+    const apiKey = config.googleMaps.apiKey;
+    if (!apiKey) {
+      return res.status(503).json({ message: "Google Maps API key not configured" });
+    }
+    if (!(await requireOwner(storage, req.user.id))) {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+    const { origin, destination, waypoints, alternatives } = req.query;
+    if (!origin || !destination) {
+      return res.status(400).json({ message: "origin and destination are required" });
+    }
+    try {
+      const url = new URL('https://maps.googleapis.com/maps/api/directions/json');
+      url.searchParams.set('origin', origin as string);
+      url.searchParams.set('destination', destination as string);
+      url.searchParams.set('mode', 'driving');
+      url.searchParams.set('key', apiKey);
+      if (waypoints) url.searchParams.set('waypoints', waypoints as string);
+      if (alternatives === 'true') url.searchParams.set('alternatives', 'true');
+      const response = await fetch(url.toString());
+      const data = await response.json();
+      res.json(data);
+    } catch (error) {
+      console.error("Error calling Google Directions API:", error);
+      res.status(500).json({ message: "Failed to fetch directions" });
     }
   });
 
@@ -641,6 +823,116 @@ export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAu
     } catch (error) {
       console.error("Error reprocessing mileage reimbursement:", error);
       res.status(500).json({ message: "Failed to reprocess mileage reimbursement" });
+    }
+  });
+
+  app.get('/api/maps/trip-map', isAuthenticated, async (req: any, res) => {
+    const apiKey = config.googleMaps.apiKey;
+    if (!apiKey) {
+      return res.status(503).json({ message: "Google Maps API key not configured" });
+    }
+    const requestingUserId = req.user.id;
+    const isAdmin = await resolveAnyPermission(requestingUserId, ['admin.manage_all', 'admin.manage_locations', 'time.view_all'], storage);
+    const { sessionId } = req.query as { sessionId?: string };
+    if (!sessionId) {
+      return res.status(400).json({ message: "sessionId is required" });
+    }
+    const session = await storage.getOffsiteSession(sessionId);
+    if (!session) {
+      return res.status(404).json({ message: "Session not found" });
+    }
+    if (session.userId !== requestingUserId && !isAdmin) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+    try {
+      const breadcrumbs = await storage.getOffsiteBreadcrumbs(sessionId);
+      const url = new URL('https://maps.googleapis.com/maps/api/staticmap');
+      url.searchParams.set('size', '640x360');
+      url.searchParams.set('scale', '2');
+      url.searchParams.set('key', apiKey);
+
+      // Planned route polyline (blue)
+      if (session.routePolyline) {
+        url.searchParams.append('path', `color:0x4285F4CC|weight:4|enc:${session.routePolyline}`);
+      }
+
+      // Actual GPS path (green), sampled to keep URL short
+      if (breadcrumbs.length > 0) {
+        const step = Math.max(1, Math.floor(breadcrumbs.length / 60));
+        const sampled = breadcrumbs.filter((_, i) => i % step === 0 || i === breadcrumbs.length - 1);
+        const pathPts = sampled.map(b => `${b.latitude},${b.longitude}`).join('|');
+        url.searchParams.append('path', `color:0x34A853CC|weight:3|${pathPts}`);
+      }
+
+      // Deviation pins (red)
+      const deviationCrumbs = breadcrumbs.filter(b => b.isDeviation).slice(0, 10);
+      for (const d of deviationCrumbs) {
+        url.searchParams.append('markers', `color:red|size:tiny|${d.latitude},${d.longitude}`);
+      }
+
+      // Rule destination marker
+      const rule = session.ruleId ? await storage.getOffsiteRule(session.ruleId) : null;
+      if (rule?.destinationLat && rule?.destinationLng) {
+        url.searchParams.append('markers', `color:red|label:D|${rule.destinationLat},${rule.destinationLng}`);
+      }
+
+      // Waypoint markers
+      const waypoints = session.sessionWaypoints as Array<{ lat: number; lng: number; name: string; arrivedAt?: string }> | null;
+      if (waypoints) {
+        waypoints.forEach((w, i) => {
+          url.searchParams.append('markers', `color:blue|label:${i + 1}|${w.lat},${w.lng}`);
+        });
+      }
+
+      // Starting marker
+      if (breadcrumbs.length > 0) {
+        const first = breadcrumbs[0];
+        url.searchParams.append('markers', `color:green|label:S|${first.latitude},${first.longitude}`);
+      }
+
+      const response = await fetch(url.toString());
+      if (!response.ok) {
+        return res.status(502).json({ message: "Failed to fetch trip map" });
+      }
+      const contentType = response.headers.get('content-type') || 'image/png';
+      res.set('Content-Type', contentType);
+      res.set('Cache-Control', 'public, max-age=3600');
+      const buffer = await response.arrayBuffer();
+      res.send(Buffer.from(buffer));
+    } catch (error) {
+      console.error("Error generating trip map:", error);
+      res.status(500).json({ message: "Failed to generate trip map" });
+    }
+  });
+
+  // Route preview: renders a single polyline as a static map image (used in admin form route selection)
+  app.get('/api/maps/route-preview', isAuthenticated, async (req: any, res) => {
+    const apiKey = config.googleMaps.apiKey;
+    if (!apiKey) {
+      return res.status(503).json({ message: "Google Maps API key not configured" });
+    }
+    const { polyline } = req.query as { polyline?: string };
+    if (!polyline) {
+      return res.status(400).json({ message: "polyline is required" });
+    }
+    try {
+      const url = new URL('https://maps.googleapis.com/maps/api/staticmap');
+      url.searchParams.set('size', '640x240');
+      url.searchParams.set('scale', '2');
+      url.searchParams.set('key', apiKey);
+      url.searchParams.append('path', `color:0x4285F4CC|weight:4|enc:${polyline}`);
+      const response = await fetch(url.toString());
+      if (!response.ok) {
+        return res.status(502).json({ message: "Failed to fetch route preview" });
+      }
+      const contentType = response.headers.get('content-type') || 'image/png';
+      res.set('Content-Type', contentType);
+      res.set('Cache-Control', 'public, max-age=3600');
+      const buffer = await response.arrayBuffer();
+      res.send(Buffer.from(buffer));
+    } catch (error) {
+      console.error("Error generating route preview:", error);
+      res.status(500).json({ message: "Failed to generate route preview" });
     }
   });
 

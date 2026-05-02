@@ -305,6 +305,10 @@ export const offsiteAllowanceRules = pgTable("offsite_allowance_rules", {
   destinationLng: decimal("destination_lng", { precision: 11, scale: 8 }),
   destinationName: varchar("destination_name"),
   mileageRateCents: integer("mileage_rate_cents").default(0),
+  maxTripsPerDay: integer("max_trips_per_day"),
+  deviationToleranceMeters: integer("deviation_tolerance_meters").default(200),
+  waypoints: jsonb("waypoints").$type<Array<{ name: string; placeId: string; lat: number; lng: number; address: string }>>(),
+  chosenRoutePolyline: text("chosen_route_polyline"),
   createdBy: varchar("created_by").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => [
@@ -341,6 +345,10 @@ export const offsiteSessions = pgTable("offsite_sessions", {
   reviewedBy: varchar("reviewed_by").references(() => users.id),
   reviewedAt: timestamp("reviewed_at"),
   adminNote: text("admin_note"),
+  sessionWaypoints: jsonb("session_waypoints").$type<Array<{ name: string; placeId: string; lat: number; lng: number; address: string; arrivedAt?: string }>>(),
+  currentLegIndex: integer("current_leg_index").default(0),
+  consecutiveOffRouteCount: integer("consecutive_off_route_count").default(0),
+  clockedOutOffRoute: boolean("clocked_out_off_route").default(false),
 }, (table) => [
   index("idx_offsite_sessions_user").on(table.userId),
   index("idx_offsite_sessions_status").on(table.status),

@@ -369,6 +369,41 @@ export async function runSchemaMigrations(): Promise<void> {
       table: "timesheet_workflow_settings",
       sql: `ALTER TABLE timesheet_workflow_settings ADD COLUMN IF NOT EXISTS reminder_from_email varchar`,
     },
+    // Task #488 — Off-site route overhaul: multi-stop waypoints, daily trip limit,
+    // configurable deviation tolerance, chosen route polyline.
+    {
+      table: "offsite_allowance_rules",
+      sql: `ALTER TABLE offsite_allowance_rules ADD COLUMN IF NOT EXISTS max_trips_per_day integer`,
+    },
+    {
+      table: "offsite_allowance_rules",
+      sql: `ALTER TABLE offsite_allowance_rules ADD COLUMN IF NOT EXISTS deviation_tolerance_meters integer DEFAULT 200`,
+    },
+    {
+      table: "offsite_allowance_rules",
+      sql: `ALTER TABLE offsite_allowance_rules ADD COLUMN IF NOT EXISTS waypoints jsonb`,
+    },
+    {
+      table: "offsite_allowance_rules",
+      sql: `ALTER TABLE offsite_allowance_rules ADD COLUMN IF NOT EXISTS chosen_route_polyline text`,
+    },
+    // Task #488 — offsite_sessions tracking columns for multi-leg routes and consecutive deviation auto clock-out.
+    {
+      table: "offsite_sessions",
+      sql: `ALTER TABLE offsite_sessions ADD COLUMN IF NOT EXISTS session_waypoints jsonb`,
+    },
+    {
+      table: "offsite_sessions",
+      sql: `ALTER TABLE offsite_sessions ADD COLUMN IF NOT EXISTS current_leg_index integer DEFAULT 0`,
+    },
+    {
+      table: "offsite_sessions",
+      sql: `ALTER TABLE offsite_sessions ADD COLUMN IF NOT EXISTS consecutive_off_route_count integer DEFAULT 0`,
+    },
+    {
+      table: "offsite_sessions",
+      sql: `ALTER TABLE offsite_sessions ADD COLUMN IF NOT EXISTS clocked_out_off_route boolean DEFAULT false`,
+    },
   ];
 
   let altered = 0;

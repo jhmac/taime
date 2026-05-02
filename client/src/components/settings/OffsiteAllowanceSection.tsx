@@ -14,9 +14,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Skeleton } from '@/components/ui/skeleton';
-import { MapPin, Plus, Pencil, Trash2, Clock, Bell, Users, Shield, Navigation, X, History, CheckCircle2, AlertTriangle, Route, Wallet } from 'lucide-react';
+import { MapPin, Plus, Pencil, Trash2, Clock, Bell, Users, Shield, Navigation, X, History, CheckCircle2, AlertTriangle, Route, Wallet, Map, GripVertical, ChevronDown, ChevronUp } from 'lucide-react';
 import type { OffsiteAllowanceRule, WorkLocation, User } from '@shared/schema';
 import TripReceiptModal from '@/components/TripReceiptModal';
+import TripMapModal from '@/components/TripMapModal';
 
 const ALLOWED_MINUTES_OPTIONS = [
   { label: '15 minutes', value: 15 },
@@ -32,6 +33,21 @@ interface PlaceSuggestion {
     main_text: string;
     secondary_text: string;
   };
+}
+
+interface WaypointEntry {
+  placeId: string;
+  name: string;
+  address: string;
+  lat: string;
+  lng: string;
+}
+
+interface RouteOption {
+  summary: string;
+  polyline: string;
+  distanceMeters: number;
+  durationSeconds: number;
 }
 
 interface RuleFormData {
@@ -54,6 +70,12 @@ interface RuleFormData {
   destinationLng: string;
   destinationName: string;
   mileageRateCents: number;
+  waypoints: WaypointEntry[];
+  maxTripsPerDay: string;
+  deviationToleranceMeters: number;
+  routeOptions: RouteOption[];
+  chosenRouteIndex: number;
+  chosenRoutePolyline: string;
 }
 
 const defaultFormData: RuleFormData = {
@@ -76,6 +98,12 @@ const defaultFormData: RuleFormData = {
   destinationLng: '',
   destinationName: '',
   mileageRateCents: 0,
+  waypoints: [],
+  maxTripsPerDay: '',
+  deviationToleranceMeters: 200,
+  routeOptions: [],
+  chosenRouteIndex: 0,
+  chosenRoutePolyline: '',
 };
 
 function DestinationSearch({
@@ -220,6 +248,108 @@ function DestinationSearch({
   );
 }
 
+function WaypointSearch({
+  value,
+  onChange,
+  placeholder = 'Search for a stop address...',
+}: {
+  value: WaypointEntry;
+  onChange: (v: WaypointEntry) => void;
+  placeholder?: string;
+}) {
+  const [query, setQuery] = useState(value.address || '');
+  const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setShowDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const handleInput = (val: string) => {
+    setQuery(val);
+    onChange({ placeId: '', name: '', address: '', lat: '', lng: '' });
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (!val.trim()) { setSuggestions([]); setShowDropdown(false); return; }
+    debounceRef.current = setTimeout(async () => {
+      setIsLoading(true);
+      try {
+        const res = await fetch(`/api/maps/places/autocomplete?input=${encodeURIComponent(val)}`);
+        const data = await res.json();
+        setSuggestions(data.predictions || []);
+        setShowDropdown(true);
+      } catch { setSuggestions([]); } finally { setIsLoading(false); }
+    }, 350);
+  };
+
+  const handleSelect = async (s: PlaceSuggestion) => {
+    setQuery(s.description);
+    setShowDropdown(false);
+    setSuggestions([]);
+    setIsLoading(true);
+    try {
+      const res = await fetch(`/api/maps/geocode?place_id=${s.place_id}`);
+      const data = await res.json();
+      const result = data.results?.[0];
+      if (result) {
+        const lat = String(result.geometry.location.lat);
+        const lng = String(result.geometry.location.lng);
+        const name = s.structured_formatting?.main_text || s.description.split(',')[0];
+        onChange({ placeId: s.place_id, name, address: s.description, lat, lng });
+      }
+    } catch {} finally { setIsLoading(false); }
+  };
+
+  const handleClear = () => {
+    setQuery('');
+    setSuggestions([]);
+    onChange({ placeId: '', name: '', address: '', lat: '', lng: '' });
+  };
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <Input
+        placeholder={placeholder}
+        value={query}
+        onChange={(e) => handleInput(e.target.value)}
+        onFocus={() => suggestions.length > 0 && setShowDropdown(true)}
+        className="pr-8 h-8 text-sm"
+      />
+      {query && (
+        <button type="button" onClick={handleClear} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+          <X className="w-3.5 h-3.5" />
+        </button>
+      )}
+      {showDropdown && suggestions.length > 0 && (
+        <div className="absolute z-50 w-full mt-1 bg-popover border rounded-md shadow-lg max-h-40 overflow-y-auto">
+          {suggestions.map((s) => (
+            <button
+              key={s.place_id}
+              type="button"
+              className="w-full text-left px-3 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground"
+              onMouseDown={(e) => { e.preventDefault(); handleSelect(s); }}
+            >
+              <div className="font-medium truncate text-xs">{s.structured_formatting?.main_text || s.description}</div>
+              {s.structured_formatting?.secondary_text && (
+                <div className="text-xs text-muted-foreground truncate">{s.structured_formatting.secondary_text}</div>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+      {isLoading && <p className="text-xs text-muted-foreground mt-1">Searching...</p>}
+    </div>
+  );
+}
+
 export default function OffsiteAllowanceSection() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -230,6 +360,8 @@ export default function OffsiteAllowanceSection() {
   const [viewLocationId, setViewLocationId] = useState<string>('');
   const [activeTab, setActiveTab] = useState<'rules' | 'history'>('rules');
   const [selectedReceiptId, setSelectedReceiptId] = useState<string | null>(null);
+  const [selectedMapSessionId, setSelectedMapSessionId] = useState<string | null>(null);
+  const [isFetchingRoutes, setIsFetchingRoutes] = useState(false);
 
   const { data: locations = [] } = useQuery<WorkLocation[]>({
     queryKey: ['/api/work-locations'],
@@ -342,10 +474,22 @@ export default function OffsiteAllowanceSection() {
       customAlertUserIds: (rule.customAlertUserIds as string[]) || [],
       destinationAddress: rule.destinationAddress ?? '',
       destinationPlaceId: rule.destinationPlaceId ?? '',
-      destinationLat: rule.destinationLat ?? '',
-      destinationLng: rule.destinationLng ?? '',
+      destinationLat: String(rule.destinationLat ?? ''),
+      destinationLng: String(rule.destinationLng ?? ''),
       destinationName: rule.destinationName ?? '',
       mileageRateCents: rule.mileageRateCents ?? 0,
+      waypoints: ((rule.waypoints as any[]) || []).map((w: any) => ({
+        placeId: w.placeId || '',
+        name: w.name || '',
+        address: w.address || '',
+        lat: String(w.lat || ''),
+        lng: String(w.lng || ''),
+      })),
+      maxTripsPerDay: rule.maxTripsPerDay != null ? String(rule.maxTripsPerDay) : '',
+      deviationToleranceMeters: rule.deviationToleranceMeters ?? 200,
+      routeOptions: [],
+      chosenRouteIndex: 0,
+      chosenRoutePolyline: rule.chosenRoutePolyline ?? '',
     });
     setShowForm(true);
   };
@@ -382,6 +526,16 @@ export default function OffsiteAllowanceSection() {
       destinationLng: formData.destinationLng || null,
       destinationName: formData.destinationName || null,
       mileageRateCents: formData.mileageRateCents || 0,
+      maxTripsPerDay: formData.maxTripsPerDay ? parseInt(formData.maxTripsPerDay) : null,
+      deviationToleranceMeters: formData.deviationToleranceMeters || 200,
+      waypoints: formData.waypoints.length > 0 ? formData.waypoints.map(w => ({
+        placeId: w.placeId,
+        name: w.name,
+        address: w.address,
+        lat: parseFloat(w.lat),
+        lng: parseFloat(w.lng),
+      })) : null,
+      chosenRoutePolyline: formData.chosenRoutePolyline || null,
     };
 
     if (editingRule) {
@@ -565,12 +719,23 @@ export default function OffsiteAllowanceSection() {
                         )}
                       </div>
                     </div>
-                    <div className="flex-shrink-0 text-muted-foreground">
-                      {trip.reviewedAt ? (
-                        <CheckCircle2 className="w-4 h-4 text-green-600" />
-                      ) : (
-                        <AlertTriangle className="w-4 h-4 text-amber-500" />
-                      )}
+                    <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                      <div className="text-muted-foreground">
+                        {trip.reviewedAt ? (
+                          <CheckCircle2 className="w-4 h-4 text-green-600" />
+                        ) : (
+                          <AlertTriangle className="w-4 h-4 text-amber-500" />
+                        )}
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        title="View trip map"
+                        onClick={(e) => { e.stopPropagation(); setSelectedMapSessionId(trip.id); }}
+                      >
+                        <Map className="w-3.5 h-3.5" />
+                      </Button>
                     </div>
                   </div>
                 </CardContent>
@@ -582,6 +747,10 @@ export default function OffsiteAllowanceSection() {
             sessionId={selectedReceiptId}
             onClose={() => setSelectedReceiptId(null)}
             isAdmin={true}
+          />
+          <TripMapModal
+            sessionId={selectedMapSessionId}
+            onClose={() => setSelectedMapSessionId(null)}
           />
         </div>
       )}
@@ -745,6 +914,185 @@ export default function OffsiteAllowanceSection() {
               />
             </div>
 
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="flex items-center gap-1">
+                  <MapPin className="w-3.5 h-3.5" />
+                  Stops / Waypoints
+                </Label>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => setFormData(prev => ({
+                    ...prev,
+                    waypoints: [...prev.waypoints, { placeId: '', name: '', address: '', lat: '', lng: '' }],
+                  }))}
+                >
+                  <Plus className="w-3 h-3 mr-1" />Add Stop
+                </Button>
+              </div>
+              {formData.waypoints.length > 0 ? (
+                <div className="space-y-2">
+                  {formData.waypoints.map((wp, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <div className="flex flex-col gap-0.5 flex-shrink-0">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-5 w-6 p-0 disabled:opacity-30"
+                          disabled={i === 0}
+                          onClick={() => setFormData(prev => {
+                            const next = [...prev.waypoints];
+                            [next[i - 1], next[i]] = [next[i], next[i - 1]];
+                            return { ...prev, waypoints: next };
+                          })}
+                        >
+                          <ChevronUp className="w-3 h-3" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-5 w-6 p-0 disabled:opacity-30"
+                          disabled={i === formData.waypoints.length - 1}
+                          onClick={() => setFormData(prev => {
+                            const next = [...prev.waypoints];
+                            [next[i], next[i + 1]] = [next[i + 1], next[i]];
+                            return { ...prev, waypoints: next };
+                          })}
+                        >
+                          <ChevronDown className="w-3 h-3" />
+                        </Button>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <WaypointSearch
+                          value={wp}
+                          onChange={(v) => setFormData(prev => {
+                            const next = [...prev.waypoints];
+                            next[i] = v;
+                            return { ...prev, waypoints: next };
+                          })}
+                          placeholder={`Stop ${i + 1} address...`}
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground flex-shrink-0"
+                        onClick={() => setFormData(prev => ({ ...prev, waypoints: prev.waypoints.filter((_, j) => j !== i) }))}
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">No stops added. The route goes directly to the destination.</p>
+              )}
+            </div>
+
+            {(formData.destinationLat && formData.destinationLng) && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="flex items-center gap-1">
+                    <Route className="w-3.5 h-3.5" />
+                    Route Selection
+                  </Label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs"
+                    disabled={isFetchingRoutes}
+                    onClick={async () => {
+                      setIsFetchingRoutes(true);
+                      try {
+                        const selectedLoc = locations.find(l => l.id === (formData.locationId || locations[0]?.id));
+                        if (!selectedLoc?.latitude || !selectedLoc?.longitude) {
+                          toast({ title: 'Error', description: 'Work location coordinates not found. Cannot fetch route.', variant: 'destructive' });
+                          setIsFetchingRoutes(false);
+                          return;
+                        }
+                        const originParam = `${selectedLoc.latitude},${selectedLoc.longitude}`;
+                        const destParam = `${formData.destinationLat},${formData.destinationLng}`;
+                        const wps = formData.waypoints.filter(w => w.lat && w.lng);
+                        const waypointParam = wps.length > 0 ? `&waypoints=${wps.map(w => `${w.lat},${w.lng}`).join('|')}` : '';
+                        const res = await fetch(`/api/maps/directions?origin=${encodeURIComponent(originParam)}&destination=${encodeURIComponent(destParam)}${waypointParam}&alternatives=true`);
+                        const data = await res.json();
+                        if (data.routes?.length > 0) {
+                          const opts: RouteOption[] = data.routes.slice(0, 3).map((r: any) => ({
+                            summary: r.summary || 'Route',
+                            polyline: r.overview_polyline?.points || '',
+                            distanceMeters: r.legs.reduce((s: number, l: any) => s + (l.distance?.value || 0), 0),
+                            durationSeconds: r.legs.reduce((s: number, l: any) => s + (l.duration?.value || 0), 0),
+                          }));
+                          setFormData(prev => ({
+                            ...prev,
+                            routeOptions: opts,
+                            chosenRouteIndex: 0,
+                            chosenRoutePolyline: opts[0]?.polyline || '',
+                          }));
+                        }
+                      } catch (err) {
+                        toast({ title: 'Error', description: 'Failed to fetch route options.', variant: 'destructive' });
+                      } finally { setIsFetchingRoutes(false); }
+                    }}
+                  >
+                    {isFetchingRoutes ? 'Fetching...' : 'Fetch Routes'}
+                  </Button>
+                </div>
+                {formData.routeOptions.length > 0 && (
+                  <div className="space-y-2">
+                    {formData.routeOptions.map((opt, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => setFormData(prev => ({ ...prev, chosenRouteIndex: i, chosenRoutePolyline: opt.polyline }))}
+                        className={`w-full text-left rounded-lg border overflow-hidden transition-colors ${
+                          formData.chosenRouteIndex === i
+                            ? 'border-primary bg-primary/5'
+                            : 'border-border hover:bg-muted/50'
+                        }`}
+                      >
+                        {formData.chosenRouteIndex === i && (
+                          <img
+                            src={`/api/maps/route-preview?polyline=${encodeURIComponent(opt.polyline)}`}
+                            alt={`Route ${i + 1} map`}
+                            className="w-full h-28 object-cover"
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                          />
+                        )}
+                        <div className="p-2.5">
+                          <div className="font-medium text-sm">{opt.summary}</div>
+                          <div className="text-xs text-muted-foreground mt-0.5">
+                            {(opt.distanceMeters / 1609.34).toFixed(1)} mi · {Math.round(opt.durationSeconds / 60)} min
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {formData.chosenRoutePolyline && formData.routeOptions.length === 0 && (
+                  <div className="space-y-1.5">
+                    <img
+                      src={`/api/maps/route-preview?polyline=${encodeURIComponent(formData.chosenRoutePolyline)}`}
+                      alt="Saved route"
+                      className="w-full h-28 object-cover rounded-lg border"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                    />
+                    <p className="text-xs text-muted-foreground flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-green-600" />
+                      Route saved. Click "Fetch Routes" to update.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
             <Separator />
 
             <div className="space-y-2">
@@ -848,6 +1196,46 @@ export default function OffsiteAllowanceSection() {
 
             <Separator />
 
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="flex items-center gap-1">
+                  <Clock className="w-3.5 h-3.5" />
+                  Daily Trip Limit
+                </Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={20}
+                  placeholder="Unlimited"
+                  value={formData.maxTripsPerDay}
+                  onChange={(e) => setFormData(prev => ({ ...prev, maxTripsPerDay: e.target.value }))}
+                />
+                <p className="text-xs text-muted-foreground">Max trips per employee per day. Leave blank for no limit.</p>
+              </div>
+              <div className="space-y-2">
+                <Label className="flex items-center gap-1">
+                  <Navigation className="w-3.5 h-3.5" />
+                  Deviation Tolerance
+                </Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={50}
+                    max={2000}
+                    value={formData.deviationToleranceMeters}
+                    onChange={(e) => setFormData(prev => ({ ...prev, deviationToleranceMeters: parseInt(e.target.value) || 200 }))}
+                    className="w-24"
+                  />
+                  <span className="text-sm text-muted-foreground">meters</span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Max distance off planned route before flagging. 2 consecutive flags = auto clock-out.
+                </p>
+              </div>
+            </div>
+
+            <Separator />
+
             <div className="space-y-2">
               <Label>Applies To</Label>
               <Select
@@ -887,41 +1275,6 @@ export default function OffsiteAllowanceSection() {
                   )}
                 </div>
               )}
-            </div>
-
-            <Separator />
-
-            <div className="space-y-2">
-              <Label className="flex items-center gap-1">
-                <MapPin className="w-3 h-3" />
-                Destination (Optional)
-              </Label>
-              <p className="text-xs text-muted-foreground">
-                When set, GPS route tracking and deviation alerts will be enabled for this rule.
-              </p>
-              <Input
-                placeholder="Destination address (e.g., Bank of America, 123 Main St)"
-                value={formData.destinationAddress}
-                onChange={(e) => setFormData(prev => ({ ...prev, destinationAddress: e.target.value }))}
-              />
-              <div className="flex items-center gap-2">
-                <Input
-                  type="number"
-                  step="0.000001"
-                  placeholder="Latitude"
-                  value={formData.destinationLat}
-                  onChange={(e) => setFormData(prev => ({ ...prev, destinationLat: e.target.value }))}
-                  className="w-36"
-                />
-                <Input
-                  type="number"
-                  step="0.000001"
-                  placeholder="Longitude"
-                  value={formData.destinationLng}
-                  onChange={(e) => setFormData(prev => ({ ...prev, destinationLng: e.target.value }))}
-                  className="w-36"
-                />
-              </div>
             </div>
 
             <Separator />

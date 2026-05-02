@@ -3,10 +3,11 @@ import { notificationService } from './notificationService';
 import type { OffsiteSession, OffsiteAllowanceRule } from '@shared/schema';
 import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
 
-const DEVIATION_THRESHOLD_METERS = 400;
+const DEFAULT_DEVIATION_THRESHOLD_METERS = 200;
 const DESTINATION_ARRIVAL_RADIUS_METERS = 200;
 const DESTINATION_OVERDUE_STAY_MINUTES = 15;
 const ETA_BUFFER_MINUTES = 10;
+const CONSECUTIVE_OFF_ROUTE_LIMIT = 2;
 
 const watchdogTimers = new Map<string, { notReachedTimer?: NodeJS.Timeout; overdueReturnTimer?: NodeJS.Timeout }>();
 
@@ -95,7 +96,7 @@ async function getAlertRecipients(rule: OffsiteAllowanceRule): Promise<string[]>
   } else {
     const allUsers = await storage.getAllUsers();
     for (const u of allUsers) {
-            const isOwner = await resolvePermission(u.id, 'admin.manage_all', storage);
+      const isOwner = await resolvePermission(u.id, 'admin.manage_all', storage);
       const isManager = await resolvePermission(u.id, 'scheduling.manage', storage);
       if (alertRecipients === 'owner' && isOwner) targetUserIds.push(u.id);
       else if (alertRecipients === 'manager' && isManager) targetUserIds.push(u.id);
@@ -126,7 +127,13 @@ export async function fetchAndStoreRoute(
   }
 
   try {
-    const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${originLat},${originLng}&destination=${destLat},${destLng}&mode=driving&key=${apiKey}`;
+    const waypoints = session.sessionWaypoints as Array<{ lat: number; lng: number }> | null;
+    let waypointParam = '';
+    if (waypoints && waypoints.length > 0) {
+      waypointParam = `&waypoints=${waypoints.map(w => `${w.lat},${w.lng}`).join('|')}`;
+    }
+
+    const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${originLat},${originLng}&destination=${destLat},${destLng}${waypointParam}&mode=driving&key=${apiKey}`;
     const res = await fetch(url);
     const data = await res.json() as any;
 
@@ -136,23 +143,22 @@ export async function fetchAndStoreRoute(
     }
 
     const route = data.routes[0];
-    const leg = route.legs[0];
     const polyline = route.overview_polyline?.points || '';
-    const distanceMeters = leg.distance?.value || 0;
-    const durationSeconds = leg.duration?.value || 0;
+    const totalDurationSeconds = route.legs.reduce((sum: number, leg: any) => sum + (leg.duration?.value || 0), 0);
+    const totalDistanceMeters = route.legs.reduce((sum: number, leg: any) => sum + (leg.distance?.value || 0), 0);
 
     const estimatedReturnTime = new Date(
-      session.exitTime.getTime() + durationSeconds * 1000
+      session.exitTime.getTime() + totalDurationSeconds * 1000
     );
 
     await storage.updateOffsiteSession(session.id, {
       routePolyline: polyline,
-      routeDistanceMeters: distanceMeters,
-      routeDurationSeconds: durationSeconds,
+      routeDistanceMeters: totalDistanceMeters,
+      routeDurationSeconds: totalDurationSeconds,
       estimatedReturnTime,
     });
 
-    console.log(`[RouteTracking] Route stored for session ${session.id}: ${distanceMeters}m, ${durationSeconds}s`);
+    console.log(`[RouteTracking] Route stored for session ${session.id}: ${totalDistanceMeters}m, ${totalDurationSeconds}s`);
 
     scheduleWatchdogs(session.id, rule, estimatedReturnTime, destLat, destLng);
   } catch (error) {
@@ -252,11 +258,13 @@ export async function processOffsiteBreadcrumb(
   lat: number,
   lng: number,
   accuracy: number | undefined
-): Promise<{ isDeviation: boolean; distanceFromRouteMt: number }> {
+): Promise<{ isDeviation: boolean; distanceFromRouteMt: number; autoClockOut?: boolean }> {
   const session = await storage.getOffsiteSession(sessionId);
   if (!session) throw new Error('Session not found');
 
   const rule = session.ruleId ? await storage.getOffsiteRule(session.ruleId) : null;
+
+  const deviationThreshold = (rule?.deviationToleranceMeters ?? DEFAULT_DEVIATION_THRESHOLD_METERS);
 
   let isDeviation = false;
   let distanceFromRouteMt = 0;
@@ -264,7 +272,7 @@ export async function processOffsiteBreadcrumb(
   if (session.routePolyline) {
     const polyline = decodePoly(session.routePolyline);
     distanceFromRouteMt = Math.round(distanceToPolyline(lat, lng, polyline));
-    isDeviation = distanceFromRouteMt > DEVIATION_THRESHOLD_METERS;
+    isDeviation = distanceFromRouteMt > deviationThreshold;
   }
 
   await storage.createOffsiteBreadcrumb({
@@ -277,29 +285,105 @@ export async function processOffsiteBreadcrumb(
     timestamp: new Date(),
   });
 
-  if (isDeviation && rule) {
-    const deviationCount = (session.deviationAlertsSent || 0);
-    if (deviationCount < 3) {
-      console.log(`[RouteTracking] Deviation detected for session ${sessionId}: ${distanceFromRouteMt}m off route`);
-      await storage.updateOffsiteSession(sessionId, { deviationAlertsSent: deviationCount + 1 });
+  let autoClockOut = false;
 
-      const user = await storage.getUser(session.userId);
-      const userName = user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email : 'Unknown';
+  if (isDeviation) {
+    const newConsecutive = (session.consecutiveOffRouteCount ?? 0) + 1;
+    await storage.updateOffsiteSession(sessionId, { consecutiveOffRouteCount: newConsecutive });
 
-      const payload = {
-        title: 'Route Deviation Alert',
-        body: `${userName} is ${Math.round(distanceFromRouteMt)}m off their expected route`,
-        data: { type: 'route_deviation', sessionId, userId: session.userId, distanceFromRouteMt },
-      };
+    if (rule) {
+      // On first consecutive deviation: notify manager/owner once. On second: auto clock-out (no extra alert needed).
+      if (newConsecutive === 1) {
+        console.log(`[RouteTracking] First deviation for session ${sessionId}: ${distanceFromRouteMt}m off route`);
+        await storage.updateOffsiteSession(sessionId, { deviationAlertsSent: (session.deviationAlertsSent || 0) + 1 });
 
-      const targetIds = await getAlertRecipients(rule);
-      for (const targetId of targetIds) {
-        await notificationService.sendToUser(targetId, payload);
+        const user = await storage.getUser(session.userId);
+        const userName = user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email : 'Unknown';
+
+        const payload = {
+          title: 'Route Deviation Alert',
+          body: `${userName} is ${Math.round(distanceFromRouteMt)}m off their expected route. If they deviate again their trip will be ended automatically.`,
+          data: { type: 'route_deviation', sessionId, userId: session.userId, distanceFromRouteMt },
+        };
+
+        const targetIds = await getAlertRecipients(rule);
+        for (const targetId of targetIds) {
+          await notificationService.sendToUser(targetId, payload);
+        }
       }
+
+      if (newConsecutive >= CONSECUTIVE_OFF_ROUTE_LIMIT) {
+        console.log(`[RouteTracking] Auto clock-out triggered for session ${sessionId} after ${newConsecutive} consecutive deviations`);
+        const now = new Date();
+        await storage.updateOffsiteSession(sessionId, {
+          status: 'auto_clocked_out',
+          returnTime: now,
+          clockedOutOffRoute: true,
+          consecutiveOffRouteCount: newConsecutive,
+        });
+
+        // Clock out the employee's time entry
+        if (session.timeEntryId) {
+          try {
+            await storage.updateTimeEntry(session.timeEntryId, {
+              clockOutTime: now,
+              clockOutSource: 'auto_offsite_deviation',
+            });
+            console.log(`[RouteTracking] Clocked out time entry ${session.timeEntryId} due to route deviation`);
+          } catch (err) {
+            console.error(`[RouteTracking] Failed to clock out time entry ${session.timeEntryId}:`, err);
+          }
+        }
+
+        const user = await storage.getUser(session.userId);
+        const userName = user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email : 'Unknown';
+
+        const autoclockPayload = {
+          title: 'Off-Site Trip Ended',
+          body: `${userName}'s off-site trip was automatically ended after repeated route deviations`,
+          data: { type: 'auto_clock_out_deviation', sessionId, userId: session.userId },
+        };
+        const employeePayload = {
+          title: 'Off-Site Trip Ended',
+          body: 'Your off-site trip was automatically ended because you were off-route for too long. You have also been clocked out.',
+          data: { type: 'auto_clock_out_deviation', sessionId },
+        };
+
+        const targetIds = await getAlertRecipients(rule);
+        for (const targetId of targetIds) {
+          await notificationService.sendToUser(targetId, autoclockPayload);
+        }
+        await notificationService.sendToUser(session.userId, employeePayload);
+
+        clearWatchdogs(sessionId);
+        autoClockOut = true;
+      }
+    }
+  } else {
+    if ((session.consecutiveOffRouteCount ?? 0) > 0) {
+      await storage.updateOffsiteSession(sessionId, { consecutiveOffRouteCount: 0 });
     }
   }
 
-  if (rule && rule.destinationLat && rule.destinationLng) {
+  if (rule && rule.destinationLat && rule.destinationLng && !autoClockOut) {
+    const sessionWaypoints = session.sessionWaypoints as Array<{ lat: number; lng: number; arrivedAt?: string }> | null;
+    const currentLegIndex = session.currentLegIndex ?? 0;
+
+    if (sessionWaypoints && sessionWaypoints.length > 0 && currentLegIndex < sessionWaypoints.length) {
+      const nextWaypoint = sessionWaypoints[currentLegIndex];
+      const distToWaypoint = haversineMeters(lat, lng, nextWaypoint.lat, nextWaypoint.lng);
+
+      if (distToWaypoint <= DESTINATION_ARRIVAL_RADIUS_METERS && !nextWaypoint.arrivedAt) {
+        console.log(`[RouteTracking] Waypoint ${currentLegIndex} arrived for session ${sessionId}`);
+        const updatedWaypoints = [...sessionWaypoints];
+        updatedWaypoints[currentLegIndex] = { ...nextWaypoint, arrivedAt: new Date().toISOString() };
+        await storage.updateOffsiteSession(sessionId, {
+          sessionWaypoints: updatedWaypoints as any,
+          currentLegIndex: currentLegIndex + 1,
+        });
+      }
+    }
+
     const destLat = parseFloat(String(rule.destinationLat));
     const destLng = parseFloat(String(rule.destinationLng));
     const distToDest = haversineMeters(lat, lng, destLat, destLng);
@@ -313,5 +397,5 @@ export async function processOffsiteBreadcrumb(
     }
   }
 
-  return { isDeviation, distanceFromRouteMt };
+  return { isDeviation, distanceFromRouteMt, autoClockOut };
 }

@@ -398,9 +398,33 @@ export class GeofencingService {
           const exitLocation = await this.getLocationForTimeEntry(activeTimeEntry);
           const exitLocationId = exitLocation?.id || activeTimeEntry.locationId || '';
 
-          const matchingRule = exitLocationId ? await this.findMatchingOffsiteRule(userId, exitLocationId) : null;
+          const rawMatchingRule = exitLocationId ? await this.findMatchingOffsiteRule(userId, exitLocationId) : null;
+
+          // Short-circuit if user already has an active offsite session (e.g. manually started)
+          const existingActiveSession = (await storage.getOffsiteSessions({ userId, status: 'active' })).find(s => !s.returnTime);
+          if (existingActiveSession) {
+            console.log(`[Geofence] User ${userId} already has active offsite session ${existingActiveSession.id} — skipping auto-start`);
+            return;
+          }
+
+          // Enforce daily trip limit — when reached, treat as no-rule exit (normal clock-out, no session)
+          let matchingRule = rawMatchingRule;
+          let limitReached = false;
+          if (matchingRule?.maxTripsPerDay && matchingRule.maxTripsPerDay > 0) {
+            const todayStart = new Date();
+            todayStart.setHours(0, 0, 0, 0);
+            const todaySessions = await storage.getOffsiteSessions({ userId, ruleId: matchingRule.id, from: todayStart });
+            const todayCount = todaySessions.filter(s => s.status !== 'active').length;
+            if (todayCount >= matchingRule.maxTripsPerDay) {
+              console.log(`[Geofence] Daily trip limit (${matchingRule.maxTripsPerDay}) reached for user ${userId}, rule ${matchingRule.id} — routing to normal clock-out flow`);
+              matchingRule = null;
+              limitReached = true;
+            }
+          }
 
           if (matchingRule) {
+            // Include waypoints and tracking state from the rule for multi-stop route fidelity
+            const ruleWaypoints = matchingRule.waypoints as Array<{ name: string; placeId: string; lat: number; lng: number; address: string }> | null;
             const session = await storage.createOffsiteSession({
               timeEntryId: activeTimeEntry.id,
               userId,
@@ -408,11 +432,21 @@ export class GeofencingService {
               ruleId: matchingRule.id,
               exitTime: new Date(),
               status: 'active',
-            });
+              sessionWaypoints: ruleWaypoints ? (ruleWaypoints.map(w => ({ ...w, arrivedAt: undefined })) as any) : null,
+              currentLegIndex: 0,
+              consecutiveOffRouteCount: 0,
+            } as any);
 
             console.log(`[Geofence] Created offsite session ${session.id} for user ${userId} (rule: ${matchingRule.name}, allowed: ${matchingRule.allowedMinutes} min)`);
 
-            if (matchingRule.destinationLat && matchingRule.destinationLng) {
+            // Prefer admin-approved stored polyline; only fetch live if none saved
+            if (matchingRule.chosenRoutePolyline) {
+              await storage.updateOffsiteSession(session.id, {
+                routePolyline: matchingRule.chosenRoutePolyline,
+                routeDistanceMeters: matchingRule.routeDistanceMeters ?? null,
+                routeDurationSeconds: matchingRule.routeDurationSeconds ?? null,
+              } as any);
+            } else if (matchingRule.destinationLat && matchingRule.destinationLng) {
               fetchAndStoreRoute(session, matchingRule, latitude, longitude).catch(err =>
                 console.error('[Geofence] fetchAndStoreRoute error:', err)
               );
@@ -451,7 +485,8 @@ export class GeofencingService {
           } else {
             const { graceMs, autoClockOut } = await this.getEffectiveGraceMs(exitLocation);
 
-            if (exitLocationId) {
+            // Only create a rule-less tracking session if this isn't a limit-reached skip
+            if (exitLocationId && !limitReached) {
               await storage.createOffsiteSession({
                 timeEntryId: activeTimeEntry.id,
                 userId,

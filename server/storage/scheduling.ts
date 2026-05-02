@@ -125,7 +125,7 @@ export interface ISchedulingStorage {
 
   createOffsiteSession(session: InsertOffsiteSession): Promise<OffsiteSession>;
   getOffsiteSession(id: string): Promise<OffsiteSession | undefined>;
-  getOffsiteSessions(filters?: { userId?: string; status?: string; timeEntryId?: string; locationId?: string; from?: Date; to?: Date }): Promise<OffsiteSession[]>;
+  getOffsiteSessions(filters?: { userId?: string; status?: string; timeEntryId?: string; locationId?: string; ruleId?: string; from?: Date; to?: Date }): Promise<OffsiteSession[]>;
   updateOffsiteSession(id: string, updates: Partial<OffsiteSession>): Promise<OffsiteSession>;
 
   createOffsiteBreadcrumb(breadcrumb: InsertOffsiteBreadcrumb): Promise<OffsiteBreadcrumb>;
@@ -653,12 +653,13 @@ export class SchedulingStorage implements ISchedulingStorage {
     return session;
   }
 
-  async getOffsiteSessions(filters?: { userId?: string; status?: string; timeEntryId?: string; locationId?: string; from?: Date; to?: Date }): Promise<OffsiteSession[]> {
+  async getOffsiteSessions(filters?: { userId?: string; status?: string; timeEntryId?: string; locationId?: string; ruleId?: string; from?: Date; to?: Date }): Promise<OffsiteSession[]> {
     const conditions: any[] = [];
     if (filters?.userId) conditions.push(eq(offsiteSessions.userId, filters.userId));
     if (filters?.status) conditions.push(eq(offsiteSessions.status, filters.status));
     if (filters?.timeEntryId) conditions.push(eq(offsiteSessions.timeEntryId, filters.timeEntryId));
     if (filters?.locationId) conditions.push(eq(offsiteSessions.locationId, filters.locationId));
+    if (filters?.ruleId) conditions.push(eq(offsiteSessions.ruleId, filters.ruleId));
     if (filters?.from) conditions.push(gte(offsiteSessions.exitTime, filters.from));
     if (filters?.to) conditions.push(lte(offsiteSessions.exitTime, filters.to));
     return await db

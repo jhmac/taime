@@ -12,12 +12,14 @@ import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
 import { isUnauthorizedError } from '@/lib/authUtils';
 import type { TimeEntry, WorkLocation, CompanySettings } from '@shared/schema';
-import { MapPin, Shield, AlertTriangle, CheckCircle2, XCircle, Wifi, ExternalLink, Smartphone, Coffee } from 'lucide-react';
+import { MapPin, Shield, AlertTriangle, CheckCircle2, XCircle, Wifi, ExternalLink, Smartphone, Coffee, Route, X as XIcon } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
 import { App as CapacitorApp } from '@capacitor/app';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import LocationHelpSheet from '@/components/LocationHelpSheet';
 import ErrorWithRetry from '@/components/ErrorWithRetry';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from '@/components/ui/sheet';
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 
 function triggerHaptic(pattern: number | number[] = 200) {
   try {
@@ -73,6 +75,8 @@ export default function TimeClockWidget({ greetingSlot, footerSlot, hideClock = 
   const countdownRef = useRef<number | null>(null);
   const totalGraceSecondsRef = useRef<number>(0);
   const [showLocationHelp, setShowLocationHelp] = useState(false);
+  const [showStartTripSheet, setShowStartTripSheet] = useState(false);
+  const [selectedRuleId, setSelectedRuleId] = useState<string>('');
   const lastMonitorTimeRef = useRef<number>(0);
   const prevActiveEntryRef = useRef<any>(null);
   const prevPermissionStateRef = useRef<string | null>(null);
@@ -121,6 +125,44 @@ export default function TimeClockWidget({ greetingSlot, footerSlot, hideClock = 
     queryKey: ['/api/offsite-sessions/active'],
     enabled: !!activeTimeEntry,
     refetchInterval: 30000,
+  });
+
+  const { data: activeRulesData } = useQuery<{ rules: any[]; todayTripCounts: Record<string, number> }>({
+    queryKey: ['/api/offsite-rules/active'],
+    enabled: !!activeTimeEntry && !activeOffsiteSession,
+    refetchOnWindowFocus: false,
+  });
+  const activeRules = activeRulesData?.rules ?? [];
+  const todayTripCounts = activeRulesData?.todayTripCounts ?? {};
+
+  // Smart preselection: when rules load, pick the most time-specific eligible rule automatically
+  useEffect(() => {
+    if (activeRules.length === 0) return;
+    // Already selected and still valid
+    if (selectedRuleId && activeRules.find((r: any) => r.id === selectedRuleId)) return;
+    // Prefer rules with an explicit time window (most specific) that haven't hit the daily limit
+    const eligible = activeRules.filter((r: any) => {
+      const count = todayTripCounts[r.id] ?? 0;
+      return !(r.maxTripsPerDay != null && count >= r.maxTripsPerDay);
+    });
+    const withWindow = eligible.filter((r: any) => r.allowedTimeStart && r.allowedTimeEnd);
+    const best = withWindow.length === 1 ? withWindow[0] : (withWindow[0] ?? eligible[0]);
+    if (best) setSelectedRuleId(best.id);
+  }, [activeRules, todayTripCounts]);
+
+  const startTripMutation = useMutation({
+    mutationFn: async ({ ruleId }: { ruleId: string }) => {
+      const res = await apiRequest('POST', '/api/offsite-sessions/start', { ruleId });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/offsite-sessions/active'] });
+      setShowStartTripSheet(false);
+      toast({ title: 'Trip Started', description: 'Your off-site trip has begun. Stay on route!' });
+    },
+    onError: (error: any) => {
+      toast({ title: 'Failed to Start Trip', description: error.message || 'Please try again.', variant: 'destructive' });
+    },
   });
 
   const offsiteSessionWithRoute = activeOffsiteSession?.routePolyline ? activeOffsiteSession : null;
@@ -1090,37 +1132,70 @@ export default function TimeClockWidget({ greetingSlot, footerSlot, hideClock = 
               </Button>
             </div>
           ) : (
-            <div className={activeTimeEntry ? 'flex gap-2' : ''}>
-              {activeTimeEntry && (
+            <div className="space-y-2">
+              <div className={activeTimeEntry ? 'flex gap-2' : ''}>
+                {activeTimeEntry && (
+                  <Button
+                    onClick={() => breakStartMutation.mutate(activeTimeEntry.id)}
+                    disabled={breakStartMutation.isPending || clockOutMutation.isPending}
+                    variant="outline"
+                    className="flex-1 text-base font-bold py-4 rounded-2xl border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-400 dark:hover:bg-amber-950/30"
+                    data-testid="break-start-button"
+                  >
+                    {breakStartMutation.isPending ? '…' : <><Coffee className="h-4 w-4 mr-1.5" />Start Break</>}
+                  </Button>
+                )}
                 <Button
-                  onClick={() => breakStartMutation.mutate(activeTimeEntry.id)}
-                  disabled={breakStartMutation.isPending || clockOutMutation.isPending}
-                  variant="outline"
-                  className="flex-1 text-base font-bold py-4 rounded-2xl border-amber-300 text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-400 dark:hover:bg-amber-950/30"
-                  data-testid="break-start-button"
+                  key={showDeniedBanner ? 'denied' : 'enabled'}
+                  onClick={handleClockAction}
+                  disabled={clockInMutation.isPending || clockOutMutation.isPending || breakStartMutation.isPending || activeEntryLoading || (hasAttemptedClockIn && (permissionState === 'denied' || showDeniedBanner) && workLocations.length > 0 && !activeTimeEntry)}
+                  className={`${activeTimeEntry ? 'flex-1' : 'w-full'} text-base font-bold py-4 rounded-2xl transition-opacity duration-300 ${
+                    activeTimeEntry
+                      ? 'bg-destructive hover:bg-destructive/90 text-destructive-foreground'
+                      : 'bg-primary hover:bg-primary/90 text-primary-foreground'
+                  } ${!showDeniedBanner && !activeTimeEntry && workLocations.length > 0 ? 'animate-fade-in' : ''}`}
+                  data-testid="clock-action-button"
                 >
-                  {breakStartMutation.isPending ? '…' : <><Coffee className="h-4 w-4 mr-1.5" />Start Break</>}
+                  {clockInMutation.isPending || clockOutMutation.isPending
+                    ? 'Processing…'
+                    : activeTimeEntry
+                      ? '■  Clock Out'
+                      : locationLoading
+                        ? 'Getting location…'
+                        : '▶  Clock In'}
                 </Button>
+              </div>
+              {activeTimeEntry && !activeOffsiteSession && activeRules.length > 0 && (() => {
+                const allAtLimit = activeRules.every((r: any) => {
+                  const count = todayTripCounts[r.id] ?? 0;
+                  return r.maxTripsPerDay != null && count >= r.maxTripsPerDay;
+                });
+                return allAtLimit ? (
+                  <div className="w-full text-center rounded-2xl border border-border bg-muted/40 px-3 py-2.5">
+                    <p className="text-xs font-semibold text-muted-foreground flex items-center justify-center gap-1.5">
+                      <Route className="h-3.5 w-3.5" />
+                      Daily trip limit reached
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">No more off-site trips available today.</p>
+                  </div>
+                ) : (
+                  <Button
+                    variant="outline"
+                    className="w-full text-sm font-semibold py-3 rounded-2xl border-blue-200 text-blue-700 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-400 dark:hover:bg-blue-950/30"
+                    onClick={() => setShowStartTripSheet(true)}
+                    data-testid="start-offsite-trip-button"
+                  >
+                    <Route className="h-4 w-4 mr-1.5" />
+                    Start Off-Site Trip
+                  </Button>
+                );
+              })()}
+              {activeOffsiteSession && (
+                <div className="flex items-center gap-2 text-xs text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30 rounded-xl px-3 py-2">
+                  <Route className="h-3.5 w-3.5 flex-shrink-0" />
+                  <span>Off-site trip in progress</span>
+                </div>
               )}
-              <Button
-                key={showDeniedBanner ? 'denied' : 'enabled'}
-                onClick={handleClockAction}
-                disabled={clockInMutation.isPending || clockOutMutation.isPending || breakStartMutation.isPending || activeEntryLoading || (hasAttemptedClockIn && (permissionState === 'denied' || showDeniedBanner) && workLocations.length > 0 && !activeTimeEntry)}
-                className={`${activeTimeEntry ? 'flex-1' : 'w-full'} text-base font-bold py-4 rounded-2xl transition-opacity duration-300 ${
-                  activeTimeEntry
-                    ? 'bg-destructive hover:bg-destructive/90 text-destructive-foreground'
-                    : 'bg-primary hover:bg-primary/90 text-primary-foreground'
-                } ${!showDeniedBanner && !activeTimeEntry && workLocations.length > 0 ? 'animate-fade-in' : ''}`}
-                data-testid="clock-action-button"
-              >
-                {clockInMutation.isPending || clockOutMutation.isPending
-                  ? 'Processing…'
-                  : activeTimeEntry
-                    ? '■  Clock Out'
-                    : locationLoading
-                      ? 'Getting location…'
-                      : '▶  Clock In'}
-              </Button>
             </div>
           )}
 
@@ -1175,6 +1250,144 @@ export default function TimeClockWidget({ greetingSlot, footerSlot, hideClock = 
     </Card>
 
     <LocationHelpSheet open={showLocationHelp} onOpenChange={setShowLocationHelp} />
+
+    <Sheet open={showStartTripSheet} onOpenChange={setShowStartTripSheet}>
+      <SheetContent side="bottom" className="rounded-t-2xl max-h-[85vh] overflow-y-auto">
+        <SheetHeader className="text-left mb-4">
+          <SheetTitle className="flex items-center gap-2">
+            <Route className="w-4 h-4" />
+            Start Off-Site Trip
+          </SheetTitle>
+          <SheetDescription>
+            Confirm your trip details below. Your route will be tracked while you're away.
+          </SheetDescription>
+        </SheetHeader>
+
+        <div className="space-y-4">
+          {activeRules.length > 1 && (
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Trip Type</label>
+              <Select
+                value={selectedRuleId}
+                onValueChange={(id) => {
+                  setSelectedRuleId(id);
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a trip type..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {activeRules.map((rule: any) => {
+                    const count = todayTripCounts[rule.id] ?? 0;
+                    const atLimit = rule.maxTripsPerDay != null && count >= rule.maxTripsPerDay;
+                    return (
+                      <SelectItem key={rule.id} value={rule.id} disabled={atLimit}>
+                        <div className="flex items-center justify-between w-full gap-3">
+                          <span>{rule.name}</span>
+                          {rule.maxTripsPerDay != null && (
+                            <span className={`text-xs ${atLimit ? 'text-destructive' : 'text-muted-foreground'}`}>
+                              {count}/{rule.maxTripsPerDay}
+                            </span>
+                          )}
+                        </div>
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {(() => {
+            const displayRule = activeRules.length === 1
+              ? activeRules[0]
+              : activeRules.find((r: any) => r.id === selectedRuleId);
+            if (!displayRule) return activeRules.length === 0
+              ? <p className="text-sm text-muted-foreground text-center py-4">No active trip rules available for your location right now.</p>
+              : null;
+
+            const count = todayTripCounts[displayRule.id] ?? 0;
+            const atLimit = displayRule.maxTripsPerDay != null && count >= displayRule.maxTripsPerDay;
+            const waypoints = displayRule.waypoints as Array<{ name: string; address: string }> | null;
+            const polyline = displayRule.chosenRoutePolyline as string | null;
+
+            return (
+              <div className={`rounded-xl border overflow-hidden ${atLimit ? 'border-destructive/30' : 'border-border'}`}>
+                {polyline && (
+                  <img
+                    src={`/api/maps/route-preview?polyline=${encodeURIComponent(polyline)}`}
+                    alt="Planned route"
+                    className="w-full h-36 object-cover"
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                  />
+                )}
+                <div className={`p-3 space-y-2 ${atLimit ? 'bg-destructive/5' : 'bg-muted/40'}`}>
+                  <p className="font-semibold text-sm">{displayRule.name}</p>
+                  {(waypoints && waypoints.length > 0) && (
+                    <div className="space-y-1">
+                      {waypoints.map((wp: any, i: number) => (
+                        <p key={i} className="text-xs text-muted-foreground flex items-center gap-1.5">
+                          <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-blue-100 text-blue-700 text-xs font-bold flex-shrink-0">{i + 1}</span>
+                          {wp.name}
+                        </p>
+                      ))}
+                      {displayRule.destinationName && (
+                        <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                          <MapPin className="w-3 h-3 text-red-500 flex-shrink-0" /> {displayRule.destinationName}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  {(!waypoints?.length) && displayRule.destinationName && (
+                    <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                      <MapPin className="w-3 h-3 text-red-500 flex-shrink-0" /> {displayRule.destinationName}
+                    </p>
+                  )}
+                  {displayRule.maxTripsPerDay != null && (
+                    <p className={`text-xs font-medium ${atLimit ? 'text-destructive' : 'text-muted-foreground'}`}>
+                      {atLimit
+                        ? `Daily limit reached (${count}/${displayRule.maxTripsPerDay} trips used)`
+                        : `${count} of ${displayRule.maxTripsPerDay} trips used today`}
+                    </p>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+
+        <SheetFooter className="mt-6 flex-col gap-2">
+          {(() => {
+            const chosenRule = activeRules.length === 1
+              ? activeRules[0]
+              : activeRules.find((r: any) => r.id === selectedRuleId);
+            const ruleId = chosenRule?.id ?? selectedRuleId;
+            const count = chosenRule ? (todayTripCounts[chosenRule.id] ?? 0) : 0;
+            const atLimit = chosenRule?.maxTripsPerDay != null && count >= chosenRule.maxTripsPerDay;
+            return (
+              <>
+                <Button
+                  className="w-full font-bold py-5 rounded-2xl"
+                  disabled={!ruleId || startTripMutation.isPending || atLimit}
+                  title={atLimit ? `Daily limit reached (${count}/${chosenRule?.maxTripsPerDay})` : undefined}
+                  onClick={() => ruleId && !atLimit && startTripMutation.mutate({ ruleId })}
+                >
+                  {startTripMutation.isPending ? 'Starting...' : atLimit ? 'Daily limit reached' : '▶  Confirm & Start Trip'}
+                </Button>
+                {atLimit && (
+                  <p className="text-xs text-destructive text-center">
+                    You've used all {chosenRule?.maxTripsPerDay} trips allowed today for this rule.
+                  </p>
+                )}
+              </>
+            );
+          })()}
+          <Button variant="ghost" className="w-full" onClick={() => setShowStartTripSheet(false)}>
+            Cancel
+          </Button>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
     </>
   );
 }
