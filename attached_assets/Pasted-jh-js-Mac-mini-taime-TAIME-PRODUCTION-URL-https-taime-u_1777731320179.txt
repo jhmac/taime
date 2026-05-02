@@ -1,0 +1,346 @@
+jh@js-Mac-mini taime % TAIME_PRODUCTION_URL=https://taime.us ./scripts/build-native.sh
+🛍️  Taime — Native Build Pipeline
+============================================================
+
+Building web application...
+
+> rest-express@1.0.0 build
+> vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist
+
+vite v5.4.21 building for production...
+transforming (1) index.htmlBrowserslist: browsers data (caniuse-lite) is 19 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+✓ 3638 modules transformed.
+Circular chunk: vendor -> vendor-react -> vendor. Please adjust the manual chunk logic for these chunks.
+Circular chunk: vendor -> vendor-radix -> vendor. Please adjust the manual chunk logic for these chunks.
+../dist/public/index.html                                   6.01 kB │ gzip:   2.37 kB
+../dist/public/assets/index-ce9bqHvz.css                  196.83 kB │ gzip:  28.89 kB
+../dist/public/assets/notificationConstants-DhV8e-ED.js     0.03 kB │ gzip:   0.05 kB
+../dist/public/assets/authUtils-CcDzk6i0.js                 0.08 kB │ gzip:   0.10 kB
+../dist/public/assets/collapsible-DqmzINfV.js               0.11 kB │ gzip:   0.12 kB
+../dist/public/assets/skeleton-kPwgCKi4.js                  0.21 kB │ gzip:   0.18 kB
+../dist/public/assets/label-By4PfLo2.js                     0.41 kB │ gzip:   0.28 kB
+../dist/public/assets/separator-CSRNePbj.js                 0.41 kB │ gzip:   0.28 kB
+../dist/public/assets/progress-DCrY5S7w.js                  0.47 kB │ gzip:   0.33 kB
+../dist/public/assets/textarea-DWkhcdfy.js                  0.54 kB │ gzip:   0.35 kB
+../dist/public/assets/input-BQV8eWNf.js                     0.62 kB │ gzip:   0.37 kB
+../dist/public/assets/avatar-DJEJdVsS.js                    0.68 kB │ gzip:   0.34 kB
+../dist/public/assets/checkbox-sIy9nRN5.js                  0.75 kB │ gzip:   0.42 kB
+../dist/public/assets/badge-CXfN_-2t.js                     0.78 kB │ gzip:   0.40 kB
+../dist/public/assets/not-found-B8jl0ide.js                 0.80 kB │ gzip:   0.44 kB
+../dist/public/assets/scroll-area-CeRadW4q.js               0.85 kB │ gzip:   0.44 kB
+../dist/public/assets/switch-CVFMQt5B.js                    0.85 kB │ gzip:   0.45 kB
+../dist/public/assets/card-Cshx2vIF.js                      1.03 kB │ gzip:   0.39 kB
+../dist/public/assets/tabs-DZvzFRSi.js                      1.15 kB │ gzip:   0.48 kB
+../dist/public/assets/ShopifyCallbackSuccess-BWlQ8jEI.js    1.34 kB │ gzip:   0.66 kB
+../dist/public/assets/button-BwpnYhoP.js                    1.35 kB │ gzip:   0.65 kB
+../dist/public/assets/table-CeeyQuCi.js                     1.53 kB │ gzip:   0.54 kB
+../dist/public/assets/form-DANnBVyf.js                      1.81 kB │ gzip:   0.79 kB
+../dist/public/assets/alert-dialog-DcU3uxmv.js              2.08 kB │ gzip:   0.75 kB
+../dist/public/assets/Support-qrkFtK3o.js                   2.14 kB │ gzip:   0.89 kB
+../dist/public/assets/dialog-CNIEV5Lk.js                    2.26 kB │ gzip:   0.89 kB
+../dist/public/assets/sheet-CA_NGqK2.js                     2.28 kB │ gzip:   0.90 kB
+../dist/public/assets/TeamDirectory-DACZrBdG.js             2.77 kB │ gzip:   1.23 kB
+../dist/public/assets/Landing-CmN6s5LU.js                   2.77 kB │ gzip:   1.15 kB
+../dist/public/assets/select-oKPWANkK.js                    3.16 kB │ gzip:   1.15 kB
+../dist/public/assets/QuickCaptureButton-DtzHH6WF.js        3.32 kB │ gzip:   1.51 kB
+../dist/public/assets/FocusClockOut-BJOrVrXP.js             4.15 kB │ gzip:   1.78 kB
+../dist/public/assets/GTDProjects-De65wDhI.js               4.39 kB │ gzip:   1.82 kB
+../dist/public/assets/GTDWaiting-Bcqc3a6V.js                4.55 kB │ gzip:   1.81 kB
+../dist/public/assets/MeetingsList-Ms9866Kj.js              4.55 kB │ gzip:   1.63 kB
+../dist/public/assets/ScheduleReviewModal-BQYFgTAM.js       4.79 kB │ gzip:   1.53 kB
+../dist/public/assets/GTDSomeday-CWFbu3ex.js                5.16 kB │ gzip:   1.96 kB
+../dist/public/assets/JoinPage-DIANSruH.js                  6.53 kB │ gzip:   2.03 kB
+../dist/public/assets/AIQuestionsPage-BJ3SQucj.js           6.80 kB │ gzip:   2.40 kB
+../dist/public/assets/KnowledgeBase-CIDao95Q.js             6.90 kB │ gzip:   2.45 kB
+../dist/public/assets/SOPRevisions-83y0xXS1.js              7.85 kB │ gzip:   2.78 kB
+../dist/public/assets/InsightsPage-BVnhlWzH.js              7.88 kB │ gzip:   2.63 kB
+../dist/public/assets/PayrollExport-C2EhfQnh.js             7.94 kB │ gzip:   2.76 kB
+../dist/public/assets/TermsOfService-DG25N1PE.js            8.04 kB │ gzip:   2.67 kB
+../dist/public/assets/SOPLibrary-Ct_H6TbQ.js                8.09 kB │ gzip:   2.93 kB
+../dist/public/assets/GTDProjectDetail-IfV1bcuC.js          8.09 kB │ gzip:   2.50 kB
+../dist/public/assets/MorningWhisper-Dbv1xBwN.js            8.13 kB │ gzip:   2.63 kB
+../dist/public/assets/EmployeeSettings-Br43fRnH.js          8.46 kB │ gzip:   2.96 kB
+../dist/public/assets/LeanBoard-evABEEiU.js                 8.60 kB │ gzip:   2.73 kB
+../dist/public/assets/TrainingHub-iszNK29Z.js               8.86 kB │ gzip:   2.93 kB
+../dist/public/assets/MoreMenu-BWa2N-bz.js                  8.99 kB │ gzip:   2.98 kB
+../dist/public/assets/Learning-C202hAUJ.js                  9.00 kB │ gzip:   2.62 kB
+../dist/public/assets/Performance-CK7Lm_5D.js               9.04 kB │ gzip:   2.59 kB
+../dist/public/assets/MeetingDetail-Cb5CP8eq.js             9.09 kB │ gzip:   2.99 kB
+../dist/public/assets/Requests-bmdTHho7.js                  9.51 kB │ gzip:   2.73 kB
+../dist/public/assets/PayrollSetupModal-DXDC9G5j.js         9.84 kB │ gzip:   3.33 kB
+../dist/public/assets/TrainingPlayer-deQtj4Lv.js            9.95 kB │ gzip:   3.24 kB
+../dist/public/assets/StoreQA-LBoJOaJN.js                  10.17 kB │ gzip:   2.83 kB
+../dist/public/assets/PrivacyPolicy-mf5rDTTc.js            10.94 kB │ gzip:   3.33 kB
+../dist/public/assets/MileageReport-CfVkLYWA.js            10.99 kB │ gzip:   3.64 kB
+../dist/public/assets/TripReceiptModal-y4WTfVeH.js         11.01 kB │ gzip:   3.39 kB
+../dist/public/assets/MeetingsNew-D-zaZPV5.js              11.30 kB │ gzip:   3.80 kB
+../dist/public/assets/GTDActions-BA3aCW-3.js               11.58 kB │ gzip:   3.78 kB
+../dist/public/assets/IssueDetail-85cB_HtI.js              11.66 kB │ gzip:   3.64 kB
+../dist/public/assets/IssueList-CWjAeaSR.js                11.83 kB │ gzip:   4.07 kB
+../dist/public/assets/AskMAinagerSheet-Dr5S9q2U.js         12.52 kB │ gzip:   4.16 kB
+../dist/public/assets/InventoryCount-DH0JAQWb.js           12.53 kB │ gzip:   4.14 kB
+../dist/public/assets/KudosWallPage-BRgiqYzA.js            13.09 kB │ gzip:   4.03 kB
+../dist/public/assets/RoleManagement-D4MBKAzv.js           13.15 kB │ gzip:   4.26 kB
+../dist/public/assets/WeeklyReview-Bav4O5F8.js             13.32 kB │ gzip:   3.67 kB
+../dist/public/assets/Operations-C1BCgNkw.js               13.87 kB │ gzip:   3.34 kB
+../dist/public/assets/SOPDetail-CKFntpuH.js                14.48 kB │ gzip:   3.99 kB
+../dist/public/assets/MorningHuddle-YeKSD_Dx.js            15.17 kB │ gzip:   4.20 kB
+../dist/public/assets/MyScore-BEP2njCO.js                  15.99 kB │ gzip:   4.80 kB
+../dist/public/assets/GTDInbox-DalOysYA.js                 16.69 kB │ gzip:   5.05 kB
+../dist/public/assets/OnboardingGuard-BuAk85jq.js          18.67 kB │ gzip:   5.15 kB
+../dist/public/assets/MessagingPage-Dkw1j0zb.js            18.86 kB │ gzip:   5.66 kB
+../dist/public/assets/SupplyCatalog-HGQjmAQ7.js            20.12 kB │ gzip:   5.70 kB
+../dist/public/assets/SOPExecution-BIu1JMma.js             23.56 kB │ gzip:   7.12 kB
+../dist/public/assets/Team-BYVPbIuE.js                     24.26 kB │ gzip:   6.61 kB
+../dist/public/assets/SOPBuilder-CpEihPjM.js               24.59 kB │ gzip:   7.83 kB
+../dist/public/assets/ImprovementFeed-8bGq9zac.js          26.82 kB │ gzip:   7.65 kB
+../dist/public/assets/HR-Doitflov.js                       27.73 kB │ gzip:   5.51 kB
+../dist/public/assets/Communication-Ctm2oTPU.js            28.17 kB │ gzip:   6.72 kB
+../dist/public/assets/PayPeriodManagement-C9DQFwYh.js      29.61 kB │ gzip:   7.73 kB
+../dist/public/assets/Availability-4G4BkMSF.js             32.83 kB │ gzip:   8.77 kB
+../dist/public/assets/TaskManagement-BbXazsd3.js           37.56 kB │ gzip:   8.45 kB
+../dist/public/assets/TimeClockWidget-BvZSoq2B.js          38.58 kB │ gzip:  10.90 kB
+../dist/public/assets/vendor-query-CleVV5qo.js             38.62 kB │ gzip:  11.52 kB
+../dist/public/assets/Analytics-BNEMCVAX.js                41.69 kB │ gzip:   9.07 kB
+../dist/public/assets/TeamMember-BG5Y0R3J.js               42.85 kB │ gzip:   8.73 kB
+../dist/public/assets/AIContentStudio-DlW6yaaN.js          43.92 kB │ gzip:  10.75 kB
+../dist/public/assets/index-BjxuWN4g.js                    62.44 kB │ gzip:  18.48 kB
+../dist/public/assets/CashManagement-C5qY6hVO.js           62.81 kB │ gzip:  13.86 kB
+../dist/public/assets/Timesheets-P83HhJPS.js               71.67 kB │ gzip:  16.82 kB
+../dist/public/assets/vendor-clerk-CQ2SdsLK.js             74.18 kB │ gzip:  18.24 kB
+../dist/public/assets/DashboardRouter-BPxRfmFe.js         129.41 kB │ gzip:  28.61 kB
+../dist/public/assets/vendor-radix-BvRv3kLs.js            136.39 kB │ gzip:  38.75 kB
+../dist/public/assets/vendor-react-Dcvsr6Ms.js            145.55 kB │ gzip:  46.92 kB
+../dist/public/assets/ScheduleManagement-DQKWUqm-.js      201.43 kB │ gzip:  53.75 kB
+../dist/public/assets/AdminSettings-ByW_cpQA.js           234.76 kB │ gzip:  52.96 kB
+../dist/public/assets/vendor-YP_VOgaQ.js                  708.98 kB │ gzip: 197.70 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 3.23s
+
+✨ [vite-plugin-compression]:algorithm=gzip - compressed file successfully: 
+public/assets/AskMAinagerSheet-Dr5S9q2U.js.gz         12.23kb / gzip: 4.05kb
+public/assets/Communication-Ctm2oTPU.js.gz            27.54kb / gzip: 6.52kb
+public/assets/Analytics-BNEMCVAX.js.gz                40.74kb / gzip: 8.81kb
+public/assets/EmployeeSettings-Br43fRnH.js.gz         8.27kb / gzip: 2.89kb
+public/assets/FocusClockOut-BJOrVrXP.js.gz            4.05kb / gzip: 1.73kb
+public/assets/AIContentStudio-DlW6yaaN.js.gz          42.91kb / gzip: 10.43kb
+public/assets/GTDInbox-DalOysYA.js.gz                 16.31kb / gzip: 4.92kb
+public/assets/GTDProjectDetail-IfV1bcuC.js.gz         7.90kb / gzip: 2.44kb
+public/assets/GTDActions-BA3aCW-3.js.gz               11.31kb / gzip: 3.69kb
+public/assets/GTDProjects-De65wDhI.js.gz              4.29kb / gzip: 1.77kb
+public/assets/AIQuestionsPage-BJ3SQucj.js.gz          6.65kb / gzip: 2.34kb
+public/assets/GTDWaiting-Bcqc3a6V.js.gz               4.45kb / gzip: 1.76kb
+public/assets/GTDSomeday-CWFbu3ex.js.gz               5.04kb / gzip: 1.91kb
+public/assets/InsightsPage-BVnhlWzH.js.gz             7.70kb / gzip: 2.57kb
+public/assets/InventoryCount-DH0JAQWb.js.gz           12.26kb / gzip: 4.02kb
+public/assets/CashManagement-C5qY6hVO.js.gz           61.36kb / gzip: 13.47kb
+public/assets/ImprovementFeed-8bGq9zac.js.gz          26.19kb / gzip: 7.45kb
+public/assets/JoinPage-DIANSruH.js.gz                 6.38kb / gzip: 1.98kb
+public/assets/IssueDetail-85cB_HtI.js.gz              11.38kb / gzip: 3.54kb
+public/assets/HR-Doitflov.js.gz                       27.09kb / gzip: 5.34kb
+public/assets/Landing-CmN6s5LU.js.gz                  2.71kb / gzip: 1.12kb
+public/assets/IssueList-CWjAeaSR.js.gz                11.55kb / gzip: 3.97kb
+public/assets/KudosWallPage-BRgiqYzA.js.gz            12.79kb / gzip: 3.92kb
+public/assets/Learning-C202hAUJ.js.gz                 8.79kb / gzip: 2.55kb
+public/assets/MeetingsList-Ms9866Kj.js.gz             4.45kb / gzip: 1.59kb
+public/assets/MeetingDetail-Cb5CP8eq.js.gz            8.89kb / gzip: 2.91kb
+public/assets/LeanBoard-evABEEiU.js.gz                8.40kb / gzip: 2.66kb
+public/assets/MeetingsNew-D-zaZPV5.js.gz              11.04kb / gzip: 3.70kb
+public/assets/MileageReport-CfVkLYWA.js.gz            10.74kb / gzip: 3.54kb
+public/assets/MessagingPage-Dkw1j0zb.js.gz            18.42kb / gzip: 5.51kb
+public/assets/MorningHuddle-YeKSD_Dx.js.gz            14.82kb / gzip: 4.10kb
+public/assets/MoreMenu-BWa2N-bz.js.gz                 8.78kb / gzip: 2.91kb
+public/assets/MorningWhisper-Dbv1xBwN.js.gz           7.94kb / gzip: 2.56kb
+public/assets/Operations-C1BCgNkw.js.gz               13.54kb / gzip: 3.25kb
+public/assets/MyScore-BEP2njCO.js.gz                  15.63kb / gzip: 4.68kb
+public/assets/OnboardingGuard-BuAk85jq.js.gz          18.24kb / gzip: 5.01kb
+public/assets/PayrollExport-C2EhfQnh.js.gz            7.75kb / gzip: 2.69kb
+public/assets/KnowledgeBase-CIDao95Q.js.gz            6.74kb / gzip: 2.39kb
+public/assets/Performance-CK7Lm_5D.js.gz              8.83kb / gzip: 2.53kb
+public/assets/PayPeriodManagement-C9DQFwYh.js.gz      28.92kb / gzip: 7.52kb
+public/assets/PayrollSetupModal-DXDC9G5j.js.gz        9.62kb / gzip: 3.25kb
+public/assets/QuickCaptureButton-DtzHH6WF.js.gz       3.25kb / gzip: 1.47kb
+public/assets/PrivacyPolicy-mf5rDTTc.js.gz            10.69kb / gzip: 3.25kb
+public/assets/Requests-bmdTHho7.js.gz                 9.30kb / gzip: 2.66kb
+public/assets/SOPDetail-CKFntpuH.js.gz                14.14kb / gzip: 3.89kb
+public/assets/RoleManagement-D4MBKAzv.js.gz           12.86kb / gzip: 4.16kb
+public/assets/SOPLibrary-Ct_H6TbQ.js.gz               7.90kb / gzip: 2.86kb
+public/assets/SOPRevisions-83y0xXS1.js.gz             7.67kb / gzip: 2.72kb
+public/assets/SOPBuilder-CpEihPjM.js.gz               24.03kb / gzip: 7.63kb
+public/assets/ShopifyCallbackSuccess-BWlQ8jEI.js.gz   1.31kb / gzip: 0.64kb
+public/assets/ScheduleReviewModal-BQYFgTAM.js.gz      4.68kb / gzip: 1.49kb
+public/assets/Support-qrkFtK3o.js.gz                  2.09kb / gzip: 0.87kb
+public/assets/StoreQA-LBoJOaJN.js.gz                  9.94kb / gzip: 2.76kb
+public/assets/SOPExecution-BIu1JMma.js.gz             23.01kb / gzip: 6.94kb
+public/assets/SupplyCatalog-HGQjmAQ7.js.gz            19.66kb / gzip: 5.55kb
+public/assets/TeamDirectory-DACZrBdG.js.gz            2.70kb / gzip: 1.21kb
+public/assets/TermsOfService-DG25N1PE.js.gz           7.85kb / gzip: 2.60kb
+public/assets/Team-BYVPbIuE.js.gz                     23.70kb / gzip: 6.43kb
+public/assets/TrainingHub-iszNK29Z.js.gz              8.65kb / gzip: 2.86kb
+public/assets/TrainingPlayer-deQtj4Lv.js.gz           9.72kb / gzip: 3.16kb
+public/assets/alert-dialog-DcU3uxmv.js.gz             2.03kb / gzip: 0.73kb
+public/assets/TaskManagement-BbXazsd3.js.gz           36.68kb / gzip: 8.21kb
+public/assets/TripReceiptModal-y4WTfVeH.js.gz         10.76kb / gzip: 3.30kb
+public/assets/TimeClockWidget-BvZSoq2B.js.gz          37.75kb / gzip: 10.63kb
+public/assets/WeeklyReview-Bav4O5F8.js.gz             13.02kb / gzip: 3.58kb
+public/assets/card-Cshx2vIF.js.gz                     1.01kb / gzip: 0.38kb
+public/assets/button-BwpnYhoP.js.gz                   1.31kb / gzip: 0.63kb
+public/assets/dialog-CNIEV5Lk.js.gz                   2.20kb / gzip: 0.86kb
+public/assets/form-DANnBVyf.js.gz                     1.77kb / gzip: 0.77kb
+public/assets/select-oKPWANkK.js.gz                   3.08kb / gzip: 1.12kb
+public/assets/sheet-CA_NGqK2.js.gz                    2.22kb / gzip: 0.88kb
+public/assets/table-CeeyQuCi.js.gz                    1.49kb / gzip: 0.52kb
+public/assets/tabs-DZvzFRSi.js.gz                     1.12kb / gzip: 0.47kb
+public/assets/TeamMember-BG5Y0R3J.js.gz               41.88kb / gzip: 8.47kb
+public/index.html.gz                                  5.98kb / gzip: 2.31kb
+public/assets/vendor-query-CleVV5qo.js.gz             37.72kb / gzip: 11.23kb
+public/sw.js.gz                                       10.85kb / gzip: 3.57kb
+public/manifest.json.gz                               2.30kb / gzip: 0.59kb
+public/assets/Availability-4G4BkMSF.js.gz             32.09kb / gzip: 8.53kb
+public/assets/DashboardRouter-BPxRfmFe.js.gz          126.50kb / gzip: 27.73kb
+public/assets/Timesheets-P83HhJPS.js.gz               70.07kb / gzip: 16.28kb
+public/assets/vendor-clerk-CQ2SdsLK.js.gz             72.44kb / gzip: 17.78kb
+public/assets/index-BjxuWN4g.js.gz                    60.99kb / gzip: 18.00kb
+public/assets/index-ce9bqHvz.css.gz                   192.22kb / gzip: 27.82kb
+public/assets/vendor-radix-BvRv3kLs.js.gz             133.19kb / gzip: 37.76kb
+public/assets/vendor-react-Dcvsr6Ms.js.gz             142.13kb / gzip: 45.74kb
+public/assets/AdminSettings-ByW_cpQA.js.gz            229.40kb / gzip: 51.40kb
+public/assets/ScheduleManagement-DQKWUqm-.js.gz       196.91kb / gzip: 52.28kb
+public/assets/vendor-YP_VOgaQ.js.gz                   692.37kb / gzip: 192.52kb
+
+
+
+✨ [vite-plugin-compression]:algorithm=brotliCompress - compressed file successfully: 
+public/assets/AIQuestionsPage-BJ3SQucj.js.br          6.65kb / brotliCompress: 2.07kb
+public/assets/AskMAinagerSheet-Dr5S9q2U.js.br         12.23kb / brotliCompress: 3.54kb
+public/assets/Availability-4G4BkMSF.js.br             32.09kb / brotliCompress: 7.59kb
+public/assets/Analytics-BNEMCVAX.js.br                40.74kb / brotliCompress: 7.81kb
+public/assets/EmployeeSettings-Br43fRnH.js.br         8.27kb / brotliCompress: 2.50kb
+public/assets/AIContentStudio-DlW6yaaN.js.br          42.91kb / brotliCompress: 9.18kb
+public/assets/FocusClockOut-BJOrVrXP.js.br            4.05kb / brotliCompress: 1.53kb
+public/assets/GTDActions-BA3aCW-3.js.br               11.31kb / brotliCompress: 3.31kb
+public/assets/GTDProjectDetail-IfV1bcuC.js.br         7.90kb / brotliCompress: 2.17kb
+public/assets/GTDInbox-DalOysYA.js.br                 16.31kb / brotliCompress: 4.35kb
+public/assets/GTDProjects-De65wDhI.js.br              4.29kb / brotliCompress: 1.58kb
+public/assets/GTDSomeday-CWFbu3ex.js.br               5.04kb / brotliCompress: 1.68kb
+public/assets/GTDWaiting-Bcqc3a6V.js.br               4.45kb / brotliCompress: 1.59kb
+public/assets/Communication-Ctm2oTPU.js.br            27.54kb / brotliCompress: 5.74kb
+public/assets/CashManagement-C5qY6hVO.js.br           61.36kb / brotliCompress: 11.86kb
+public/assets/InsightsPage-BVnhlWzH.js.br             7.70kb / brotliCompress: 2.29kb
+public/assets/InventoryCount-DH0JAQWb.js.br           12.26kb / brotliCompress: 3.58kb
+public/assets/ImprovementFeed-8bGq9zac.js.br          26.19kb / brotliCompress: 6.56kb
+public/assets/IssueList-CWjAeaSR.js.br                11.55kb / brotliCompress: 3.51kb
+public/assets/HR-Doitflov.js.br                       27.09kb / brotliCompress: 4.62kb
+public/assets/JoinPage-DIANSruH.js.br                 6.38kb / brotliCompress: 1.75kb
+public/assets/KnowledgeBase-CIDao95Q.js.br            6.74kb / brotliCompress: 2.12kb
+public/assets/Landing-CmN6s5LU.js.br                  2.71kb / brotliCompress: 0.96kb
+public/assets/IssueDetail-85cB_HtI.js.br              11.38kb / brotliCompress: 3.18kb
+public/assets/LeanBoard-evABEEiU.js.br                8.40kb / brotliCompress: 2.35kb
+public/assets/KudosWallPage-BRgiqYzA.js.br            12.79kb / brotliCompress: 3.46kb
+public/assets/Learning-C202hAUJ.js.br                 8.79kb / brotliCompress: 2.27kb
+public/assets/MeetingDetail-Cb5CP8eq.js.br            8.89kb / brotliCompress: 2.61kb
+public/assets/MeetingsList-Ms9866Kj.js.br             4.45kb / brotliCompress: 1.41kb
+public/assets/MeetingsNew-D-zaZPV5.js.br              11.04kb / brotliCompress: 3.26kb
+public/assets/MileageReport-CfVkLYWA.js.br            10.74kb / brotliCompress: 3.22kb
+public/assets/MoreMenu-BWa2N-bz.js.br                 8.78kb / brotliCompress: 2.51kb
+public/assets/MessagingPage-Dkw1j0zb.js.br            18.42kb / brotliCompress: 4.97kb
+public/assets/MorningHuddle-YeKSD_Dx.js.br            14.82kb / brotliCompress: 3.57kb
+public/assets/MorningWhisper-Dbv1xBwN.js.br           7.94kb / brotliCompress: 2.30kb
+public/assets/Operations-C1BCgNkw.js.br               13.54kb / brotliCompress: 2.90kb
+public/assets/MyScore-BEP2njCO.js.br                  15.63kb / brotliCompress: 4.21kb
+public/assets/PayrollExport-C2EhfQnh.js.br            7.75kb / brotliCompress: 2.37kb
+public/assets/OnboardingGuard-BuAk85jq.js.br          18.24kb / brotliCompress: 4.40kb
+public/assets/PayrollSetupModal-DXDC9G5j.js.br        9.62kb / brotliCompress: 2.84kb
+public/assets/PayPeriodManagement-C9DQFwYh.js.br      28.92kb / brotliCompress: 6.64kb
+public/assets/Performance-CK7Lm_5D.js.br              8.83kb / brotliCompress: 2.23kb
+public/assets/QuickCaptureButton-DtzHH6WF.js.br       3.25kb / brotliCompress: 1.30kb
+public/assets/PrivacyPolicy-mf5rDTTc.js.br            10.69kb / brotliCompress: 2.50kb
+public/assets/Requests-bmdTHho7.js.br                 9.30kb / brotliCompress: 2.37kb
+public/assets/RoleManagement-D4MBKAzv.js.br           12.86kb / brotliCompress: 3.70kb
+public/assets/SOPDetail-CKFntpuH.js.br                14.14kb / brotliCompress: 3.47kb
+public/assets/SOPRevisions-83y0xXS1.js.br             7.67kb / brotliCompress: 2.39kb
+public/assets/SOPBuilder-CpEihPjM.js.br               24.03kb / brotliCompress: 6.75kb
+public/assets/SOPLibrary-Ct_H6TbQ.js.br               7.90kb / brotliCompress: 2.51kb
+public/assets/ShopifyCallbackSuccess-BWlQ8jEI.js.br   1.31kb / brotliCompress: 0.53kb
+public/assets/SOPExecution-BIu1JMma.js.br             23.01kb / brotliCompress: 6.13kb
+public/assets/ScheduleReviewModal-BQYFgTAM.js.br      4.68kb / brotliCompress: 1.30kb
+public/assets/Support-qrkFtK3o.js.br                  2.09kb / brotliCompress: 0.72kb
+public/assets/StoreQA-LBoJOaJN.js.br                  9.94kb / brotliCompress: 2.42kb
+public/assets/TeamDirectory-DACZrBdG.js.br            2.70kb / brotliCompress: 1.04kb
+public/assets/SupplyCatalog-HGQjmAQ7.js.br            19.66kb / brotliCompress: 4.96kb
+public/assets/TermsOfService-DG25N1PE.js.br           7.85kb / brotliCompress: 1.97kb
+public/assets/Team-BYVPbIuE.js.br                     23.70kb / brotliCompress: 5.70kb
+public/assets/TaskManagement-BbXazsd3.js.br           36.68kb / brotliCompress: 7.32kb
+public/assets/TeamMember-BG5Y0R3J.js.br               41.88kb / brotliCompress: 7.55kb
+public/assets/TimeClockWidget-BvZSoq2B.js.br          37.75kb / brotliCompress: 9.44kb
+public/assets/alert-dialog-DcU3uxmv.js.br             2.03kb / brotliCompress: 0.66kb
+public/assets/TrainingHub-iszNK29Z.js.br              8.65kb / brotliCompress: 2.56kb
+public/assets/TrainingPlayer-deQtj4Lv.js.br           9.72kb / brotliCompress: 2.83kb
+public/assets/button-BwpnYhoP.js.br                   1.31kb / brotliCompress: 0.53kb
+public/assets/TripReceiptModal-y4WTfVeH.js.br         10.76kb / brotliCompress: 2.94kb
+public/assets/card-Cshx2vIF.js.br                     1.01kb / brotliCompress: 0.34kb
+public/assets/dialog-CNIEV5Lk.js.br                   2.20kb / brotliCompress: 0.76kb
+public/assets/form-DANnBVyf.js.br                     1.77kb / brotliCompress: 0.68kb
+public/assets/WeeklyReview-Bav4O5F8.js.br             13.02kb / brotliCompress: 3.17kb
+public/assets/sheet-CA_NGqK2.js.br                    2.22kb / brotliCompress: 0.78kb
+public/assets/tabs-DZvzFRSi.js.br                     1.12kb / brotliCompress: 0.40kb
+public/assets/select-oKPWANkK.js.br                   3.08kb / brotliCompress: 0.95kb
+public/assets/table-CeeyQuCi.js.br                    1.49kb / brotliCompress: 0.45kb
+public/assets/vendor-query-CleVV5qo.js.br             37.72kb / brotliCompress: 10.13kb
+public/assets/Timesheets-P83HhJPS.js.br               70.07kb / brotliCompress: 13.88kb
+public/assets/index-BjxuWN4g.js.br                    60.99kb / brotliCompress: 15.15kb
+public/manifest.json.br                               2.30kb / brotliCompress: 0.48kb
+public/assets/vendor-clerk-CQ2SdsLK.js.br             72.44kb / brotliCompress: 15.72kb
+public/index.html.br                                  5.98kb / brotliCompress: 1.80kb
+public/sw.js.br                                       10.85kb / brotliCompress: 2.97kb
+public/assets/DashboardRouter-BPxRfmFe.js.br          126.50kb / brotliCompress: 22.86kb
+public/assets/vendor-radix-BvRv3kLs.js.br             133.19kb / brotliCompress: 29.95kb
+public/assets/AdminSettings-ByW_cpQA.js.br            229.40kb / brotliCompress: 42.53kb
+public/assets/ScheduleManagement-DQKWUqm-.js.br       196.91kb / brotliCompress: 43.41kb
+public/assets/index-ce9bqHvz.css.br                   192.22kb / brotliCompress: 21.35kb
+public/assets/vendor-react-Dcvsr6Ms.js.br             142.13kb / brotliCompress: 40.07kb
+public/assets/vendor-YP_VOgaQ.js.br                   692.37kb / brotliCompress: 161.55kb
+
+
+
+  dist/index.js  1.7mb ⚠️
+
+⚡ Done in 27ms
+✅  Web build complete.
+
+Syncing native projects with Capacitor...
+✔ Copying web assets from public to ios/App/App/public in 24.06ms
+✔ Creating capacitor.config.json in ios/App/App in 349.58μs
+✔ copy ios in 64.45ms
+✔ Updating iOS plugins in 7.30ms
+✔ Updating iOS native dependencies with pod install in 1.49s
+[info] Found 8 Capacitor plugins for ios:
+       @capacitor/app@8.1.0
+       @capacitor/camera@8.1.0
+       @capacitor/geolocation@8.2.0
+       @capacitor/haptics@8.0.2
+       @capacitor/push-notifications@8.0.3
+       @capacitor/splash-screen@8.0.1
+       @capacitor/status-bar@8.0.2
+       capacitor-native-settings@8.1.0
+✔ update ios in 1.52s
+✔ copy web in 10.63ms
+✔ update web in 12.16ms
+[info] Sync finished in 1.703s
+✅  Cap sync complete.
+
+============================================================
+Native build pipeline complete.
+
+To open in Xcode:          npx cap open ios
+To open in Android Studio: npx cap open android
+
+Re-run this script after every web app change.
+============================================================
+jh@js-Mac-mini taime % 
