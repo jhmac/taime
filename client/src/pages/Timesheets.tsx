@@ -777,11 +777,13 @@ function AddTimeCardDialog({
   onOpenChange,
   preselectedEmployeeId,
   employees,
+  scheduleSource,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   preselectedEmployeeId?: string;
   employees?: UserOption[];
+  scheduleSource?: EmployeeReview[];
 }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -799,6 +801,26 @@ function AddTimeCardDialog({
   });
 
   const availableEmployees = employees?.length ? employees : userList || [];
+
+  const effectiveEmployeeId = preselectedEmployeeId || employeeId;
+
+  const matchedSchedule = useMemo(() => {
+    if (!effectiveEmployeeId || !date || !scheduleSource?.length) return null;
+    const emp = scheduleSource.find((e) => e.userId === effectiveEmployeeId);
+    const day = emp?.dailyBreakdown.find((d) => d.date === date);
+    return day?.schedules?.[0] || null;
+  }, [scheduleSource, effectiveEmployeeId, date]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (matchedSchedule) {
+      setClockInTime(toTimeInput(matchedSchedule.startTime) || "09:00");
+      setClockOutTime(toTimeInput(matchedSchedule.endTime) || "17:00");
+    } else {
+      setClockInTime("09:00");
+      setClockOutTime("17:00");
+    }
+  }, [open, matchedSchedule]);
 
   const addEntryMutation = useMutation({
     mutationFn: async () => {
@@ -1609,6 +1631,7 @@ function PayPeriodReviewTab({
         lastName: e.lastName,
         email: e.email,
       }))}
+      scheduleSource={data?.employees}
     />
     </div>
   );
@@ -1956,6 +1979,7 @@ function DailyReviewTab({ onEntryClick }: { onEntryClick?: (entry: DailyEntry, d
             email: e.email,
           })) || []
         }
+        scheduleSource={data?.employees}
       />
     </div>
   );
@@ -2482,6 +2506,7 @@ export default function Timesheets() {
       <AddTimeCardDialog
         open={showAddTimeCard}
         onOpenChange={setShowAddTimeCard}
+        scheduleSource={data?.employees}
       />
 
       <ExportOptionsModal
