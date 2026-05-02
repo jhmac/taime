@@ -5,6 +5,21 @@ import { db } from "../db";
 import { messageThreads, threadParticipants, threadMessages, users, kudos, shoutouts } from "@shared/schema";
 import type { IStorage } from "../storage";
 import { resolveStoreId } from "../services/storeResolver";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
+import { randomUUID } from "crypto";
+
+const IMAGE_UPLOAD_DIR = path.resolve(process.cwd(), "uploads", "images");
+const imageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowed = ["image/jpeg", "image/jpg", "image/png", "image/gif", "image/webp"];
+    if (allowed.includes(file.mimetype)) cb(null, true);
+    else cb(new Error("Only image files (JPEG, PNG, GIF, WebP) are allowed"));
+  },
+});
 
 const createThreadSchema = z.object({
   thread_type: z.enum(["direct", "group", "channel"]),
@@ -36,6 +51,20 @@ export function registerMessageRoutes(
   isAuthenticated: RequestHandler,
   sendToUsers: (userIds: string[], data: Record<string, unknown>) => void,
 ) {
+
+  app.post("/api/messages/upload-image", isAuthenticated, imageUpload.single("image"), (req: any, res) => {
+    try {
+      if (!req.file) return res.status(400).json({ error: "No image file provided" });
+      if (!fs.existsSync(IMAGE_UPLOAD_DIR)) fs.mkdirSync(IMAGE_UPLOAD_DIR, { recursive: true });
+      const ext = path.extname(req.file.originalname).toLowerCase() || ".jpg";
+      const filename = `${randomUUID()}${ext}`;
+      fs.writeFileSync(path.join(IMAGE_UPLOAD_DIR, filename), req.file.buffer);
+      return res.json({ url: `/uploads/images/${filename}` });
+    } catch (err) {
+      console.error("Image upload error:", err);
+      return res.status(500).json({ error: "Upload failed" });
+    }
+  });
 
   app.get("/api/messages/contacts", isAuthenticated, async (req: any, res) => {
     try {

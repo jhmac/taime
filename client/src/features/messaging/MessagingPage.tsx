@@ -15,7 +15,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Textarea } from "@/components/ui/textarea";
 import {
   MessageSquare, Send, Plus, ArrowLeft, Loader2, ChevronUp, X, Pencil, Trash2, Check, CheckCheck, Reply,
-  Heart, Star, Users, Smile, Sparkles, Shield, Trophy, PartyPopper, Megaphone,
+  Heart, Star, Users, Smile, Sparkles, Shield, Trophy, PartyPopper, Megaphone, ImageIcon,
 } from "lucide-react";
 import { format, isToday, isYesterday } from "date-fns";
 import NewThreadDialog from "./NewThreadDialog";
@@ -645,9 +645,12 @@ export default function MessagingPage() {
   const [isMobileView, setIsMobileView] = useState(window.innerWidth < 768);
   const [showPlusMenu, setShowPlusMenu] = useState(false);
   const [inlineRecognition, setInlineRecognition] = useState<"kudo" | "shoutout" | null>(null);
+  const [pendingImageUrl, setPendingImageUrl] = useState<string | null>(null);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
   const lastTypingSentRef = useRef(0);
   const userScrolledUpRef = useRef(false);
@@ -776,7 +779,7 @@ export default function MessagingPage() {
   }, [wsMessage, selectedThreadId]);
 
   const sendMutation = useMutation({
-    mutationFn: async (payload: { content: string; reply_to_id?: string; temp_id: string }) => {
+    mutationFn: async (payload: { content: string; image_url?: string; reply_to_id?: string; temp_id: string; message_type?: string }) => {
       return await apiRequest("POST", `/api/messages/threads/${selectedThreadId}/messages`, payload);
     },
     onSuccess: () => {
@@ -833,18 +836,42 @@ export default function MessagingPage() {
     },
   });
 
+  const handleImageSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsUploadingImage(true);
+    try {
+      const formData = new FormData();
+      formData.append("image", file);
+      const res = await fetch("/api/messages/upload-image", {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+      if (!res.ok) throw new Error("Upload failed");
+      const data = await res.json() as { url: string };
+      setPendingImageUrl(data.url);
+    } catch {
+      toast({ title: "Image upload failed", variant: "destructive" });
+    } finally {
+      setIsUploadingImage(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }, [toast]);
+
   const handleSend = useCallback(() => {
     const content = messageInput.trim();
-    if (!content || !selectedThreadId || !user) return;
+    if ((!content && !pendingImageUrl) || !selectedThreadId || !user) return;
 
+    const finalContent = content || "📷";
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const optimisticMessage: Message = {
       id: tempId,
       threadId: selectedThreadId,
       senderId: user.id,
-      content,
-      messageType: "text",
-      imageUrl: null,
+      content: finalContent,
+      messageType: pendingImageUrl ? "image" : "text",
+      imageUrl: pendingImageUrl,
       replyToId: replyTo?.id || null,
       editedAt: null,
       deletedAt: null,
@@ -860,11 +887,19 @@ export default function MessagingPage() {
     setLocalMessages(prev => [...prev, optimisticMessage]);
     setMessageInput("");
     setReplyTo(null);
+    const imgUrl = pendingImageUrl;
+    setPendingImageUrl(null);
     userScrolledUpRef.current = false;
     setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
 
-    sendMutation.mutate({ content, reply_to_id: replyTo?.id, temp_id: tempId });
-  }, [messageInput, selectedThreadId, user, replyTo, sendMutation]);
+    sendMutation.mutate({
+      content: finalContent,
+      image_url: imgUrl ?? undefined,
+      message_type: imgUrl ? "image" : "text",
+      reply_to_id: replyTo?.id,
+      temp_id: tempId,
+    });
+  }, [messageInput, pendingImageUrl, selectedThreadId, user, replyTo, sendMutation]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -1380,7 +1415,29 @@ export default function MessagingPage() {
                   {/* Composer */}
                   {!inlineRecognition && (
                     <div className="p-3 border-t border-border bg-background shrink-0">
+                      {/* Image preview strip */}
+                      {pendingImageUrl && (
+                        <div className="mb-2 relative inline-block">
+                          <img src={pendingImageUrl} alt="Attachment preview" className="h-20 rounded-lg object-cover border border-border" />
+                          <button
+                            onClick={() => setPendingImageUrl(null)}
+                            className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-foreground text-background flex items-center justify-center"
+                            aria-label="Remove image"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      )}
                       <div className="flex items-end gap-2">
+                        {/* Hidden file input */}
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
+                          className="hidden"
+                          onChange={handleImageSelect}
+                        />
+
                         {/* Plus action menu */}
                         <Popover open={showPlusMenu} onOpenChange={setShowPlusMenu}>
                           <PopoverTrigger asChild>
@@ -1389,6 +1446,15 @@ export default function MessagingPage() {
                             </Button>
                           </PopoverTrigger>
                           <PopoverContent className="w-48 p-1" side="top" align="start">
+                            <button
+                              onClick={() => { fileInputRef.current?.click(); setShowPlusMenu(false); }}
+                              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm hover:bg-accent transition-colors"
+                            >
+                              {isUploadingImage
+                                ? <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+                                : <ImageIcon className="h-4 w-4 text-blue-500" />}
+                              Send an Image
+                            </button>
                             <button
                               onClick={() => { setInlineRecognition("kudo"); setShowPlusMenu(false); }}
                               className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm hover:bg-accent transition-colors"
@@ -1411,7 +1477,7 @@ export default function MessagingPage() {
                           value={messageInput}
                           onChange={handleInputChange}
                           onKeyDown={handleKeyDown}
-                          placeholder="Type a message..."
+                          placeholder={pendingImageUrl ? "Add a caption..." : "Type a message..."}
                           rows={1}
                           className="flex-1 resize-none rounded-xl border border-input bg-background px-4 py-2.5 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[40px] max-h-[120px]"
                           style={{
@@ -1427,10 +1493,10 @@ export default function MessagingPage() {
                         <Button
                           size="icon"
                           className="h-10 w-10 rounded-full shrink-0"
-                          disabled={!messageInput.trim() || sendMutation.isPending}
+                          disabled={(!messageInput.trim() && !pendingImageUrl) || sendMutation.isPending || isUploadingImage}
                           onClick={handleSend}
                         >
-                          <Send className="h-4 w-4" />
+                          {sendMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                         </Button>
                       </div>
                     </div>
