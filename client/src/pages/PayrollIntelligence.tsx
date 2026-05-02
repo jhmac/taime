@@ -952,6 +952,14 @@ function ProfitFirstTab({
           body={`Your Profit First OpEx budget is ${tier.opex}% of real revenue — ${grossSales > 0 ? fmt$(realRevenue * (tier.opex / 100)) : '—'} this period. Your labor cost of ${summary ? fmt$(summary.totalLaborCost) : '—'} should fit within this envelope.`}
           color="orange"
         />
+        <InsightCard
+          icon="fas fa-tags text-blue-500"
+          title="COGS Is a Bigger Lever Than Payroll"
+          body={grossSales > 0
+            ? `Every 1% cut in COGS (${cogsPct}% → ${cogsPct - 1}%) frees up ${fmt$(grossSales * 0.01)} this period (${fmt$(grossSales / daysBack * 365 * 0.01)}/yr). Negotiate vendor terms, reduce markdowns, and optimize your buy plan.`
+            : 'Connect Shopify to see how much a 1% COGS reduction would free up over a year.'}
+          color="blue"
+        />
       </div>
     </div>
   );
