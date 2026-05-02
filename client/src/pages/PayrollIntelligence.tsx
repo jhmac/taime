@@ -17,6 +17,7 @@ import {
   BENCHMARKS,
   PF_TIERS,
   type PayrollSummary,
+  type PayrollSettings,
   type Benchmark,
   type PFTier,
 } from '@/lib/payrollBenchmarks';
@@ -160,7 +161,7 @@ function InsightCard({ icon, title, body, color = 'blue' }: {
   icon: string;
   title: string;
   body: string;
-  color?: 'blue' | 'green' | 'orange' | 'red' | 'purple';
+  color?: 'blue' | 'green' | 'orange' | 'red' | 'purple' | 'yellow';
 }) {
   const colors: Record<string, string> = {
     blue:   'border-l-blue-500   bg-blue-50   dark:bg-blue-950/20',
@@ -168,6 +169,7 @@ function InsightCard({ icon, title, body, color = 'blue' }: {
     orange: 'border-l-orange-500 bg-orange-50 dark:bg-orange-950/20',
     red:    'border-l-red-500    bg-red-50    dark:bg-red-950/20',
     purple: 'border-l-purple-500 bg-purple-50 dark:bg-purple-950/20',
+    yellow: 'border-l-yellow-500 bg-yellow-50 dark:bg-yellow-950/20',
   };
   return (
     <div className={`border-l-4 rounded-r-lg p-4 ${colors[color]}`}>
