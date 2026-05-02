@@ -44,7 +44,7 @@ function statusColor(actual: number, min: number, max: number, lower_is_better =
   return 'text-red-600 dark:text-red-400';
 }
 
-// ── RangeBar ─────────────────────────────────────────────────────────────────
+// ── RangeBar — segment-based, CSS-custom-property positioning ────────────────
 function RangeBar({
   label,
   unit,
@@ -69,11 +69,23 @@ function RangeBar({
   const barMax = max * 1.3;
   const range = barMax - barMin;
 
-  const pct = (v: number) => Math.min(100, Math.max(0, ((v - barMin) / range) * 100));
+  const toPct = (v: number) => Math.min(100, Math.max(0, ((v - barMin) / range) * 100));
 
   const isGood = actual == null ? null
     : lowerIsBetter ? actual <= max
     : actual >= min && actual <= max;
+
+  // Segment widths (sum to 100%) — no absolute positioning needed
+  const w1 = toPct(min);
+  const w2 = toPct(ideal) - toPct(min);
+  const w3 = toPct(max) - toPct(ideal);
+  const w4 = 100 - toPct(max);
+  const actualPct = actual != null ? toPct(actual) : null;
+
+  const markerColor =
+    isGood === true  ? 'bg-green-500'  :
+    isGood === false ? 'bg-red-500'    :
+                       'bg-yellow-500';
 
   return (
     <div className="mb-4">
@@ -85,30 +97,26 @@ function RangeBar({
           </span>
         )}
       </div>
-      <div className="relative h-5 rounded-full bg-muted overflow-visible">
-        {/* benchmark band */}
-        <div
-          className="absolute top-0 h-full rounded-full bg-green-500/20 border border-green-500/40"
-          style={{ left: `${pct(min)}%`, width: `${pct(max) - pct(min)}%` }}
-        />
-        {/* ideal marker */}
-        <div
-          className="absolute top-0 h-full w-0.5 bg-green-600"
-          style={{ left: `${pct(ideal)}%` }}
-        />
-        {/* actual marker */}
-        {actual != null && (
+      {/* Segment bar — flex layout eliminates absolute left/width inline styles */}
+      <div
+        className="relative h-5 flex rounded-full overflow-hidden bg-muted"
+        {...(actualPct != null ? { style: { '--actual-pct': `${actualPct}%` } as React.CSSProperties } : {})}
+      >
+        <div className="h-full bg-muted shrink-0"               style={{ width: `${w1}%` }} />
+        <div className="h-full bg-green-500/20 shrink-0"        style={{ width: `${w2}%` }} />
+        <div className="h-full bg-green-500/20 border-r-2 border-green-600/60 shrink-0" style={{ width: `${w3}%` }} />
+        <div className="h-full bg-muted shrink-0"               style={{ width: `${w4}%` }} />
+        {/* Actual value marker — positioned via CSS custom property */}
+        {actualPct != null && (
           <div
-            className={`absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full border-2 border-white shadow-md z-10 ${
-              isGood === true ? 'bg-green-500' : isGood === false ? 'bg-red-500' : 'bg-yellow-500'
-            }`}
-            style={{ left: `calc(${pct(actual)}% - 6px)` }}
+            className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 rounded-full border-2 border-background shadow-md z-10 ${markerColor}`}
+            style={{ left: 'var(--actual-pct)' }}
           />
         )}
       </div>
       <div className="flex justify-between text-[10px] text-muted-foreground mt-0.5">
         <span>{fmt(min)}</span>
-        <span className="text-green-600">Ideal: {fmt(ideal)}</span>
+        <span className="text-green-600 dark:text-green-400">Ideal: {fmt(ideal)}</span>
         <span>{fmt(max)}</span>
       </div>
     </div>
@@ -529,22 +537,51 @@ function DashboardTab({
         </Card>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <InsightCard
-          icon="fas fa-chart-line text-green-600"
-          title={summary.splh >= benchmark.splh.ideal ? 'SPLH On Track' : 'Improve SPLH'}
-          body={summary.splh >= benchmark.splh.ideal
-            ? `Your SPLH of ${fmt$(summary.splh)} is at or above the ${benchmark.label} ideal of ${fmt$(benchmark.splh.ideal)}. Great work — maintain this with consistent add-on selling.`
-            : `Your SPLH of ${fmt$(summary.splh)} is below the ${benchmark.label} ideal of ${fmt$(benchmark.splh.ideal)}. Focus on increasing transaction size through styling add-ons and accessories.`}
-          color={summary.splh >= benchmark.splh.ideal ? 'green' : 'orange'}
-        />
-        <InsightCard
-          icon="fas fa-users text-blue-600"
-          title="Optimal Scheduling"
-          body={`At your target payroll of ${target}%, you can afford ${fmtHrs(optimalHours)} of labor per ${daysBack} days at an avg wage of ${fmt$(avgWage)}/hr. You worked ${fmtHrs(summary.totalHours)} — ${summary.totalHours <= optimalHours ? `${fmtHrs(optimalHours - summary.totalHours)} of headroom remaining.` : `${fmtHrs(summary.totalHours - optimalHours)} over budget.`}`}
-          color="blue"
-        />
-      </div>
+      {(() => {
+        // Weakest SPLH day — data-driven insight
+        const daysWithSplh = summary.dailyBreakdown.filter(d => d.splh > 0 && d.hours > 0);
+        const weakestDay = daysWithSplh.length > 0
+          ? daysWithSplh.reduce((a, b) => a.splh < b.splh ? a : b)
+          : null;
+        const bestDay = daysWithSplh.length > 0
+          ? daysWithSplh.reduce((a, b) => a.splh > b.splh ? a : b)
+          : null;
+
+        return (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <InsightCard
+              icon="fas fa-chart-line text-green-600"
+              title={summary.splh >= benchmark.splh.ideal ? 'SPLH On Track' : 'SPLH Below Benchmark'}
+              body={summary.splh >= benchmark.splh.ideal
+                ? `Your SPLH of ${fmt$(summary.splh)} is at or above the ${benchmark.label} ideal of ${fmt$(benchmark.splh.ideal)}. Great work — maintain this with consistent add-on selling.`
+                : `Your SPLH of ${fmt$(summary.splh)} is below the ${benchmark.label} ideal of ${fmt$(benchmark.splh.ideal)}. Focus on increasing transaction size through styling add-ons and accessories.`}
+              color={summary.splh >= benchmark.splh.ideal ? 'green' : 'orange'}
+            />
+            <InsightCard
+              icon="fas fa-users text-blue-600"
+              title="Optimal Scheduling"
+              body={`At your target payroll of ${target}%, you can afford ${fmtHrs(optimalHours)} of labor per ${daysBack} days at an avg wage of ${fmt$(avgWage)}/hr. You worked ${fmtHrs(summary.totalHours)} — ${summary.totalHours <= optimalHours ? `${fmtHrs(optimalHours - summary.totalHours)} of headroom remaining.` : `${fmtHrs(summary.totalHours - optimalHours)} over budget.`}`}
+              color="blue"
+            />
+            {weakestDay && (
+              <InsightCard
+                icon="fas fa-exclamation-triangle text-red-500"
+                title={`Weakest SPLH: ${new Date(weakestDay.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}`}
+                body={`${new Date(weakestDay.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long' })} was your lowest-SPLH day at ${fmt$(weakestDay.splh)}/hr (${fmtHrs(weakestDay.hours)} worked, ${fmt$(weakestDay.revenue)} sales). Review your schedule for that day — consider shifting hours toward your best-performing day (${fmt$(bestDay!.splh)}/hr).`}
+                color="red"
+              />
+            )}
+            {bestDay && bestDay !== weakestDay && (
+              <InsightCard
+                icon="fas fa-star text-amber-500"
+                title={`Best SPLH: ${new Date(bestDay.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}`}
+                body={`${new Date(bestDay.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long' })} was your highest-SPLH day at ${fmt$(bestDay.splh)}/hr (${fmtHrs(bestDay.hours)} worked, ${fmt$(bestDay.revenue)} sales). Study what drove performance that day and replicate it.`}
+                color="yellow"
+              />
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -948,6 +985,17 @@ export default function PayrollIntelligence() {
   const [localTarget, setLocalTarget] = useState(30);
   const [settingsInitialized, setSettingsInitialized] = useState(false);
 
+  // Fetch settings independently so controls are seeded immediately on mount
+  const { data: savedSettings } = useQuery<PayrollSettings>({
+    queryKey: ['/api/payroll-intelligence/settings'],
+    queryFn: async () => {
+      const res = await fetch('/api/payroll-intelligence/settings', { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to fetch payroll settings');
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
   const { data: summary, isLoading } = useQuery<PayrollSummary>({
     queryKey: ['/api/payroll-intelligence/summary', daysBack],
     queryFn: async () => {
@@ -958,10 +1006,10 @@ export default function PayrollIntelligence() {
     staleTime: 2 * 60 * 1000,
   });
 
-  // Initialize local state from saved settings (once)
-  if (summary && !settingsInitialized) {
-    setLocalStoreType(summary.settings.storeType);
-    setLocalTarget(summary.settings.payrollTargetPct);
+  // Seed local controls from dedicated settings endpoint (once)
+  if (savedSettings && !settingsInitialized) {
+    setLocalStoreType(savedSettings.storeType);
+    setLocalTarget(savedSettings.payrollTargetPct);
     setSettingsInitialized(true);
   }
 
@@ -974,6 +1022,7 @@ export default function PayrollIntelligence() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/payroll-intelligence/summary'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/payroll-intelligence/settings'] });
       toast({ title: 'Settings saved', description: 'Your payroll target and store type have been updated.' });
       setActiveTab('dashboard');
     },

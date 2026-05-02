@@ -11,6 +11,32 @@ export function registerPayrollIntelligenceRoutes(
   storage: IStorage,
   isAuthenticated: any,
 ) {
+  // ── GET /api/payroll-intelligence/settings ────────────────────────────────
+  app.get("/api/payroll-intelligence/settings", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const isAdmin = await resolveAnyPermission(userId, ['admin.manage_all'], storage);
+      if (!isAdmin) return res.status(403).json({ message: "Owner or admin access required" });
+
+      const storeId = await tryResolveStoreIdForUser(userId);
+      let settings = { payrollTargetPct: 30, storeType: 'fashion_boutique' };
+      if (storeId) {
+        const row = await db.select().from(aiSchedulingSettings)
+          .where(eq(aiSchedulingSettings.storeId, storeId)).limit(1);
+        if (row[0]) {
+          settings = {
+            payrollTargetPct: row[0].payrollTargetPct != null ? parseFloat(String(row[0].payrollTargetPct)) : 30,
+            storeType: row[0].storeType ?? 'fashion_boutique',
+          };
+        }
+      }
+      return res.json(settings);
+    } catch (err) {
+      console.error("[PayrollIntelligence] settings GET error:", err);
+      return res.status(500).json({ message: "Failed to fetch settings" });
+    }
+  });
+
   // ── GET /api/payroll-intelligence/summary ─────────────────────────────────
   app.get("/api/payroll-intelligence/summary", isAuthenticated, async (req: any, res) => {
     try {
