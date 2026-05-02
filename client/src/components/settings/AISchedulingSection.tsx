@@ -14,7 +14,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Plus, Trash2, Clock, DollarSign, Users, Save, UserCheck, UserX, Target, Store, Copy, Wand2, CalendarCheck, Loader2, Tag, ShieldCheck, BookOpen, X, ChevronDown, Scale, Sunrise, Moon, CalendarDays, AlertTriangle, Pencil } from 'lucide-react';
+import { Plus, Trash2, Clock, DollarSign, Users, Save, UserCheck, UserX, Target, Store, Copy, Wand2, CalendarCheck, Loader2, Tag, ShieldCheck, BookOpen, X, ChevronDown, Scale, Sunrise, Moon, CalendarDays, AlertTriangle, Pencil, Search } from 'lucide-react';
 import AIScheduleGenerator from '@/components/AIScheduleGenerator';
 
 interface ShiftBlock {
@@ -330,6 +330,8 @@ function AIRulesTab() {
   const [editCircumName, setEditCircumName] = useState('');
   const [editCircumDescription, setEditCircumDescription] = useState('');
   const [editCircumCategory, setEditCircumCategory] = useState('');
+  const [circumFilterCategory, setCircumFilterCategory] = useState<string>('all');
+  const [circumSearchQuery, setCircumSearchQuery] = useState('');
 
   useEffect(() => {
     if (classificationsData) setLocalClassifications(classificationsData);
@@ -341,6 +343,14 @@ function AIRulesTab() {
       setCustomInstructions(rulesData.customAiInstructions || '');
     }
   }, [rulesData]);
+
+  useEffect(() => {
+    const count = circumstancesData?.length ?? 0;
+    if (count < 5) {
+      setCircumFilterCategory(prev => (prev === 'all' ? prev : 'all'));
+      setCircumSearchQuery(prev => (prev === '' ? prev : ''));
+    }
+  }, [circumstancesData]);
 
   const classificationMutation = useMutation({
     mutationFn: async ({ employeeId, classifications }: { employeeId: string; classifications: string[] }) => {
@@ -459,6 +469,32 @@ function AIRulesTab() {
   }
 
   const circumstances = circumstancesData ?? [];
+  const showCircumFilters = circumstances.length >= 5;
+
+  const availableCircumCategories = Array.from(
+    new Set(
+      circumstances
+        .map(c => c.category)
+        .filter((cat): cat is string => !!cat && cat.trim().length > 0)
+    )
+  ).sort();
+  const hasUncategorized = circumstances.some(c => !c.category || !c.category.trim());
+  const normalizedSearch = circumSearchQuery.trim().toLowerCase();
+  const filteredCircumstances = circumstances.filter(c => {
+    if (circumFilterCategory !== 'all') {
+      if (circumFilterCategory === '__uncategorized__') {
+        if (c.category && c.category.trim()) return false;
+      } else if ((c.category ?? '') !== circumFilterCategory) {
+        return false;
+      }
+    }
+    if (normalizedSearch) {
+      const haystack = `${c.name ?? ''} ${c.description ?? ''}`.toLowerCase();
+      if (!haystack.includes(normalizedSearch)) return false;
+    }
+    return true;
+  });
+  const isCircumFilterActive = circumFilterCategory !== 'all' || normalizedSearch.length > 0;
 
   const salesFloorEmployees = localClassifications.filter(e => e.showInSchedule);
   const backOfficeEmployees = localClassifications.filter(e => !e.showInSchedule);
@@ -626,7 +662,84 @@ function AIRulesTab() {
           {circumstances.length === 0 && !showAddCircumstance && (
             <p className="text-sm text-muted-foreground italic">No special circumstances defined yet. Add one below to let the AI factor it into scheduling.</p>
           )}
-          {circumstances.map(c => (
+          {showCircumFilters && (
+            <div className="space-y-2 pb-1">
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                <Input
+                  value={circumSearchQuery}
+                  onChange={e => setCircumSearchQuery(e.target.value)}
+                  placeholder="Search by name or description..."
+                  className="h-8 pl-8 pr-8 text-sm"
+                  data-testid="input-circumstance-search"
+                />
+                {circumSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setCircumSearchQuery('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    aria-label="Clear search"
+                    data-testid="button-clear-circumstance-search"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setCircumFilterCategory('all')}
+                  className={`text-xs font-medium px-2.5 py-1 rounded-full border transition-colors ${
+                    circumFilterCategory === 'all'
+                      ? 'bg-primary text-primary-foreground border-transparent'
+                      : 'border-border hover:bg-muted text-muted-foreground'
+                  }`}
+                  data-testid="button-filter-circumstance-all"
+                >
+                  All ({circumstances.length})
+                </button>
+                {availableCircumCategories.map(cat => {
+                  const count = circumstances.filter(c => (c.category ?? '') === cat).length;
+                  const active = circumFilterCategory === cat;
+                  return (
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => setCircumFilterCategory(cat)}
+                      className={`text-xs font-medium px-2.5 py-1 rounded-full border transition-colors ${
+                        active
+                          ? 'bg-primary text-primary-foreground border-transparent'
+                          : 'border-border hover:bg-muted text-muted-foreground'
+                      }`}
+                      data-testid={`button-filter-circumstance-${cat.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')}`}
+                    >
+                      {cat} ({count})
+                    </button>
+                  );
+                })}
+                {hasUncategorized && (
+                  <button
+                    type="button"
+                    onClick={() => setCircumFilterCategory('__uncategorized__')}
+                    className={`text-xs font-medium px-2.5 py-1 rounded-full border transition-colors ${
+                      circumFilterCategory === '__uncategorized__'
+                        ? 'bg-primary text-primary-foreground border-transparent'
+                        : 'border-border hover:bg-muted text-muted-foreground'
+                    }`}
+                    data-testid="button-filter-circumstance-uncategorized"
+                  >
+                    Uncategorized ({circumstances.filter(c => !c.category || !c.category.trim()).length})
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+          {circumstances.length > 0 && filteredCircumstances.length === 0 && isCircumFilterActive && (
+            <p className="text-sm text-muted-foreground italic" data-testid="text-no-circumstance-matches">
+              No special circumstances match the current filters.
+            </p>
+          )}
+          {filteredCircumstances.map(c => (
             <div key={c.id} className={`rounded-lg border transition-opacity ${c.isEnabled ? 'bg-muted/40 border-border' : 'bg-muted/20 border-border/50 opacity-60'}`}>
               {editingCircumId === c.id ? (
                 <div className="p-3 space-y-3">
