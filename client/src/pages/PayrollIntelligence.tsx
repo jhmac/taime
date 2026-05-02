@@ -593,9 +593,11 @@ type TeamSortKey = 'totalHours' | 'laborCost' | 'wageRate' | 'splh';
 function TeamTab({
   summary,
   isLoading,
+  daysBack,
 }: {
   summary: PayrollSummary | null;
   isLoading: boolean;
+  daysBack: number;
 }) {
   const [sortKey, setSortKey] = useState<TeamSortKey>('splh');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
@@ -663,14 +665,77 @@ function TeamTab({
 
   const hasSplhData = sorted.some(e => e.splh !== null);
 
+  const handleExportCsv = () => {
+    const today = new Date();
+    const startDate = new Date(today.getTime() - daysBack * 24 * 60 * 60 * 1000);
+    const fmtDate = (d: Date) => d.toISOString().split('T')[0];
+    const startStr = fmtDate(startDate);
+    const endStr = fmtDate(today);
+
+    const escape = (val: string | number) => {
+      const s = String(val);
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+
+    const headers = ['Employee', 'Hours', 'Hourly Rate', 'Labor Cost', 'Share %'];
+    const rows = sorted.map(emp => {
+      const share = totalCost > 0 ? (emp.laborCost / totalCost) * 100 : 0;
+      return [
+        emp.name,
+        emp.totalHours.toFixed(2),
+        emp.wageRate.toFixed(2),
+        emp.laborCost.toFixed(2),
+        share.toFixed(1),
+      ];
+    });
+    rows.push([
+      `Total (${sorted.length} employees)`,
+      totalHours.toFixed(2),
+      '',
+      totalCost.toFixed(2),
+      '100.0',
+    ]);
+
+    const csv = [headers, ...rows]
+      .map(row => row.map(escape).join(','))
+      .join('\n');
+
+    const rawStoreName = (summary?.shopName ?? 'store').trim() || 'store';
+    const safeStoreName = rawStoreName
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'store';
+    const filename = `payroll-team-${safeStoreName}-${startStr}_to_${endStr}.csv`;
+
+    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="space-y-4">
       <Card>
-        <CardHeader className="pb-2">
+        <CardHeader className="pb-2 flex flex-row items-center justify-between gap-2 space-y-0">
           <CardTitle className="text-sm flex items-center gap-2">
             <i className="fas fa-users text-primary" />
             Team Labor Breakdown
           </CardTitle>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleExportCsv}
+            className="h-8 text-xs"
+            data-testid="button-export-team-csv"
+          >
+            <i className="fas fa-download mr-1.5 text-[10px]" />
+            Download CSV
+          </Button>
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
@@ -1119,6 +1184,7 @@ export default function PayrollIntelligence() {
           <TeamTab
             summary={summaryWithLocal}
             isLoading={isLoading}
+            daysBack={daysBack}
           />
         )}
         {activeTab === 'profit-first' && (

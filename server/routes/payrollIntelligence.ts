@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
-import { shopifyDailySales, timeEntries, users, aiSchedulingSettings, userShops } from "@shared/schema";
+import { shopifyDailySales, timeEntries, users, aiSchedulingSettings, userShops, shops } from "@shared/schema";
 import { eq, and, gte } from "drizzle-orm";
 import { db } from "../db";
 import { resolveAnyPermission } from "../services/permissionResolver";
@@ -56,6 +56,15 @@ export function registerPayrollIntelligenceRoutes(
       const shopDomain = shopLinks[0]?.shopDomain ?? null;
       const shopConnected = !!shopDomain;
 
+      let shopName: string | null = null;
+      if (shopDomain) {
+        const shopRow = await db.select({ shopName: shops.shopName })
+          .from(shops)
+          .where(eq(shops.shopDomain, shopDomain))
+          .limit(1);
+        shopName = shopRow[0]?.shopName ?? null;
+      }
+
       // Get saved payroll settings
       const storeId = await tryResolveStoreIdForUser(userId);
       let savedSettings = { payrollTargetPct: 30, storeType: 'fashion_boutique' };
@@ -76,6 +85,7 @@ export function registerPayrollIntelligenceRoutes(
       if (!shopConnected) {
         return res.json({
           shopConnected: false,
+          shopName: null,
           settings: savedSettings,
           grossSales: 0, totalHours: 0, totalLaborCost: 0,
           splh: 0, avgTicket: 0, laborPct: 0, orderCount: 0, daysBack,
@@ -199,6 +209,7 @@ export function registerPayrollIntelligenceRoutes(
 
       return res.json({
         shopConnected: true,
+        shopName,
         settings: savedSettings,
         grossSales: Math.round(grossSales * 100) / 100,
         totalHours: Math.round(totalHours * 100) / 100,

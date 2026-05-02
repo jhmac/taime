@@ -106,6 +106,7 @@ export interface PayrollSettings {
 
 export interface PayrollSummary {
   shopConnected: boolean;
+  shopName: string | null;
   settings: PayrollSettings;
   grossSales: number;
   totalHours: number;
