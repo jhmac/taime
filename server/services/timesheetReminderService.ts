@@ -45,9 +45,10 @@ async function hasReminderBeenSent(
   periodStart: string,
   periodEnd: string,
   reminderType: string,
-  userId?: string
+  userId?: string,
+  storeId?: string | null
 ): Promise<boolean> {
-  const logs = await storage.getTimesheetReminderLogs(periodStart, periodEnd);
+  const logs = await storage.getTimesheetReminderLogs(periodStart, periodEnd, storeId);
   return logs.some(
     (l) =>
       l.reminderType === reminderType &&
@@ -71,8 +72,10 @@ async function isPeriodFullyApproved(periodStart: string, periodEnd: string): Pr
 
 async function runTimesheetReminderCheck(): Promise<void> {
   try {
+    // Resolve store context from workflow settings (storeId may be null for legacy single-store)
     const workflowSettings = await storage.getTimesheetWorkflowSettings();
     if (!workflowSettings) return;
+    const storeId: string | null = (workflowSettings as any).storeId ?? null;
 
     const payPeriodSettings = await storage.getPayPeriodSettings();
     if (!payPeriodSettings?.firstPayPeriodStart) return;
@@ -97,7 +100,6 @@ async function runTimesheetReminderCheck(): Promise<void> {
     const adminUserId = workflowSettings.adminUserId;
 
     for (const period of periods) {
-      const isCurrentPeriod = period.startDate <= today && period.endDate >= today;
       const isPastPeriod = period.endDate < today;
 
       // ── Employee self-review: send on the last day of the current period ──
@@ -105,7 +107,7 @@ async function runTimesheetReminderCheck(): Promise<void> {
         const allUsers = await storage.getAllUsers();
         for (const user of allUsers) {
           if (!user.isActive) continue;
-          const alreadySent = await hasReminderBeenSent(period.startDate, period.endDate, "employee_self_review", user.id);
+          const alreadySent = await hasReminderBeenSent(period.startDate, period.endDate, "employee_self_review", user.id, storeId);
           if (!alreadySent) {
             await notificationService.sendToUser(user.id, {
               title: "Please Review Your Hours",
@@ -113,6 +115,7 @@ async function runTimesheetReminderCheck(): Promise<void> {
               data: { type: "employee_self_review", periodStart: period.startDate, periodEnd: period.endDate },
             });
             await storage.createTimesheetReminderLog({
+              storeId: storeId ?? undefined,
               periodStart: period.startDate,
               periodEnd: period.endDate,
               reminderType: "employee_self_review",
@@ -127,14 +130,21 @@ async function runTimesheetReminderCheck(): Promise<void> {
 
       const daysAfterPeriodEnd = daysBetween(period.endDate);
 
-      // Only send reminders if the period isn't already fully approved
-      const alreadyApproved = await isPeriodFullyApproved(period.startDate, period.endDate);
+      // Check period-level approval chain instead of entry-by-entry
+      let alreadyApproved = false;
+      if (storeId) {
+        const periodApproval = await storage.getTimesheetPeriodApproval(storeId, period.startDate, period.endDate);
+        alreadyApproved = periodApproval?.status === "final_approved";
+      }
+      if (!alreadyApproved) {
+        alreadyApproved = await isPeriodFullyApproved(period.startDate, period.endDate);
+      }
       if (alreadyApproved) continue;
 
       // Manager reminder — send N days after period end
       if (daysAfterPeriodEnd === managerReminderDays && managerUserIds.length > 0) {
         for (const managerId of managerUserIds) {
-          const alreadySent = await hasReminderBeenSent(period.startDate, period.endDate, "manager_reminder", managerId);
+          const alreadySent = await hasReminderBeenSent(period.startDate, period.endDate, "manager_reminder", managerId, storeId);
           if (!alreadySent) {
             await notificationService.sendToUser(managerId, {
               title: "Timesheet Review Reminder",
@@ -142,6 +152,7 @@ async function runTimesheetReminderCheck(): Promise<void> {
               data: { type: "timesheet_reminder", periodStart: period.startDate, periodEnd: period.endDate },
             });
             await storage.createTimesheetReminderLog({
+              storeId: storeId ?? undefined,
               periodStart: period.startDate,
               periodEnd: period.endDate,
               reminderType: "manager_reminder",
@@ -154,7 +165,7 @@ async function runTimesheetReminderCheck(): Promise<void> {
 
       // Admin escalation — send N + M days after period end
       if (daysAfterPeriodEnd === managerReminderDays + escalationDays && adminUserId) {
-        const alreadySent = await hasReminderBeenSent(period.startDate, period.endDate, "manager_escalation", adminUserId);
+        const alreadySent = await hasReminderBeenSent(period.startDate, period.endDate, "manager_escalation", adminUserId, storeId);
         if (!alreadySent) {
           await notificationService.sendToUser(adminUserId, {
             title: "Timesheet Approval Escalation",
@@ -162,6 +173,7 @@ async function runTimesheetReminderCheck(): Promise<void> {
             data: { type: "timesheet_escalation", periodStart: period.startDate, periodEnd: period.endDate },
           });
           await storage.createTimesheetReminderLog({
+            storeId: storeId ?? undefined,
             periodStart: period.startDate,
             periodEnd: period.endDate,
             reminderType: "manager_escalation",

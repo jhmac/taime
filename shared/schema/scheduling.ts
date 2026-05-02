@@ -439,9 +439,10 @@ export const insertMileageReimbursementSchema = createInsertSchema(mileageReimbu
 export const insertAiSuggestedScheduleSchema = createInsertSchema(aiSuggestedSchedules).omit({ id: true, generatedAt: true });
 export const insertSpecialCircumstanceSchema = createInsertSchema(specialCircumstances).omit({ id: true, createdAt: true, updatedAt: true });
 
-// Timesheet workflow settings — one row per company (singleton)
+// Timesheet workflow settings — one row per store (location)
 export const timesheetWorkflowSettings = pgTable("timesheet_workflow_settings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => workLocations.id),
   managerReminderDaysAfterPeriod: integer("manager_reminder_days_after_period").default(2),
   managerEscalationDaysAfterReminder: integer("manager_escalation_days_after_reminder").default(3),
   notifyAdminOnManagerApproval: boolean("notify_admin_on_manager_approval").default(true),
@@ -456,6 +457,7 @@ export const timesheetWorkflowSettings = pgTable("timesheet_workflow_settings", 
 // Timesheet reminder log — tracks when each reminder/escalation was sent
 export const timesheetReminderLog = pgTable("timesheet_reminder_log", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => workLocations.id),
   periodStart: varchar("period_start").notNull(),
   periodEnd: varchar("period_end").notNull(),
   reminderType: varchar("reminder_type").notNull(),
@@ -467,8 +469,27 @@ export const timesheetReminderLog = pgTable("timesheet_reminder_log", {
   index("idx_timesheet_reminder_log_period").on(table.periodStart, table.periodEnd),
 ]);
 
+// Timesheet period approvals — tracks the two-step manager→admin approval chain per period
+export const timesheetPeriodApprovals = pgTable("timesheet_period_approvals", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => workLocations.id).notNull(),
+  periodStart: varchar("period_start").notNull(),
+  periodEnd: varchar("period_end").notNull(),
+  // 'pending' | 'manager_approved' | 'final_approved'
+  status: varchar("status").default("pending").notNull(),
+  managerApprovedBy: varchar("manager_approved_by").references(() => users.id),
+  managerApprovedAt: timestamp("manager_approved_at"),
+  adminApprovedBy: varchar("admin_approved_by").references(() => users.id),
+  adminApprovedAt: timestamp("admin_approved_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_timesheet_period_approvals_store_period").on(table.storeId, table.periodStart, table.periodEnd),
+]);
+
 export const insertTimesheetWorkflowSettingsSchema = createInsertSchema(timesheetWorkflowSettings).omit({ id: true, updatedAt: true });
 export const insertTimesheetReminderLogSchema = createInsertSchema(timesheetReminderLog).omit({ id: true, sentAt: true });
+export const insertTimesheetPeriodApprovalSchema = createInsertSchema(timesheetPeriodApprovals).omit({ id: true, createdAt: true, updatedAt: true });
 
 // Chore assignment and sign-off schemas
 export const choreAssignmentSchema = z.object({
@@ -522,5 +543,7 @@ export type TimesheetWorkflowSettings = typeof timesheetWorkflowSettings.$inferS
 export type InsertTimesheetWorkflowSettings = z.infer<typeof insertTimesheetWorkflowSettingsSchema>;
 export type TimesheetReminderLog = typeof timesheetReminderLog.$inferSelect;
 export type InsertTimesheetReminderLog = z.infer<typeof insertTimesheetReminderLogSchema>;
+export type TimesheetPeriodApproval = typeof timesheetPeriodApprovals.$inferSelect;
+export type InsertTimesheetPeriodApproval = z.infer<typeof insertTimesheetPeriodApprovalSchema>;
 export type SpecialCircumstance = typeof specialCircumstances.$inferSelect;
 export type InsertSpecialCircumstance = z.infer<typeof insertSpecialCircumstanceSchema>;

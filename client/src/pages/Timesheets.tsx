@@ -65,6 +65,8 @@ import {
   Bell,
   ClockIcon,
   MinusCircle,
+  ShieldCheck,
+  ShieldOff,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -163,12 +165,34 @@ interface EmployeeReview {
   activeOffsite?: ActiveOffsite | null;
 }
 
+interface PeriodApproval {
+  id: string;
+  storeId: string;
+  periodStart: string;
+  periodEnd: string;
+  status: string;
+  managerApprovedBy?: string | null;
+  managerApprovedAt?: string | null;
+  adminApprovedBy?: string | null;
+  adminApprovedAt?: string | null;
+}
+
+interface HealthSummary {
+  totalEmployees: number;
+  approvedCount: number;
+  needsReviewCount: number;
+  noEntriesCount: number;
+  pendingClockOutCount: number;
+}
+
 interface TimesheetReviewData {
   employees: EmployeeReview[];
   totals: { actualHours: number; regularHours: number; otHours: number };
   totalNeedsReview: number;
   otThreshold: number;
   discrepancyAlerts?: DiscrepancyAlert[];
+  periodApproval?: PeriodApproval | null;
+  healthSummary?: HealthSummary;
 }
 
 interface PayPeriodSettings {
@@ -1895,6 +1919,144 @@ function OvertimeAlertsBanner({ alertCount, onToggle, isExpanded }: { alertCount
 }
 
 
+function ApprovalChainPanel({
+  periodApproval,
+  singleStep,
+  onFinalize,
+  isFinalizing,
+}: {
+  periodApproval: PeriodApproval | null | undefined;
+  singleStep: boolean;
+  onFinalize?: () => void;
+  isFinalizing?: boolean;
+}) {
+  const status = periodApproval?.status ?? "pending";
+
+  const stepManagerDone = status === "manager_approved" || status === "final_approved";
+  const stepAdminDone = status === "final_approved";
+
+  if (singleStep) {
+    return (
+      <div className="rounded-lg border bg-card p-3 flex items-center gap-3">
+        <div className={`flex items-center gap-2 text-sm font-medium ${stepAdminDone ? "text-green-600 dark:text-green-400" : "text-muted-foreground"}`}>
+          {stepAdminDone ? <ShieldCheck className="h-4 w-4" /> : <ShieldOff className="h-4 w-4" />}
+          {stepAdminDone ? "Period Approved" : "Pending Approval"}
+        </div>
+        {stepAdminDone && periodApproval?.adminApprovedAt && (
+          <span className="text-xs text-muted-foreground">
+            {new Date(periodApproval.adminApprovedAt).toLocaleDateString()}
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border bg-card p-3 space-y-3">
+      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Approval chain</p>
+      <div className="flex items-start gap-4">
+        {/* Step 1: Manager */}
+        <div className="flex flex-col items-center gap-1 min-w-[120px]">
+          <div className={`rounded-full p-1.5 ${stepManagerDone ? "bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400" : "bg-muted text-muted-foreground"}`}>
+            <CheckCircle2 className="h-4 w-4" />
+          </div>
+          <span className={`text-xs font-medium text-center ${stepManagerDone ? "text-green-700 dark:text-green-400" : "text-muted-foreground"}`}>
+            Manager review
+          </span>
+          {stepManagerDone && periodApproval?.managerApprovedAt && (
+            <span className="text-[10px] text-muted-foreground text-center">
+              {new Date(periodApproval.managerApprovedAt).toLocaleDateString()}
+            </span>
+          )}
+          {!stepManagerDone && <span className="text-[10px] text-muted-foreground">Pending</span>}
+        </div>
+
+        {/* Connector line */}
+        <div className={`flex-1 h-px mt-4 ${stepManagerDone ? "bg-green-400 dark:bg-green-600" : "bg-border"}`} />
+
+        {/* Step 2: Admin */}
+        <div className="flex flex-col items-center gap-1 min-w-[120px]">
+          <div className={`rounded-full p-1.5 ${stepAdminDone ? "bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400" : stepManagerDone ? "bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400" : "bg-muted text-muted-foreground"}`}>
+            <ShieldCheck className="h-4 w-4" />
+          </div>
+          <span className={`text-xs font-medium text-center ${stepAdminDone ? "text-green-700 dark:text-green-400" : stepManagerDone ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground"}`}>
+            Admin final
+          </span>
+          {stepAdminDone && periodApproval?.adminApprovedAt && (
+            <span className="text-[10px] text-muted-foreground text-center">
+              {new Date(periodApproval.adminApprovedAt).toLocaleDateString()}
+            </span>
+          )}
+          {!stepAdminDone && stepManagerDone && (
+            <Button size="sm" className="h-6 text-[10px] px-2 mt-1" onClick={onFinalize} disabled={isFinalizing}>
+              {isFinalizing ? "Finalizing…" : "Finalize"}
+            </Button>
+          )}
+          {!stepAdminDone && !stepManagerDone && <span className="text-[10px] text-muted-foreground">Waiting</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HealthBar({ health }: { health: HealthSummary | undefined }) {
+  if (!health || health.totalEmployees === 0) return null;
+  const { totalEmployees, approvedCount, needsReviewCount, noEntriesCount, pendingClockOutCount } = health;
+  const pending = totalEmployees - approvedCount - needsReviewCount - noEntriesCount - pendingClockOutCount;
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between text-xs text-muted-foreground">
+        <span>Period health</span>
+        <span>{approvedCount}/{totalEmployees} approved</span>
+      </div>
+      <div className="flex h-2 rounded-full overflow-hidden gap-px">
+        {approvedCount > 0 && (
+          <div
+            className="bg-green-500 dark:bg-green-600 transition-all"
+            style={{ width: `${(approvedCount / totalEmployees) * 100}%` }}
+            title={`${approvedCount} approved`}
+          />
+        )}
+        {needsReviewCount > 0 && (
+          <div
+            className="bg-amber-500 dark:bg-amber-600 transition-all"
+            style={{ width: `${(needsReviewCount / totalEmployees) * 100}%` }}
+            title={`${needsReviewCount} needs review`}
+          />
+        )}
+        {pendingClockOutCount > 0 && (
+          <div
+            className="bg-orange-400 dark:bg-orange-500 transition-all"
+            style={{ width: `${(pendingClockOutCount / totalEmployees) * 100}%` }}
+            title={`${pendingClockOutCount} pending clock-out`}
+          />
+        )}
+        {noEntriesCount > 0 && (
+          <div
+            className="bg-red-400 dark:bg-red-600 transition-all"
+            style={{ width: `${(noEntriesCount / totalEmployees) * 100}%` }}
+            title={`${noEntriesCount} no entries`}
+          />
+        )}
+        {pending > 0 && (
+          <div
+            className="bg-muted-foreground/20 transition-all"
+            style={{ width: `${(pending / totalEmployees) * 100}%` }}
+            title={`${pending} pending`}
+          />
+        )}
+      </div>
+      <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground">
+        {approvedCount > 0 && <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-green-500" />{approvedCount} approved</span>}
+        {needsReviewCount > 0 && <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-amber-500" />{needsReviewCount} needs review</span>}
+        {pendingClockOutCount > 0 && <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-orange-400" />{pendingClockOutCount} pending clock-out</span>}
+        {noEntriesCount > 0 && <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-red-400" />{noEntriesCount} no entries</span>}
+      </div>
+    </div>
+  );
+}
+
 function computePayPeriods(settings: PayPeriodSettings | null, count: number = 6): Array<{ label: string; startDate: string; endDate: string }> {
   if (!settings?.firstPayPeriodStart) return [];
 
@@ -2007,10 +2169,27 @@ export default function Timesheets() {
 
   const approveAllMutation = useMutation({
     mutationFn: async () => {
-      await apiRequest("POST", "/api/timesheets/approve-all", { startDate, endDate });
+      return await apiRequest("POST", "/api/timesheets/approve-all", { startDate, endDate });
     },
-    onSuccess: () => {
-      toast({ title: "All entries approved", description: "All eligible time entries have been approved." });
+    onSuccess: (result: any) => {
+      if (result?.singleStep || result?.status === "final_approved") {
+        toast({ title: "Period approved", description: `${result?.approvedCount ?? 0} time entries approved.` });
+      } else {
+        toast({ title: "Manager review submitted", description: "The admin has been notified to finalize this period." });
+      }
+      invalidatePrefix("/api/timesheets/review");
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const finalizePeriodMutation = useMutation({
+    mutationFn: async () => {
+      return await apiRequest("POST", "/api/timesheets/finalize-period", { startDate, endDate });
+    },
+    onSuccess: (result: any) => {
+      toast({ title: "Period finalized", description: `${result?.approvedCount ?? 0} entries approved. Two-step chain complete.` });
       invalidatePrefix("/api/timesheets/review");
     },
     onError: (err: Error) => {
@@ -2046,6 +2225,24 @@ export default function Timesheets() {
               {data.totalNeedsReview} Needs Review
             </Badge>
           )}
+              {/* Next pay period chip */}
+          {(() => {
+            if (!payPeriodSettings?.firstPayPeriodStart) return null;
+            const intervalType = payPeriodSettings.intervalType || "bi-weekly";
+            const intervalDays = intervalType === "weekly" ? 7 : intervalType === "bi-weekly" ? 14 : intervalType === "semi-monthly" ? 15 : 30;
+            const allPeriods = computePayPeriods(payPeriodSettings, 8);
+            if (allPeriods.length === 0) return null;
+            const lastKnown = allPeriods[allPeriods.length - 1];
+            const nextStart = new Date(lastKnown.endDate + "T12:00:00");
+            nextStart.setDate(nextStart.getDate() + 1);
+            const nextEnd = new Date(nextStart.getTime() + (intervalDays - 1) * 86400000);
+            return (
+              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground bg-muted rounded-full px-2.5 py-1">
+                <Calendar className="h-3 w-3" />
+                Next period: {nextStart.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – {nextEnd.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+              </span>
+            );
+          })()}
           {!payPeriodSettings?.firstPayPeriodStart && (
             <a
               href="/settings?tab=pay-period"
@@ -2113,6 +2310,19 @@ export default function Timesheets() {
       />
 
       {showOTPanel && <OvertimePreventionPanel />}
+
+      {data?.healthSummary && (
+        <HealthBar health={data.healthSummary} />
+      )}
+
+      {data?.periodApproval !== undefined && (
+        <ApprovalChainPanel
+          periodApproval={data.periodApproval}
+          singleStep={false}
+          onFinalize={() => finalizePeriodMutation.mutate()}
+          isFinalizing={finalizePeriodMutation.isPending}
+        />
+      )}
 
       <div className="flex flex-wrap gap-2">
         <Button

@@ -17,6 +17,7 @@ import {
   mileageReimbursements,
   timesheetWorkflowSettings,
   timesheetReminderLog,
+  timesheetPeriodApprovals,
   type TimeEntry,
   type InsertTimeEntry,
   type Schedule,
@@ -51,6 +52,7 @@ import {
   type InsertMileageReimbursement,
   type TimesheetWorkflowSettings,
   type TimesheetReminderLog,
+  type TimesheetPeriodApproval,
 } from "@shared/schema";
 import { db } from "../db";
 import { eq, and, desc, gte, lte, isNull, sql } from "drizzle-orm";
@@ -139,11 +141,23 @@ export interface ISchedulingStorage {
   getMileageReimbursements(filters?: { userId?: string; startDate?: Date; endDate?: Date }): Promise<MileageReimbursement[]>;
   updateMileageReimbursement(id: string, updates: Partial<MileageReimbursement>): Promise<MileageReimbursement>;
 
-  getTimesheetWorkflowSettings(): Promise<TimesheetWorkflowSettings | undefined>;
-  upsertTimesheetWorkflowSettings(settings: Partial<Omit<TimesheetWorkflowSettings, 'id'>>): Promise<TimesheetWorkflowSettings>;
-  createTimesheetReminderLog(log: { periodStart: string; periodEnd: string; reminderType: string; userId?: string | null }): Promise<TimesheetReminderLog>;
-  getTimesheetReminderLogs(periodStart?: string, periodEnd?: string): Promise<TimesheetReminderLog[]>;
+  getTimesheetWorkflowSettings(storeId?: string | null): Promise<TimesheetWorkflowSettings | undefined>;
+  upsertTimesheetWorkflowSettings(settings: Partial<Omit<TimesheetWorkflowSettings, 'id'>>, storeId?: string | null): Promise<TimesheetWorkflowSettings>;
+  createTimesheetReminderLog(log: { storeId?: string | null; periodStart: string; periodEnd: string; reminderType: string; userId?: string | null }): Promise<TimesheetReminderLog>;
+  getTimesheetReminderLogs(periodStart?: string, periodEnd?: string, storeId?: string | null): Promise<TimesheetReminderLog[]>;
   markReminderActedOn(id: string): Promise<void>;
+  markRemindersActedOnForPeriod(periodStart: string, periodEnd: string, storeId?: string | null): Promise<void>;
+  getTimesheetPeriodApproval(storeId: string, periodStart: string, periodEnd: string): Promise<TimesheetPeriodApproval | undefined>;
+  upsertTimesheetPeriodApproval(data: {
+    storeId: string;
+    periodStart: string;
+    periodEnd: string;
+    status: string;
+    managerApprovedBy?: string | null;
+    managerApprovedAt?: Date | null;
+    adminApprovedBy?: string | null;
+    adminApprovedAt?: Date | null;
+  }): Promise<TimesheetPeriodApproval>;
 }
 
 export class SchedulingStorage implements ISchedulingStorage {
@@ -739,32 +753,39 @@ export class SchedulingStorage implements ISchedulingStorage {
     return updated;
   }
 
-  async getTimesheetWorkflowSettings(): Promise<TimesheetWorkflowSettings | undefined> {
+  async getTimesheetWorkflowSettings(storeId?: string | null): Promise<TimesheetWorkflowSettings | undefined> {
+    if (storeId) {
+      const [row] = await db.select().from(timesheetWorkflowSettings).where(eq(timesheetWorkflowSettings.storeId, storeId)).limit(1);
+      if (row) return row;
+    }
+    // Fallback: return the first row (singleton / unscoped legacy row)
     const [row] = await db.select().from(timesheetWorkflowSettings).limit(1);
     return row;
   }
 
-  async upsertTimesheetWorkflowSettings(settings: Partial<Omit<TimesheetWorkflowSettings, 'id'>>): Promise<TimesheetWorkflowSettings> {
-    const existing = await this.getTimesheetWorkflowSettings();
+  async upsertTimesheetWorkflowSettings(settings: Partial<Omit<TimesheetWorkflowSettings, 'id'>>, storeId?: string | null): Promise<TimesheetWorkflowSettings> {
+    const existing = await this.getTimesheetWorkflowSettings(storeId);
+    const merged = { ...settings, storeId: storeId ?? settings.storeId ?? null };
     if (existing) {
       const [updated] = await db
         .update(timesheetWorkflowSettings)
-        .set({ ...settings, updatedAt: new Date() })
+        .set({ ...merged, updatedAt: new Date() })
         .where(eq(timesheetWorkflowSettings.id, existing.id))
         .returning();
       return updated;
     }
     const [created] = await db
       .insert(timesheetWorkflowSettings)
-      .values({ ...settings, updatedAt: new Date() })
+      .values({ ...merged, updatedAt: new Date() })
       .returning();
     return created;
   }
 
-  async createTimesheetReminderLog(log: { periodStart: string; periodEnd: string; reminderType: string; userId?: string | null }): Promise<TimesheetReminderLog> {
+  async createTimesheetReminderLog(log: { storeId?: string | null; periodStart: string; periodEnd: string; reminderType: string; userId?: string | null }): Promise<TimesheetReminderLog> {
     const [created] = await db
       .insert(timesheetReminderLog)
       .values({
+        storeId: log.storeId ?? null,
         periodStart: log.periodStart,
         periodEnd: log.periodEnd,
         reminderType: log.reminderType,
@@ -777,8 +798,9 @@ export class SchedulingStorage implements ISchedulingStorage {
     return created;
   }
 
-  async getTimesheetReminderLogs(periodStart?: string, periodEnd?: string): Promise<TimesheetReminderLog[]> {
+  async getTimesheetReminderLogs(periodStart?: string, periodEnd?: string, storeId?: string | null): Promise<TimesheetReminderLog[]> {
     const conditions: any[] = [];
+    if (storeId) conditions.push(eq(timesheetReminderLog.storeId, storeId));
     if (periodStart) conditions.push(sql`${timesheetReminderLog.periodStart} >= ${periodStart}`);
     if (periodEnd) conditions.push(sql`${timesheetReminderLog.periodEnd} <= ${periodEnd}`);
     const query = conditions.length > 0
@@ -792,5 +814,78 @@ export class SchedulingStorage implements ISchedulingStorage {
       .update(timesheetReminderLog)
       .set({ wasActedOn: true, actedOnAt: new Date() })
       .where(eq(timesheetReminderLog.id, id));
+  }
+
+  async markRemindersActedOnForPeriod(periodStart: string, periodEnd: string, storeId?: string | null): Promise<void> {
+    const conditions: any[] = [
+      sql`${timesheetReminderLog.periodStart} = ${periodStart}`,
+      sql`${timesheetReminderLog.periodEnd} = ${periodEnd}`,
+      eq(timesheetReminderLog.wasActedOn, false),
+    ];
+    if (storeId) conditions.push(eq(timesheetReminderLog.storeId, storeId));
+    await db
+      .update(timesheetReminderLog)
+      .set({ wasActedOn: true, actedOnAt: new Date() })
+      .where(and(...conditions));
+  }
+
+  async getTimesheetPeriodApproval(storeId: string, periodStart: string, periodEnd: string): Promise<TimesheetPeriodApproval | undefined> {
+    const [row] = await db
+      .select()
+      .from(timesheetPeriodApprovals)
+      .where(
+        and(
+          eq(timesheetPeriodApprovals.storeId, storeId),
+          sql`${timesheetPeriodApprovals.periodStart} = ${periodStart}`,
+          sql`${timesheetPeriodApprovals.periodEnd} = ${periodEnd}`
+        )
+      )
+      .limit(1);
+    return row;
+  }
+
+  async upsertTimesheetPeriodApproval(data: {
+    storeId: string;
+    periodStart: string;
+    periodEnd: string;
+    status: string;
+    managerApprovedBy?: string | null;
+    managerApprovedAt?: Date | null;
+    adminApprovedBy?: string | null;
+    adminApprovedAt?: Date | null;
+  }): Promise<TimesheetPeriodApproval> {
+    const existing = await this.getTimesheetPeriodApproval(data.storeId, data.periodStart, data.periodEnd);
+    const now = new Date();
+    if (existing) {
+      const [updated] = await db
+        .update(timesheetPeriodApprovals)
+        .set({
+          status: data.status,
+          managerApprovedBy: data.managerApprovedBy ?? existing.managerApprovedBy,
+          managerApprovedAt: data.managerApprovedAt ?? existing.managerApprovedAt,
+          adminApprovedBy: data.adminApprovedBy ?? existing.adminApprovedBy,
+          adminApprovedAt: data.adminApprovedAt ?? existing.adminApprovedAt,
+          updatedAt: now,
+        })
+        .where(eq(timesheetPeriodApprovals.id, existing.id))
+        .returning();
+      return updated;
+    }
+    const [created] = await db
+      .insert(timesheetPeriodApprovals)
+      .values({
+        storeId: data.storeId,
+        periodStart: data.periodStart,
+        periodEnd: data.periodEnd,
+        status: data.status,
+        managerApprovedBy: data.managerApprovedBy ?? null,
+        managerApprovedAt: data.managerApprovedAt ?? null,
+        adminApprovedBy: data.adminApprovedBy ?? null,
+        adminApprovedAt: data.adminApprovedAt ?? null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning();
+    return created;
   }
 }

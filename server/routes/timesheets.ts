@@ -5,6 +5,7 @@ import logger from "../lib/logger";
 import { OvertimePreventionService } from "../services/overtimePreventionService";
 import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
 import { notificationService } from "../services/notificationService";
+import { tryResolveStoreIdForUser } from "../services/storeResolver";
 
 function toEndOfDay(date: Date): Date {
   const d = new Date(date);
@@ -429,12 +430,32 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
         otHours: Math.round(employeeReviews.reduce((sum: number, e: any) => sum + e.otHours, 0) * 100) / 100,
       };
 
+      // Attach period approval chain status
+      const storeId = await tryResolveStoreIdForUser(req.user.id);
+      let periodApproval = null;
+      if (storeId && startDateStr && endDateStr) {
+        try {
+          periodApproval = await storage.getTimesheetPeriodApproval(storeId, startDateStr, endDateStr) ?? null;
+        } catch {
+          // non-fatal
+        }
+      }
+
+      // Health summary
+      const totalEmployees = employeeReviews.length;
+      const approvedCount = employeeReviews.filter((e: any) => e.status === "approved").length;
+      const needsReviewCount = employeeReviews.filter((e: any) => e.status === "needs-review").length;
+      const noEntriesCount = employeeReviews.filter((e: any) => e.status === "no_entries").length;
+      const pendingClockOutCount = employeeReviews.filter((e: any) => e.status === "pending_clock_out").length;
+
       res.json({
         employees: employeeReviews,
         totals,
         totalNeedsReview,
         otThreshold,
         discrepancyAlerts: allDiscrepancyAlerts,
+        periodApproval,
+        healthSummary: { totalEmployees, approvedCount, needsReviewCount, noEntriesCount, pendingClockOutCount },
       });
     } catch (error: any) {
       logger.error({ error: error.message }, "Error fetching timesheet review");
@@ -564,11 +585,115 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
         return res.status(400).json({ message: "startDate and endDate are required" });
       }
 
-      // Check workflow settings for single-step approval and admin notification
-      const workflowSettings = await storage.getTimesheetWorkflowSettings();
+      const storeId = await tryResolveStoreIdForUser(userId);
+      const workflowSettings = await storage.getTimesheetWorkflowSettings(storeId);
       const singleStep = workflowSettings?.singleStepApproval ?? false;
       const notifyAdmin = workflowSettings?.notifyAdminOnManagerApproval ?? false;
       const adminUserId = workflowSettings?.adminUserId ?? null;
+
+      const entries = await storage.getAllTimeEntries(new Date(startDate), toEndOfDay(new Date(endDate)));
+
+      if (singleStep) {
+        // Single-step: immediately mark all completed entries as approved (final)
+        const unapproved = entries.filter((e: any) => !e.isApproved && e.clockOutTime);
+        let approvedCount = 0;
+        for (const entry of unapproved) {
+          await storage.updateTimeEntry(entry.id, {
+            isApproved: true,
+            approvedBy: userId,
+            approvedAt: new Date(),
+          });
+          await storage.createTimeEntryEdit({
+            timeEntryId: entry.id,
+            editedBy: userId,
+            fieldChanged: "isApproved",
+            oldValue: "false",
+            newValue: "true",
+            reason: "Single-step approved via timesheets review",
+          });
+          approvedCount++;
+        }
+        if (storeId) {
+          await storage.upsertTimesheetPeriodApproval({
+            storeId,
+            periodStart: startDate,
+            periodEnd: endDate,
+            status: "final_approved",
+            managerApprovedBy: userId,
+            managerApprovedAt: new Date(),
+            adminApprovedBy: userId,
+            adminApprovedAt: new Date(),
+          });
+          // Mark any open reminders for this period as acted on
+          await storage.markRemindersActedOnForPeriod(startDate, endDate, storeId);
+        }
+        return res.json({ approvedCount, totalEntries: entries.length, singleStep: true, status: "final_approved" });
+      }
+
+      // Two-step: manager approval — record period-level state, notify admin
+      if (!storeId) {
+        return res.status(400).json({ message: "Unable to resolve store context for this user" });
+      }
+      await storage.upsertTimesheetPeriodApproval({
+        storeId,
+        periodStart: startDate,
+        periodEnd: endDate,
+        status: "manager_approved",
+        managerApprovedBy: userId,
+        managerApprovedAt: new Date(),
+      });
+      // Mark open reminders as acted on (manager responded)
+      await storage.markRemindersActedOnForPeriod(startDate, endDate, storeId);
+
+      // Notify admin when configured
+      if (notifyAdmin && adminUserId && adminUserId !== userId) {
+        const approvingUser = await storage.getUser(userId);
+        const approverName = approvingUser
+          ? [approvingUser.firstName, approvingUser.lastName].filter(Boolean).join(" ") || approvingUser.email || "A manager"
+          : "A manager";
+        try {
+          await notificationService.sendToUser(adminUserId, {
+            title: "Timesheets Ready for Final Approval",
+            body: `${approverName} has reviewed timesheets for the period ${startDate} – ${endDate}. Please log in to finalize.`,
+            data: { type: "timesheet_manager_approved", periodStart: startDate, periodEnd: endDate },
+          });
+          await storage.createTimesheetReminderLog({
+            storeId,
+            periodStart: startDate,
+            periodEnd: endDate,
+            reminderType: "manager_approval_notify",
+            userId: adminUserId,
+          });
+        } catch (notifyErr: any) {
+          logger.warn({ error: notifyErr?.message }, "[approve-all] Admin notification failed (non-fatal)");
+        }
+      }
+
+      return res.json({ approvedCount: 0, totalEntries: entries.length, singleStep: false, status: "manager_approved" });
+    } catch (error: any) {
+      logger.error({ error: error.message }, "Error bulk approving time entries");
+      res.status(500).json({ message: "Failed to bulk approve time entries" });
+    }
+  });
+
+  // Admin final approval — completes the two-step chain, stamps isApproved on entries
+  app.post("/api/timesheets/finalize-period", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const canFinalize = await resolveAnyPermission(userId, ['admin.manage_all'], storage);
+      if (!canFinalize) {
+        return res.status(403).json({ message: "Only admins can finalize a period" });
+      }
+
+      const { startDate, endDate } = req.body;
+      if (!startDate || !endDate) {
+        return res.status(400).json({ message: "startDate and endDate are required" });
+      }
+
+      const storeId = await tryResolveStoreIdForUser(userId);
+      if (!storeId) {
+        return res.status(400).json({ message: "Unable to resolve store context for this user" });
+      }
 
       const entries = await storage.getAllTimeEntries(new Date(startDate), toEndOfDay(new Date(endDate)));
       const unapproved = entries.filter((e: any) => !e.isApproved && e.clockOutTime);
@@ -586,38 +711,25 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
           fieldChanged: "isApproved",
           oldValue: "false",
           newValue: "true",
-          reason: singleStep ? "Single-step approved via timesheets review" : "Bulk approved via timesheets review",
+          reason: "Admin final approval — two-step chain complete",
         });
         approvedCount++;
       }
 
-      // Notify admin when a manager approves (and there's an admin to notify, and it's not the same user)
-      if (approvedCount > 0 && notifyAdmin && adminUserId && adminUserId !== userId) {
-        const approvingUser = await storage.getUser(userId);
-        const approverName = approvingUser
-          ? [approvingUser.firstName, approvingUser.lastName].filter(Boolean).join(" ") || approvingUser.email || "A manager"
-          : "A manager";
-        try {
-          await notificationService.sendToUser(adminUserId, {
-            title: "Timesheets Approved",
-            body: `${approverName} approved ${approvedCount} time ${approvedCount === 1 ? "entry" : "entries"} for the period ${startDate} – ${endDate}.`,
-            data: { type: "timesheet_approved", periodStart: startDate, periodEnd: endDate, approvedCount },
-          });
-          await storage.createTimesheetReminderLog({
-            periodStart: startDate,
-            periodEnd: endDate,
-            reminderType: "manager_approval_notify",
-            userId: adminUserId,
-          });
-        } catch (notifyErr: any) {
-          logger.warn({ error: notifyErr?.message }, "[approve-all] Admin notification failed (non-fatal)");
-        }
-      }
+      await storage.upsertTimesheetPeriodApproval({
+        storeId,
+        periodStart: startDate,
+        periodEnd: endDate,
+        status: "final_approved",
+        adminApprovedBy: userId,
+        adminApprovedAt: new Date(),
+      });
+      await storage.markRemindersActedOnForPeriod(startDate, endDate, storeId);
 
-      res.json({ approvedCount, totalEntries: entries.length, singleStep });
+      res.json({ approvedCount, totalEntries: entries.length, status: "final_approved" });
     } catch (error: any) {
-      logger.error({ error: error.message }, "Error bulk approving time entries");
-      res.status(500).json({ message: "Failed to bulk approve time entries" });
+      logger.error({ error: error.message }, "Error finalizing period");
+      res.status(500).json({ message: "Failed to finalize period" });
     }
   });
 
@@ -1038,7 +1150,8 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
       const userId = req.user.id;
       const canView = await resolveAnyPermission(userId, ['time.approve', 'admin.manage_all'], storage);
       if (!canView) return res.status(403).json({ message: "Insufficient permissions" });
-      const settings = await storage.getTimesheetWorkflowSettings();
+      const storeId = await tryResolveStoreIdForUser(userId);
+      const settings = await storage.getTimesheetWorkflowSettings(storeId);
       res.json(settings || {
         managerReminderDaysAfterPeriod: 2,
         managerEscalationDaysAfterReminder: 3,
@@ -1068,6 +1181,7 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
         managerUserIds,
         adminUserId,
       } = req.body;
+      const storeId = await tryResolveStoreIdForUser(userId);
       const settings = await storage.upsertTimesheetWorkflowSettings({
         managerReminderDaysAfterPeriod: managerReminderDaysAfterPeriod ?? 2,
         managerEscalationDaysAfterReminder: managerEscalationDaysAfterReminder ?? 3,
@@ -1077,7 +1191,7 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
         managerUserIds: managerUserIds || [],
         adminUserId: adminUserId || null,
         updatedBy: userId,
-      });
+      }, storeId);
       res.json(settings);
     } catch (error: any) {
       logger.error({ error: error.message }, "Error saving timesheet workflow settings");
@@ -1091,7 +1205,8 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
       const canView = await resolveAnyPermission(userId, ['time.approve', 'admin.manage_all'], storage);
       if (!canView) return res.status(403).json({ message: "Insufficient permissions" });
       const { periodStart, periodEnd } = req.query as { periodStart?: string; periodEnd?: string };
-      const logs = await storage.getTimesheetReminderLogs(periodStart, periodEnd);
+      const storeId = await tryResolveStoreIdForUser(userId);
+      const logs = await storage.getTimesheetReminderLogs(periodStart, periodEnd, storeId);
       res.json(logs);
     } catch (error: any) {
       logger.error({ error: error.message }, "Error fetching reminder log");

@@ -350,6 +350,16 @@ export async function runSchemaMigrations(): Promise<void> {
       table: "tasks",
       sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS requires_photo boolean DEFAULT false`,
     },
+    // Task #496 — Timesheet approval workflow: add per-store scoping to workflow settings
+    {
+      table: "timesheet_workflow_settings",
+      sql: `ALTER TABLE timesheet_workflow_settings ADD COLUMN IF NOT EXISTS store_id varchar REFERENCES work_locations(id) ON DELETE SET NULL`,
+    },
+    // Task #496 — Timesheet reminder log: add per-store scoping
+    {
+      table: "timesheet_reminder_log",
+      sql: `ALTER TABLE timesheet_reminder_log ADD COLUMN IF NOT EXISTS store_id varchar REFERENCES work_locations(id) ON DELETE SET NULL`,
+    },
   ];
 
   let altered = 0;
@@ -1038,6 +1048,26 @@ export async function runSchemaMigrations(): Promise<void> {
       indexes: [
         `CREATE UNIQUE INDEX IF NOT EXISTS "uq_store_entitlements_store_key" ON store_entitlements (store_id, feature_key)`,
         `CREATE INDEX IF NOT EXISTS "idx_store_entitlements_store_id" ON store_entitlements (store_id)`,
+      ],
+    },
+    // Task #496 — Two-step timesheet period approval chain
+    {
+      name: "timesheet_period_approvals",
+      ddl: `CREATE TABLE IF NOT EXISTS timesheet_period_approvals (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        store_id varchar NOT NULL REFERENCES work_locations(id) ON DELETE CASCADE,
+        period_start varchar NOT NULL,
+        period_end varchar NOT NULL,
+        status varchar NOT NULL DEFAULT 'pending',
+        manager_approved_by varchar REFERENCES users(id) ON DELETE SET NULL,
+        manager_approved_at timestamp,
+        admin_approved_by varchar REFERENCES users(id) ON DELETE SET NULL,
+        admin_approved_at timestamp,
+        created_at timestamp DEFAULT now(),
+        updated_at timestamp DEFAULT now()
+      )`,
+      indexes: [
+        `CREATE INDEX IF NOT EXISTS idx_timesheet_period_approvals_store_period ON timesheet_period_approvals (store_id, period_start, period_end)`,
       ],
     },
     // Task #256 — Shopify POS register data
