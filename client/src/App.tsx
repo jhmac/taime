@@ -341,7 +341,7 @@ function AuthenticatedApp() {
           <ProtectedRoute permission="hr.payroll_view"><PayrollExport /></ProtectedRoute>
         </Route>
         <Route path="/payroll-intelligence">
-          <ProtectedRoute permission="sales.view_all"><PayrollIntelligence /></ProtectedRoute>
+          <ProtectedRoute permission="admin.manage_all"><PayrollIntelligence /></ProtectedRoute>
         </Route>
         <Route path="/meetings/new">
           <ProtectedRoute permission="admin.manage_all"><MeetingsNew /></ProtectedRoute>

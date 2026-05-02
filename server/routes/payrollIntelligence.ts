@@ -15,7 +15,7 @@ export function registerPayrollIntelligenceRoutes(
   app.get("/api/payroll-intelligence/summary", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
-      const isAdmin = await resolveAnyPermission(userId, ['admin.manage_all', 'sales.view_all'], storage);
+      const isAdmin = await resolveAnyPermission(userId, ['admin.manage_all'], storage);
       if (!isAdmin) {
         return res.status(403).json({ message: "Owner or admin access required" });
       }
@@ -205,21 +205,23 @@ export function registerPayrollIntelligenceRoutes(
         return res.status(400).json({ message: "No store associated with your account" });
       }
 
-      const updates: Record<string, unknown> = {};
+      // Validate and extract typed values — decimal columns expect string in Drizzle
+      let newPayrollTargetPct: string | undefined;
+      let newStoreType: string | undefined;
 
       if (req.body.payrollTargetPct !== undefined) {
         const pct = Number(req.body.payrollTargetPct);
         if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
           return res.status(400).json({ message: "payrollTargetPct must be 0–100" });
         }
-        updates.payrollTargetPct = pct;
+        newPayrollTargetPct = String(pct);
       }
 
       if (req.body.storeType !== undefined) {
-        updates.storeType = String(req.body.storeType);
+        newStoreType = String(req.body.storeType);
       }
 
-      if (Object.keys(updates).length === 0) {
+      if (newPayrollTargetPct === undefined && newStoreType === undefined) {
         return res.status(400).json({ message: "No valid fields to update" });
       }
 
@@ -228,12 +230,25 @@ export function registerPayrollIntelligenceRoutes(
         .where(eq(aiSchedulingSettings.storeId, storeId))
         .limit(1);
 
+      // Build typed partial — no `as any` casts needed
+      const typedUpdate: {
+        payrollTargetPct?: string;
+        storeType?: string;
+        updatedAt?: Date;
+      } = { updatedAt: new Date() };
+      if (newPayrollTargetPct !== undefined) typedUpdate.payrollTargetPct = newPayrollTargetPct;
+      if (newStoreType !== undefined)         typedUpdate.storeType = newStoreType;
+
       if (existing.length > 0) {
         await db.update(aiSchedulingSettings)
-          .set({ ...updates as any, updatedAt: new Date() })
+          .set(typedUpdate)
           .where(eq(aiSchedulingSettings.storeId, storeId));
       } else {
-        await db.insert(aiSchedulingSettings).values({ storeId, ...(updates as any) });
+        await db.insert(aiSchedulingSettings).values({
+          storeId,
+          ...(newPayrollTargetPct !== undefined ? { payrollTargetPct: newPayrollTargetPct } : {}),
+          ...(newStoreType !== undefined ? { storeType: newStoreType } : {}),
+        });
       }
 
       return res.json({ success: true });

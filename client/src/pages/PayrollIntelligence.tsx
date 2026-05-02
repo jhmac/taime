@@ -398,10 +398,10 @@ function DashboardTab({
   const optimalHours = avgWage > 0 ? (summary.grossSales * (target / 100)) / avgWage : 0;
 
   const kpis = [
-    { label: 'Gross Sales', value: fmt$(summary.grossSales), icon: 'fas fa-dollar-sign', color: 'border-t-green-500' },
-    { label: 'Total Labor Cost', value: fmt$(summary.totalLaborCost), icon: 'fas fa-users', color: 'border-t-blue-500' },
-    { label: 'SPLH', value: summary.splh > 0 ? fmt$(summary.splh) : '—', icon: 'fas fa-bolt', color: 'border-t-purple-500' },
-    { label: 'Avg Ticket', value: summary.avgTicket > 0 ? fmt$(summary.avgTicket) : '—', icon: 'fas fa-receipt', color: 'border-t-amber-500' },
+    { label: 'Gross Sales',   value: fmt$(summary.grossSales),                                     icon: 'fas fa-dollar-sign', color: 'border-t-green-500'  },
+    { label: 'Total Hours',   value: summary.totalHours > 0 ? fmtHrs(summary.totalHours) : '—',   icon: 'fas fa-clock',       color: 'border-t-blue-500'   },
+    { label: 'SPLH',          value: summary.splh > 0 ? fmt$(summary.splh) : '—',                 icon: 'fas fa-bolt',        color: 'border-t-purple-500' },
+    { label: 'Avg Ticket',    value: summary.avgTicket > 0 ? fmt$(summary.avgTicket) : '—',        icon: 'fas fa-receipt',     color: 'border-t-amber-500'  },
   ];
 
   const chartData = summary.dailyBreakdown.map(d => ({
@@ -550,6 +550,8 @@ function DashboardTab({
 }
 
 // ── TeamTab ───────────────────────────────────────────────────────────────────
+type TeamSortKey = 'totalHours' | 'laborCost' | 'wageRate' | 'splh';
+
 function TeamTab({
   summary,
   isLoading,
@@ -557,18 +559,21 @@ function TeamTab({
   summary: PayrollSummary | null;
   isLoading: boolean;
 }) {
-  const [sortKey, setSortKey] = useState<'totalHours' | 'laborCost' | 'wageRate'>('totalHours');
+  const [sortKey, setSortKey] = useState<TeamSortKey>('totalHours');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
   const sorted = useMemo(() => {
     if (!summary?.employees) return [];
     return [...summary.employees].sort((a, b) => {
-      const diff = a[sortKey] - b[sortKey];
+      // SPLH is null for all employees — fall back to hours for tie-breaking
+      const aVal = sortKey === 'splh' ? (a.splh ?? -1) : a[sortKey as Exclude<TeamSortKey, 'splh'>];
+      const bVal = sortKey === 'splh' ? (b.splh ?? -1) : b[sortKey as Exclude<TeamSortKey, 'splh'>];
+      const diff = (aVal as number) - (bVal as number);
       return sortDir === 'desc' ? -diff : diff;
     });
   }, [summary, sortKey, sortDir]);
 
-  const toggleSort = (key: typeof sortKey) => {
+  const toggleSort = (key: TeamSortKey) => {
     if (sortKey === key) {
       setSortDir(d => d === 'desc' ? 'asc' : 'desc');
     } else {
@@ -577,7 +582,7 @@ function TeamTab({
     }
   };
 
-  const SortIcon = ({ k }: { k: typeof sortKey }) => {
+  const SortIcon = ({ k }: { k: TeamSortKey }) => {
     if (sortKey !== k) return <i className="fas fa-sort text-[10px] text-muted-foreground ml-1" />;
     return <i className={`fas fa-sort-${sortDir === 'desc' ? 'down' : 'up'} text-[10px] text-primary ml-1`} />;
   };
@@ -586,18 +591,31 @@ function TeamTab({
     return <Card><CardContent className="p-4"><Skeleton className="h-64 w-full" /></CardContent></Card>;
   }
 
-  if (!summary?.shopConnected && (!summary?.employees || summary.employees.length === 0)) {
+  if (!summary?.employees || summary.employees.length === 0) {
     return (
       <div className="text-center py-12">
         <i className="fas fa-users text-4xl text-muted-foreground mb-3" />
         <p className="font-semibold mb-1">No Team Data</p>
-        <p className="text-sm text-muted-foreground">No clock-in/out entries found for this period.</p>
+        <p className="text-sm text-muted-foreground">No completed clock-in/out entries found for this period.</p>
       </div>
     );
   }
 
-  const target = summary?.settings.payrollTargetPct ?? 30;
   const totalCost = sorted.reduce((s, e) => s + e.laborCost, 0);
+  const totalHours = sorted.reduce((s, e) => s + e.totalHours, 0);
+  const avgHours = sorted.length > 0 ? totalHours / sorted.length : 0;
+
+  const perfBadge = (emp: { totalHours: number }) => {
+    const ratio = avgHours > 0 ? emp.totalHours / avgHours : 0;
+    if (ratio >= 1.3) return <Badge className="text-[10px] bg-green-100 text-green-700 border-green-200">Top Contributor</Badge>;
+    if (ratio >= 0.7) return <Badge className="text-[10px] bg-blue-100 text-blue-700 border-blue-200">On Track</Badge>;
+    return <Badge className="text-[10px] bg-amber-100 text-amber-700 border-amber-200">Low Hours</Badge>;
+  };
+
+  // Mentorship gap: highest wage + below-average hours = expensive and underutilized
+  const mentorGap = sorted.length > 1
+    ? [...sorted].sort((a, b) => b.wageRate - a.wageRate).find(e => e.totalHours < avgHours)
+    : null;
 
   return (
     <div className="space-y-4">
@@ -614,25 +632,19 @@ function TeamTab({
               <TableHeader>
                 <TableRow>
                   <TableHead>Employee</TableHead>
-                  <TableHead
-                    className="text-right cursor-pointer select-none"
-                    onClick={() => toggleSort('totalHours')}
-                  >
+                  <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleSort('totalHours')}>
                     Hours <SortIcon k="totalHours" />
                   </TableHead>
-                  <TableHead
-                    className="text-right cursor-pointer select-none"
-                    onClick={() => toggleSort('wageRate')}
-                  >
+                  <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleSort('wageRate')}>
                     Rate <SortIcon k="wageRate" />
                   </TableHead>
-                  <TableHead
-                    className="text-right cursor-pointer select-none"
-                    onClick={() => toggleSort('laborCost')}
-                  >
+                  <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleSort('laborCost')}>
                     Cost <SortIcon k="laborCost" />
                   </TableHead>
-                  <TableHead className="text-right">Share</TableHead>
+                  <TableHead className="text-right cursor-pointer select-none" onClick={() => toggleSort('splh')}>
+                    SPLH <SortIcon k="splh" />
+                  </TableHead>
+                  <TableHead className="text-right">ROI</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -640,27 +652,30 @@ function TeamTab({
                   const share = totalCost > 0 ? (emp.laborCost / totalCost) * 100 : 0;
                   return (
                     <TableRow key={emp.userId}>
-                      <TableCell className="font-medium text-sm">{emp.name}</TableCell>
+                      <TableCell>
+                        <div className="flex flex-col gap-0.5">
+                          <span className="font-medium text-sm">{emp.name}</span>
+                          <div className="flex items-center gap-1">
+                            {perfBadge(emp)}
+                            <span className="text-[10px] text-muted-foreground">{share.toFixed(0)}% of payroll</span>
+                          </div>
+                        </div>
+                      </TableCell>
                       <TableCell className="text-right text-sm">{fmtHrs(emp.totalHours)}</TableCell>
                       <TableCell className="text-right text-sm">${emp.wageRate.toFixed(2)}/h</TableCell>
                       <TableCell className="text-right text-sm font-semibold">{fmt$(emp.laborCost)}</TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <div className="w-12 h-1.5 bg-muted rounded-full overflow-hidden">
-                            <div className="h-full bg-primary rounded-full" style={{ width: `${share}%` }} />
-                          </div>
-                          <span className="text-[10px] text-muted-foreground w-8">{share.toFixed(0)}%</span>
-                        </div>
-                      </TableCell>
+                      <TableCell className="text-right text-sm text-muted-foreground">—</TableCell>
+                      <TableCell className="text-right text-sm text-muted-foreground">—</TableCell>
                     </TableRow>
                   );
                 })}
                 {sorted.length > 0 && (
                   <TableRow className="font-semibold bg-muted/30">
-                    <TableCell>Total</TableCell>
-                    <TableCell className="text-right">{fmtHrs(sorted.reduce((s, e) => s + e.totalHours, 0))}</TableCell>
+                    <TableCell>Total ({sorted.length} employees)</TableCell>
+                    <TableCell className="text-right">{fmtHrs(totalHours)}</TableCell>
                     <TableCell />
                     <TableCell className="text-right">{fmt$(totalCost)}</TableCell>
+                    <TableCell />
                     <TableCell />
                   </TableRow>
                 )}
@@ -670,24 +685,27 @@ function TeamTab({
         </CardContent>
       </Card>
 
-      {sorted.length === 0 && (
-        <div className="text-center py-8">
-          <p className="text-sm text-muted-foreground">No completed time entries in this period.</p>
-        </div>
-      )}
-
       <InsightCard
         icon="fas fa-info-circle text-blue-500"
-        title="Per-Employee SPLH Coming Soon"
-        body="Shopify doesn't provide per-employee attribution, so individual SPLH and ROI aren't available. We show team-level SPLH on the Dashboard tab. Future versions will support shift-level revenue attribution via traffic counters."
+        title="SPLH & ROI: Team-Level Only"
+        body="Shopify sales are store-wide, not per-employee. Individual SPLH and ROI show '—' by design. Team-level SPLH is on the Dashboard tab. Sort by Rate or Cost to identify your highest-leverage scheduling decisions."
         color="blue"
       />
 
-      {sorted.length > 0 && (
+      {mentorGap && (
+        <InsightCard
+          icon="fas fa-user-graduate text-orange-500"
+          title={`Mentorship Opportunity: ${mentorGap.name}`}
+          body={`${mentorGap.name} has your highest hourly rate ($${mentorGap.wageRate.toFixed(2)}/h) but worked below the team average of ${fmtHrs(avgHours)} this period (${fmtHrs(mentorGap.totalHours)} worked). Consider scheduling more high-value interactions — styling consults, VIP events — to maximize their contribution.`}
+          color="orange"
+        />
+      )}
+
+      {sorted.length > 0 && !mentorGap && (
         <InsightCard
           icon="fas fa-award text-purple-500"
-          title={`${sorted[0]?.name} — Most Hours`}
-          body={`${sorted[0]?.name} worked the most hours this period (${fmtHrs(sorted[0]?.totalHours ?? 0)}) at a labor cost of ${fmt$(sorted[0]?.laborCost ?? 0)}, representing ${totalCost > 0 ? ((sorted[0]?.laborCost / totalCost) * 100).toFixed(0) : 0}% of total labor spend.`}
+          title={`Top Contributor: ${sorted[0]?.name}`}
+          body={`${sorted[0]?.name} led the team in hours this period (${fmtHrs(sorted[0]?.totalHours ?? 0)}), accounting for ${totalCost > 0 ? ((sorted[0]?.laborCost / totalCost) * 100).toFixed(0) : 0}% of total labor spend. Consistent high-hour contributors are your scheduling backbone.`}
           color="purple"
         />
       )}
@@ -929,6 +947,7 @@ export default function PayrollIntelligence() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/payroll-intelligence/summary'] });
       toast({ title: 'Settings saved', description: 'Your payroll target and store type have been updated.' });
+      setActiveTab('dashboard');
     },
     onError: () => {
       toast({ title: 'Save failed', description: 'Could not save settings. Please try again.', variant: 'destructive' });
