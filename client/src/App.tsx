@@ -171,6 +171,7 @@ const CashManagement = lazy(() => import("@/pages/CashManagement"));
 const MileageReport = lazy(() => import("@/pages/MileageReport"));
 const Timesheets = lazy(() => import("@/pages/Timesheets"));
 const PayrollExport = lazy(() => import("@/pages/PayrollExport"));
+const PayrollReview = lazy(() => import("@/pages/PayrollReview"));
 const PayrollIntelligence = lazy(() => import("@/pages/PayrollIntelligence"));
 const MyScore = lazy(() => import("@/pages/MyScore"));
 const JoinPage = lazy(() => import("@/pages/JoinPage"));
@@ -386,6 +387,9 @@ function AuthenticatedApp() {
         </Route>
         <Route path="/payroll-export">
           <ProtectedRoute permission="hr.payroll_view"><PayrollExport /></ProtectedRoute>
+        </Route>
+        <Route path="/payroll-review">
+          <ProtectedRoute permission="admin.manage_payroll"><PayrollReview /></ProtectedRoute>
         </Route>
         <Route path="/payroll-intelligence">
           <ProtectedRoute permission="admin.manage_all"><PayrollIntelligence /></ProtectedRoute>
