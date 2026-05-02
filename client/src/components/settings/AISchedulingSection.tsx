@@ -287,6 +287,23 @@ function CoverageRuleRow({ rule, index, onChange, onDelete }: {
   );
 }
 
+interface SpecialCircumstanceItem {
+  id: string;
+  name: string;
+  description: string | null;
+  category: string | null;
+  isEnabled: boolean;
+}
+
+const CIRCUMSTANCE_CATEGORIES = [
+  'Seasonal Event',
+  'Holiday Rush',
+  'Local Event',
+  'Weather',
+  'Promotion',
+  'Other',
+];
+
 function AIRulesTab() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -299,10 +316,18 @@ function AIRulesTab() {
     queryKey: ['/api/ai-scheduling/rules'],
   });
 
+  const { data: circumstancesData, isLoading: circumLoading } = useQuery<SpecialCircumstanceItem[]>({
+    queryKey: ['/api/scheduling/special-circumstances'],
+  });
+
   const [localClassifications, setLocalClassifications] = useState<EmployeeClassification[]>([]);
   const [coverageRules, setCoverageRules] = useState<CoverageRule[]>([]);
   const [customInstructions, setCustomInstructions] = useState('');
   const [showRuleDropdown, setShowRuleDropdown] = useState(false);
+  const [showAddCircumstance, setShowAddCircumstance] = useState(false);
+  const [newCircumName, setNewCircumName] = useState('');
+  const [newCircumDescription, setNewCircumDescription] = useState('');
+  const [newCircumCategory, setNewCircumCategory] = useState('');
 
   useEffect(() => {
     if (classificationsData) setLocalClassifications(classificationsData);
@@ -325,6 +350,51 @@ function AIRulesTab() {
     },
     onError: () => {
       toast({ title: 'Error', description: 'Failed to update classifications.', variant: 'destructive' });
+    },
+  });
+
+  const addCircumstanceMutation = useMutation({
+    mutationFn: async (data: { name: string; description: string; category: string }) => {
+      const res = await apiRequest('POST', '/api/scheduling/special-circumstances', data);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/scheduling/special-circumstances'] });
+      setShowAddCircumstance(false);
+      setNewCircumName('');
+      setNewCircumDescription('');
+      setNewCircumCategory('');
+      toast({ title: 'Added', description: 'Special circumstance added.' });
+    },
+    onError: () => {
+      toast({ title: 'Error', description: 'Failed to add special circumstance.', variant: 'destructive' });
+    },
+  });
+
+  const toggleCircumstanceMutation = useMutation({
+    mutationFn: async ({ id, isEnabled }: { id: string; isEnabled: boolean }) => {
+      const res = await apiRequest('PUT', `/api/scheduling/special-circumstances/${id}`, { isEnabled });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/scheduling/special-circumstances'] });
+    },
+    onError: () => {
+      toast({ title: 'Error', description: 'Failed to update special circumstance.', variant: 'destructive' });
+    },
+  });
+
+  const deleteCircumstanceMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest('DELETE', `/api/scheduling/special-circumstances/${id}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/scheduling/special-circumstances'] });
+      toast({ title: 'Deleted', description: 'Special circumstance removed.' });
+    },
+    onError: () => {
+      toast({ title: 'Error', description: 'Failed to delete special circumstance.', variant: 'destructive' });
     },
   });
 
@@ -367,9 +437,11 @@ function AIRulesTab() {
     setCoverageRules(prev => prev.filter((_, i) => i !== index));
   };
 
-  if (classLoading || rulesLoading) {
+  if (classLoading || rulesLoading || circumLoading) {
     return <div className="p-4 text-sm text-muted-foreground">Loading AI rules...</div>;
   }
+
+  const circumstances = circumstancesData ?? [];
 
   const salesFloorEmployees = localClassifications.filter(e => e.showInSchedule);
   const backOfficeEmployees = localClassifications.filter(e => !e.showInSchedule);
@@ -519,6 +591,115 @@ function AIRulesTab() {
               {customInstructions.length} / 5000
             </span>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Special Circumstances */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4" />
+            Special Circumstances
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Define events or conditions that should influence the AI's scheduling decisions — such as holiday rushes, local events, or promotions. Enabled circumstances are automatically included in every schedule generation prompt.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {circumstances.length === 0 && !showAddCircumstance && (
+            <p className="text-sm text-muted-foreground italic">No special circumstances defined yet. Add one below to let the AI factor it into scheduling.</p>
+          )}
+          {circumstances.map(c => (
+            <div key={c.id} className={`p-3 rounded-lg border transition-opacity ${c.isEnabled ? 'bg-muted/40 border-border' : 'bg-muted/20 border-border/50 opacity-60'}`}>
+              <div className="flex items-start gap-3">
+                <Switch
+                  checked={c.isEnabled}
+                  onCheckedChange={(v) => toggleCircumstanceMutation.mutate({ id: c.id, isEnabled: v })}
+                  className="mt-0.5 shrink-0"
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-medium">{c.name}</span>
+                    {c.category && (
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0">{c.category}</Badge>
+                    )}
+                    {!c.isEnabled && (
+                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Disabled</Badge>
+                    )}
+                  </div>
+                  {c.description && (
+                    <p className="text-xs text-muted-foreground mt-0.5">{c.description}</p>
+                  )}
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-destructive hover:text-destructive shrink-0"
+                  onClick={() => deleteCircumstanceMutation.mutate(c.id)}
+                  disabled={deleteCircumstanceMutation.isPending}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
+          ))}
+
+          {showAddCircumstance ? (
+            <div className="p-3 rounded-lg border bg-muted/30 space-y-3">
+              <div>
+                <Label className="text-xs text-muted-foreground mb-1 block">Name *</Label>
+                <Input
+                  value={newCircumName}
+                  onChange={e => setNewCircumName(e.target.value)}
+                  placeholder="e.g. Black Friday Weekend, Local Marathon"
+                  className="text-sm"
+                  maxLength={200}
+                />
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground mb-1 block">Category</Label>
+                <Select value={newCircumCategory} onValueChange={setNewCircumCategory}>
+                  <SelectTrigger className="text-sm h-9">
+                    <SelectValue placeholder="Select a category (optional)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CIRCUMSTANCE_CATEGORIES.map(cat => (
+                      <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground mb-1 block">Description</Label>
+                <Textarea
+                  value={newCircumDescription}
+                  onChange={e => setNewCircumDescription(e.target.value)}
+                  placeholder="Describe how this should affect scheduling (e.g. 'Expect 3× normal foot traffic — add extra staff to all shift blocks')"
+                  className="text-sm resize-none min-h-[80px]"
+                  maxLength={2000}
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  onClick={() => addCircumstanceMutation.mutate({ name: newCircumName, description: newCircumDescription, category: newCircumCategory })}
+                  disabled={!newCircumName.trim() || addCircumstanceMutation.isPending}
+                  className="gap-1.5"
+                >
+                  {addCircumstanceMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                  Add Circumstance
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => { setShowAddCircumstance(false); setNewCircumName(''); setNewCircumDescription(''); setNewCircumCategory(''); }}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setShowAddCircumstance(true)}>
+              <Plus className="h-3.5 w-3.5" />
+              Add Special Circumstance
+            </Button>
+          )}
         </CardContent>
       </Card>
 
@@ -801,6 +982,9 @@ export default function AISchedulingSection() {
   const [shiftBlocks, setShiftBlocks] = useState<ShiftBlock[]>([]);
   const [staffingTiers, setStaffingTiers] = useState<StaffingTier[]>([]);
   const [minimumStaffing, setMinimumStaffing] = useState(2);
+  const [minStaffingPreHours, setMinStaffingPreHours] = useState(1);
+  const [minStaffingDuringHours, setMinStaffingDuringHours] = useState(2);
+  const [minStaffingPostHours, setMinStaffingPostHours] = useState(1);
   const [storeHours, setStoreHours] = useState<StoreHourEntry[]>(DEFAULT_STORE_HOURS);
   const [shiftOverlapMinutes, setShiftOverlapMinutes] = useState(60);
   const [overlapBudgetLimit, setOverlapBudgetLimit] = useState<number | null>(null);
@@ -883,6 +1067,9 @@ export default function AISchedulingSection() {
         { minRevenue: 5001, maxRevenue: 10000, employeeCount: 5 },
       ]);
       setMinimumStaffing(settings.minimumStaffing ?? 2);
+      setMinStaffingPreHours(settings.minStaffingPreHours ?? settings.min_staffing_pre_hours ?? 1);
+      setMinStaffingDuringHours(settings.minStaffingDuringHours ?? settings.min_staffing_during_hours ?? settings.minimumStaffing ?? 2);
+      setMinStaffingPostHours(settings.minStaffingPostHours ?? settings.min_staffing_post_hours ?? 1);
       setStoreHours(settings.storeHours?.length === 7 ? settings.storeHours : DEFAULT_STORE_HOURS);
       setShiftOverlapMinutes(settings.shift_overlap_minutes ?? settings.shiftOverlapMinutes ?? 60);
       const rawBudgetLimit = settings.overlapBudgetLimit ?? settings.overlap_budget_limit;
@@ -896,7 +1083,7 @@ export default function AISchedulingSection() {
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      return apiRequest('PUT', '/api/ai-scheduling/settings', { shiftBlocks, staffingTiers, minimumStaffing, storeHours, shiftOverlapMinutes, overlapBudgetLimit, laborCostOverPct, laborCostUnderPct });
+      return apiRequest('PUT', '/api/ai-scheduling/settings', { shiftBlocks, staffingTiers, minimumStaffing, storeHours, shiftOverlapMinutes, overlapBudgetLimit, laborCostOverPct, laborCostUnderPct, minStaffingPreHours, minStaffingDuringHours, minStaffingPostHours });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/ai-scheduling/settings'] });
@@ -1322,23 +1509,63 @@ export default function AISchedulingSection() {
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <Users className="h-4 w-4" />
-            Minimum Staffing
+            Minimum Staffing by Time Zone
           </CardTitle>
           <p className="text-sm text-muted-foreground">
-            The absolute minimum number of employees that must be scheduled at any time, regardless of sales predictions.
+            Set the minimum number of employees required for each part of the day. The AI uses these floor values regardless of sales predictions.
           </p>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center gap-3">
-            <Label>Minimum employees per shift</Label>
-            <Input
-              type="number"
-              min={1}
-              value={minimumStaffing}
-              onChange={(e) => setMinimumStaffing(parseInt(e.target.value) || 1)}
-              className="w-20"
-            />
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="rounded-lg border bg-muted/30 p-4 space-y-2">
+              <div className="flex items-center gap-2">
+                <Sunrise className="h-4 w-4 text-amber-500" />
+                <Label className="text-sm font-medium">Opening Zone</Label>
+              </div>
+              <p className="text-xs text-muted-foreground">First shift block (pre-hours)</p>
+              <Input
+                type="number"
+                min={1}
+                max={20}
+                value={minStaffingPreHours}
+                onChange={(e) => setMinStaffingPreHours(parseInt(e.target.value) || 1)}
+                className="w-20"
+              />
+            </div>
+            <div className="rounded-lg border bg-muted/30 p-4 space-y-2">
+              <div className="flex items-center gap-2">
+                <Users className="h-4 w-4 text-blue-500" />
+                <Label className="text-sm font-medium">Peak Zone</Label>
+              </div>
+              <p className="text-xs text-muted-foreground">Middle shift blocks (during-hours)</p>
+              <Input
+                type="number"
+                min={1}
+                max={20}
+                value={minStaffingDuringHours}
+                onChange={(e) => setMinStaffingDuringHours(parseInt(e.target.value) || 1)}
+                className="w-20"
+              />
+            </div>
+            <div className="rounded-lg border bg-muted/30 p-4 space-y-2">
+              <div className="flex items-center gap-2">
+                <Moon className="h-4 w-4 text-purple-500" />
+                <Label className="text-sm font-medium">Closing Zone</Label>
+              </div>
+              <p className="text-xs text-muted-foreground">Last shift block (post-hours)</p>
+              <Input
+                type="number"
+                min={1}
+                max={20}
+                value={minStaffingPostHours}
+                onChange={(e) => setMinStaffingPostHours(parseInt(e.target.value) || 1)}
+                className="w-20"
+              />
+            </div>
           </div>
+          <p className="text-xs text-muted-foreground mt-3">
+            These minimums override revenue-based staffing when predictions are lower. Peak zone default also used as the overall floor.
+          </p>
         </CardContent>
       </Card>
 

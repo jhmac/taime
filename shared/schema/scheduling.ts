@@ -200,8 +200,25 @@ export const aiSchedulingSettings = pgTable("ai_scheduling_settings", {
   laborCostUnderPct: decimal("labor_cost_under_pct", { precision: 5, scale: 2 }).default("10"),
   payrollTargetPct: decimal("payroll_target_pct", { precision: 5, scale: 2 }).default("30"),
   storeType: varchar("store_type").default("fashion_boutique"),
+  minStaffingPreHours: integer("min_staffing_pre_hours").default(1),
+  minStaffingDuringHours: integer("min_staffing_during_hours").default(2),
+  minStaffingPostHours: integer("min_staffing_post_hours").default(1),
 }, (table) => [
   uniqueIndex("uq_ai_scheduling_settings_store_id").on(table.storeId),
+]);
+
+// Special Circumstances — store-specific events that affect scheduling (scoped per store)
+export const specialCircumstances = pgTable("special_circumstances", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => workLocations.id, { onDelete: 'cascade' }),
+  name: varchar("name").notNull(),
+  description: text("description"),
+  category: varchar("category"),
+  isEnabled: boolean("is_enabled").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_special_circumstances_store").on(table.storeId),
 ]);
 
 // AI Scheduling Rules — structured coverage rules (scoped per store/tenant)
@@ -420,6 +437,7 @@ export const insertOffsiteBreadcrumbSchema = createInsertSchema(offsiteBreadcrum
 export const insertOvertimeAlertSchema = createInsertSchema(overtimeAlerts).omit({ id: true, createdAt: true });
 export const insertMileageReimbursementSchema = createInsertSchema(mileageReimbursements).omit({ id: true, appliedAt: true });
 export const insertAiSuggestedScheduleSchema = createInsertSchema(aiSuggestedSchedules).omit({ id: true, generatedAt: true });
+export const insertSpecialCircumstanceSchema = createInsertSchema(specialCircumstances).omit({ id: true, createdAt: true, updatedAt: true });
 
 // Chore assignment and sign-off schemas
 export const choreAssignmentSchema = z.object({
@@ -469,3 +487,5 @@ export type MileageReimbursement = typeof mileageReimbursements.$inferSelect;
 export type InsertMileageReimbursement = z.infer<typeof insertMileageReimbursementSchema>;
 export type AiSuggestedSchedule = typeof aiSuggestedSchedules.$inferSelect;
 export type InsertAiSuggestedSchedule = z.infer<typeof insertAiSuggestedScheduleSchema>;
+export type SpecialCircumstance = typeof specialCircumstances.$inferSelect;
+export type InsertSpecialCircumstance = z.infer<typeof insertSpecialCircumstanceSchema>;

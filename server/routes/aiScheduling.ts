@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
-import { aiSchedulingSettings, aiSchedulingRules, shopifyDailySales, shopifyOrders, users, userAvailability, availabilityTemplates, schedules, shops, userShops, roles, workPatternTemplates, userWorkPatterns, clockEvents, workLocations, aiSuggestedSchedules } from "@shared/schema";
+import { aiSchedulingSettings, aiSchedulingRules, specialCircumstances, shopifyDailySales, shopifyOrders, users, userAvailability, availabilityTemplates, schedules, shops, userShops, roles, workPatternTemplates, userWorkPatterns, clockEvents, workLocations, aiSuggestedSchedules } from "@shared/schema";
 import { eq, and, gte, lte, lt, gt, desc, inArray, sql, count, isNull, or } from "drizzle-orm";
 import { db } from "../db";
 import Anthropic from '@anthropic-ai/sdk';
@@ -467,7 +467,7 @@ export function registerAiSchedulingRoutes(
         return res.status(400).json({ message: "No store associated with your account" });
       }
 
-      const { shiftBlocks, staffingTiers, minimumStaffing, storeHours, shiftOverlapMinutes, overlapBudgetLimit, laborCostOverPct, laborCostUnderPct } = req.body;
+      const { shiftBlocks, staffingTiers, minimumStaffing, storeHours, shiftOverlapMinutes, overlapBudgetLimit, laborCostOverPct, laborCostUnderPct, minStaffingPreHours, minStaffingDuringHours, minStaffingPostHours } = req.body;
 
       let parsedOverPct: number | undefined;
       let parsedUnderPct: number | undefined;
@@ -503,6 +503,10 @@ export function registerAiSchedulingRoutes(
         return res.status(400).json({ message: "laborCostUnderPct must be less than laborCostOverPct" });
       }
 
+      const parsedPreHours = minStaffingPreHours !== undefined ? Math.max(1, parseInt(minStaffingPreHours) || 1) : undefined;
+      const parsedDuringHours = minStaffingDuringHours !== undefined ? Math.max(1, parseInt(minStaffingDuringHours) || 2) : undefined;
+      const parsedPostHours = minStaffingPostHours !== undefined ? Math.max(1, parseInt(minStaffingPostHours) || 1) : undefined;
+
       if (existing.length > 0) {
         await db.update(aiSchedulingSettings)
           .set({
@@ -510,6 +514,9 @@ export function registerAiSchedulingRoutes(
             staffingTiers: staffingTiers || existing[0].staffingTiers,
             minimumStaffing: minimumStaffing ?? existing[0].minimumStaffing,
             storeHours: storeHours !== undefined ? storeHours : existing[0].storeHours,
+            ...(parsedPreHours !== undefined && { minStaffingPreHours: parsedPreHours }),
+            ...(parsedDuringHours !== undefined && { minStaffingDuringHours: parsedDuringHours }),
+            ...(parsedPostHours !== undefined && { minStaffingPostHours: parsedPostHours }),
             updatedBy: userId,
             updatedAt: new Date(),
           })
@@ -544,6 +551,9 @@ export function registerAiSchedulingRoutes(
           staffingTiers: staffingTiers || [],
           minimumStaffing: minimumStaffing ?? 2,
           storeHours: storeHours || [],
+          minStaffingPreHours: parsedPreHours ?? 1,
+          minStaffingDuringHours: parsedDuringHours ?? 2,
+          minStaffingPostHours: parsedPostHours ?? 1,
           updatedBy: userId,
         });
         if (shiftOverlapMinutes !== undefined || overlapBudgetLimit !== undefined || parsedOverPct !== undefined || parsedUnderPct !== undefined) {
@@ -562,6 +572,111 @@ export function registerAiSchedulingRoutes(
     } catch (error) {
       console.error("Error updating AI scheduling settings:", error);
       res.status(500).json({ message: "Failed to update settings" });
+    }
+  });
+
+  // ── Special Circumstances CRUD ───────────────────────────────────────────────
+
+  app.get("/api/scheduling/special-circumstances", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const isAdmin = await resolveAnyPermission(userId, ['admin.manage_all', 'schedule.create'], storage);
+      if (!isAdmin) return res.status(403).json({ message: "Admin access required" });
+
+      const storeId = await resolveSettingsStoreId(userId, req.query.storeId);
+      if (!storeId) return res.status(400).json({ message: "No store associated with your account" });
+
+      const rows = await db.select().from(specialCircumstances)
+        .where(eq(specialCircumstances.storeId, storeId));
+      res.json(rows);
+    } catch (error) {
+      console.error("Error fetching special circumstances:", error);
+      res.status(500).json({ message: "Failed to fetch special circumstances" });
+    }
+  });
+
+  app.post("/api/scheduling/special-circumstances", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const isAdmin = await resolveAnyPermission(userId, ['admin.manage_all', 'schedule.create'], storage);
+      if (!isAdmin) return res.status(403).json({ message: "Admin access required" });
+
+      const storeId = await resolveSettingsStoreId(userId, req.body?.storeId ?? req.query.storeId);
+      if (!storeId) return res.status(400).json({ message: "No store associated with your account" });
+
+      const { name, description, category, isEnabled } = req.body;
+      if (!name || typeof name !== 'string' || name.trim().length === 0) {
+        return res.status(400).json({ message: "name is required" });
+      }
+
+      const [row] = await db.insert(specialCircumstances).values({
+        storeId,
+        name: name.trim().slice(0, 200),
+        description: description ? String(description).slice(0, 2000) : null,
+        category: category ? String(category).slice(0, 100) : null,
+        isEnabled: isEnabled !== false,
+      }).returning();
+      res.status(201).json(row);
+    } catch (error) {
+      console.error("Error creating special circumstance:", error);
+      res.status(500).json({ message: "Failed to create special circumstance" });
+    }
+  });
+
+  app.put("/api/scheduling/special-circumstances/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const isAdmin = await resolveAnyPermission(userId, ['admin.manage_all', 'schedule.create'], storage);
+      if (!isAdmin) return res.status(403).json({ message: "Admin access required" });
+
+      const storeId = await resolveSettingsStoreId(userId, req.body?.storeId ?? req.query.storeId);
+      if (!storeId) return res.status(400).json({ message: "No store associated with your account" });
+
+      const { id } = req.params;
+      const { name, description, category, isEnabled } = req.body;
+
+      const existing = await db.select().from(specialCircumstances)
+        .where(and(eq(specialCircumstances.id, id), eq(specialCircumstances.storeId, storeId)))
+        .limit(1);
+      if (!existing[0]) return res.status(404).json({ message: "Special circumstance not found" });
+
+      const updates: Partial<typeof specialCircumstances.$inferInsert> = { updatedAt: new Date() };
+      if (name !== undefined) updates.name = String(name).trim().slice(0, 200);
+      if (description !== undefined) updates.description = description ? String(description).slice(0, 2000) : null;
+      if (category !== undefined) updates.category = category ? String(category).slice(0, 100) : null;
+      if (isEnabled !== undefined) updates.isEnabled = Boolean(isEnabled);
+
+      const [row] = await db.update(specialCircumstances)
+        .set(updates)
+        .where(eq(specialCircumstances.id, id))
+        .returning();
+      res.json(row);
+    } catch (error) {
+      console.error("Error updating special circumstance:", error);
+      res.status(500).json({ message: "Failed to update special circumstance" });
+    }
+  });
+
+  app.delete("/api/scheduling/special-circumstances/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const isAdmin = await resolveAnyPermission(userId, ['admin.manage_all', 'schedule.create'], storage);
+      if (!isAdmin) return res.status(403).json({ message: "Admin access required" });
+
+      const storeId = await resolveSettingsStoreId(userId, req.query.storeId);
+      if (!storeId) return res.status(400).json({ message: "No store associated with your account" });
+
+      const { id } = req.params;
+      const existing = await db.select({ id: specialCircumstances.id }).from(specialCircumstances)
+        .where(and(eq(specialCircumstances.id, id), eq(specialCircumstances.storeId, storeId)))
+        .limit(1);
+      if (!existing[0]) return res.status(404).json({ message: "Special circumstance not found" });
+
+      await db.delete(specialCircumstances).where(eq(specialCircumstances.id, id));
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting special circumstance:", error);
+      res.status(500).json({ message: "Failed to delete special circumstance" });
     }
   });
 
@@ -752,6 +867,11 @@ export function registerAiSchedulingRoutes(
         ? String((instructionsSingleton.params as AiRuleParams).text || '')
         : '';
 
+      const enabledSpecialCircumstances = promptStoreId
+        ? await db.select().from(specialCircumstances)
+            .where(and(eq(specialCircumstances.storeId, promptStoreId), eq(specialCircumstances.isEnabled, true)))
+        : [];
+
       const employeeList = allUsers
         .filter(u => u.showInSchedule !== false)
         .map(u => {
@@ -822,7 +942,10 @@ ${storeHoursInfo}
 SCHEDULE PERIOD:
 ${schedulableDays.map(d => `${d.date} (${d.dayName}): revenue=$${d.predictedRevenue}, need ${d.requiredStaff} staff${d.matchedLastYearDate ? ` (matched ${d.matchedLastYearDate})` : ''}`).join('\n')}
 ${closedDays.size > 0 ? `\nCLOSED DAYS (DO NOT schedule anyone): ${days.filter(d => closedDays.has(d.dayOfWeek)).map(d => `${d.date} (${d.dayName})`).join(', ')}\n` : ''}
-MIN STAFFING: ${settings.minimumStaffing}
+MIN STAFFING BY TIME ZONE:
+- Opening zone (first shift block / pre-hours): ${(settings as any).minStaffingPreHours ?? 1} employee(s) minimum
+- Peak zone (middle shift blocks / during-hours): ${(settings as any).minStaffingDuringHours ?? settings.minimumStaffing ?? 2} employee(s) minimum
+- Closing zone (last shift block / post-hours): ${(settings as any).minStaffingPostHours ?? 1} employee(s) minimum
 
 EMPLOYEES:
 ${employeeList.map(e => {
@@ -881,8 +1004,10 @@ ${activeRules.map((r, i) => {
 ` : ''}${customAiInstructions ? `
 CUSTOM INSTRUCTIONS FROM ADMIN:
 ${customAiInstructions}
+` : ''}${enabledSpecialCircumstances.length > 0 ? `
+SPECIAL CIRCUMSTANCES (factor these into scheduling decisions this week):
+${enabledSpecialCircumstances.map((c: any) => `- ${c.name}${c.category ? ` [${c.category}]` : ''}${c.description ? ': ' + c.description : ''}`).join('\n')}
 ` : ''}
-
 OUTPUT INSTRUCTIONS: Return ONLY a single JSON object. Do NOT include any text, markdown formatting, or code fences. The response must start with { and end with }.
 
 Required JSON structure:
