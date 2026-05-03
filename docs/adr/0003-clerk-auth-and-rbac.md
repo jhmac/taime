@@ -1,0 +1,3 @@
+# Clerk as the auth and role-based access provider
+
+Taime delegates user authentication, session management, and OAuth/SSO to Clerk, syncing each Clerk identity into a local `User` row that carries the project's `Role` and `PermissionOverride` data (see ADR-0008). Clerk was picked over rolling our own auth or using Supabase/Auth0 because it ships first-class React + Capacitor support, handles SSO and password resets without us owning that surface, and lets the backend use signed JWTs for all role checks; the cost is vendor lock-in on the identity layer, accepted in exchange for not maintaining auth code.

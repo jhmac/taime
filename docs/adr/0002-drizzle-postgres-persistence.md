@@ -1,0 +1,3 @@
+# Drizzle ORM with Postgres as the persistence layer
+
+All persistent state for Taime — Users, Stores, Shifts, TimeEntries, Notifications, Subscriptions, etc. — lives in a single Neon-hosted Postgres database accessed through Drizzle ORM with `@neondatabase/serverless`. Drizzle was chosen over Prisma and raw SQL because its schema-first TypeScript types flow directly into shared Zod insert schemas (`drizzle-zod`) used by both the API and the React frontend, and its lightweight migration tooling fits the single-process deploy model; swapping the ORM later would touch every storage call site, so this choice is deliberately load-bearing.

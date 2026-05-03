@@ -1,0 +1,3 @@
+# Anthropic Claude as the AI provider, with algorithmic fallback
+
+All AI-driven features in Taime — auto-scheduling, anomaly detection, payroll validation, the Ask MAinager copilot, SOP and content generation — call Anthropic's Claude (currently `claude-opus-4-5`) as the primary model. Where the feature has a deterministic substitute (most importantly the auto-scheduler), the code falls back to a hand-written algorithmic path if Claude is unavailable or returns an invalid response, so core operations never hard-depend on the model being up; we picked a single provider with a fallback over a multi-model abstraction to keep prompt engineering and evaluation focused.

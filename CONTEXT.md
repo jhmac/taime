@@ -18,7 +18,7 @@ _Avoid_: Store, WorkLocation, Site, Branch.
 The Shopify integration credential. 1:1 with **Store**.
 
 **Company**:
-Today, a 1:1 envelope around **Store**. Treated as the same domain entity in language; a future split is captured in ADR-0001.
+Today, a 1:1 envelope around **Store**. Treated as the same domain entity in language; a future split is captured in ADR-0007.
 
 ### Identity & Roles
 
@@ -181,7 +181,7 @@ Independent layers. A feature is accessible only if the **Store** has the **Enti
 - `users.locationName` (text) and `users.locationId` (FK) coexist. `locationId` is the source of truth; `locationName` will be dropped in the cleanup sweep.
 - `commuteAlerts` and `overtimeAlerts` will become **InboxItem**.
 - `userAvailability` (per-payroll-period submissions) is deprecated in favor of templates + overrides.
-- The Permission registry previously had a duplicate `sales.view` / `sales.view_all` — consolidated to `sales.view_all` (see ADR-0002).
+- The Permission registry previously had a duplicate `sales.view` / `sales.view_all` — consolidated to `sales.view_all` (see ADR-0008).
 - `comm.*` and `communication.*` permission prefixes coexist — being unified in the cleanup sweep.
 - **StoreMembership** is implemented today as the `user_shops` table; the rename to `store_memberships` is in the cleanup sweep.
 - **LocationAssignment** is target-state vocabulary — there is no N:N join table yet. Today a User is linked to one Location via `users.locationId`; multi-Location assignment will materialize as a `location_assignments` table when the first feature needs it.

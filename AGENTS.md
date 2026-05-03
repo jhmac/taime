@@ -15,6 +15,9 @@ Five canonical triage roles map to Replit task states. Use this vocabulary when 
 See [`docs/agents/triage-labels.md`](docs/agents/triage-labels.md) for the label-to-state mapping.
 
 ### Domain docs
+
+Before exploring the codebase or proposing changes, read [`CONTEXT.md`](./CONTEXT.md) at the repo root and any relevant ADRs under [`docs/adr/`](./docs/adr/). Read them silently — if a file is missing, do not flag its absence. In all outputs (issue titles, refactor proposals, hypotheses, test names, UI strings), use the glossary's vocabulary verbatim and do not drift to synonyms it explicitly lists under _Avoid_. If your proposed change contradicts an existing ADR, surface the conflict explicitly (e.g. "Contradicts ADR-0008 — but worth reopening because…") rather than silently overriding it.
+
 This is a single-context repository. Every domain concept — from `Store` to `Shift` to `Entitlement` — has a canonical name defined in `CONTEXT.md`. Before naming anything new, read that file. Before working in a domain area, read the relevant Architecture Decision Record under `docs/adr/`.
 
 See [`docs/agents/domain.md`](docs/agents/domain.md) for the reading checklist, ADR index, and conflict rules.

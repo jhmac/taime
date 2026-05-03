@@ -1,0 +1,3 @@
+# Role-based sales access with individual per-Employee overrides
+
+Visibility of revenue and Shopify sales data is gated by the `sales.view_all` Permission, which is granted by default through the Employee's Role and can be flipped on or off per User via a `PermissionOverride` row that wins over the Role default (see ADR-0008 for the general resolution rule). We chose per-Employee overrides on top of role defaults — rather than a separate "sales access" flag — so sales access stays inside the same closed Permission registry as everything else, keeps a single audit trail in `ActivityLog`, and lets admins make one-off exceptions without inventing new Roles for every edge case.

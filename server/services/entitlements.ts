@@ -1,5 +1,5 @@
 /**
- * Entitlement read module — ADR-0005
+ * Entitlement read module — ADR-0011
  *
  * Single source of truth for feature-level access checks.
  * Every route that needs to gate a feature MUST use hasEntitlement or
@@ -10,7 +10,7 @@
  * This module is read-only.
  *
  * Trial / pre-subscription state: when no rows exist for a store, full access is
- * returned. This matches ADR-0005: "14 days, full feature access, no credit card
+ * returned. This matches ADR-0011: "14 days, full feature access, no credit card
  * required at signup." The Stripe webhook handler populates this table when a paid
  * subscription is activated, narrowing the allowed feature set to the plan's keys.
  *
@@ -88,7 +88,7 @@ export function invalidateEntitlementCache(storeId: string): void {
  * Return all feature keys the store is entitled to.
  *
  * No rows → trial / pre-subscription state: all feature keys are returned per
- * ADR-0005 (14-day full-access trial, no credit card required at signup).
+ * ADR-0011 (14-day full-access trial, no credit card required at signup).
  *
  * DB errors are NOT caught — they propagate so the route returns 500 rather than
  * silently granting access that cannot be verified (billing-bypass prevention).
@@ -104,7 +104,7 @@ export async function getEntitlements(storeId: string): Promise<string[]> {
     .from(storeEntitlements)
     .where(eq(storeEntitlements.storeId, storeId));
 
-  // No rows → trial / pre-subscription: grant full access per ADR-0005.
+  // No rows → trial / pre-subscription: grant full access per ADR-0011.
   const keys: string[] = rows.length === 0
     ? [...ALL_FEATURE_KEYS]
     : rows.map((r) => r.featureKey);

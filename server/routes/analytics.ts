@@ -20,7 +20,7 @@ export function registerAnalyticsRoutes(app: Express, storage: IStorage, isAuthe
         return res.status(403).json({ message: "Access denied" });
       }
 
-      // Entitlement check (ADR-0005): gate on analytics.dashboard feature key.
+      // Entitlement check (ADR-0011): gate on analytics.dashboard feature key.
       // When storeId cannot be resolved the check is skipped so users without a
       // store assignment are not inadvertently blocked.
       const storeId = await tryResolveStoreIdForUser(userId);

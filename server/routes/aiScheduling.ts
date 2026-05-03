@@ -713,7 +713,7 @@ export function registerAiSchedulingRoutes(
         return res.status(403).json({ message: "You don't have access to that store" });
       }
 
-      // Entitlement check (ADR-0005): AI schedule generation is a paid feature.
+      // Entitlement check (ADR-0011): AI schedule generation is a paid feature.
       if (generateStoreId && !await hasEntitlement(generateStoreId, "ai.scheduling")) {
         return res.status(403).json({ message: "Your plan does not include AI scheduling. Please upgrade to continue." });
       }
@@ -1217,7 +1217,7 @@ Required JSON structure:
       const applyStoreId = await tryResolveStoreIdForUser(userId);
       if (!applyStoreId) return res.status(403).json({ message: "No store associated with your account" });
 
-      // Entitlement check (ADR-0005): applying AI-generated schedules is part of the
+      // Entitlement check (ADR-0011): applying AI-generated schedules is part of the
       // paid ai.scheduling feature.
       if (!await hasEntitlement(applyStoreId, "ai.scheduling")) {
         return res.status(403).json({ message: "Your plan does not include AI scheduling. Please upgrade to continue." });
@@ -2639,7 +2639,7 @@ Required JSON structure:
         return res.status(403).json({ message: "No store associated with your account" });
       }
 
-      // Entitlement check (ADR-0005): /suggest is the AI scheduling
+      // Entitlement check (ADR-0011): /suggest is the AI scheduling
       // generation/cache endpoint — gate it on the paid ai.scheduling
       // feature. Run before the cache short-circuit so a downgraded store
       // can no longer access premium suggestions previously generated on a
@@ -3427,7 +3427,7 @@ Respond ONLY with a valid JSON object (no markdown, no explanation) in this exac
         return res.status(403).json({ message: "No store associated with your account" });
       }
 
-      // Entitlement check (ADR-0005): AI schedule review is part of the paid
+      // Entitlement check (ADR-0011): AI schedule review is part of the paid
       // ai.scheduling feature.
       if (!await hasEntitlement(storeId, "ai.scheduling")) {
         return res.status(403).json({ message: "Your plan does not include AI scheduling. Please upgrade to continue." });

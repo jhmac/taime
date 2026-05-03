@@ -125,7 +125,7 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
         return res.status(403).json({ message: "Payroll management access required" });
       }
 
-      // Entitlement check (ADR-0005): payroll automation is a paid feature.
+      // Entitlement check (ADR-0011): payroll automation is a paid feature.
       const storeId = await tryResolveStoreIdForUser(userId);
       if (storeId && !await hasEntitlement(storeId, "payroll.automation")) {
         return res.status(403).json({ message: "Your plan does not include payroll automation. Please upgrade to continue." });
@@ -148,7 +148,7 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
         return res.status(403).json({ message: "Payroll management access required" });
       }
 
-      // Entitlement check (ADR-0005): payroll CSV export is a paid feature.
+      // Entitlement check (ADR-0011): payroll CSV export is a paid feature.
       const storeId = await tryResolveStoreIdForUser(userId);
       if (storeId && !await hasEntitlement(storeId, "payroll.export")) {
         return res.status(403).json({ message: "Your plan does not include payroll export. Please upgrade to continue." });
@@ -311,7 +311,7 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
         return res.status(403).json({ message: "Payroll management access required" });
       }
 
-      // Entitlement check (ADR-0005): payroll automation is a paid feature.
+      // Entitlement check (ADR-0011): payroll automation is a paid feature.
       const storeId = await tryResolveStoreIdForUser(userId);
       if (storeId && !await hasEntitlement(storeId, "payroll.automation")) {
         return res.status(403).json({ message: "Your plan does not include payroll automation. Please upgrade to continue." });
@@ -346,7 +346,7 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
         payDayOfWeek,
       } = req.body;
 
-      // Entitlement check (ADR-0005): payroll automation is a paid feature.
+      // Entitlement check (ADR-0011): payroll automation is a paid feature.
       // Run BEFORE any settings/period writes so a denied request leaves no
       // partial state (e.g. settings flipped to isAutomationEnabled=true with
       // no scheduled periods). Only enforced when the caller is actually

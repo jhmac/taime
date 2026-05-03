@@ -1,7 +1,7 @@
 /**
  * Unit tests for the entitlement read module (server/services/entitlements.ts).
  *
- * Verifies the three operational states described in ADR-0005:
+ * Verifies the three operational states described in ADR-0011:
  *  1. Rows present in DB → only those feature keys are returned.
  *  2. No rows for the store → trial state, all feature keys are returned.
  *  3. DB query throws → error propagates (billing-bypass prevention).

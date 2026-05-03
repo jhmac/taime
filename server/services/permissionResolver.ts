@@ -1,5 +1,5 @@
 /**
- * Permission Resolution Module (ADR-0002)
+ * Permission Resolution Module (ADR-0008)
  *
  * Implements the authoritative three-tier resolution chain:
  *   1. UserPermissionOverride row  → explicit grant or deny
@@ -53,7 +53,7 @@ export interface RolePermRow {
  * @param isOwnerOrAdmin  When true, the user holds a system-level role and receives every permission.
  *
  * @returns A pure function `(permissionKey: string) => boolean` that implements
- *          the ADR-0002 chain without touching the database.
+ *          the ADR-0008 chain without touching the database.
  *
  * @example
  * ```ts
@@ -90,7 +90,7 @@ export function buildPermissionResolver(
 // ---------------------------------------------------------------------------
 
 /**
- * Resolves whether `userId` holds `permissionKey`, following the ADR-0002 chain:
+ * Resolves whether `userId` holds `permissionKey`, following the ADR-0008 chain:
  *   PermissionOverride row → rolePermissions for the User's Role → deny.
  *
  * Results are served from the per-user permission cache maintained by
