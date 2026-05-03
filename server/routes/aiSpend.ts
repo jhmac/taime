@@ -252,6 +252,8 @@ export function registerAiSpendRoutes(app: Express, _storage: IStorage, isAuthen
   }));
 
   app.delete("/api/ai-spend/budgets/:id", isAuthenticated, requireOwnerAdmin, asyncHandler(async (req, res) => {
+    // Clean up alert rows first so they don't orphan (no FK constraint exists).
+    await db.delete(aiBudgetAlerts).where(eq(aiBudgetAlerts.budgetId, req.params.id));
     await db.delete(aiBudgets).where(eq(aiBudgets.id, req.params.id));
     invalidateBudgetCache();
     res.json({ success: true });

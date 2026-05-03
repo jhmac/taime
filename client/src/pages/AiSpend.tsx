@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -45,7 +45,6 @@ const fmtInt = (n: number) => n.toLocaleString();
 
 export default function AiSpend() {
   const { toast } = useToast();
-  const queryClient = useQueryClient();
 
   const summaryQ = useQuery<{ success: boolean; data: Summary }>({
     queryKey: ["/api/ai-spend/summary"],

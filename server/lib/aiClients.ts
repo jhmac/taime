@@ -44,17 +44,109 @@ const rawOpenai = new OpenAI({
 
 // ── Wrapped clients ──────────────────────────────────────────────────────────
 
-/**
- * Anthropic proxy that intercepts `.messages.create()` to:
- *  1) Pre-flight a budget check (throws BudgetExceededError if any active
- *     budget for the call's storeId is at 100%).
- *  2) Time the call, parse `usage` from the response, compute USD cost from
- *     the model rate sheet, and INSERT one ai_usage_events row.
- *  3) Emit threshold alerts (80% / 100%) once per period via the tracker.
- *
- * Streaming is not currently used in the codebase; if added later, a streaming
- * branch must be added here to capture token totals from the final event.
- */
+// ── Generic tracking helper ──────────────────────────────────────────────────
+//
+// Every tracked call goes through `runTracked`, which:
+//   1) Reads ambient AiCallContext (feature/store/user/background) from ALS.
+//   2) Pre-flights `assertBudgets` — throws BudgetExceededError on hard-cap.
+//   3) Times the call, runs the supplied `exec` to get the result + usage.
+//   4) Computes USD cost from the static rate sheet and records ONE
+//      ai_usage_events row (status = success | blocked | error).
+//   5) Re-throws the original error so callers see normal SDK semantics.
+//
+// All three openai branches and the anthropic branch funnel through this so
+// behavior is identical and there's a single place to evolve.
+
+interface UsageBundle {
+  result: any;
+  inputTokens: number;
+  outputTokens: number;
+  audioSeconds?: number;
+}
+
+async function runTracked(
+  provider: "anthropic" | "openai",
+  operation: Operation,
+  modelArg: string | undefined,
+  exec: () => Promise<UsageBundle>,
+): Promise<any> {
+  const ctx = getAiContext();
+  const feature = ctx?.feature ?? "uncategorized";
+  const baseRow = {
+    provider,
+    operation,
+    feature,
+    storeId: ctx?.storeId ?? null,
+    userId: ctx?.userId ?? null,
+    isBackground: ctx?.isBackground ?? false,
+  } as const;
+
+  await assertBudgets(ctx?.storeId ?? null).catch((err) => {
+    if (err instanceof BudgetExceededError) {
+      // Log a blocked attempt before re-throwing so admins can see hits.
+      void recordUsageEvent({
+        ...baseRow,
+        model: String(modelArg ?? "unknown"),
+        inputTokens: 0,
+        outputTokens: 0,
+        costUsd: "0",
+        latencyMs: 0,
+        status: "blocked",
+        errorMessage: err.message,
+      });
+    }
+    throw err;
+  });
+
+  const start = Date.now();
+  const model = String(modelArg ?? "unknown");
+  try {
+    const { result, inputTokens, outputTokens, audioSeconds } = await exec();
+    const resolvedModel = model === "unknown" ? String(result?.model ?? "unknown") : model;
+    const { costUsd, knownModel } = costForUsage({
+      model: resolvedModel,
+      operation,
+      inputTokens,
+      outputTokens,
+      audioSeconds,
+    });
+    if (!knownModel) {
+      logger.warn(
+        { provider, model: resolvedModel, operation, feature },
+        "AI tracking: unknown model, cost recorded as 0",
+      );
+    }
+    await recordUsageEvent({
+      ...baseRow,
+      model: resolvedModel,
+      inputTokens,
+      outputTokens,
+      audioSeconds: audioSeconds != null ? String(audioSeconds) : null,
+      costUsd: String(costUsd),
+      latencyMs: Date.now() - start,
+      status: "success",
+      errorMessage: null,
+    });
+    return result;
+  } catch (err: any) {
+    await recordUsageEvent({
+      ...baseRow,
+      model,
+      inputTokens: 0,
+      outputTokens: 0,
+      costUsd: "0",
+      latencyMs: Date.now() - start,
+      status: "error",
+      errorMessage: String(err?.message ?? err).slice(0, 500),
+    });
+    throw err;
+  }
+}
+
+// ── Anthropic proxy ──────────────────────────────────────────────────────────
+//
+// Streaming is not currently used in this codebase; if added later, the
+// streaming branch must capture token totals from the final event.
 function createTrackedAnthropic(): Anthropic {
   return new Proxy(rawAnthropic, {
     get(target, prop, receiver) {
@@ -64,269 +156,108 @@ function createTrackedAnthropic(): Anthropic {
         get(mTarget, mProp, mReceiver) {
           if (mProp !== "create") return Reflect.get(mTarget, mProp, mReceiver);
           const create = Reflect.get(mTarget, mProp, mReceiver) as typeof messages.create;
-          return async function trackedCreate(this: any, params: any, options?: any) {
-            const ctx = getAiContext();
-            await assertBudgets(ctx?.storeId ?? null);
-            const start = Date.now();
-            try {
+          return (params: any, options?: any) =>
+            runTracked("anthropic", "chat", params?.model, async () => {
               const result: any = await create.call(messages, params, options);
-              const usage = result?.usage ?? {};
-              const inputTokens =
-                (usage.input_tokens ?? 0) +
-                (usage.cache_creation_input_tokens ?? 0) +
-                (usage.cache_read_input_tokens ?? 0);
-              const outputTokens = usage.output_tokens ?? 0;
-              const model = String(params?.model ?? result?.model ?? "unknown");
-              const { costUsd, knownModel } = costForUsage({
-                model,
-                operation: "chat",
-                inputTokens,
-                outputTokens,
-              });
-              if (!knownModel) {
-                logger.warn(
-                  { model, feature: ctx?.feature ?? "uncategorized" },
-                  "AI tracking: unknown Anthropic model, cost recorded as 0",
-                );
-              }
-              await recordUsageEvent({
-                provider: "anthropic",
-                model,
-                operation: "chat",
-                feature: ctx?.feature ?? "uncategorized",
-                storeId: ctx?.storeId ?? null,
-                userId: ctx?.userId ?? null,
-                isBackground: ctx?.isBackground ?? false,
-                inputTokens,
-                outputTokens,
-                costUsd,
-                latencyMs: Date.now() - start,
-                status: "success",
-                errorMessage: null,
-              });
-              return result;
-            } catch (err: any) {
-              if (err instanceof BudgetExceededError) {
-                await recordUsageEvent({
-                  provider: "anthropic",
-                  model: String(params?.model ?? "unknown"),
-                  operation: "chat",
-                  feature: ctx?.feature ?? "uncategorized",
-                  storeId: ctx?.storeId ?? null,
-                  userId: ctx?.userId ?? null,
-                  isBackground: ctx?.isBackground ?? false,
-                  inputTokens: 0,
-                  outputTokens: 0,
-                  costUsd: 0,
-                  latencyMs: Date.now() - start,
-                  status: "blocked",
-                  errorMessage: err.message,
-                });
-                throw err;
-              }
-              await recordUsageEvent({
-                provider: "anthropic",
-                model: String(params?.model ?? "unknown"),
-                operation: "chat",
-                feature: ctx?.feature ?? "uncategorized",
-                storeId: ctx?.storeId ?? null,
-                userId: ctx?.userId ?? null,
-                isBackground: ctx?.isBackground ?? false,
-                inputTokens: 0,
-                outputTokens: 0,
-                costUsd: 0,
-                latencyMs: Date.now() - start,
-                status: "error",
-                errorMessage: String(err?.message ?? err).slice(0, 500),
-              });
-              throw err;
-            }
-          };
+              const u = result?.usage ?? {};
+              return {
+                result,
+                inputTokens:
+                  (u.input_tokens ?? 0) +
+                  (u.cache_creation_input_tokens ?? 0) +
+                  (u.cache_read_input_tokens ?? 0),
+                outputTokens: u.output_tokens ?? 0,
+              };
+            });
         },
       });
     },
   }) as Anthropic;
 }
 
-/**
- * OpenAI proxy that intercepts:
- *  - .audio.transcriptions.create (logs audioSeconds + cost)
- *  - .chat.completions.create (logs token usage)
- *  - .embeddings.create (logs prompt_tokens)
- * Falls back to passthrough for everything else.
- */
+// ── OpenAI proxy ─────────────────────────────────────────────────────────────
+//
+// Intercepts:
+//   - chat.completions.create  → operation="chat" (prompt/completion tokens)
+//   - embeddings.create        → operation="embedding" (prompt tokens)
+//   - audio.transcriptions.create → operation="transcription" (audio seconds)
+// Everything else passes through untouched.
 function createTrackedOpenAI(): OpenAI {
-  const trackChat = wrapOpenAIChat;
-  const trackEmb = wrapOpenAIEmbeddings;
-  const trackAudio = wrapOpenAITranscriptions;
-
   return new Proxy(rawOpenai, {
     get(target, prop, receiver) {
       const value = Reflect.get(target, prop, receiver);
-      if (prop === "chat") return trackChat(value);
-      if (prop === "embeddings") return trackEmb(value);
-      if (prop === "audio") return trackAudio(value);
+      if (prop === "chat") return wrapOpenAIChat(value);
+      if (prop === "embeddings") return wrapOpenAIEmbeddings(value);
+      if (prop === "audio") return wrapOpenAIAudio(value);
       return value;
     },
   }) as OpenAI;
 }
 
-function wrapOpenAIChat(chat: any): any {
-  return new Proxy(chat, {
-    get(target, prop, receiver) {
-      if (prop !== "completions") return Reflect.get(target, prop, receiver);
-      const completions = Reflect.get(target, prop, receiver);
-      return new Proxy(completions, {
-        get(cTarget, cProp, cReceiver) {
-          if (cProp !== "create") return Reflect.get(cTarget, cProp, cReceiver);
-          const create = Reflect.get(cTarget, cProp, cReceiver);
-          return async function trackedCreate(this: any, params: any, options?: any) {
-            return await runTrackedOpenAI("chat", params?.model, async () => {
-              const result: any = await create.call(completions, params, options);
-              const usage = result?.usage ?? {};
-              return {
-                result,
-                inputTokens: usage.prompt_tokens ?? 0,
-                outputTokens: usage.completion_tokens ?? 0,
-                audioSeconds: undefined as number | undefined,
-              };
-            });
-          };
+function wrapMethod(
+  parent: any,
+  childKey: string,
+  methodKey: string,
+  build: (raw: Function) => (...args: any[]) => Promise<any>,
+): any {
+  return new Proxy(parent, {
+    get(t, p, r) {
+      if (p !== childKey) return Reflect.get(t, p, r);
+      const child = Reflect.get(t, p, r);
+      return new Proxy(child, {
+        get(t2, p2, r2) {
+          if (p2 !== methodKey) return Reflect.get(t2, p2, r2);
+          const fn = Reflect.get(t2, p2, r2) as Function;
+          return build(fn.bind(child));
         },
       });
     },
   });
+}
+
+function wrapOpenAIChat(chat: any): any {
+  return wrapMethod(chat, "completions", "create", (create) =>
+    (params: any, options?: any) =>
+      runTracked("openai", "chat", params?.model, async () => {
+        const result: any = await create(params, options);
+        const u = result?.usage ?? {};
+        return { result, inputTokens: u.prompt_tokens ?? 0, outputTokens: u.completion_tokens ?? 0 };
+      }),
+  );
 }
 
 function wrapOpenAIEmbeddings(embeddings: any): any {
   return new Proxy(embeddings, {
-    get(target, prop, receiver) {
-      if (prop !== "create") return Reflect.get(target, prop, receiver);
-      const create = Reflect.get(target, prop, receiver);
-      return async function trackedCreate(this: any, params: any, options?: any) {
-        return await runTrackedOpenAI("embedding", params?.model, async () => {
-          const result: any = await create.call(embeddings, params, options);
-          const usage = result?.usage ?? {};
+    get(t, p, r) {
+      if (p !== "create") return Reflect.get(t, p, r);
+      const create = (Reflect.get(t, p, r) as Function).bind(embeddings);
+      return (params: any, options?: any) =>
+        runTracked("openai", "embedding", params?.model, async () => {
+          const result: any = await create(params, options);
+          const u = result?.usage ?? {};
           return {
             result,
-            inputTokens: usage.prompt_tokens ?? usage.total_tokens ?? 0,
+            inputTokens: u.prompt_tokens ?? u.total_tokens ?? 0,
             outputTokens: 0,
-            audioSeconds: undefined as number | undefined,
           };
         });
-      };
     },
   });
 }
 
-function wrapOpenAITranscriptions(audio: any): any {
-  return new Proxy(audio, {
-    get(target, prop, receiver) {
-      if (prop !== "transcriptions") return Reflect.get(target, prop, receiver);
-      const transcriptions = Reflect.get(target, prop, receiver);
-      return new Proxy(transcriptions, {
-        get(tTarget, tProp, tReceiver) {
-          if (tProp !== "create") return Reflect.get(tTarget, tProp, tReceiver);
-          const create = Reflect.get(tTarget, tProp, tReceiver);
-          return async function trackedCreate(this: any, params: any, options?: any) {
-            return await runTrackedOpenAI("transcription", params?.model, async () => {
-              const result: any = await create.call(transcriptions, params, options);
-              // gpt-4o-transcribe returns either {text, duration?} or string.
-              const audioSeconds =
-                typeof result === "object" && result && "duration" in result
-                  ? Number((result as any).duration) || undefined
-                  : undefined;
-              return {
-                result,
-                inputTokens: 0,
-                outputTokens: 0,
-                audioSeconds,
-              };
-            });
-          };
-        },
-      });
-    },
-  });
-}
-
-async function runTrackedOpenAI(
-  operation: Operation,
-  modelArg: string | undefined,
-  exec: () => Promise<{ result: any; inputTokens: number; outputTokens: number; audioSeconds?: number }>,
-): Promise<any> {
-  const ctx = getAiContext();
-  await assertBudgets(ctx?.storeId ?? null);
-  const start = Date.now();
-  const model = String(modelArg ?? "unknown");
-  try {
-    const { result, inputTokens, outputTokens, audioSeconds } = await exec();
-    const { costUsd, knownModel } = costForUsage({
-      model,
-      operation,
-      inputTokens,
-      outputTokens,
-      audioSeconds,
-    });
-    if (!knownModel) {
-      logger.warn(
-        { model, operation, feature: ctx?.feature ?? "uncategorized" },
-        "AI tracking: unknown OpenAI model, cost recorded as 0",
-      );
-    }
-    await recordUsageEvent({
-      provider: "openai",
-      model,
-      operation,
-      feature: ctx?.feature ?? "uncategorized",
-      storeId: ctx?.storeId ?? null,
-      userId: ctx?.userId ?? null,
-      isBackground: ctx?.isBackground ?? false,
-      inputTokens,
-      outputTokens,
-      audioSeconds,
-      costUsd,
-      latencyMs: Date.now() - start,
-      status: "success",
-      errorMessage: null,
-    });
-    return result;
-  } catch (err: any) {
-    if (err instanceof BudgetExceededError) {
-      await recordUsageEvent({
-        provider: "openai",
-        model,
-        operation,
-        feature: ctx?.feature ?? "uncategorized",
-        storeId: ctx?.storeId ?? null,
-        userId: ctx?.userId ?? null,
-        isBackground: ctx?.isBackground ?? false,
-        inputTokens: 0,
-        outputTokens: 0,
-        costUsd: 0,
-        latencyMs: Date.now() - start,
-        status: "blocked",
-        errorMessage: err.message,
-      });
-      throw err;
-    }
-    await recordUsageEvent({
-      provider: "openai",
-      model,
-      operation,
-      feature: ctx?.feature ?? "uncategorized",
-      storeId: ctx?.storeId ?? null,
-      userId: ctx?.userId ?? null,
-      isBackground: ctx?.isBackground ?? false,
-      inputTokens: 0,
-      outputTokens: 0,
-      costUsd: 0,
-      latencyMs: Date.now() - start,
-      status: "error",
-      errorMessage: String(err?.message ?? err).slice(0, 500),
-    });
-    throw err;
-  }
+function wrapOpenAIAudio(audio: any): any {
+  return wrapMethod(audio, "transcriptions", "create", (create) =>
+    (params: any, options?: any) =>
+      runTracked("openai", "transcription", params?.model, async () => {
+        const result: any = await create(params, options);
+        // gpt-4o-transcribe returns {text, duration?} (object) or a string.
+        const audioSeconds =
+          typeof result === "object" && result && "duration" in result
+            ? Number((result as any).duration) || undefined
+            : undefined;
+        return { result, inputTokens: 0, outputTokens: 0, audioSeconds };
+      }),
+  );
 }
 
 export const anthropic: Anthropic = createTrackedAnthropic();
