@@ -220,22 +220,13 @@ export default function Learning() {
 
   return (
     <div className="p-4 md:p-6 max-w-3xl mx-auto">
-      <div className="mb-6">
-        <div className="flex items-center justify-between mb-1">
-          <div className="flex items-center gap-2">
-            <GraduationCap className="w-6 h-6 text-primary" />
-            <h1 className="text-xl font-bold">Learning Path</h1>
-          </div>
-          {isManager && (
-            <Button size="sm" variant="outline" onClick={() => navigate('/ai-learning-center')}>
-              <Wand2 className="w-4 h-4 mr-1" /> Build with AI
-            </Button>
-          )}
+      {isManager && (
+        <div className="flex justify-end mb-3">
+          <Button size="sm" variant="outline" onClick={() => navigate('/ai-learning-center')}>
+            <Wand2 className="w-4 h-4 mr-1" /> Build with AI
+          </Button>
         </div>
-        <p className="text-sm text-muted-foreground">
-          Complete these training modules to master your role. Your progress is tracked automatically.
-        </p>
-      </div>
+      )}
 
       <button
         onClick={() => navigate('/store-qa')}

@@ -127,19 +127,8 @@ export default function ImprovementFeed() {
 
   return (
     <div className="min-h-screen bg-background pb-24">
-      <div className="bg-gradient-to-br from-orange-500 to-pink-500 text-white p-5 pb-6">
-        <div className="flex items-center justify-between mb-1">
-          <div>
-            <h1 className="text-lg font-bold flex items-center gap-2">
-              <Film className="h-5 w-5" /> Improvements
-            </h1>
-            <p className="text-xs opacity-80 mt-0.5">60-second improvement videos</p>
-          </div>
-        </div>
-      </div>
-
       {featured && (
-        <div className="px-4 -mt-3">
+        <div className="px-4 pt-4">
           <Card
             className="overflow-hidden cursor-pointer hover:shadow-lg transition-shadow border-2 border-amber-300 dark:border-amber-700"
             onClick={() => setSelectedVideoId(featured.id)}

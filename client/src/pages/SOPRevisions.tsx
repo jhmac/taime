@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import {
-  ArrowLeft, Plus, Minus, Edit3, ArrowUpDown, FileText, Scissors,
+  Plus, Minus, Edit3, ArrowUpDown, FileText, Scissors,
   Wrench, ChevronDown, ChevronUp, CheckCircle2, X, Clock,
   AlertTriangle, Lightbulb, MessageSquareQuote, BarChart3,
 } from "lucide-react";
@@ -217,19 +217,11 @@ export default function SOPRevisions() {
   return (
     <div className="h-full flex flex-col bg-background">
       <div className="px-4 pt-4 pb-3 border-b">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => navigate("/sops")} className="shrink-0">
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <div className="flex-1">
-            <h1 className="text-xl font-bold">SOP Improvement Suggestions</h1>
-            {stats && stats.pendingCount > 0 && (
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {stats.pendingCount} pending across {stats.affectedSOPs} SOP{stats.affectedSOPs !== 1 ? "s" : ""}
-              </p>
-            )}
-          </div>
-        </div>
+        {stats && stats.pendingCount > 0 && (
+          <p className="text-xs text-muted-foreground">
+            {stats.pendingCount} pending across {stats.affectedSOPs} SOP{stats.affectedSOPs !== 1 ? "s" : ""}
+          </p>
+        )}
 
         <div className="flex gap-1.5 mt-3">
           {["pending", "approved", "rejected"].map((s) => (

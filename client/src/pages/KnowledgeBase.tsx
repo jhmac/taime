@@ -9,7 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Search, BookOpen, Tag, Clock, Sparkles, X, ChevronRight, BookMarked, Layers } from "lucide-react";
+import { Search, BookOpen, Tag, Clock, Sparkles, X, ChevronRight, Layers } from "lucide-react";
 import { useDebounce } from "@/hooks/useDebounce";
 
 interface KbArticle {
@@ -239,26 +239,18 @@ export default function KnowledgeBase() {
   return (
     <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
 
-      {/* Masthead */}
-      <div className="flex items-end justify-between gap-3 pb-4 border-b border-border">
-        <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-2xl bg-primary flex items-center justify-center shadow-sm">
-            <BookMarked className="w-5 h-5 text-white" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-black tracking-tight text-foreground leading-none">Knowledge Base</h1>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {isLoading ? "Loading…" : `${allArticles.length} article${allArticles.length !== 1 ? "s" : ""} across ${categories.length} section${categories.length !== 1 ? "s" : ""}`}
-            </p>
-          </div>
-        </div>
-        {!isLoading && allArticles.length > 0 && (
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+      {/* Article count */}
+      {!isLoading && allArticles.length > 0 && (
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <span>
+            {allArticles.length} article{allArticles.length !== 1 ? "s" : ""} across {categories.length} section{categories.length !== 1 ? "s" : ""}
+          </span>
+          <span className="flex items-center gap-1.5">
             <Layers className="w-3.5 h-3.5" />
             {categories.length} section{categories.length !== 1 ? "s" : ""}
-          </div>
-        )}
-      </div>
+          </span>
+        </div>
+      )}
 
       {/* Search bar */}
       <div className="relative">

@@ -149,13 +149,7 @@ export default function LeanBoard() {
       <div className="max-w-4xl mx-auto px-4 py-6 md:py-10 space-y-6">
 
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <BarChart3 className="h-5 w-5 text-violet-600 dark:text-violet-400" />
-              <h1 className="text-xl md:text-2xl font-bold">Team Lean Board</h1>
-            </div>
-            <p className="text-sm text-muted-foreground">Collective improvement culture health</p>
-          </div>
+          <p className="text-sm text-muted-foreground">Collective improvement culture health</p>
           <div className="flex items-center gap-1 bg-muted rounded-lg p-1">
             {PERIODS.map(p => (
               <Button
