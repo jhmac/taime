@@ -637,12 +637,12 @@ export default function Availability() {
 
   const saveTemplateDayMutation = useMutation({
     mutationFn: async (body: { dow: number; startTime?: string; endTime?: string; unavailable: boolean }) => {
+      // Preserve existing entries exactly as-is; only write the day that changed.
+      // Do NOT auto-fill missing days with available:false — a missing entry means
+      // "available by default" (unavailability-first model) and must stay absent.
       const currentSlots = availabilityTemplate?.slots
         ? { ...(availabilityTemplate.slots as Record<string, { available: boolean; startTime?: string; endTime?: string }>) }
         : {} as Record<string, { available: boolean; startTime?: string; endTime?: string }>;
-      for (let i = 0; i < 7; i++) {
-        if (!currentSlots[String(i)]) currentSlots[String(i)] = { available: false, startTime: DEFAULT_START, endTime: DEFAULT_END };
-      }
       currentSlots[String(body.dow)] = {
         available: !body.unavailable,
         startTime: !body.unavailable ? body.startTime : undefined,
