@@ -161,6 +161,22 @@ await run('ai_budget_alerts', `CREATE TABLE IF NOT EXISTS ai_budget_alerts (
 )`);
 await run('uq_ai_budget_alerts_budget_period_threshold', `CREATE UNIQUE INDEX IF NOT EXISTS uq_ai_budget_alerts_budget_period_threshold ON ai_budget_alerts (budget_id, period_key, threshold_percent)`);
 
+// ── ai_scheduling_settings (Task #435 columns missing in prod) ───────────────
+// Production was crashing with: column "payroll_target_pct" does not exist
+// when the dashboard or AI scheduling read this table. Add every column from
+// the current schema idempotently so prod matches dev.
+await run('ai_scheduling_settings.store_hours', `ALTER TABLE ai_scheduling_settings ADD COLUMN IF NOT EXISTS store_hours jsonb DEFAULT '[]'::jsonb`);
+await run('ai_scheduling_settings.shift_overlap_minutes', `ALTER TABLE ai_scheduling_settings ADD COLUMN IF NOT EXISTS shift_overlap_minutes integer DEFAULT 60`);
+await run('ai_scheduling_settings.overlap_budget_limit', `ALTER TABLE ai_scheduling_settings ADD COLUMN IF NOT EXISTS overlap_budget_limit decimal(10,2)`);
+await run('ai_scheduling_settings.custom_ai_instructions', `ALTER TABLE ai_scheduling_settings ADD COLUMN IF NOT EXISTS custom_ai_instructions text`);
+await run('ai_scheduling_settings.labor_cost_over_pct', `ALTER TABLE ai_scheduling_settings ADD COLUMN IF NOT EXISTS labor_cost_over_pct decimal(5,2) DEFAULT 30`);
+await run('ai_scheduling_settings.labor_cost_under_pct', `ALTER TABLE ai_scheduling_settings ADD COLUMN IF NOT EXISTS labor_cost_under_pct decimal(5,2) DEFAULT 10`);
+await run('ai_scheduling_settings.payroll_target_pct', `ALTER TABLE ai_scheduling_settings ADD COLUMN IF NOT EXISTS payroll_target_pct decimal(5,2) DEFAULT 30`);
+await run('ai_scheduling_settings.store_type', `ALTER TABLE ai_scheduling_settings ADD COLUMN IF NOT EXISTS store_type varchar DEFAULT 'fashion_boutique'`);
+await run('ai_scheduling_settings.min_staffing_pre_hours', `ALTER TABLE ai_scheduling_settings ADD COLUMN IF NOT EXISTS min_staffing_pre_hours integer DEFAULT 1`);
+await run('ai_scheduling_settings.min_staffing_during_hours', `ALTER TABLE ai_scheduling_settings ADD COLUMN IF NOT EXISTS min_staffing_during_hours integer DEFAULT 2`);
+await run('ai_scheduling_settings.min_staffing_post_hours', `ALTER TABLE ai_scheduling_settings ADD COLUMN IF NOT EXISTS min_staffing_post_hours integer DEFAULT 1`);
+
 console.log('[post-merge] Schema pre-migration complete');
 await client.end();
 JSEOF
