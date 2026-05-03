@@ -264,7 +264,7 @@ function VideoCard({
   onLike: () => void;
 }) {
   return (
-    <div className="group cursor-pointer" onClick={onSelect}>
+    <div className="group cursor-pointer" onClick={onSelect} data-search-target={`video:${video.id}`}>
       <div className="relative aspect-video rounded-xl overflow-hidden bg-muted mb-2">
         {video.thumbnailUrl ? (
           <img

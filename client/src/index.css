@@ -179,6 +179,15 @@
   background: hsl(var(--muted-foreground) / 0.5);
 }
 
+@keyframes search-flash {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(124, 58, 237, 0); }
+  15%, 60% { box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.45); }
+}
+.search-highlight-flash {
+  animation: search-flash 1.8s ease-out;
+  border-radius: 12px;
+}
+
 @media print {
   body * {
     visibility: hidden;

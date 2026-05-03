@@ -16,6 +16,7 @@ import KnowledgeBase from "./KnowledgeBase";
 import SOPRevisions from "./SOPRevisions";
 import ImprovementFeed from "./ImprovementFeed";
 import LeanBoard from "./LeanBoard";
+import UnifiedSearch, { useSearchFocus } from "@/components/learning-center/UnifiedSearch";
 
 type TabKey = "my-learning" | "knowledge-base" | "sop-revisions" | "improvements" | "lean-board";
 
@@ -133,6 +134,11 @@ function HeroBanner({ activeTab, onContinue }: { activeTab: TabKey; onContinue: 
             <p className="text-[10px] text-white/70 mt-1">
               {Math.max(0, nextLevelXp - xpInLevel)} XP to Level {level + 1}
             </p>
+          </div>
+
+          {/* Unified search across all Learning Center sections */}
+          <div className="mt-4 max-w-xl">
+            <UnifiedSearch />
           </div>
         </div>
 
@@ -374,6 +380,9 @@ export default function LearningCenter() {
     if (tab === "my-learning") navigate("/learning");
     else navigate(`/learning?tab=${tab}`);
   }
+
+  // Scroll to & flash an item when arriving from the unified search
+  useSearchFocus(search);
 
   function handleContinueLearning() {
     setTab("my-learning");

@@ -278,6 +278,7 @@ export default function Learning() {
             return (
               <Card
                 key={module.id}
+                data-search-target={`module:${module.id}`}
                 className={`cursor-pointer transition-all hover:shadow-md ${isCompleted ? 'border-green-200 dark:border-green-900' : ''}`}
                 onClick={() => handleStartModule(module)}
               >

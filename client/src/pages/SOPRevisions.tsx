@@ -61,7 +61,7 @@ function ProposalCard({ proposal, onReview, onApproveAndEdit, canReview }: { pro
   const Icon = config.icon;
 
   return (
-    <Card className="overflow-hidden">
+    <Card className="overflow-hidden" data-search-target={`revision:${proposal.id}`}>
       <CardContent className="py-3 px-4 space-y-2">
         <div className="flex items-start gap-2">
           <Badge className={`text-[10px] px-1.5 py-0 gap-1 shrink-0 ${config.color}`}>

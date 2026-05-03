@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -9,7 +8,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Search, BookOpen, Tag, Clock, Sparkles, X, ChevronRight, Layers } from "lucide-react";
+import { BookOpen, Tag, Clock, Sparkles, X, ChevronRight, Layers } from "lucide-react";
 import { useDebounce } from "@/hooks/useDebounce";
 
 interface KbArticle {
@@ -138,6 +137,7 @@ function FeaturedCard({ article, onClick }: { article: KbArticle; onClick: () =>
   return (
     <button
       onClick={onClick}
+      data-search-target={`kb:${article.id}`}
       className={`w-full text-left rounded-2xl border ${cs.border} ${cs.bg} overflow-hidden hover:shadow-md transition-all group`}
     >
       <div className={`h-1.5 w-full ${cs.accent}`} />
@@ -180,6 +180,7 @@ function ArticleCard({ article, onClick }: { article: KbArticle; onClick: () => 
   return (
     <button
       onClick={onClick}
+      data-search-target={`kb:${article.id}`}
       className="w-full text-left rounded-xl border border-border bg-card hover:border-primary/30 hover:shadow-sm transition-all group flex items-start gap-3 p-3.5"
     >
       <div className={`w-2 self-stretch rounded-full ${cs.accent} shrink-0 opacity-70`} />
@@ -252,21 +253,7 @@ export default function KnowledgeBase() {
         </div>
       )}
 
-      {/* Search bar */}
-      <div className="relative">
-        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <Input
-          placeholder="Search articles, guides, SOPs…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          className="pl-10 rounded-xl h-11 bg-muted/40 border-border focus:bg-background"
-        />
-        {search && (
-          <button onClick={() => setSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-            <X className="w-4 h-4" />
-          </button>
-        )}
-      </div>
+      {/* Search lives in the Learning Center hero — single, unified box. */}
 
       {/* Category tabs */}
       {categories.length > 1 && (
