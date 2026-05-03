@@ -1,10 +1,30 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
-import { insertTaskSchema } from "@shared/schema";
+import { insertTaskSchema, operationalInsights } from "@shared/schema";
+import { db } from "../db";
+import { inArray } from "drizzle-orm";
 import { notificationService } from "../services/notificationService";
 import { tryResolveStoreIdForUser } from "../services/storeResolver";
 import { runAutoAssign } from "./ai";
 import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
+
+// Enrich a list of tasks with the originating AI insight id (if any) by
+// reverse-looking-up `operational_insights.linked_task_id`. We piggy-back on
+// the existing back-link rather than denormalising onto the tasks table so
+// there's no schema migration to keep in lock-step.
+async function attachInsightIds<T extends { id: string }>(items: T[]): Promise<Array<T & { insightId: string | null }>> {
+  if (items.length === 0) return [];
+  const ids = items.map(t => t.id);
+  const insightRows = await db.select({
+    id: operationalInsights.id,
+    linkedTaskId: operationalInsights.linkedTaskId,
+  }).from(operationalInsights).where(inArray(operationalInsights.linkedTaskId, ids));
+  const byTask = new Map<string, string>();
+  for (const r of insightRows) {
+    if (r.linkedTaskId) byTask.set(r.linkedTaskId, r.id);
+  }
+  return items.map(t => ({ ...t, insightId: byTask.get(t.id) ?? null }));
+}
 
 /**
  * Resolves the store/location for a non-admin manager and responds 403 if it cannot be determined.
@@ -74,7 +94,8 @@ export function registerTaskRoutes(
         tasks = await storage.getUserTasks(userId);
       }
 
-      res.json(tasks);
+      const enriched = await attachInsightIds(tasks);
+      res.json(enriched);
     } catch (error) {
       console.error("Error fetching tasks:", error);
       res.status(500).json({ message: "Failed to fetch tasks" });

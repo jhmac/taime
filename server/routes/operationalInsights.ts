@@ -1,12 +1,16 @@
 import type { Express } from "express";
 import { z } from "zod";
 import { db } from "../db";
-import { eq, and, desc, sql, gte, lte } from "drizzle-orm";
+import { eq, and, desc, sql, gte, lte, inArray } from "drizzle-orm";
 import { operationalInsights, tasks } from "@shared/schema";
 import { asyncHandler, AppError } from "../lib/routeWrapper";
 import type { IStorage } from "../storage";
 import { generateOperationalInsights } from "../services/insightGenerator";
-import { aggregateOperations, summarizeForAI } from "../services/operationsIntelligence";
+import {
+  aggregateOperations,
+  summarizeForAI,
+  computeActedOnOutcome,
+} from "../services/operationsIntelligence";
 import { cache } from "../services/cache";
 import logger from "../lib/logger";
 import { resolveStoreIdForUser, tryResolveStoreIdForUser } from "../services/storeResolver";
@@ -90,6 +94,66 @@ export function registerOperationalInsightRoutes(app: Express, storage: IStorage
       .orderBy(SEVERITY_RANK, desc(operationalInsights.createdAt))
       .limit(limit)
       .offset(offset);
+
+    // For the "acted on" tab we close the loop by attaching the linked task's
+    // current state and a 1-line outcome summary so owners can see what
+    // actually changed since they pressed "Act on this".
+    if (statusFilter === "acted_on" && rows.length > 0) {
+      const linkedTaskIds = rows
+        .map(r => r.linkedTaskId)
+        .filter((id): id is string => !!id);
+
+      const taskRows = linkedTaskIds.length > 0
+        ? await db.select({
+            id: tasks.id,
+            title: tasks.title,
+            status: tasks.status,
+            assignedTo: tasks.assignedTo,
+            completedAt: tasks.completedAt,
+            createdAt: tasks.createdAt,
+          }).from(tasks).where(inArray(tasks.id, linkedTaskIds))
+        : [];
+      const taskMap = new Map(taskRows.map(t => [t.id, t]));
+
+      const enriched = await Promise.all(rows.map(async r => {
+        const linkedTask = r.linkedTaskId ? taskMap.get(r.linkedTaskId) || null : null;
+        const outcome = await computeActedOnOutcome(
+          {
+            storeId: r.storeId,
+            affectedArea: r.affectedArea,
+            insightType: r.insightType,
+            actedOnAt: r.actedOnAt,
+            dataPayload: r.dataPayload,
+          },
+          linkedTask
+            ? {
+                id: linkedTask.id,
+                status: linkedTask.status as string | null,
+                completedAt: linkedTask.completedAt,
+                createdAt: linkedTask.createdAt,
+              }
+            : null,
+        );
+        return {
+          ...r,
+          linkedTask: linkedTask
+            ? {
+                id: linkedTask.id,
+                title: linkedTask.title,
+                status: linkedTask.status,
+                assignedTo: linkedTask.assignedTo,
+                completedAt: linkedTask.completedAt,
+              }
+            : null,
+          outcomeSummary: outcome.summary,
+          outcomeTaskStatus: outcome.taskStatus,
+          daysSinceActedOn: outcome.daysSinceActedOn,
+          daysToComplete: outcome.daysToComplete,
+        };
+      }));
+
+      return res.json({ success: true, data: enriched });
+    }
 
     res.json({ success: true, data: rows });
   }));

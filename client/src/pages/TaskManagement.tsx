@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Link } from 'wouter';
 import { apiRequest } from '@/lib/queryClient';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
@@ -17,6 +18,10 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import type { Task, User, Permission, TaskAssignee } from '@shared/schema';
+
+// Server enriches the task list with the originating AI insight id (when the
+// task was created via the "Act on this" flow on /insights/operational).
+type TaskWithInsight = Task & { insightId?: string | null };
 
 type VerificationItem = {
   assignee: TaskAssignee;
@@ -115,7 +120,7 @@ export default function TaskManagement() {
     p.name === 'tasks.edit_all' || p.name === 'admin.manage_all'
   ) || isAdmin || false;
 
-  const { data: tasks = [], isLoading } = useQuery<Task[]>({
+  const { data: tasks = [], isLoading } = useQuery<TaskWithInsight[]>({
     queryKey: ['/api/tasks'],
   });
 
@@ -793,6 +798,17 @@ export default function TaskManagement() {
                                   <i className="fas fa-robot mr-1"></i>AI Assigned
                                 </Badge>
                               )}
+                              {task.insightId && (
+                                <Link href="/insights/operational" onClick={(e) => e.stopPropagation()}>
+                                  <Badge
+                                    className="text-[10px] bg-violet-100 text-violet-800 border border-violet-300 hover:bg-violet-200 dark:bg-violet-950/40 dark:text-violet-300 dark:border-violet-800/60 cursor-pointer"
+                                    data-testid={`task-from-insight-${task.id}`}
+                                    title="Created from an AI Insight — click to open Operational Insights"
+                                  >
+                                    <i className="fas fa-brain mr-1"></i>From AI Insight
+                                  </Badge>
+                                </Link>
+                              )}
                               {task.isRecurring && (
                                 <Badge variant="outline" className="text-[10px] border-purple-300 text-purple-700 dark:text-purple-400">
                                   <i className="fas fa-sync-alt mr-1"></i>recurring
@@ -1326,6 +1342,16 @@ export default function TaskManagement() {
                   <Badge className="text-[10px] bg-primary/15 text-primary border border-primary/30">
                     <i className="fas fa-robot mr-1"></i>AI Assigned
                   </Badge>
+                )}
+                {(viewingTask as TaskWithInsight).insightId && (
+                  <Link href="/insights/operational">
+                    <Badge
+                      className="text-[10px] bg-violet-100 text-violet-800 border border-violet-300 hover:bg-violet-200 dark:bg-violet-950/40 dark:text-violet-300 dark:border-violet-800/60 cursor-pointer"
+                      data-testid={`viewing-task-from-insight-${viewingTask.id}`}
+                    >
+                      <i className="fas fa-brain mr-1"></i>From AI Insight
+                    </Badge>
+                  </Link>
                 )}
               </div>
             </div>

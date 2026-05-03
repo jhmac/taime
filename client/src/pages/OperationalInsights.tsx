@@ -18,6 +18,14 @@ import {
   Calendar, ListChecks, MessageSquareWarning, Loader2, Users,
 } from "lucide-react";
 
+interface LinkedTaskSummary {
+  id: string;
+  title: string;
+  status: string | null;
+  assignedTo: string | null;
+  completedAt: string | null;
+}
+
 interface OperationalInsight {
   id: string;
   insightType: string;
@@ -29,7 +37,42 @@ interface OperationalInsight {
   status: string;
   dataPayload?: Record<string, unknown> | null;
   createdAt: string;
+  // Present only on the "acted on" tab — server enriches the row with the
+  // linked task's current state and a 1-line outcome summary.
+  linkedTask?: LinkedTaskSummary | null;
+  outcomeSummary?: string | null;
+  outcomeTaskStatus?: "pending" | "in_progress" | "completed" | "cancelled" | "unknown" | null;
+  daysSinceActedOn?: number | null;
+  daysToComplete?: number | null;
 }
+
+const OUTCOME_STATUS_STYLES: Record<string, { label: string; className: string; icon: typeof CheckCircle2 }> = {
+  completed: {
+    label: "Completed",
+    className: "bg-emerald-100 text-emerald-800 border border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/60",
+    icon: CheckCircle2,
+  },
+  in_progress: {
+    label: "In progress",
+    className: "bg-blue-100 text-blue-800 border border-blue-300 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800/60",
+    icon: Loader2,
+  },
+  pending: {
+    label: "Open",
+    className: "bg-amber-100 text-amber-800 border border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800/60",
+    icon: ListChecks,
+  },
+  cancelled: {
+    label: "Cancelled",
+    className: "bg-slate-100 text-slate-700 border border-slate-300 dark:bg-slate-900/40 dark:text-slate-300 dark:border-slate-700",
+    icon: X,
+  },
+  unknown: {
+    label: "No task",
+    className: "bg-slate-100 text-slate-700 border border-slate-300 dark:bg-slate-900/40 dark:text-slate-300 dark:border-slate-700",
+    icon: ListChecks,
+  },
+};
 
 interface ListResponse { success: boolean; data: OperationalInsight[]; }
 
@@ -272,6 +315,50 @@ export default function OperationalInsights() {
                     </Button>
                   </div>
                 )}
+
+                {statusTab === "acted_on" && (() => {
+                  const styleKey = (insight.outcomeTaskStatus || (insight.linkedTask ? "pending" : "unknown")) as keyof typeof OUTCOME_STATUS_STYLES;
+                  const cfgStatus = OUTCOME_STATUS_STYLES[styleKey] || OUTCOME_STATUS_STYLES.unknown;
+                  const StatusIcon = cfgStatus.icon;
+                  const animate = styleKey === "in_progress" ? " animate-spin" : "";
+                  return (
+                    <div
+                      className="rounded-lg border border-violet-200 dark:border-violet-900/50 bg-violet-50/60 dark:bg-violet-950/20 p-3 space-y-2"
+                      data-testid={`op-insight-outcome-${insight.id}`}
+                    >
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                        Outcome since acted on
+                      </p>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Badge className={`text-[10px] gap-1 ${cfgStatus.className}`} data-testid={`op-insight-task-status-${insight.id}`}>
+                          <StatusIcon className={`h-3 w-3${animate}`} />
+                          {cfgStatus.label}
+                        </Badge>
+                        {insight.linkedTask ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-auto px-1.5 py-0.5 text-xs underline-offset-2 hover:underline"
+                            onClick={() => navigate("/tasks")}
+                            data-testid={`op-insight-task-link-${insight.id}`}
+                          >
+                            View task: <span className="ml-1 max-w-[180px] truncate">{insight.linkedTask.title}</span>
+                          </Button>
+                        ) : (
+                          <span className="text-xs text-muted-foreground italic">Linked task no longer exists</span>
+                        )}
+                      </div>
+                      {insight.outcomeSummary && (
+                        <p
+                          className="text-sm leading-snug text-foreground/90"
+                          data-testid={`op-insight-outcome-summary-${insight.id}`}
+                        >
+                          {insight.outcomeSummary}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
               </CardContent>
             </Card>
           );

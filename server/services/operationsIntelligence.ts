@@ -735,6 +735,211 @@ Recent acted-on insights (the team found these valuable — pattern is good):
 ${actedOn}`;
 }
 
+// ── Acted-on outcome computation ────────────────────────────────────────────
+// For an insight that's been acted on, build a short, human-readable line that
+// closes the loop on AI Insights: was the linked task done, and did the
+// underlying signal move in the right direction since?
+//
+// Inputs are kept loose (Pick<>-style) so we don't have to import the full
+// table types here.
+export interface ActedOnInsightLite {
+  storeId: string;
+  affectedArea: string;
+  insightType: string;
+  actedOnAt: Date | string | null;
+  dataPayload?: unknown;
+}
+
+export interface LinkedTaskLite {
+  id: string;
+  status: string | null;
+  completedAt: Date | string | null;
+  createdAt: Date | string | null;
+}
+
+export interface ActedOnOutcome {
+  taskStatus: "pending" | "in_progress" | "completed" | "cancelled" | "unknown";
+  daysSinceActedOn: number;
+  daysToComplete: number | null;
+  summary: string;
+}
+
+function pickFirstCategory(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  const p = payload as Record<string, unknown>;
+  const recurring = p.recurringCategories;
+  if (Array.isArray(recurring) && recurring.length > 0) {
+    const first = recurring[0] as { category?: unknown };
+    if (first && typeof first.category === "string") return first.category;
+  }
+  const aging = p.unresolvedAgingDays;
+  if (Array.isArray(aging) && aging.length > 0) {
+    const first = aging[0] as { category?: unknown };
+    if (first && typeof first.category === "string") return first.category;
+  }
+  return null;
+}
+
+export async function computeActedOnOutcome(
+  insight: ActedOnInsightLite,
+  linkedTask: LinkedTaskLite | null,
+): Promise<ActedOnOutcome> {
+  const actedAt = insight.actedOnAt ? new Date(insight.actedOnAt) : null;
+  const now = new Date();
+
+  if (!actedAt || isNaN(actedAt.getTime())) {
+    return { taskStatus: "unknown", daysSinceActedOn: 0, daysToComplete: null, summary: "Outcome not yet measurable." };
+  }
+
+  const sinceMs = Math.max(now.getTime() - actedAt.getTime(), 0);
+  const daysSinceActedOn = Math.max(0, Math.floor(sinceMs / 86400000));
+
+  // ── Status fragment ──────────────────────────────────────────────────────
+  let taskStatus: ActedOnOutcome["taskStatus"] = "unknown";
+  let daysToComplete: number | null = null;
+  let statusFragment: string;
+
+  if (!linkedTask) {
+    statusFragment = `Acted on ${daysSinceActedOn}d ago (task no longer found)`;
+  } else {
+    const status = (linkedTask.status || "pending").toLowerCase();
+    if (status === "completed") {
+      taskStatus = "completed";
+      const completedAt = linkedTask.completedAt ? new Date(linkedTask.completedAt) : null;
+      if (completedAt && !isNaN(completedAt.getTime())) {
+        daysToComplete = Math.max(0, Math.floor((completedAt.getTime() - actedAt.getTime()) / 86400000));
+      }
+      statusFragment = daysToComplete !== null
+        ? `Completed in ${daysToComplete}d`
+        : "Completed";
+    } else if (status === "in_progress") {
+      taskStatus = "in_progress";
+      statusFragment = `In progress (${daysSinceActedOn}d open)`;
+    } else if (status === "cancelled") {
+      taskStatus = "cancelled";
+      statusFragment = "Task cancelled — no change measured";
+    } else {
+      taskStatus = "pending";
+      statusFragment = `Still pending after ${daysSinceActedOn}d`;
+    }
+  }
+
+  // ── Area-specific delta ──────────────────────────────────────────────────
+  // Compare an equal-length window BEFORE actedOnAt to the window AFTER it.
+  // If the team only acted today, fall back to a 7-day window so we always
+  // have something meaningful to compare against.
+  const windowMs = Math.max(sinceMs, 7 * 86400000);
+  const beforeStart = new Date(actedAt.getTime() - windowMs);
+  const beforeEnd = actedAt;
+  const afterStart = actedAt;
+
+  let deltaFragment = "";
+
+  try {
+    if (insight.affectedArea === "issues") {
+      const targetCategory = pickFirstCategory(insight.dataPayload);
+      const issueWhereBase = (start: Date, end?: Date) => {
+        const conds = [
+          eq(issues.storeId, insight.storeId),
+          gte(issues.createdAt, start),
+        ];
+        if (end) conds.push(lte(issues.createdAt, end));
+        if (targetCategory) conds.push(eq(issues.category, targetCategory));
+        return and(...conds);
+      };
+      const [beforeRows, afterRows] = await Promise.all([
+        db.select({ c: count() }).from(issues).where(issueWhereBase(beforeStart, beforeEnd)),
+        db.select({ c: count() }).from(issues).where(issueWhereBase(afterStart)),
+      ]);
+      const before = Number(beforeRows[0]?.c || 0);
+      const after = Number(afterRows[0]?.c || 0);
+      if (before > 0 || after > 0) {
+        const arrow = after < before ? "↓" : after > before ? "↑" : "→";
+        const label = targetCategory ? `${targetCategory} issues` : "issues";
+        if (before > 0) {
+          const pctChange = Math.round(((after - before) / before) * 100);
+          const sign = pctChange > 0 ? "+" : "";
+          deltaFragment = `${label} ${arrow} ${before}→${after} (${sign}${pctChange}%)`;
+        } else {
+          deltaFragment = `${label} ${arrow} 0→${after}`;
+        }
+      }
+    } else if (insight.affectedArea === "tasks") {
+      const taskConds = (start: Date, end: Date | null, completedOnly: boolean) => {
+        const conds = [
+          eq(tasks.locationId, insight.storeId),
+          gte(tasks.createdAt, start),
+        ];
+        if (end) conds.push(lte(tasks.createdAt, end));
+        if (completedOnly) conds.push(eq(tasks.status, "completed"));
+        return and(...conds);
+      };
+      const [beforeAll, beforeDone, afterAll, afterDone] = await Promise.all([
+        db.select({ c: count() }).from(tasks).where(taskConds(beforeStart, beforeEnd, false)),
+        db.select({ c: count() }).from(tasks).where(taskConds(beforeStart, beforeEnd, true)),
+        db.select({ c: count() }).from(tasks).where(taskConds(afterStart, null, false)),
+        db.select({ c: count() }).from(tasks).where(taskConds(afterStart, null, true)),
+      ]);
+      const beforeTot = Number(beforeAll[0]?.c || 0);
+      const afterTot = Number(afterAll[0]?.c || 0);
+      const beforeRate = beforeTot > 0 ? Number(beforeDone[0]?.c || 0) / beforeTot : null;
+      const afterRate = afterTot > 0 ? Number(afterDone[0]?.c || 0) / afterTot : null;
+      if (beforeRate !== null && afterRate !== null) {
+        const beforePct = Math.round(beforeRate * 100);
+        const afterPct = Math.round(afterRate * 100);
+        const diff = afterPct - beforePct;
+        const arrow = diff > 0 ? "↑" : diff < 0 ? "↓" : "→";
+        const sign = diff > 0 ? "+" : "";
+        deltaFragment = `task completion ${arrow} ${beforePct}%→${afterPct}% (${sign}${diff}pts)`;
+      } else if (afterRate !== null) {
+        deltaFragment = `task completion now ${Math.round(afterRate * 100)}%`;
+      }
+    } else if (insight.affectedArea === "scheduling") {
+      // Use no-show estimate (scheduled shifts without matching clock-in) as
+      // the proxy for scheduling health since it's the cheapest comparable
+      // signal across windows.
+      const scheduleCount = (start: Date, end?: Date) => {
+        const conds = [
+          eq(schedules.locationId, insight.storeId),
+          gte(schedules.startTime, start),
+        ];
+        if (end) conds.push(lte(schedules.startTime, end));
+        return db.select({ c: count() }).from(schedules).where(and(...conds));
+      };
+      const clockInCount = (start: Date, end?: Date) => {
+        const conds = [
+          eq(timeEntries.locationId, insight.storeId),
+          gte(timeEntries.clockInTime, start),
+        ];
+        if (end) conds.push(lte(timeEntries.clockInTime, end));
+        return db.select({ c: count() }).from(timeEntries).where(and(...conds));
+      };
+      const [bSched, bClock, aSched, aClock] = await Promise.all([
+        scheduleCount(beforeStart, beforeEnd),
+        clockInCount(beforeStart, beforeEnd),
+        scheduleCount(afterStart),
+        clockInCount(afterStart),
+      ]);
+      const beforeNoShow = Math.max(Number(bSched[0]?.c || 0) - Number(bClock[0]?.c || 0), 0);
+      const afterNoShow = Math.max(Number(aSched[0]?.c || 0) - Number(aClock[0]?.c || 0), 0);
+      if (beforeNoShow > 0 || afterNoShow > 0) {
+        const arrow = afterNoShow < beforeNoShow ? "↓" : afterNoShow > beforeNoShow ? "↑" : "→";
+        deltaFragment = `no-show estimate ${arrow} ${beforeNoShow}→${afterNoShow}`;
+      }
+    }
+    // (team) intentionally has no aggregate delta — coaching outcomes are
+    // qualitative, so we let the task status fragment carry the message.
+  } catch (err: any) {
+    logger.warn(
+      { error: err?.message, area: insight.affectedArea },
+      "[OperationsIntelligence] Outcome delta computation failed",
+    );
+  }
+
+  const summary = deltaFragment ? `${statusFragment} • ${deltaFragment}` : statusFragment;
+  return { taskStatus, daysSinceActedOn, daysToComplete, summary };
+}
+
 export async function getStoreIdsWithActivity(): Promise<string[]> {
   try {
     const rows = await db.select({ id: workLocations.id })
