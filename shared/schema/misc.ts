@@ -285,6 +285,9 @@ export const companySettings = pgTable("company_settings", {
   salesGoalIncreaseValue: decimal("sales_goal_increase_value", { precision: 10, scale: 2 }).default("0"),
   showPaySummaryToEmployees: boolean("show_pay_summary_to_employees").default(false),
   showPaySummaryToManagers: boolean("show_pay_summary_to_managers").default(false),
+  weeklyDigestEnabled: boolean("weekly_digest_enabled").default(true),
+  weeklyDigestDayOfWeek: integer("weekly_digest_day_of_week").default(0),
+  weeklyDigestHour: integer("weekly_digest_hour").default(17),
   version: integer("version").default(1).notNull(),
 });
 

@@ -11,7 +11,7 @@ import type { WorkLocation, CompanySettings, ActivityLog, HolidayPayRule } from 
 import {
   Settings, MapPin, Calendar, Clock, DollarSign, Users, User, Bell,
   Shield, FileText, MessageSquare, Store, Menu, X, ChevronRight,
-  ExternalLink, Trophy, BookOpen, BrainCircuit, Building2, Target
+  ExternalLink, Trophy, BookOpen, BrainCircuit, Building2, Target, Mail
 } from 'lucide-react';
 
 import BasicInfoSection from '@/components/settings/BasicInfoSection';
@@ -36,6 +36,7 @@ import GeofenceMapSection from '@/components/settings/GeofenceMapSection';
 import OffsiteAllowanceSection from '@/components/settings/OffsiteAllowanceSection';
 import StoreLocationsSection from '@/components/settings/StoreLocationsSection';
 import DailySalesGoalSection from '@/components/settings/DailySalesGoalSection';
+import WeeklyDigestSection from '@/components/settings/WeeklyDigestSection';
 
 const SIDEBAR_SECTIONS = [
   {
@@ -87,6 +88,7 @@ const SIDEBAR_SECTIONS = [
     items: [
       { id: 'profile', label: 'Profile', icon: User },
       { id: 'notifications', label: 'Notifications', icon: Bell },
+      { id: 'weekly-digest', label: 'Weekly insights email', icon: Mail },
     ],
   },
 ];
@@ -257,6 +259,9 @@ export default function AdminSettings() {
         salesGoalIncreaseValue: settings.salesGoalIncreaseValue ?? 0,
         showPaySummaryToEmployees: settings.showPaySummaryToEmployees ?? false,
         showPaySummaryToManagers: settings.showPaySummaryToManagers ?? false,
+        weeklyDigestEnabled: settings.weeklyDigestEnabled ?? true,
+        weeklyDigestDayOfWeek: settings.weeklyDigestDayOfWeek ?? 0,
+        weeklyDigestHour: settings.weeklyDigestHour ?? 17,
       });
     }
   }, [settings]);
@@ -613,6 +618,8 @@ export default function AdminSettings() {
         return <ProfileSection user={user} />;
       case 'notifications':
         return <NotificationsSection />;
+      case 'weekly-digest':
+        return <WeeklyDigestSection settingsForm={settingsForm} updateForm={updateForm} />;
       default:
         return (
           <BasicInfoSection

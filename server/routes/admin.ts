@@ -103,6 +103,9 @@ const companySettingsUpdateSchema = z.object({
   showPaySummaryToEmployees: z.boolean().optional(),
   showPaySummaryToManagers: z.boolean().optional(),
   requireLocationPermission: z.boolean().optional(),
+  weeklyDigestEnabled: z.boolean().optional(),
+  weeklyDigestDayOfWeek: z.number().int().min(0).max(6).optional(),
+  weeklyDigestHour: z.number().int().min(0).max(23).optional(),
 }).strict();
 
 async function requireAdmin(storageParam: IStorage, userId: string): Promise<void> {

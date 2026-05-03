@@ -1,7 +1,7 @@
 import sgMail from "@sendgrid/mail";
 import { db } from "../db";
-import { eq, and, gte, desc } from "drizzle-orm";
-import { operationalInsights, workLocations } from "@shared/schema";
+import { eq, and, gte, desc, inArray } from "drizzle-orm";
+import { operationalInsights, workLocations, companySettings } from "@shared/schema";
 import logger from "../lib/logger";
 import { getOwnerAndManagerEmailsForStore } from "./insightGenerator";
 import { aggregateOperations } from "./operationsIntelligence";
@@ -205,7 +205,7 @@ function buildDigestEmailHtml(firstName: string, data: DigestData, appUrl: strin
 </body></html>`;
 }
 
-export async function sendWeeklyOpsDigest(): Promise<{ sent: number; skipped: number }> {
+export async function sendWeeklyOpsDigest(opts: { storeIds?: string[] } = {}): Promise<{ sent: number; skipped: number }> {
   const sendgridKey = process.env.SENDGRID_API_KEY;
   if (!sendgridKey) {
     logger.info("[WeeklyOpsDigest] SENDGRID_API_KEY not set — skipping digest");
@@ -213,7 +213,10 @@ export async function sendWeeklyOpsDigest(): Promise<{ sent: number; skipped: nu
   }
   sgMail.setApiKey(sendgridKey);
 
-  const stores = await db.select({ id: workLocations.id }).from(workLocations).where(eq(workLocations.isActive, true));
+  const baseQuery = db.select({ id: workLocations.id }).from(workLocations);
+  const stores = opts.storeIds && opts.storeIds.length > 0
+    ? await baseQuery.where(and(eq(workLocations.isActive, true), inArray(workLocations.id, opts.storeIds)))
+    : await baseQuery.where(eq(workLocations.isActive, true));
   if (stores.length === 0) return { sent: 0, skipped: 0 };
 
   // Build per-store digest content (small installs typically have one store)
@@ -267,30 +270,117 @@ export async function sendWeeklyOpsDigest(): Promise<{ sent: number; skipped: nu
 }
 
 let cronTimer: ReturnType<typeof setInterval> | null = null;
-let lastSentDate = "";
+const lastSentByStore = new Map<string, string>();
+
+const DEFAULT_DIGEST_DAY = 0; // Sunday
+const DEFAULT_DIGEST_HOUR = 17;
+const DEFAULT_DIGEST_TIMEZONE = "UTC";
+
+interface StoreDeliveryWindow {
+  storeId: string;
+  timezone: string;
+  dayOfWeek: number; // 0 = Sunday .. 6 = Saturday (in store TZ)
+  hour: number;      // 0-23 (in store TZ)
+  localDateStr: string; // yyyy-mm-dd in store TZ (used for dedupe)
+}
+
+function getStoreLocalParts(timezone: string, now: Date): { weekday: number; hour: number; dateStr: string } {
+  // Use Intl to project the moment into the store's timezone. If the timezone
+  // string is invalid we fall back to UTC so we never crash the cron.
+  let tz = timezone;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+  } catch {
+    tz = "UTC";
+  }
+
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    weekday: "short",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    hour12: false,
+  }).formatToParts(now);
+
+  const map: Record<string, string> = {};
+  for (const p of parts) map[p.type] = p.value;
+  const weekdayMap: Record<string, number> = {
+    Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
+  };
+  const weekday = weekdayMap[map.weekday] ?? 0;
+  // Intl returns hour "24" for midnight in some locales; normalize to 0.
+  const hour = (parseInt(map.hour, 10) || 0) % 24;
+  const dateStr = `${map.year}-${map.month}-${map.day}`;
+  return { weekday, hour, dateStr };
+}
+
+async function getStoresDueForDigest(now: Date): Promise<StoreDeliveryWindow[]> {
+  const activeStores = await db
+    .select({ id: workLocations.id, fallbackTz: workLocations.timezone })
+    .from(workLocations)
+    .where(eq(workLocations.isActive, true));
+  if (activeStores.length === 0) return [];
+
+  const settingsRows = await db
+    .select({
+      storeId: companySettings.storeId,
+      timezone: companySettings.timezone,
+      enabled: companySettings.weeklyDigestEnabled,
+      day: companySettings.weeklyDigestDayOfWeek,
+      hour: companySettings.weeklyDigestHour,
+    })
+    .from(companySettings);
+  const byStore = new Map<string, typeof settingsRows[number]>();
+  // Legacy single-store installs may keep a global row with storeId=null;
+  // use it as a fallback so opt-out and timing preferences apply even before
+  // a per-store row has been written.
+  let globalFallback: typeof settingsRows[number] | undefined;
+  for (const row of settingsRows) {
+    if (row.storeId) byStore.set(row.storeId, row);
+    else if (!globalFallback) globalFallback = row;
+  }
+
+  const due: StoreDeliveryWindow[] = [];
+  for (const store of activeStores) {
+    const cfg = byStore.get(store.id) ?? globalFallback;
+    const enabled = cfg?.enabled ?? true;
+    if (!enabled) continue;
+
+    const day = cfg?.day ?? DEFAULT_DIGEST_DAY;
+    const hour = cfg?.hour ?? DEFAULT_DIGEST_HOUR;
+    const tz = cfg?.timezone || store.fallbackTz || DEFAULT_DIGEST_TIMEZONE;
+
+    const { weekday, hour: localHour, dateStr } = getStoreLocalParts(tz, now);
+    if (weekday !== day) continue;
+    if (localHour !== hour) continue;
+    if (lastSentByStore.get(store.id) === dateStr) continue;
+
+    due.push({ storeId: store.id, timezone: tz, dayOfWeek: day, hour, localDateStr: dateStr });
+  }
+  return due;
+}
 
 export function startWeeklyOpsDigestCron() {
   cronTimer = setInterval(async () => {
     try {
       const now = new Date();
-      const todayStr = now.toISOString().slice(0, 10);
-      const dayOfWeek = now.getDay(); // 0 = Sunday
-      const hour = now.getHours();
+      const due = await getStoresDueForDigest(now);
+      if (due.length === 0) return;
 
-      // Sunday between 17:00 and 19:00, once per week
-      if (dayOfWeek !== 0) return;
-      if (hour < 17 || hour >= 19) return;
-      if (lastSentDate === todayStr) return;
-      lastSentDate = todayStr;
+      // Mark stores as sent first to avoid double-sending if the run takes
+      // longer than the next tick (15 min).
+      for (const w of due) lastSentByStore.set(w.storeId, w.localDateStr);
 
-      logger.info("[WeeklyOpsDigest] Triggering Sunday evening digest");
-      await sendWeeklyOpsDigest();
+      logger.info({ storeIds: due.map(w => w.storeId) }, "[WeeklyOpsDigest] Triggering digest for due stores");
+      await sendWeeklyOpsDigest({ storeIds: due.map(w => w.storeId) });
     } catch (err: any) {
       logger.error({ error: err.message }, "[WeeklyOpsDigest] Cron error");
     }
   }, 15 * 60 * 1000);
 
-  logger.info("[WeeklyOpsDigest] Cron started (checks every 15 minutes, sends Sundays 17:00-19:00)");
+  logger.info("[WeeklyOpsDigest] Cron started (checks every 15 minutes; honours per-store timezone, day, and hour)");
 }
 
 export function stopWeeklyOpsDigestCron() {
