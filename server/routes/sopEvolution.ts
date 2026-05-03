@@ -27,6 +27,12 @@ const reviewSchema = z.object({
   review_notes: z.string().optional(),
 });
 
+const employeeSuggestionSchema = z.object({
+  sop_template_id: z.string().min(1, "Please choose an SOP"),
+  title: z.string().trim().min(5, "Title must be at least 5 characters").max(120),
+  description: z.string().trim().min(10, "Please describe your suggestion (at least 10 characters)").max(2000),
+});
+
 export function registerSOPEvolutionRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
   app.get("/api/sops/revisions", isAuthenticated, asyncHandler(async (req: any, res) => {
     const isManager = await requireManagerOrAbove(storage, req.user.id);
@@ -124,6 +130,35 @@ export function registerSOPEvolutionRoutes(app: Express, storage: IStorage, isAu
       pendingCount: result[0]?.count || 0,
       affectedSOPs: sopCount.length,
     });
+  }));
+
+  app.post("/api/sops/revisions", isAuthenticated, asyncHandler(async (req: any, res) => {
+    const storeId = await resolveStoreId();
+    if (!storeId) throw new AppError(400, "No store configured", "NO_STORE");
+
+    const parsed = employeeSuggestionSchema.safeParse(req.body);
+    if (!parsed.success) throw new AppError(400, "Invalid request", "VALIDATION_ERROR", parsed.error.errors);
+
+    const { sop_template_id, title, description } = parsed.data;
+
+    const template = await db.select({ id: sopTemplates.id })
+      .from(sopTemplates)
+      .where(and(eq(sopTemplates.id, sop_template_id), eq(sopTemplates.storeId, storeId)))
+      .limit(1);
+    if (template.length === 0) throw new AppError(404, "SOP not found", "NOT_FOUND");
+
+    const inserted = await db.insert(sopRevisionProposals).values({
+      storeId,
+      sopTemplateId: sop_template_id,
+      sourceType: "employee_suggestion",
+      sourceIds: [req.user.id],
+      proposalType: "general",
+      title,
+      description,
+      status: "pending",
+    }).returning();
+
+    res.status(201).json(inserted[0]);
   }));
 
   app.post("/api/sops/revisions/generate", isAuthenticated, asyncHandler(async (req: any, res) => {

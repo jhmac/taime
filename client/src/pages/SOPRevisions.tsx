@@ -7,12 +7,15 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import {
   Plus, Minus, Edit3, ArrowUpDown, FileText, Scissors,
   Wrench, ChevronDown, ChevronUp, CheckCircle2, X, Clock,
-  AlertTriangle, Lightbulb, MessageSquareQuote, BarChart3,
+  AlertTriangle, Lightbulb, MessageSquareQuote, BarChart3, Send, User,
 } from "lucide-react";
 
 interface Proposal {
@@ -97,6 +100,15 @@ function ProposalCard({ proposal, onReview, onApproveAndEdit, canReview }: { pro
               </div>
             ) : null}
 
+            {proposal.sourceType === "employee_suggestion" ? (
+              <div className="flex gap-2 text-xs">
+                <User className="h-3.5 w-3.5 text-violet-600 shrink-0 mt-0.5" />
+                <p className="text-muted-foreground italic">
+                  Submitted by a teammate from the floor
+                </p>
+              </div>
+            ) : null}
+
             {proposal.sourceType === "sop_insight" || proposal.sourceType === "ai_suggestion" ? (
               <div className="flex gap-2 text-xs">
                 <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0 mt-0.5" />
@@ -161,16 +173,165 @@ function ProposalCard({ proposal, onReview, onApproveAndEdit, canReview }: { pro
   );
 }
 
+interface SopTemplateLite {
+  id: string;
+  title: string;
+  category: string | null;
+}
+
+function SuggestionForm() {
+  const { toast } = useToast();
+  const [sopId, setSopId] = useState<string>("");
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [collapsed, setCollapsed] = useState(true);
+
+  const { data: templatesResp, isLoading: loadingTemplates } = useQuery<{ data: SopTemplateLite[] }>({
+    queryKey: ["/api/sops/templates", "all-for-suggestion"],
+    queryFn: async () => {
+      const res = await fetch("/api/sops/templates?limit=50", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load SOPs");
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+  const templates = templatesResp?.data || [];
+
+  const submitMutation = useMutation({
+    mutationFn: async () => {
+      return apiRequest("POST", "/api/sops/revisions", {
+        sop_template_id: sopId,
+        title: title.trim(),
+        description: description.trim(),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/sops/revisions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/sops/revisions/stats"] });
+      toast({
+        title: "Thanks for the suggestion!",
+        description: "Your idea was sent to managers for review.",
+      });
+      setTitle("");
+      setDescription("");
+      setSopId("");
+      setCollapsed(true);
+    },
+    onError: (err: any) => {
+      toast({
+        title: "Couldn't submit suggestion",
+        description: err?.message || "Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const canSubmit = sopId && title.trim().length >= 5 && description.trim().length >= 10 && !submitMutation.isPending;
+
+  return (
+    <Card className="border-violet-200/60 dark:border-violet-900/40 bg-violet-50/40 dark:bg-violet-950/20">
+      <CardContent className="py-3 px-4">
+        <button
+          onClick={() => setCollapsed((c) => !c)}
+          className="w-full flex items-center justify-between gap-2 text-left"
+          data-testid="suggest-toggle"
+        >
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-full bg-violet-500 text-white flex items-center justify-center shrink-0">
+              <Lightbulb className="h-3.5 w-3.5" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold">Suggest an improvement</p>
+              <p className="text-[11px] text-muted-foreground">Spotted a way to make an SOP better? Share it.</p>
+            </div>
+          </div>
+          {collapsed ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronUp className="h-4 w-4 text-muted-foreground" />}
+        </button>
+
+        {!collapsed && (
+          <div className="space-y-2.5 mt-3">
+            <div className="space-y-1">
+              <Label htmlFor="suggest-sop" className="text-xs">Which SOP?</Label>
+              <Select value={sopId} onValueChange={setSopId}>
+                <SelectTrigger id="suggest-sop" className="h-9 text-sm" data-testid="suggest-sop-select">
+                  <SelectValue placeholder={loadingTemplates ? "Loading SOPs…" : "Pick an SOP"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {templates.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>{t.title}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1">
+              <Label htmlFor="suggest-title" className="text-xs">Short title</Label>
+              <Input
+                id="suggest-title"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="e.g. Move the cleaning step before opening"
+                maxLength={120}
+                className="h-9 text-sm"
+                data-testid="suggest-title-input"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <Label htmlFor="suggest-desc" className="text-xs">What would you change and why?</Label>
+              <Textarea
+                id="suggest-desc"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Describe your suggestion…"
+                maxLength={2000}
+                rows={3}
+                className="text-sm min-h-[72px]"
+                data-testid="suggest-description-input"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-xs"
+                onClick={() => { setCollapsed(true); }}
+                disabled={submitMutation.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                className="text-xs gap-1.5"
+                onClick={() => submitMutation.mutate()}
+                disabled={!canSubmit}
+                data-testid="suggest-submit"
+              >
+                <Send className="h-3.5 w-3.5" />
+                {submitMutation.isPending ? "Sending…" : "Send to managers"}
+              </Button>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function SOPRevisions() {
   const [, navigate] = useLocation();
   const [statusFilter, setStatusFilter] = useState<string>("pending");
   const { toast } = useToast();
   const { user } = useAuth();
-  const isAdminOrOwner = user?.role?.name === 'admin' || user?.role?.name === 'owner';
+  const roleName = user?.role?.name;
+  const isAdminOrOwner = roleName === 'admin' || roleName === 'owner';
+  const isManagerOrAbove = isAdminOrOwner || roleName === 'manager';
 
   const { data: stats } = useQuery<Stats>({
     queryKey: ["/api/sops/revisions/stats"],
     staleTime: 60000,
+    enabled: isManagerOrAbove,
   });
 
   const { data: proposals, isLoading } = useQuery<Proposal[]>({
@@ -180,6 +341,7 @@ export default function SOPRevisions() {
       if (!res.ok) throw new Error("Failed to load proposals");
       return res.json();
     },
+    enabled: isManagerOrAbove,
   });
 
   const reviewMutation = useMutation({
@@ -217,32 +379,48 @@ export default function SOPRevisions() {
   return (
     <div className="h-full flex flex-col bg-background">
       <div className="px-4 pt-4 pb-3 border-b">
-        {stats && stats.pendingCount > 0 && (
-          <p className="text-xs text-muted-foreground">
-            {stats.pendingCount} pending across {stats.affectedSOPs} SOP{stats.affectedSOPs !== 1 ? "s" : ""}
-          </p>
-        )}
-
-        <div className="flex gap-1.5 mt-3">
-          {["pending", "approved", "rejected"].map((s) => (
-            <Button
-              key={s}
-              size="sm"
-              variant={statusFilter === s ? "default" : "outline"}
-              className="text-xs capitalize"
-              onClick={() => setStatusFilter(s)}
-            >
-              {s}
-              {s === "pending" && stats?.pendingCount ? (
-                <Badge variant="secondary" className="ml-1 text-[9px] px-1 py-0">{stats.pendingCount}</Badge>
-              ) : null}
-            </Button>
-          ))}
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="icon" onClick={() => navigate("/sops")} className="shrink-0">
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+          <div className="flex-1">
+            <h1 className="text-xl font-bold">SOP Improvement Suggestions</h1>
+            {isManagerOrAbove && stats && stats.pendingCount > 0 && (
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {stats.pendingCount} pending across {stats.affectedSOPs} SOP{stats.affectedSOPs !== 1 ? "s" : ""}
+              </p>
+            )}
+          </div>
         </div>
+
+        {isManagerOrAbove && (
+          <div className="flex gap-1.5 mt-3">
+            {["pending", "approved", "rejected"].map((s) => (
+              <Button
+                key={s}
+                size="sm"
+                variant={statusFilter === s ? "default" : "outline"}
+                className="text-xs capitalize"
+                onClick={() => setStatusFilter(s)}
+              >
+                {s}
+                {s === "pending" && stats?.pendingCount ? (
+                  <Badge variant="secondary" className="ml-1 text-[9px] px-1 py-0">{stats.pendingCount}</Badge>
+                ) : null}
+              </Button>
+            ))}
+          </div>
+        )}
       </div>
 
-      <div className="flex-1 overflow-auto px-4 py-4 space-y-6">
-        {isLoading ? (
+      <div className="flex-1 overflow-auto px-4 py-4 space-y-4">
+        <SuggestionForm />
+
+        {!isManagerOrAbove ? (
+          <div className="text-center py-8 text-xs text-muted-foreground">
+            Your suggestions go straight to managers for review.
+          </div>
+        ) : isLoading ? (
           <div className="space-y-3">
             <Skeleton className="h-32 w-full" />
             <Skeleton className="h-32 w-full" />
