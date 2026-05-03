@@ -2,12 +2,12 @@ import { useLocation } from 'wouter';
 import { useAuth } from '@/hooks/useAuth';
 import { useClerk } from '@clerk/clerk-react';
 import {
-  User, Clock, Heart, Megaphone, GraduationCap, Trophy, BarChart2,
-  AlertTriangle, FileText, Users, Video, Inbox, Zap, FolderOpen,
+  User, Clock, Heart, Megaphone, GraduationCap, Trophy,
+  AlertTriangle, FileText, Users, Inbox, Zap, FolderOpen,
   Hourglass, Sprout, ClipboardCheck, ClipboardList, DollarSign,
   FileSpreadsheet, UserCog, ShieldCheck, BarChart, Medal,
   Settings, Cog, LogOut, ChevronRight, Banknote,
-  Coffee, Lightbulb, LifeBuoy, History, FileDown, Mic, Brain,
+  Coffee, Lightbulb, LifeBuoy, FileDown, Mic,
   Package, Wand2, Wallet, LineChart,
   type LucideIcon,
 } from 'lucide-react';
@@ -79,11 +79,8 @@ export default function MoreMenu() {
         { icon: Megaphone, label: 'Shoutouts', subtitle: 'Team announcements & wins', path: '/communication', iconBg: 'bg-purple-100', iconColor: 'text-purple-600' },
         { icon: Coffee, label: 'Morning Huddle', subtitle: 'Daily team standup', path: '/huddle', iconBg: 'bg-amber-100', iconColor: 'text-amber-700' },
         { icon: Coffee, label: 'Morning Whisper', subtitle: 'AI briefing for your day', path: '/whisper', iconBg: 'bg-orange-100', iconColor: 'text-orange-600' },
-        { icon: GraduationCap, label: 'Learning', subtitle: 'SOPs, training & knowledge', path: '/learning', iconBg: 'bg-indigo-100', iconColor: 'text-indigo-600' },
-        { icon: History, label: 'SOP Revisions', subtitle: 'Track SOP changes', path: '/sops/revisions', iconBg: 'bg-violet-100', iconColor: 'text-violet-600' },
-        { icon: BarChart2, label: 'Lean Board', subtitle: 'Store performance metrics', path: '/lean-board', iconBg: 'bg-cyan-100', iconColor: 'text-cyan-600' },
+        { icon: GraduationCap, label: 'Learning Center', subtitle: 'Training, knowledge, SOPs, lean board', path: '/learning', iconBg: 'bg-indigo-100', iconColor: 'text-indigo-600' },
         { icon: Lightbulb, label: 'AI Insights', subtitle: 'Smart store analytics', path: '/insights', iconBg: 'bg-yellow-100', iconColor: 'text-yellow-600' },
-        { icon: Video, label: 'Improvements', subtitle: '60-second improvement videos', path: '/improvements', iconBg: 'bg-orange-100', iconColor: 'text-orange-500' },
         { icon: AlertTriangle, label: 'Issues', subtitle: 'Report a problem', path: '/issues', iconBg: 'bg-amber-100', iconColor: 'text-amber-600' },
         { icon: Users, label: 'Team Directory', subtitle: 'Find your teammates', path: '/team-directory', iconBg: 'bg-slate-100', iconColor: 'text-slate-600' },
         { icon: LifeBuoy, label: 'Support', subtitle: 'Help & contact', path: '/support', iconBg: 'bg-sky-100', iconColor: 'text-sky-600' },

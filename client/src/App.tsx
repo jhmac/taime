@@ -129,6 +129,7 @@ const TaskManagement = lazy(() => import("@/pages/TaskManagement"));
 const Analytics = lazy(() => import("@/pages/Analytics"));
 const Performance = lazy(() => import("@/pages/Performance"));
 const Learning = lazy(() => import("@/pages/Learning"));
+const LearningCenter = lazy(() => import("@/pages/LearningCenter"));
 const MoreMenu = lazy(() => import("@/pages/MoreMenu"));
 const Requests = lazy(() => import("@/pages/Requests"));
 const TeamDirectory = lazy(() => import("@/pages/TeamDirectory"));
@@ -206,6 +207,14 @@ function LoadingCard({ title, message }: { title: string; message: string }) {
       </div>
     </div>
   );
+}
+
+function RedirectTo({ to }: { to: string }) {
+  const [, navigate] = useLocation();
+  useEffect(() => {
+    navigate(to, { replace: true });
+  }, [to]);
+  return null;
 }
 
 function useLoadingTimeout(isActive: boolean, ms = 10000) {
@@ -336,8 +345,10 @@ function AuthenticatedApp() {
         <Route path="/performance">
           <ProtectedRoute><Performance /></ProtectedRoute>
         </Route>
-        <Route path="/learning" component={Learning} />
-        <Route path="/knowledge-base" component={KnowledgeBase} />
+        <Route path="/learning" component={LearningCenter} />
+        <Route path="/knowledge-base">
+          <RedirectTo to="/learning?tab=knowledge-base" />
+        </Route>
         <Route path="/ai-learning-center">
           <ProtectedRoute permission="hr.edit_team"><AIContentStudio /></ProtectedRoute>
         </Route>
@@ -356,7 +367,9 @@ function AuthenticatedApp() {
         <Route path="/sops/:id/edit">
           <ProtectedRoute permission="admin.manage_all"><SOPBuilder /></ProtectedRoute>
         </Route>
-        <Route path="/sops/revisions" component={SOPRevisions} />
+        <Route path="/sops/revisions">
+          <RedirectTo to="/learning?tab=sop-revisions" />
+        </Route>
         <Route path="/sops/training" component={TrainingHub} />
         <Route path="/training" component={TrainingHub} />
         <Route path="/training/:moduleId" component={TrainingPlayer} />
@@ -366,7 +379,9 @@ function AuthenticatedApp() {
         <Route path="/issues/:id" component={IssueDetail} />
         <Route path="/huddle" component={MorningHuddle} />
         <Route path="/whisper" component={MorningWhisper} />
-        <Route path="/improvements" component={ImprovementFeed} />
+        <Route path="/improvements">
+          <RedirectTo to="/learning?tab=improvements" />
+        </Route>
         <Route path="/gtd/inbox" component={GTDInbox} />
         <Route path="/gtd/actions" component={GTDActions} />
         <Route path="/gtd/projects/:id" component={GTDProjectDetail} />
@@ -374,7 +389,9 @@ function AuthenticatedApp() {
         <Route path="/gtd/waiting" component={GTDWaiting} />
         <Route path="/gtd/someday" component={GTDSomeday} />
         <Route path="/gtd/review" component={WeeklyReview} />
-        <Route path="/lean-board" component={LeanBoard} />
+        <Route path="/lean-board">
+          <RedirectTo to="/learning?tab=lean-board" />
+        </Route>
         <Route path="/supply" component={SupplyCatalog} />
         <Route path="/supply/count/:sessionId" component={InventoryCount} />
         <Route path="/cash">
