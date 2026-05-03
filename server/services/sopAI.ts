@@ -1,9 +1,5 @@
-import Anthropic from '@anthropic-ai/sdk';
+import { anthropic, withAiContext } from "../lib/aiClients";
 import { config } from "../lib/config";
-
-const anthropic = new Anthropic({
-  apiKey: config.anthropic.apiKey,
-});
 
 const MODEL = "claude-sonnet-4-20250514";
 

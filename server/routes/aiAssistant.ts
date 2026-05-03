@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
-import Anthropic from '@anthropic-ai/sdk';
+import { anthropic, withAiContext } from "../lib/aiClients";
 import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import { config } from "../lib/config";
@@ -15,10 +15,6 @@ import { resolveAnyPermission } from "../services/permissionResolver";
 import logger from "../lib/logger";
 
 const DEFAULT_MODEL_STR = "claude-sonnet-4-20250514";
-
-const anthropic = new Anthropic({
-  apiKey: config.anthropic.apiKey,
-});
 
 const chatRateLimiter = rateLimit({
   windowMs: 60 * 1000,

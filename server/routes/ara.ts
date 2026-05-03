@@ -1,15 +1,11 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
-import Anthropic from "@anthropic-ai/sdk";
+import { anthropic, withAiContext } from "../lib/aiClients";
 import { z } from "zod";
 import { config } from "../lib/config";
 import { searchSOPs, type SOPSearchResult } from "../services/sopIndexer";
 import { tryResolveStoreIdForUser } from "../services/storeResolver";
 import logger from "../lib/logger";
-
-const anthropic = new Anthropic({
-  apiKey: config.anthropic.apiKey,
-});
 
 const historyMessageSchema = z.object({
   role: z.enum(["user", "assistant"]),

@@ -58,6 +58,7 @@ const managementNavItems = [
   { path: '/ai-studio', icon: 'fas fa-wand-magic-sparkles', label: 'AI Studio', permission: 'hr.edit_team' },
   { path: '/ai-questions', icon: 'fas fa-question-circle', label: 'AI Questions', permission: 'hr.view_team' },
   { path: '/operations', icon: 'fas fa-cogs', label: 'Operations', permission: 'admin.manage_all' },
+  { path: '/admin/ai-spend', icon: 'fas fa-coins', label: 'AI Spend', permission: 'admin.manage_all' },
   { path: '/admin', icon: 'fas fa-sliders-h', label: 'Settings', permission: 'admin.manage_all' },
 ];
 

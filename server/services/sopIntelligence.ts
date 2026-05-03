@@ -1,4 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk';
+import { anthropic, withAiContext } from "../lib/aiClients";
 import { config } from "../lib/config";
 import { db } from "../db";
 import { eq, and, gte, lte, sql, desc, inArray, isNotNull } from "drizzle-orm";
@@ -7,7 +7,6 @@ import {
 } from "@shared/schema";
 import logger from "../lib/logger";
 
-const anthropic = new Anthropic({ apiKey: config.anthropic.apiKey });
 const MODEL = "claude-sonnet-4-20250514";
 
 export interface StepMetrics {

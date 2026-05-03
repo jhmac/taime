@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { anthropic, withAiContext } from "../lib/aiClients";
 import { config } from "../lib/config";
 import { db } from "../db";
 import {
@@ -12,7 +12,6 @@ import { eq, inArray, and } from "drizzle-orm";
 import logger from "../lib/logger";
 import { indexAiGeneratedItem } from "./sopIndexer";
 
-const anthropic = new Anthropic({ apiKey: config.anthropic.apiKey });
 const DEFAULT_MODEL = "claude-sonnet-4-20250514";
 
 /** Asks Claude to decide which output types fit a given document.

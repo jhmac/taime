@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { anthropic, withAiContext } from "../lib/aiClients";
 import { db } from "../db";
 import { eq, and, gte, desc, sql, count, avg, lte, inArray } from "drizzle-orm";
 import { notificationService } from "./notificationService";
@@ -20,8 +20,6 @@ import {
 } from "@shared/schema";
 import { isNull, isNotNull } from "drizzle-orm";
 import logger from "../lib/logger";
-
-const anthropic = new Anthropic();
 
 interface InsightResult {
   insightType: string;

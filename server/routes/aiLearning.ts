@@ -13,12 +13,11 @@ import { asyncHandler, AppError } from "../lib/routeWrapper";
 import { resolveStoreIdForUser, tryResolveStoreIdForUser } from "../services/storeResolver";
 import type { IStorage } from "../storage";
 import { runGenerationJob } from "../services/aiLearningGeneration";
-import Anthropic from "@anthropic-ai/sdk";
+import { anthropic, withAiContext } from "../lib/aiClients";
 import { config } from "../lib/config";
 import logger from "../lib/logger";
 import { resolveAnyPermission } from "../services/permissionResolver";
 
-const anthropic = new Anthropic({ apiKey: config.anthropic.apiKey });
 const DEFAULT_MODEL = "claude-sonnet-4-20250514";
 
 async function requireManager(storage: IStorage, userId: string): Promise<void> {

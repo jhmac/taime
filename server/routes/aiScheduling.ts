@@ -3,7 +3,7 @@ import type { IStorage } from "../storage";
 import { aiSchedulingSettings, aiSchedulingRules, specialCircumstances, shopifyDailySales, shopifyOrders, users, userAvailability, availabilityTemplates, schedules, shops, userShops, roles, workPatternTemplates, userWorkPatterns, clockEvents, workLocations, aiSuggestedSchedules } from "@shared/schema";
 import { eq, and, gte, lte, lt, gt, desc, inArray, sql, count, isNull, or } from "drizzle-orm";
 import { db } from "../db";
-import Anthropic from '@anthropic-ai/sdk';
+import { anthropic, withAiContext } from "../lib/aiClients";
 import rateLimit from "express-rate-limit";
 import { ShopifyService } from "../services/shopifyService";
 import { decryptToken } from "../utils/tokenEncryption";
@@ -21,8 +21,6 @@ import logger from "../lib/logger";
 import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
 import { tryResolveStoreIdForUser } from "../services/storeResolver";
 import { hasEntitlement } from "../services/entitlements";
-
-const anthropic = new Anthropic({ apiKey: config.anthropic.apiKey });
 
 // Typed params shape for AI scheduling rules — avoids `as any` in prompt generation
 interface AiRuleParams {

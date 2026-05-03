@@ -1,12 +1,11 @@
 import { db } from "../db";
 import { dailyQuestionnaires, sopDocuments, sopCategories, workLocations } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
-import Anthropic from "@anthropic-ai/sdk";
+import { anthropic, withAiContext } from "../lib/aiClients";
 import { config } from "../lib/config";
 import logger from "../lib/logger";
 import type { IStorage } from "../storage";
 
-const anthropic = new Anthropic({ apiKey: config.anthropic.apiKey });
 const DEFAULT_MODEL = "claude-sonnet-4-20250514";
 
 interface DQQuestion {

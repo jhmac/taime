@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { anthropic, withAiContext } from "../lib/aiClients";
 import { db } from "../db";
 import { eq, and, lte } from "drizzle-orm";
 import { operationalInsights, workLocations, users, roles } from "@shared/schema";
@@ -11,7 +11,6 @@ import {
   type OperationsAggregate,
 } from "./operationsIntelligence";
 
-const anthropic = new Anthropic({ apiKey: config.anthropic.apiKey });
 const MODEL = "claude-sonnet-4-20250514";
 
 export type InsightSeverity = "info" | "suggestion" | "warning" | "action_needed";

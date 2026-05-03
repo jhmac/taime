@@ -22,12 +22,11 @@ import type { InsertSopDocument, InsertTask } from "@shared/schema";
 import { processKnowledgeDocument } from "../services/knowledgeExtractor";
 import { runAiStudioGenerationJob } from "../services/aiStudioGeneration";
 import { indexAiGeneratedItem } from "../services/sopIndexer";
-import Anthropic from "@anthropic-ai/sdk";
+import { anthropic, withAiContext } from "../lib/aiClients";
 import { config } from "../lib/config";
 import logger from "../lib/logger";
 import { resolveAnyPermission } from "../services/permissionResolver";
 
-const anthropic = new Anthropic({ apiKey: config.anthropic.apiKey });
 const DEFAULT_MODEL = "claude-sonnet-4-20250514";
 
 const UPLOAD_DIR = path.resolve(process.cwd(), "uploads", "knowledge");

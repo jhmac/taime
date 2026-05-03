@@ -6,3 +6,4 @@ export * from "./sop";
 export * from "./gtd";
 export * from "./billing";
 export * from "./misc";
+export * from "./aiUsage";

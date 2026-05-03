@@ -125,6 +125,7 @@ const Availability = lazy(() => import("@/pages/Availability"));
 const PayPeriodManagement = lazy(() => import("@/pages/PayPeriodManagement"));
 const PayrollSetupModal = lazy(() => import("@/components/PayrollSetupModal"));
 const AdminSettings = lazy(() => import("@/pages/AdminSettings"));
+const AiSpend = lazy(() => import("@/pages/AiSpend"));
 const TaskManagement = lazy(() => import("@/pages/TaskManagement"));
 const Analytics = lazy(() => import("@/pages/Analytics"));
 const Performance = lazy(() => import("@/pages/Performance"));
@@ -433,6 +434,9 @@ function AuthenticatedApp() {
           <ProtectedRoute permission="manager.view_reports"><OperationalInsights /></ProtectedRoute>
         </Route>
         <Route path="/support" component={SupportPage} />
+        <Route path="/admin/ai-spend">
+          <ProtectedRoute permission="admin.manage_all"><AiSpend /></ProtectedRoute>
+        </Route>
         <Route path="/admin">
           <ProtectedRoute permission="admin.manage_all"><AdminSettings /></ProtectedRoute>
         </Route>

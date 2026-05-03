@@ -1,4 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk';
+import { anthropic, withAiContext } from "../lib/aiClients";
 import { db } from '../db';
 import { eq, and, gte, lte, sql } from 'drizzle-orm';
 import {
@@ -8,7 +8,6 @@ import {
 import { config } from '../lib/config';
 import logger from '../lib/logger';
 
-const anthropic = new Anthropic({ apiKey: config.anthropic.apiKey });
 const MODEL = 'claude-sonnet-4-20250514';
 
 interface HuddleContent {

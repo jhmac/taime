@@ -114,6 +114,53 @@ await run('idx cash_mgmt_store_id_unique', `CREATE UNIQUE INDEX IF NOT EXISTS ca
 await run('idx uq_thread_participant', `CREATE UNIQUE INDEX IF NOT EXISTS uq_thread_participant ON thread_participants (thread_id, user_id)`);
 await run('idx uq_native_push_token', `CREATE UNIQUE INDEX IF NOT EXISTS uq_native_push_token ON native_push_tokens (token)`);
 
+// ── AI usage tracking ────────────────────────────────────────────────────────
+await run('ai_usage_events', `CREATE TABLE IF NOT EXISTS ai_usage_events (
+  id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+  provider varchar(32) NOT NULL,
+  model varchar(96) NOT NULL,
+  operation varchar(32) NOT NULL,
+  feature varchar(64) NOT NULL,
+  store_id varchar,
+  user_id varchar,
+  is_background boolean NOT NULL DEFAULT false,
+  input_tokens integer NOT NULL DEFAULT 0,
+  output_tokens integer NOT NULL DEFAULT 0,
+  audio_seconds decimal(10,3),
+  cost_usd decimal(12,6) NOT NULL,
+  latency_ms integer,
+  status varchar(16) NOT NULL,
+  error_message text,
+  created_at timestamp NOT NULL DEFAULT now()
+)`);
+await run('idx_ai_usage_events_created', `CREATE INDEX IF NOT EXISTS idx_ai_usage_events_created ON ai_usage_events (created_at)`);
+await run('idx_ai_usage_events_store_created', `CREATE INDEX IF NOT EXISTS idx_ai_usage_events_store_created ON ai_usage_events (store_id, created_at)`);
+await run('idx_ai_usage_events_feature_created', `CREATE INDEX IF NOT EXISTS idx_ai_usage_events_feature_created ON ai_usage_events (feature, created_at)`);
+await run('idx_ai_usage_events_model_created', `CREATE INDEX IF NOT EXISTS idx_ai_usage_events_model_created ON ai_usage_events (model, created_at)`);
+
+await run('ai_budgets', `CREATE TABLE IF NOT EXISTS ai_budgets (
+  id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+  scope varchar(16) NOT NULL,
+  store_id varchar,
+  monthly_limit_usd decimal(12,2) NOT NULL,
+  alert_threshold_percent integer NOT NULL DEFAULT 80,
+  hard_block boolean NOT NULL DEFAULT true,
+  enabled boolean NOT NULL DEFAULT true,
+  created_at timestamp DEFAULT now(),
+  updated_at timestamp DEFAULT now()
+)`);
+await run('uq_ai_budgets_scope_store', `CREATE UNIQUE INDEX IF NOT EXISTS uq_ai_budgets_scope_store ON ai_budgets (scope, store_id)`);
+
+await run('ai_budget_alerts', `CREATE TABLE IF NOT EXISTS ai_budget_alerts (
+  id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+  budget_id varchar NOT NULL,
+  period_key varchar(7) NOT NULL,
+  threshold_percent integer NOT NULL,
+  spend_at_alert decimal(12,4) NOT NULL,
+  sent_at timestamp DEFAULT now()
+)`);
+await run('uq_ai_budget_alerts_budget_period_threshold', `CREATE UNIQUE INDEX IF NOT EXISTS uq_ai_budget_alerts_budget_period_threshold ON ai_budget_alerts (budget_id, period_key, threshold_percent)`);
+
 console.log('[post-merge] Schema pre-migration complete');
 await client.end();
 JSEOF

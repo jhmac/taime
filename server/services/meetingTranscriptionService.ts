@@ -1,12 +1,8 @@
-import OpenAI, { toFile } from "openai";
+import { toFile } from "openai";
+import { openai, withAiContext } from "../lib/aiClients";
 import fs from "fs";
 import path from "path";
 import logger from "../lib/logger";
-
-const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-});
 
 export async function transcribeAudioFile(filePath: string): Promise<string> {
   const startTime = Date.now();
@@ -22,11 +18,13 @@ export async function transcribeAudioFile(filePath: string): Promise<string> {
 
   const file = await toFile(fileStream, fileName);
 
-  const transcription = await openai.audio.transcriptions.create({
-    file,
-    model: "gpt-4o-transcribe",
-    response_format: "text",
-  });
+  const transcription = await withAiContext({ feature: "meeting-transcription", isBackground: true }, () =>
+    openai.audio.transcriptions.create({
+      file,
+      model: "gpt-4o-transcribe",
+      response_format: "text",
+    }),
+  );
 
   const latency = Date.now() - startTime;
   logger.info({ filePath, latencyMs: latency, transcriptLength: transcription.length }, "Transcription complete");
@@ -40,11 +38,13 @@ export async function transcribeAudioBuffer(buffer: Buffer, mimeType = "audio/we
 
   const file = await toFile(buffer, filename, { type: mimeType });
 
-  const transcription = await openai.audio.transcriptions.create({
-    file,
-    model: "gpt-4o-transcribe",
-    response_format: "text",
-  });
+  const transcription = await withAiContext({ feature: "meeting-transcription", isBackground: false }, () =>
+    openai.audio.transcriptions.create({
+      file,
+      model: "gpt-4o-transcribe",
+      response_format: "text",
+    }),
+  );
 
   const latency = Date.now() - startTime;
   logger.info({ latencyMs: latency, transcriptLength: transcription.length }, "Buffer transcription complete");

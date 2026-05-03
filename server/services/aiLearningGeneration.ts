@@ -1,11 +1,10 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { anthropic, withAiContext } from "../lib/aiClients";
 import { config } from "../lib/config";
 import { db } from "../db";
 import { generationJobs, sopDocuments, sopCategories, trainingModules, companyAiContext } from "@shared/schema";
 import { eq, inArray } from "drizzle-orm";
 import logger from "../lib/logger";
 
-const anthropic = new Anthropic({ apiKey: config.anthropic.apiKey });
 const DEFAULT_MODEL = "claude-sonnet-4-20250514";
 
 interface GeneratedSOP {

@@ -12,7 +12,7 @@ import {
 import { asyncHandler, AppError } from "../lib/routeWrapper";
 import { resolveStoreIdForUser } from "../services/storeResolver";
 import type { IStorage } from "../storage";
-import Anthropic from "@anthropic-ai/sdk";
+import { anthropic, withAiContext } from "../lib/aiClients";
 import { config } from "../lib/config";
 import logger from "../lib/logger";
 import { z } from "zod";
@@ -44,7 +44,6 @@ const submitBodySchema = z.object({
   durationSeconds: z.number().int().positive().optional().nullable(),
 });
 
-const anthropic = new Anthropic({ apiKey: config.anthropic.apiKey });
 const DEFAULT_MODEL = "claude-sonnet-4-20250514";
 
 function getLocalDateStr(timezone?: string | null): string {

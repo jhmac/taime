@@ -1,11 +1,10 @@
-import Anthropic from '@anthropic-ai/sdk';
+import { anthropic, withAiContext } from "../lib/aiClients";
 import { config } from "../lib/config";
 import { db } from "../db";
 import { eq } from "drizzle-orm";
 import { gtdInboxItems, gtdProjects, sopTemplates, workLocations } from "@shared/schema";
 import logger from "../lib/logger";
 
-const anthropic = new Anthropic({ apiKey: config.anthropic.apiKey });
 const MODEL = "claude-sonnet-4-20250514";
 
 const SYSTEM_PROMPT = `You are MAinager's GTD Clarification Engine for a retail boutique. Your job is to process a raw inbox capture and determine what it means and what should happen with it.

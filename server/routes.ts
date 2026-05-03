@@ -44,6 +44,7 @@ import { registerSOPEvolutionRoutes } from "./routes/sopEvolution";
 import { startSOPEvolutionCron, stopSOPEvolutionCron } from "./services/sopEvolution";
 import { registerBackgroundInsightRoutes } from "./routes/backgroundInsights";
 import { registerOperationalInsightRoutes } from "./routes/operationalInsights";
+import { registerAiSpendRoutes } from "./routes/aiSpend";
 import { registerSmartSuggestionRoutes } from "./routes/smartSuggestions";
 import { registerCashManagementRoutes } from "./routes/cashManagement";
 import { registerTimesheetRoutes } from "./routes/timesheets";
@@ -194,6 +195,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerSOPEvolutionRoutes(app, storage, isAuthenticated);
   registerBackgroundInsightRoutes(app, storage, isAuthenticated);
   registerOperationalInsightRoutes(app, storage, isAuthenticated);
+  registerAiSpendRoutes(app, storage, isAuthenticated);
   registerSmartSuggestionRoutes(app, storage, isAuthenticated);
   registerCashManagementRoutes(app, storage, isAuthenticated);
   registerOffsiteRulesRoutes(app, storage, isAuthenticated);

@@ -4,10 +4,8 @@ import { db } from "../db";
 import { clockEvents, performanceScoreSettings, knowledgeDocuments } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import Anthropic from "@anthropic-ai/sdk";
+import { anthropic, withAiContext } from "../lib/aiClients";
 import { resolveStoreId } from "../services/storeResolver";
-
-const anthropic = new Anthropic();
 
 const MORNING_MOMENT_POINTS = 10;
 

@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { anthropic, withAiContext } from "../lib/aiClients";
 import { config } from "../lib/config";
 import { db } from "../db";
 import { knowledgeDocuments } from "@shared/schema";
@@ -7,8 +7,6 @@ import logger from "../lib/logger";
 import { indexKnowledgeDocument } from "./sopIndexer";
 
 const MODEL = "claude-sonnet-4-20250514";
-
-const anthropic = new Anthropic({ apiKey: config.anthropic.apiKey });
 
 const VALID_DOCUMENT_TYPES = [
   "policy_manual",
