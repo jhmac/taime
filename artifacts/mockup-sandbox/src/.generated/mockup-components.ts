@@ -12,5 +12,15 @@ export const modules: ModuleMap = {
   "./components/mockups/taime-mobile/Team.tsx": () => import("../components/mockups/taime-mobile/Team.tsx"),
   "./components/mockups/taime-simple/DashboardV3.tsx": () => import("../components/mockups/taime-simple/DashboardV3.tsx"),
   "./components/mockups/taime-simple/SimplifiedA.tsx": () => import("../components/mockups/taime-simple/SimplifiedA.tsx"),
-  "./components/mockups/taime-simple/SimplifiedB.tsx": () => import("../components/mockups/taime-simple/SimplifiedB.tsx")
+  "./components/mockups/taime-simple/SimplifiedB.tsx": () => import("../components/mockups/taime-simple/SimplifiedB.tsx"),
+  "./components/mockups/taime-stripe/avail.tsx": () => import("../components/mockups/taime-stripe/avail.tsx"),
+  "./components/mockups/taime-stripe/cash.tsx": () => import("../components/mockups/taime-stripe/cash.tsx"),
+  "./components/mockups/taime-stripe/clockin.tsx": () => import("../components/mockups/taime-stripe/clockin.tsx"),
+  "./components/mockups/taime-stripe/dashboard.tsx": () => import("../components/mockups/taime-stripe/dashboard.tsx"),
+  "./components/mockups/taime-stripe/learning.tsx": () => import("../components/mockups/taime-stripe/learning.tsx"),
+  "./components/mockups/taime-stripe/manager.tsx": () => import("../components/mockups/taime-stripe/manager.tsx"),
+  "./components/mockups/taime-stripe/messages.tsx": () => import("../components/mockups/taime-stripe/messages.tsx"),
+  "./components/mockups/taime-stripe/schedule.tsx": () => import("../components/mockups/taime-stripe/schedule.tsx"),
+  "./components/mockups/taime-stripe/tasks.tsx": () => import("../components/mockups/taime-stripe/tasks.tsx"),
+  "./components/mockups/taime-stripe/team.tsx": () => import("../components/mockups/taime-stripe/team.tsx")
 };
