@@ -1,5 +1,5 @@
 import { db } from "../db";
-import { dailyQuestionnaires, sopDocuments, sopCategories, workLocations } from "@shared/schema";
+import { dailyQuestionnaires, sopDocuments, sopCategories, workLocations, knowledgeDocuments } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
 import { anthropic, withAiContext } from "../lib/aiClients";
 import { config } from "../lib/config";
@@ -224,6 +224,30 @@ async function runDailyGenerationForStore(
   let knowledgeContent = "";
   for (const doc of kbDocs) {
     if (doc.content) knowledgeContent += `\n\n## ${doc.title}\n${doc.content}`;
+  }
+
+  if (knowledgeContent.trim().length < 200 && storeId) {
+    const rawDocs = await db
+      .select({
+        originalFileName: knowledgeDocuments.originalFileName,
+        extractedText: knowledgeDocuments.extractedText,
+        summaryFromClaude: knowledgeDocuments.summaryFromClaude,
+      })
+      .from(knowledgeDocuments)
+      .where(
+        and(
+          eq(knowledgeDocuments.storeId, storeId),
+          eq(knowledgeDocuments.processingStatus, "ready")
+        )
+      )
+      .limit(5);
+
+    for (const raw of rawDocs) {
+      const content = raw.extractedText || raw.summaryFromClaude || "";
+      if (content.trim()) {
+        knowledgeContent += `\n\n## ${raw.originalFileName}\n${content.slice(0, 2000)}`;
+      }
+    }
   }
 
   let questions: DQQuestion[];

@@ -47,6 +47,7 @@ import {
   ArrowRight,
   PartyPopper,
   Keyboard,
+  ExternalLink,
 } from "lucide-react";
 import type { KnowledgeDocument, AiGeneratedItem, QuizQuestion } from "@shared/schema";
 
@@ -335,11 +336,52 @@ function QuickActionPanel() {
 
 // ── Source Library (enhanced) ────────────────────────────────────────────────
 
-function SourceLibrary({ onStartGenerate }: { onStartGenerate: () => void }) {
+interface KbNotification {
+  id: string;
+  fileName: string;
+  suggestedAction: string | null;
+}
+
+const QUICK_ACTION_CONFIG: Record<string, { label: string; description: string; icon: LucideIcon; queryParam: string }> = {
+  supply_list: {
+    label: "Create Supply Checklist",
+    description: "Turn this supply list into a reusable checklist",
+    icon: ListChecks,
+    queryParam: "tasks",
+  },
+  chore_list: {
+    label: "Create Chore List",
+    description: "Convert this into daily chore tasks",
+    icon: ListChecks,
+    queryParam: "tasks",
+  },
+  task_list: {
+    label: "Create Task List",
+    description: "Turn this into recurring daily tasks",
+    icon: ListChecks,
+    queryParam: "tasks",
+  },
+  sop: {
+    label: "Generate SOPs",
+    description: "Create step-by-step SOPs from this document",
+    icon: ClipboardList,
+    queryParam: "sops",
+  },
+  training: {
+    label: "Generate Training Module",
+    description: "Create a training module from this content",
+    icon: GraduationCap,
+    queryParam: "training",
+  },
+};
+
+function SourceLibrary({ onStartGenerate }: { onStartGenerate: (preselectedOutputType?: string) => void }) {
   const { toast } = useToast();
+  const [, navigate] = useLocation();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
+  const [kbNotifications, setKbNotifications] = useState<KbNotification[]>([]);
 
   const { data: docsResponse, isLoading } = useQuery<{ success: boolean; data: KnowledgeDocument[] }>({
     queryKey: ["/api/ai-studio/documents"],
@@ -375,8 +417,11 @@ function SourceLibrary({ onStartGenerate }: { onStartGenerate: () => void }) {
         credentials: "include",
       });
       if (!res.ok) throw new Error("Upload failed");
+      const data = await res.json();
+      const suggestedAction: string | null = data?.suggestedAction ?? null;
       qc.invalidateQueries({ queryKey: ["/api/ai-studio/documents"] });
       setUploadingFiles((prev) => prev.map((f) => f.id === id ? { ...f, progress: "done" } : f));
+      setKbNotifications((prev) => [...prev, { id, fileName: file.name, suggestedAction }]);
       setTimeout(() => setUploadingFiles((prev) => prev.filter((f) => f.id !== id)), 2000);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Upload failed";
@@ -441,6 +486,58 @@ function SourceLibrary({ onStartGenerate }: { onStartGenerate: () => void }) {
               {f.progress === "error" && <span className="text-xs text-destructive">{f.error}</span>}
             </div>
           ))}
+        </div>
+      )}
+
+      {/* KB added confirmation + quick action suggestions */}
+      {kbNotifications.length > 0 && (
+        <div className="space-y-2">
+          {kbNotifications.map((n) => {
+            const qaCfg = n.suggestedAction ? QUICK_ACTION_CONFIG[n.suggestedAction] : null;
+            const QaIcon = qaCfg?.icon;
+            return (
+              <div key={n.id} className="rounded-xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/30 p-3 animate-in fade-in-0 duration-300">
+                <div className="flex items-start gap-3">
+                  <CheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-emerald-800 dark:text-emerald-200">
+                      Added to Knowledge Center
+                    </p>
+                    <p className="text-xs text-emerald-700 dark:text-emerald-300 mt-0.5 truncate">
+                      "{n.fileName}" will appear in the Knowledge Base once Ara finishes reading it.
+                    </p>
+                    <button
+                      onClick={() => navigate("/learning?tab=knowledge-base")}
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 dark:text-emerald-300 hover:underline mt-1"
+                    >
+                      View Knowledge Base <ExternalLink className="w-3 h-3" />
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => setKbNotifications((prev) => prev.filter((x) => x.id !== n.id))}
+                    className="shrink-0 text-emerald-500 hover:text-emerald-700 dark:hover:text-emerald-300"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                {qaCfg && QaIcon && (
+                  <div className="mt-3 pt-3 border-t border-emerald-200 dark:border-emerald-800">
+                    <p className="text-xs text-emerald-700 dark:text-emerald-400 mb-2 font-medium">Quick action detected:</p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8 text-xs gap-1.5 border-emerald-300 dark:border-emerald-700 text-emerald-800 dark:text-emerald-200 hover:bg-emerald-100 dark:hover:bg-emerald-900/40"
+                      onClick={() => onStartGenerate(qaCfg.queryParam)}
+                    >
+                      <QaIcon className="w-3.5 h-3.5" />
+                      {qaCfg.label}
+                    </Button>
+                    <p className="text-xs text-muted-foreground mt-1">{qaCfg.description}</p>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -524,7 +621,7 @@ function SourceLibrary({ onStartGenerate }: { onStartGenerate: () => void }) {
           <Button
             size="lg"
             className="bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white gap-2 shadow-lg shadow-violet-500/20 px-8"
-            onClick={onStartGenerate}
+            onClick={() => onStartGenerate()}
           >
             <Sparkles className="w-5 h-5" />
             Generate Knowledge Base with Ara
@@ -550,13 +647,20 @@ function SourceLibrary({ onStartGenerate }: { onStartGenerate: () => void }) {
 
 // ── Generation Wizard ────────────────────────────────────────────────────────
 
-function GenerationWizard({ onComplete }: { onComplete: () => void }) {
+function GenerationWizard({ onComplete, preselectedOutputType }: { onComplete: () => void; preselectedOutputType?: string }) {
   const { toast } = useToast();
   const [step, setStep] = useState(() => {
     try { return parseInt(localStorage.getItem("aiStudio.step") || "0", 10) || 0; } catch { return 0; }
   });
   const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
-  const [selectedOutputTypes, setSelectedOutputTypes] = useState<string[]>(["sops"]);
+  const [selectedOutputTypes, setSelectedOutputTypes] = useState<string[]>(
+    preselectedOutputType ? [preselectedOutputType] : ["sops"]
+  );
+  useEffect(() => {
+    if (preselectedOutputType) {
+      setSelectedOutputTypes([preselectedOutputType]);
+    }
+  }, [preselectedOutputType]);
   const [targetRoles, setTargetRoles] = useState(["New Associate", "Lead", "Manager"]);
   const [roleInput, setRoleInput] = useState("");
   const [jobId, setJobId] = useState<string | null>(() => {
@@ -1737,7 +1841,7 @@ function DocumentReviewTheater() {
   const sourceDocs = sourceIds
     .map((id) => allDocuments.find((d) => d.id === id))
     .filter(Boolean) as KnowledgeDocument[];
-  const sourceNames = sourceDocs.map((d) => d.filename).filter(Boolean);
+  const sourceNames = sourceDocs.map((d) => d.originalFileName).filter(Boolean);
   const hasBeenRefined = !!selectedItem?.feedbackNotes;
   const confidenceLabel = hasBeenRefined ? "Refined with your feedback" : "High confidence";
   const confidenceColor = hasBeenRefined
@@ -2281,6 +2385,7 @@ function derivePipelineStage(
 export default function AIContentStudio() {
   const { user } = useAuth();
   const [showWizard, setShowWizard] = useState(false);
+  const [wizardPreselectedType, setWizardPreselectedType] = useState<string | undefined>(undefined);
   const [activeTab, setActiveTab] = useState("review");
 
   const { data: docsResponse } = useQuery<{ success: boolean; data: KnowledgeDocument[] }>({
@@ -2349,7 +2454,7 @@ export default function AIContentStudio() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <SourceLibrary onStartGenerate={() => setShowWizard(true)} />
+          <SourceLibrary onStartGenerate={(type) => { setWizardPreselectedType(type); setShowWizard(true); }} />
         </CardContent>
       </Card>
 
@@ -2382,7 +2487,7 @@ export default function AIContentStudio() {
       </div>
 
       {/* Generation wizard dialog */}
-      <Dialog open={showWizard} onOpenChange={setShowWizard}>
+      <Dialog open={showWizard} onOpenChange={(open) => { setShowWizard(open); if (!open) setWizardPreselectedType(undefined); }}>
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -2391,8 +2496,10 @@ export default function AIContentStudio() {
             </DialogTitle>
           </DialogHeader>
           <GenerationWizard
+            preselectedOutputType={wizardPreselectedType}
             onComplete={() => {
               setShowWizard(false);
+              setWizardPreselectedType(undefined);
               setActiveTab("review");
             }}
           />

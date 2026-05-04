@@ -146,6 +146,28 @@ async function extractFromFile(
   throw new AppError(400, "Cannot extract text from this file type", "UNSUPPORTED_FILE");
 }
 
+function detectUploadedContentType(fileName: string, textSnippet: string): string | null {
+  const name = fileName.toLowerCase();
+  const text = textSnippet.slice(0, 600).toLowerCase();
+  const combined = name + " " + text;
+  if (/supply|supplies|order form|inventory|restock|ordering|stock list|supply list/.test(combined)) {
+    return "supply_list";
+  }
+  if (/chore|cleaning|sweep|mop|sanitiz|vacuum|dressing room|fitting room/.test(combined)) {
+    return "chore_list";
+  }
+  if (/task list|checklist|daily tasks|weekly tasks|opening checklist|closing checklist/.test(combined)) {
+    return "task_list";
+  }
+  if (/sop|standard operating|procedure|policy manual/.test(combined)) {
+    return "sop";
+  }
+  if (/training|learning module|skill guide/.test(combined)) {
+    return "training";
+  }
+  return null;
+}
+
 async function requireManager(storage: IStorage, userId: string): Promise<void> {
   const hasAccess = await resolveAnyPermission(userId, ["admin.manage_all", "admin.role_management", "hr.edit_team"], storage);
   if (!hasAccess) {
@@ -375,11 +397,46 @@ export function registerAiStudioRoutes(
               createdBy: req.user.id,
             })
             .returning();
-          setImmediate(() => {
-            runAiStudioGenerationJob(autoJob.id, storeId, req.user.id).catch((err: Error) => {
-              logger.error({ err: err.message, jobId: autoJob.id }, "Auto KB generation job crashed");
-            });
-          });
+
+          await runAiStudioGenerationJob(autoJob.id, storeId, req.user.id);
+
+          const kbItems = await db
+            .select()
+            .from(aiGeneratedItems)
+            .where(
+              and(
+                eq(aiGeneratedItems.jobId, autoJob.id),
+                eq(aiGeneratedItems.type, "knowledge_base"),
+              )
+            );
+
+          for (const item of kbItems) {
+            if (item.status !== "in_review") continue;
+            try {
+              await db
+                .update(aiGeneratedItems)
+                .set({ status: "approved", updatedAt: new Date() })
+                .where(eq(aiGeneratedItems.id, item.id));
+
+              await publishKnowledgeBaseItem(item, storeId, storage);
+
+              await db
+                .update(aiGeneratedItems)
+                .set({ status: "published", updatedAt: new Date() })
+                .where(eq(aiGeneratedItems.id, item.id));
+
+              indexAiGeneratedItem(item.id).catch((err: Error) =>
+                logger.warn({ itemId: item.id, error: err.message }, "[AI Studio] Background index after auto-publish failed")
+              );
+
+              logger.info({ docId: doc.id, itemId: item.id, title: item.title }, "ai-studio: auto-published KB item from upload");
+            } catch (pubErr: unknown) {
+              logger.warn(
+                { docId: doc.id, itemId: item.id, err: pubErr instanceof Error ? pubErr.message : String(pubErr) },
+                "ai-studio: failed to auto-publish KB item"
+              );
+            }
+          }
         } catch (autoErr: unknown) {
           logger.warn(
             { docId: doc.id, err: autoErr instanceof Error ? autoErr.message : String(autoErr) },
@@ -390,7 +447,8 @@ export function registerAiStudioRoutes(
         logger.error({ docId: doc.id, error: err.message }, "ai-studio: async pipeline failed");
       });
 
-      res.status(201).json({ success: true, data: doc });
+      const suggestedAction = detectUploadedContentType(file.originalname, extracted.rawText || "");
+      res.status(201).json({ success: true, data: doc, suggestedAction });
     })
   );
 
