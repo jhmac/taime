@@ -239,6 +239,11 @@ export default function CashManagement() {
           registerName={activeSession.registerName}
           startingCash={activeSession.startingCash}
           shopifySnapshot={shopifySnapshot || null}
+          shopifySyncing={syncShopifyMutation.isPending}
+          onSyncShopify={() => {
+            autoSyncRef.current = false;
+            syncShopifyMutation.mutate();
+          }}
           onComplete={() => { setViewMode("main"); setActiveSession(null); }}
           onCancel={() => { setViewMode("main"); setActiveSession(null); }}
         />

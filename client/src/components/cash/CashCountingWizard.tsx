@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -23,6 +24,8 @@ interface CashCountingWizardProps {
     openedAt?: string | null;
     closedAt?: string | null;
   } | null;
+  shopifySyncing?: boolean;
+  onSyncShopify?: () => void;
   onComplete: () => void;
   onCancel: () => void;
 }
@@ -54,7 +57,7 @@ type WizardPhase = "setup" | "counting" | "review" | "register-data" | "explanat
 
 const STORAGE_KEY = "cash-wizard-state";
 
-export default function CashCountingWizard({ sessionId, sessionType, registerName, startingCash, shopifySnapshot, onComplete, onCancel }: CashCountingWizardProps) {
+export default function CashCountingWizard({ sessionId, sessionType, registerName, startingCash, shopifySnapshot, shopifySyncing = false, onSyncShopify, onComplete, onCancel }: CashCountingWizardProps) {
   const { toast } = useToast();
 
   const [phase, setPhase] = useState<WizardPhase>("setup");
@@ -636,12 +639,30 @@ export default function CashCountingWizard({ sessionId, sessionType, registerNam
                 <p className="text-xs text-green-700 dark:text-green-400">These figures are verified — no manual entry needed.</p>
               </div>
             </div>
-          ) : (
-            <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
-              <i className="fab fa-shopify text-amber-600 text-lg" />
+          ) : shopifySyncing ? (
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+              <i className="fab fa-shopify text-blue-600 text-lg" />
               <div>
+                <p className="text-sm font-medium text-blue-800 dark:text-blue-300">Syncing Shopify data…</p>
+                <p className="text-xs text-blue-700 dark:text-blue-400">Pulling register figures automatically — just a moment.</p>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+              <i className="fab fa-shopify text-amber-600 text-lg mt-0.5" />
+              <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-amber-800 dark:text-amber-300">Shopify data not yet synced</p>
-                <p className="text-xs text-amber-700 dark:text-amber-400">Use "Sync from Shopify" on the Cash page to pull register figures before completing the count.</p>
+                <p className="text-xs text-amber-700 dark:text-amber-400 mb-2">Could not pull register figures automatically.</p>
+                {onSyncShopify && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs border-amber-400 text-amber-800 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/40"
+                    onClick={onSyncShopify}
+                  >
+                    <i className="fas fa-sync mr-1" /> Sync Now
+                  </Button>
+                )}
               </div>
             </div>
           )}
@@ -651,18 +672,26 @@ export default function CashCountingWizard({ sessionId, sessionType, registerNam
                 Cash Sales
                 {hasShopifyData && <i className="fab fa-shopify text-green-500 text-xs" />}
               </label>
-              <div className={cn("h-14 flex items-center px-4 rounded-md border text-xl font-semibold", hasShopifyData ? "bg-muted/40" : "bg-muted/20 text-muted-foreground")}>
-                {hasShopifyData ? `$${parseFloat(registerData.cashSales || "0").toFixed(2)}` : "—"}
-              </div>
+              {shopifySyncing && !hasShopifyData ? (
+                <Skeleton className="h-14 w-full rounded-md" />
+              ) : (
+                <div className={cn("h-14 flex items-center px-4 rounded-md border text-xl font-semibold", hasShopifyData ? "bg-muted/40" : "bg-muted/20 text-muted-foreground")}>
+                  {hasShopifyData ? `$${parseFloat(registerData.cashSales || "0").toFixed(2)}` : "—"}
+                </div>
+              )}
             </div>
             <div>
               <label className="text-sm font-medium block mb-1 flex items-center gap-1">
                 Total Sales
                 {hasShopifyData ? <i className="fab fa-shopify text-green-500 text-xs" /> : null}
               </label>
-              <div className={cn("h-12 flex items-center px-4 rounded-md border font-medium", hasShopifyData ? "bg-muted/40" : "bg-muted/20 text-muted-foreground")}>
-                {hasShopifyData ? `$${parseFloat(registerData.totalSales || "0").toFixed(2)}` : "—"}
-              </div>
+              {shopifySyncing && !hasShopifyData ? (
+                <Skeleton className="h-12 w-full rounded-md" />
+              ) : (
+                <div className={cn("h-12 flex items-center px-4 rounded-md border font-medium", hasShopifyData ? "bg-muted/40" : "bg-muted/20 text-muted-foreground")}>
+                  {hasShopifyData ? `$${parseFloat(registerData.totalSales || "0").toFixed(2)}` : "—"}
+                </div>
+              )}
             </div>
 
             {hasShopifyData && shopifySnapshot?.tenderBreakdown && shopifySnapshot.tenderBreakdown.length > 0 && (
