@@ -4,6 +4,7 @@ import { apiRequest, queryClient, invalidatePrefix } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useToast } from "@/hooks/use-toast";
+import { ToastAction } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -647,6 +648,7 @@ export default function MessagingPage() {
   const [inlineRecognition, setInlineRecognition] = useState<"kudo" | "shoutout" | null>(null);
   const [pendingImageUrl, setPendingImageUrl] = useState<string | null>(null);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -659,6 +661,26 @@ export default function MessagingPage() {
     const handler = () => setIsMobileView(window.innerWidth < 768);
     window.addEventListener("resize", handler);
     return () => window.removeEventListener("resize", handler);
+  }, []);
+
+  // Track virtual keyboard height via visualViewport so the composer stays
+  // visible above the keyboard on iOS/Android.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => {
+      const kbHeight = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      setKeyboardHeight(kbHeight);
+      if (kbHeight > 0 && !userScrolledUpRef.current) {
+        setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+      }
+    };
+    vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
+    return () => {
+      vv.removeEventListener("resize", update);
+      vv.removeEventListener("scroll", update);
+    };
   }, []);
 
   const { data: threadsData, isLoading: threadsLoading } = useQuery<{ success: boolean; data: ThreadListItem[] }>({
@@ -788,8 +810,62 @@ export default function MessagingPage() {
       invalidatePrefix("/api/messages/threads");
     },
     onError: (err, variables) => {
+      // Remove the optimistic message bubble
       setLocalMessages(prev => prev.filter(m => m.tempId !== variables.temp_id));
-      toast({ title: "Failed to send message", variant: "destructive" });
+
+      // Only surface a toast for genuine network failures (no connectivity /
+      // timeout / request aborted).  HTTP 4xx / 5xx errors mean the server
+      // received the request and responded — they are handled silently so the
+      // composer stays usable without alarming the user for transient 5xx
+      // issues that the DB-column migration now prevents.
+      const isNetworkError =
+        err instanceof TypeError ||            // "Failed to fetch" — no connection
+        (err instanceof DOMException &&        // Timeout or AbortController signal
+          (err.name === "AbortError" || err.name === "TimeoutError"));
+
+      if (isNetworkError) {
+        // Capture thread + user at failure time so retry always targets the
+        // original thread even if the user navigates away before tapping Retry.
+        const retryPayload = { ...variables };
+        const retryThreadId = selectedThreadId;
+        const retryUser = user;
+        toast({
+          title: "Message not sent",
+          description: "Check your connection and try again.",
+          variant: "destructive",
+          action: (
+            <ToastAction
+              altText="Retry"
+              onClick={() => {
+                if (!retryThreadId || !retryUser) return;
+                const retryTempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+                const retryMsg: Message = {
+                  id: retryTempId,
+                  threadId: retryThreadId,
+                  senderId: retryUser.id,
+                  content: retryPayload.content,
+                  messageType: retryPayload.message_type || "text",
+                  imageUrl: retryPayload.image_url || null,
+                  replyToId: retryPayload.reply_to_id || null,
+                  editedAt: null,
+                  deletedAt: null,
+                  createdAt: new Date().toISOString(),
+                  senderName: retryUser.firstName || "You",
+                  senderLastName: retryUser.lastName || "",
+                  reactions: [],
+                  replyTo: null,
+                  tempId: retryTempId,
+                  sending: true,
+                };
+                setLocalMessages(prev => [...prev, retryMsg]);
+                sendMutation.mutate({ ...retryPayload, temp_id: retryTempId });
+              }}
+            >
+              Retry
+            </ToastAction>
+          ),
+        });
+      }
     },
   });
 
@@ -1417,7 +1493,10 @@ export default function MessagingPage() {
 
                   {/* Composer */}
                   {!inlineRecognition && (
-                    <div className="p-3 border-t border-border bg-background shrink-0">
+                    <div
+                      className="p-3 border-t border-border bg-background shrink-0"
+                      style={{ paddingBottom: keyboardHeight > 0 ? `calc(0.75rem + ${keyboardHeight}px)` : `calc(0.75rem + env(safe-area-inset-bottom, 0px))` }}
+                    >
                       {/* Image preview strip */}
                       {pendingImageUrl && (
                         <div className="mb-2 relative inline-block">

@@ -411,6 +411,21 @@ export async function runSchemaMigrations(): Promise<void> {
       table: "operational_insights",
       sql: `ALTER TABLE operational_insights ADD COLUMN IF NOT EXISTS why_it_matters text`,
     },
+    // Task #529 — Fix "Failed to send message": thread_messages was created
+    // without the reactions/kudo columns that migration 0025 adds via Drizzle.
+    // These three ADD COLUMN IF NOT EXISTS calls are idempotent.
+    {
+      table: "thread_messages",
+      sql: `ALTER TABLE thread_messages ADD COLUMN IF NOT EXISTS "reactions" jsonb DEFAULT '[]'::jsonb`,
+    },
+    {
+      table: "thread_messages",
+      sql: `ALTER TABLE thread_messages ADD COLUMN IF NOT EXISTS "to_employee_id" text`,
+    },
+    {
+      table: "thread_messages",
+      sql: `ALTER TABLE thread_messages ADD COLUMN IF NOT EXISTS "kudo_category" text`,
+    },
   ];
 
   let altered = 0;
