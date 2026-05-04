@@ -57,6 +57,13 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
     try {
       const userId: string = req.user.id;
 
+      const INIT_CACHE_TTL_MS = 30_000;
+      const initCacheKey = `dashboard:init:${userId}`;
+      const cached = cache.get<object>(initCacheKey);
+      if (cached) {
+        return res.json(cached);
+      }
+
       const [userWithRole, activeTimeEntry, permissions, companySettings] = await withTimeout(
         Promise.all([
           storage.getUserWithRole(userId),
@@ -143,7 +150,7 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
         }
       }
 
-      res.json({
+      const initResponse = {
         user: userWithRole,
         activeTimeEntry: activeTimeEntry ?? null,
         permissions,
@@ -152,7 +159,9 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
         gamificationError,
         todaySummary,
         todaySummaryError,
-      });
+      };
+      cache.set(initCacheKey, initResponse, INIT_CACHE_TTL_MS);
+      res.json(initResponse);
     } catch (error) {
       const isTimeout = error instanceof Error && error.message.includes('timed out');
       console.error("Error fetching dashboard init data:", error);

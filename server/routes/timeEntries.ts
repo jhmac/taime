@@ -8,6 +8,7 @@ import logger from "../lib/logger";
 import { getUserIdsWithPermission } from "../lib/permissionUtils";
 import { computeTimeEntryRecipients } from "../lib/broadcastRecipients";
 import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
+import { cache } from "../services/cache";
 
 async function withRetry<T>(fn: () => Promise<T>, retries = 2, delay = 500): Promise<T> {
   for (let i = 0; i <= retries; i++) {
@@ -76,6 +77,8 @@ export function registerTimeEntryRoutes(
       }
 
       const timeEntry = await withRetry(() => storage.createTimeEntry(data));
+
+      cache.invalidate(`dashboard:init:${userId}`);
 
       const timeEntryRecipients = await computeTimeEntryRecipients(userId, getUserIdsWithPermission);
       sendToUsers(timeEntryRecipients, {
@@ -335,6 +338,8 @@ export function registerTimeEntryRoutes(
       await Promise.all(auditPromises);
 
       const timeEntry = await storage.updateTimeEntry(id, safeUpdates);
+
+      cache.invalidate(`dashboard:init:${existing.userId}`);
 
       const timeEntryRecipients = await computeTimeEntryRecipients(existing.userId, getUserIdsWithPermission);
       sendToUsers(timeEntryRecipients, {
