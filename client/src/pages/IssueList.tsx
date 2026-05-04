@@ -61,6 +61,7 @@ interface IssueRow {
   reporterName: string;
   assigneeName: string | null;
   createdAt: string;
+  photoUrl: string | null;
 }
 
 export default function IssueList() {
@@ -105,6 +106,15 @@ export default function IssueList() {
         className="cursor-pointer hover:shadow-md transition-shadow active:scale-[0.98]"
         onClick={() => navigate(`/issues/${issue.id}`)}
       >
+        {issue.photoUrl && (
+          <div className="rounded-t-lg overflow-hidden">
+            <img
+              src={issue.photoUrl}
+              alt="Issue photo"
+              className="w-full h-24 object-cover"
+            />
+          </div>
+        )}
         <CardContent className="p-3 space-y-2">
           <div className="flex items-start gap-2">
             <span className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${PRIORITY_COLORS[issue.priority]}`} />

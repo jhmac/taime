@@ -235,11 +235,11 @@ function MobileBellButton() {
 export default function TopNavigation() {
   const { user } = useAuth();
   const isMobile = useIsMobile();
-  const [location] = useLocation();
+  const [location, navigate] = useLocation();
 
   const pageTitle = pageTitles[location] || 'Taime';
 
-  const openLetUsKnow = () => window.dispatchEvent(new Event("open-let-us-know"));
+  const openLetUsKnow = () => navigate('/issues');
   const openAskAra = () => window.dispatchEvent(new Event("open-ask-ara"));
 
   if (isMobile) {

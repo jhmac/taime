@@ -155,7 +155,6 @@ const ShopifyCallbackSuccess = lazy(() => import("@/pages/ShopifyCallbackSuccess
 const FocusClockOut = lazy(() => import("@/components/FocusClockOut"));
 const AskMAinagerSheet = lazy(() => import("@/features/ai-copilot/AskMAinagerSheet"));
 const AskAraSheet = lazy(() => import("@/features/ai-copilot/AskAraSheet"));
-const QuickCaptureButton = lazy(() => import("@/features/gtd/QuickCaptureButton"));
 const GTDInbox = lazy(() => import("@/features/gtd/GTDInbox"));
 const GTDActions = lazy(() => import("@/features/gtd/GTDActions"));
 const GTDProjects = lazy(() => import("@/features/gtd/GTDProjects"));
@@ -305,7 +304,6 @@ function AuthenticatedApp() {
       <FocusClockOut />
       <AskMAinagerSheet />
       <AskAraSheet />
-      <QuickCaptureButton />
     </Suspense>
     <Suspense fallback={<PageLoader />}>
       <Switch>
