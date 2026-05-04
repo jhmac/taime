@@ -11,25 +11,25 @@ const S = {
 };
 
 const DAYS = [
-  { key: "Mon", label: "Monday" },
-  { key: "Tue", label: "Tuesday" },
-  { key: "Wed", label: "Wednesday" },
-  { key: "Thu", label: "Thursday" },
-  { key: "Fri", label: "Friday" },
-  { key: "Sat", label: "Saturday" },
-  { key: "Sun", label: "Sunday" },
+  { key: "Mon", label: "Monday",    date: "May 5" },
+  { key: "Tue", label: "Tuesday",   date: "May 6" },
+  { key: "Wed", label: "Wednesday", date: "May 7" },
+  { key: "Thu", label: "Thursday",  date: "May 8" },
+  { key: "Fri", label: "Friday",    date: "May 9" },
+  { key: "Sat", label: "Saturday",  date: "May 10" },
+  { key: "Sun", label: "Sunday",    date: "May 11" },
 ];
 
-type DayState = { start: string; end: string; off: boolean };
+type DayState = { start: string; end: string; off: boolean; recurring: boolean };
 
 const initial: Record<string, DayState> = {
-  Mon: { start: "09:00", end: "17:00", off: false },
-  Tue: { start: "09:00", end: "17:00", off: false },
-  Wed: { start: "12:00", end: "20:00", off: false },
-  Thu: { start: "", end: "", off: true },
-  Fri: { start: "09:00", end: "15:00", off: false },
-  Sat: { start: "10:00", end: "16:00", off: false },
-  Sun: { start: "", end: "", off: true },
+  Mon: { start: "09:00", end: "17:00", off: false, recurring: true },
+  Tue: { start: "09:00", end: "17:00", off: false, recurring: false },
+  Wed: { start: "12:00", end: "20:00", off: false, recurring: true },
+  Thu: { start: "", end: "", off: true,  recurring: false },
+  Fri: { start: "09:00", end: "15:00", off: false, recurring: false },
+  Sat: { start: "10:00", end: "16:00", off: false, recurring: true },
+  Sun: { start: "", end: "", off: true,  recurring: false },
 };
 
 function fmt12(t: string): string {
@@ -86,6 +86,10 @@ function TimeInput({ value, onChange, disabled, label }: {
     </div>
   );
 }
+
+const orange = "#F59E0B";
+const orangeSoft = "#FFFBEB";
+const orangeBorder = "#FDE68A";
 
 export default function Avail() {
   const [avail, setAvail] = useState<Record<string, DayState>>(initial);
@@ -144,7 +148,7 @@ export default function Avail() {
 
       {/* Day cards */}
       <div style={{ flex: 1, overflowY: "auto", padding: "12px 16px 16px" }}>
-        {DAYS.map(({ key, label }) => {
+        {DAYS.map(({ key, label, date }) => {
           const d = avail[key];
           const dur = duration(d.start, d.end);
           return (
@@ -191,10 +195,7 @@ export default function Avail() {
                     onChange={v => update(key, { start: v })}
                     disabled={false}
                   />
-
-                  {/* Arrow separator */}
                   <div style={{ paddingBottom: 10, color: S.light, fontSize: 16, fontWeight: 300, flexShrink: 0 }}>→</div>
-
                   <TimeInput
                     label="End"
                     value={d.end}
@@ -204,13 +205,39 @@ export default function Avail() {
                 </div>
               )}
 
-              {/* Summary pill when both times set */}
-              {!d.off && d.start && d.end && (
-                <div style={{ marginTop: 10, padding: "6px 12px", borderRadius: 8, background: S.primarySoft, display: "inline-flex", alignItems: "center", gap: 6 }}>
-                  <div style={{ width: 6, height: 6, borderRadius: "50%", background: S.primary }} />
-                  <span style={{ fontSize: 12, fontWeight: 700, color: S.primary }}>
-                    {fmt12(d.start)} – {fmt12(d.end)}
-                  </span>
+              {/* Apply to — shown when day is active */}
+              {!d.off && (
+                <div style={{ marginTop: 12 }}>
+                  <p style={{ fontSize: 10, fontWeight: 700, color: S.light, letterSpacing: "0.06em", textTransform: "uppercase", margin: "0 0 7px" }}>Apply to</p>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    {/* Date only */}
+                    <button
+                      onClick={() => update(key, { recurring: false })}
+                      style={{
+                        flex: 1, padding: "9px 10px", borderRadius: 10, cursor: "pointer",
+                        background: !d.recurring ? orangeSoft : S.surface,
+                        border: `1.5px solid ${!d.recurring ? orangeBorder : S.border}`,
+                        textAlign: "left", transition: "all 0.2s",
+                      }}
+                    >
+                      <p style={{ fontSize: 13, fontWeight: 700, color: !d.recurring ? "#92400E" : S.dark, margin: 0 }}>{date} only</p>
+                      <p style={{ fontSize: 10, color: !d.recurring ? "#B45309" : S.light, margin: "2px 0 0", fontWeight: 500 }}>Just this one day</p>
+                    </button>
+
+                    {/* Every [weekday] */}
+                    <button
+                      onClick={() => update(key, { recurring: true })}
+                      style={{
+                        flex: 1, padding: "9px 10px", borderRadius: 10, cursor: "pointer",
+                        background: d.recurring ? S.primarySoft : S.surface,
+                        border: `1.5px solid ${d.recurring ? "#C7CBF9" : S.border}`,
+                        textAlign: "left", transition: "all 0.2s",
+                      }}
+                    >
+                      <p style={{ fontSize: 13, fontWeight: 700, color: d.recurring ? S.primary : S.dark, margin: 0 }}>Every {label}</p>
+                      <p style={{ fontSize: 10, color: d.recurring ? "#7C85E8" : S.light, margin: "2px 0 0", fontWeight: 500 }}>Recurring weekly</p>
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
