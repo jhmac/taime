@@ -98,6 +98,9 @@ export default function TaskManagement() {
   const [rejectionNote, setRejectionNote] = useState('');
   const [broadcastingTask, setBroadcastingTask] = useState<Task | null>(null);
   const [broadcastAfterCreate, setBroadcastAfterCreate] = useState(false);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
 
   const isAdmin = user?.role?.name === 'owner' || user?.role?.name === 'admin';
 
@@ -235,6 +238,28 @@ export default function TaskManagement() {
       toast({ title: "Error", description: `Failed to delete task: ${error.message}`, variant: "destructive" });
     },
   });
+
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const handleBulkDelete = async () => {
+    setIsBulkDeleting(true);
+    const ids = Array.from(selectedTaskIds);
+    const results = await Promise.allSettled(ids.map(id => apiRequest('DELETE', `/api/tasks/${id}`)));
+    const succeeded = results.filter(r => r.status === 'fulfilled').length;
+    queryClient.invalidateQueries({ queryKey: ['/api/tasks'] });
+    if (succeeded === ids.length) {
+      toast({ title: `${succeeded} task${succeeded !== 1 ? 's' : ''} deleted` });
+    } else {
+      toast({
+        title: `${succeeded} of ${ids.length} tasks deleted`,
+        description: `${ids.length - succeeded} could not be deleted.`,
+        variant: 'destructive',
+      });
+    }
+    setIsBulkDeleting(false);
+    setBulkDeleteConfirm(false);
+    setSelectedTaskIds(new Set());
+    setSelectionMode(false);
+  };
 
   const statusMutation = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: string }) => {
@@ -463,6 +488,31 @@ export default function TaskManagement() {
             <p className="text-sm text-muted-foreground">Manage daily tasks and recurring chores</p>
           </div>
           <div className="flex items-center gap-2">
+            {canDeleteTasks && activeTab !== 'verification' && activeTab !== 'supply' && (
+              <>
+                {selectionMode && selectedTaskIds.size > 0 && (
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => setBulkDeleteConfirm(true)}
+                    data-testid="bulk-delete-btn"
+                  >
+                    <i className="fas fa-trash-alt mr-2"></i>Delete selected ({selectedTaskIds.size})
+                  </Button>
+                )}
+                <Button
+                  variant={selectionMode ? 'secondary' : 'outline'}
+                  size="sm"
+                  onClick={() => {
+                    setSelectionMode(prev => !prev);
+                    setSelectedTaskIds(new Set());
+                  }}
+                  data-testid="selection-mode-btn"
+                >
+                  {selectionMode ? <><i className="fas fa-times mr-2"></i>Cancel</> : <><i className="fas fa-check-square mr-2"></i>Select</>}
+                </Button>
+              </>
+            )}
             {canManageTasks && (
               <Button
                 onClick={() => aiAssignMutation.mutate()}
@@ -570,7 +620,7 @@ export default function TaskManagement() {
           </Card>
         )}
 
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); setSelectedTaskIds(new Set()); }}>
           <TabsList className={`grid w-full ${canBroadcast ? 'grid-cols-6' : 'grid-cols-5'}`}>
             <TabsTrigger value="all">All Tasks</TabsTrigger>
             <TabsTrigger value="recurring">Recurring</TabsTrigger>
@@ -596,11 +646,11 @@ export default function TaskManagement() {
               <Input
                 placeholder="Search tasks..."
                 value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
+                onChange={e => { setSearchQuery(e.target.value); setSelectedTaskIds(new Set()); }}
                 className="max-w-xs"
                 data-testid="task-search"
               />
-              <Select value={filterDay} onValueChange={setFilterDay}>
+              <Select value={filterDay} onValueChange={(v) => { setFilterDay(v); setSelectedTaskIds(new Set()); }}>
                 <SelectTrigger className="w-[140px]">
                   <SelectValue placeholder="Day" />
                 </SelectTrigger>
@@ -611,7 +661,7 @@ export default function TaskManagement() {
                   ))}
                 </SelectContent>
               </Select>
-              <Select value={filterZone} onValueChange={setFilterZone}>
+              <Select value={filterZone} onValueChange={(v) => { setFilterZone(v); setSelectedTaskIds(new Set()); }}>
                 <SelectTrigger className="w-[140px]">
                   <SelectValue placeholder="Zone" />
                 </SelectTrigger>
@@ -622,7 +672,7 @@ export default function TaskManagement() {
                   ))}
                 </SelectContent>
               </Select>
-              <Select value={filterStatus} onValueChange={setFilterStatus}>
+              <Select value={filterStatus} onValueChange={(v) => { setFilterStatus(v); setSelectedTaskIds(new Set()); }}>
                 <SelectTrigger className="w-[140px]">
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
@@ -634,7 +684,7 @@ export default function TaskManagement() {
                   <SelectItem value="cancelled">Cancelled</SelectItem>
                 </SelectContent>
               </Select>
-              <Select value={filterAssigned} onValueChange={setFilterAssigned}>
+              <Select value={filterAssigned} onValueChange={(v) => { setFilterAssigned(v); setSelectedTaskIds(new Set()); }}>
                 <SelectTrigger className="w-[140px]">
                   <SelectValue placeholder="Assignment" />
                 </SelectTrigger>
@@ -644,7 +694,7 @@ export default function TaskManagement() {
                   <SelectItem value="unassigned">Unassigned</SelectItem>
                 </SelectContent>
               </Select>
-              <Select value={filterAIAssign} onValueChange={setFilterAIAssign}>
+              <Select value={filterAIAssign} onValueChange={(v) => { setFilterAIAssign(v); setSelectedTaskIds(new Set()); }}>
                 <SelectTrigger className="w-[160px]">
                   <SelectValue placeholder="AI Filter" />
                 </SelectTrigger>
@@ -657,7 +707,26 @@ export default function TaskManagement() {
             </div>
 
             {activeTab !== 'verification' && activeTab !== 'supply' && (
-            <p className="text-sm text-muted-foreground">{filteredTasks.length} tasks found</p>
+              <div className="flex items-center gap-3">
+                <p className="text-sm text-muted-foreground">{filteredTasks.length} tasks found</p>
+                {selectionMode && filteredTasks.length > 0 && (
+                  <label className="flex items-center gap-2 cursor-pointer select-none text-sm" data-testid="select-all-checkbox">
+                    <Checkbox
+                      checked={filteredTasks.every(t => selectedTaskIds.has(t.id))}
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          setSelectedTaskIds(new Set(filteredTasks.map(t => t.id)));
+                        } else {
+                          setSelectedTaskIds(new Set());
+                        }
+                      }}
+                    />
+                    <span className="text-muted-foreground">
+                      {filteredTasks.every(t => selectedTaskIds.has(t.id)) ? 'Deselect all' : 'Select all'}
+                    </span>
+                  </label>
+                )}
+              </div>
             )}
 
             {activeTab !== 'verification' && activeTab !== 'supply' && (
@@ -679,12 +748,37 @@ export default function TaskManagement() {
                   filteredTasks.map(task => (
                     <Card
                       key={task.id}
-                      className="hover:shadow-sm transition-shadow cursor-pointer"
+                      className={`hover:shadow-sm transition-shadow cursor-pointer ${selectionMode && selectedTaskIds.has(task.id) ? 'ring-2 ring-primary' : ''}`}
                       data-testid={`task-card-${task.id}`}
-                      onClick={() => canManageTasks ? openEdit(task) : setViewingTask(task)}
+                      onClick={() => {
+                        if (selectionMode) {
+                          setSelectedTaskIds(prev => {
+                            const next = new Set(prev);
+                            if (next.has(task.id)) { next.delete(task.id); } else { next.add(task.id); }
+                            return next;
+                          });
+                        } else {
+                          canManageTasks ? openEdit(task) : setViewingTask(task);
+                        }
+                      }}
                     >
                       <CardContent className="p-4">
                         <div className="flex items-start gap-3">
+                          {selectionMode ? (
+                            <div className="mt-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
+                              <Checkbox
+                                checked={selectedTaskIds.has(task.id)}
+                                onCheckedChange={() => {
+                                  setSelectedTaskIds(prev => {
+                                    const next = new Set(prev);
+                                    if (next.has(task.id)) { next.delete(task.id); } else { next.add(task.id); }
+                                    return next;
+                                  });
+                                }}
+                                data-testid={`select-task-${task.id}`}
+                              />
+                            </div>
+                          ) : (
                           <button
                             onClick={(e) => { e.stopPropagation(); statusMutation.mutate({
                               id: task.id,
@@ -699,6 +793,7 @@ export default function TaskManagement() {
                                 ? 'fa-dot-circle text-blue-500'
                                 : 'fa-circle text-gray-300 hover:text-gray-400'}`}></i>
                           </button>
+                          )}
 
                           <div className="flex-1 min-w-0">
                             <div className="flex items-start justify-between gap-2">
@@ -1157,6 +1252,37 @@ export default function TaskManagement() {
           </div>
         </Tabs>
       </div>
+
+      {/* Bulk delete confirmation dialog */}
+      <Dialog open={bulkDeleteConfirm} onOpenChange={(open) => { if (!open) setBulkDeleteConfirm(false); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <i className="fas fa-trash-alt text-destructive"></i>
+              Delete {selectedTaskIds.size} task{selectedTaskIds.size !== 1 ? 's' : ''}?
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">
+              This will permanently delete <strong>{selectedTaskIds.size}</strong> selected task{selectedTaskIds.size !== 1 ? 's' : ''}. This action cannot be undone.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkDeleteConfirm(false)} disabled={isBulkDeleting}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={handleBulkDelete}
+              disabled={isBulkDeleting}
+              data-testid="bulk-delete-confirm-btn"
+            >
+              {isBulkDeleting
+                ? <><i className="fas fa-spinner fa-spin mr-2"></i>Deleting...</>
+                : <><i className="fas fa-trash-alt mr-2"></i>Delete {selectedTaskIds.size} task{selectedTaskIds.size !== 1 ? 's' : ''}</>
+              }
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Broadcast confirmation dialog */}
       <Dialog open={!!broadcastingTask} onOpenChange={(open) => { if (!open) setBroadcastingTask(null); }}>
