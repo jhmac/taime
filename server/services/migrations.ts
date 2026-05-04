@@ -431,6 +431,21 @@ export async function runSchemaMigrations(): Promise<void> {
       table: "tasks",
       sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS category varchar`,
     },
+    // Task #576 — eligible_roles: role-gated auto-assignment (migration 0029)
+    {
+      table: "tasks",
+      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS eligible_roles text[] DEFAULT ARRAY['all']::text[]`,
+    },
+    // Task #576 — pinned_to: deferred manual pin intent (migration 0030)
+    {
+      table: "tasks",
+      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS pinned_to varchar REFERENCES users(id)`,
+    },
+    // Task #576 — review_status: admin trip approval/flag status (migration 0027)
+    {
+      table: "offsite_sessions",
+      sql: `ALTER TABLE offsite_sessions ADD COLUMN IF NOT EXISTS review_status varchar`,
+    },
   ];
 
   let altered = 0;
