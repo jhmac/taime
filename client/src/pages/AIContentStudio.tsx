@@ -48,6 +48,7 @@ import {
   PartyPopper,
   Keyboard,
   ExternalLink,
+  RotateCcw,
 } from "lucide-react";
 import type { KnowledgeDocument, AiGeneratedItem, QuizQuestion } from "@shared/schema";
 
@@ -186,6 +187,23 @@ function QuickActionPanel() {
   const [attachedFile, setAttachedFile] = useState<File | null>(null);
   const [result, setResult] = useState<QuickActionResult>(null);
   const [loading, setLoading] = useState(false);
+  const [undoTaskIds, setUndoTaskIds] = useState<string[]>([]);
+  const [undoLoading, setUndoLoading] = useState(false);
+  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    };
+  }, []);
+
+  const clearUndo = () => {
+    setUndoTaskIds([]);
+    if (undoTimerRef.current) {
+      clearTimeout(undoTimerRef.current);
+      undoTimerRef.current = null;
+    }
+  };
 
   const handleFile = (file: File) => setAttachedFile(file);
 
@@ -201,6 +219,7 @@ function QuickActionPanel() {
     }
     setLoading(true);
     setResult(null);
+    clearUndo();
     try {
       const formData = new FormData();
       formData.append("prompt", prompt.trim());
@@ -219,11 +238,40 @@ function QuickActionPanel() {
       if (data.action === "create_tasks") {
         toast({ title: `Created ${data.count} tasks`, description: data.summary });
         qc.invalidateQueries({ queryKey: ["/api/tasks"] });
+        const taskIds: string[] = (data.tasks ?? []).map((t: { id: string }) => t.id);
+        setUndoTaskIds(taskIds);
+        undoTimerRef.current = setTimeout(clearUndo, 5 * 60 * 1000);
       }
     } catch (err: unknown) {
       toast({ title: "Error", description: err instanceof Error ? err.message : "Something went wrong", variant: "destructive" });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleUndo = async () => {
+    if (undoTaskIds.length === 0) return;
+    setUndoLoading(true);
+    try {
+      const results = await Promise.allSettled(
+        undoTaskIds.map((id) => apiRequest("DELETE", `/api/tasks/${id}`))
+      );
+      const succeeded = results.filter((r) => r.status === "fulfilled").length;
+      const failed = results.length - succeeded;
+      if (succeeded === 0) {
+        toast({ title: "Could not remove tasks", description: "Please try again.", variant: "destructive" });
+        return;
+      }
+      if (failed > 0) {
+        toast({ title: "Partially removed", description: `${succeeded} task${succeeded !== 1 ? "s" : ""} removed; ${failed} could not be deleted.` });
+      } else {
+        toast({ title: "Tasks removed" });
+      }
+      qc.invalidateQueries({ queryKey: ["/api/tasks"] });
+      clearUndo();
+      setResult(null);
+    } finally {
+      setUndoLoading(false);
     }
   };
 
@@ -299,9 +347,23 @@ function QuickActionPanel() {
 
         {result?.action === "create_tasks" && grouped && (
           <div className="mt-2 space-y-3 animate-in fade-in-0 duration-300">
-            <div className="flex items-center gap-2 text-sm font-medium text-green-700 dark:text-green-400">
-              <ListChecks className="w-4 h-4" />
-              {result.summary}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-sm font-medium text-green-700 dark:text-green-400">
+                <ListChecks className="w-4 h-4" />
+                {result.summary}
+              </div>
+              {undoTaskIds.length > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleUndo}
+                  disabled={undoLoading}
+                  className="gap-1.5 text-muted-foreground hover:text-destructive hover:border-destructive/50 shrink-0"
+                >
+                  {undoLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+                  Undo
+                </Button>
+              )}
             </div>
             {Object.entries(grouped).map(([day, dayTasks]) => (
               <div key={day} className="space-y-1">
