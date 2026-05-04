@@ -19,6 +19,11 @@
     <link rel="icon" type="image/png" href="/taime-icon.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/taime-circle.png" />
 
+    <!-- Clerk CDN preconnect — starts TCP/TLS before Clerk JS is discovered -->
+    <link rel="preconnect" href="https://clerk.taime.us" crossorigin />
+    <link rel="preconnect" href="https://clerk.accounts.dev" crossorigin />
+    <link rel="dns-prefetch" href="https://clerk.taime.us" />
+
     <!-- Fonts: preconnect first, then async load -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

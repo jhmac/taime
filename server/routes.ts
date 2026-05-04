@@ -118,6 +118,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.use(createActionLoggerMiddleware());
 
+  app.get('/api/health', (_req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json({ ok: true, ts: Date.now() });
+  });
+
   app.post('/api/client-errors', (req, res) => handleClientErrorReport(req, res));
 
   app.get('/api/action-logs/summary', isAuthenticated, (_req, res) => {

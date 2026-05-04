@@ -53,6 +53,15 @@ function verifyE2EToken(raw: string, secret: string): string | null {
  */
 const clerkToDbIdCache = new Map<string, string>();
 
+/**
+ * Resolve a Clerk user ID to the canonical DB user ID.
+ * Returns the mapped DB ID if a prior sync found a mismatch (e.g. legacy
+ * users whose DB primary key pre-dates Clerk), otherwise returns the Clerk ID.
+ */
+export function resolveDbUserId(clerkUserId: string): string {
+  return clerkToDbIdCache.get(clerkUserId) ?? clerkUserId;
+}
+
 export const requireSuperAdmin: RequestHandler = async (req: any, res, next) => {
   if (!req.user?.id) {
     return res.status(401).json({ message: "Unauthorized" });
@@ -243,7 +252,14 @@ export async function setupAuth(app: Express) {
     });
   }
 
+  // DEPRECATED: POST /api/auth/sync is no longer called by the client.
+  // All sync now happens inside GET /api/auth/user in a single round-trip.
+  // This endpoint is retained temporarily for backward compatibility with
+  // any in-flight client versions and will be removed in a future release.
   app.post('/api/auth/sync', requireAuth, async (req: any, res) => {
+    res.setHeader('Deprecation', 'true');
+    res.setHeader('Sunset', 'Sat, 01 Aug 2026 00:00:00 GMT');
+    res.setHeader('Link', '</api/auth/user>; rel="successor-version"');
     try {
       const auth = getAuth(req);
       const clerkUserId = auth?.userId || req.user.id;
@@ -300,7 +316,85 @@ export async function setupAuth(app: Express) {
   });
 
   app.get('/api/auth/user', requireAuth, async (req: any, res) => {
-    res.json(req.user);
+    try {
+      // requireAuth sets req.user when the user is found/created in DB.
+      // If it's null the Clerk session is valid but the user record couldn't
+      // be established — return 401 so the client retries on reconnect.
+      if (!req.user) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      let user = req.user;
+      const auth = getAuth(req);
+      const clerkUserId = auth?.userId || user.id;
+
+      // If the user is in DB but has no role a pre-invited record with the
+      // same email may hold the assigned role under a different DB ID.
+      // Two-stage sync using only authoritative (server-side) data sources:
+      //
+      // Stage 1 — no Clerk Admin API required:
+      //   Re-upsert using req.user.email, which was stored in DB by a prior
+      //   Clerk-verified sync.  If upsertUser matches a different pre-invited
+      //   record by email it maps the Clerk ID and returns the role-bearing user.
+      //   Email comes from the DB, not from the request — no client trust.
+      //
+      // Stage 2 — Clerk Admin API (authoritative):
+      //   Only tried when stage 1 still yields no role AND the API is reachable.
+      //   Fetches the canonical email when DB email is blank or has drifted.
+      if (user?.id && !user?.role) {
+        try {
+          // Stage 1: DB email — zero Clerk Admin API calls
+          if (user.email) {
+            const synced = await storage.upsertUser({
+              id: clerkUserId,
+              email: user.email,
+              firstName: user.firstName || '',
+              lastName: user.lastName || '',
+              profileImageUrl: user.profileImageUrl || '',
+            });
+            if (synced.id !== clerkUserId) {
+              clerkToDbIdCache.set(clerkUserId, synced.id);
+            }
+            const refreshed = await storage.getUserWithRole(synced.id);
+            if (refreshed?.role) user = refreshed;
+          }
+
+          // Stage 2: Clerk Admin API — only when stage 1 didn't resolve role
+          if (!user.role) {
+            try {
+              const clerkUser = await clerkClient.users.getUser(clerkUserId);
+              const primaryEmailObj = clerkUser.emailAddresses?.find(
+                (e: any) => e.id === clerkUser.primaryEmailAddressId
+              );
+              const clerkEmail = primaryEmailObj?.emailAddress || '';
+              if (clerkEmail) {
+                const synced = await storage.upsertUser({
+                  id: clerkUserId,
+                  email: clerkEmail,
+                  firstName: clerkUser.firstName || user.firstName || '',
+                  lastName: clerkUser.lastName || user.lastName || '',
+                  profileImageUrl: clerkUser.imageUrl || user.profileImageUrl || '',
+                });
+                if (synced.id !== clerkUserId) {
+                  clerkToDbIdCache.set(clerkUserId, synced.id);
+                }
+                const refreshed = await storage.getUserWithRole(synced.id);
+                if (refreshed) user = refreshed;
+              }
+            } catch {
+              // Clerk Admin API unavailable — return user as-is without role.
+            }
+          }
+        } catch {
+          // Sync attempt failed — return user as-is.
+        }
+      }
+
+      const permissions = await storage.getUserPermissions(user.id);
+      res.json({ ...user, permissions });
+    } catch {
+      if (!res.headersSent) res.status(500).json({ message: "Server error" });
+    }
   });
 
   app.get('/api/auth/permissions', requireAuth, async (req: any, res) => {

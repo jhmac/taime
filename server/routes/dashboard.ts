@@ -9,7 +9,7 @@ import { setLocationPermission } from "../services/locationPermissionStore";
 
 // Maximum time the init endpoint will wait for DB queries before responding
 // with a 503 so the client can show a retry prompt rather than hanging.
-const SERVER_INIT_TIMEOUT_MS = 12_000;
+const SERVER_INIT_TIMEOUT_MS = 5_000;
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return Promise.race([
@@ -82,19 +82,24 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
       let todaySummaryError = false;
 
       if (isEmployee) {
-        try {
-          const myScore = await withTimeout(
-            gamificationService.computeUserScore(userId),
-            remaining(),
-            'dashboard/init gamification',
-          );
-          gamificationScore = {
-            overallScore: myScore.overallScore,
-            tier: myScore.tier,
-          };
-        } catch (err) {
-          gamificationError = true;
-          console.warn('[dashboard/init] gamification score failed (non-fatal):', err instanceof Error ? err.message : err);
+        const cachedScore = cache.get<{ overallScore: number; tier: string }>(`gamification:score:${userId}`);
+        if (cachedScore) {
+          gamificationScore = cachedScore;
+        } else {
+          // Fire gamification in the background — don't hold up the response.
+          // Result is cached so the next request (or a quick refetch) gets it instantly.
+          // gamificationError stays false here; the client receives gamificationScore=null
+          // which it treats as "still loading" rather than a failure.
+          setImmediate(() => {
+            gamificationService.computeUserScore(userId)
+              .then(myScore => {
+                const result = { overallScore: myScore.overallScore, tier: myScore.tier };
+                cache.set(`gamification:score:${userId}`, result, 5 * 60_000);
+              })
+              .catch(err => {
+                console.warn('[dashboard/init] background gamification score failed:', err instanceof Error ? err.message : err);
+              });
+          });
         }
       }
 

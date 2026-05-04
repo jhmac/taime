@@ -327,7 +327,7 @@ export class IdentityStorage implements IIdentityStorage {
       perms = Array.from(permMap.values());
     }
 
-    cache.set(cacheKey, perms, 2 * 60 * 1000);
+    cache.set(cacheKey, perms, 5 * 60 * 1000);
     return perms;
   }
 
@@ -381,7 +381,7 @@ export class IdentityStorage implements IIdentityStorage {
       ? db.select().from(companySettings).where(eq(companySettings.storeId, storeId)).limit(1)
       : db.select().from(companySettings).limit(1);
     const [settings] = await query;
-    if (settings) cache.set(cacheKey, settings, 2 * 60 * 1000);
+    if (settings) cache.set(cacheKey, settings, 10 * 60 * 1000);
     return settings;
   }
 

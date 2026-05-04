@@ -6,6 +6,7 @@ import { ClerkProvider, SignedIn, SignedOut, ClerkLoading, ClerkLoaded, Authenti
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
+import { useKeepAlive } from "@/hooks/useKeepAlive";
 import { initGlobalErrorHandlers } from "./lib/errorReporter";
 import Layout from "@/components/Layout";
 import { usePWAUpdate } from "@/hooks/usePWAUpdate";
@@ -548,6 +549,11 @@ function PWAUpdateWatcher() {
   return null;
 }
 
+function KeepAlive() {
+  useKeepAlive();
+  return null;
+}
+
 initGlobalErrorHandlers();
 
 function getClerkKeyFromMeta(): string | null {
@@ -642,6 +648,7 @@ function App() {
                 <Router />
                 <PWAInstallPrompt />
                 <PWAUpdateWatcher />
+                <KeepAlive />
               </Layout>
             </TooltipProvider>
           </WebSocketProvider>

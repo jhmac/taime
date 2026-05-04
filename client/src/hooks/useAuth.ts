@@ -1,24 +1,47 @@
 import { useUser, useAuth as useClerkAuth } from "@clerk/clerk-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { UserWithRole } from "@shared/schema";
+import type { UserWithRole, Permission } from "@shared/schema";
 import { useEffect, useRef } from "react";
 import { clearTokenCache } from "@/lib/queryClient";
 
 function hasE2ECookie() {
   if (!import.meta.env.DEV) return false;
-  // Mirror the server-side opt-in: requires explicit Vite env flag in addition to the cookie.
-  // Without this, a stray __e2e_uid cookie would put the UI into the auth shell while
-  // the server rejects the (unsigned) cookie on every request.
   if (import.meta.env.VITE_ENABLE_E2E_AUTH_BYPASS !== 'true') return false;
   return document.cookie.split(';').some(c => c.trim().startsWith('__e2e_uid='));
+}
+
+interface BootstrapData {
+  user: UserWithRole;
+  permissions: Permission[];
+}
+
+function readBootstrapData(): BootstrapData | null {
+  try {
+    const el = document.getElementById('app-bootstrap');
+    if (!el?.textContent) return null;
+    const parsed = JSON.parse(el.textContent) as unknown;
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      'user' in parsed &&
+      'permissions' in parsed &&
+      parsed.user &&
+      Array.isArray((parsed as BootstrapData).permissions)
+    ) {
+      return parsed as BootstrapData;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 export function useAuth() {
   const e2eMode = hasE2ECookie();
 
-  const { user: clerkUser, isLoaded, isSignedIn } = useUser();
+  const { isLoaded, isSignedIn } = useUser();
   const { getToken } = useClerkAuth();
-  const hasSynced = useRef(false);
+  const hasInvalidatedPerms = useRef(false);
   const queryClient = useQueryClient();
 
   const { data: syncedUser, isLoading: isSyncing } = useQuery<UserWithRole>({
@@ -33,8 +56,13 @@ export function useAuth() {
           if (res.status === 401) return null;
           throw new Error("Failed to fetch user");
         }
-        return res.json();
+        const data = await res.json() as UserWithRole & { permissions?: Permission[] };
+        if (Array.isArray(data?.permissions)) {
+          queryClient.setQueryData(["/api/auth/permissions"], data.permissions);
+        }
+        return data;
       }
+
       const token = await getToken();
       const res = await fetch("/api/auth/user", {
         credentials: "include",
@@ -44,45 +72,50 @@ export function useAuth() {
         if (res.status === 401) return null;
         throw new Error("Failed to fetch user");
       }
-      return res.json();
+      // GET /api/auth/user returns user + permissions in one response.
+      // Pre-populate the permissions cache so ProtectedRoute gets a cache hit.
+      const data = await res.json() as UserWithRole & { permissions?: Permission[] };
+      if (Array.isArray(data?.permissions)) {
+        queryClient.setQueryData(["/api/auth/permissions"], data.permissions);
+      }
+      return data;
     },
+    initialData: () => {
+      // Server-injected bootstrap data is available synchronously for returning
+      // users in production — zero network round-trips on first render.
+      const bootstrap = readBootstrapData();
+      if (!bootstrap) return undefined;
+      queryClient.setQueryData(["/api/auth/permissions"], bootstrap.permissions);
+      return bootstrap.user;
+    },
+    initialDataUpdatedAt: Date.now(),
   });
 
+  // Safeguard: if bootstrap gave us an authenticated user but empty permissions
+  // (e.g. legacy Clerk→DB ID mismatch on the server during HTML serve), trigger
+  // one background refetch of permissions. Gated by a ref so it fires at most
+  // once per mount — users with legitimately zero permissions are not repeatedly
+  // refetched.
+  const bootstrapPerms = queryClient.getQueryData<unknown[]>(["/api/auth/permissions"]);
   useEffect(() => {
-    if (e2eMode) return;
-    if (isLoaded && isSignedIn && clerkUser && (!syncedUser || !(syncedUser as any).role) && !hasSynced.current) {
-      hasSynced.current = true;
-      (async () => {
-        try {
-          const token = await getToken();
-          const res = await fetch("/api/auth/sync", {
-            method: "POST",
-            credentials: "include",
-            headers: {
-              "Content-Type": "application/json",
-              ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            },
-            body: JSON.stringify({
-              email: clerkUser.primaryEmailAddress?.emailAddress || '',
-              firstName: clerkUser.firstName || '',
-              lastName: clerkUser.lastName || '',
-              profileImageUrl: clerkUser.imageUrl || '',
-            }),
-          });
-          if (res.ok) {
-            queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
-          }
-        } catch (err) {
-          console.error("User sync error:", err);
-          hasSynced.current = false;
-        }
-      })();
+    if (
+      syncedUser?.id &&
+      Array.isArray(bootstrapPerms) &&
+      bootstrapPerms.length === 0 &&
+      !hasInvalidatedPerms.current
+    ) {
+      hasInvalidatedPerms.current = true;
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/permissions"] });
     }
-    if (!isSignedIn) {
-      hasSynced.current = false;
+  }, [syncedUser?.id, bootstrapPerms, queryClient]);
+
+  // Sign-out cleanup: clear the cached Clerk JWT so the next sign-in
+  // gets a fresh token rather than a stale one.
+  useEffect(() => {
+    if (!isSignedIn && isLoaded) {
       clearTokenCache();
     }
-  }, [e2eMode, isLoaded, isSignedIn, clerkUser, syncedUser, getToken, queryClient]);
+  }, [isLoaded, isSignedIn]);
 
   if (e2eMode) {
     return {

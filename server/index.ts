@@ -7,12 +7,16 @@ import fs from "fs";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { config } from "./lib/config";
+import { getAuth } from "@clerk/express";
+import type { Permission } from "@shared/schema";
+import { resolveDbUserId } from "./streamlinedAuth";
+import { storage } from "./storage";
+import { cache } from "./services/cache";
 import logger from "./lib/logger";
 import { globalErrorHandler } from "./lib/routeWrapper";
 import { startRitualScheduler } from "./services/ritualScheduler";
 import { startDailyQuestionnaireScheduler } from "./services/dailyQuestionnaireScheduler";
 import { startShopifyReportScheduler } from "./routes/shopify";
-import { storage } from "./storage";
 import { backfillLegacyUserRoles, backfillInactiveAuthenticatedUsers, backfillStoreCreatorOwnerRole } from "./services/backfill";
 import { runSchemaMigrations, scheduleStaleTokenCleanup, scheduleDeliveryLogCleanup } from "./services/migrations";
 import { runStartupAiContentBackfill } from "./services/sopIndexer";
@@ -180,6 +184,22 @@ app.use((req, res, next) => {
     const CLERK_META_PLACEHOLDER = `content="" id="clerk-publishable-key"`;
     const CLERK_META_FILLED = `content="${clerkPublishableKey}" data-build="${BUILD_ID}" id="clerk-publishable-key"`;
     const htmlSourcePath = path.resolve(process.cwd(), 'dist', 'public', 'index.html');
+    const assetsDir = path.resolve(process.cwd(), 'dist', 'public', 'assets');
+
+    // Scan for critical vendor chunks once at startup and cache the modulepreload hints.
+    // These prefixes match the manualChunks names in vite.config.ts.
+    const CRITICAL_CHUNK_PREFIXES = ['vendor-react-', 'vendor-clerk-', 'vendor-query-'];
+    let modulePreloadHints = '';
+    try {
+      const files = await fs.promises.readdir(assetsDir);
+      const hints = files
+        .filter(f => f.endsWith('.js') && CRITICAL_CHUNK_PREFIXES.some(p => f.startsWith(p)))
+        .map(f => `<link rel="modulepreload" href="/assets/${f}" as="script" crossorigin>`)
+        .join('\n    ');
+      if (hints) modulePreloadHints = `\n    ${hints}`;
+    } catch {
+      // dist/assets not available — hints are optional, skip silently.
+    }
 
     app.use(async (req: Request, res: Response, next: NextFunction) => {
       if (req.method !== 'GET') return next();
@@ -188,6 +208,47 @@ app.use((req, res, next) => {
       try {
         let html = await fs.promises.readFile(htmlSourcePath, 'utf8');
         html = html.replace(CLERK_META_PLACEHOLDER, CLERK_META_FILLED);
+
+        // Inject modulepreload hints for critical vendor chunks so the browser
+        // starts fetching them in parallel with HTML parsing.
+        if (modulePreloadHints) {
+          html = html.replace('</head>', `${modulePreloadHints}\n  </head>`);
+        }
+
+        // Bootstrap injection: embed user + permissions as inline JSON so the
+        // client JS starts with data already available, skipping the auth
+        // round-trips for returning users.  Uses cache-backed storage calls
+        // with 200ms race timeouts so DB latency never blocks HTML delivery.
+        try {
+          const auth = getAuth(req as unknown as Parameters<typeof getAuth>[0]);
+          if (auth?.userId) {
+            // Apply Clerk→DB ID mapping so legacy users (whose DB ID differs
+            // from their Clerk ID) get a cache hit instead of a miss.
+            const dbUserId = resolveDbUserId(auth.userId);
+            const cacheKey = `permissions:${dbUserId}`;
+            const cachedPerms = cache.get<Permission[]>(cacheKey);
+            // getUserWithRole is cheap (cache-backed in storage layer)
+            const userWithRole = await Promise.race([
+              storage.getUserWithRole(dbUserId),
+              new Promise<null>(resolve => setTimeout(() => resolve(null), 200)),
+            ]);
+            if (userWithRole) {
+              const permissions = cachedPerms ?? await Promise.race([
+                storage.getUserPermissions(dbUserId),
+                new Promise<null>(resolve => setTimeout(() => resolve(null), 200)),
+              ]);
+              // Escape </script> sequences so user-controlled fields (names, etc.)
+              // cannot break out of the script block — this is critical to prevent XSS.
+              const bootstrapJson = JSON.stringify({ user: userWithRole, permissions: permissions ?? [] })
+                .replace(/</g, '\\u003c');
+              const bootstrapScript = `<script id="app-bootstrap" type="application/json">${bootstrapJson}</script>`;
+              html = html.replace('</head>', `${bootstrapScript}\n</head>`);
+            }
+          }
+        } catch {
+          // Bootstrap injection failure is non-fatal — serve HTML without it.
+        }
+
         res.set({
           'Content-Type': 'text/html; charset=utf-8',
           'Cache-Control': 'no-cache, no-store, must-revalidate',
