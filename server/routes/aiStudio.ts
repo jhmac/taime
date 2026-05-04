@@ -274,6 +274,7 @@ async function publishTaskItem(
   type AiTaskItem = { title: string; description?: string; estimatedMinutes?: number };
   const rawContent = item.content as Record<string, unknown>;
   const taskItems: AiTaskItem[] = Array.isArray(rawContent.tasks) ? (rawContent.tasks as AiTaskItem[]) : [];
+  const category = typeof rawContent.category === "string" ? rawContent.category : null;
 
   const createdIds: string[] = [];
   for (const taskItem of taskItems) {
@@ -285,6 +286,7 @@ async function publishTaskItem(
       estimatedMinutes: taskItem.estimatedMinutes ?? null,
       status: "pending",
       priority: "medium",
+      category,
     };
     const t = await storage.createTask(payload);
     createdIds.push(t.id);
@@ -480,6 +482,7 @@ Supported actions:
    {
      "action": "create_tasks",
      "summary": "Short description of what was created",
+     "category": "supply_check" | null,
      "tasks": [
        {
          "title": "Task name",
@@ -493,12 +496,13 @@ Supported actions:
        }
      ]
    }
+   IMPORTANT: If the document is a supply list, inventory sheet, stock form, or product quantity tracker, set "category": "supply_check". Each line item in the supply list becomes one task. Otherwise set "category": null.
 
 2. answer — answer a question from the document without creating anything
    Response shape:
    { "action": "answer", "text": "Your answer here" }
 
-Infer the action from the user prompt. If the prompt asks to create, add, generate, or schedule tasks/chores, use create_tasks.`;
+Infer the action from the user prompt. If the prompt asks to create, add, generate, or schedule tasks/chores, use create_tasks. If the document looks like a supply/inventory list and no explicit action is stated, use create_tasks with category: "supply_check".`;
 
       if (req.file) {
         const file = req.file;
@@ -572,6 +576,7 @@ Infer the action from the user prompt. If the prompt asks to create, add, genera
           priority?: string;
         };
         const taskList = Array.isArray(parsed.tasks) ? (parsed.tasks as QuickTask[]) : [];
+        const taskCategory = typeof parsed.category === "string" ? parsed.category : null;
         const createdTasks = [];
         for (const t of taskList) {
           if (!t.title) continue;
@@ -589,6 +594,7 @@ Infer the action from the user prompt. If the prompt asks to create, add, genera
             status: "pending",
             isAIAssigned: true,
             aiReasoning: `Created via Quick Action: "${prompt}"`,
+            category: taskCategory,
           });
           createdTasks.push(created);
         }
@@ -598,6 +604,7 @@ Infer the action from the user prompt. If the prompt asks to create, add, genera
           summary: parsed.summary ?? `Created ${createdTasks.length} tasks`,
           count: createdTasks.length,
           tasks: createdTasks,
+          category: taskCategory,
         });
       }
 
@@ -645,7 +652,7 @@ Infer the action from the user prompt. If the prompt asks to create, add, genera
       const bodySchema = z.object({
         selectedDocumentIds: z.array(z.string()).min(1, "Select at least one document"),
         outputTypes: z
-          .array(z.enum(["sops", "training", "tasks", "knowledge_base", "ai_decide"]))
+          .array(z.enum(["sops", "training", "tasks", "knowledge_base", "ai_decide", "supply_check"]))
           .min(1, "Select at least one output type"),
         targetRoles: z.array(z.string()).min(1, "Select at least one role"),
         aiDecide: z.boolean().optional(),

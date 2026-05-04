@@ -426,6 +426,11 @@ export async function runSchemaMigrations(): Promise<void> {
       table: "thread_messages",
       sql: `ALTER TABLE thread_messages ADD COLUMN IF NOT EXISTS "kudo_category" text`,
     },
+    // Task #527 — Supply inventory checklist: category column on tasks
+    {
+      table: "tasks",
+      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS category varchar`,
+    },
   ];
 
   let altered = 0;
@@ -482,6 +487,38 @@ export async function runSchemaMigrations(): Promise<void> {
   } catch (err: unknown) {
     const pgErr = err as { message?: string };
     console.warn("[Migration] idx_users_location_id creation failed (non-fatal):", pgErr?.message ?? err);
+  }
+
+  // Task #527 — Supply check completions table (per-user-per-day check state for supply tasks)
+  try {
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS supply_check_completions (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        task_id varchar NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+        user_id varchar NOT NULL REFERENCES users(id),
+        check_date varchar NOT NULL,
+        is_checked boolean NOT NULL DEFAULT false,
+        note text,
+        is_flagged boolean NOT NULL DEFAULT false,
+        created_at timestamp DEFAULT now(),
+        updated_at timestamp DEFAULT now()
+      )
+    `));
+    await db.execute(sql.raw(`
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_supply_check_task_user_date
+        ON supply_check_completions (task_id, user_id, check_date)
+    `));
+    await db.execute(sql.raw(`
+      CREATE INDEX IF NOT EXISTS idx_supply_check_task_date
+        ON supply_check_completions (task_id, check_date)
+    `));
+    await db.execute(sql.raw(`
+      CREATE INDEX IF NOT EXISTS idx_supply_check_user_date
+        ON supply_check_completions (user_id, check_date)
+    `));
+  } catch (err: unknown) {
+    const pgErr = err as { message?: string };
+    console.warn("[Migration] supply_check_completions table creation failed (non-fatal):", pgErr?.message ?? err);
   }
 
   // Task #432 — Database-enforced overlap guard for schedules.

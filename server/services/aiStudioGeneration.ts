@@ -15,7 +15,7 @@ import { indexAiGeneratedItem } from "./sopIndexer";
 const DEFAULT_MODEL = "claude-sonnet-4-20250514";
 
 /** Asks Claude to decide which output types fit a given document.
- *  Returns a subset of ["sops","training","tasks","knowledge_base"]. */
+ *  Returns a subset of ["sops","training","tasks","knowledge_base","supply_check"]. */
 async function classifyDocument(
   fileName: string,
   summary: string,
@@ -28,11 +28,12 @@ ${summary ? `SUMMARY: ${summary}` : ""}
 CONTENT SNIPPET:
 ${contentSnippet.slice(0, 2000)}
 
-Choose from these types (select ALL that apply — you may pick 1 to 4):
+Choose from these types (select ALL that apply — you may pick 1 to 5):
 - "sops" → Step-by-step procedures (good for: customer interactions, workflows, processes, scripts)
 - "training" → Learning modules with exercises (good for: skills training, sales techniques, product knowledge)
 - "tasks" → Daily/weekly checklists (good for: recurring duties, opening/closing procedures, operational routines)
 - "knowledge_base" → Reference articles (good for: facts, policies, product info, quick reference guides)
+- "supply_check" → Supply inventory checklist (good for: stock lists, inventory sheets, supply order forms, product quantity tracking)
 
 Return ONLY a JSON array like: ["sops","training"]`;
 
@@ -42,7 +43,7 @@ Return ONLY a JSON array like: ["sops","training"]`;
     const match = text.match(/\[[\s\S]*?\]/);
     if (match) {
       const parsed: string[] = JSON.parse(match[0]);
-      const valid = parsed.filter((t) => ["sops", "training", "tasks", "knowledge_base"].includes(t));
+      const valid = parsed.filter((t) => ["sops", "training", "tasks", "knowledge_base", "supply_check"].includes(t));
       if (valid.length > 0) return valid;
     }
   } catch (err: unknown) {
@@ -400,6 +401,67 @@ Return ONLY the JSON array, no other text.`;
             jobId,
             `Skipped tasks for "${doc.originalFileName}" — could not parse`
           );
+        }
+      }
+
+      if (docOutputTypes.includes("supply_check")) {
+        await appendProgress(jobId, `Generating supply checklist from "${doc.originalFileName}"...`);
+
+        const supplyPrompt = `You are a retail inventory expert for "${storeName}", a ${businessType}.
+
+SOURCE DOCUMENT: ${doc.originalFileName}
+CONTENT:
+${docContent.slice(0, 12000)}
+
+Extract a structured supply inventory checklist from this document.
+Create individual checklist items for each distinct product, supply, or material listed.
+
+Return a JSON object:
+{
+  "title": "Supply Inventory Checklist: [brief descriptive title]",
+  "description": "Brief description of what this checklist covers",
+  "tasks": [
+    {
+      "title": "Item name (e.g., 'Shopping Bags - Small', 'Receipt Paper Rolls')",
+      "description": "Location to check, standard par level, or reorder notes",
+      "estimatedMinutes": 1
+    }
+  ]
+}
+
+Return ONLY valid JSON. No markdown, no code fences, no extra text.`;
+
+        try {
+          const response = await claudeCall({
+            model: DEFAULT_MODEL,
+            max_tokens: 3000,
+            messages: [{ role: "user", content: supplyPrompt }],
+          }, 120_000);
+
+          const rawText = response.content[0].type === "text" ? response.content[0].text : "";
+          const text = rawText.replace(/```json?\s*/gi, "").replace(/```\s*/g, "");
+          const jsonMatch = text.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const checklist = JSON.parse(jsonMatch[0]);
+            const [item] = await db
+              .insert(aiGeneratedItems)
+              .values({
+                storeId,
+                jobId,
+                type: "task",
+                title: checklist.title || "Supply Inventory Checklist",
+                content: { ...checklist, category: "supply_check" },
+                sourceDocumentIds: [doc.id],
+                status: "in_review",
+                createdBy,
+              })
+              .returning();
+            generatedItemIds.push(item.id);
+            await appendProgress(jobId, `Built supply checklist: "${checklist.title}" with ${checklist.tasks?.length ?? 0} items`);
+          }
+        } catch (err: unknown) {
+          logger.warn({ err: err instanceof Error ? err.message : String(err), docId: doc.id }, "Failed to generate supply checklist");
+          await appendProgress(jobId, `Skipped supply checklist for "${doc.originalFileName}" — could not parse`);
         }
       }
 

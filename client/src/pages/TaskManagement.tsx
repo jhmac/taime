@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'wouter';
+import { Link, useSearch } from 'wouter';
 import { apiRequest } from '@/lib/queryClient';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
@@ -17,6 +17,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Checkbox } from '@/components/ui/checkbox';
+import { AlertTriangle, Package } from 'lucide-react';
 import type { Task, User, Permission, TaskAssignee } from '@shared/schema';
 
 // Server enriches the task list with the originating AI insight id (when the
@@ -77,7 +79,11 @@ export default function TaskManagement() {
   const [filterAssigned, setFilterAssigned] = useState('all');
   const [filterAIAssign, setFilterAIAssign] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState('all');
+  const search = useSearch();
+  const [activeTab, setActiveTab] = useState(() => {
+    const params = new URLSearchParams(search);
+    return params.get('tab') ?? 'all';
+  });
   const [viewingTask, setViewingTask] = useState<Task | null>(null);
   const [rejectingItem, setRejectingItem] = useState<VerificationItem | null>(null);
   const [rejectionNote, setRejectionNote] = useState('');
@@ -126,6 +132,31 @@ export default function TaskManagement() {
 
   const { data: users = [] } = useQuery<User[]>({
     queryKey: ['/api/users'],
+  });
+
+  type SupplyCheckTask = Task & {
+    completions: { id: string; userId: string; isChecked: boolean; note: string | null; isFlagged: boolean; checkDate: string }[];
+    myCompletion: { id: string; isChecked: boolean; note: string | null; isFlagged: boolean } | null;
+  };
+
+  const { data: supplyTasks = [], isLoading: supplyLoading } = useQuery<SupplyCheckTask[]>({
+    queryKey: ['/api/tasks/supply-check'],
+    enabled: activeTab === 'supply',
+  });
+
+  const [supplyNotes, setSupplyNotes] = useState<Record<string, string>>({});
+  const [supplyNoteOpen, setSupplyNoteOpen] = useState<string | null>(null);
+
+  const supplyCheckMutation = useMutation({
+    mutationFn: async ({ taskId, isChecked, note }: { taskId: string; isChecked: boolean; note?: string }) => {
+      const res = await apiRequest('POST', `/api/tasks/${taskId}/supply-check`, { isChecked, note });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/tasks/supply-check'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/tasks/supply-summary'] });
+    },
+    onError: () => toast({ title: "Failed to update supply check", variant: "destructive" }),
   });
 
   const activeUsers = users.filter((u: any) => u.isActive !== false);
@@ -529,11 +560,14 @@ export default function TaskManagement() {
         )}
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className={`grid w-full ${canBroadcast ? 'grid-cols-5' : 'grid-cols-4'}`}>
+          <TabsList className={`grid w-full ${canBroadcast ? 'grid-cols-6' : 'grid-cols-5'}`}>
             <TabsTrigger value="all">All Tasks</TabsTrigger>
             <TabsTrigger value="recurring">Recurring</TabsTrigger>
             <TabsTrigger value="one-time">One-Time</TabsTrigger>
             <TabsTrigger value="my-tasks">My Tasks</TabsTrigger>
+            <TabsTrigger value="supply" className="relative">
+              <Package className="h-3 w-3 mr-1" />Supply
+            </TabsTrigger>
             {canBroadcast && (
               <TabsTrigger value="verification" className="relative">
                 Verify
@@ -611,11 +645,11 @@ export default function TaskManagement() {
               </Select>
             </div>
 
-            {activeTab !== 'verification' && (
+            {activeTab !== 'verification' && activeTab !== 'supply' && (
             <p className="text-sm text-muted-foreground">{filteredTasks.length} tasks found</p>
             )}
 
-            {activeTab !== 'verification' && (
+            {activeTab !== 'verification' && activeTab !== 'supply' && (
             <TabsContent value={activeTab} className="mt-0">
               <div className="space-y-2">
                 {filteredTasks.length === 0 ? (
@@ -888,6 +922,123 @@ export default function TaskManagement() {
               </div>
             </TabsContent>
             )}
+
+            <TabsContent value="supply" className="mt-0">
+              {supplyLoading ? (
+                <div className="space-y-3">
+                  {[1,2,3].map(i => <Card key={i}><CardContent className="p-4 h-16" /></Card>)}
+                </div>
+              ) : supplyTasks.length === 0 ? (
+                <Card>
+                  <CardContent className="p-8 text-center">
+                    <Package className="h-10 w-10 mx-auto text-muted-foreground/30 mb-3" />
+                    <p className="text-muted-foreground font-medium">No Supply Checklists Yet</p>
+                    <p className="text-xs text-muted-foreground mt-1">Upload a supply list PDF in AI Studio to auto-generate a checklist here.</p>
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="space-y-3">
+                  {canBroadcast && (
+                    <Card className="border-blue-200 bg-blue-50/50 dark:bg-blue-950/10 dark:border-blue-800/40">
+                      <CardContent className="p-3 flex items-center gap-2">
+                        <AlertTriangle className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                        <p className="text-xs text-blue-700 dark:text-blue-300">
+                          Items noted as "low stock", "out of stock", or similar will automatically alert managers.
+                        </p>
+                      </CardContent>
+                    </Card>
+                  )}
+                  {supplyTasks.map(task => {
+                    const myCheck = task.myCompletion;
+                    const noteVal = supplyNotes[task.id] ?? (myCheck?.note || '');
+                    const isOpen = supplyNoteOpen === task.id;
+                    const isChecked = myCheck?.isChecked ?? false;
+                    const isFlagged = myCheck?.isFlagged ?? false;
+                    return (
+                      <Card key={task.id} className={`transition-colors ${isFlagged ? 'border-orange-300 dark:border-orange-700 bg-orange-50/50 dark:bg-orange-950/10' : isChecked ? 'border-green-200 dark:border-green-800/40 bg-green-50/30 dark:bg-green-950/10' : ''}`}>
+                        <CardContent className="p-4">
+                          <div className="flex items-start gap-3">
+                            <Checkbox
+                              id={`supply-${task.id}`}
+                              checked={isChecked}
+                              onCheckedChange={(checked) => {
+                                supplyCheckMutation.mutate({
+                                  taskId: task.id,
+                                  isChecked: !!checked,
+                                  note: noteVal || undefined,
+                                });
+                              }}
+                              className="mt-0.5 shrink-0"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <label htmlFor={`supply-${task.id}`} className={`text-sm font-medium cursor-pointer ${isChecked ? 'line-through text-muted-foreground' : ''}`}>
+                                {task.title.replace(/^\[.*?\]\s*/, '')}
+                              </label>
+                              {task.description && (
+                                <p className="text-xs text-muted-foreground mt-0.5">{task.description}</p>
+                              )}
+                              <div className="mt-2">
+                                {isOpen ? (
+                                  <div className="flex gap-2 items-end">
+                                    <Textarea
+                                      value={noteVal}
+                                      onChange={e => setSupplyNotes(prev => ({ ...prev, [task.id]: e.target.value }))}
+                                      placeholder='e.g. "Low stock — need to reorder" or "Fully stocked"'
+                                      className="text-xs min-h-[60px] resize-none"
+                                      rows={2}
+                                    />
+                                    <div className="flex flex-col gap-1">
+                                      <Button
+                                        size="sm"
+                                        className="h-7 text-xs"
+                                        onClick={() => {
+                                          supplyCheckMutation.mutate({
+                                            taskId: task.id,
+                                            isChecked,
+                                            note: noteVal || undefined,
+                                          });
+                                          setSupplyNoteOpen(null);
+                                        }}
+                                        disabled={supplyCheckMutation.isPending}
+                                      >
+                                        Save
+                                      </Button>
+                                      <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setSupplyNoteOpen(null)}>
+                                        Cancel
+                                      </Button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <button
+                                    onClick={() => setSupplyNoteOpen(task.id)}
+                                    className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+                                  >
+                                    {myCheck?.note ? (
+                                      <>
+                                        {isFlagged && <AlertTriangle className="h-3 w-3 text-orange-500" />}
+                                        <span className={`italic ${isFlagged ? 'text-orange-600 dark:text-orange-400' : ''}`}>"{myCheck.note}"</span>
+                                        <span className="text-muted-foreground not-italic"> · edit</span>
+                                      </>
+                                    ) : (
+                                      <span>+ Add note</span>
+                                    )}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                            {isFlagged && (
+                              <Badge className="shrink-0 bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400 border-0 text-[10px]">
+                                Low Stock
+                              </Badge>
+                            )}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+              )}
+            </TabsContent>
 
             {canBroadcast && (
               <TabsContent value="verification" className="mt-0">

@@ -40,6 +40,7 @@ import {
   Timer,
   TrendingUp,
   TrendingDown,
+  Package,
 } from 'lucide-react';
 import { DELIVERY_FAILURE_HIGH_THRESHOLD } from '@/lib/notificationConstants';
 import { PayrollSummary, BENCHMARKS } from '@/lib/payrollBenchmarks';
@@ -110,6 +111,12 @@ export default function ManagerDashboard() {
 
   const { data: gtdData, isLoading: gtdLoading } = useQuery<{ success: boolean; data: { inbox_count: number; actions_today_count: number; actions_overdue_count: number; waiting_overdue_count: number; two_minute_actions_count: number } }>({
     queryKey: ['/api/gtd/dashboard'],
+    enabled: deferredEnabled,
+    staleTime: 60_000,
+  });
+
+  const { data: supplySummary = [] } = useQuery<{ taskId: string; title: string; checkedCount: number; totalAssigned: number; flaggedNotes: { userId: string; note: string }[] }[]>({
+    queryKey: ['/api/tasks/supply-summary'],
     enabled: deferredEnabled,
     staleTime: 60_000,
   });
@@ -669,6 +676,82 @@ export default function ManagerDashboard() {
           <DashboardErrorBoundary fallback="Cash status card failed to load">
             <CashStatusCard />
           </DashboardErrorBoundary>
+
+          {supplySummary.length > 0 && (
+            <DashboardErrorBoundary fallback="Supply status card failed to load">
+              <Card
+                className="cursor-pointer hover:shadow-md transition-shadow"
+                onClick={() => navigate('/tasks?tab=supply')}
+              >
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <Package className="h-4 w-4 text-teal-600 dark:text-teal-400" />
+                      Supply Status — Today
+                    </CardTitle>
+                    <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                  </div>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  {(() => {
+                    const totalFlagged = supplySummary.reduce((sum, s) => sum + s.flaggedNotes.length, 0);
+                    const allFlagged = supplySummary.filter(s => s.flaggedNotes.length > 0);
+                    const totalChecked = supplySummary.filter(s => (s.checkedCount ?? 0) > 0).length;
+                    const totalItems = supplySummary.length;
+                    const completionPct = totalItems > 0 ? Math.round((totalChecked / totalItems) * 100) : 0;
+                    return (
+                      <>
+                        {/* Completion rate bar */}
+                        <div className="mb-3">
+                          <div className="flex justify-between items-center mb-1">
+                            <span className="text-xs text-muted-foreground">Today's completion</span>
+                            <span className="text-xs font-medium">{totalChecked} / {totalItems} checked</span>
+                          </div>
+                          <div className="w-full bg-muted rounded-full h-1.5">
+                            <div
+                              className="bg-teal-500 h-1.5 rounded-full transition-all"
+                              style={{ width: `${completionPct}%` }}
+                            />
+                          </div>
+                        </div>
+                        {totalFlagged > 0 && (
+                          <div className="flex items-center gap-2 mb-3 p-2 rounded-lg bg-orange-50 dark:bg-orange-950/20 border border-orange-200 dark:border-orange-800/40">
+                            <AlertTriangle className="h-4 w-4 text-orange-500 shrink-0" />
+                            <p className="text-xs text-orange-700 dark:text-orange-400 font-medium">
+                              {totalFlagged} low-stock alert{totalFlagged !== 1 ? 's' : ''} flagged
+                            </p>
+                          </div>
+                        )}
+                        <div className="space-y-2">
+                          {allFlagged.length > 0 ? allFlagged.slice(0, 4).map(item => (
+                            <div key={item.taskId} className="flex items-start gap-2">
+                              <AlertTriangle className="h-3 w-3 text-orange-500 mt-0.5 shrink-0" />
+                              <div className="min-w-0">
+                                <p className="text-xs font-medium truncate">{item.title.replace(/^\[.*?\]\s*/, '')}</p>
+                                {item.flaggedNotes.slice(0, 1).map((n, i) => (
+                                  <p key={i} className="text-[11px] text-orange-600 dark:text-orange-400 italic truncate">"{n.note}"</p>
+                                ))}
+                              </div>
+                            </div>
+                          )) : (
+                            <div className="flex items-center gap-2">
+                              <Check className="h-4 w-4 text-green-500" />
+                              <p className="text-xs text-muted-foreground">
+                                {totalItems} item{totalItems !== 1 ? 's' : ''} tracked — no alerts
+                              </p>
+                            </div>
+                          )}
+                          {allFlagged.length > 4 && (
+                            <p className="text-xs text-muted-foreground">+{allFlagged.length - 4} more flagged items</p>
+                          )}
+                        </div>
+                      </>
+                    );
+                  })()}
+                </CardContent>
+              </Card>
+            </DashboardErrorBoundary>
+          )}
 
           <DashboardErrorBoundary fallback="AI insights card failed to load">
             <BackgroundInsightsCard />

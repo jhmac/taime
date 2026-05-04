@@ -52,10 +52,12 @@ export const tasks = pgTable("tasks", {
   choreZone: varchar("chore_zone"),
   priority: varchar("priority").default("medium"),
   completionImageUrl: text("completion_image_url"),
+  category: varchar("category"),
 }, (table) => [
   index("idx_tasks_assigned_to").on(table.assignedTo),
   index("idx_tasks_due_date").on(table.dueDate),
   index("idx_tasks_assigned_created").on(table.assignedTo, table.createdAt),
+  index("idx_tasks_category").on(table.category),
 ]);
 
 // Per-employee broadcast task assignments
@@ -81,6 +83,24 @@ export const taskAssignees = pgTable("task_assignees", {
   index("idx_task_assignees_user_id").on(table.userId),
   index("idx_task_assignees_broadcast_group").on(table.broadcastGroupId),
   index("idx_task_assignees_status").on(table.status),
+]);
+
+// ── Supply Check Completions ──────────────────────────────────────────────────
+
+export const supplyCheckCompletions = pgTable("supply_check_completions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  taskId: varchar("task_id").references(() => tasks.id, { onDelete: "cascade" }).notNull(),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  checkDate: varchar("check_date").notNull(),
+  isChecked: boolean("is_checked").default(false).notNull(),
+  note: text("note"),
+  isFlagged: boolean("is_flagged").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => [
+  index("idx_supply_check_task_date").on(table.taskId, table.checkDate),
+  index("idx_supply_check_user_date").on(table.userId, table.checkDate),
+  unique("uq_supply_check_task_user_date").on(table.taskId, table.userId, table.checkDate),
 ]);
 
 // ── Chat / Messaging ─────────────────────────────────────────────────────────
@@ -1319,6 +1339,7 @@ export const supplies = pgTable("supplies", {
 
 export const insertTaskAssigneeSchema = createInsertSchema(taskAssignees).omit({ id: true, createdAt: true });
 export const insertTaskSchema = createInsertSchema(tasks).omit({ id: true, createdAt: true });
+export const insertSupplyCheckCompletionSchema = createInsertSchema(supplyCheckCompletions).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertMessageSchema = createInsertSchema(messages).omit({ id: true, createdAt: true });
 export const insertChatGroupSchema = createInsertSchema(chatGroups).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertGroupMemberSchema = createInsertSchema(groupMembers).omit({ id: true, joinedAt: true });
@@ -1533,3 +1554,5 @@ export type UnansweredQuestion = typeof unansweredQuestions.$inferSelect;
 export type InsertUnansweredQuestion = z.infer<typeof insertUnansweredQuestionSchema>;
 export type Supply = typeof supplies.$inferSelect;
 export type InsertSupply = z.infer<typeof insertSupplySchema>;
+export type SupplyCheckCompletion = typeof supplyCheckCompletions.$inferSelect;
+export type InsertSupplyCheckCompletion = z.infer<typeof insertSupplyCheckCompletionSchema>;

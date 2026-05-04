@@ -7,6 +7,8 @@ import {
   commuteAlerts,
   knowledgeDocuments,
   supplies,
+  supplyCheckCompletions,
+  tasks,
   trainingModules,
   employeeTrainingProgress,
   trainingLessons,
@@ -19,6 +21,8 @@ import {
   dailyQuestionnaires,
   questionnaireResponses,
   userBadges,
+  type SupplyCheckCompletion,
+  type InsertSupplyCheckCompletion,
   type Message,
   type InsertMessage,
   type ChatGroup,
@@ -134,6 +138,10 @@ export interface IMiscStorage {
   getUserBadges(userId: string): Promise<UserBadge[]>;
   getStoreBadges(storeId: string): Promise<UserBadge[]>;
   createUserBadge(data: InsertUserBadge): Promise<UserBadge>;
+
+  upsertSupplyCheckCompletion(data: InsertSupplyCheckCompletion): Promise<SupplyCheckCompletion>;
+  getSupplyCheckCompletions(taskId: string, checkDate: string): Promise<SupplyCheckCompletion[]>;
+  getSupplyStatusSummary(storeId: string, checkDate: string): Promise<{ taskId: string; title: string; checkedCount: number; totalAssigned: number; flaggedNotes: { userId: string; note: string }[] }[]>;
 }
 
 export class MiscStorage implements IMiscStorage {
@@ -585,5 +593,60 @@ export class MiscStorage implements IMiscStorage {
   async createUserBadge(data: InsertUserBadge): Promise<UserBadge> {
     const [row] = await db.insert(userBadges).values(data).returning();
     return row;
+  }
+
+  async upsertSupplyCheckCompletion(data: InsertSupplyCheckCompletion): Promise<SupplyCheckCompletion> {
+    const [row] = await db
+      .insert(supplyCheckCompletions)
+      .values({ ...data, updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: [supplyCheckCompletions.taskId, supplyCheckCompletions.userId, supplyCheckCompletions.checkDate],
+        set: {
+          isChecked: data.isChecked,
+          note: data.note,
+          isFlagged: data.isFlagged,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    return row;
+  }
+
+  async getSupplyCheckCompletions(taskId: string, checkDate: string): Promise<SupplyCheckCompletion[]> {
+    return db
+      .select()
+      .from(supplyCheckCompletions)
+      .where(and(eq(supplyCheckCompletions.taskId, taskId), eq(supplyCheckCompletions.checkDate, checkDate)));
+  }
+
+  async getSupplyStatusSummary(
+    storeId: string,
+    checkDate: string
+  ): Promise<{ taskId: string; title: string; checkedCount: number; totalAssigned: number; flaggedNotes: { userId: string; note: string }[] }[]> {
+    // Get all supply_check tasks for this store
+    const supplyTasks = await db
+      .select()
+      .from(tasks)
+      .where(and(eq(tasks.locationId, storeId), eq(tasks.category, "supply_check")));
+
+    const result = [];
+    for (const task of supplyTasks) {
+      const completions = await db
+        .select()
+        .from(supplyCheckCompletions)
+        .where(and(eq(supplyCheckCompletions.taskId, task.id), eq(supplyCheckCompletions.checkDate, checkDate)));
+      const checkedCount = completions.filter(c => c.isChecked).length;
+      const flaggedNotes = completions
+        .filter(c => c.isFlagged && c.note)
+        .map(c => ({ userId: c.userId, note: c.note! }));
+      result.push({
+        taskId: task.id,
+        title: task.title,
+        checkedCount,
+        totalAssigned: completions.length,
+        flaggedNotes,
+      });
+    }
+    return result;
   }
 }

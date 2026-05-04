@@ -1,8 +1,9 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
-import { insertTaskSchema, operationalInsights } from "@shared/schema";
+import { insertTaskSchema, operationalInsights, users as usersTable, roles as rolesTable } from "@shared/schema";
 import { db } from "../db";
-import { inArray } from "drizzle-orm";
+import { inArray, eq, and, or, isNull } from "drizzle-orm";
+import { tasks as tasksTable } from "@shared/schema";
 import { notificationService } from "../services/notificationService";
 import { tryResolveStoreIdForUser } from "../services/storeResolver";
 import { runAutoAssign } from "./ai";
@@ -519,6 +520,126 @@ export function registerTaskRoutes(
     } catch (error) {
       console.error("Error completing task assignee:", error);
       res.status(500).json({ message: "Failed to complete task" });
+    }
+  });
+
+  // GET /api/tasks/supply-check — supply-check tasks with today's completion state
+  app.get('/api/tasks/supply-check', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const today = new Date().toISOString().slice(0, 10);
+      const storeId = await tryResolveStoreIdForUser(userId);
+      if (!storeId) return res.status(403).json({ message: "Store location could not be determined" });
+
+      const allTasks = await storage.getAllTasks(storeId);
+      const supplyTasks = allTasks.filter((t: any) => t.category === 'supply_check');
+
+      const tasksWithCompletions = await Promise.all(
+        supplyTasks.map(async (task: any) => {
+          const completions = await storage.getSupplyCheckCompletions(task.id, today);
+          const myCompletion = completions.find((c: any) => c.userId === userId) ?? null;
+          return { ...task, completions, myCompletion };
+        })
+      );
+
+      res.json(tasksWithCompletions);
+    } catch (error) {
+      console.error("Error fetching supply check tasks:", error);
+      res.status(500).json({ message: "Failed to fetch supply check tasks" });
+    }
+  });
+
+  // POST /api/tasks/:id/supply-check — upsert a completion entry
+  app.post('/api/tasks/:id/supply-check', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id: taskId } = req.params;
+      const userId = req.user.id;
+      const { isChecked, note } = req.body;
+      const today = new Date().toISOString().slice(0, 10);
+
+      // Authorization: verify task exists, is a supply_check task, and belongs to caller's store
+      const storeId = await tryResolveStoreIdForUser(userId);
+      if (!storeId) return res.status(403).json({ message: "Store location could not be determined" });
+
+      const [taskRow] = await db.select().from(tasksTable).where(eq(tasksTable.id, taskId));
+      if (!taskRow) return res.status(404).json({ message: "Task not found" });
+      if (taskRow.category !== 'supply_check') return res.status(403).json({ message: "Task is not a supply checklist item" });
+      if (taskRow.locationId && taskRow.locationId !== storeId) return res.status(403).json({ message: "Task does not belong to your store" });
+
+      const LOW_STOCK_KEYWORDS = /\b(low stock|out of stock|running low|need to order|reorder|almost out|nearly out|empty|depleted|critical)\b/i;
+      const isFlagged = typeof note === 'string' && LOW_STOCK_KEYWORDS.test(note);
+
+      const completion = await storage.upsertSupplyCheckCompletion({
+        taskId,
+        userId,
+        checkDate: today,
+        isChecked: !!isChecked,
+        note: note ?? null,
+        isFlagged,
+      });
+
+      // When flagged as low stock: notify managers AND create an operational insight
+      if (isFlagged) {
+        const reporter = req.user.firstName || 'A team member';
+        const itemTitle = taskRow.title || 'a supply item';
+
+        // Create an operational insight so the issue surfaces in the manager feed
+        db.insert(operationalInsights).values({
+          storeId,
+          insightType: 'supply_alert',
+          affectedArea: 'inventory',
+          severity: 'warning',
+          observation: `${reporter} flagged "${itemTitle}" as low stock: "${note}"`,
+          whyItMatters: 'Running out of supplies can interrupt store operations and impact customer experience.',
+          recommendedAction: `Check stock levels and reorder "${itemTitle}" as soon as possible.`,
+          status: 'active',
+          linkedTaskId: taskId,
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7-day TTL
+        }).catch((err: Error) => console.error('Failed to create supply insight:', err));
+
+        // Notify managers/owners/admins scoped to the same store
+        const managers = await db
+          .select({ id: usersTable.id })
+          .from(usersTable)
+          .innerJoin(rolesTable, eq(usersTable.roleId, rolesTable.id))
+          .where(and(
+            eq(usersTable.locationId, storeId),
+            or(eq(rolesTable.name, 'manager'), eq(rolesTable.name, 'owner'), eq(rolesTable.name, 'admin')),
+            or(eq(usersTable.isActive, true), isNull(usersTable.isActive))
+          ));
+        for (const manager of managers) {
+          notificationService.sendToUser(manager.id, {
+            title: "Low Stock Alert",
+            body: `${reporter} flagged "${itemTitle}" as low stock.`,
+            data: { url: "/tasks?tab=supply" },
+          }).catch(() => {});
+        }
+      }
+
+      res.json(completion);
+    } catch (error) {
+      console.error("Error updating supply check:", error);
+      res.status(500).json({ message: "Failed to update supply check" });
+    }
+  });
+
+  // GET /api/tasks/supply-summary — manager-only supply status summary
+  app.get('/api/tasks/supply-summary', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const isAdmin = await resolvePermission(userId, 'admin.manage_all', storage);
+      const isManager = isAdmin || (await resolvePermission(userId, 'hr.manage_employees', storage));
+      if (!isManager) return res.status(403).json({ message: "Managers only" });
+
+      const storeId = await tryResolveStoreIdForUser(userId);
+      if (!storeId) return res.status(403).json({ message: "Store location could not be determined" });
+
+      const today = new Date().toISOString().slice(0, 10);
+      const summary = await storage.getSupplyStatusSummary(storeId, today);
+      res.json(summary);
+    } catch (error) {
+      console.error("Error fetching supply summary:", error);
+      res.status(500).json({ message: "Failed to fetch supply summary" });
     }
   });
 
