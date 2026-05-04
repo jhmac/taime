@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Clock, CheckCircle2, Sparkles, Bell, Home, Calendar, MessageCircle, MoreHorizontal, Zap, TrendingUp, Star, AlertTriangle, X } from "lucide-react";
+import { Clock, CheckCircle2, Sparkles, Bell, Home, Calendar, MessageCircle, MoreHorizontal, Zap, TrendingUp, Star, Flag, X } from "lucide-react";
 
 const S = {
   bg: "#FFFFFF", surface: "#F8FAFF", card: "#FFFFFF",
@@ -36,42 +36,92 @@ const Nav = ({ active = "home" }) => {
 };
 
 function IssuesPanel({ onClose }: { onClose: () => void }) {
-  const issues = [
+  const [adding, setAdding] = useState(false);
+  const [newTitle, setNewTitle] = useState("");
+  const [newPriority, setNewPriority] = useState("medium");
+  const [list, setList] = useState([
     { title: "Display window not restocked", priority: "high", time: "2h ago" },
     { title: "Break room fridge needs cleaning", priority: "medium", time: "Yesterday" },
     { title: "POS terminal #2 slow response", priority: "low", time: "3h ago" },
-  ];
+  ]);
   const colors: Record<string, string> = { high: S.red, medium: S.orange, low: S.primary };
   const bgs: Record<string, string> = { high: S.redSoft, medium: S.orangeSoft, low: S.primarySoft };
+
+  const submit = () => {
+    if (!newTitle.trim()) return;
+    setList(l => [{ title: newTitle.trim(), priority: newPriority, time: "Just now" }, ...l]);
+    setNewTitle("");
+    setNewPriority("medium");
+    setAdding(false);
+  };
+
   return (
     <div style={{ position: "absolute", inset: 0, background: "rgba(13,31,60,0.4)", zIndex: 50, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
-      <div style={{ background: S.card, borderRadius: "20px 20px 0 0", padding: "0 0 32px" }}>
-        <div style={{ width: 36, height: 4, borderRadius: 99, background: S.border, margin: "12px auto 0" }} />
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px 12px" }}>
+      <div style={{ background: S.card, borderRadius: "20px 20px 0 0", maxHeight: "80vh", display: "flex", flexDirection: "column" }}>
+        <div style={{ width: 36, height: 4, borderRadius: 99, background: S.border, margin: "12px auto 0", flexShrink: 0 }} />
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px 12px", flexShrink: 0, borderBottom: `1px solid ${S.border}` }}>
           <div>
             <h2 style={{ fontSize: 18, fontWeight: 800, color: S.dark, margin: 0 }}>Store Issues</h2>
-            <p style={{ fontSize: 12, color: S.light, margin: "2px 0 0", fontWeight: 500 }}>3 open · tap to report a new one</p>
+            <p style={{ fontSize: 12, color: S.light, margin: "2px 0 0", fontWeight: 500 }}>{list.length} open</p>
           </div>
-          <button onClick={onClose} style={{ width: 32, height: 32, borderRadius: 10, background: S.surface, border: `1px solid ${S.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
-            <X size={15} color={S.mid} />
-          </button>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              onClick={() => setAdding(a => !a)}
+              style={{ padding: "7px 14px", borderRadius: 10, background: adding ? S.surface : S.primary, border: adding ? `1px solid ${S.border}` : "none", color: adding ? S.mid : "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer" }}
+            >
+              {adding ? "Cancel" : "+ Add"}
+            </button>
+            <button onClick={onClose} style={{ width: 34, height: 34, borderRadius: 10, background: S.surface, border: `1px solid ${S.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+              <X size={15} color={S.mid} />
+            </button>
+          </div>
         </div>
-        {issues.map((iss, idx) => (
-          <div key={idx} style={{ margin: "0 16px 8px", padding: "13px 14px", borderRadius: 14, background: S.surface, border: `1px solid ${S.border}`, display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ width: 34, height: 34, borderRadius: 10, background: bgs[iss.priority], display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-              <AlertTriangle size={16} color={colors[iss.priority]} />
+
+        {/* Inline add form */}
+        {adding && (
+          <div style={{ padding: "14px 16px", borderBottom: `1px solid ${S.border}`, background: S.surface, flexShrink: 0 }}>
+            <input
+              autoFocus
+              value={newTitle}
+              onChange={e => setNewTitle(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && submit()}
+              placeholder="Describe the issue…"
+              style={{ width: "100%", padding: "11px 13px", borderRadius: 11, border: `1.5px solid ${S.primary}`, background: S.card, fontSize: 14, color: S.dark, outline: "none", fontFamily: "inherit", boxSizing: "border-box", marginBottom: 10 }}
+            />
+            <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+              {(["high", "medium", "low"] as const).map(p => (
+                <button
+                  key={p}
+                  onClick={() => setNewPriority(p)}
+                  style={{ flex: 1, padding: "8px 0", borderRadius: 9, border: `1.5px solid ${newPriority === p ? colors[p] : S.border}`, background: newPriority === p ? bgs[p] : S.card, color: newPriority === p ? colors[p] : S.light, fontWeight: 700, fontSize: 12, cursor: "pointer", textTransform: "capitalize" }}
+                >
+                  {p}
+                </button>
+              ))}
             </div>
-            <div style={{ flex: 1 }}>
-              <p style={{ fontSize: 13, fontWeight: 600, color: S.dark, margin: 0 }}>{iss.title}</p>
-              <p style={{ fontSize: 11, color: S.light, margin: "2px 0 0" }}>{iss.time}</p>
-            </div>
-            <span style={{ fontSize: 10, fontWeight: 700, color: colors[iss.priority], background: bgs[iss.priority], padding: "3px 8px", borderRadius: 6, textTransform: "capitalize" }}>{iss.priority}</span>
+            <button
+              onClick={submit}
+              style={{ width: "100%", padding: "12px 0", borderRadius: 11, background: S.primary, color: "#fff", fontWeight: 700, fontSize: 14, border: "none", cursor: "pointer" }}
+            >
+              Submit Issue
+            </button>
           </div>
-        ))}
-        <div style={{ margin: "12px 16px 0" }}>
-          <button style={{ width: "100%", padding: "13px 0", borderRadius: 14, background: S.primary, color: "#fff", fontWeight: 700, fontSize: 14, border: "none", cursor: "pointer" }}>
-            + Report New Issue
-          </button>
+        )}
+
+        {/* Issue list */}
+        <div style={{ overflowY: "auto", padding: "12px 16px 28px" }}>
+          {list.map((iss, idx) => (
+            <div key={idx} style={{ marginBottom: 8, padding: "13px 14px", borderRadius: 14, background: S.surface, border: `1px solid ${S.border}`, display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{ width: 34, height: 34, borderRadius: 10, background: bgs[iss.priority], display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <Flag size={16} color={colors[iss.priority]} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <p style={{ fontSize: 13, fontWeight: 600, color: S.dark, margin: 0 }}>{iss.title}</p>
+                <p style={{ fontSize: 11, color: S.light, margin: "2px 0 0" }}>{iss.time}</p>
+              </div>
+              <span style={{ fontSize: 10, fontWeight: 700, color: colors[iss.priority], background: bgs[iss.priority], padding: "3px 8px", borderRadius: 6, textTransform: "capitalize" }}>{iss.priority}</span>
+            </div>
+          ))}
         </div>
       </div>
     </div>
@@ -172,13 +222,13 @@ export default function Dashboard() {
       <div style={{ height: 44, background: S.card, display: "flex", alignItems: "center", justifyContent: "space-between", paddingInline: 16, borderBottom: `1px solid ${S.border}` }}>
         <span style={{ fontSize: 13, fontWeight: 700, color: S.dark }}>9:41</span>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          {/* Issues button */}
+          {/* Issues icon */}
           <button
             onClick={() => { setShowAra(false); setShowIssues(true); }}
-            style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 9, background: S.redSoft, border: `1px solid #FECDD3`, cursor: "pointer" }}
+            title="Store Issues"
+            style={{ width: 34, height: 34, borderRadius: 10, background: S.surface, border: `1px solid ${S.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
           >
-            <AlertTriangle size={12} color={S.red} strokeWidth={2.5} />
-            <span style={{ fontSize: 11, fontWeight: 700, color: S.red }}>3 Issues</span>
+            <Flag size={16} color={S.mid} strokeWidth={2} />
           </button>
           {/* Ask Ara button */}
           <button
