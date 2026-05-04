@@ -161,6 +161,11 @@ await run('ai_budget_alerts', `CREATE TABLE IF NOT EXISTS ai_budget_alerts (
 )`);
 await run('uq_ai_budget_alerts_budget_period_threshold', `CREATE UNIQUE INDEX IF NOT EXISTS uq_ai_budget_alerts_budget_period_threshold ON ai_budget_alerts (budget_id, period_key, threshold_percent)`);
 
+// ── company_settings (weekly digest columns missing in prod) ─────────────────
+await run('company_settings.weekly_digest_enabled', `ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS weekly_digest_enabled boolean DEFAULT true`);
+await run('company_settings.weekly_digest_day_of_week', `ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS weekly_digest_day_of_week integer DEFAULT 0`);
+await run('company_settings.weekly_digest_hour', `ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS weekly_digest_hour integer DEFAULT 17`);
+
 // ── ai_scheduling_settings (Task #435 columns missing in prod) ───────────────
 // Production was crashing with: column "payroll_target_pct" does not exist
 // when the dashboard or AI scheduling read this table. Add every column from
