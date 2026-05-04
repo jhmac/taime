@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Clock, CheckCircle2, ChevronRight, Sparkles, Bell, Home, Calendar, MessageCircle, Users, Zap, TrendingUp, Star } from "lucide-react";
+import { Clock, CheckCircle2, Sparkles, Bell, Home, Calendar, MessageCircle, MoreHorizontal, Zap, TrendingUp, Star, AlertTriangle, X } from "lucide-react";
 
 const S = {
   bg: "#FFFFFF", surface: "#F8FAFF", card: "#FFFFFF",
@@ -8,6 +8,7 @@ const S = {
   dark: "#0D1F3C", mid: "#445578", light: "#8898AA",
   green: "#00C48C", greenSoft: "#E6FAF4",
   orange: "#FF7A45", orangeSoft: "#FFF3EE",
+  red: "#F43F5E", redSoft: "#FFF0F3",
   purple: "#8B5CF6", purpleSoft: "#F3EEFF",
   shadow: "0 1px 3px rgba(0,18,60,0.06), 0 4px 16px rgba(0,18,60,0.04)",
   shadowMd: "0 2px 8px rgba(0,18,60,0.08), 0 16px 40px rgba(0,18,60,0.06)",
@@ -18,7 +19,7 @@ const Nav = ({ active = "home" }) => {
     { icon: Home, label: "Home", key: "home" },
     { icon: Calendar, label: "Schedule", key: "schedule" },
     { icon: MessageCircle, label: "Messages", key: "messages" },
-    { icon: Users, label: "Team", key: "team" },
+    { icon: MoreHorizontal, label: "More", key: "more" },
   ];
   return (
     <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, background: S.card, borderTop: `1px solid ${S.border}`, paddingBottom: 20 }}>
@@ -34,10 +35,118 @@ const Nav = ({ active = "home" }) => {
   );
 };
 
+function IssuesPanel({ onClose }: { onClose: () => void }) {
+  const issues = [
+    { title: "Display window not restocked", priority: "high", time: "2h ago" },
+    { title: "Break room fridge needs cleaning", priority: "medium", time: "Yesterday" },
+    { title: "POS terminal #2 slow response", priority: "low", time: "3h ago" },
+  ];
+  const colors: Record<string, string> = { high: S.red, medium: S.orange, low: S.primary };
+  const bgs: Record<string, string> = { high: S.redSoft, medium: S.orangeSoft, low: S.primarySoft };
+  return (
+    <div style={{ position: "absolute", inset: 0, background: "rgba(13,31,60,0.4)", zIndex: 50, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
+      <div style={{ background: S.card, borderRadius: "20px 20px 0 0", padding: "0 0 32px" }}>
+        <div style={{ width: 36, height: 4, borderRadius: 99, background: S.border, margin: "12px auto 0" }} />
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px 12px" }}>
+          <div>
+            <h2 style={{ fontSize: 18, fontWeight: 800, color: S.dark, margin: 0 }}>Store Issues</h2>
+            <p style={{ fontSize: 12, color: S.light, margin: "2px 0 0", fontWeight: 500 }}>3 open · tap to report a new one</p>
+          </div>
+          <button onClick={onClose} style={{ width: 32, height: 32, borderRadius: 10, background: S.surface, border: `1px solid ${S.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+            <X size={15} color={S.mid} />
+          </button>
+        </div>
+        {issues.map((iss, idx) => (
+          <div key={idx} style={{ margin: "0 16px 8px", padding: "13px 14px", borderRadius: 14, background: S.surface, border: `1px solid ${S.border}`, display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ width: 34, height: 34, borderRadius: 10, background: bgs[iss.priority], display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <AlertTriangle size={16} color={colors[iss.priority]} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <p style={{ fontSize: 13, fontWeight: 600, color: S.dark, margin: 0 }}>{iss.title}</p>
+              <p style={{ fontSize: 11, color: S.light, margin: "2px 0 0" }}>{iss.time}</p>
+            </div>
+            <span style={{ fontSize: 10, fontWeight: 700, color: colors[iss.priority], background: bgs[iss.priority], padding: "3px 8px", borderRadius: 6, textTransform: "capitalize" }}>{iss.priority}</span>
+          </div>
+        ))}
+        <div style={{ margin: "12px 16px 0" }}>
+          <button style={{ width: "100%", padding: "13px 0", borderRadius: 14, background: S.primary, color: "#fff", fontWeight: 700, fontSize: 14, border: "none", cursor: "pointer" }}>
+            + Report New Issue
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AraPanel({ onClose }: { onClose: () => void }) {
+  const [input, setInput] = useState("");
+  const [messages, setMessages] = useState([
+    { role: "ara", text: "Hi Libby! I'm Ara, your AI assistant. Ask me anything about your shift, tasks, store policies, or performance." },
+  ]);
+  const send = () => {
+    if (!input.trim()) return;
+    const q = input.trim();
+    setInput("");
+    setMessages(m => [...m, { role: "user", text: q }]);
+    setTimeout(() => {
+      setMessages(m => [...m, { role: "ara", text: "Great question! Based on your current shift data and store history, here's what I found: your tasks are 60% complete and your score is trending up this week. Anything else?" }]);
+    }, 800);
+  };
+  return (
+    <div style={{ position: "absolute", inset: 0, background: "rgba(13,31,60,0.4)", zIndex: 50, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
+      <div style={{ background: S.card, borderRadius: "20px 20px 0 0", height: "72%", display: "flex", flexDirection: "column" }}>
+        <div style={{ width: 36, height: 4, borderRadius: 99, background: S.border, margin: "12px auto 0", flexShrink: 0 }} />
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px 12px", flexShrink: 0, borderBottom: `1px solid ${S.border}` }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ width: 34, height: 34, borderRadius: 10, background: `linear-gradient(135deg, ${S.primary}, ${S.purple})`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Sparkles size={16} color="#fff" />
+            </div>
+            <div>
+              <p style={{ fontSize: 15, fontWeight: 800, color: S.dark, margin: 0 }}>Ask Ara</p>
+              <p style={{ fontSize: 11, color: S.green, margin: 0, fontWeight: 600 }}>● Online</p>
+            </div>
+          </div>
+          <button onClick={onClose} style={{ width: 32, height: 32, borderRadius: 10, background: S.surface, border: `1px solid ${S.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+            <X size={15} color={S.mid} />
+          </button>
+        </div>
+        <div style={{ flex: 1, overflowY: "auto", padding: "16px 16px 8px", display: "flex", flexDirection: "column", gap: 10 }}>
+          {messages.map((m, i) => (
+            <div key={i} style={{ display: "flex", justifyContent: m.role === "user" ? "flex-end" : "flex-start" }}>
+              {m.role === "ara" && (
+                <div style={{ width: 28, height: 28, borderRadius: 8, background: `linear-gradient(135deg, ${S.primary}, ${S.purple})`, display: "flex", alignItems: "center", justifyContent: "center", marginRight: 8, flexShrink: 0, alignSelf: "flex-end" }}>
+                  <Sparkles size={13} color="#fff" />
+                </div>
+              )}
+              <div style={{ maxWidth: "75%", padding: "10px 13px", borderRadius: m.role === "user" ? "14px 14px 4px 14px" : "14px 14px 14px 4px", background: m.role === "user" ? S.primary : S.surface, border: m.role === "user" ? "none" : `1px solid ${S.border}` }}>
+                <p style={{ fontSize: 13, color: m.role === "user" ? "#fff" : S.dark, margin: 0, lineHeight: 1.4 }}>{m.text}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{ padding: "8px 16px 20px", flexShrink: 0, borderTop: `1px solid ${S.border}` }}>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && send()}
+              placeholder="Ask anything…"
+              style={{ flex: 1, padding: "11px 14px", borderRadius: 12, border: `1.5px solid ${S.border}`, background: S.surface, fontSize: 14, color: S.dark, outline: "none", fontFamily: "inherit" }}
+            />
+            <button onClick={send} style={{ padding: "11px 16px", borderRadius: 12, background: S.primary, color: "#fff", fontWeight: 700, fontSize: 13, border: "none", cursor: "pointer" }}>Send</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const [clocked, setClocked] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [visible, setVisible] = useState(false);
+  const [showIssues, setShowIssues] = useState(false);
+  const [showAra, setShowAra] = useState(false);
   useEffect(() => { setTimeout(() => setVisible(true), 60); }, []);
   useEffect(() => {
     if (!clocked) return;
@@ -54,13 +163,36 @@ export default function Dashboard() {
 
   return (
     <div style={{ fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif", background: S.surface, height: "100vh", overflow: "hidden", position: "relative" }}>
+
+      {/* Overlays */}
+      {showIssues && <IssuesPanel onClose={() => setShowIssues(false)} />}
+      {showAra && <AraPanel onClose={() => setShowAra(false)} />}
+
       {/* Status bar */}
-      <div style={{ height: 44, background: S.card, display: "flex", alignItems: "center", justifyContent: "space-between", paddingInline: 20, borderBottom: `1px solid ${S.border}` }}>
+      <div style={{ height: 44, background: S.card, display: "flex", alignItems: "center", justifyContent: "space-between", paddingInline: 16, borderBottom: `1px solid ${S.border}` }}>
         <span style={{ fontSize: 13, fontWeight: 700, color: S.dark }}>9:41</span>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <Bell size={16} color={S.mid} />
-          <div style={{ width: 32, height: 32, borderRadius: "50%", background: `linear-gradient(135deg, ${S.primary}, #8B5CF6)`, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <span style={{ color: "#fff", fontSize: 12, fontWeight: 700 }}>LB</span>
+          {/* Issues button */}
+          <button
+            onClick={() => { setShowAra(false); setShowIssues(true); }}
+            style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 9, background: S.redSoft, border: `1px solid #FECDD3`, cursor: "pointer" }}
+          >
+            <AlertTriangle size={12} color={S.red} strokeWidth={2.5} />
+            <span style={{ fontSize: 11, fontWeight: 700, color: S.red }}>3 Issues</span>
+          </button>
+          {/* Ask Ara button */}
+          <button
+            onClick={() => { setShowIssues(false); setShowAra(true); }}
+            style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 9, background: S.primarySoft, border: `1px solid #C7CBF9`, cursor: "pointer" }}
+          >
+            <Sparkles size={12} color={S.primary} />
+            <span style={{ fontSize: 11, fontWeight: 700, color: S.primary }}>Ask Ara</span>
+          </button>
+          {/* Bell */}
+          <Bell size={16} color={S.mid} style={{ cursor: "pointer" }} />
+          {/* Avatar */}
+          <div style={{ width: 30, height: 30, borderRadius: "50%", background: `linear-gradient(135deg, ${S.primary}, #8B5CF6)`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <span style={{ color: "#fff", fontSize: 11, fontWeight: 700 }}>LB</span>
           </div>
         </div>
       </div>
