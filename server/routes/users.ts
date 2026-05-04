@@ -192,7 +192,7 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
       const requestingLocationId = requestingUser?.locationId;
       const requestingLocationName = requestingUser?.locationName;
 
-      const activeFilter = includeAll ? undefined : or(eq(users.isActive, true), isNull(users.inviteAcceptedAt));
+      const activeFilter = includeAll ? undefined : eq(users.isActive, true);
 
       if (requestingLocationId) {
         // Primary path: FK-based store scoping (rename-safe).
@@ -222,9 +222,7 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
         if (isOwnerOrAdmin) {
           const allUsers = includeAll
             ? await db.select().from(users)
-            : await db.select().from(users).where(
-                or(eq(users.isActive, true), isNull(users.inviteAcceptedAt))
-              );
+            : await db.select().from(users).where(eq(users.isActive, true));
           res.json(allUsers);
         } else {
           const selfUser = requestingUser ? [requestingUser] : [];

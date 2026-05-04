@@ -327,7 +327,7 @@ export default function Team() {
   const filtered = useMemo(() => {
     let list = members;
     if (!showTerminated) {
-      list = list.filter((m) => m.isActive !== false || !m.inviteAcceptedAt);
+      list = list.filter((m) => m.isActive !== false);
     }
     if (search.trim()) {
       const q = search.toLowerCase();
