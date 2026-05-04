@@ -193,16 +193,23 @@ function AraPanel({ onClose }: { onClose: () => void }) {
 
 export default function Dashboard() {
   const [clocked, setClocked] = useState(false);
+  const [onBreak, setOnBreak] = useState(false);
   const [elapsed, setElapsed] = useState(0);
+  const [breakElapsed, setBreakElapsed] = useState(0);
   const [visible, setVisible] = useState(false);
   const [showIssues, setShowIssues] = useState(false);
   const [showAra, setShowAra] = useState(false);
   useEffect(() => { setTimeout(() => setVisible(true), 60); }, []);
   useEffect(() => {
-    if (!clocked) return;
+    if (!clocked || onBreak) return;
     const t = setInterval(() => setElapsed(e => e + 1), 1000);
     return () => clearInterval(t);
-  }, [clocked]);
+  }, [clocked, onBreak]);
+  useEffect(() => {
+    if (!onBreak) return;
+    const t = setInterval(() => setBreakElapsed(e => e + 1), 1000);
+    return () => clearInterval(t);
+  }, [onBreak]);
   const fmt = (s: number) => `${String(Math.floor(s/3600)).padStart(2,"0")}:${String(Math.floor((s%3600)/60)).padStart(2,"0")}:${String(s%60).padStart(2,"0")}`;
 
   const anim = (d = 0): React.CSSProperties => ({
@@ -259,6 +266,7 @@ export default function Dashboard() {
         {/* Clock-in Hero Card */}
         <div style={{ marginTop: 16, ...anim(0.06) }}>
           {!clocked ? (
+            /* ── Not clocked in ── */
             <div style={{ borderRadius: 20, overflow: "hidden", background: `linear-gradient(135deg, ${S.primary} 0%, #8B5CF6 100%)`, boxShadow: "0 8px 32px rgba(91,108,240,0.35)" }}>
               <div style={{ padding: "20px 20px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <div>
@@ -271,20 +279,47 @@ export default function Dashboard() {
               </div>
               <div style={{ padding: "0 16px 16px" }}>
                 <p style={{ fontSize: 12, color: "rgba(255,255,255,0.7)", margin: "0 0 12px" }}>Your shift starts in <strong style={{ color: "#fff" }}>15 min</strong></p>
-                <button onClick={() => setClocked(true)} style={{ width: "100%", padding: "14px 0", borderRadius: 14, background: "rgba(255,255,255,0.96)", color: S.primary, fontWeight: 800, fontSize: 15, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                <button onClick={() => { setClocked(true); setOnBreak(false); }} style={{ width: "100%", padding: "14px 0", borderRadius: 14, background: "rgba(255,255,255,0.96)", color: S.primary, fontWeight: 800, fontSize: 15, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
                   <Zap size={16} fill={S.primary} strokeWidth={0} />
                   Clock In Now
                 </button>
               </div>
             </div>
+          ) : onBreak ? (
+            /* ── On break ── */
+            <div style={{ borderRadius: 20, background: `linear-gradient(135deg, ${S.orange} 0%, #FF5E2C 100%)`, boxShadow: "0 8px 32px rgba(255,122,69,0.32)", padding: "20px" }}>
+              <div style={{ marginBottom: 14 }}>
+                <p style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", color: "rgba(255,255,255,0.65)", textTransform: "uppercase", margin: 0 }}>ON BREAK</p>
+                <p style={{ fontSize: 36, fontWeight: 800, color: "#fff", margin: "4px 0 0", fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>{fmt(breakElapsed)}</p>
+                <p style={{ fontSize: 12, color: "rgba(255,255,255,0.7)", margin: "6px 0 0" }}>Shift time paused · <strong style={{ color: "#fff" }}>{fmt(elapsed)}</strong> worked</p>
+              </div>
+              <button
+                onClick={() => { setOnBreak(false); setBreakElapsed(0); }}
+                style={{ width: "100%", padding: "13px 0", borderRadius: 14, background: "rgba(255,255,255,0.96)", color: S.orange, fontWeight: 800, fontSize: 15, border: "none", cursor: "pointer" }}
+              >
+                End Break
+              </button>
+            </div>
           ) : (
+            /* ── Clocked in, working ── */
             <div style={{ borderRadius: 20, background: `linear-gradient(135deg, ${S.green} 0%, #00A878 100%)`, boxShadow: "0 8px 32px rgba(0,196,140,0.3)", padding: "20px" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <div>
-                  <p style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", color: "rgba(255,255,255,0.65)", textTransform: "uppercase", margin: 0 }}>ON THE CLOCK</p>
-                  <p style={{ fontSize: 36, fontWeight: 800, color: "#fff", margin: "4px 0 0", fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>{fmt(elapsed)}</p>
-                </div>
-                <button onClick={() => { setClocked(false); setElapsed(0); }} style={{ padding: "10px 16px", borderRadius: 12, background: "rgba(255,255,255,0.2)", color: "#fff", fontWeight: 700, fontSize: 13, border: "none", cursor: "pointer" }}>Clock Out</button>
+              <div style={{ marginBottom: 14 }}>
+                <p style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", color: "rgba(255,255,255,0.65)", textTransform: "uppercase", margin: 0 }}>ON THE CLOCK</p>
+                <p style={{ fontSize: 36, fontWeight: 800, color: "#fff", margin: "4px 0 0", fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>{fmt(elapsed)}</p>
+              </div>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button
+                  onClick={() => setOnBreak(true)}
+                  style={{ flex: 1, padding: "12px 0", borderRadius: 14, background: "rgba(255,255,255,0.2)", color: "#fff", fontWeight: 700, fontSize: 14, border: "1px solid rgba(255,255,255,0.3)", cursor: "pointer" }}
+                >
+                  ☕ Break
+                </button>
+                <button
+                  onClick={() => { setClocked(false); setOnBreak(false); setElapsed(0); setBreakElapsed(0); }}
+                  style={{ flex: 1, padding: "12px 0", borderRadius: 14, background: "rgba(255,255,255,0.96)", color: S.green, fontWeight: 800, fontSize: 14, border: "none", cursor: "pointer" }}
+                >
+                  Clock Out
+                </button>
               </div>
             </div>
           )}
