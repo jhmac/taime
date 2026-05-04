@@ -5,6 +5,7 @@
   "description": "AI Boutique Manager for teams with smart time tracking, scheduling, and task management",
   "start_url": "/",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
   "background_color": "#FFFCF2",
   "theme_color": "#F37A17",
   "orientation": "portrait-primary",

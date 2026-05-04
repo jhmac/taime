@@ -252,32 +252,53 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const data = event.notification.data || {};
   const action = event.action;
-  let url = '/';
-  if (data.type === 'clock_in_reminder' || action === 'clock_in') url = '/?action=clock';
-  else if (action === 'clock_out') url = '/?action=clock';
-  else if (action === 'view_task') url = '/?action=tasks';
-  else if (action === 'view_schedule') url = data.url || '/schedules';
-  else if (action === 'review_payroll') url = '/?action=payroll';
-  else if (data.type === 'task_assignment') url = '/?action=tasks';
-  else if (data.type === 'schedule_update') url = data.url || '/schedules';
-  else if (data.type === 'payroll_ready') url = '/?action=payroll';
-  else if (data.type === 'anomaly_alert') url = data.url || '/dashboard';
-  else if (action === 'view_details' && data.type === 'anomaly_alert') url = '/dashboard';
-  else if (data.type === 'achievement_unlocked') url = data.url || '/my-score';
-  else if (data.type === 'tier_change') url = data.url || '/my-score';
-  else if (data.type === 'top_rank') url = data.url || '/my-score';
-  else if (data.type === 'weekly_score_summary') url = data.url || '/my-score';
+  let path = '/';
+  if (data.type === 'clock_in_reminder' || action === 'clock_in') path = '/?action=clock';
+  else if (action === 'clock_out') path = '/?action=clock';
+  else if (action === 'view_task') path = '/?action=tasks';
+  else if (action === 'view_schedule') path = data.url || '/schedules';
+  else if (action === 'review_payroll') path = '/?action=payroll';
+  else if (data.type === 'task_assignment') path = '/?action=tasks';
+  else if (data.type === 'schedule_update') path = data.url || '/schedules';
+  else if (data.type === 'payroll_ready') path = '/?action=payroll';
+  else if (data.type === 'anomaly_alert') path = data.url || '/dashboard';
+  else if (action === 'view_details' && data.type === 'anomaly_alert') path = '/dashboard';
+  else if (data.type === 'achievement_unlocked') path = data.url || '/my-score';
+  else if (data.type === 'tier_change') path = data.url || '/my-score';
+  else if (data.type === 'top_rank') path = data.url || '/my-score';
+  else if (data.type === 'weekly_score_summary') path = data.url || '/my-score';
+
+  // Always build an absolute URL so clients.openWindow opens inside the installed
+  // PWA rather than launching the system browser (relative URLs can trigger Safari
+  // on iOS / the default browser on Android instead of the standalone app window).
+  const absoluteUrl = path.startsWith('http')
+    ? path
+    : new URL(path, self.location.origin).href;
+
+  // The path without query string, used for client matching.
+  const basePath = path.split('?')[0];
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true })
       .then((clientList) => {
         for (const client of clientList) {
-          if (client.url.includes(url.split('?')[0]) && 'focus' in client) {
-            client.postMessage({ type: 'notification-action', action: action || 'open', data });
-            return client.focus();
+          if (new URL(client.url).pathname === basePath && 'focus' in client) {
+            // Navigate to the full URL (preserving query-string action params) and
+            // then post the message so in-app handlers can react immediately.
+            return ('navigate' in client ? client.navigate(absoluteUrl) : Promise.resolve())
+              .then(() => client.focus())
+              .then(() => client.postMessage({ type: 'notification-action', action: action || 'open', data }));
           }
         }
-        if (clients.openWindow) return clients.openWindow(url);
+        // No matching client — focus any existing PWA window and navigate it to
+        // the target path so we stay in the standalone shell instead of opening
+        // a new browser tab.
+        if (clientList.length > 0 && 'focus' in clientList[0]) {
+          const target = clientList[0];
+          return ('navigate' in target ? target.navigate(absoluteUrl) : Promise.resolve())
+            .then(() => target.focus());
+        }
+        if (clients.openWindow) return clients.openWindow(absoluteUrl);
       })
   );
 });
