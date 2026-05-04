@@ -15,7 +15,7 @@ interface DepositFlowProps {
   onCancel: () => void;
 }
 
-type Step = "summary" | "photo" | "analyzing" | "confirm" | "submit" | "complete";
+type Step = "summary" | "photo" | "validating" | "invalid" | "analyzing" | "confirm" | "complete";
 
 function compressImage(file: File, maxSizeKB: number = 512): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -61,6 +61,7 @@ export default function DepositFlow({ sessions, sessionId, onComplete, onCancel 
   const [aiResult, setAiResult] = useState<{ amount: number | null; confidence: string; analysis: string } | null>(null);
   const [actualAmount, setActualAmount] = useState("");
   const [depositId, setDepositId] = useState<string | null>(null);
+  const [invalidReason, setInvalidReason] = useState<string>("");
 
   const relevantSessions = sessionId ? sessions.filter((s: any) => s.id === sessionId) : sessions;
   const expectedAmount = relevantSessions.reduce((sum: number, s: any) => {
@@ -72,13 +73,37 @@ export default function DepositFlow({ sessions, sessionId, onComplete, onCancel 
   const handlePhotoCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    // Reset input so re-selecting same file works
+    e.target.value = "";
     try {
       const compressed = await compressImage(file);
       setDepositSlipPhoto(compressed);
+      setStep("validating");
+
+      // Step 1: Validate it's actually a deposit slip
+      let isValid = true;
+      let validationReason = "";
+      try {
+        const valRes = await apiRequest("POST", "/api/cash/validate-deposit-slip", { imageBase64: compressed });
+        const valData = await valRes.json();
+        isValid = valData.valid;
+        validationReason = valData.reason || "";
+      } catch {
+        // If validation call fails, proceed anyway
+        isValid = true;
+      }
+
+      if (!isValid) {
+        setInvalidReason(validationReason);
+        setStep("invalid");
+        return;
+      }
+
       setStep("analyzing");
       await createAndAnalyze(compressed);
     } catch {
       toast({ title: "Error", description: "Failed to process photo", variant: "destructive" });
+      setStep("photo");
     }
   };
 
@@ -116,25 +141,67 @@ export default function DepositFlow({ sessions, sessionId, onComplete, onCancel 
       queryClient.invalidateQueries({ queryKey: ["/api/cash/deposits"] });
       setStep("confirm");
     } catch (err: any) {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
+      toast({ title: "Error", description: err.message || "Failed to process deposit", variant: "destructive" });
       setStep("photo");
     }
   };
 
   const submitMutation = useMutation({
     mutationFn: async () => {
-      if (!depositId) return;
+      if (!depositId) {
+        throw new Error("No deposit record found. Please try again.");
+      }
       const discrepancy = parseFloat(actualAmount) - expectedAmount;
-      await apiRequest("PUT", `/api/cash/deposits/${depositId}/review`, {
-        status: "pending",
-        reviewNotes: `Actual: $${actualAmount}, Expected: $${expectedAmount.toFixed(2)}, Diff: $${discrepancy.toFixed(2)}`,
+      const res = await apiRequest("PUT", `/api/cash/deposits/${depositId}/submit`, {
+        actualAmount: parseFloat(actualAmount).toFixed(2),
+        reviewNotes: `Actual: $${parseFloat(actualAmount).toFixed(2)}, Expected: $${expectedAmount.toFixed(2)}, Diff: $${discrepancy.toFixed(2)}`,
       });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Submission failed" }));
+        throw new Error(err.error || "Submission failed");
+      }
+      return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/cash/deposits"] });
       setStep("complete");
     },
+    onError: (err: any) => {
+      toast({ title: "Submission Failed", description: err.message || "Could not submit deposit. Please try again.", variant: "destructive" });
+    },
   });
+
+  const handleSubmitWithoutPhoto = async () => {
+    if (!actualAmount) return;
+    try {
+      const discrepancy = parseFloat(actualAmount) - expectedAmount;
+      let id = depositId;
+      if (!id) {
+        const createRes = await apiRequest("POST", "/api/cash/deposits", {
+          expectedAmount: expectedAmount.toFixed(2),
+          actualAmount: parseFloat(actualAmount).toFixed(2),
+          ...(sessionId ? { drawerSessionId: sessionId } : {}),
+        });
+        const deposit = await createRes.json();
+        id = deposit.id;
+        setDepositId(id);
+      }
+
+      const res = await apiRequest("PUT", `/api/cash/deposits/${id}/submit`, {
+        actualAmount: parseFloat(actualAmount).toFixed(2),
+        reviewNotes: `Manual entry. Actual: $${parseFloat(actualAmount).toFixed(2)}, Expected: $${expectedAmount.toFixed(2)}, Diff: $${discrepancy.toFixed(2)}`,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Submission failed" }));
+        throw new Error(err.error || "Submission failed");
+      }
+
+      queryClient.invalidateQueries({ queryKey: ["/api/cash/deposits"] });
+      setStep("complete");
+    } catch (err: any) {
+      toast({ title: "Submission Failed", description: err.message || "Could not submit deposit.", variant: "destructive" });
+    }
+  };
 
   if (step === "summary") {
     return (
@@ -194,9 +261,65 @@ export default function DepositFlow({ sessions, sessionId, onComplete, onCancel 
           <Button variant="outline" size="lg" className="w-full max-w-sm h-12" onClick={() => {
             setStep("confirm");
             setAiResult(null);
+            setDepositSlipPhoto(null);
           }}>
             Skip Photo — Enter Amount Manually
           </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (step === "validating") {
+    return (
+      <div className="flex flex-col h-full items-center justify-center p-6 gap-6">
+        <div className="w-24 h-24 rounded-full bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center animate-pulse">
+          <i className="fas fa-search text-4xl text-blue-500" />
+        </div>
+        <div className="text-center space-y-2">
+          <h3 className="text-xl font-bold">Checking Photo...</h3>
+          <p className="text-muted-foreground">AI is confirming this is a bank deposit slip.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (step === "invalid") {
+    return (
+      <div className="flex flex-col h-full">
+        <div className="flex items-center justify-between p-4 border-b">
+          <Button variant="ghost" size="sm" onClick={() => setStep("photo")}>Back</Button>
+          <h2 className="font-semibold text-lg">Photo Rejected</h2>
+          <div />
+        </div>
+        <div className="flex-1 flex flex-col items-center justify-center p-6 gap-6">
+          <div className="w-24 h-24 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+            <i className="fas fa-times-circle text-4xl text-red-500" />
+          </div>
+          <div className="text-center space-y-2">
+            <h3 className="text-xl font-bold text-red-600 dark:text-red-400">Not a Deposit Slip</h3>
+            <p className="text-muted-foreground">{invalidReason || "The uploaded photo does not appear to be a bank deposit slip."}</p>
+          </div>
+          {depositSlipPhoto && (
+            <div className="rounded-lg overflow-hidden border max-h-48 w-full max-w-sm">
+              <img src={depositSlipPhoto} alt="Rejected photo" className="w-full object-contain opacity-60" />
+            </div>
+          )}
+          <div className="w-full max-w-sm space-y-3">
+            <Button size="lg" className="w-full h-14 gap-2" onClick={() => {
+              setDepositSlipPhoto(null);
+              setStep("photo");
+            }}>
+              <i className="fas fa-camera" /> Retake Photo
+            </Button>
+            <Button variant="outline" size="lg" className="w-full h-12" onClick={() => {
+              setStep("confirm");
+              setAiResult(null);
+              setDepositSlipPhoto(null);
+            }}>
+              Skip Photo — Enter Amount Manually
+            </Button>
+          </div>
         </div>
       </div>
     );
@@ -219,6 +342,7 @@ export default function DepositFlow({ sessions, sessionId, onComplete, onCancel 
   if (step === "confirm") {
     const amt = parseFloat(actualAmount || "0");
     const diff = amt - expectedAmount;
+    const isManualEntry = !depositSlipPhoto;
 
     return (
       <div className="flex flex-col h-full">
@@ -250,6 +374,15 @@ export default function DepositFlow({ sessions, sessionId, onComplete, onCancel 
             <div className="rounded-lg overflow-hidden border max-h-48">
               <img src={depositSlipPhoto} alt="Deposit slip" className="w-full object-contain" />
             </div>
+          )}
+
+          {isManualEntry && (
+            <Card className="border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-900/20">
+              <CardContent className="p-3 flex items-center gap-2">
+                <i className="fas fa-info-circle text-amber-500" />
+                <p className="text-sm text-amber-700 dark:text-amber-300">No photo attached. Enter the deposit amount from your slip.</p>
+              </CardContent>
+            </Card>
           )}
 
           <div>
@@ -288,29 +421,35 @@ export default function DepositFlow({ sessions, sessionId, onComplete, onCancel 
                     {Math.abs(diff) < 0.01 ? "Exact Match!" :
                       diff > 0 ? `$${diff.toFixed(2)} Over` : `$${Math.abs(diff).toFixed(2)} Short`}
                   </div>
+                  {Math.abs(diff) >= 5 && (
+                    <p className="text-xs text-center text-muted-foreground mt-1">Owner will be notified of this variance.</p>
+                  )}
                 </div>
               </CardContent>
             </Card>
           )}
         </div>
         <div className="border-t p-4">
-          <Button className="w-full h-12" onClick={() => {
-            if (!depositId) {
-              apiRequest("POST", "/api/cash/deposits", {
-                expectedAmount: expectedAmount.toFixed(2),
-                actualAmount: actualAmount,
-                ...(sessionId ? { drawerSessionId: sessionId } : {}),
-              }).then(r => r.json()).then(dep => {
-                setDepositId(dep.id);
-                queryClient.invalidateQueries({ queryKey: ["/api/cash/deposits"] });
-                setStep("complete");
-              });
-            } else {
-              submitMutation.mutate();
-            }
-          }}
-            disabled={!actualAmount || submitMutation.isPending}>
-            {submitMutation.isPending ? "Submitting..." : "Submit Deposit"}
+          <Button
+            className="w-full h-12 text-base font-semibold"
+            onClick={() => {
+              if (!actualAmount || parseFloat(actualAmount) <= 0) {
+                toast({ title: "Amount Required", description: "Please enter the deposit amount.", variant: "destructive" });
+                return;
+              }
+              if (depositId) {
+                submitMutation.mutate();
+              } else {
+                handleSubmitWithoutPhoto();
+              }
+            }}
+            disabled={!actualAmount || parseFloat(actualAmount) <= 0 || submitMutation.isPending}
+          >
+            {submitMutation.isPending ? (
+              <><i className="fas fa-spinner fa-spin mr-2" /> Submitting...</>
+            ) : (
+              "Submit Deposit"
+            )}
           </Button>
         </div>
       </div>

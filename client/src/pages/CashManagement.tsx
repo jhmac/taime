@@ -660,6 +660,7 @@ export default function CashManagement() {
 
 function OwnerSection({ selectedDate, ownerTab, setOwnerTab, deposits, settings }: { selectedDate: string; ownerTab: string; setOwnerTab: (t: string) => void; deposits: any[]; settings: any }) {
   const { toast } = useToast();
+  const refSlipInputRef = useRef<HTMLInputElement>(null);
 
   const { data: dailyReport, isLoading: reportLoading } = useQuery({
     queryKey: ["/api/cash/daily-report", selectedDate],
@@ -673,6 +674,8 @@ function OwnerSection({ selectedDate, ownerTab, setOwnerTab, deposits, settings 
 
   const [investigationData, setInvestigationData] = useState<any>(null);
   const [investigating, setInvestigating] = useState(false);
+  const [referenceSlipPreview, setReferenceSlipPreview] = useState<string | null>(settings?.referenceDepositSlip || null);
+  const [depositToleranceInput, setDepositToleranceInput] = useState<string>(settings?.depositTolerance || "1.00");
   const DAYS_OF_WEEK = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const;
   type DayKey = typeof DAYS_OF_WEEK[number];
   const DAY_LABELS: Record<DayKey, string> = { sunday: "Sunday", monday: "Monday", tuesday: "Tuesday", wednesday: "Wednesday", thursday: "Thursday", friday: "Friday", saturday: "Saturday" };
@@ -690,6 +693,11 @@ function OwnerSection({ selectedDate, ownerTab, setOwnerTab, deposits, settings 
 
   const [closingTimeInputs, setClosingTimeInputs] = useState<Record<DayKey, string>>(settingsToClosingInputs(settings));
   const [applyAllTime, setApplyAllTime] = useState<string>("");
+
+  useEffect(() => {
+    setReferenceSlipPreview(settings?.referenceDepositSlip || null);
+    setDepositToleranceInput(settings?.depositTolerance || "1.00");
+  }, [settings?.referenceDepositSlip, settings?.depositTolerance]);
   useEffect(() => {
     setClosingTimeInputs(settingsToClosingInputs(settings));
   }, [settings?.closingTime]);
@@ -967,12 +975,76 @@ function OwnerSection({ selectedDate, ownerTab, setOwnerTab, deposits, settings 
                   ))}
                 </div>
               </div>
+              <div>
+                <label className="text-sm font-medium">Deposit Tolerance ($)</label>
+                <p className="text-xs text-muted-foreground mb-1">
+                  If the actual deposit differs from expected by more than this amount, the owner receives an alert.
+                </p>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  className="w-36"
+                  value={depositToleranceInput}
+                  onChange={(e) => setDepositToleranceInput(e.target.value)}
+                  placeholder="1.00"
+                />
+              </div>
+
+              <div>
+                <label className="text-sm font-medium">Reference Deposit Slip Template</label>
+                <p className="text-xs text-muted-foreground mb-2">
+                  Upload a sample bank deposit slip. AI will use this as a visual template to validate employee submissions.
+                </p>
+                <input
+                  ref={refSlipInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = (ev) => {
+                      const result = ev.target?.result as string;
+                      setReferenceSlipPreview(result);
+                    };
+                    reader.readAsDataURL(file);
+                    e.target.value = "";
+                  }}
+                />
+                {referenceSlipPreview ? (
+                  <div className="space-y-2">
+                    <div className="rounded-lg overflow-hidden border max-h-40">
+                      <img src={referenceSlipPreview} alt="Reference deposit slip" className="w-full object-contain" />
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setReferenceSlipPreview(null)}
+                      className="text-red-500 border-red-200 hover:bg-red-50 dark:hover:bg-red-950"
+                    >
+                      <i className="fas fa-times mr-1" /> Remove Reference Slip
+                    </Button>
+                  </div>
+                ) : (
+                  <Button variant="outline" size="sm" onClick={() => refSlipInputRef.current?.click()}>
+                    <i className="fas fa-upload mr-1" /> Upload Reference Slip
+                  </Button>
+                )}
+              </div>
+
               <Button
                 onClick={() => {
                   const closingTime = Object.fromEntries(
                     DAYS_OF_WEEK.map(d => [d, closingTimeInputs[d] || null])
                   );
-                  settingsMutation.mutate({ ...settings, closingTime });
+                  settingsMutation.mutate({
+                    ...settings,
+                    closingTime,
+                    depositTolerance: depositToleranceInput || "1.00",
+                    referenceDepositSlip: referenceSlipPreview || null,
+                  });
                 }}
                 disabled={settingsMutation.isPending}
                 size="sm"

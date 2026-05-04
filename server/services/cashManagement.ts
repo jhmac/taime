@@ -104,6 +104,75 @@ export async function captureEmployeesOnDuty(storeId: string, date: string): Pro
   }));
 }
 
+export async function validateDepositSlipImage(photoBase64: string, referenceSlipBase64?: string | null): Promise<{
+  valid: boolean;
+  reason: string;
+}> {
+  try {
+    const mediaType = photoBase64.startsWith("data:image/png") ? "image/png" : "image/jpeg";
+    const base64Data = photoBase64.replace(/^data:image\/\w+;base64,/, "");
+
+    const contentParts: any[] = [
+      {
+        type: "image",
+        source: { type: "base64", media_type: mediaType, data: base64Data },
+      },
+    ];
+
+    if (referenceSlipBase64) {
+      const refMediaType = referenceSlipBase64.startsWith("data:image/png") ? "image/png" : "image/jpeg";
+      const refBase64 = referenceSlipBase64.replace(/^data:image\/\w+;base64,/, "");
+      contentParts.unshift({
+        type: "image",
+        source: { type: "base64", media_type: refMediaType, data: refBase64 },
+      });
+      contentParts.push({
+        type: "text",
+        text: `The first image is a reference bank deposit slip template provided by management. The second image is a photo submitted by an employee.
+
+Determine if the second image is a valid bank deposit slip (it does not need to be identical to the reference, just the same type of document).
+
+Respond in JSON only:
+{"valid": true, "reason": "This appears to be a bank deposit slip showing deposit details."}
+or
+{"valid": false, "reason": "This image appears to be [description], not a bank deposit slip."}`,
+      });
+    } else {
+      contentParts.push({
+        type: "text",
+        text: `Is this image a bank deposit slip? Look for: bank name, deposit amount, account number, date, teller stamp, or typical deposit slip layout.
+
+Respond in JSON only:
+{"valid": true, "reason": "This appears to be a bank deposit slip showing deposit details."}
+or
+{"valid": false, "reason": "This image appears to be [description], not a bank deposit slip."}`,
+      });
+    }
+
+    const result = await Promise.race([
+      anthropic.messages.create({
+        model: MODEL,
+        max_tokens: 200,
+        messages: [{ role: "user", content: contentParts }],
+      }),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 15000)),
+    ]);
+
+    const text = result.content[0].type === "text" ? result.content[0].text : "";
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error("No JSON in response");
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    return {
+      valid: !!parsed.valid,
+      reason: parsed.reason || (parsed.valid ? "Valid deposit slip" : "Not a deposit slip"),
+    };
+  } catch (err: any) {
+    logger.error({ error: err.message }, "[CashManagement] Deposit slip validation failed");
+    return { valid: true, reason: "Validation unavailable — proceeding." };
+  }
+}
+
 export async function analyzeDepositSlip(photoBase64: string): Promise<{
   extractedAmount: number | null;
   confidence: string;

@@ -11,9 +11,11 @@ import type { IStorage } from "../storage";
 import { resolveStoreId } from "../services/storeResolver";
 import {
   calculateDenominations, captureEmployeesOnDuty, analyzeDepositSlip,
+  validateDepositSlipImage,
   getDailyCashReport, suggestRecountFocus, logDiscrepancy,
   analyzeCashPatterns, getEmployeeCashProfile,
 } from "../services/cashManagement";
+import { aiInsights } from "@shared/schema";
 import { timeEntries } from "@shared/schema";
 import { isNull } from "drizzle-orm";
 import logger from "../lib/logger";
@@ -136,7 +138,7 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
         return res.status(403).json({ error: "Only admins and owners can update Cash Management settings" });
       }
       const storeId = await getStoreId();
-      const { defaultStartingCash, registers, overShortThreshold, requireDepositPhoto, requireOverShortExplanation, autoFlagThreshold, closingTime } = req.body;
+      const { defaultStartingCash, registers, overShortThreshold, requireDepositPhoto, requireOverShortExplanation, autoFlagThreshold, closingTime, referenceDepositSlip, depositTolerance } = req.body;
 
       const DAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const;
       const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -165,15 +167,19 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
         .where(eq(cashManagementSettings.storeId, storeId));
 
       if (existing) {
+        const updateData: any = {
+          defaultStartingCash: defaultStartingCash?.toString(),
+          registers, overShortThreshold: overShortThreshold?.toString(),
+          requireDepositPhoto, requireOverShortExplanation,
+          autoFlagThreshold: autoFlagThreshold?.toString(),
+          closingTime: closingTimeJson,
+          updatedAt: new Date(),
+        };
+        if (depositTolerance !== undefined) updateData.depositTolerance = depositTolerance?.toString();
+        if (referenceDepositSlip !== undefined) updateData.referenceDepositSlip = referenceDepositSlip;
+
         const [updated] = await db.update(cashManagementSettings)
-          .set({
-            defaultStartingCash: defaultStartingCash?.toString(),
-            registers, overShortThreshold: overShortThreshold?.toString(),
-            requireDepositPhoto, requireOverShortExplanation,
-            autoFlagThreshold: autoFlagThreshold?.toString(),
-            closingTime: closingTimeJson,
-            updatedAt: new Date(),
-          })
+          .set(updateData)
           .where(eq(cashManagementSettings.storeId, storeId))
           .returning();
         return res.json({ ...updated, closingTime: normalizedClosingTime });
@@ -187,6 +193,8 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
         requireDepositPhoto, requireOverShortExplanation,
         autoFlagThreshold: autoFlagThreshold?.toString() || "20.00",
         closingTime: closingTimeJson,
+        referenceDepositSlip: referenceDepositSlip || null,
+        depositTolerance: depositTolerance?.toString() || "1.00",
       }).returning();
 
       res.json({ ...created, closingTime: normalizedClosingTime });
@@ -592,6 +600,94 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
       res.json(deposit);
     } catch (err: any) {
       res.status(500).json({ error: "Failed to get deposit" });
+    }
+  });
+
+  // ===== Validate deposit slip image =====
+  app.post("/api/cash/validate-deposit-slip", isAuthenticated, async (req: any, res) => {
+    try {
+      const { imageBase64 } = req.body;
+      if (!imageBase64) return res.status(400).json({ error: "imageBase64 is required" });
+
+      const storeId = await getStoreId();
+      const [storeSettings] = await db.select().from(cashManagementSettings)
+        .where(eq(cashManagementSettings.storeId, storeId));
+      const referenceSlip = storeSettings?.referenceDepositSlip || null;
+
+      const result = await validateDepositSlipImage(imageBase64, referenceSlip);
+      res.json(result);
+    } catch (err: any) {
+      logger.error({ error: err.message }, "[Cash] Deposit slip validation failed");
+      res.status(500).json({ error: "Validation failed" });
+    }
+  });
+
+  // ===== Employee-level deposit submit =====
+  app.put("/api/cash/deposits/:id/submit", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.id || req.auth?.userId;
+      if (!(await requireCashAccess(req, res))) return;
+      const storeId = await getStoreId();
+      const deposit = await verifyDepositAccess(req.params.id, storeId);
+      if (!deposit) return res.status(404).json({ error: "Deposit not found" });
+
+      const { actualAmount, reviewNotes } = req.body;
+      const parsedActual = actualAmount ? parseFloat(actualAmount) : null;
+      const parsedExpected = deposit.expectedAmount ? parseFloat(deposit.expectedAmount) : null;
+      const discrepancy = parsedActual != null && parsedExpected != null
+        ? parsedActual - parsedExpected : null;
+
+      const [updated] = await db.update(cashDeposits).set({
+        actualAmount: parsedActual != null ? parsedActual.toFixed(2) : null,
+        discrepancyAmount: discrepancy != null ? discrepancy.toFixed(2) : null,
+        reviewNotes: reviewNotes || null,
+        status: "pending",
+        submittedAt: new Date(),
+      }).where(eq(cashDeposits.id, req.params.id)).returning();
+
+      // Fire owner alert if variance exceeds tolerance
+      try {
+        const [settings] = await db.select().from(cashManagementSettings)
+          .where(eq(cashManagementSettings.storeId, storeId));
+        const tolerance = parseFloat(settings?.depositTolerance || "1.00");
+        if (discrepancy != null && Math.abs(discrepancy) > tolerance) {
+          const ownerUsers = await db
+            .select({ id: users.id })
+            .from(users)
+            .where(eq(users.companyId, (
+              await db.select({ companyId: users.companyId }).from(users).where(eq(users.id, userId)).limit(1)
+            )[0]?.companyId || ""));
+
+          const direction = discrepancy > 0 ? "over" : "short";
+          const absAmt = Math.abs(discrepancy).toFixed(2);
+          const alertTitle = `Deposit Mismatch: $${absAmt} ${direction}`;
+          const alertDesc = `A deposit was submitted with $${parsedActual?.toFixed(2)} actual vs $${parsedExpected?.toFixed(2)} expected (${direction} by $${absAmt}). Deposit date: ${deposit.depositDate}.`;
+
+          for (const owner of ownerUsers) {
+            await db.insert(aiInsights).values({
+              userId: owner.id,
+              type: "deposit_mismatch",
+              title: alertTitle,
+              description: alertDesc,
+              severity: Math.abs(discrepancy) > tolerance * 5 ? "critical" : "warning",
+              metadata: {
+                depositId: req.params.id,
+                actualAmount: parsedActual,
+                expectedAmount: parsedExpected,
+                discrepancy,
+                depositDate: deposit.depositDate,
+              },
+            });
+          }
+        }
+      } catch (alertErr: any) {
+        logger.warn({ error: alertErr.message }, "[Cash] Failed to insert owner alert (non-fatal)");
+      }
+
+      res.json(updated);
+    } catch (err: any) {
+      logger.error({ error: err.message }, "[Cash] Failed to submit deposit");
+      res.status(500).json({ error: "Failed to submit deposit" });
     }
   });
 
