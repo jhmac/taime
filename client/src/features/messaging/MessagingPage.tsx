@@ -991,10 +991,10 @@ export default function MessagingPage() {
   }, [threadData]);
 
   return (
-    <div className="h-[calc(100vh-8rem)] md:h-[calc(100vh-4rem)] flex flex-col bg-background">
-      {/* Top tabs */}
-      <div className="border-b border-border shrink-0">
-        <Tabs value={activeTab} onValueChange={v => setActiveTab(v as "chats" | "wall")}>
+    <div className="h-page-chat flex flex-col bg-background">
+      {/* Top tabs — Tabs root is the flex-1 column so TabsContent panels get bounded height */}
+      <Tabs value={activeTab} onValueChange={v => setActiveTab(v as "chats" | "wall")} className="flex-1 flex flex-col min-h-0">
+        <div className="border-b border-border shrink-0">
           <div className="flex items-center px-4 pt-3 pb-0 gap-4">
             <h1 className="text-lg font-bold mr-2">Messages</h1>
             <TabsList className="h-8">
@@ -1006,9 +1006,10 @@ export default function MessagingPage() {
               </TabsTrigger>
             </TabsList>
           </div>
+        </div>
 
-          <TabsContent value="chats" className="flex-1 mt-0 overflow-hidden">
-            <div className="flex h-[calc(100vh-10rem)] md:h-[calc(100vh-6rem)]">
+          <TabsContent value="chats" className="flex-1 min-h-0 mt-0 overflow-hidden">
+            <div className="flex h-full overflow-hidden">
               {/* Thread list */}
               {showThreadList && (
                 <div className={`${isMobileView ? "w-full" : "w-80 border-r border-border"} flex flex-col`}>
@@ -1515,13 +1516,12 @@ export default function MessagingPage() {
             </div>
           </TabsContent>
 
-          <TabsContent value="wall" className="flex-1 mt-0 overflow-hidden">
-            <div className="h-[calc(100vh-10rem)] md:h-[calc(100vh-6rem)]">
+          <TabsContent value="wall" className="flex-1 min-h-0 mt-0 overflow-hidden">
+            <div className="h-full overflow-y-auto">
               <TeamWall />
             </div>
           </TabsContent>
         </Tabs>
-      </div>
 
       <NewThreadDialog open={showNewThread} onOpenChange={setShowNewThread} onCreated={handleThreadCreated} />
     </div>

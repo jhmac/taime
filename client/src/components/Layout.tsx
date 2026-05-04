@@ -21,7 +21,7 @@ export default function Layout({ children }: LayoutProps) {
     return (
       <div className="min-h-screen bg-background flex flex-col">
         <TopNavigation />
-        <main className="flex-1 pb-28 overflow-y-auto">
+        <main className="flex-1 pb-nav-safe overflow-y-auto">
           {children}
         </main>
         <BottomNavigation />

@@ -4,6 +4,10 @@
 @tailwind utilities;
 
 :root {
+  /* Navigation layout constants — update here if nav bar height changes */
+  --top-nav-height: 3.5rem;    /* TopNavigation h-14 = 56px */
+  --bottom-nav-height: 7rem;   /* BottomNavigation pill + safe indicator ≈ 112px */
+
   /* Taime Final Design — Warm Cream + Orange */
   --background: hsl(40 100% 98%);
   --foreground: hsl(240 32% 14%);
@@ -141,6 +145,26 @@
 /* Safe area for bottom navigation */
 .safe-area-bottom {
   padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Bottom padding that accounts for the fixed nav bar height + iOS safe area.
+   Use this on every scrollable page content container on mobile. */
+.pb-nav-safe {
+  padding-bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom, 0px));
+}
+
+/* Height for chat-style pages that manage their own scroll containers.
+   Subtracts the top nav, bottom nav, and iOS safe area so the input bar and
+   last message are never hidden behind the bottom nav on mobile. */
+.h-page-chat {
+  height: calc(100dvh - var(--top-nav-height) - var(--bottom-nav-height) - env(safe-area-inset-bottom, 0px));
+}
+
+/* Desktop variant — no bottom nav, only top nav to subtract */
+@media (min-width: 768px) {
+  .h-page-chat {
+    height: calc(100dvh - var(--top-nav-height));
+  }
 }
 
 /* Safe area for top (iOS notch / Dynamic Island / Android status bar in Capacitor) */
