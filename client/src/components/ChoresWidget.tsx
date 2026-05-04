@@ -95,12 +95,9 @@ export default function ChoresWidget() {
 
   const userTasks = tasks?.filter((task) => task.assignedTo === user?.id) || [];
   const today = new Date();
-  const todayTasks = userTasks.filter((task) => {
-    if (!task.dueDate) return true;
-    const taskDate = new Date(task.dueDate);
-    return taskDate.toDateString() === today.toDateString();
-  });
-  
+  // Show all tasks assigned to the user regardless of due date (not just today's)
+  const todayTasks = userTasks.filter((task) => task.status !== 'cancelled');
+
   const upcomingSchedules = userTasks.filter((task) => task.status === 'pending' && task.dueDate && new Date(task.dueDate) > today);
 
   const handleTaskComplete = (taskId: string, completed: boolean) => {
@@ -161,9 +158,9 @@ export default function ChoresWidget() {
           </div>
         ) : todayTasks.length === 0 ? (
           <div className="text-center py-6">
-            <i className="fas fa-check-circle text-green-500 text-2xl mb-2"></i>
-            <p className="text-muted-foreground text-sm">No tasks for today</p>
-            <p className="text-xs text-muted-foreground mt-1">All caught up!</p>
+            <i className="fas fa-clipboard-list text-muted-foreground/40 text-2xl mb-2"></i>
+            <p className="text-muted-foreground text-sm">No tasks assigned yet</p>
+            <p className="text-xs text-muted-foreground mt-1">Check back once the schedule is confirmed</p>
           </div>
         ) : (
           <div className="space-y-3">

@@ -53,6 +53,8 @@ export const tasks = pgTable("tasks", {
   priority: varchar("priority").default("medium"),
   completionImageUrl: text("completion_image_url"),
   category: varchar("category"),
+  eligibleRoles: text("eligible_roles").array().default(sql`ARRAY['all']::text[]`),
+  pinnedTo: varchar("pinned_to").references(() => users.id),
 }, (table) => [
   index("idx_tasks_assigned_to").on(table.assignedTo),
   index("idx_tasks_due_date").on(table.dueDate),

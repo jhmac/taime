@@ -1,8 +1,10 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
-import { users } from "@shared/schema";
+import { users, tasks, roles } from "@shared/schema";
 import { db } from "../db";
-import { inArray } from "drizzle-orm";
+import { inArray, eq } from "drizzle-orm";
+import fs from "fs";
+import path from "path";
 import { claudeService } from "../services/claudeService";
 import { notificationService } from "../services/notificationService";
 import rateLimit from "express-rate-limit";
@@ -18,6 +20,35 @@ const aiRateLimiter = rateLimit({
 
 type BroadcastFn = (data: Record<string, unknown>) => void;
 
+// Durable daily-run guard — persisted to disk so server restarts don't cause re-runs.
+const AUTO_ASSIGN_DATE_FILE = path.join(process.cwd(), ".local", "last-auto-assign-date.txt");
+
+function readLastAutoAssignDate(): string | null {
+  try { return fs.readFileSync(AUTO_ASSIGN_DATE_FILE, "utf-8").trim(); } catch { return null; }
+}
+
+function writeLastAutoAssignDate(dateStr: string): void {
+  try {
+    fs.mkdirSync(path.dirname(AUTO_ASSIGN_DATE_FILE), { recursive: true });
+    fs.writeFileSync(AUTO_ASSIGN_DATE_FILE, dateStr, "utf-8");
+  } catch { /* non-fatal */ }
+}
+
+// Eligible-role token contract: tasks store canonical tokens { all, team, manager, admin, owner }.
+// DB roles table uses 'employee' as the name for the 'team' role.
+// Map DB role name → canonical token before comparing.
+function dbRoleToToken(roleName: string): string {
+  return roleName === "employee" ? "team" : roleName;
+}
+
+// Check if an employee's DB role name satisfies the task's eligibleRoles token list.
+function isEligible(employeeRole: string | null, eligibleRoles: string[] | null): boolean {
+  if (!eligibleRoles || eligibleRoles.length === 0) return true;
+  if (eligibleRoles.includes("all")) return true;
+  if (!employeeRole) return false;
+  return eligibleRoles.includes(dbRoleToToken(employeeRole));
+}
+
 // Shared assignment logic — used by both the manual endpoint and auto-assign on task creation
 export async function runAutoAssign(
   storage: IStorage,
@@ -28,55 +59,62 @@ export async function runAutoAssign(
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
 
-  // 1. Build employee pool — scheduled employees take priority
-  const schedules = await storage.getAllSchedules(today, tomorrow);
+  // 1. Build employee pool — clocked-in employees are the primary pool for daily assignment.
+  //    Fall back to today's scheduled employees if nobody is clocked in yet
+  //    (common early in the morning before shifts start).
+  type PoolEntry = { id: string; name: string; shiftStart: string; shiftEnd: string; skills: string[]; workload: number; pastPerformance: number; roleName: string | null };
 
-  const uniqueUserIds = Array.from(new Set(schedules.map(s => s.userId)));
-  const userRows = uniqueUserIds.length > 0
-    ? await db.select({ id: users.id, firstName: users.firstName, lastName: users.lastName })
-        .from(users)
-        .where(inArray(users.id, uniqueUserIds))
-    : [];
-  const usersById = new Map(userRows.map(u => [u.id, u]));
-
-  // Deduplicate by userId (a user may have multiple schedule entries for split shifts)
-  const seenUserIds = new Set<string>();
-  const scheduledPool: { id: string; name: string; shiftStart: string; shiftEnd: string; skills: string[]; workload: number; pastPerformance: number }[] = [];
-  for (const schedule of schedules) {
-    if (seenUserIds.has(schedule.userId)) continue;
-    seenUserIds.add(schedule.userId);
-    const user = usersById.get(schedule.userId);
-    scheduledPool.push({
-      id: schedule.userId,
-      name: `${user?.firstName || ''} ${user?.lastName || ''}`.trim(),
-      shiftStart: schedule.startTime.toISOString(),
-      shiftEnd: schedule.endTime.toISOString(),
-      skills: [],
-      workload: 50,
-      pastPerformance: 85,
-    });
-  }
-
-  let employeePool: typeof scheduledPool = scheduledPool;
-  let source = 'schedule';
-
-  // 2. Fall back to clocked-in employees if nobody is scheduled today
-  if (employeePool.length === 0) {
-    const clockedIn = await storage.getClockedInUsers();
-    employeePool = clockedIn.map(u => ({
+  async function buildPoolWithRoles(userList: { id: string; firstName: string | null; lastName: string | null; shiftStart?: string; shiftEnd?: string }[]): Promise<PoolEntry[]> {
+    const ids = userList.map(u => u.id);
+    if (ids.length === 0) return [];
+    const userRoleRows = await db.select({ id: users.id, roleId: users.roleId }).from(users).where(inArray(users.id, ids));
+    const roleIdsNeeded = Array.from(new Set(userRoleRows.map(r => r.roleId).filter(Boolean) as string[]));
+    const roleNameRows = roleIdsNeeded.length > 0
+      ? await db.select({ id: roles.id, name: roles.name }).from(roles).where(inArray(roles.id, roleIdsNeeded))
+      : [];
+    const roleById = new Map(roleNameRows.map(r => [r.id, r.name]));
+    const roleByUserId = new Map(userRoleRows.map(r => [r.id, r.roleId ? roleById.get(r.roleId) ?? null : null]));
+    return userList.map(u => ({
       id: u.id,
       name: `${u.firstName || ''} ${u.lastName || ''}`.trim(),
-      shiftStart: '',
-      shiftEnd: '',
+      shiftStart: u.shiftStart ?? '',
+      shiftEnd: u.shiftEnd ?? '',
       skills: [],
       workload: 50,
       pastPerformance: 85,
+      roleName: roleByUserId.get(u.id) ?? null,
     }));
+  }
+
+  const clockedIn = await storage.getClockedInUsers();
+  let employeePool: PoolEntry[];
+  let source: string;
+
+  if (clockedIn.length > 0) {
+    employeePool = await buildPoolWithRoles(clockedIn.map(u => ({ id: u.id, firstName: u.firstName, lastName: u.lastName })));
     source = 'clocked-in';
+  } else {
+    // Fall back to today's scheduled employees (early-morning run before anyone clocks in)
+    const schedules = await storage.getAllSchedules(today, tomorrow);
+    const seenIds = new Set<string>();
+    const uniqueScheduled: { id: string; firstName: string | null; lastName: string | null; shiftStart: string; shiftEnd: string }[] = [];
+    const uniqueUserIds = Array.from(new Set(schedules.map(s => s.userId)));
+    const scheduledUsers = uniqueUserIds.length > 0
+      ? await db.select({ id: users.id, firstName: users.firstName, lastName: users.lastName }).from(users).where(inArray(users.id, uniqueUserIds))
+      : [];
+    const userMap = new Map(scheduledUsers.map(u => [u.id, u]));
+    for (const s of schedules) {
+      if (seenIds.has(s.userId)) continue;
+      seenIds.add(s.userId);
+      const u = userMap.get(s.userId);
+      if (u) uniqueScheduled.push({ ...u, shiftStart: s.startTime.toISOString(), shiftEnd: s.endTime.toISOString() });
+    }
+    employeePool = await buildPoolWithRoles(uniqueScheduled);
+    source = 'schedule';
   }
 
   if (employeePool.length === 0) {
-    return { assignments: [], source, message: 'No employees scheduled or clocked in' };
+    return { assignments: [], source, message: 'No employees clocked in or scheduled' };
   }
 
   // 3. Gather tasks to distribute:
@@ -88,12 +126,14 @@ export async function runAutoAssign(
   endOfToday.setHours(23, 59, 59, 999);
 
   const availableChores = allTasks.filter(task => {
-    if (task.status === 'completed') return false;
+    if (task.status === 'completed' || task.status === 'cancelled') return false;
+    // Skip tasks that are already manually pinned (assigned but not AI-assigned)
+    if (task.assignedTo && !task.isAIAssigned) return false;
+    // Skip tasks with a deferred pin intent waiting for the employee to clock in
+    if (task.pinnedTo) return false;
     if (task.dueDate) {
-      // Include tasks due today or overdue (missed from previous days)
       return new Date(task.dueDate) <= endOfToday;
     }
-    // No due date: only include if currently unassigned
     return !task.assignedTo && task.status === 'pending';
   });
 
@@ -101,16 +141,30 @@ export async function runAutoAssign(
     return { assignments: [], source, message: 'No tasks to distribute' };
   }
 
-  // Round-robin equal distribution — each employee gets the same number of tasks
-  const assignments = availableChores.map((task, i) => {
-    const employee = employeePool[i % employeePool.length];
-    return {
+  // 4. Round-robin distribution, filtering pool by each task's eligibleRoles.
+  //    A single global counter ensures different tasks go to different employees
+  //    (cycling through the eligible pool in order across all task assignments).
+  const assignments: { choreId: string; assignedTo: string; reasoning: string; estimatedCompletion: string }[] = [];
+  let globalRoundRobinIndex = 0;
+
+  for (const task of availableChores) {
+    const eligiblePool = employeePool.filter(emp => isEligible(emp.roleName, task.eligibleRoles as string[] | null));
+    if (eligiblePool.length === 0) continue;
+
+    const roleDesc = task.eligibleRoles && !task.eligibleRoles.includes('all')
+      ? task.eligibleRoles.join(', ')
+      : 'all roles';
+
+    const employee = eligiblePool[globalRoundRobinIndex % eligiblePool.length];
+    globalRoundRobinIndex++;
+
+    assignments.push({
       choreId: task.id,
       assignedTo: employee.id,
-      reasoning: `Morning distribution — shared equally across ${employeePool.length} team member${employeePool.length !== 1 ? 's' : ''}`,
+      reasoning: `Morning distribution — shared equally across eligible employees (${roleDesc})`,
       estimatedCompletion: employee.shiftEnd || '',
-    };
-  });
+    });
+  }
 
   for (const assignment of assignments) {
     const updated = await storage.updateTask(assignment.choreId, {
@@ -135,6 +189,51 @@ export async function runAutoAssign(
 }
 
 /**
+ * Activates any deferred manual pins for a specific user.
+ * Called whenever a user clocks in. If a manager previously pinned a task to
+ * this employee while they were off-shift, the task's assignedTo is set now.
+ */
+export async function activateDeferredPins(
+  userId: string,
+  storage: IStorage,
+  broadcastToAll?: BroadcastFn,
+): Promise<void> {
+  const pinnedRows = await db
+    .select({ id: tasks.id })
+    .from(tasks)
+    .where(eq(tasks.pinnedTo, userId));
+  for (const row of pinnedRows) {
+    const updated = await storage.updateTask(row.id, {
+      assignedTo: userId,
+      pinnedTo: null,
+    });
+    broadcastToAll?.({ type: 'task_updated', data: { task: updated } });
+  }
+}
+
+export function scheduleDailyAutoAssign(storage: IStorage, broadcastToAll: BroadcastFn): void {
+  const runIfNeeded = async () => {
+    const todayStr = new Date().toDateString();
+    if (readLastAutoAssignDate() === todayStr) return;
+    try {
+      const settings = await storage.getCompanySettings();
+      if (!settings?.taskAutoAssign) return;
+      console.log('[auto-assign] Running daily auto-assign...');
+      const result = await runAutoAssign(storage, broadcastToAll);
+      writeLastAutoAssignDate(todayStr);
+      console.log(`[auto-assign] Daily run complete: ${result.assignments.length} assignment(s) made`);
+    } catch (err) {
+      console.error('[auto-assign] Daily run failed:', err);
+    }
+  };
+
+  // Run once shortly after boot
+  setTimeout(runIfNeeded, 5000);
+  // Then run every 24 hours
+  setInterval(runIfNeeded, 24 * 60 * 60 * 1000);
+}
+
+/**
  * Redistributes all AI-assigned pending tasks equally among currently clocked-in employees.
  * Called whenever a new employee clocks in so the workload stays balanced.
  * Fire-and-forget — errors are logged but do not affect the clock-in response.
@@ -148,13 +247,33 @@ export async function runClockInRedistribute(
 
   const allTasks = await storage.getAllTasks();
   // Only re-distribute AI-assigned tasks that haven't been completed
-  const pendingAiTasks = allTasks.filter(t => t.isAIAssigned && t.status !== 'completed');
+  const pendingAiTasks = allTasks.filter(t => t.isAIAssigned && t.status !== 'completed' && t.status !== 'cancelled');
   if (pendingAiTasks.length === 0) return;
 
-  const poolIds = clockedIn.map(u => u.id);
-  for (let i = 0; i < pendingAiTasks.length; i++) {
-    const task = pendingAiTasks[i];
-    const newAssigneeId = poolIds[i % poolIds.length];
+  // Fetch role names for clocked-in employees so eligibility can be respected
+  const clockedInIds = clockedIn.map(u => u.id);
+  const userRoleRows = clockedInIds.length > 0
+    ? await db.select({ id: users.id, roleId: users.roleId }).from(users).where(inArray(users.id, clockedInIds))
+    : [];
+  const roleIdsNeeded = Array.from(new Set(userRoleRows.map(r => r.roleId).filter(Boolean) as string[]));
+  const roleNameRows = roleIdsNeeded.length > 0
+    ? await db.select({ id: roles.id, name: roles.name }).from(roles).where(inArray(roles.id, roleIdsNeeded))
+    : [];
+  const roleById = new Map(roleNameRows.map(r => [r.id, r.name]));
+  const roleByUserId = new Map(userRoleRows.map(r => [r.id, r.roleId ? roleById.get(r.roleId) ?? null : null]));
+
+  const clockedInPool = clockedIn.map(u => ({ id: u.id, roleName: roleByUserId.get(u.id) ?? null }));
+
+  let roundRobinIndex = 0;
+  for (const task of pendingAiTasks) {
+    // Skip tasks with a deferred pin — they wait for the pinned employee to clock in
+    if (task.pinnedTo) continue;
+    // Filter pool by task's eligible roles before redistributing
+    const eligiblePool = clockedInPool.filter(emp => isEligible(emp.roleName, task.eligibleRoles as string[] | null));
+    if (eligiblePool.length === 0) continue;
+
+    const newAssigneeId = eligiblePool[roundRobinIndex % eligiblePool.length].id;
+    roundRobinIndex++;
     if (task.assignedTo !== newAssigneeId) {
       const updated = await storage.updateTask(task.id, { assignedTo: newAssigneeId });
       broadcastToAll?.({ type: 'task_updated', data: { task: updated } });

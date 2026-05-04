@@ -9,7 +9,7 @@ import { registerAuthRoutes } from "./routes/auth";
 import { registerTimeEntryRoutes } from "./routes/timeEntries";
 import { registerScheduleRoutes } from "./routes/schedules";
 import { registerTaskRoutes } from "./routes/tasks";
-import { registerAIRoutes } from "./routes/ai";
+import { registerAIRoutes, scheduleDailyAutoAssign } from "./routes/ai";
 import { registerAdminRoutes } from "./routes/admin";
 import { registerUserRoutes } from "./routes/users";
 import { registerRoleRoutes } from "./routes/roles";
@@ -164,6 +164,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerScheduleRoutes(app, storage, isAuthenticated, broadcastToAll, sendToUsers);
   registerTaskRoutes(app, storage, isAuthenticated, broadcastToAll, sendToUsers);
   registerAIRoutes(app, storage, isAuthenticated, broadcastToAll);
+  scheduleDailyAutoAssign(storage, broadcastToAll);
   registerAdminRoutes(app, storage, isAuthenticated);
   registerUserRoutes(app, storage, isAuthenticated);
   registerRoleRoutes(app, storage, isAuthenticated);

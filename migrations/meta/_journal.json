@@ -204,6 +204,20 @@
       "when": 1746712800000,
       "tag": "0028_weekly_digest_preferences",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1746799200000,
+      "tag": "0029_task_eligible_roles",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1746885600000,
+      "tag": "0030_task_pinned_to",
+      "breakpoints": true
     }
   ]
 }

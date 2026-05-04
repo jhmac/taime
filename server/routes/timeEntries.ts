@@ -3,7 +3,7 @@ import type { IStorage } from "../storage";
 import { insertTimeEntrySchema } from "@shared/schema";
 import { geofencingService } from "../services/geofencingService";
 import { getOpeningSOPsForClockIn, getShiftHandoffSOPs } from "../services/sopSurfacing";
-import { runClockInRedistribute } from "./ai";
+import { runClockInRedistribute, activateDeferredPins } from "./ai";
 import logger from "../lib/logger";
 import { getUserIdsWithPermission } from "../lib/permissionUtils";
 import { computeTimeEntryRecipients } from "../lib/broadcastRecipients";
@@ -83,8 +83,13 @@ export function registerTimeEntryRoutes(
         data: { timeEntry, userId },
       });
 
-      // Fire-and-forget: redistribute AI-assigned tasks equally as employees clock in
+      // Fire-and-forget: on clock-in, activate deferred manual pins for this employee
+      // and redistribute AI-assigned tasks equally across clocked-in staff.
       if (!data.clockOutTime) {
+        // Activate any tasks a manager pinned to this employee while they were off-shift
+        activateDeferredPins(userId, storage, broadcastToAll).catch((err: any) =>
+          logger.warn({ error: err?.message }, '[TaskPin] deferred pin activation failed')
+        );
         storage.getCompanySettings().then(settings => {
           if (settings?.taskAutoAssign) {
             runClockInRedistribute(storage, broadcastToAll).catch((err: any) =>

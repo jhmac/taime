@@ -57,15 +57,54 @@ export function registerTaskRoutes(
         return res.status(403).json({ message: "You don't have permission to create tasks" });
       }
 
-      const data = insertTaskSchema.parse({ ...req.body, createdBy: userId });
-      
+      const body: Record<string, unknown> = { ...req.body };
+
+      // Validate and canonicalize eligibleRoles.
+      // Canonical tokens are: all, team, manager, admin, owner.
+      // 'employee' is accepted as a legacy alias and normalized to 'team' at save time.
+      const VALID_ELIGIBLE_ROLES = new Set(['all', 'team', 'employee', 'manager', 'admin', 'owner']);
+      if (!body.eligibleRoles || (body.eligibleRoles as string[]).length === 0) {
+        body.eligibleRoles = ['all'];
+      } else if (Array.isArray(body.eligibleRoles)) {
+        const invalid = (body.eligibleRoles as string[]).filter((r: string) => !VALID_ELIGIBLE_ROLES.has(r));
+        if (invalid.length > 0) {
+          return res.status(400).json({ message: `Invalid eligibleRoles values: ${invalid.join(', ')}. Allowed: all, team, manager, admin, owner` });
+        }
+        // Normalize legacy 'employee' alias to canonical 'team' token
+        body.eligibleRoles = (body.eligibleRoles as string[]).map((r: string) => r === 'employee' ? 'team' : r);
+      }
+
+      // Apply clock-in gating when a manager manually assigns on create.
+      // Same semantics as PATCH: if the target is off-shift, store a deferred pin
+      // (pinnedTo) so the task activates automatically when they clock in.
+      const requestedAssignee = body.assignedTo as string | null | undefined;
+      if (requestedAssignee) {
+        const clockedIn = await storage.getClockedInUsers();
+        const isClockedIn = clockedIn.some(u => u.id === requestedAssignee);
+        if (isClockedIn) {
+          body.assignedTo = requestedAssignee;
+          body.pinnedTo = null;
+        } else {
+          // Defer the pin — employee will be assigned when they clock in
+          body.assignedTo = null;
+          body.pinnedTo = requestedAssignee;
+        }
+        body.isAIAssigned = false;
+        body.aiReasoning = null;
+      } else {
+        body.assignedTo = null;
+        body.pinnedTo = null;
+      }
+
+      const data = insertTaskSchema.parse({ ...body, createdBy: userId });
+
       const task = await storage.createTask(data);
-      
+
       if (data.assignedTo) {
         const dueTime = data.dueDate ? new Date(data.dueDate).toLocaleString() : 'No due date';
         await notificationService.sendTaskAssignment(data.assignedTo, task.title, dueTime);
-      } else {
-        // Auto-assign in background if setting is on and no assignee was provided
+      } else if (!data.pinnedTo) {
+        // Auto-assign in background if setting is on and no pin intent was set
         storage.getCompanySettings().then(settings => {
           if (settings?.taskAutoAssign) {
             runAutoAssign(storage, broadcastToAll).catch(err => {
@@ -127,7 +166,7 @@ export function registerTaskRoutes(
       }
 
       const allowedFields = isManager
-        ? ['title', 'description', 'status', 'priority', 'assignedTo', 'dueDate', 'completedAt', 'completionImageUrl', 'zone']
+        ? ['title', 'description', 'status', 'priority', 'assignedTo', 'dueDate', 'completedAt', 'completionImageUrl', 'zone', 'eligibleRoles']
         : ['status', 'completedAt', 'completionImageUrl', 'notes'];
 
       const safeUpdates: Record<string, any> = {};
@@ -136,9 +175,56 @@ export function registerTaskRoutes(
           safeUpdates[key] = req.body[key];
         }
       }
+
+      // Validate and canonicalize eligibleRoles.
+      // Canonical tokens: all, team, manager, admin, owner. 'employee' accepted as legacy alias.
+      const VALID_ROLE_VALUES = new Set(['all', 'team', 'employee', 'manager', 'admin', 'owner']);
+      if (safeUpdates.eligibleRoles !== undefined) {
+        if (!Array.isArray(safeUpdates.eligibleRoles)) {
+          return res.status(400).json({ message: "eligibleRoles must be an array" });
+        }
+        const invalid = (safeUpdates.eligibleRoles as string[]).filter(r => !VALID_ROLE_VALUES.has(r));
+        if (invalid.length > 0) {
+          return res.status(400).json({ message: `Invalid eligibleRoles values: ${invalid.join(', ')}. Allowed: all, team, manager, admin, owner` });
+        }
+        if (safeUpdates.eligibleRoles.length === 0) {
+          safeUpdates.eligibleRoles = ['all'];
+        } else {
+          // Normalize legacy 'employee' alias to canonical 'team' token
+          safeUpdates.eligibleRoles = (safeUpdates.eligibleRoles as string[]).map(r => r === 'employee' ? 'team' : r);
+        }
+      }
       
       if (safeUpdates.status === 'completed' && !safeUpdates.completedAt) {
         safeUpdates.completedAt = new Date();
+      }
+
+      // When a manager explicitly sets assignedTo, implement pin with clock-in gating.
+      // If the target employee is already clocked in, assign immediately.
+      // If they are off-shift, store a deferred intent in pinnedTo so the task
+      // is activated automatically when that employee clocks in.
+      if (isManager && Object.hasOwn(safeUpdates, 'assignedTo')) {
+        safeUpdates.isAIAssigned = false;
+        safeUpdates.aiReasoning = null;
+        const targetUserId = safeUpdates.assignedTo as string | null;
+        if (!targetUserId) {
+          // Unpin entirely — clear both assignedTo and any deferred intent
+          safeUpdates.assignedTo = null;
+          safeUpdates.pinnedTo = null;
+        } else {
+          // Check if the target is currently clocked in
+          const clockedIn = await storage.getClockedInUsers();
+          const isClockedIn = clockedIn.some(u => u.id === targetUserId);
+          if (isClockedIn) {
+            // Assign immediately; clear any pre-existing deferred pin
+            safeUpdates.assignedTo = targetUserId;
+            safeUpdates.pinnedTo = null;
+          } else {
+            // Defer the pin — store intent, do not assign yet
+            safeUpdates.assignedTo = null;
+            safeUpdates.pinnedTo = targetUserId;
+          }
+        }
       }
 
       const task = await storage.updateTask(id, safeUpdates);

@@ -50,6 +50,14 @@ const PRIORITY_COLORS: Record<string, string> = {
   high: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
 };
 
+const ELIGIBLE_ROLE_OPTIONS = [
+  { value: 'all', label: 'All' },
+  { value: 'team', label: 'Team' },
+  { value: 'manager', label: 'Manager' },
+  { value: 'admin', label: 'Admin' },
+  { value: 'owner', label: 'Owner' },
+];
+
 const emptyForm = {
   title: '',
   description: '',
@@ -63,6 +71,7 @@ const emptyForm = {
   requiresPhoto: false,
   estimatedMinutes: 30,
   dueDate: '',
+  eligibleRoles: ['all'] as string[],
 };
 
 export default function TaskManagement() {
@@ -369,6 +378,7 @@ export default function TaskManagement() {
       requiresPhoto: form.requiresPhoto,
       estimatedMinutes: form.estimatedMinutes || null,
       dueDate: form.dueDate ? new Date(form.dueDate).toISOString() : null,
+      eligibleRoles: form.eligibleRoles.length > 0 ? form.eligibleRoles : ['all'],
     };
 
     if (editingTask) {
@@ -390,9 +400,10 @@ export default function TaskManagement() {
       priority: task.priority || 'medium',
       isRecurring: task.isRecurring || false,
       requiresSignature: task.requiresSignature || false,
-      requiresPhoto: (task as any).requiresPhoto || false,
+      requiresPhoto: task.requiresPhoto || false,
       estimatedMinutes: task.estimatedMinutes || 30,
       dueDate: task.dueDate ? new Date(task.dueDate).toISOString().slice(0, 16) : '',
+      eligibleRoles: task.eligibleRoles && task.eligibleRoles.length > 0 ? task.eligibleRoles : ['all'],
     });
   };
 
@@ -1361,6 +1372,40 @@ export default function TaskManagement() {
                 Team members must take a photo when completing this task. The manager's verification view will show this week's photo next to last week's for easy comparison.
               </p>
             )}
+
+            <div className="border rounded-lg p-3 bg-muted/30 space-y-2">
+              <Label className="text-xs font-medium">Assign to Roles</Label>
+              <p className="text-xs text-muted-foreground">Auto-assign will only distribute this task to employees whose role matches one of the selected options.</p>
+              <div className="flex flex-wrap gap-3 pt-1">
+                {ELIGIBLE_ROLE_OPTIONS.map(option => {
+                  const isChecked = form.eligibleRoles.includes(option.value);
+                  return (
+                    <div key={option.value} className="flex items-center gap-1.5">
+                      <Checkbox
+                        id={`role-${option.value}`}
+                        checked={isChecked}
+                        onCheckedChange={(checked) => {
+                          if (option.value === 'all') {
+                            setForm(prev => ({ ...prev, eligibleRoles: checked ? ['all'] : [] }));
+                          } else {
+                            setForm(prev => {
+                              const withoutAll = prev.eligibleRoles.filter(r => r !== 'all');
+                              const updated = checked
+                                ? [...withoutAll, option.value]
+                                : withoutAll.filter(r => r !== option.value);
+                              return { ...prev, eligibleRoles: updated.length > 0 ? updated : ['all'] };
+                            });
+                          }
+                        }}
+                      />
+                      <label htmlFor={`role-${option.value}`} className="text-xs cursor-pointer select-none">
+                        {option.label}
+                      </label>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
           <DialogFooter className="flex-col sm:flex-row gap-2">
             <Button variant="outline" onClick={() => { setShowCreateDialog(false); setEditingTask(null); setForm(emptyForm); }}>
