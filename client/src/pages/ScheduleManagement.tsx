@@ -591,7 +591,10 @@ export default function ScheduleManagement() {
   const [scheduleView, setScheduleView] = useState<'roster' | 'timeline'>(() => {
     try {
       const stored = localStorage.getItem('scheduleView');
-      return (stored === 'roster' || stored === 'timeline') ? stored : 'roster';
+      if (stored === 'roster' || stored === 'timeline') return stored;
+      // Default to timeline on mobile (no prior preference stored)
+      if (typeof window !== 'undefined' && window.innerWidth < 768) return 'timeline';
+      return 'roster';
     } catch { return 'roster'; }
   });
   // Sub-view: 'day' | 'week' | 'month' | 'year'
@@ -599,7 +602,10 @@ export default function ScheduleManagement() {
     try {
       const stored = localStorage.getItem('scheduleSubView');
       const valid: ScheduleSubView[] = ['day', 'week', 'month', 'year'];
-      return (valid.includes(stored as ScheduleSubView) ? stored : 'week') as ScheduleSubView;
+      if (valid.includes(stored as ScheduleSubView)) return stored as ScheduleSubView;
+      // Default to day view on mobile (no prior preference stored)
+      if (typeof window !== 'undefined' && window.innerWidth < 768) return 'day';
+      return 'week';
     } catch { return 'week'; }
   });
 
@@ -1678,18 +1684,18 @@ export default function ScheduleManagement() {
             </div>
           </div>
         )}
-        <table className="w-full border-collapse min-w-[900px]">
+        <table className="w-full border-collapse min-w-[480px] md:min-w-[900px]">
           <thead>
             <tr className="border-b">
-              <th className="sticky left-0 bg-background z-[5] text-left px-3 py-2 w-[200px] min-w-[200px] border-r">
-                <div className="text-xs text-muted-foreground font-normal">Team members ({activeEmployees.length})</div>
+              <th className="sticky left-0 bg-background z-[5] text-left px-1.5 md:px-3 py-2 w-14 md:w-[200px] min-w-[56px] md:min-w-[200px] border-r">
+                <div className="text-xs text-muted-foreground font-normal hidden md:block">Team members ({activeEmployees.length})</div>
               </th>
               {weekDates.map((date, i) => {
                 const isToday = date.toDateString() === new Date().toDateString();
                 const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
                 const dayNum = date.getDate();
                 return (
-                  <th key={i} className={cn("text-center px-1 py-2 min-w-[100px] border-r last:border-r-0", isToday && "bg-primary/5")}>
+                  <th key={i} className={cn("text-center px-1 py-2 min-w-[60px] md:min-w-[100px] border-r last:border-r-0", isToday && "bg-primary/5")}>
                     <div className={cn("text-xs font-medium flex items-center justify-center", isToday ? "text-primary" : "text-foreground")}>
                       {dayName}, {dayNum}
                       <DayNoteAdminCell
@@ -1707,10 +1713,10 @@ export default function ScheduleManagement() {
           <tbody>
             {/* ── Team Availability Summary Row ──────────────────────────── */}
             <tr className="border-b bg-emerald-50/40 dark:bg-emerald-950/10">
-              <td className="sticky left-0 bg-emerald-50/60 dark:bg-emerald-950/20 z-[5] px-3 py-1.5 border-r">
+              <td className="sticky left-0 bg-emerald-50/60 dark:bg-emerald-950/20 z-[5] px-1.5 md:px-3 py-1.5 border-r w-14 md:w-[200px] min-w-[56px] md:min-w-[200px]">
                 <div className="flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-400 font-medium">
                   <Users className="h-3 w-3 shrink-0" />
-                  Available
+                  <span className="hidden md:inline">Available</span>
                 </div>
               </td>
               {weekDates.map((date, dayIdx) => {
@@ -1783,13 +1789,16 @@ export default function ScheduleManagement() {
               const name = `${emp.firstName} ${emp.lastName}`;
               return (
                 <tr key={emp.id} className="border-b hover:bg-muted/20 group">
-                  {/* Employee Info Cell */}
-                  <td className="sticky left-0 bg-background z-[5] px-3 py-2 border-r group-hover:bg-muted/20">
+                  {/* Employee Info Cell — avatar-only on mobile, full name + stats on desktop */}
+                  <td className="sticky left-0 bg-background z-[5] px-1.5 md:px-3 py-2 border-r group-hover:bg-muted/20 w-14 md:w-[200px] min-w-[56px] md:min-w-[200px]">
                     <div className="flex items-center gap-2">
-                      <div className={cn("w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0", getInitialColor(name))}>
+                      <div
+                        className={cn("w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0", getInitialColor(name))}
+                        title={name}
+                      >
                         {getInitials(emp)}
                       </div>
-                      <div className="min-w-0">
+                      <div className="min-w-0 hidden md:block">
                         <div className="text-sm font-medium truncate">{name}</div>
                         <div className="text-[10px] text-muted-foreground">
                           {stats.hours.toFixed(2)} hrs / ${stats.wages.toFixed(2)}
@@ -2034,8 +2043,8 @@ export default function ScheduleManagement() {
           {/* Totals Footer */}
           <tfoot>
             <tr className="border-t-2 bg-muted/30">
-              <td className="sticky left-0 bg-muted/30 z-[5] px-3 py-2 border-r">
-                <div className="text-xs font-medium">Totals</div>
+              <td className="sticky left-0 bg-muted/30 z-[5] px-1.5 md:px-3 py-2 border-r w-14 md:w-[200px] min-w-[56px] md:min-w-[200px]">
+                <div className="text-xs font-medium hidden md:block">Totals</div>
               </td>
               {dailyTotals.map((totals, i) => (
                 <td key={i} className="text-center px-1 py-2 border-r last:border-r-0">

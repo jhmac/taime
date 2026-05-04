@@ -219,7 +219,7 @@ function ShiftBlock({
         left:     `calc(${leftPct}% + 1px)`,
         width:    `calc(${widthPct}% - 2px)`,
         cursor:   'pointer',
-        minHeight:'32px',
+        minHeight:'44px',
       }}
       onClick={(e) => { e.stopPropagation(); onEdit(s); }}
       title={`${displayName}: ${timeLabel}${s.title ? ` · ${s.title}` : ''}`}
@@ -650,8 +650,13 @@ export default function ScheduleTimelineView({
     return () => window.removeEventListener('resize', check);
   }, []);
 
-  // On mobile, force Day sub-view
-  const effectiveSubView: ScheduleSubView = isMobile ? 'day' : subView;
+  // On mobile, restrict to day/week only — reset if currently on month/year
+  const effectiveSubView: ScheduleSubView = subView;
+  useEffect(() => {
+    if (isMobile && (subView === 'month' || subView === 'year')) {
+      onSubViewChange('day');
+    }
+  }, [isMobile, subView, onSubViewChange]);
 
   // Day view date
   const [dayViewDate, setDayViewDate] = useState<Date>(() => {
@@ -826,9 +831,12 @@ export default function ScheduleTimelineView({
     setMonthViewDate(date);
   }, [onSubViewChange]);
 
-  // Sub-view options
+  // Sub-view options — mobile shows Day + Week, desktop shows all four
   const subViewOptions: { key: ScheduleSubView; label: string }[] = isMobile
-    ? [{ key: 'day', label: 'Day' }]
+    ? [
+        { key: 'day',  label: 'Day'  },
+        { key: 'week', label: 'Week' },
+      ]
     : [
         { key: 'day',   label: 'Day'   },
         { key: 'week',  label: 'Week'  },
