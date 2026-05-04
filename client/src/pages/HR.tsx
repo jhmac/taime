@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,11 +8,18 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import PayrollModal from '@/components/PayrollModal';
-import type { Permission, TimeEntry, Task, Schedule } from '@shared/schema';
+import type { Permission, TimeEntry, Task, Schedule, User } from '@shared/schema';
 
 export default function HR() {
   const { user } = useAuth();
   const [showPayrollModal, setShowPayrollModal] = useState(false);
+  const [liveNow, setLiveNow] = useState(() => new Date());
+
+  // Tick every minute to keep elapsed durations live
+  useEffect(() => {
+    const interval = setInterval(() => setLiveNow(new Date()), 60_000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Fetch user permissions
   const { data: userPermissions = [] } = useQuery<Permission[]>({
@@ -21,11 +28,18 @@ export default function HR() {
   });
 
   const isAdmin = user?.role?.name === 'owner' || user?.role?.name === 'admin';
+  const isManagerOrAdmin = isAdmin || user?.role?.name === 'manager';
   const canManageEmployees = isAdmin || userPermissions?.some?.(p => p.name === 'hr.edit_team' || p.name === 'hr.view_team' || p.name === 'admin.manage_all') || false;
 
   // Fetch time entries
   const { data: timeEntries = [], isLoading: timeEntriesLoading } = useQuery<TimeEntry[]>({
     queryKey: ['/api/time-entries'],
+  });
+
+  // Fetch users for Live Team panel (only needed for admins/managers)
+  const { data: users = [] } = useQuery<User[]>({
+    queryKey: ['/api/users'],
+    enabled: isManagerOrAdmin,
   });
 
   // Fetch tasks
@@ -53,17 +67,39 @@ export default function HR() {
     return entryDate >= startOfWeek && entryDate <= endOfWeek;
   }) || [];
 
-  // Calculate total hours this week
+  // Calculate total hours this week (active sessions use now as end time)
   const totalHoursThisWeek = thisWeekEntries.reduce((total: number, entry: TimeEntry) => {
-    if (entry.clockOutTime) {
-      const clockIn = new Date(entry.clockInTime);
-      const clockOut = new Date(entry.clockOutTime);
-      const hours = (clockOut.getTime() - clockIn.getTime()) / (1000 * 60 * 60);
-      const breakHours = (entry.breakMinutes || 0) / 60;
-      return total + (hours - breakHours);
-    }
-    return total;
+    const clockIn = new Date(entry.clockInTime);
+    const clockOut = entry.clockOutTime ? new Date(entry.clockOutTime) : liveNow;
+    const hours = (clockOut.getTime() - clockIn.getTime()) / (1000 * 60 * 60);
+    const breakHours = (entry.breakMinutes || 0) / 60;
+    return total + Math.max(0, hours - breakHours);
   }, 0);
+
+  // Live Team: employees currently clocked in (open entries from today)
+  const todayStart = new Date(liveNow);
+  todayStart.setHours(0, 0, 0, 0);
+  const liveEntries = (timeEntries as TimeEntry[]).filter((entry: TimeEntry) => {
+    if (entry.clockOutTime) return false;
+    const clockIn = new Date(entry.clockInTime);
+    return clockIn >= todayStart;
+  });
+
+  const formatElapsed = (clockInTime: string | Date) => {
+    const start = new Date(clockInTime);
+    const diffMs = liveNow.getTime() - start.getTime();
+    const totalMins = Math.max(0, Math.floor(diffMs / 60_000));
+    const h = Math.floor(totalMins / 60);
+    const m = totalMins % 60;
+    if (h === 0) return `${m}m`;
+    return `${h}h ${m}m`;
+  };
+
+  const getUserName = (userId: string) => {
+    const found = users.find((u: User) => u.id === userId);
+    if (!found) return 'Unknown';
+    return `${found.firstName || ''} ${found.lastName || ''}`.trim() || found.username || 'Unknown';
+  };
 
   // Calculate attendance rate
   const userSchedulesThisWeek = schedules.filter((schedule: Schedule) => {
@@ -159,6 +195,61 @@ export default function HR() {
           </TabsList>
 
           <TabsContent value="performance" className="space-y-4">
+            {/* Live Team Panel — visible to managers/admins */}
+            {isManagerOrAdmin && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                    </span>
+                    Live Team
+                    {!timeEntriesLoading && (
+                      <Badge className="ml-1 bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
+                        {liveEntries.length} clocked in
+                      </Badge>
+                    )}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {timeEntriesLoading ? (
+                    <div className="space-y-2">
+                      {[...Array(3)].map((_, i) => (
+                        <div key={i} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                          <Skeleton className="h-4 w-32" />
+                          <Skeleton className="h-4 w-16" />
+                        </div>
+                      ))}
+                    </div>
+                  ) : liveEntries.length === 0 ? (
+                    <div className="text-center py-4">
+                      <p className="text-muted-foreground text-sm">No team members currently clocked in</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {liveEntries.map((entry: TimeEntry) => (
+                        <div key={entry.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                          <div>
+                            <p className="font-medium text-sm">{getUserName(entry.userId)}</p>
+                            <p className="text-xs text-muted-foreground">
+                              Since {new Date(entry.clockInTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {entry.breakStartTime && (
+                              <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200 text-xs">On Break</Badge>
+                            )}
+                            <span className="text-sm font-medium tabular-nums">{formatElapsed(entry.clockInTime)}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
             {/* Performance Overview */}
             <Card>
               <CardHeader>

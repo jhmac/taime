@@ -4,10 +4,10 @@ import { useClerk } from '@clerk/clerk-react';
 import {
   User, Clock, Heart, Megaphone, GraduationCap, Trophy,
   AlertTriangle, FileText, Users, Inbox, Zap, FolderOpen,
-  Hourglass, Sprout, ClipboardCheck, ClipboardList, DollarSign,
+  Hourglass, Sprout, ClipboardCheck, ClipboardList,
   FileSpreadsheet, UserCog, ShieldCheck, BarChart, Medal,
   Settings, Cog, LogOut, ChevronRight, Banknote,
-  Coffee, Lightbulb, LifeBuoy, FileDown, Mic,
+  Coffee, Lightbulb, LifeBuoy, Mic,
   Package, Wand2, Wallet, LineChart,
   type LucideIcon,
 } from 'lucide-react';
@@ -105,10 +105,7 @@ export default function MoreMenu() {
         { icon: ClipboardList, label: 'Tasks', subtitle: 'Store task management', path: '/tasks', iconBg: 'bg-blue-100', iconColor: 'text-blue-600' },
         { icon: Package, label: 'Supply Kanban', subtitle: '2-bin inventory counts & reorders', path: '/supply', iconBg: 'bg-orange-100', iconColor: 'text-orange-600' },
         { icon: Users, label: 'Team', subtitle: 'Staff roster & HR records', path: '/team', iconBg: 'bg-slate-100', iconColor: 'text-slate-600' },
-        { icon: DollarSign, label: 'Payroll', subtitle: 'Pay runs & wage management', path: '/payroll', iconBg: 'bg-green-100', iconColor: 'text-green-600' },
         { icon: FileSpreadsheet, label: 'Timesheets', subtitle: 'Review & approve hours', path: '/timesheets', iconBg: 'bg-teal-100', iconColor: 'text-teal-600' },
-        { icon: ClipboardCheck, label: 'Payroll Review', subtitle: 'Review hours, discrepancies & approve', path: '/payroll-review', iconBg: 'bg-emerald-100', iconColor: 'text-emerald-600' },
-        { icon: FileDown, label: 'Payroll Export', subtitle: 'Export payroll data', path: '/payroll-export', iconBg: 'bg-lime-100', iconColor: 'text-lime-600' },
         { icon: UserCog, label: 'HR', subtitle: 'Onboarding & compliance', path: '/hr', iconBg: 'bg-indigo-100', iconColor: 'text-indigo-600' },
         { icon: ShieldCheck, label: 'Roles & Permissions', subtitle: 'Access control', path: '/hr/roles', iconBg: 'bg-red-100', iconColor: 'text-red-500' },
         { icon: BarChart, label: 'Analytics', subtitle: 'Reports & insights', path: '/analytics', iconBg: 'bg-purple-100', iconColor: 'text-purple-600' },

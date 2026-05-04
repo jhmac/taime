@@ -11,7 +11,7 @@ import type { WorkLocation, CompanySettings, ActivityLog, HolidayPayRule } from 
 import {
   Settings, MapPin, Calendar, Clock, DollarSign, Users, User, Bell,
   Shield, FileText, MessageSquare, Store, Menu, X, ChevronRight,
-  ExternalLink, Trophy, BookOpen, BrainCircuit, Building2, Target, Mail
+  ExternalLink, Trophy, BookOpen, BrainCircuit, Building2, Target, Mail, FileDown
 } from 'lucide-react';
 
 import BasicInfoSection from '@/components/settings/BasicInfoSection';
@@ -70,6 +70,8 @@ const SIDEBAR_SECTIONS = [
     category: 'Payroll',
     items: [
       { id: 'payroll', label: 'Payroll settings', icon: DollarSign },
+      { id: 'payroll-runs', label: 'Payroll', icon: DollarSign },
+      { id: 'payroll-export', label: 'Payroll Export', icon: FileDown },
     ],
   },
   {
@@ -585,6 +587,26 @@ export default function AdminSettings() {
         return <BreaksComplianceSection settingsForm={settingsForm} updateForm={updateForm} />;
       case 'payroll':
         return <PayrollSection settingsForm={settingsForm} updateForm={updateForm} />;
+      case 'payroll-runs':
+        return (
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">Manage pay runs and wage information for your team.</p>
+            <Button onClick={() => navigate('/payroll')} className="w-full sm:w-auto">
+              <DollarSign className="w-4 h-4 mr-2" />
+              Go to Payroll
+            </Button>
+          </div>
+        );
+      case 'payroll-export':
+        return (
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">Export payroll data for your accounting or payroll processor.</p>
+            <Button onClick={() => navigate('/payroll-export')} className="w-full sm:w-auto">
+              <FileDown className="w-4 h-4 mr-2" />
+              Go to Payroll Export
+            </Button>
+          </div>
+        );
       case 'time-off':
         return <TimeOffSection settingsForm={settingsForm} updateForm={updateForm} />;
       case 'messages':
@@ -693,7 +715,7 @@ export default function AdminSettings() {
             <h1 className="text-lg font-semibold">Settings</h1>
           </div>
         </div>
-        {activeSection !== 'profile' && activeSection !== 'notifications' && activeSection !== 'manager-log' && activeSection !== 'team-permissions' && activeSection !== 'pos-connection' && activeSection !== 'performance-scoring' && activeSection !== 'sop-management' && activeSection !== 'ai-scheduling' && activeSection !== 'geofencing' && activeSection !== 'offsite-allowances' && activeSection !== 'store-locations' && (
+        {activeSection !== 'profile' && activeSection !== 'notifications' && activeSection !== 'manager-log' && activeSection !== 'team-permissions' && activeSection !== 'pos-connection' && activeSection !== 'performance-scoring' && activeSection !== 'sop-management' && activeSection !== 'ai-scheduling' && activeSection !== 'geofencing' && activeSection !== 'offsite-allowances' && activeSection !== 'store-locations' && activeSection !== 'payroll-runs' && activeSection !== 'payroll-export' && (
           <Button onClick={handleSaveSettings} disabled={updateSettingsMutation.isPending} size="sm">
             {updateSettingsMutation.isPending ? 'Saving...' : 'Save changes'}
           </Button>
