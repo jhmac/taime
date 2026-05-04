@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { Clock, CheckCircle2, ChevronRight, Sparkles, Bell, Home, Calendar, MessageCircle, Users, Zap, TrendingUp, Star } from "lucide-react";
 
 const S = {

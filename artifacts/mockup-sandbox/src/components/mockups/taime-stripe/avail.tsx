@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { ChevronLeft, ChevronRight, Save, Moon, Sun } from "lucide-react";
 
 const S = {
