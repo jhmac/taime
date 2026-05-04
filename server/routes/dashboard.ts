@@ -2,7 +2,7 @@ import type { Express } from "express";
 import type { IStorage } from "../storage";
 import { db } from "../db";
 import { schedules, timeEntries, shopifyDailySales, userShops, users, locationPermissions } from "@shared/schema";
-import { eq, and, gte, lte, lt, desc, isNull, ne, inArray } from "drizzle-orm";
+import { eq, and, gte, lte, lt, desc, isNull, ne, inArray, or } from "drizzle-orm";
 import { cache } from "../services/cache";
 import { gamificationService } from "../services/gamificationService";
 import { setLocationPermission } from "../services/locationPermissionStore";
@@ -507,10 +507,9 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
         .innerJoin(users, eq(timeEntries.userId, users.id))
         .where(and(
           isNull(timeEntries.clockOutTime),
-          ne(timeEntries.userId, userId),
           eq(users.isActive, true),
           eq(users.companyId, companyId),
-          ...(locationName ? [eq(users.locationName, locationName)] : []),
+          ...(locationName ? [or(eq(users.locationName, locationName), isNull(users.locationName))] : []),
         ));
 
       // Deduplicate by userId — keep the earliest clock-in per person
@@ -586,10 +585,9 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
           .where(and(
             gte(schedules.startTime, now),
             lte(schedules.startTime, endOfDay),
-            ne(schedules.userId, userId),
             eq(users.isActive, true),
             eq(users.companyId, companyId),
-            ...(locationName ? [eq(users.locationName, locationName)] : []),
+            ...(locationName ? [or(eq(users.locationName, locationName), isNull(users.locationName))] : []),
           )),
 
         // Exclude anyone currently clocked in (clockOutTime IS NULL = actively on shift)
@@ -599,7 +597,7 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
           .where(and(
             isNull(timeEntries.clockOutTime),
             eq(users.companyId, companyId),
-            ...(locationName ? [eq(users.locationName, locationName)] : []),
+            ...(locationName ? [or(eq(users.locationName, locationName), isNull(users.locationName))] : []),
           )),
       ]);
 

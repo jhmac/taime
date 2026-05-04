@@ -123,6 +123,11 @@ export default function TeamStatusWidget({ hoursStats }: { hoursStats?: HoursSta
     staleTime: 120_000,
   });
 
+  const { data: usersData } = useQuery<any[]>({
+    queryKey: ['/api/users'],
+    staleTime: 300_000,
+  });
+
   const { data: todayData } = useQuery<{
     schedules: ScheduleEntry[];
     summary: { totalLocationBlocked: number };
@@ -192,6 +197,10 @@ export default function TeamStatusWidget({ hoursStats }: { hoursStats?: HoursSta
 
   const todayStr = new Date().toDateString();
   const now = Date.now();
+
+  const userById = new Map<string, { firstName: string | null; lastName: string | null; profileImageUrl: string | null }>(
+    (usersData || []).map((u: any) => [u.id, { firstName: u.firstName ?? null, lastName: u.lastName ?? null, profileImageUrl: u.profileImageUrl ?? null }])
+  );
 
   const todaySchedules: any[] = (schedulesRaw || []).filter(
     (s: any) => s.startTime && new Date(s.startTime).toDateString() === todayStr
@@ -280,24 +289,26 @@ export default function TeamStatusWidget({ hoursStats }: { hoursStats?: HoursSta
           sortTime: schedStart,
         });
       } else if (schedStart > now) {
+        const userInfo = userById.get(sched.userId);
         const shift: UpcomingShift = upcomingShift ?? {
           scheduleId: sched.id || sched.scheduleId || sched.userId,
           userId: sched.userId,
-          firstName: sched.firstName ?? sched.user?.firstName ?? null,
-          lastName: sched.lastName ?? sched.user?.lastName ?? null,
-          profileImageUrl: sched.profileImageUrl ?? sched.user?.profileImageUrl ?? null,
+          firstName: userInfo?.firstName ?? sched.firstName ?? sched.user?.firstName ?? null,
+          lastName: userInfo?.lastName ?? sched.lastName ?? sched.user?.lastName ?? null,
+          profileImageUrl: userInfo?.profileImageUrl ?? sched.profileImageUrl ?? sched.user?.profileImageUrl ?? null,
           startTime: sched.startTime,
           endTime: sched.endTime,
           minutesUntilShift: Math.round((schedStart - now) / 60000),
         };
         combined.push({ kind: 'upcoming', shift, sortTime: schedStart });
       } else {
+        const userInfo = userById.get(sched.userId);
         combined.push({
           kind: 'absent',
           userId: sched.userId,
-          firstName: sched.firstName ?? sched.user?.firstName ?? null,
-          lastName: sched.lastName ?? sched.user?.lastName ?? null,
-          profileImageUrl: sched.profileImageUrl ?? null,
+          firstName: userInfo?.firstName ?? sched.firstName ?? sched.user?.firstName ?? null,
+          lastName: userInfo?.lastName ?? sched.lastName ?? sched.user?.lastName ?? null,
+          profileImageUrl: userInfo?.profileImageUrl ?? sched.profileImageUrl ?? null,
           scheduledStart: sched.startTime,
           scheduledEnd: sched.endTime,
           sortTime: schedStart,
