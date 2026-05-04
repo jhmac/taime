@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { Search, Plus, ChevronRight, Check, CheckCheck, Edit3 } from "lucide-react";
 
 const S = {

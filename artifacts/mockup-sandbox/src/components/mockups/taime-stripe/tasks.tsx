@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { CheckCircle2, Circle, Plus, ChevronRight, Clock, Sparkles, ClipboardList, Package, Repeat } from "lucide-react";
 
 const S = {

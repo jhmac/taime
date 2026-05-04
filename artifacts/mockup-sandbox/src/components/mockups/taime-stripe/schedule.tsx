@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { ChevronLeft, ChevronRight, Plus, Clock, Users, Calendar } from "lucide-react";
 
 const S = {

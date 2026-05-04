@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { BookOpen, Sparkles, ChevronRight, Star, Trophy, CheckCircle2, Play, Zap } from "lucide-react";
 
 const S = {

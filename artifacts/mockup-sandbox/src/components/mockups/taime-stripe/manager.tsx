@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { TrendingUp, TrendingDown, Users, AlertTriangle, Sparkles, ChevronRight, LayoutDashboard, Calendar, MessageCircle, Settings, Clock, CheckCircle2, Bell, MoreHorizontal } from "lucide-react";
 
 const S = {

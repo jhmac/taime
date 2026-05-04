@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { MapPin, Clock, Zap, CheckCircle2, AlertTriangle, ChevronDown } from "lucide-react";
 
 const S = {

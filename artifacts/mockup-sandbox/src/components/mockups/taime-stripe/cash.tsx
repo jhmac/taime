@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import { TrendingUp, TrendingDown, DollarSign, ShoppingBag, AlertTriangle, CheckCircle2, ChevronRight, Camera, Sparkles } from "lucide-react";
 
 const S = {
