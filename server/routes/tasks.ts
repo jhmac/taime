@@ -50,6 +50,12 @@ export function registerTaskRoutes(
   app.post('/api/tasks', isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.id;
+
+      const canCreate = await resolveAnyPermission(userId, ['tasks.create', 'admin.manage_all'], storage);
+      if (!canCreate) {
+        return res.status(403).json({ message: "You don't have permission to create tasks" });
+      }
+
       const data = insertTaskSchema.parse({ ...req.body, createdBy: userId });
       
       const task = await storage.createTask(data);

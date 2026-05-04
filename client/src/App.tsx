@@ -331,7 +331,7 @@ function AuthenticatedApp() {
           <ProtectedRoute permission="hr.view_team"><TeamMember /></ProtectedRoute>
         </Route>
         <Route path="/tasks">
-          <ProtectedRoute><TaskManagement /></ProtectedRoute>
+          <ProtectedRoute allowAllAuthenticated><TaskManagement /></ProtectedRoute>
         </Route>
         <Route path="/schedules" component={ScheduleManagement} />
         <Route path="/availability" component={Availability} />
