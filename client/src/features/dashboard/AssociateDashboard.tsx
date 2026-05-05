@@ -587,12 +587,14 @@ export default function AssociateDashboard() {
   const showPaySummary = companySettings?.showPaySummaryToEmployees ?? false;
 
   const pendingTasks = myTasksToday.filter(t => t.status !== 'completed');
-  // Completed tasks: assigned to this user, completed today (completedAt falls within today's window)
+  // Completed tasks: assigned to this user OR unassigned tasks (they may have completed via the focus card),
+  // with completedAt today — used for the "Done today" undo strip
   const completedTasks = tasks.filter(t => {
-    if (t.assignedTo !== user?.id || t.status !== 'completed') return false;
+    if (t.status !== 'completed') return false;
     if (!t.completedAt) return false;
     const c = new Date(t.completedAt);
-    return c >= today && c <= todayEnd;
+    if (!(c >= today && c <= todayEnd)) return false;
+    return t.assignedTo === user?.id || !t.assignedTo;
   });
   // Unassigned tasks — visible to all clocked-in employees so they can pick them up
   const unassignedTasks = tasks.filter(t => !t.assignedTo && t.status !== 'completed');
@@ -634,6 +636,28 @@ export default function AssociateDashboard() {
           <DashboardErrorBoundary fallback="">
             <SmartSuggestionsCard />
           </DashboardErrorBoundary>
+
+          {/* Done today — undo strip (pre-clock-in) */}
+          {completedTasks.length > 0 && (
+            <DashboardErrorBoundary fallback="">
+              <div className="space-y-1.5">
+                <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground px-1">Done today — tap to undo</p>
+                {completedTasks.map(task => (
+                  <button
+                    key={task.id}
+                    onClick={() => toggleTaskMutation.mutate({ id: task.id, status: 'pending' })}
+                    disabled={toggleTaskMutation.isPending}
+                    className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-left transition-colors hover:bg-muted/30 min-h-[48px]"
+                    style={{ backgroundColor: 'hsl(142 60% 50% / 0.06)', border: '1px solid hsl(142 60% 50% / 0.2)' }}
+                  >
+                    <CheckCircle2 className="h-4 w-4 text-green-500 flex-shrink-0" />
+                    <p className="flex-1 text-sm font-semibold line-through truncate text-muted-foreground">{task.title}</p>
+                    <span className="text-xs text-muted-foreground/50 shrink-0">undo</span>
+                  </button>
+                ))}
+              </div>
+            </DashboardErrorBoundary>
+          )}
 
           {/* Stat chips — 3 column */}
           <div className="grid grid-cols-3 gap-3">
@@ -766,7 +790,7 @@ export default function AssociateDashboard() {
           {completedTasks.length > 0 && (
             <DashboardErrorBoundary fallback="">
               <div className="space-y-1.5">
-                <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground px-1">Done today</p>
+                <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground px-1">Done today — tap to undo</p>
                 {completedTasks.map(task => (
                   <button
                     key={task.id}
