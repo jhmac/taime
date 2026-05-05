@@ -135,7 +135,7 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
           const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
           const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
-          const [todayTimeEntries, todaySchedules] = await withTimeout(
+          const [todayTimeEntries, overnightEntries, todaySchedules] = await withTimeout(
             Promise.all([
               db.select({
                 id: timeEntries.id,
@@ -143,6 +143,16 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
                 clockInTime: timeEntries.clockInTime,
                 clockOutTime: timeEntries.clockOutTime,
               }).from(timeEntries).where(gte(timeEntries.clockInTime, startOfDay)),
+              // Also capture overnight entries (clocked in before midnight, still active)
+              db.select({
+                id: timeEntries.id,
+                userId: timeEntries.userId,
+                clockInTime: timeEntries.clockInTime,
+                clockOutTime: timeEntries.clockOutTime,
+              }).from(timeEntries).where(and(
+                isNull(timeEntries.clockOutTime),
+                lt(timeEntries.clockInTime, startOfDay),
+              )),
               db.select({ id: schedules.id }).from(schedules).where(and(
                 gte(schedules.startTime, startOfDay),
                 lte(schedules.startTime, endOfDay),
@@ -152,7 +162,14 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
             'dashboard/init today-summary',
           );
 
-          const activeEntries = todayTimeEntries.filter(te => !te.clockOutTime);
+          // Merge today entries with overnight active entries (deduplicate by userId)
+          const todayUserIds = new Set(todayTimeEntries.map(te => te.userId));
+          const mergedEntries = [
+            ...todayTimeEntries,
+            ...overnightEntries.filter(te => !todayUserIds.has(te.userId)),
+          ];
+
+          const activeEntries = mergedEntries.filter(te => !te.clockOutTime);
 
           todaySummary = {
             totalClockedIn: activeEntries.length,

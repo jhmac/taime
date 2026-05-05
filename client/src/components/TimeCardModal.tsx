@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { invalidatePrefix } from "@/lib/queryClient";
 import {
@@ -200,6 +200,21 @@ export default function TimeCardModal({
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [isEditing, setIsEditing] = useState(false);
+  // Secondary queries (edit history and offsite sessions) are deferred until
+  // after the modal has had a chance to paint. This prevents UI freezing on
+  // open caused by multiple network requests firing simultaneously before the
+  // dialog renders.
+  const [queriesEnabled, setQueriesEnabled] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      const timer = setTimeout(() => setQueriesEnabled(true), 300);
+      return () => clearTimeout(timer);
+    } else {
+      setQueriesEnabled(false);
+    }
+  }, [open]);
+
   const [editClockIn, setEditClockIn] = useState("");
   const [editClockOut, setEditClockOut] = useState("");
   const [editBreakMinutes, setEditBreakMinutes] = useState("");
@@ -234,12 +249,12 @@ export default function TimeCardModal({
     EditHistoryItem[]
   >({
     queryKey: ["/api/time-entries", entry?.id, "history"],
-    enabled: !!entry?.id && open,
+    enabled: !!entry?.id && open && queriesEnabled,
   });
 
   const { data: offsiteSessions } = useQuery<OffsiteSessionData[]>({
     queryKey: ["/api/offsite-sessions/employee", employee?.userId],
-    enabled: !!employee?.userId && open,
+    enabled: !!employee?.userId && open && queriesEnabled,
     select: (sessions: OffsiteSessionData[]) => {
       if (!entry) return [];
       const entryStart = new Date(entry.clockInTime).getTime();

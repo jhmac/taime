@@ -1240,11 +1240,14 @@ function ResolveDiscrepancyDialog({
   onResolved: () => void;
 }) {
   const { toast } = useToast();
-  const [action, setAction] = useState<"excuse" | "add_time_card">("excuse");
   const [reason, setReason] = useState("");
   const [clockInTime, setClockInTime] = useState("09:00");
   const [clockOutTime, setClockOutTime] = useState("17:00");
   const [breakMins, setBreakMins] = useState("0");
+
+  const hasScheduled = !!(alert?.scheduledStart);
+  const scheduledClockIn = toTimeInput(alert?.scheduledStart) || "09:00";
+  const scheduledClockOut = toTimeInput(alert?.scheduledEnd) || "17:00";
 
   useEffect(() => {
     if (open && alert) {
@@ -1254,7 +1257,6 @@ function ResolveDiscrepancyDialog({
         "09:00"
       );
       setClockOutTime(toTimeInput(alert.scheduledEnd) || "17:00");
-      setAction("excuse");
       setReason("");
       setBreakMins("0");
     }
@@ -1266,34 +1268,22 @@ function ResolveDiscrepancyDialog({
     : "Employee";
 
   const resolveMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (opts: { action: "excuse" | "add_time_card"; ciTime?: string; coTime?: string; defaultReason?: string }) => {
       if (!alert) return;
-
-      const payload: {
-        action: "excuse" | "add_time_card";
-        employeeId: string;
-        date: string;
-        discrepancyType: string;
-        reason: string;
-        entryId?: string;
-        clockInTime?: string;
-        clockOutTime?: string;
-        breakMinutes?: number;
-      } = {
-        action,
+      const effectiveReason = reason.trim() || opts.defaultReason || "";
+      const payload: Record<string, unknown> = {
+        action: opts.action,
         employeeId: alert.userId,
         date: alert.date,
         discrepancyType: alert.type,
-        reason,
+        reason: effectiveReason,
         entryId: alert.entryId || undefined,
       };
-
-      if (action === "add_time_card") {
-        payload.clockInTime = clockInTime;
-        payload.clockOutTime = clockOutTime || undefined;
+      if (opts.action === "add_time_card") {
+        payload.clockInTime = opts.ciTime ?? clockInTime;
+        payload.clockOutTime = (opts.coTime ?? clockOutTime) || undefined;
         payload.breakMinutes = parseInt(breakMins) || 0;
       }
-
       await apiRequest("POST", "/api/timesheets/resolve-discrepancy", payload);
     },
     onSuccess: () => {
@@ -1320,76 +1310,96 @@ function ResolveDiscrepancyDialog({
           </DialogTitle>
           <DialogDescription>
             {employeeName} &bull; {formatDate(alert.date)}
-            {alert.scheduledStart && (
-              <span className="block mt-1 text-xs">
-                Scheduled: {formatTime(alert.scheduledStart)} – {formatTime(alert.scheduledEnd || null)}
-                {alert.scheduledHours != null && ` (${alert.scheduledHours.toFixed(1)} hr)`}
-              </span>
-            )}
           </DialogDescription>
         </DialogHeader>
-        <div className="grid gap-4 py-4">
-          <div className="grid gap-2">
-            <Label>Resolution action</Label>
-            <Select value={action} onValueChange={(v) => setAction(v as "excuse" | "add_time_card")}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="excuse">Mark as excused absence</SelectItem>
-                <SelectItem value="add_time_card">Add manual time card</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
 
-          {action === "add_time_card" && (
-            <>
-              {alert?.scheduledStart && (
-                <div className="flex items-center justify-between rounded-md bg-muted/60 px-3 py-2 text-sm text-muted-foreground">
-                  <span>Scheduled shift</span>
-                  <span className="font-medium">
-                    {formatTime(alert.scheduledStart)} – {formatTime(alert.scheduledEnd ?? null)}
+        <div className="grid gap-4 py-2">
+          {hasScheduled && (
+            <div className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/20 px-4 py-3">
+              <p className="text-xs font-semibold text-red-700 dark:text-red-400 uppercase tracking-wide mb-1">
+                Scheduled shift (missing)
+              </p>
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-mono font-medium text-red-800 dark:text-red-300">
+                  {formatTime(alert.scheduledStart)} – {formatTime(alert.scheduledEnd ?? null)}
+                </span>
+                {alert.scheduledHours != null && (
+                  <span className="text-xs text-red-600 dark:text-red-400">
+                    {alert.scheduledHours.toFixed(1)} hr
                   </span>
-                </div>
-              )}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="grid gap-2">
-                  <Label>Clock In</Label>
-                  <Input type="time" value={clockInTime} onChange={(e) => setClockInTime(e.target.value)} />
-                </div>
-                <div className="grid gap-2">
-                  <Label>Clock Out</Label>
-                  <Input type="time" value={clockOutTime} onChange={(e) => setClockOutTime(e.target.value)} />
-                </div>
+                )}
               </div>
-              <div className="grid gap-2">
-                <Label>Break Minutes</Label>
-                <Input type="number" min="0" value={breakMins} onChange={(e) => setBreakMins(e.target.value)} />
-              </div>
-            </>
+              <Button
+                size="sm"
+                className="mt-3 w-full"
+                disabled={resolveMutation.isPending}
+                onClick={() =>
+                  resolveMutation.mutate({
+                    action: "add_time_card",
+                    ciTime: scheduledClockIn,
+                    coTime: scheduledClockOut,
+                    defaultReason: "Scheduled shift time recorded by manager",
+                  })
+                }
+              >
+                {resolveMutation.isPending ? "Saving…" : "Save Scheduled Time"}
+              </Button>
+            </div>
           )}
 
-          <div className="grid gap-2">
-            <Label>
+          <div className="relative">
+            {hasScheduled && (
+              <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 flex items-center">
+                <div className="flex-1 border-t border-border" />
+                <span className="px-2 text-xs text-muted-foreground bg-background">or enter manually</span>
+                <div className="flex-1 border-t border-border" />
+              </div>
+            )}
+            {!hasScheduled && (
+              <p className="text-xs font-medium text-muted-foreground mb-2">Enter time card manually</p>
+            )}
+          </div>
+
+          <div className={cn("grid gap-4", hasScheduled && "pt-3")}>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-1.5">
+                <Label className="text-xs">Clock In</Label>
+                <Input type="time" value={clockInTime} onChange={(e) => setClockInTime(e.target.value)} className="h-8 text-sm" />
+              </div>
+              <div className="grid gap-1.5">
+                <Label className="text-xs">Clock Out</Label>
+                <Input type="time" value={clockOutTime} onChange={(e) => setClockOutTime(e.target.value)} className="h-8 text-sm" />
+              </div>
+            </div>
+            <div className="grid gap-1.5">
+              <Label className="text-xs">Break Minutes</Label>
+              <Input type="number" min="0" value={breakMins} onChange={(e) => setBreakMins(e.target.value)} className="h-8 text-sm" />
+            </div>
+          </div>
+
+          <div className="grid gap-1.5">
+            <Label className="text-xs">
               Reason <span className="text-red-500">*</span>
             </Label>
             <Textarea
-              placeholder={action === "excuse" ? "e.g. Employee called in sick, doctor's note provided" : "e.g. Employee forgot to clock in, verified by manager"}
+              placeholder="e.g. Employee forgot to clock in, verified by manager"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              className="min-h-[80px]"
+              className="min-h-[72px] text-sm"
             />
           </div>
         </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+
+        <DialogFooter className="gap-2">
+          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
           <Button
-            onClick={() => resolveMutation.mutate()}
+            size="sm"
             disabled={resolveMutation.isPending || !reason.trim()}
+            onClick={() => resolveMutation.mutate({ action: "add_time_card" })}
           >
-            {resolveMutation.isPending ? "Saving…" : "Resolve & Save"}
+            {resolveMutation.isPending ? "Saving…" : "Save Manual Time"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1496,6 +1506,7 @@ function PayPeriodReviewTab({
   const [addTimeCardEmployeeId, setAddTimeCardEmployeeId] = useState<string | undefined>();
   const [resolveOpen, setResolveOpen] = useState(false);
   const [resolveAlert, setResolveAlert] = useState<DiscrepancyAlert | null>(null);
+  const [hoursOnlyFilter, setHoursOnlyFilter] = useState(false);
 
   const handleAddTimeCard = (employeeId: string) => {
     setAddTimeCardEmployeeId(employeeId);
@@ -1520,6 +1531,12 @@ function PayPeriodReviewTab({
   };
 
   const allDiscrepancies = data?.discrepancyAlerts || [];
+
+  const visibleEmployees = useMemo(() => {
+    if (!data) return [];
+    if (!hoursOnlyFilter) return data.employees;
+    return data.employees.filter((e) => (e.actualHours ?? 0) > 0);
+  }, [data, hoursOnlyFilter]);
 
   if (isLoading) {
     return (
@@ -1570,6 +1587,21 @@ function PayPeriodReviewTab({
       />
     <Card>
       <CardContent className="p-0">
+        <div className="flex items-center justify-between px-4 py-2 border-b">
+          <span className="text-sm text-muted-foreground">
+            {hoursOnlyFilter
+              ? `${visibleEmployees.length} of ${data.employees.length} employees`
+              : `${data.employees.length} employees`}
+          </span>
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <Switch
+              checked={hoursOnlyFilter}
+              onCheckedChange={setHoursOnlyFilter}
+              id="hours-only-filter"
+            />
+            <span className="text-sm text-muted-foreground">Hours only</span>
+          </label>
+        </div>
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
@@ -1582,7 +1614,7 @@ function PayPeriodReviewTab({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {data.employees.map((emp) => (
+              {visibleEmployees.map((emp) => (
                 <ExpandableEmployeeRow
                   key={emp.userId}
                   employee={emp}
@@ -1597,7 +1629,7 @@ function PayPeriodReviewTab({
               <TableRow className="bg-muted font-semibold border-t-2">
                 <TableCell>
                   <span className="text-sm font-semibold">
-                    Totals ({data.employees.length} employees)
+                    Period totals ({data.employees.length} employee{data.employees.length !== 1 ? "s" : ""})
                   </span>
                 </TableCell>
                 <TableCell className="text-right font-mono text-sm">
