@@ -160,8 +160,10 @@ export function registerTaskRoutes(
 
       const isManager = await resolveAnyPermission(userId, ['admin.manage_all', 'hr.manage_employees'], storage);
       const isAssignee = existing.assignedTo === userId;
+      // Allow any employee to claim+complete an unassigned task (team chores surfaced by AI)
+      const isUnassignedClaim = !existing.assignedTo && req.body?.status === 'completed';
 
-      if (!isAssignee && !isManager) {
+      if (!isAssignee && !isManager && !isUnassignedClaim) {
         return res.status(403).json({ message: "You can only update tasks assigned to you" });
       }
 
@@ -197,6 +199,12 @@ export function registerTaskRoutes(
       
       if (safeUpdates.status === 'completed' && !safeUpdates.completedAt) {
         safeUpdates.completedAt = new Date();
+      }
+
+      // When an employee claims an unassigned task by completing it, assign it to them
+      // so it appears in their "Done today" strip and gamification tracking.
+      if (isUnassignedClaim) {
+        safeUpdates.assignedTo = userId;
       }
 
       // When a manager explicitly sets assignedTo, implement pin with clock-in gating.
