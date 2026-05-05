@@ -19,6 +19,7 @@ import { isNativePlatform } from "@/lib/capacitor";
 import { NATIVE_OAUTH_REDIRECT } from "@/hooks/useNativeClerkSignIn";
 import type { Permission } from "@shared/schema";
 const OnboardingGuard = lazy(() => import("@/components/OnboardingGuard"));
+const LocationPermissionGate = lazy(() => import("@/components/LocationPermissionGate"));
 
 function ClerkSessionWatcher() {
   const clerk = useClerk();
@@ -535,7 +536,9 @@ function Router() {
         <SignedIn>
           <Suspense fallback={<PageLoader />}>
             <OnboardingGuard>
-              <AuthenticatedApp />
+              <LocationPermissionGate>
+                <AuthenticatedApp />
+              </LocationPermissionGate>
             </OnboardingGuard>
           </Suspense>
         </SignedIn>
