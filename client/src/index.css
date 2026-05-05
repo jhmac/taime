@@ -5,7 +5,7 @@
 :root {
   /* Navigation layout constants — update here if nav bar height changes */
   --top-nav-height: 3.5rem;    /* TopNavigation h-14 = 56px */
-  --bottom-nav-height: 7rem;   /* BottomNavigation pill + safe indicator ≈ 112px */
+  --bottom-nav-height: 4.5rem; /* BottomNavigation flat tab bar ≈ 72px */
 
   /* Taime — Stripe-inspired Indigo/Navy Design System */
   --background: hsl(220 60% 98%);

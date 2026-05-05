@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
-import { Home, Calendar, Users, MessageCircle, Settings, LayoutDashboard, Sparkles, type LucideIcon } from 'lucide-react';
+import { Home, Calendar, MessageCircle, Settings, LayoutDashboard, Sparkles, type LucideIcon } from 'lucide-react';
 
 type NavItem = {
   path?: string;
@@ -75,67 +75,52 @@ export default function BottomNavigation() {
 
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 z-50 safe-area-bottom"
-      style={{
-        background: 'linear-gradient(to top, var(--background) 55%, transparent)',
-        paddingTop: 10,
-      }}
+      className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-border safe-area-bottom"
       data-testid="bottom-navigation"
     >
-      <div
-        className="mx-3 mb-2 rounded-[24px] border border-border/60 backdrop-blur-xl"
-        style={{
-          backgroundColor: 'rgba(255,255,255,0.88)',
-          boxShadow: '0 10px 30px rgba(15, 23, 42, 0.08)',
-          padding: '6px 14px 4px',
-        }}
-      >
-        <div className="flex justify-between items-center">
-          {navItems.map((item) => {
-            const active = isActive(item);
-            const Icon = item.icon;
-            const handleClick = () => {
-              if (item.action) {
-                item.action();
-              } else if (item.path) {
-                navigate(item.path);
-              }
-            };
-            return (
-              <button
-                key={item.key}
-                onClick={handleClick}
-                className="flex flex-col items-center gap-1 relative transition-transform active:scale-95 min-w-0 flex-1"
-                data-testid={`nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
-              >
-                {active ? (
-                  <>
-                    <div
-                      className="w-10 h-10 rounded-[18px] flex items-center justify-center shadow-sm"
-                      style={{ backgroundColor: 'var(--primary)' }}
-                    >
-                      <Icon size={18} strokeWidth={2.5} className="text-white" />
-                    </div>
-                    <span className="text-[10px] font-semibold leading-none" style={{ color: 'var(--primary)' }}>
-                      {item.label}
-                    </span>
-                  </>
-                ) : (
-                  <div className="flex flex-col items-center pt-1.5 pb-0.5 relative">
-                    <Icon size={18} strokeWidth={1.8} className="text-muted-foreground" />
-                    {item.badge && unreadCount > 0 && (
-                      <span className="absolute -top-1 -right-2.5 bg-red-500 text-white text-[9px] font-bold rounded-full h-4 min-w-[16px] flex items-center justify-center px-0.5">
-                        {unreadCount > 99 ? '99+' : unreadCount}
-                      </span>
-                    )}
-                  </div>
+      <div className="flex items-stretch">
+        {navItems.map((item) => {
+          const active = isActive(item);
+          const Icon = item.icon;
+          const handleClick = () => {
+            if (item.action) {
+              item.action();
+            } else if (item.path) {
+              navigate(item.path);
+            }
+          };
+          return (
+            <button
+              key={item.key}
+              onClick={handleClick}
+              className="flex flex-col items-center justify-center gap-1 flex-1 py-2.5 relative active:opacity-70 transition-opacity"
+              data-testid={`nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
+            >
+              <span className="relative">
+                <Icon
+                  size={22}
+                  strokeWidth={active ? 2.2 : 1.7}
+                  style={{ color: active ? 'var(--primary)' : 'hsl(220 15% 55%)' }}
+                />
+                {item.badge && unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-2.5 bg-red-500 text-white text-[9px] font-bold rounded-full h-4 min-w-[16px] flex items-center justify-center px-0.5">
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
                 )}
-              </button>
-            );
-          })}
-        </div>
+              </span>
+              <span
+                className="text-[10px] leading-none"
+                style={{
+                  color: active ? 'var(--primary)' : 'hsl(220 15% 55%)',
+                  fontWeight: active ? 600 : 400,
+                }}
+              >
+                {item.label}
+              </span>
+            </button>
+          );
+        })}
       </div>
-      <div className="w-28 h-1 rounded-full mx-auto mb-1" style={{ backgroundColor: 'rgba(13,31,60,0.12)' }} />
     </nav>
   );
 }
