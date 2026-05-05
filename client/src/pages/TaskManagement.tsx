@@ -33,6 +33,13 @@ type VerificationItem = {
 };
 
 const DAYS_OF_WEEK = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+const DAY_TOGGLES = [
+  { label: 'Mo', num: 1 }, { label: 'Tu', num: 2 }, { label: 'We', num: 3 },
+  { label: 'Th', num: 4 }, { label: 'Fr', num: 5 }, { label: 'Sa', num: 6 }, { label: 'Su', num: 0 },
+];
+const DAY_NAME_TO_NUM: Record<string, number> = {
+  sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6,
+};
 const TIME_PERIODS = ['morning', 'afternoon', 'evening'];
 const CHORE_ZONES = ['zone 1', 'zone 2', 'zone 3', 'zone 4', 'zone 5'];
 const PRIORITIES = ['low', 'medium', 'high'];
@@ -63,6 +70,7 @@ const emptyForm = {
   description: '',
   assignedTo: '',
   dayOfWeek: '',
+  daysOfWeek: [] as number[],
   timeOfDay: '',
   choreZone: '',
   priority: 'medium',
@@ -395,6 +403,7 @@ export default function TaskManagement() {
       description: form.description || null,
       assignedTo: form.assignedTo || null,
       dayOfWeek: form.dayOfWeek || null,
+      daysOfWeek: form.daysOfWeek.length > 0 ? form.daysOfWeek : null,
       timeOfDay: form.timeOfDay || null,
       choreZone: form.choreZone || null,
       priority: form.priority,
@@ -415,11 +424,18 @@ export default function TaskManagement() {
 
   const openEdit = (task: Task) => {
     setEditingTask(task);
+    // Migrate legacy single dayOfWeek string into the new daysOfWeek array if needed
+    const existingDays = Array.isArray(task.daysOfWeek) && task.daysOfWeek.length > 0
+      ? task.daysOfWeek
+      : task.dayOfWeek && DAY_NAME_TO_NUM[task.dayOfWeek] !== undefined
+        ? [DAY_NAME_TO_NUM[task.dayOfWeek]]
+        : [];
     setForm({
       title: task.title || '',
       description: task.description || '',
       assignedTo: task.assignedTo || '',
       dayOfWeek: task.dayOfWeek || '',
+      daysOfWeek: existingDays,
       timeOfDay: task.timeOfDay || '',
       choreZone: task.choreZone || '',
       priority: task.priority || 'medium',
@@ -448,7 +464,17 @@ export default function TaskManagement() {
     if (activeTab === 'recurring' && !task.isRecurring) return false;
     if (activeTab === 'one-time' && task.isRecurring) return false;
     if (activeTab === 'my-tasks' && task.assignedTo !== user?.id) return false;
-    if (filterDay !== 'all' && task.dayOfWeek !== filterDay) return false;
+    if (filterDay !== 'all') {
+      const dayNum = DAY_NAME_TO_NUM[filterDay] ?? -1;
+      const hasDays = Array.isArray(task.daysOfWeek) && task.daysOfWeek.length > 0;
+      if (hasDays) {
+        if (!task.daysOfWeek!.includes(dayNum)) return false;
+      } else if (task.dayOfWeek) {
+        if (task.dayOfWeek !== filterDay) return false;
+      } else {
+        return false;
+      }
+    }
     if (filterZone !== 'all' && task.choreZone !== filterZone) return false;
     if (filterStatus !== 'all' && task.status !== filterStatus) return false;
     if (filterAssigned === 'unassigned' && task.assignedTo) return false;
@@ -1411,21 +1437,35 @@ export default function TaskManagement() {
                 </Select>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label>Day of Week</Label>
-                <Select value={form.dayOfWeek || 'none'} onValueChange={val => setForm(prev => ({ ...prev, dayOfWeek: val === 'none' ? '' : val }))}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select day" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">No specific day</SelectItem>
-                    {DAYS_OF_WEEK.map(d => (
-                      <SelectItem key={d} value={d}>{d.charAt(0).toUpperCase() + d.slice(1)}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+            <div>
+              <Label>Scheduled Days</Label>
+              <div className="flex gap-1.5 flex-wrap pt-1.5">
+                {DAY_TOGGLES.map(({ label, num }) => {
+                  const active = form.daysOfWeek.includes(num);
+                  return (
+                    <button
+                      key={num}
+                      type="button"
+                      onClick={() => setForm(prev => ({
+                        ...prev,
+                        daysOfWeek: active
+                          ? prev.daysOfWeek.filter(d => d !== num)
+                          : [...prev.daysOfWeek, num],
+                      }))}
+                      className={`w-9 h-9 rounded-full text-xs font-bold border transition-colors ${
+                        active
+                          ? 'bg-primary text-primary-foreground border-primary'
+                          : 'bg-background text-muted-foreground border-border hover:border-primary/50'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
               </div>
+              <p className="text-xs text-muted-foreground mt-1">Leave empty to show every day</p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label>Time of Day</Label>
                 <Select value={form.timeOfDay || 'none'} onValueChange={val => setForm(prev => ({ ...prev, timeOfDay: val === 'none' ? '' : val }))}>

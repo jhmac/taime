@@ -171,7 +171,7 @@ export function registerTaskRoutes(
       }
 
       const allowedFields = isManager
-        ? ['title', 'description', 'status', 'priority', 'assignedTo', 'dueDate', 'completedAt', 'completionImageUrl', 'zone', 'eligibleRoles']
+        ? ['title', 'description', 'status', 'priority', 'assignedTo', 'dueDate', 'completedAt', 'completionImageUrl', 'zone', 'eligibleRoles', 'daysOfWeek', 'dayOfWeek', 'timeOfDay', 'choreZone', 'isRecurring', 'estimatedMinutes']
         : ['status', 'completedAt', 'completionImageUrl', 'notes'];
 
       const safeUpdates: Record<string, any> = {};

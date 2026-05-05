@@ -558,10 +558,15 @@ export default function AssociateDashboard() {
   };
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const todayEnd = new Date(today); todayEnd.setHours(23, 59, 59, 999);
-  // Show ALL tasks assigned to this user that aren't completed (not just ones with today's due date)
-  const myTasksToday = tasks.filter(t =>
-    t.assignedTo === user?.id && t.status !== 'completed'
-  );
+  const todayDayNum = new Date().getDay(); // 0=Sun … 6=Sat
+  // Show tasks assigned to this user that aren't completed AND are scheduled for today
+  // (if daysOfWeek is set; otherwise show every day for backwards-compat)
+  const myTasksToday = tasks.filter(t => {
+    if (t.assignedTo !== user?.id || t.status === 'completed') return false;
+    const days = Array.isArray(t.daysOfWeek) ? t.daysOfWeek : [];
+    if (days.length > 0) return days.includes(todayDayNum);
+    return true; // no days set → always visible
+  });
 
 
   const toggleTaskMutation = useMutation({

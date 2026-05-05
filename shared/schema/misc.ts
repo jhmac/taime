@@ -41,6 +41,7 @@ export const tasks = pgTable("tasks", {
   completedAt: timestamp("completed_at"),
   createdAt: timestamp("created_at").defaultNow(),
   dayOfWeek: varchar("day_of_week"),
+  daysOfWeek: integer("days_of_week").array(),
   timeOfDay: varchar("time_of_day"),
   isRecurring: boolean("is_recurring").default(false),
   requiresSignature: boolean("requires_signature").default(false),

@@ -450,6 +450,11 @@ export async function runSchemaMigrations(): Promise<void> {
       table: "tasks",
       sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS pinned_to varchar REFERENCES users(id)`,
     },
+    // days_of_week: integer array (0=Sun … 6=Sat) for multi-day scheduling
+    {
+      table: "tasks",
+      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS days_of_week integer[]`,
+    },
     // Task #576 — review_status: admin trip approval/flag status (migration 0027)
     {
       table: "offsite_sessions",

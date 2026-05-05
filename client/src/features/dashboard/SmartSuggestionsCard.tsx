@@ -185,9 +185,13 @@ export default function SmartSuggestionsCard() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/tasks"] }),
   });
 
-  const myTasks = allTasks.filter(
-    (t) => t.assignedTo === user?.id && t.status !== "completed"
-  );
+  const todayDayNum = new Date().getDay(); // 0=Sun … 6=Sat
+  const myTasks = allTasks.filter((t) => {
+    if (t.assignedTo !== user?.id || t.status === "completed") return false;
+    const days = Array.isArray(t.daysOfWeek) ? t.daysOfWeek : [];
+    if (days.length > 0) return days.includes(todayDayNum);
+    return true; // no days set → always visible
+  });
 
   const allSuggestions = suggestionsRes?.data?.suggestions ?? [];
   // Hide suggestions that were just completed inline
