@@ -1,12 +1,14 @@
 import { anthropic, withAiContext } from "../lib/aiClients";
 import { config } from "../lib/config";
 import { db } from "../db";
-import { eq, and, gte, lte, desc, sql, isNull, isNotNull } from "drizzle-orm";
+import { eq, and, gte, lte, desc, sql, isNull, isNotNull, inArray } from "drizzle-orm";
 import {
   drawerSessions, cashDeposits, cashDiscrepancyLog, cashManagementSettings,
-  timeEntries, users,
+  shopifyRegisterSessions, timeEntries, users, roles,
 } from "@shared/schema";
 import { resolveStoreId } from "./storeResolver";
+import { notificationService } from "./notificationService";
+import { sendReconciliationAlertEmail } from "./cashReconciliationEmail";
 import logger from "../lib/logger";
 
 const MODEL = "claude-sonnet-4-20250514";
@@ -531,4 +533,198 @@ export async function getEmployeeCashProfile(storeId: string, userId: string, da
 
 function formatCurrency(amount: number): string {
   return `$${Math.abs(amount).toFixed(2)}${amount < 0 ? " short" : amount > 0 ? " over" : ""}`;
+}
+
+export interface ReconciliationResult {
+  shopifyExpectedCash: number | null;
+  physicalCountCash: number | null;
+  depositSlipAmount: number | null;
+  shopifyVsCountDelta: number | null;
+  countVsDepositDelta: number | null;
+  shopifyVsDepositDelta: number | null;
+  threshold: number;
+  hasDiscrepancy: boolean;
+  discrepancySources: Array<{ pair: string; delta: number; exceeds: boolean }>;
+}
+
+export async function reconcileDrawer(
+  drawerSessionId: string,
+  depositId: string,
+  storeId: string,
+): Promise<ReconciliationResult> {
+  const [settings] = await db.select().from(cashManagementSettings)
+    .where(eq(cashManagementSettings.storeId, storeId));
+  const threshold = parseFloat(settings?.overShortThreshold || "5.00");
+
+  const [session] = await db.select().from(drawerSessions)
+    .where(and(eq(drawerSessions.id, drawerSessionId), eq(drawerSessions.storeId, storeId)));
+
+  if (!session) {
+    throw new Error(`Drawer session ${drawerSessionId} not found for store ${storeId}`);
+  }
+
+  const [deposit] = await db.select().from(cashDeposits)
+    .where(and(eq(cashDeposits.id, depositId), eq(cashDeposits.storeId, storeId)));
+
+  if (!deposit) {
+    throw new Error(`Deposit ${depositId} not found for store ${storeId}`);
+  }
+
+  const physicalCountCash = session?.totalCashCounted
+    ? parseFloat(session.totalCashCounted)
+    : null;
+
+  // Prefer Shopify's authoritative expectedClosingCash; fall back to drawerSession.expectedCash
+  let shopifyExpectedCash: number | null = null;
+  if (session) {
+    const [shopifySession] = await db.select().from(shopifyRegisterSessions)
+      .where(and(
+        eq(shopifyRegisterSessions.storeId, storeId),
+        eq(shopifyRegisterSessions.sessionDate, session.sessionDate),
+        eq(shopifyRegisterSessions.registerName, session.registerName),
+      ));
+    if (shopifySession?.expectedClosingCash != null) {
+      shopifyExpectedCash = parseFloat(shopifySession.expectedClosingCash);
+    } else if (session.expectedCash != null) {
+      shopifyExpectedCash = parseFloat(session.expectedCash);
+    }
+  }
+
+  const depositSlipAmount = deposit?.aiExtractedAmount
+    ? parseFloat(deposit.aiExtractedAmount)
+    : null;
+
+  const shopifyVsCountDelta =
+    shopifyExpectedCash != null && physicalCountCash != null
+      ? Math.round((physicalCountCash - shopifyExpectedCash) * 100) / 100
+      : null;
+
+  const countVsDepositDelta =
+    physicalCountCash != null && depositSlipAmount != null
+      ? Math.round((depositSlipAmount - physicalCountCash + parseFloat(session?.startingCash || "200")) * 100) / 100
+      : null;
+
+  const shopifyVsDepositDelta =
+    shopifyExpectedCash != null && depositSlipAmount != null
+      ? Math.round((depositSlipAmount - (shopifyExpectedCash - parseFloat(session?.startingCash || "200"))) * 100) / 100
+      : null;
+
+  const discrepancySources: Array<{ pair: string; delta: number; exceeds: boolean }> = [];
+  if (shopifyVsCountDelta != null && Math.abs(shopifyVsCountDelta) > 0.005) {
+    discrepancySources.push({ pair: "shopify_vs_count", delta: shopifyVsCountDelta, exceeds: Math.abs(shopifyVsCountDelta) > threshold });
+  }
+  if (countVsDepositDelta != null && Math.abs(countVsDepositDelta) > 0.005) {
+    discrepancySources.push({ pair: "count_vs_deposit", delta: countVsDepositDelta, exceeds: Math.abs(countVsDepositDelta) > threshold });
+  }
+  if (shopifyVsDepositDelta != null && Math.abs(shopifyVsDepositDelta) > 0.005) {
+    discrepancySources.push({ pair: "shopify_vs_deposit", delta: shopifyVsDepositDelta, exceeds: Math.abs(shopifyVsDepositDelta) > threshold });
+  }
+
+  const hasDiscrepancy = discrepancySources.some(s => s.exceeds);
+  const reconStatus = hasDiscrepancy ? "discrepancy" : discrepancySources.length > 0 ? "within_tolerance" : "matched";
+
+  await db.update(cashDeposits).set({
+    shopifyExpectedCash: shopifyExpectedCash?.toFixed(2) ?? null,
+    physicalCountCash: physicalCountCash?.toFixed(2) ?? null,
+    shopifyVsCountDelta: shopifyVsCountDelta?.toFixed(2) ?? null,
+    countVsDepositDelta: countVsDepositDelta?.toFixed(2) ?? null,
+    shopifyVsDepositDelta: shopifyVsDepositDelta?.toFixed(2) ?? null,
+    reconciliationStatus: reconStatus,
+  }).where(eq(cashDeposits.id, depositId));
+
+  if (hasDiscrepancy && session) {
+    const largestDelta = discrepancySources.filter(s => s.exceeds).reduce((max, s) => Math.abs(s.delta) > Math.abs(max.delta) ? s : max, discrepancySources[0]);
+
+    await db.insert(cashDiscrepancyLog).values({
+      storeId,
+      drawerSessionId: session.id,
+      depositId,
+      sessionDate: session.sessionDate,
+      registerName: session.registerName,
+      sessionType: "reconciliation",
+      countedBy: session.countedBy || null,
+      amount: String(largestDelta.delta),
+      explanation: `Reconciliation: ${discrepancySources.map(s => `${s.pair}=${s.delta >= 0 ? "+" : ""}${s.delta.toFixed(2)}`).join(", ")}`,
+      employeesOnDuty: session.employeesOnDuty || [],
+      discrepancySources: discrepancySources,
+    });
+
+    try {
+      const ownerAdminRoles = await db.select({ id: roles.id }).from(roles)
+        .where(inArray(roles.name, ["owner", "admin"]));
+      if (ownerAdminRoles.length > 0) {
+        const roleIds = ownerAdminRoles.map(r => r.id);
+        const adminUsers = await db.select({ id: users.id }).from(users)
+          .where(and(
+            inArray(users.roleId, roleIds),
+            eq(users.isActive, true),
+            eq(users.locationId, storeId),
+          ));
+
+        const notifBody = [
+          shopifyVsCountDelta != null ? `Shopify vs Count: ${shopifyVsCountDelta >= 0 ? "+" : ""}$${Math.abs(shopifyVsCountDelta).toFixed(2)}` : null,
+          countVsDepositDelta != null ? `Count vs Deposit: ${countVsDepositDelta >= 0 ? "+" : ""}$${Math.abs(countVsDepositDelta).toFixed(2)}` : null,
+          shopifyVsDepositDelta != null ? `Shopify vs Deposit: ${shopifyVsDepositDelta >= 0 ? "+" : ""}$${Math.abs(shopifyVsDepositDelta).toFixed(2)}` : null,
+        ].filter(Boolean).join(" | ");
+
+        for (const admin of adminUsers) {
+          await notificationService.sendToUserWithResult(admin.id, {
+            title: `Cash Discrepancy: ${session.registerName}`,
+            body: notifBody || "A discrepancy was found during reconciliation.",
+            notificationType: "cash_reconciliation_alert",
+            data: {
+              type: "cash_reconciliation_alert",
+              drawerSessionId: session.id,
+              depositId,
+              registerName: session.registerName,
+              sessionDate: session.sessionDate,
+              url: "/cash",
+            },
+          });
+        }
+      }
+    } catch (notifErr: any) {
+      logger.warn({ error: notifErr.message }, "[Reconcile] Push notification send failed (non-fatal)");
+    }
+
+    try {
+      await sendReconciliationAlertEmail({
+        registerName: session.registerName,
+        sessionDate: session.sessionDate,
+        shopifyExpected: shopifyExpectedCash,
+        physicalCount: physicalCountCash,
+        depositSlipAmount,
+        shopifyVsCountDelta,
+        countVsDepositDelta,
+        shopifyVsDepositDelta,
+        threshold,
+        storeId,
+      });
+    } catch (emailErr: any) {
+      logger.warn({ error: emailErr.message }, "[Reconcile] Email alert send failed (non-fatal)");
+    }
+  }
+
+  logger.info({
+    drawerSessionId,
+    depositId,
+    shopifyExpectedCash,
+    physicalCountCash,
+    depositSlipAmount,
+    shopifyVsCountDelta,
+    countVsDepositDelta,
+    hasDiscrepancy,
+  }, "[Reconcile] Drawer reconciliation complete");
+
+  return {
+    shopifyExpectedCash,
+    physicalCountCash,
+    depositSlipAmount,
+    shopifyVsCountDelta,
+    countVsDepositDelta,
+    shopifyVsDepositDelta,
+    threshold,
+    hasDiscrepancy,
+    discrepancySources,
+  };
 }

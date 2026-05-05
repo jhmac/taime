@@ -841,6 +841,12 @@ export const cashDeposits = pgTable("cash_deposits", {
   reviewedBy: varchar("reviewed_by"),
   reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
   reviewNotes: text("review_notes"),
+  shopifyExpectedCash: decimal("shopify_expected_cash", { precision: 10, scale: 2 }),
+  physicalCountCash: decimal("physical_count_cash", { precision: 10, scale: 2 }),
+  shopifyVsCountDelta: decimal("shopify_vs_count_delta", { precision: 10, scale: 2 }),
+  countVsDepositDelta: decimal("count_vs_deposit_delta", { precision: 10, scale: 2 }),
+  shopifyVsDepositDelta: decimal("shopify_vs_deposit_delta", { precision: 10, scale: 2 }),
+  reconciliationStatus: text("reconciliation_status"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 }, (table) => [
   index("idx_cash_deposits_store_date").on(table.storeId, table.depositDate),
@@ -867,6 +873,7 @@ export const cashDiscrepancyLog = pgTable("cash_discrepancy_log", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   storeId: text("store_id").notNull(),
   drawerSessionId: varchar("drawer_session_id"),
+  depositId: varchar("deposit_id"),
   sessionDate: text("session_date").notNull(),
   registerName: text("register_name").notNull(),
   sessionType: text("session_type").notNull(),
@@ -877,6 +884,7 @@ export const cashDiscrepancyLog = pgTable("cash_discrepancy_log", {
   openedBy: varchar("opened_by"),
   previousClosedBy: varchar("previous_closed_by"),
   aiFlags: jsonb("ai_flags"),
+  discrepancySources: jsonb("discrepancy_sources"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 }, (table) => [
   index("idx_cash_discrepancy_store_date").on(table.storeId, table.sessionDate),

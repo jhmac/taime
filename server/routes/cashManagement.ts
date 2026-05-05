@@ -13,7 +13,7 @@ import {
   calculateDenominations, captureEmployeesOnDuty, analyzeDepositSlip,
   validateDepositSlipImage,
   getDailyCashReport, suggestRecountFocus, logDiscrepancy,
-  analyzeCashPatterns, getEmployeeCashProfile,
+  analyzeCashPatterns, getEmployeeCashProfile, reconcileDrawer,
 } from "../services/cashManagement";
 import { aiInsights } from "@shared/schema";
 import { timeEntries } from "@shared/schema";
@@ -707,10 +707,38 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
         aiAnalysis: analysis.analysis,
       }).where(eq(cashDeposits.id, req.params.id)).returning();
 
-      res.json({ deposit: updated, analysis });
+      let reconciliation: any = null;
+      if (deposit.drawerSessionId) {
+        try {
+          reconciliation = await reconcileDrawer(deposit.drawerSessionId, deposit.id, storeId);
+        } catch (reconcileErr: any) {
+          logger.warn({ error: reconcileErr.message }, "[Cash] Reconciliation failed after analysis (non-fatal)");
+        }
+      }
+
+      res.json({ deposit: updated, analysis, reconciliation });
     } catch (err: any) {
       logger.error({ error: err.message }, "[Cash] Deposit analysis failed");
       res.status(500).json({ error: "Failed to analyze deposit" });
+    }
+  });
+
+  app.post("/api/cash/deposits/:id/reconcile", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.id || req.auth?.userId;
+      const isManager = await requireManagerOrAbove(storage, userId);
+      if (!isManager) return res.status(403).json({ error: "Manager or above access required" });
+      const storeId = await getStoreId();
+      const deposit = await verifyDepositAccess(req.params.id, storeId);
+      if (!deposit) return res.status(404).json({ error: "Deposit not found" });
+      if (!deposit.drawerSessionId) return res.status(400).json({ error: "Deposit has no linked drawer session" });
+
+      const reconciliation = await reconcileDrawer(deposit.drawerSessionId, deposit.id, storeId);
+      const [refreshed] = await db.select().from(cashDeposits).where(eq(cashDeposits.id, deposit.id));
+      res.json({ deposit: refreshed, reconciliation });
+    } catch (err: any) {
+      logger.error({ error: err.message }, "[Cash] Manual reconciliation failed");
+      res.status(500).json({ error: "Failed to run reconciliation" });
     }
   });
 

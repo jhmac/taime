@@ -677,6 +677,111 @@ export default function CashManagement() {
   );
 }
 
+function ReconciliationRow({ dep, threshold }: { dep: any; threshold: number }) {
+  const [open, setOpen] = useState(false);
+  const hasRecon = dep.shopifyExpectedCash != null || dep.physicalCountCash != null;
+  if (!hasRecon) return null;
+  const svcd = dep.shopifyVsCountDelta != null ? parseFloat(dep.shopifyVsCountDelta) : null;
+  const cvdd = dep.countVsDepositDelta != null ? parseFloat(dep.countVsDepositDelta) : null;
+  const status = dep.reconciliationStatus;
+
+  const statusColor = status === "discrepancy"
+    ? "text-red-600 dark:text-red-400"
+    : status === "within_tolerance"
+    ? "text-amber-600 dark:text-amber-400"
+    : "text-green-600 dark:text-green-400";
+
+  const statusLabel = status === "discrepancy" ? "Discrepancy" : status === "within_tolerance" ? "Within Tolerance" : "Matched";
+
+  function deltaChip(delta: number | null, label: string) {
+    if (delta == null) return null;
+    const abs = Math.abs(delta);
+    const isExact = abs < 0.01;
+    const exceeds = abs > threshold;
+    const cls = isExact
+      ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300"
+      : exceeds
+      ? "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300"
+      : "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300";
+    const val = isExact ? "✓" : delta > 0 ? `+$${abs.toFixed(2)}` : `-$${abs.toFixed(2)}`;
+    return (
+      <span key={label} className={cn("inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium", cls)}>
+        {label}: {val}
+      </span>
+    );
+  }
+
+  return (
+    <div className="mt-2 pt-2 border-t">
+      <button
+        className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors w-full"
+        onClick={() => setOpen(o => !o)}
+      >
+        <i className={`fas fa-chevron-${open ? "up" : "down"} text-[10px]`} />
+        <i className="fas fa-balance-scale text-[10px]" />
+        Reconciliation
+        <span className={cn("ml-auto font-medium", statusColor)}>{statusLabel}</span>
+      </button>
+      {open && (
+        <div className="mt-2 space-y-2">
+          <div className="grid grid-cols-3 gap-1 text-[11px]">
+            {dep.shopifyExpectedCash != null && (
+              <div className="text-center p-1.5 rounded bg-muted/40">
+                <p className="text-muted-foreground">Shopify</p>
+                <p className="font-semibold">${parseFloat(dep.shopifyExpectedCash).toFixed(2)}</p>
+              </div>
+            )}
+            {dep.physicalCountCash != null && (
+              <div className="text-center p-1.5 rounded bg-muted/40">
+                <p className="text-muted-foreground">Physical</p>
+                <p className="font-semibold">${parseFloat(dep.physicalCountCash).toFixed(2)}</p>
+              </div>
+            )}
+            {dep.aiExtractedAmount != null && (
+              <div className="text-center p-1.5 rounded bg-muted/40">
+                <p className="text-muted-foreground">Slip (AI)</p>
+                <p className="font-semibold">${parseFloat(dep.aiExtractedAmount).toFixed(2)}</p>
+              </div>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {deltaChip(svcd, "vs Count")}
+            {deltaChip(cvdd, "vs Deposit")}
+            {dep.shopifyVsDepositDelta != null && deltaChip(parseFloat(dep.shopifyVsDepositDelta), "Shopify vs Slip")}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DepositReviewCard({ dep, onApprove, onFlag, isPending, threshold }: { dep: any; onApprove: () => void; onFlag: () => void; isPending: boolean; threshold: number }) {
+  return (
+    <div className="p-2 rounded border text-sm space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="font-medium">Bank Deposit</span>
+        <Badge variant={dep.status === "approved" ? "default" : dep.status === "flagged" ? "destructive" : "secondary"} className="text-xs">
+          {dep.status}
+        </Badge>
+      </div>
+      {dep.depositSlipPhoto && (
+        <img src={dep.depositSlipPhoto} alt="Deposit slip" className="w-full max-h-32 object-contain rounded border" />
+      )}
+      <ReconciliationRow dep={dep} threshold={threshold} />
+      <div className="flex gap-2 pt-1">
+        <Button size="sm" variant="outline" className="flex-1 h-8 text-xs text-green-600"
+          onClick={onApprove} disabled={isPending}>
+          <i className="fas fa-check mr-1" /> Approve
+        </Button>
+        <Button size="sm" variant="outline" className="flex-1 h-8 text-xs text-red-600"
+          onClick={onFlag} disabled={isPending}>
+          <i className="fas fa-flag mr-1" /> Flag
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function OwnerSection({ selectedDate, ownerTab, setOwnerTab, deposits, settings }: { selectedDate: string; ownerTab: string; setOwnerTab: (t: string) => void; deposits: any[]; settings: any }) {
   const { toast } = useToast();
   const refSlipInputRef = useRef<HTMLInputElement>(null);
@@ -800,29 +905,14 @@ function OwnerSection({ selectedDate, ownerTab, setOwnerTab, deposits, settings 
                 ))}
 
                 {deposits.map((dep: any) => (
-                  <div key={dep.id} className="p-2 rounded border text-sm space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium">Bank Deposit</span>
-                      <Badge variant={dep.status === "approved" ? "default" : dep.status === "flagged" ? "destructive" : "secondary"} className="text-xs">
-                        {dep.status}
-                      </Badge>
-                    </div>
-                    {dep.depositSlipPhoto && (
-                      <img src={dep.depositSlipPhoto} alt="Deposit slip" className="w-full max-h-32 object-contain rounded border" />
-                    )}
-                    <div className="flex gap-2">
-                      <Button size="sm" variant="outline" className="flex-1 h-8 text-xs text-green-600"
-                        onClick={() => reviewMutation.mutate({ depositId: dep.id, status: "approved" })}
-                        disabled={reviewMutation.isPending}>
-                        <i className="fas fa-check mr-1" /> Approve
-                      </Button>
-                      <Button size="sm" variant="outline" className="flex-1 h-8 text-xs text-red-600"
-                        onClick={() => reviewMutation.mutate({ depositId: dep.id, status: "flagged" })}
-                        disabled={reviewMutation.isPending}>
-                        <i className="fas fa-flag mr-1" /> Flag
-                      </Button>
-                    </div>
-                  </div>
+                  <DepositReviewCard
+                    key={dep.id}
+                    dep={dep}
+                    onApprove={() => reviewMutation.mutate({ depositId: dep.id, status: "approved" })}
+                    onFlag={() => reviewMutation.mutate({ depositId: dep.id, status: "flagged" })}
+                    isPending={reviewMutation.isPending}
+                    threshold={parseFloat(settings?.overShortThreshold || "5")}
+                  />
                 ))}
               </>
             )}

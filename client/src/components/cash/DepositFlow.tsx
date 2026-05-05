@@ -52,6 +52,144 @@ function compressImage(file: File, maxSizeKB: number = 512): Promise<string> {
   });
 }
 
+interface ReconciliationData {
+  shopifyExpectedCash: number | null;
+  physicalCountCash: number | null;
+  depositSlipAmount: number | null;
+  shopifyVsCountDelta: number | null;
+  countVsDepositDelta: number | null;
+  shopifyVsDepositDelta: number | null;
+  threshold: number;
+  hasDiscrepancy: boolean;
+}
+
+function fmt(n: number | null | undefined): string {
+  if (n == null) return "—";
+  return `$${n.toFixed(2)}`;
+}
+
+function DeltaBadge({ delta, threshold, label }: { delta: number | null; threshold: number; label: string }) {
+  if (delta == null) return null;
+  const abs = Math.abs(delta);
+  const isExact = abs < 0.01;
+  const exceedsThreshold = abs > threshold;
+  const color = isExact
+    ? "text-green-600 dark:text-green-400"
+    : exceedsThreshold
+    ? "text-red-600 dark:text-red-400"
+    : "text-amber-600 dark:text-amber-400";
+  const bg = isExact
+    ? "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800"
+    : exceedsThreshold
+    ? "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800"
+    : "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800";
+  const text = isExact
+    ? "Match"
+    : delta > 0
+    ? `+$${abs.toFixed(2)}`
+    : `-$${abs.toFixed(2)}`;
+
+  return (
+    <div className={cn("text-center p-2 rounded border text-xs", bg)}>
+      <p className="text-muted-foreground mb-0.5">{label}</p>
+      <p className={cn("font-semibold", color)}>{text}</p>
+    </div>
+  );
+}
+
+function ReconciliationPanel({ recon }: { recon: ReconciliationData }) {
+  const hasSlip = recon.depositSlipAmount != null;
+  const colCount = hasSlip ? 3 : 2;
+  const deltaCount = hasSlip ? 3 : 1;
+
+  return (
+    <Card className={cn(
+      "border-2",
+      recon.hasDiscrepancy
+        ? "border-red-300 dark:border-red-700"
+        : "border-green-300 dark:border-green-700"
+    )}>
+      <CardContent className="p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <i className={cn(
+            "fas",
+            recon.hasDiscrepancy ? "fa-exclamation-triangle text-red-500" : "fa-check-circle text-green-500"
+          )} />
+          <span className="font-semibold text-sm">Reconciliation Summary</span>
+          {recon.hasDiscrepancy && (
+            <Badge variant="destructive" className="text-xs ml-auto">Discrepancy Found</Badge>
+          )}
+          {!recon.hasDiscrepancy && (
+            <Badge className="text-xs ml-auto bg-green-500">{hasSlip ? "All Match" : "Shopify Match"}</Badge>
+          )}
+        </div>
+
+        <div className={cn("grid gap-2", colCount === 3 ? "grid-cols-3" : "grid-cols-2")}>
+          <div className="text-center p-3 rounded border bg-muted/30">
+            <p className="text-[10px] text-muted-foreground uppercase font-medium mb-1 flex items-center justify-center gap-1">
+              <i className="fab fa-shopify text-green-500" /> Shopify
+            </p>
+            <p className="text-lg font-bold">{fmt(recon.shopifyExpectedCash)}</p>
+            <p className="text-[10px] text-muted-foreground">Expected</p>
+          </div>
+          <div className="text-center p-3 rounded border bg-muted/30">
+            <p className="text-[10px] text-muted-foreground uppercase font-medium mb-1 flex items-center justify-center gap-1">
+              <i className="fas fa-hand-holding-usd text-blue-500" /> Physical
+            </p>
+            <p className="text-lg font-bold">{fmt(recon.physicalCountCash)}</p>
+            <p className="text-[10px] text-muted-foreground">Counted</p>
+          </div>
+          {hasSlip && (
+            <div className="text-center p-3 rounded border bg-muted/30">
+              <p className="text-[10px] text-muted-foreground uppercase font-medium mb-1 flex items-center justify-center gap-1">
+                <i className="fas fa-receipt text-purple-500" /> Deposit Slip
+              </p>
+              <p className="text-lg font-bold">{fmt(recon.depositSlipAmount)}</p>
+              <p className="text-[10px] text-muted-foreground">AI Extracted</p>
+            </div>
+          )}
+        </div>
+
+        <div className={cn("grid gap-2", deltaCount === 3 ? "grid-cols-3" : deltaCount === 2 ? "grid-cols-2" : "grid-cols-1")}>
+          <DeltaBadge
+            delta={recon.shopifyVsCountDelta}
+            threshold={recon.threshold}
+            label="Shopify vs Count"
+          />
+          {hasSlip && (
+            <DeltaBadge
+              delta={recon.countVsDepositDelta}
+              threshold={recon.threshold}
+              label="Count vs Deposit"
+            />
+          )}
+          {hasSlip && (
+            <DeltaBadge
+              delta={recon.shopifyVsDepositDelta}
+              threshold={recon.threshold}
+              label="Shopify vs Deposit"
+            />
+          )}
+        </div>
+
+        {recon.hasDiscrepancy && (
+          <p className="text-xs text-red-600 dark:text-red-400 text-center">
+            <i className="fas fa-bell mr-1" />
+            Owners and admins have been notified of this discrepancy.
+          </p>
+        )}
+
+        {!hasSlip && (
+          <p className="text-xs text-muted-foreground text-center">
+            <i className="fas fa-info-circle mr-1" />
+            Upload a deposit slip photo to add the three-way comparison.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function DepositFlow({ sessions, sessionId, onComplete, onCancel }: DepositFlowProps) {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -62,6 +200,7 @@ export default function DepositFlow({ sessions, sessionId, onComplete, onCancel 
   const [actualAmount, setActualAmount] = useState("");
   const [depositId, setDepositId] = useState<string | null>(null);
   const [invalidReason, setInvalidReason] = useState<string>("");
+  const [reconciliation, setReconciliation] = useState<ReconciliationData | null>(null);
 
   const relevantSessions = sessionId ? sessions.filter((s: any) => s.id === sessionId) : sessions;
   const expectedAmount = relevantSessions.reduce((sum: number, s: any) => {
@@ -70,17 +209,46 @@ export default function DepositFlow({ sessions, sessionId, onComplete, onCancel 
     return sum + Math.max(0, counted - starting);
   }, 0);
 
+  const skipPhotoAndReconcile = async () => {
+    setStep("analyzing");
+    try {
+      let id = depositId;
+      if (!id) {
+        const createRes = await apiRequest("POST", "/api/cash/deposits", {
+          expectedAmount: expectedAmount.toFixed(2),
+          ...(sessionId ? { drawerSessionId: sessionId } : {}),
+        });
+        const deposit = await createRes.json();
+        id = deposit.id;
+        setDepositId(id);
+      }
+
+      if (id && sessionId) {
+        try {
+          const reconRes = await apiRequest("POST", `/api/cash/deposits/${id}/reconcile`);
+          const reconData = await reconRes.json();
+          if (reconData.reconciliation) setReconciliation(reconData.reconciliation);
+        } catch {
+          // Non-fatal: reconcile endpoint may fail if session has no expected cash
+        }
+      }
+    } catch {
+      // Non-fatal: if deposit creation fails we still show the confirm step
+    }
+    setAiResult(null);
+    setDepositSlipPhoto(null);
+    setStep("confirm");
+  };
+
   const handlePhotoCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    // Reset input so re-selecting same file works
     e.target.value = "";
     try {
       const compressed = await compressImage(file);
       setDepositSlipPhoto(compressed);
       setStep("validating");
 
-      // Step 1: Validate it's actually a deposit slip
       let isValid = true;
       let validationReason = "";
       try {
@@ -89,7 +257,6 @@ export default function DepositFlow({ sessions, sessionId, onComplete, onCancel 
         isValid = valData.valid;
         validationReason = valData.reason || "";
       } catch {
-        // If validation call fails, proceed anyway
         isValid = true;
       }
 
@@ -134,6 +301,10 @@ export default function DepositFlow({ sessions, sessionId, onComplete, onCancel 
         if (data.analysis?.extractedAmount) {
           setActualAmount(String(data.analysis.extractedAmount));
         }
+
+        if (data.reconciliation) {
+          setReconciliation(data.reconciliation);
+        }
       } catch {
         setAiResult({ amount: null, confidence: "failed", analysis: "AI analysis unavailable. Please enter the amount manually." });
       }
@@ -148,9 +319,7 @@ export default function DepositFlow({ sessions, sessionId, onComplete, onCancel 
 
   const submitMutation = useMutation({
     mutationFn: async () => {
-      if (!depositId) {
-        throw new Error("No deposit record found. Please try again.");
-      }
+      if (!depositId) throw new Error("No deposit record found. Please try again.");
       const discrepancy = parseFloat(actualAmount) - expectedAmount;
       const res = await apiRequest("PUT", `/api/cash/deposits/${depositId}/submit`, {
         actualAmount: parseFloat(actualAmount).toFixed(2),
@@ -202,6 +371,8 @@ export default function DepositFlow({ sessions, sessionId, onComplete, onCancel 
       toast({ title: "Submission Failed", description: err.message || "Could not submit deposit.", variant: "destructive" });
     }
   };
+
+  const isManualEntryNoPhoto = !depositSlipPhoto && !aiResult;
 
   if (step === "summary") {
     return (
@@ -258,11 +429,7 @@ export default function DepositFlow({ sessions, sessionId, onComplete, onCancel 
           <Button size="lg" className="w-full max-w-sm h-14 gap-2" onClick={() => fileInputRef.current?.click()}>
             <i className="fas fa-camera" /> Capture Deposit Slip
           </Button>
-          <Button variant="outline" size="lg" className="w-full max-w-sm h-12" onClick={() => {
-            setStep("confirm");
-            setAiResult(null);
-            setDepositSlipPhoto(null);
-          }}>
+          <Button variant="outline" size="lg" className="w-full max-w-sm h-12" onClick={skipPhotoAndReconcile}>
             Skip Photo — Enter Amount Manually
           </Button>
         </div>
@@ -312,11 +479,7 @@ export default function DepositFlow({ sessions, sessionId, onComplete, onCancel 
             }}>
               <i className="fas fa-camera" /> Retake Photo
             </Button>
-            <Button variant="outline" size="lg" className="w-full h-12" onClick={() => {
-              setStep("confirm");
-              setAiResult(null);
-              setDepositSlipPhoto(null);
-            }}>
+            <Button variant="outline" size="lg" className="w-full h-12" onClick={skipPhotoAndReconcile}>
               Skip Photo — Enter Amount Manually
             </Button>
           </div>
@@ -333,7 +496,7 @@ export default function DepositFlow({ sessions, sessionId, onComplete, onCancel 
         </div>
         <div className="text-center space-y-2">
           <h3 className="text-xl font-bold">Analyzing Deposit Slip...</h3>
-          <p className="text-muted-foreground">AI is reading your deposit slip to extract the amount.</p>
+          <p className="text-muted-foreground">AI is reading your deposit slip and reconciling all cash sources.</p>
         </div>
       </div>
     );
@@ -368,6 +531,10 @@ export default function DepositFlow({ sessions, sessionId, onComplete, onCancel 
                 <p className="text-sm text-muted-foreground mt-1">{aiResult.analysis}</p>
               </CardContent>
             </Card>
+          )}
+
+          {reconciliation && (
+            <ReconciliationPanel recon={reconciliation} />
           )}
 
           {depositSlipPhoto && (
@@ -467,6 +634,11 @@ export default function DepositFlow({ sessions, sessionId, onComplete, onCancel 
           <p className="text-muted-foreground">Your deposit has been recorded and is awaiting owner review.</p>
           <p className="text-lg font-bold text-primary">${actualAmount}</p>
         </div>
+        {reconciliation && (
+          <div className="w-full max-w-sm">
+            <ReconciliationPanel recon={reconciliation} />
+          </div>
+        )}
         <Button size="lg" onClick={onComplete}>Done</Button>
       </div>
     );
