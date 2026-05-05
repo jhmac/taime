@@ -59,7 +59,7 @@ async function isLocationAlreadyGranted(): Promise<boolean> {
 
 export default function SmartClockPrompt() {
   const { user } = useAuth();
-  const { getCurrentPosition } = useGeolocation();
+  const { getCurrentPosition } = useGeolocation(user?.id);
   const { settings } = useCompanySettings();
   const { toast } = useToast();
   const queryClient = useQueryClient();

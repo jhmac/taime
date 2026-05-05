@@ -5,7 +5,7 @@ import { schedules, timeEntries, shopifyDailySales, userShops, users, locationPe
 import { eq, and, gte, lte, lt, desc, isNull, ne, inArray, or } from "drizzle-orm";
 import { cache } from "../services/cache";
 import { gamificationService } from "../services/gamificationService";
-import { setLocationPermission } from "../services/locationPermissionStore";
+import { setLocationPermission, getLocationPermissionPreference } from "../services/locationPermissionStore";
 
 // Maximum time the init endpoint will wait for DB queries before responding
 // with a 503 so the client can show a retry prompt rather than hanging.
@@ -21,6 +21,25 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 }
 
 export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
+
+  /**
+   * GET /api/location-permission
+   * Returns the authenticated user's last-saved location permission status so the
+   * client can hydrate localStorage on a new device or after storage was cleared.
+   */
+  app.get('/api/location-permission', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId: string = req.user.id;
+      const record = await getLocationPermissionPreference(userId);
+      if (!record) {
+        return res.json({ status: null });
+      }
+      return res.json({ status: record.status });
+    } catch (error) {
+      console.error('Error reading location permission:', error);
+      res.status(500).json({ message: 'Failed to read location permission' });
+    }
+  });
 
   /**
    * POST /api/location-permission

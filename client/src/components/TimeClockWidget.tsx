@@ -49,7 +49,7 @@ interface TimeClockWidgetProps {
 export default function TimeClockWidget({ greetingSlot, footerSlot, hideClock = false, hideTodayTotal = false }: TimeClockWidgetProps = {}) {
   const { user } = useAuth();
   const isMobile = useIsMobile();
-  const { position, getCurrentPosition, watchPosition, clearWatch, loading: locationLoading, error: locationError, permissionState, hadPreviousGrant } = useGeolocation();
+  const { position, getCurrentPosition, watchPosition, clearWatch, loading: locationLoading, error: locationError, permissionState, hadPreviousGrant } = useGeolocation(user?.id);
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [currentTime, setCurrentTime] = useState(new Date());

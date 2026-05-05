@@ -30,6 +30,72 @@ function readCachedPermission(): PermissionState | 'unknown' {
   return 'unknown';
 }
 
+// Module-level Set: tracks which user IDs have already been hydrated this
+// session so concurrent mounts skip duplicate fetches, yet an account switch
+// (different userId) triggers a fresh hydration for the new user.
+const serverHydrationDoneFor = new Set<string>();
+
+async function hydrateFromServer(
+  userId: string,
+  setPermissionState: (s: PermissionState | 'unsupported' | 'unknown') => void,
+  setError: (e: { code: number; message: string } | null) => void,
+): Promise<void> {
+  // Already hydrated for this user this session — skip.
+  if (serverHydrationDoneFor.has(userId)) return;
+
+  // Optimistically claim the slot so concurrent callers don't duplicate the
+  // fetch.  We remove it again if the fetch fails so the next mount can retry.
+  serverHydrationDoneFor.add(userId);
+
+  try {
+    const res = await fetch('/api/location-permission', { credentials: 'include' });
+    if (!res.ok) {
+      // Non-2xx (e.g. 401 on logout race) — release slot so next mount retries.
+      serverHydrationDoneFor.delete(userId);
+      return;
+    }
+    const data = await res.json();
+    const serverStatus: string | null = data.status ?? null;
+
+    if (serverStatus !== 'granted' && serverStatus !== 'denied') return;
+
+    // Only write to localStorage when it has no existing value — never overwrite
+    // a fresher local choice with a potentially older server value.
+    const cached = readCachedPermission();
+    if (cached !== 'unknown') return;
+
+    cachePermission(serverStatus as PermissionState);
+    setPermissionState(serverStatus as PermissionState);
+
+    if (serverStatus === 'denied') {
+      setError({ code: 1, message: getErrorMessage(1) });
+    }
+
+    // On Capacitor: verify the OS hasn't silently revoked the permission since
+    // we last wrote "granted" to the server.  We do this in the background so
+    // it never blocks rendering.
+    if (serverStatus === 'granted' && Capacitor.isNativePlatform()) {
+      Geolocation.checkPermissions().then((result) => {
+        if (result.location === 'denied') {
+          cachePermission('denied');
+          setPermissionState('denied');
+          setError({ code: 1, message: getErrorMessage(1) });
+          // Sync the corrected state back to the server (fire-and-forget).
+          fetch('/api/location-permission', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'denied' }),
+          }).catch(() => {});
+        }
+      }).catch(() => {});
+    }
+  } catch {
+    // Release the slot on unexpected errors so the next mount can retry.
+    serverHydrationDoneFor.delete(userId);
+  }
+}
+
 function cachePermission(state: PermissionState | 'unsupported' | 'unknown') {
   try {
     if (state === 'granted' || state === 'denied') {
@@ -38,7 +104,7 @@ function cachePermission(state: PermissionState | 'unsupported' | 'unknown') {
   } catch {}
 }
 
-export function useGeolocation() {
+export function useGeolocation(userId?: string) {
   const [position, setPosition] = useState<GeolocationPosition | null>(null);
   const [error, setError] = useState<GeolocationError | null>(null);
   const [loading, setLoading] = useState(false);
@@ -64,10 +130,21 @@ export function useGeolocation() {
       setError(null);
       return (async () => {
         try {
-          // If we already have a cached grant, skip the OS permission check so
-          // we don't flash a redundant dialog on every call.  Only query the OS
-          // when the cached state is unknown/prompt (first-time or revoked).
+          // Fast-path for cached permission states so we never call into the OS
+          // unnecessarily — requestPermissions() in particular shows the native dialog.
+          // - 'denied':  user explicitly denied previously; short-circuit to avoid
+          //              any OS interaction.  The user must clear the app's setting
+          //              manually (OS-level) for this to change.
+          // - 'granted': trust the cache; skip the OS round-trip entirely.
+          // - 'unknown': no saved state — query the OS to learn the real state.
           let permLocation: string = readCachedPermission();
+          if (permLocation === 'denied') {
+            const geoError: GeolocationError = { code: 1, message: getErrorMessage(1) };
+            setError(geoError);
+            setPermissionState('denied');
+            setLoading(false);
+            throw geoError;
+          }
           if (permLocation !== 'granted') {
             let permStatus = await Geolocation.checkPermissions();
             if (permStatus.location === 'prompt' || permStatus.location === 'prompt-with-rationale') {
@@ -271,85 +348,109 @@ export function useGeolocation() {
   }, []);
 
   useEffect(() => {
-    if (Capacitor.isNativePlatform()) {
-      // Skip the OS round-trip entirely when we already have a cached grant —
-      // checkPermissions() does not show a dialog, but skipping it avoids any
-      // timing edge-case where the OS returns 'prompt' during app transitions
-      // (while the real state is still granted).  On denial or first-launch
-      // the cache is empty/denied, so we still ask the OS.
-      if (readCachedPermission() === 'granted') {
-        return;
-      }
-      Geolocation.checkPermissions().then((result) => {
-        const loc = result.location;
-        if (loc === 'granted') {
-          setPermissionState('granted');
-        } else if (loc === 'denied') {
-          setPermissionState('denied');
-          setError({ code: 1, message: getErrorMessage(1) });
-        } else {
-          setPermissionState('prompt');
-        }
-      }).catch(() => {
-        setPermissionState('unknown');
-      });
-      return;
-    }
-
-    if (!navigator.geolocation) {
-      setPermissionState('unsupported');
-      setError({
-        code: 0,
-        message: 'Geolocation is not supported by this browser',
-      });
-      return;
-    }
-
+    let cancelled = false;
     let permissionStatus: PermissionStatus | null = null;
 
-    if (navigator.permissions) {
-      navigator.permissions.query({ name: 'geolocation' }).then(result => {
-        permissionStatus = result;
-        // Don't downgrade a previously-cached 'granted' to 'prompt'.
-        // The Permissions API can return 'prompt' when the origin changes
-        // (e.g. Replit preview URLs) or when the browser session is fresh,
-        // even though the user already explicitly allowed access.  Keeping
-        // the cached 'granted' prevents the in-app permission nudge banner
-        // from appearing; the actual browser grant is confirmed the next
-        // time the user triggers Clock In.
-        if (result.state !== 'prompt' || readCachedPermission() !== 'granted') {
-          setPermissionState(result.state);
-        }
+    async function init() {
+      // Step 1: hydrate localStorage from the server first (non-blocking but
+      // awaited so the cached value is populated before the OS check reads it).
+      // This prevents the OS check from reading 'unknown' and issuing a
+      // redundant checkPermissions() call that would race with the hydrated state.
+      await hydrateFromServer(userId ?? '__anon__', setPermissionState, setError);
+      if (cancelled) return;
 
-        if (result.state === 'denied') {
-          setError({
-            code: 1,
-            message: getErrorMessage(1),
-          });
+      if (Capacitor.isNativePlatform()) {
+        // Skip the OS round-trip when we already have a definitive cached answer
+        // ('granted' or 'denied').  checkPermissions() does not show a dialog
+        // but could return 'prompt' during OS app-transition edge cases and
+        // would incorrectly override a hydrated 'denied' with 'prompt'.
+        // - 'granted': revocation guard already ran inside hydrateFromServer.
+        // - 'denied':  respect it without re-querying — user explicitly denied.
+        // - 'unknown': no saved state — do the OS check to learn the real state.
+        if (readCachedPermission() !== 'unknown') {
+          return;
         }
+        try {
+          const result = await Geolocation.checkPermissions();
+          if (cancelled) return;
+          const loc = result.location;
+          if (loc === 'granted') {
+            setPermissionState('granted');
+          } else if (loc === 'denied') {
+            setPermissionState('denied');
+            setError({ code: 1, message: getErrorMessage(1) });
+          } else {
+            setPermissionState('prompt');
+          }
+        } catch {
+          if (!cancelled) setPermissionState('unknown');
+        }
+        return;
+      }
 
-        result.onchange = () => {
-          setPermissionState(result.state);
+      if (!navigator.geolocation) {
+        setPermissionState('unsupported');
+        setError({
+          code: 0,
+          message: 'Geolocation is not supported by this browser',
+        });
+        return;
+      }
+
+      if (navigator.permissions) {
+        try {
+          const result = await navigator.permissions.query({ name: 'geolocation' });
+          if (cancelled) return;
+          permissionStatus = result;
+          // Don't let the browser's 'prompt' overwrite a definitive cached state.
+          // The Permissions API can return 'prompt' when the origin changes
+          // (e.g. Replit preview URLs) or the browser session is fresh, even
+          // though the user already explicitly allowed or denied access.
+          // - Cached 'granted': keep it to suppress the in-app permission nudge.
+          // - Cached 'denied':  keep it to prevent re-prompting users who denied.
+          // Any non-'prompt' browser result IS the ground truth and should update.
+          const cachedPermission = readCachedPermission();
+          const hasDefinitiveCachedAnswer = cachedPermission === 'granted' || cachedPermission === 'denied';
+          if (result.state !== 'prompt' || !hasDefinitiveCachedAnswer) {
+            setPermissionState(result.state);
+          }
+
           if (result.state === 'denied') {
             setError({
               code: 1,
               message: getErrorMessage(1),
             });
-          } else if (result.state === 'granted') {
-            setError(null);
           }
-        };
-      }).catch(() => {
-        setPermissionState('unknown');
-      });
+
+          result.onchange = () => {
+            setPermissionState(result.state);
+            if (result.state === 'denied') {
+              setError({
+                code: 1,
+                message: getErrorMessage(1),
+              });
+            } else if (result.state === 'granted') {
+              setError(null);
+            }
+          };
+        } catch {
+          if (!cancelled) setPermissionState('unknown');
+        }
+      }
     }
 
+    init();
+
     return () => {
+      cancelled = true;
       if (permissionStatus) {
         permissionStatus.onchange = null;
       }
     };
-  }, []);
+    // userId is included so the effect re-runs when the user resolves from
+    // undefined to an authenticated ID (e.g. on first load).  The module-level
+    // Set guard ensures we only fetch once per user per session.
+  }, [userId]);
 
   return {
     position,
