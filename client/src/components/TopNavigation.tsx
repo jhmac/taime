@@ -81,7 +81,7 @@ function NotificationsDropdown() {
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button
-          className="relative p-2 rounded-lg hover:bg-muted transition-colors"
+          className="relative p-2 rounded-xl hover:bg-muted transition-colors"
           data-testid="notifications-button"
         >
           <Bell className="h-5 w-5 text-muted-foreground" />
@@ -171,7 +171,7 @@ function MobileBellButton() {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button className="relative p-1.5" data-testid="notifications-button">
+        <button className="relative p-1.5 rounded-xl hover:bg-muted transition-colors" data-testid="notifications-button">
           <Bell className="h-5 w-5 text-muted-foreground" />
           {unreadCount > 0 && (
             <span className="absolute top-0 right-0 min-w-[14px] h-3.5 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center px-0.5">
@@ -244,25 +244,41 @@ export default function TopNavigation() {
 
   if (isMobile) {
     return (
-      <header className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <header
+        className="sticky top-0 z-40 w-full border-b"
+        style={{
+          backgroundColor: 'var(--background)',
+          backdropFilter: 'blur(12px)',
+          WebkitBackdropFilter: 'blur(12px)',
+          borderColor: 'var(--border)',
+        }}
+      >
         <div className="flex h-14 items-center justify-between px-4">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center">
-              <i className="fas fa-clock text-primary-foreground text-xs"></i>
+          <div className="flex items-center gap-2.5">
+            <div
+              className="w-8 h-8 rounded-xl flex items-center justify-center"
+              style={{ backgroundColor: 'var(--primary)' }}
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <circle cx="8" cy="8" r="6" stroke="white" strokeWidth="1.5" />
+                <path d="M8 4.5V8L10.5 10" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
             </div>
-            <h1 className="text-base font-semibold">{pageTitle}</h1>
+            <h1 className="text-[15px] font-semibold tracking-[-0.01em]" style={{ color: 'var(--foreground)' }}>
+              {pageTitle}
+            </h1>
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1">
             <button
               onClick={openLetUsKnow}
-              className="p-1.5 rounded-lg hover:bg-muted transition-colors"
-              aria-label="Let us Know"
+              className="p-1.5 rounded-xl hover:bg-muted transition-colors"
+              aria-label="Report Issue"
             >
               <Pencil className="h-4 w-4 text-muted-foreground" />
             </button>
             <button
               onClick={openAskAra}
-              className="p-1.5 rounded-lg hover:bg-muted transition-colors"
+              className="p-1.5 rounded-xl hover:bg-muted transition-colors"
               aria-label="Ask Ara"
             >
               <Sparkles className="h-4 w-4 text-muted-foreground" />
@@ -276,16 +292,24 @@ export default function TopNavigation() {
   }
 
   return (
-    <header className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <header
+      className="sticky top-0 z-40 w-full border-b"
+      style={{
+        backgroundColor: 'var(--background)',
+        backdropFilter: 'blur(12px)',
+        WebkitBackdropFilter: 'blur(12px)',
+        borderColor: 'var(--border)',
+      }}
+    >
       <div className="flex h-14 items-center justify-between px-6">
         <div>
-          <h1 className="text-lg font-semibold">{pageTitle}</h1>
+          <h1 className="text-base font-semibold tracking-[-0.01em]">{pageTitle}</h1>
         </div>
         <div className="flex items-center gap-2">
           <Button
             variant="outline"
             size="sm"
-            className="h-8 gap-1.5 text-xs font-medium"
+            className="h-8 gap-1.5 text-xs font-medium rounded-xl"
             onClick={openLetUsKnow}
           >
             <Pencil className="h-3.5 w-3.5" />
@@ -294,10 +318,10 @@ export default function TopNavigation() {
           <Button
             variant="outline"
             size="sm"
-            className="h-8 gap-1.5 text-xs font-medium"
+            className="h-8 gap-1.5 text-xs font-medium rounded-xl"
             onClick={openAskAra}
           >
-            <Sparkles className="h-3.5 w-3.5 text-violet-500" />
+            <Sparkles className="h-3.5 w-3.5 text-primary" />
             Ask Ara
           </Button>
           <NotificationsDropdown />

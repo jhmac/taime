@@ -76,14 +76,17 @@ export default function BottomNavigation() {
   return (
     <nav
       className="fixed bottom-0 left-0 right-0 z-50 safe-area-bottom"
-      style={{ background: 'linear-gradient(to top, hsl(40 100% 98%) 55%, transparent)', paddingTop: 16 }}
+      style={{
+        background: 'linear-gradient(to top, var(--background) 60%, transparent)',
+        paddingTop: 16,
+      }}
       data-testid="bottom-navigation"
     >
       <div
         className="mx-3 mb-3 rounded-[28px]"
         style={{
           backgroundColor: '#FFFFFF',
-          boxShadow: '0 4px 24px rgba(0,0,0,0.10)',
+          boxShadow: '0 2px 20px rgba(0,18,60,0.10), 0 1px 4px rgba(0,18,60,0.06)',
           padding: '8px 20px 8px',
         }}
       >
@@ -109,11 +112,11 @@ export default function BottomNavigation() {
                   <>
                     <div
                       className="w-12 h-12 rounded-2xl flex items-center justify-center"
-                      style={{ backgroundColor: 'hsl(25 91% 57%)' }}
+                      style={{ backgroundColor: 'var(--primary)' }}
                     >
                       <Icon size={20} strokeWidth={2.5} className="text-white" />
                     </div>
-                    <span className="text-[11px] font-extrabold" style={{ color: 'hsl(25 91% 57%)' }}>
+                    <span className="text-[11px] font-bold" style={{ color: 'var(--primary)' }}>
                       {item.label}
                     </span>
                   </>
@@ -133,7 +136,7 @@ export default function BottomNavigation() {
         </div>
       </div>
       {/* iOS home indicator */}
-      <div className="w-28 h-1 rounded-full mx-auto mb-1" style={{ backgroundColor: 'rgba(26,26,46,0.15)' }} />
+      <div className="w-28 h-1 rounded-full mx-auto mb-1" style={{ backgroundColor: 'rgba(13,31,60,0.12)' }} />
     </nav>
   );
 }
