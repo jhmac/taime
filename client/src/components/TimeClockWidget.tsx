@@ -76,6 +76,10 @@ export default function TimeClockWidget({ greetingSlot, footerSlot, hideClock = 
   const [countdownSeconds, setCountdownSeconds] = useState<number | null>(null);
   const countdownRef = useRef<number | null>(null);
   const totalGraceSecondsRef = useRef<number>(0);
+  const gracePeriodStartedAtRef = useRef<number | null>(null);
+  const initialGraceRemainingRef = useRef<number | null>(null);
+  const visibilityHandlerRef = useRef<(() => void) | null>(null);
+  const clockOutInFlightRef = useRef(false);
   const [showLocationHelp, setShowLocationHelp] = useState(false);
   const [showStartTripSheet, setShowStartTripSheet] = useState(false);
   const [showLiveTripSheet, setShowLiveTripSheet] = useState(false);
@@ -93,6 +97,7 @@ export default function TimeClockWidget({ greetingSlot, footerSlot, hideClock = 
   const [geofencePillCrossFading, setGeofencePillCrossFading] = useState(false);
   const prevGeofenceIsInRef = useRef<boolean | null>(null);
   const [displayGeofenceStatus, setDisplayGeofenceStatus] = useState<typeof geofenceStatus>(null);
+  const activeTimeEntryRef = useRef<typeof activeTimeEntry>(undefined);
 
   const { data: activeTimeEntry, isLoading: activeEntryLoading, isError: activeEntryError, refetch: refetchActiveEntry, isFetching: activeEntryFetching } = useQuery<TimeEntry | null>({
     queryKey: ['/api/time-entries/active'],
@@ -327,83 +332,169 @@ export default function TimeClockWidget({ greetingSlot, footerSlot, hideClock = 
     return () => clearInterval(timer);
   }, []);
 
-  useEffect(() => {
-    if (geofenceStatus && !geofenceStatus.isInWorkLocation && geofenceStatus.geofenceExitInfo?.graceRemaining != null && geofenceStatus.geofenceExitInfo.graceRemaining > 0) {
-      if (totalGraceSecondsRef.current === 0) {
-        totalGraceSecondsRef.current = geofenceStatus.geofenceExitInfo.graceRemaining;
+  useEffect(() => { activeTimeEntryRef.current = activeTimeEntry; }, [activeTimeEntry]);
+
+  const geofenceBackgroundClockOut = useCallback(async () => {
+    if (gracePeriodStartedAtRef.current === null) return;
+    if (clockOutInFlightRef.current) return;
+    clockOutInFlightRef.current = true;
+
+    if (countdownRef.current) { clearInterval(countdownRef.current); countdownRef.current = null; }
+    if (visibilityHandlerRef.current) { document.removeEventListener('visibilitychange', visibilityHandlerRef.current); visibilityHandlerRef.current = null; }
+
+    console.log("[Geofence] Grace period expired — attempting geofence-background clock-out");
+
+    let confirmedOut = false;
+    try {
+      const authHeaders: Record<string, string> = {};
+      if ((window as any).Clerk?.session) {
+        const token = await (window as any).Clerk.session.getToken();
+        if (token) authHeaders.Authorization = `Bearer ${token}`;
       }
-      setCountdownSeconds(geofenceStatus.geofenceExitInfo.graceRemaining);
-      if (countdownRef.current) clearInterval(countdownRef.current);
-      countdownRef.current = window.setInterval(() => {
-            setCountdownSeconds(prev => {
-              if (prev == null || prev <= 1) {
-                if (countdownRef.current) {
-                  clearInterval(countdownRef.current);
-                  countdownRef.current = null;
-                }
-                console.log("[Geofence] Grace period expired — cleaning up and checking clock-out");
-                const cleanupUI = () => {
-                  setCountdownSeconds(null);
-                  setGeofenceStatus(null);
-                  totalGraceSecondsRef.current = 0;
-                  exitAlertShown.current = false;
-                  queryClient.invalidateQueries({ queryKey: ['/api/time-entries/active'] });
-                  queryClient.invalidateQueries({ queryKey: ['/api/time-entries'] });
-                };
-                (async () => {
-                  try {
-                    const authHeaders: Record<string, string> = {};
-                    if ((window as any).Clerk?.session) {
-                      const token = await (window as any).Clerk.session.getToken();
-                      if (token) authHeaders.Authorization = `Bearer ${token}`;
-                    }
-                    const res = await fetch('/api/time-entries/active', {
-                      credentials: 'include',
-                      headers: authHeaders,
-                    });
-                    const entry = res.ok ? await res.json() : null;
-                    if (entry && entry.id && !entry.clockOutTime) {
-                      console.log("[Geofence] Entry still active — forcing client clock-out");
-                      clockOutMutation.mutate(entry.id, { onSettled: cleanupUI });
-                    } else {
-                      console.log("[Geofence] Server already clocked out — cleaning up UI");
-                      cleanupUI();
-                      triggerHaptic([300, 100, 300, 100, 600]);
-                      toast({
-                        title: "Auto Clocked Out",
-                        description: "You were automatically clocked out because you left the work location.",
-                        variant: "destructive",
-                      });
-                    }
-                  } catch (err) {
-                    console.error("[Geofence] Error checking active entry, forcing cleanup:", err);
-                    if (activeTimeEntry) {
-                      clockOutMutation.mutate(activeTimeEntry.id, { onSettled: cleanupUI });
-                    } else {
-                      cleanupUI();
-                    }
-                  }
-                })();
-                return 0;
-              }
-              return prev - 1;
-            });
-      }, 1000);
-    } else if (geofenceStatus?.isInWorkLocation) {
-      setCountdownSeconds(null);
-      totalGraceSecondsRef.current = 0;
-      if (countdownRef.current) {
-        clearInterval(countdownRef.current);
-        countdownRef.current = null;
+
+      let entryId: string | null = null;
+      try {
+        const res = await fetch('/api/time-entries/active', { credentials: 'include', headers: authHeaders });
+        const entry = res.ok ? await res.json() : null;
+        if (entry && entry.id && !entry.clockOutTime) {
+          entryId = entry.id;
+        } else {
+          confirmedOut = true;
+          console.log("[Geofence] Server already clocked out — cleaning up UI");
+        }
+      } catch (fetchErr) {
+        console.warn("[Geofence] Fetch active entry failed, falling back to cached entry:", fetchErr);
+        const known = activeTimeEntryRef.current;
+        if (known && known.id && !known.clockOutTime) {
+          entryId = known.id;
+        }
       }
+
+      if (!confirmedOut && entryId) {
+        console.log("[Geofence] Entry still open — sending geofence-background clock-out");
+        await apiRequest('PATCH', `/api/time-entries/${entryId}`, {
+          clockOutTime: new Date(),
+          clockOutSource: 'geofence-background',
+        });
+        confirmedOut = true;
+      }
+    } catch (err) {
+      console.error("[Geofence] Background clock-out request failed — will retry on next focus:", err);
+      clockOutInFlightRef.current = false;
+      return;
     }
-    return () => {
+
+    if (confirmedOut) {
+      gracePeriodStartedAtRef.current = null;
+      initialGraceRemainingRef.current = null;
+      totalGraceSecondsRef.current = 0;
+      exitAlertShown.current = false;
+      setCountdownSeconds(null);
+      setGeofenceStatus(null);
+      queryClient.invalidateQueries({ queryKey: ['/api/time-entries/active'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/time-entries'] });
+      triggerHaptic([300, 100, 300, 100, 600]);
+      toast({
+        title: "Auto Clocked Out",
+        description: "You were automatically clocked out because you left the work location.",
+        variant: "destructive",
+      });
+    }
+
+    clockOutInFlightRef.current = false;
+  }, [queryClient, toast]);
+
+  useEffect(() => {
+    const cleanupVisibilityHandler = () => {
+      if (visibilityHandlerRef.current) {
+        document.removeEventListener('visibilitychange', visibilityHandlerRef.current);
+        visibilityHandlerRef.current = null;
+      }
+    };
+
+    const cleanupInterval = () => {
       if (countdownRef.current) {
         clearInterval(countdownRef.current);
         countdownRef.current = null;
       }
     };
-  }, [geofenceStatus?.isInWorkLocation, geofenceStatus?.geofenceExitInfo?.graceRemaining]);
+
+    const cleanupAll = () => {
+      cleanupInterval();
+      cleanupVisibilityHandler();
+    };
+
+    if (geofenceStatus && !geofenceStatus.isInWorkLocation && geofenceStatus.geofenceExitInfo?.graceRemaining != null && geofenceStatus.geofenceExitInfo.graceRemaining > 0) {
+      const serverGraceRemaining = geofenceStatus.geofenceExitInfo.graceRemaining;
+
+      if (totalGraceSecondsRef.current === 0) {
+        totalGraceSecondsRef.current = serverGraceRemaining;
+      }
+
+      if (gracePeriodStartedAtRef.current === null) {
+        gracePeriodStartedAtRef.current = Date.now();
+        initialGraceRemainingRef.current = serverGraceRemaining;
+      }
+
+      const computeRemaining = () => {
+        if (gracePeriodStartedAtRef.current === null || initialGraceRemainingRef.current === null) return 0;
+        return Math.max(0, Math.round(initialGraceRemainingRef.current - (Date.now() - gracePeriodStartedAtRef.current) / 1000));
+      };
+
+      setCountdownSeconds(computeRemaining());
+
+      cleanupInterval();
+      countdownRef.current = window.setInterval(() => {
+        const remaining = computeRemaining();
+        setCountdownSeconds(remaining);
+        if (remaining <= 0) {
+          cleanupInterval();
+          geofenceBackgroundClockOut();
+        }
+      }, 1000);
+
+      cleanupVisibilityHandler();
+      const onVisibilityChange = () => {
+        if (document.visibilityState !== 'visible') return;
+        if (gracePeriodStartedAtRef.current === null) return;
+        const remaining = computeRemaining();
+        console.log("[Geofence] Tab became visible during grace period — remaining:", remaining, "s");
+        setCountdownSeconds(remaining);
+        if (remaining <= 0) {
+          cleanupInterval();
+          geofenceBackgroundClockOut();
+        }
+      };
+      visibilityHandlerRef.current = onVisibilityChange;
+      document.addEventListener('visibilitychange', onVisibilityChange);
+
+    } else if (geofenceStatus?.isInWorkLocation) {
+      setCountdownSeconds(null);
+      totalGraceSecondsRef.current = 0;
+      gracePeriodStartedAtRef.current = null;
+      initialGraceRemainingRef.current = null;
+      cleanupAll();
+    }
+
+    return () => {
+      cleanupAll();
+    };
+  }, [geofenceStatus?.isInWorkLocation, geofenceStatus?.geofenceExitInfo?.graceRemaining, geofenceBackgroundClockOut]);
+
+  useEffect(() => {
+    if (!activeTimeEntry) return;
+    const onVisibleRecovery = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (gracePeriodStartedAtRef.current === null || initialGraceRemainingRef.current === null) return;
+      const graceEndMs = gracePeriodStartedAtRef.current + initialGraceRemainingRef.current * 1000;
+      if (Date.now() >= graceEndMs) {
+        console.log("[Geofence] Tab returned visible — grace expired in background, triggering recovery clock-out");
+        geofenceBackgroundClockOut();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibleRecovery);
+    return () => document.removeEventListener('visibilitychange', onVisibleRecovery);
+  }, [activeTimeEntry?.id, geofenceBackgroundClockOut]);
 
   useEffect(() => {
     if (activeTimeEntry && workLocations.length > 0) {
@@ -436,10 +527,16 @@ export default function TimeClockWidget({ greetingSlot, footerSlot, hideClock = 
         setCountdownSeconds(null);
         setGeofenceStatus(null);
         totalGraceSecondsRef.current = 0;
+        gracePeriodStartedAtRef.current = null;
+        initialGraceRemainingRef.current = null;
         exitAlertShown.current = false;
         if (countdownRef.current) {
           clearInterval(countdownRef.current);
           countdownRef.current = null;
+        }
+        if (visibilityHandlerRef.current) {
+          document.removeEventListener('visibilitychange', visibilityHandlerRef.current);
+          visibilityHandlerRef.current = null;
         }
         triggerHaptic([300, 100, 300, 100, 600]);
         toast({
