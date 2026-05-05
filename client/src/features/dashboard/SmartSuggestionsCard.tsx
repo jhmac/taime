@@ -162,6 +162,9 @@ export default function SmartSuggestionsCard() {
   const roleName = user?.role?.name;
   const isAdminOrOwner = roleName === "admin" || roleName === "owner";
 
+  // Optimistically hidden suggestion entity_ids (task type completed inline)
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
+
   const { data: allTasks = [], isLoading: tasksLoading } = useQuery<Task[]>({
     queryKey: ["/api/tasks"],
     staleTime: 30_000,
@@ -186,12 +189,38 @@ export default function SmartSuggestionsCard() {
     (t) => t.assignedTo === user?.id && t.status !== "completed"
   );
 
-  const suggestions = suggestionsRes?.data?.suggestions ?? [];
+  const allSuggestions = suggestionsRes?.data?.suggestions ?? [];
+  // Hide suggestions that were just completed inline
+  const suggestions = allSuggestions.filter(
+    (s) => !s.entity_id || !dismissedIds.has(s.entity_id)
+  );
 
   const isLoading = tasksLoading || suggestionsLoading;
   const hasContent = myTasks.length > 0 || suggestions.length > 0;
 
   function handleSuggestionTap(s: TaskSuggestion) {
+    // Task suggestions: mark complete and remove from list instead of navigating
+    if (s.type === "task" && s.entity_id) {
+      // Optimistically hide it right away
+      setDismissedIds((prev) => new Set(prev).add(s.entity_id!));
+      // Persist to DB
+      toggleMutation.mutate(
+        { id: s.entity_id, status: "completed" },
+        {
+          onError: () => {
+            // If it fails, put it back
+            setDismissedIds((prev) => {
+              const next = new Set(prev);
+              next.delete(s.entity_id!);
+              return next;
+            });
+          },
+        }
+      );
+      return;
+    }
+
+    // Non-task suggestions: navigate as before
     switch (s.type) {
       case "sop":
         navigate(s.entity_id ? `/sops/execute/${s.entity_id}` : "/sops");
