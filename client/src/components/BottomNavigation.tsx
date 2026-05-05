@@ -35,7 +35,7 @@ const employeeNavItems: NavItem[] = [
 
 export default function BottomNavigation() {
   const [location, navigate] = useLocation();
-  const { user } = useAuth();
+  const { user } = useAuth() as { user: { role?: { name?: string } } | null };
   const [aiSheetOpen, setAiSheetOpen] = useState(false);
 
   useEffect(() => {
@@ -77,17 +77,17 @@ export default function BottomNavigation() {
     <nav
       className="fixed bottom-0 left-0 right-0 z-50 safe-area-bottom"
       style={{
-        background: 'linear-gradient(to top, var(--background) 60%, transparent)',
-        paddingTop: 16,
+        background: 'linear-gradient(to top, var(--background) 55%, transparent)',
+        paddingTop: 10,
       }}
       data-testid="bottom-navigation"
     >
       <div
-        className="mx-3 mb-3 rounded-[28px]"
+        className="mx-3 mb-2 rounded-[24px] border border-border/60 backdrop-blur-xl"
         style={{
-          backgroundColor: '#FFFFFF',
-          boxShadow: '0 2px 20px rgba(0,18,60,0.10), 0 1px 4px rgba(0,18,60,0.06)',
-          padding: '8px 20px 8px',
+          backgroundColor: 'rgba(255,255,255,0.88)',
+          boxShadow: '0 10px 30px rgba(15, 23, 42, 0.08)',
+          padding: '6px 14px 4px',
         }}
       >
         <div className="flex justify-between items-center">
@@ -105,24 +105,24 @@ export default function BottomNavigation() {
               <button
                 key={item.key}
                 onClick={handleClick}
-                className="flex flex-col items-center gap-0.5 relative transition-transform active:scale-95"
+                className="flex flex-col items-center gap-1 relative transition-transform active:scale-95 min-w-0 flex-1"
                 data-testid={`nav-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
               >
                 {active ? (
                   <>
                     <div
-                      className="w-12 h-12 rounded-2xl flex items-center justify-center"
+                      className="w-10 h-10 rounded-[18px] flex items-center justify-center shadow-sm"
                       style={{ backgroundColor: 'var(--primary)' }}
                     >
-                      <Icon size={20} strokeWidth={2.5} className="text-white" />
+                      <Icon size={18} strokeWidth={2.5} className="text-white" />
                     </div>
-                    <span className="text-[11px] font-bold" style={{ color: 'var(--primary)' }}>
+                    <span className="text-[10px] font-semibold leading-none" style={{ color: 'var(--primary)' }}>
                       {item.label}
                     </span>
                   </>
                 ) : (
-                  <div className="flex flex-col items-center pt-2 pb-1 relative">
-                    <Icon size={22} strokeWidth={1.8} className="text-muted-foreground" />
+                  <div className="flex flex-col items-center pt-1.5 pb-0.5 relative">
+                    <Icon size={18} strokeWidth={1.8} className="text-muted-foreground" />
                     {item.badge && unreadCount > 0 && (
                       <span className="absolute -top-1 -right-2.5 bg-red-500 text-white text-[9px] font-bold rounded-full h-4 min-w-[16px] flex items-center justify-center px-0.5">
                         {unreadCount > 99 ? '99+' : unreadCount}
@@ -135,7 +135,6 @@ export default function BottomNavigation() {
           })}
         </div>
       </div>
-      {/* iOS home indicator */}
       <div className="w-28 h-1 rounded-full mx-auto mb-1" style={{ backgroundColor: 'rgba(13,31,60,0.12)' }} />
     </nav>
   );
