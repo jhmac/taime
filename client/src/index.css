@@ -235,3 +235,25 @@
     display: none !important;
   }
 }
+
+/* ── Timeline slide animations (swipe navigation) ── */
+@keyframes slideOutLeft {
+  from { transform: translateX(0); opacity: 1; }
+  to   { transform: translateX(-30px); opacity: 0; }
+}
+@keyframes slideInRight {
+  from { transform: translateX(30px); opacity: 0; }
+  to   { transform: translateX(0); opacity: 1; }
+}
+@keyframes slideOutRight {
+  from { transform: translateX(0); opacity: 1; }
+  to   { transform: translateX(30px); opacity: 0; }
+}
+@keyframes slideInLeft {
+  from { transform: translateX(-30px); opacity: 0; }
+  to   { transform: translateX(0); opacity: 1; }
+}
+.animate-slide-out-left  { animation: slideOutLeft  150ms ease-out forwards; }
+.animate-slide-in-right  { animation: slideInRight  200ms ease-out forwards; }
+.animate-slide-out-right { animation: slideOutRight 150ms ease-out forwards; }
+.animate-slide-in-left   { animation: slideInLeft   200ms ease-out forwards; }

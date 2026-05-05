@@ -1497,11 +1497,12 @@ export default function ScheduleManagement() {
               </button>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {/* Today's Team — always visible */}
             <Button
               variant={(isMobilePanel ? showMobileSheet : showCommandPanel) ? "default" : "outline"}
               size="sm"
-              className="gap-1.5 text-xs"
+              className="gap-1.5 text-xs min-h-[44px] sm:min-h-0"
               onClick={handleCommandPanelToggle}
               title="Open Today's Team panel"
               aria-label="Open Today's Team panel"
@@ -1514,24 +1515,29 @@ export default function ScheduleManagement() {
               )}
               <span className="hidden sm:inline">Today's Team</span>
             </Button>
+
+            {/* AI Auto-Schedule — label hidden on mobile */}
             <Button
               variant="outline"
               size="sm"
-              className="gap-1.5 text-xs border-violet-300 text-violet-700 dark:border-violet-700 dark:text-violet-300 hover:bg-violet-50 dark:hover:bg-violet-900/20"
+              className="gap-1.5 text-xs border-violet-300 text-violet-700 dark:border-violet-700 dark:text-violet-300 hover:bg-violet-50 dark:hover:bg-violet-900/20 min-h-[44px] sm:min-h-0"
               onClick={() => suggestMutation.mutate(todayDateStr)}
               disabled={suggestMutation.isPending}
+              title="AI Auto-Schedule"
             >
               {suggestMutation.isPending ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
               ) : (
                 <Sparkles className="h-3.5 w-3.5" />
               )}
-              AI Auto-Schedule
+              <span className="hidden sm:inline">AI Auto-Schedule</span>
             </Button>
+
+            {/* Generate Week — label hidden on mobile */}
             <Button
               variant="outline"
               size="sm"
-              className="gap-1.5 text-xs border-violet-300 text-violet-700 dark:border-violet-700 dark:text-violet-300 hover:bg-violet-50 dark:hover:bg-violet-900/20"
+              className="gap-1.5 text-xs border-violet-300 text-violet-700 dark:border-violet-700 dark:text-violet-300 hover:bg-violet-50 dark:hover:bg-violet-900/20 min-h-[44px] sm:min-h-0"
               onClick={handleAIGenerate}
               disabled={generateMutation.isPending}
               title="Generate an AI schedule for the entire visible week"
@@ -1542,12 +1548,14 @@ export default function ScheduleManagement() {
               ) : (
                 <Wand2 className="h-3.5 w-3.5" />
               )}
-              Generate Week
+              <span className="hidden sm:inline">Generate Week</span>
             </Button>
+
+            {/* Notify Team — label hidden on mobile */}
             <Button
               variant="outline"
               size="sm"
-              className="gap-1.5 text-xs"
+              className="gap-1.5 text-xs min-h-[44px] sm:min-h-0"
               onClick={() => notifyTeamMutation.mutate()}
               disabled={notifyTeamMutation.isPending || schedules.length === 0}
               title="Send push notifications to all employees with shifts this week"
@@ -1557,11 +1565,13 @@ export default function ScheduleManagement() {
               ) : (
                 <Bell className="h-3.5 w-3.5" />
               )}
-              Notify Team
+              <span className="hidden sm:inline">Notify Team</span>
             </Button>
-            <Button size="sm" className="gap-1.5 text-xs" onClick={() => openCreateShift()}>
+
+            {/* Add Shift — label visible on sm+ screens, icon-only on mobile */}
+            <Button size="sm" className="gap-1.5 text-xs min-h-[44px] sm:min-h-0" onClick={() => openCreateShift()}>
               <Plus className="h-3.5 w-3.5" />
-              Add Shift
+              <span className="hidden sm:inline">Add Shift</span>
             </Button>
           </div>
         </div>

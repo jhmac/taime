@@ -22,6 +22,7 @@ import {
   Maximize2, Minimize2, Pencil, Save, Trash2, Plus, Undo2, Redo2,
   Lock, Keyboard, DollarSign, Store, Copy, CalendarDays,
 } from "lucide-react";
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import type { Schedule } from "@shared/schema";
 import {
   computeMargin,
@@ -2090,6 +2091,16 @@ export default function CreateShiftSplitPanel({
     setShiftSaved(false);
   }, [selectedShiftIdx, selectedActualSchedule?.id]);
   const [showPillsUnavailable, setShowPillsUnavailable] = useState(false);
+  // Who's Available accordion: open by default on desktop, closed on mobile
+  const [showPillsOpen, setShowPillsOpen] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth >= 768 : true
+  );
+  // Reset accordion to closed on mobile each time the panel opens
+  useEffect(() => {
+    if (open && typeof window !== 'undefined' && window.innerWidth < 768) {
+      setShowPillsOpen(false);
+    }
+  }, [open]);
   // A1 confirm-on-close dialog state.
   const [pendingCloseConfirm, setPendingCloseConfirm] = useState(false);
   // C6 keyboard cheat-sheet, toggled by ? and /.
@@ -4887,21 +4898,42 @@ export default function CreateShiftSplitPanel({
                 </>
               )}
 
-              {/* Who's Available pills */}
+              {/* Who's Available — collapsible accordion (closed by default on mobile) */}
               {!!modalDate && (
                 <>
                   <div className="border-t border-border/40" />
-                  <AvailableEmployeePills
-                    members={availData?.members ?? []}
-                    storeHours={availData?.storeHours ?? storeHours}
-                    isLoading={availLoading && !availData}
-                    scheduledEmployeeIds={scheduledForPills}
-                    onAdd={handlePillAdd}
-                    showUnavailable={showPillsUnavailable}
-                    onToggleUnavailable={() => setShowPillsUnavailable(v => !v)}
-                    dateKey={modalDate}
-                    onPillDragStart={startPillDrag}
-                  />
+                  <Collapsible open={showPillsOpen} onOpenChange={setShowPillsOpen}>
+                    <CollapsibleTrigger asChild>
+                      <button className="w-full flex items-center justify-between px-0.5 py-1 group text-left">
+                        <span className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
+                          <Users className="h-3 w-3" />
+                          Who's Available
+                          {(availData?.members ?? []).filter(m => m.isAvailable).length > 0 && (
+                            <span className="ml-1 text-foreground font-semibold">
+                              ({(availData?.members ?? []).filter(m => m.isAvailable).length})
+                            </span>
+                          )}
+                        </span>
+                        {showPillsOpen
+                          ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground group-hover:text-foreground transition-colors" />
+                          : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground group-hover:text-foreground transition-colors" />
+                        }
+                      </button>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <AvailableEmployeePills
+                        members={availData?.members ?? []}
+                        storeHours={availData?.storeHours ?? storeHours}
+                        isLoading={availLoading && !availData}
+                        scheduledEmployeeIds={scheduledForPills}
+                        onAdd={handlePillAdd}
+                        showUnavailable={showPillsUnavailable}
+                        onToggleUnavailable={() => setShowPillsUnavailable(v => !v)}
+                        dateKey={modalDate}
+                        onPillDragStart={startPillDrag}
+                      />
+                    </CollapsibleContent>
+                  </Collapsible>
                 </>
               )}
             </div>

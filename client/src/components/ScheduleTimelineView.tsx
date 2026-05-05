@@ -4,16 +4,18 @@ import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Schedule, User } from "@shared/schema";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Circle } from "lucide-react";
 
 // Constants
 const DAY_START_HOUR = 6;
 const DAY_END_HOUR   = 22;
 const TOTAL_HOURS    = DAY_END_HOUR - DAY_START_HOUR;
 
-const WEEK_HOUR_PX   = 60;
-const DAY_HOUR_PX    = 80;
-const SNAP_MINUTES   = 15;
+const DEFAULT_WEEK_HOUR_PX = 60;
+const DEFAULT_DAY_HOUR_PX  = 80;
+const SNAP_MINUTES = 15;
+const MIN_HOUR_PX  = 40;
+const MAX_HOUR_PX  = 160;
 
 // Mobile breakpoint (md = 768px)
 const MOBILE_BREAKPOINT = 768;
@@ -23,13 +25,6 @@ const COLOR_KEYS = [
   'violet','blue','emerald','amber','rose','cyan','pink','indigo','teal','orange',
 ] as const;
 type ColorKey = typeof COLOR_KEYS[number];
-
-function colorKeyFromName(name: string): ColorKey {
-  const ORDER: ColorKey[] = ['violet','blue','emerald','amber','rose','cyan','pink','indigo'];
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = name.charCodeAt(i) + ((h << 5) - h);
-  return ORDER[Math.abs(h) % ORDER.length];
-}
 
 function colorKeyFromId(id: string): ColorKey {
   let h = 0;
@@ -90,7 +85,7 @@ export type ScheduleSubView = 'day' | 'week' | 'month' | 'year';
 interface Props {
   subView: ScheduleSubView;
   onSubViewChange: (v: ScheduleSubView) => void;
-  schedules: Schedule[];          // week-scoped schedules from parent
+  schedules: Schedule[];
   users: User[];
   weekDates: Date[];
   selectedWeek: number;
@@ -155,6 +150,120 @@ interface DragState {
   currentMs: number;
 }
 
+// ── usePinchZoom ──────────────────────────────────────────────────────────────
+// Reads the distance between two touch points on the container and maps the
+// scale ratio to hourPx state (clamped 40–160). Only activates on 2-finger
+// touches so single-finger scroll and swipe are not affected.
+function usePinchZoom(
+  containerRef: React.RefObject<HTMLElement>,
+  hourPx: number,
+  setHourPx: (px: number) => void,
+  disabled?: boolean
+): React.MutableRefObject<boolean> {
+  const isPinchingRef = useRef(false);
+  const initialDistRef = useRef(0);
+  const initialHourPxRef = useRef(hourPx);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || disabled) return;
+
+    function getTouchDist(t: TouchList): number {
+      const dx = t[0].clientX - t[1].clientX;
+      const dy = t[0].clientY - t[1].clientY;
+      return Math.hypot(dx, dy);
+    }
+
+    function onTouchStart(e: TouchEvent) {
+      if (e.touches.length === 2) {
+        isPinchingRef.current = true;
+        initialDistRef.current = getTouchDist(e.touches);
+        initialHourPxRef.current = hourPx;
+        e.preventDefault();
+      }
+    }
+
+    function onTouchMove(e: TouchEvent) {
+      if (!isPinchingRef.current || e.touches.length !== 2) return;
+      const d = getTouchDist(e.touches);
+      if (initialDistRef.current === 0) return;
+      const scale = d / initialDistRef.current;
+      const newPx = clamp(Math.round(initialHourPxRef.current * scale), MIN_HOUR_PX, MAX_HOUR_PX);
+      setHourPx(newPx);
+      e.preventDefault();
+    }
+
+    function onTouchEnd(e: TouchEvent) {
+      if (e.touches.length < 2) {
+        isPinchingRef.current = false;
+      }
+    }
+
+    el.addEventListener('touchstart', onTouchStart, { passive: false });
+    el.addEventListener('touchmove', onTouchMove, { passive: false });
+    el.addEventListener('touchend', onTouchEnd);
+    el.addEventListener('touchcancel', onTouchEnd);
+    return () => {
+      el.removeEventListener('touchstart', onTouchStart);
+      el.removeEventListener('touchmove', onTouchMove);
+      el.removeEventListener('touchend', onTouchEnd);
+      el.removeEventListener('touchcancel', onTouchEnd);
+    };
+  }, [containerRef, hourPx, setHourPx, disabled]);
+
+  return isPinchingRef;
+}
+
+// ── useSwipeNav ───────────────────────────────────────────────────────────────
+// A fast single-finger horizontal swipe (≥ 50 px, < 300 ms, not part of a
+// pinch) triggers next/previous navigation. Guards against vertical scroll and
+// active pinch gestures.
+function useSwipeNav(
+  containerRef: React.RefObject<HTMLElement>,
+  onSwipeLeft: () => void,
+  onSwipeRight: () => void,
+  isPinchingRef: React.MutableRefObject<boolean>,
+  disabled?: boolean
+) {
+  const startXRef = useRef(0);
+  const startYRef = useRef(0);
+  const startTimeRef = useRef(0);
+  const touchCountRef = useRef(0);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || disabled) return;
+
+    function onTouchStart(e: TouchEvent) {
+      touchCountRef.current = e.touches.length;
+      if (e.touches.length !== 1) return;
+      startXRef.current = e.touches[0].clientX;
+      startYRef.current = e.touches[0].clientY;
+      startTimeRef.current = Date.now();
+    }
+
+    function onTouchEnd(e: TouchEvent) {
+      if (touchCountRef.current !== 1 || isPinchingRef.current) return;
+      const t = e.changedTouches[0];
+      const dx = t.clientX - startXRef.current;
+      const dy = t.clientY - startYRef.current;
+      const dt = Date.now() - startTimeRef.current;
+      // Must be horizontal, fast, and primarily horizontal
+      if (dt < 300 && Math.abs(dx) >= 50 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+        if (dx < 0) onSwipeLeft();
+        else onSwipeRight();
+      }
+    }
+
+    el.addEventListener('touchstart', onTouchStart, { passive: true });
+    el.addEventListener('touchend', onTouchEnd, { passive: true });
+    return () => {
+      el.removeEventListener('touchstart', onTouchStart);
+      el.removeEventListener('touchend', onTouchEnd);
+    };
+  }, [containerRef, onSwipeLeft, onSwipeRight, isPinchingRef, disabled]);
+}
+
 // ShiftBlock
 function ShiftBlock({
   positioned,
@@ -164,6 +273,7 @@ function ShiftBlock({
   onDragStart,
   dragState,
   isSelected,
+  isMobile,
 }: {
   positioned: PositionedShift;
   user: User | undefined;
@@ -172,6 +282,7 @@ function ShiftBlock({
   onDragStart: (e: React.MouseEvent | React.TouchEvent, s: Schedule, edge: DragEdge) => void;
   dragState: DragState | null;
   isSelected?: boolean;
+  isMobile?: boolean;
 }) {
   const { schedule: s, col, totalCols } = positioned;
   const isDragging = dragState?.scheduleId === s.id;
@@ -184,15 +295,11 @@ function ShiftBlock({
   const dayStartMin = DAY_START_HOUR * 60;
 
   const top    = ((startMin - dayStartMin) / 60) * hourPx;
-  const height = Math.max(((endMin - startMin) / 60) * hourPx, hourPx * 0.25);
+  const height = Math.max(((endMin - startMin) / 60) * hourPx, isMobile ? 56 : hourPx * 0.25);
 
   const widthPct = 100 / totalCols;
   const leftPct  = col * widthPct;
 
-  // Consistency fix: resolve the display name the same way the panel does
-  // (firstName + lastName → email → username → 'Unknown') and colour by
-  // userId (same 10-color hash as CreateShiftSplitPanel) so a person gets
-  // an identical colour and name in both the timeline and the edit panel.
   const displayName = user
     ? `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim()
       || user.email
@@ -203,6 +310,12 @@ function ShiftBlock({
   const timeLabel = `${formatTimeShort(new Date(startMs))}–${formatTimeShort(new Date(endMs))}`;
   const showRole = !!s.title && height >= 60;
   const showTime = height >= 40;
+
+  // On mobile: drag handles are 44px tall (WCAG 2.5.5 touch target minimum).
+  // onClick is NOT stopped on the handle divs so tap-to-edit still bubbles to the
+  // outer block div. Only drag gesture initiation (onTouchStart/onMouseDown) is intercepted.
+  const handleHeight = isMobile ? 44 : 8;
+  const handleOpacityClass = isMobile ? "opacity-40" : "opacity-0 hover:opacity-60";
 
   return (
     <div
@@ -219,36 +332,83 @@ function ShiftBlock({
         left:     `calc(${leftPct}% + 1px)`,
         width:    `calc(${widthPct}% - 2px)`,
         cursor:   'pointer',
-        minHeight:'44px',
+        minHeight: isMobile ? '56px' : '44px',
+        touchAction: isDragging ? 'none' : 'auto',
       }}
       onClick={(e) => { e.stopPropagation(); onEdit(s); }}
       title={`${displayName}: ${timeLabel}${s.title ? ` · ${s.title}` : ''}`}
     >
-      {/* Top drag handle */}
+      {/* Top drag handle — 44px hit area on mobile */}
       <div
-        className="absolute top-0 left-0 right-0 h-2 cursor-ns-resize flex items-center justify-center opacity-0 hover:opacity-60 transition-opacity"
+        className={cn(
+          "absolute top-0 left-0 right-0 cursor-ns-resize flex items-center justify-center transition-opacity",
+          handleOpacityClass
+        )}
+        style={{ height: `${handleHeight}px`, zIndex: 10 }}
         onMouseDown={e => { e.stopPropagation(); onDragStart(e, s, 'top'); }}
         onTouchStart={e => { e.stopPropagation(); onDragStart(e, s, 'top'); }}
-        onClick={e => e.stopPropagation()}
+        // No onClick stopPropagation — taps bubble to the outer block's onEdit handler
       >
         <div className="w-8 h-0.5 rounded-full bg-current opacity-40" />
       </div>
 
-      {/* Content */}
-      <div className={cn("px-1.5 pt-2 pb-1 flex flex-col gap-0", colors.text)}>
+      {/* Content — fills the full block, sits behind handles (z-index 1); clickable for edit */}
+      <div
+        className={cn("absolute inset-0 px-1.5 pt-1 pb-1 flex flex-col gap-0", colors.text)}
+        style={{ zIndex: 1 }}
+      >
         <span className="text-[10px] font-semibold truncate leading-tight">{displayName}</span>
         {showRole && <span className="text-[8px] opacity-60 truncate leading-tight">{s.title}</span>}
         {showTime && <span className="text-[9px] opacity-70 truncate">{timeLabel}</span>}
       </div>
 
-      {/* Bottom drag handle */}
+      {/* Bottom drag handle — 44px touch target on mobile */}
       <div
-        className="absolute bottom-0 left-0 right-0 h-2 cursor-ns-resize flex items-center justify-center opacity-0 hover:opacity-60 transition-opacity"
+        className={cn(
+          "absolute bottom-0 left-0 right-0 cursor-ns-resize flex items-center justify-center transition-opacity",
+          handleOpacityClass
+        )}
+        style={{ height: `${handleHeight}px`, zIndex: 10 }}
         onMouseDown={e => { e.stopPropagation(); onDragStart(e, s, 'bottom'); }}
         onTouchStart={e => { e.stopPropagation(); onDragStart(e, s, 'bottom'); }}
-        onClick={e => e.stopPropagation()}
+        // No onClick stopPropagation — taps bubble to the outer block's onEdit handler
       >
         <div className="w-8 h-0.5 rounded-full bg-current opacity-40" />
+      </div>
+    </div>
+  );
+}
+
+// CurrentTimeLine — red horizontal line at the current hour in Day/Week views
+function CurrentTimeLine({ hourPx, nowSentinelRef }: {
+  hourPx: number;
+  nowSentinelRef?: React.RefObject<HTMLDivElement>;
+}) {
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const tick = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(tick);
+  }, []);
+
+  const startMin = DAY_START_HOUR * 60;
+  const endMin   = DAY_END_HOUR   * 60;
+  const nowMin   = now.getHours() * 60 + now.getMinutes();
+
+  if (nowMin < startMin || nowMin > endMin) return null;
+
+  const top = ((nowMin - startMin) / 60) * hourPx;
+
+  return (
+    <div
+      className="absolute left-0 right-0 z-20 pointer-events-none"
+      style={{ top: `${top}px` }}
+    >
+      {/* Sentinel div for IntersectionObserver */}
+      <div ref={nowSentinelRef} className="absolute -top-1 left-0 w-1 h-2" aria-hidden="true" />
+      <div className="flex items-center">
+        <div className="w-2 h-2 rounded-full bg-red-500 shrink-0 -ml-1" />
+        <div className="flex-1 h-px bg-red-500 opacity-80" />
       </div>
     </div>
   );
@@ -266,6 +426,9 @@ function DayColumn({
   onSlotClick,
   isToday,
   selectedScheduleId,
+  isMobile,
+  showNowLine,
+  nowSentinelRef,
 }: {
   date: Date;
   shifts: Schedule[];
@@ -277,6 +440,9 @@ function DayColumn({
   onSlotClick: (date: Date, startTime: string) => void;
   isToday: boolean;
   selectedScheduleId?: string | null;
+  isMobile?: boolean;
+  showNowLine?: boolean;
+  nowSentinelRef?: React.RefObject<HTMLDivElement>;
 }) {
   const totalHeight = TOTAL_HOURS * hourPx;
   const positioned  = useMemo(() => layoutOverlapping(shifts), [shifts]);
@@ -314,6 +480,12 @@ function DayColumn({
           />
         );
       })}
+
+      {/* Current-time line (only in today's column) */}
+      {showNowLine && isToday && (
+        <CurrentTimeLine hourPx={hourPx} nowSentinelRef={nowSentinelRef} />
+      )}
+
       {positioned.map(p => (
         <ShiftBlock
           key={p.schedule.id}
@@ -324,6 +496,7 @@ function DayColumn({
           onDragStart={onDragStart}
           dragState={dragState}
           isSelected={selectedScheduleId === p.schedule.id}
+          isMobile={isMobile}
         />
       ))}
     </div>
@@ -333,7 +506,7 @@ function DayColumn({
 // TimeLabels
 function TimeLabels({ hourPx }: { hourPx: number }) {
   return (
-    <div className="relative shrink-0" style={{ width: '52px' }}>
+    <div className="relative shrink-0" style={{ width: '48px' }}>
       {Array.from({ length: TOTAL_HOURS + 1 }).map((_, hi) => (
         <div
           key={hi}
@@ -352,44 +525,105 @@ function DayView({
   date,
   schedules,
   users,
+  hourPx,
   onEdit,
   onDragStart,
   dragState,
   onSlotClick,
   selectedScheduleId,
+  isMobile,
+  containerRef,
+  nowSentinelRef,
 }: {
   date: Date;
   schedules: Schedule[];
   users: User[];
+  hourPx: number;
   onEdit: (s: Schedule) => void;
   onDragStart: (e: React.MouseEvent | React.TouchEvent, s: Schedule, edge: DragEdge) => void;
   dragState: DragState | null;
   onSlotClick: (date: Date, startTime: string) => void;
   selectedScheduleId?: string | null;
+  isMobile?: boolean;
+  containerRef?: React.RefObject<HTMLDivElement>;
+  nowSentinelRef?: React.RefObject<HTMLDivElement>;
 }) {
   const dayStr    = formatLocalDate(date);
   const dayShifts = schedules.filter(s => formatLocalDate(new Date(s.startTime)) === dayStr);
   const isToday   = date.toDateString() === new Date().toDateString();
 
   return (
-    <div className="flex-1 overflow-y-auto">
-      <div className="flex" style={{ minHeight: `${TOTAL_HOURS * DAY_HOUR_PX}px` }}>
-        <TimeLabels hourPx={DAY_HOUR_PX} />
+    <div
+      ref={containerRef}
+      className="flex-1 overflow-y-auto"
+      style={{ touchAction: dragState ? 'none' : 'pan-y' }}
+    >
+      <div className="flex" style={{ minHeight: `${TOTAL_HOURS * hourPx}px` }}>
+        <TimeLabels hourPx={hourPx} />
         <div className="flex-1 relative">
           <DayColumn
             date={date}
             shifts={dayShifts}
             users={users}
-            hourPx={DAY_HOUR_PX}
+            hourPx={hourPx}
             onEdit={onEdit}
             onDragStart={onDragStart}
             dragState={dragState}
             onSlotClick={onSlotClick}
             isToday={isToday}
             selectedScheduleId={selectedScheduleId}
+            isMobile={isMobile}
+            showNowLine
+            nowSentinelRef={nowSentinelRef}
           />
         </div>
       </div>
+    </div>
+  );
+}
+
+// MobileWeekStrip — 7-day pill strip for mobile week view
+function MobileWeekStrip({
+  weekDates,
+  visibleDates,
+  onDayTap,
+}: {
+  weekDates: Date[];
+  visibleDates: Date[];
+  onDayTap: (date: Date) => void;
+}) {
+  const today = new Date().toDateString();
+  const visibleSet = new Set(visibleDates.map(d => d.toDateString()));
+
+  return (
+    <div className="flex items-center justify-around px-2 py-2 bg-background border-b gap-1">
+      {weekDates.map((date) => {
+        const isToday = date.toDateString() === today;
+        const isVisible = visibleSet.has(date.toDateString());
+        return (
+          <button
+            key={date.toISOString()}
+            onClick={() => onDayTap(date)}
+            className={cn(
+              "flex flex-col items-center gap-0.5 flex-1 min-w-0 py-1 px-1 rounded-lg transition-colors",
+              isVisible
+                ? "bg-primary/10 text-primary"
+                : "text-muted-foreground hover:bg-muted"
+            )}
+          >
+            <span className="text-[9px] font-medium uppercase">
+              {date.toLocaleDateString('en-US', { weekday: 'short' })}
+            </span>
+            <span className={cn(
+              "text-[13px] font-semibold leading-tight rounded-full w-7 h-7 flex items-center justify-center",
+              isToday && "bg-primary text-primary-foreground",
+              isVisible && !isToday && "text-primary",
+            )}>
+              {date.getDate()}
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -399,63 +633,127 @@ function WeekView({
   weekDates,
   schedules,
   users,
+  hourPx,
   onEdit,
   onDragStart,
   dragState,
   onSlotClick,
   selectedScheduleId,
+  isMobile,
+  mobileDayCenter,
+  onMobileDayCenterChange,
+  containerRef,
+  nowSentinelRef,
 }: {
   weekDates: Date[];
   schedules: Schedule[];
   users: User[];
+  hourPx: number;
   onEdit: (s: Schedule) => void;
   onDragStart: (e: React.MouseEvent | React.TouchEvent, s: Schedule, edge: DragEdge) => void;
   dragState: DragState | null;
   onSlotClick: (date: Date, startTime: string) => void;
   selectedScheduleId?: string | null;
+  isMobile?: boolean;
+  mobileDayCenter?: Date;
+  onMobileDayCenterChange?: (date: Date) => void;
+  containerRef?: React.RefObject<HTMLDivElement>;
+  nowSentinelRef?: React.RefObject<HTMLDivElement>;
 }) {
   const today = new Date().toDateString();
 
+  // On mobile: show 3-day sliding window centred on mobileDayCenter
+  const displayDates = useMemo(() => {
+    if (!isMobile || !mobileDayCenter) return weekDates;
+    const centerIdx = weekDates.findIndex(d => d.toDateString() === mobileDayCenter.toDateString());
+    const ci = centerIdx >= 0 ? centerIdx : Math.round(weekDates.length / 2) - 1;
+    const start = clamp(ci - 1, 0, weekDates.length - 3);
+    return weekDates.slice(start, start + 3);
+  }, [isMobile, mobileDayCenter, weekDates]);
+
   return (
-    <div className="flex-1 overflow-auto">
-      <div className="sticky top-0 z-20 bg-background border-b flex" style={{ paddingLeft: '52px' }}>
-        {weekDates.map((date, i) => {
-          const isToday = date.toDateString() === today;
-          return (
-            <div
-              key={i}
-              className={cn(
-                "flex-1 text-center py-2 border-r last:border-r-0 text-xs font-medium",
-                isToday ? "text-primary" : "text-muted-foreground"
-              )}
-            >
-              {date.toLocaleDateString('en-US', { weekday:'short' })} {date.getDate()}
-            </div>
-          );
-        })}
-      </div>
-      <div className="flex" style={{ minHeight: `${TOTAL_HOURS * WEEK_HOUR_PX}px` }}>
-        <TimeLabels hourPx={WEEK_HOUR_PX} />
-        {weekDates.map((date, i) => {
-          const dayStr    = formatLocalDate(date);
-          const dayShifts = schedules.filter(s => formatLocalDate(new Date(s.startTime)) === dayStr);
-          return (
-            <div key={i} className="flex-1 min-w-0 border-r last:border-r-0">
-              <DayColumn
-                date={date}
-                shifts={dayShifts}
-                users={users}
-                hourPx={WEEK_HOUR_PX}
-                onEdit={onEdit}
-                onDragStart={onDragStart}
-                dragState={dragState}
-                onSlotClick={onSlotClick}
-                isToday={date.toDateString() === today}
-                selectedScheduleId={selectedScheduleId}
-              />
-            </div>
-          );
-        })}
+    <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+      {/* Mobile 7-day strip above the grid */}
+      {isMobile && (
+        <MobileWeekStrip
+          weekDates={weekDates}
+          visibleDates={displayDates}
+          onDayTap={(date) => onMobileDayCenterChange?.(date)}
+        />
+      )}
+
+      <div
+        ref={containerRef}
+        className="flex-1 overflow-auto"
+        style={{ touchAction: dragState ? 'none' : 'pan-y' }}
+      >
+        {/* Desktop sticky day header */}
+        {!isMobile && (
+          <div className="sticky top-0 z-20 bg-background border-b flex" style={{ paddingLeft: '48px' }}>
+            {weekDates.map((date, i) => {
+              const isToday = date.toDateString() === today;
+              return (
+                <div
+                  key={i}
+                  className={cn(
+                    "flex-1 text-center py-2 border-r last:border-r-0 text-xs font-medium",
+                    isToday ? "text-primary" : "text-muted-foreground"
+                  )}
+                >
+                  {date.toLocaleDateString('en-US', { weekday:'short' })} {date.getDate()}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Mobile compact column header */}
+        {isMobile && (
+          <div className="sticky top-0 z-20 bg-background border-b flex" style={{ paddingLeft: '48px' }}>
+            {displayDates.map((date, i) => {
+              const isToday = date.toDateString() === today;
+              return (
+                <div
+                  key={i}
+                  className={cn(
+                    "flex-1 text-center py-1.5 border-r last:border-r-0 text-xs font-medium",
+                    isToday ? "text-primary" : "text-muted-foreground"
+                  )}
+                >
+                  {date.toLocaleDateString('en-US', { weekday:'short' })} {date.getDate()}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        <div className="flex" style={{ minHeight: `${TOTAL_HOURS * hourPx}px` }}>
+          <TimeLabels hourPx={hourPx} />
+          {displayDates.map((date, i) => {
+            const dayStr    = formatLocalDate(date);
+            const dayShifts = schedules.filter(s => formatLocalDate(new Date(s.startTime)) === dayStr);
+            const isToday   = date.toDateString() === today;
+            return (
+              <div key={i} className="flex-1 min-w-0 border-r last:border-r-0">
+                <DayColumn
+                  date={date}
+                  shifts={dayShifts}
+                  users={users}
+                  hourPx={hourPx}
+                  onEdit={onEdit}
+                  onDragStart={onDragStart}
+                  dragState={dragState}
+                  onSlotClick={onSlotClick}
+                  isToday={isToday}
+                  selectedScheduleId={selectedScheduleId}
+                  isMobile={isMobile}
+                  showNowLine
+                  nowSentinelRef={isToday ? nowSentinelRef : undefined}
+                />
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
@@ -523,7 +821,6 @@ function MonthView({
                 <div className="space-y-0.5">
                   {dayShifts.slice(0, 3).map(s => {
                     const user   = users.find(u => u.id === s.userId);
-                    // Same name + colour resolution as ShiftBlock/panel for consistency.
                     const uName  = user ? `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim() || user.email || (user as any).username || '' : '';
                     const colors = getColors(s.userId);
                     const dur    = ((new Date(s.endTime).getTime() - new Date(s.startTime).getTime()) / 3600000).toFixed(1);
@@ -625,7 +922,7 @@ function YearView({
   );
 }
 
-// Main Component
+// ── Main Component ────────────────────────────────────────────────────────────
 export default function ScheduleTimelineView({
   subView,
   onSubViewChange,
@@ -650,6 +947,34 @@ export default function ScheduleTimelineView({
     return () => window.removeEventListener('resize', check);
   }, []);
 
+  // Reactive hourPx — controlled by pinch-to-zoom, defaults by subview and breakpoint
+  const [hourPx, setHourPx] = useState(() => {
+    if (typeof window === 'undefined') return DEFAULT_DAY_HOUR_PX;
+    // Mobile always starts at the compact week density regardless of subview
+    if (window.innerWidth < MOBILE_BREAKPOINT) return DEFAULT_WEEK_HOUR_PX;
+    // Desktop: match the initial subview for a sensible baseline
+    return subView === 'week' ? DEFAULT_WEEK_HOUR_PX : DEFAULT_DAY_HOUR_PX;
+  });
+
+  // Slide animation state
+  const [slideClass, setSlideClass] = useState('');
+
+  // Timeline container refs (for pinch/swipe)
+  const timelineContainerRef = useRef<HTMLDivElement>(null);
+
+  // "Now" FAB refs — observer effect is declared after date states below
+  const nowSentinelRef = useRef<HTMLDivElement>(null);
+  const [showNowFab, setShowNowFab] = useState(false);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  // Pinch-to-zoom — only active in day/week views
+  const isPinchingRef = usePinchZoom(
+    timelineContainerRef,
+    hourPx,
+    useCallback((px: number) => setHourPx(px), []),
+    subView === 'month' || subView === 'year'
+  );
+
   // On mobile, restrict to day/week only — reset if currently on month/year
   const effectiveSubView: ScheduleSubView = subView;
   useEffect(() => {
@@ -664,6 +989,41 @@ export default function ScheduleTimelineView({
     return weekDates.find(d => d.toDateString() === today.toDateString()) || weekDates[0] || today;
   });
 
+  // Mobile week view: center day (starts at today, falls back to first of week)
+  const [mobileDayCenter, setMobileDayCenter] = useState<Date>(() => {
+    const today = new Date();
+    return weekDates.find(d => d.toDateString() === today.toDateString()) || weekDates[1] || today;
+  });
+  // Preserves swipe-initiated center when navigating across week boundaries
+  const pendingMobileCenterRef = useRef<Date | null>(null);
+
+  // IntersectionObserver for the "Now" FAB — declared after date states so deps are in scope
+  useEffect(() => {
+    const sentinel = nowSentinelRef.current;
+    if (!sentinel) {
+      // No now-line visible (non-today day or non day/week view) — hide FAB
+      setShowNowFab(false);
+      return;
+    }
+    const root = scrollContainerRef.current ?? undefined;
+    const observer = new IntersectionObserver(
+      ([entry]) => setShowNowFab(!entry.isIntersecting),
+      { root, threshold: 0 }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+    // Re-run when sentinel/container mount, subview changes, or displayed date changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nowSentinelRef.current, scrollContainerRef.current, subView,
+      dayViewDate.toDateString(), mobileDayCenter.toDateString()]);
+
+  // Scroll the timeline so the current time is centred in view
+  const scrollToNow = useCallback(() => {
+    const sentinel = nowSentinelRef.current;
+    if (!sentinel) return;
+    sentinel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, []);
+
   // Month view
   const [monthViewDate, setMonthViewDate] = useState<Date>(() => weekDates[0] || new Date());
 
@@ -675,7 +1035,76 @@ export default function ScheduleTimelineView({
     const today = new Date();
     const inWeek = weekDates.find(d => d.toDateString() === today.toDateString());
     setDayViewDate(inWeek || weekDates[0] || today);
+    // If a swipe crossed a week boundary, restore the intended center day
+    if (pendingMobileCenterRef.current) {
+      setMobileDayCenter(pendingMobileCenterRef.current);
+      pendingMobileCenterRef.current = null;
+    } else {
+      setMobileDayCenter(inWeek || weekDates[1] || weekDates[0] || today);
+    }
   }, [weekDates]);
+
+  // Swipe navigation helpers
+  const navigateWithSlide = useCallback((direction: 'left' | 'right', action: () => void) => {
+    setSlideClass(direction === 'left' ? 'animate-slide-out-left' : 'animate-slide-out-right');
+    const handle = setTimeout(() => {
+      action();
+      setSlideClass(direction === 'left' ? 'animate-slide-in-right' : 'animate-slide-in-left');
+      const clearHandle = setTimeout(() => setSlideClass(''), 250);
+      return () => clearTimeout(clearHandle);
+    }, 150);
+    return () => clearTimeout(handle);
+  }, []);
+
+  const goNext = useCallback(() => {
+    if (effectiveSubView === 'day') {
+      navigateWithSlide('left', () => setDayViewDate(d => { const n=new Date(d); n.setDate(n.getDate()+1); return n; }));
+    } else if (effectiveSubView === 'week') {
+      if (isMobile) {
+        navigateWithSlide('left', () => {
+          const n = new Date(mobileDayCenter);
+          n.setDate(n.getDate() + 1);
+          const inCurrentWeek = weekDates.some(wd => wd.toDateString() === n.toDateString());
+          if (!inCurrentWeek) {
+            // Crossing week boundary — stash intended center so useEffect restores it
+            pendingMobileCenterRef.current = n;
+            onWeekChange(selectedWeek + 1);
+          } else {
+            setMobileDayCenter(n);
+          }
+        });
+      } else {
+        navigateWithSlide('left', () => onWeekChange(selectedWeek + 1));
+      }
+    }
+  }, [effectiveSubView, isMobile, mobileDayCenter, navigateWithSlide, onWeekChange, selectedWeek, weekDates]);
+
+  const goPrev = useCallback(() => {
+    if (effectiveSubView === 'day') {
+      navigateWithSlide('right', () => setDayViewDate(d => { const n=new Date(d); n.setDate(n.getDate()-1); return n; }));
+    } else if (effectiveSubView === 'week') {
+      if (isMobile) {
+        navigateWithSlide('right', () => {
+          const n = new Date(mobileDayCenter);
+          n.setDate(n.getDate() - 1);
+          const inCurrentWeek = weekDates.some(wd => wd.toDateString() === n.toDateString());
+          if (!inCurrentWeek) {
+            pendingMobileCenterRef.current = n;
+            onWeekChange(selectedWeek - 1);
+          } else {
+            setMobileDayCenter(n);
+          }
+        });
+      } else {
+        navigateWithSlide('right', () => onWeekChange(selectedWeek - 1));
+      }
+    }
+  }, [effectiveSubView, isMobile, mobileDayCenter, navigateWithSlide, onWeekChange, selectedWeek, weekDates]);
+
+  // Wire swipe navigation to timeline container
+  useSwipeNav(timelineContainerRef, goNext, goPrev, isPinchingRef,
+    effectiveSubView === 'month' || effectiveSubView === 'year'
+  );
 
   // Broad-scope schedule queries for month/year
   const monthStart = formatLocalDate(new Date(monthViewDate.getFullYear(), monthViewDate.getMonth(), 1));
@@ -743,8 +1172,8 @@ export default function ScheduleTimelineView({
   ) => {
     e.preventDefault();
     const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-    const hourPx   = effectiveSubView === 'day' ? DAY_HOUR_PX : WEEK_HOUR_PX;
-    const pxPerMin = hourPx / 60;
+    const px      = hourPx;
+    const pxPerMin = px / 60;
     const origMs   = edge === 'top' ? new Date(schedule.startTime).getTime() : new Date(schedule.endTime).getTime();
 
     const state: DragState = {
@@ -757,7 +1186,7 @@ export default function ScheduleTimelineView({
     };
     dragRef.current = state;
     setDragState({ ...state });
-  }, [effectiveSubView]);
+  }, [hourPx]);
 
   useEffect(() => {
     const onMove = (e: MouseEvent | TouchEvent) => {
@@ -848,55 +1277,84 @@ export default function ScheduleTimelineView({
   const renderNav = () => {
     if (effectiveSubView === 'day') return (
       <div className="flex items-center gap-1">
-        <button className="p-1 rounded hover:bg-muted" onClick={() => setDayViewDate(d => { const n=new Date(d); n.setDate(n.getDate()-1); return n; })}>
+        <button
+          className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded hover:bg-muted"
+          onClick={goPrev}
+          aria-label="Previous day"
+        >
           <ChevronLeft className="h-4 w-4" />
         </button>
-        <span className="text-sm font-medium min-w-[160px] text-center">
-          {dayViewDate.toLocaleDateString('en-US', { weekday:'long', month:'short', day:'numeric', year:'numeric' })}
+        <span className="text-xs sm:text-sm font-medium text-center" style={{ minWidth: isMobile ? '100px' : '160px' }}>
+          {isMobile
+            ? dayViewDate.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' })
+            : dayViewDate.toLocaleDateString('en-US', { weekday:'long', month:'short', day:'numeric', year:'numeric' })
+          }
         </span>
-        <button className="p-1 rounded hover:bg-muted" onClick={() => setDayViewDate(d => { const n=new Date(d); n.setDate(n.getDate()+1); return n; })}>
+        <button
+          className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded hover:bg-muted"
+          onClick={goNext}
+          aria-label="Next day"
+        >
           <ChevronRight className="h-4 w-4" />
         </button>
       </div>
     );
     if (effectiveSubView === 'week') return (
       <div className="flex items-center gap-1">
-        <button className="p-1 rounded hover:bg-muted" onClick={() => onWeekChange(selectedWeek - 1)}><ChevronLeft className="h-4 w-4" /></button>
-        <span className="text-sm font-medium min-w-[180px] text-center">
-          {weekDates[0]?.toLocaleDateString('en-US', { month:'short', day:'numeric' })} – {weekDates[6]?.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })}
+        <button className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded hover:bg-muted" onClick={goPrev} aria-label="Previous week">
+          <ChevronLeft className="h-4 w-4" />
+        </button>
+        <span className="text-xs sm:text-sm font-medium text-center" style={{ minWidth: isMobile ? '80px' : '180px' }}>
+          {isMobile
+            ? `${weekDates[0]?.toLocaleDateString('en-US', { month:'short', day:'numeric' })} – ${weekDates[6]?.toLocaleDateString('en-US', { month:'short', day:'numeric' })}`
+            : `${weekDates[0]?.toLocaleDateString('en-US', { month:'short', day:'numeric' })} – ${weekDates[6]?.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })}`
+          }
         </span>
-        <button className="p-1 rounded hover:bg-muted" onClick={() => onWeekChange(selectedWeek + 1)}><ChevronRight className="h-4 w-4" /></button>
+        <button className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded hover:bg-muted" onClick={goNext} aria-label="Next week">
+          <ChevronRight className="h-4 w-4" />
+        </button>
       </div>
     );
     if (effectiveSubView === 'month') return (
       <div className="flex items-center gap-1">
-        <button className="p-1 rounded hover:bg-muted" onClick={() => setMonthViewDate(d => new Date(d.getFullYear(), d.getMonth()-1, 1))}><ChevronLeft className="h-4 w-4" /></button>
+        <button className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded hover:bg-muted" onClick={() => setMonthViewDate(d => new Date(d.getFullYear(), d.getMonth()-1, 1))}><ChevronLeft className="h-4 w-4" /></button>
         <span className="text-sm font-medium min-w-[140px] text-center">
           {monthViewDate.toLocaleDateString('en-US', { month:'long', year:'numeric' })}
         </span>
-        <button className="p-1 rounded hover:bg-muted" onClick={() => setMonthViewDate(d => new Date(d.getFullYear(), d.getMonth()+1, 1))}><ChevronRight className="h-4 w-4" /></button>
+        <button className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded hover:bg-muted" onClick={() => setMonthViewDate(d => new Date(d.getFullYear(), d.getMonth()+1, 1))}><ChevronRight className="h-4 w-4" /></button>
       </div>
     );
     return (
       <div className="flex items-center gap-1">
-        <button className="p-1 rounded hover:bg-muted" onClick={() => setYearViewYear(y => y-1)}><ChevronLeft className="h-4 w-4" /></button>
+        <button className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded hover:bg-muted" onClick={() => setYearViewYear(y => y-1)}><ChevronLeft className="h-4 w-4" /></button>
         <span className="text-sm font-medium min-w-[60px] text-center">{yearViewYear}</span>
-        <button className="p-1 rounded hover:bg-muted" onClick={() => setYearViewYear(y => y+1)}><ChevronRight className="h-4 w-4" /></button>
+        <button className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded hover:bg-muted" onClick={() => setYearViewYear(y => y+1)}><ChevronRight className="h-4 w-4" /></button>
       </div>
     );
   };
 
+  // Scroll to now on initial load when in day/week view
+  useEffect(() => {
+    if (effectiveSubView !== 'day' && effectiveSubView !== 'week') return;
+    const timer = setTimeout(() => {
+      scrollToNow();
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [effectiveSubView]);
+
   return (
-    <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+    <div className="flex flex-col flex-1 min-h-0 overflow-hidden relative" style={{ touchAction: 'pan-x pan-y' }}>
       {/* Toolbar */}
-      <div className="flex items-center justify-between px-4 py-2 border-b bg-background/95 gap-4 flex-wrap">
-        <div className="flex items-center rounded-md border overflow-hidden">
+      <div className="flex items-center justify-between px-2 sm:px-4 py-2 border-b bg-background/95 gap-2 flex-wrap">
+        {/* View switcher */}
+        <div className="flex items-center rounded-md border overflow-hidden flex-shrink-0">
           {subViewOptions.map(sv => (
             <button
               key={sv.key}
               onClick={() => onSubViewChange(sv.key)}
               className={cn(
-                "px-3 py-1 text-xs font-medium border-r last:border-r-0 transition-colors",
+                "px-3 text-xs font-medium border-r last:border-r-0 transition-colors",
+                "min-h-[44px] min-w-[44px]",
                 effectiveSubView === sv.key
                   ? "bg-primary text-primary-foreground"
                   : "bg-background text-muted-foreground hover:bg-muted"
@@ -909,48 +1367,85 @@ export default function ScheduleTimelineView({
         {renderNav()}
       </div>
 
-      {/* Content */}
-      {effectiveSubView === 'day' && (
-        <DayView
-          date={dayViewDate}
-          schedules={dayViewSchedules}
-          users={users}
-          onEdit={onEditSchedule}
-          onDragStart={handleDragStart}
-          dragState={dragState}
-          onSlotClick={handleSlotClick}
-          selectedScheduleId={selectedScheduleId}
-        />
-      )}
-      {effectiveSubView === 'week' && (
-        <WeekView
-          weekDates={weekDates}
-          schedules={weekSchedules}
-          users={users}
-          onEdit={onEditSchedule}
-          onDragStart={handleDragStart}
-          dragState={dragState}
-          onSlotClick={handleSlotClick}
-          selectedScheduleId={selectedScheduleId}
-        />
-      )}
-      {effectiveSubView === 'month' && (
-        <MonthView
-          year={monthViewDate.getFullYear()}
-          month={monthViewDate.getMonth()}
-          schedules={monthSchedules}
-          users={users}
-          onEdit={onEditSchedule}
-          onDayClick={handleMonthDayClick}
-          onEmptyDayClick={handleMonthEmptyDayClick}
-        />
-      )}
-      {effectiveSubView === 'year' && (
-        <YearView
-          year={yearViewYear}
-          schedules={yearSchedules}
-          onDayNavigate={handleYearDayNavigate}
-        />
+      {/* Content — slide animation wrapper; explicit max-height keeps timeline inside viewport on mobile */}
+      <div
+        ref={timelineContainerRef}
+        className={cn(
+          "flex flex-col flex-1 min-h-0 overflow-hidden relative",
+          slideClass
+        )}
+        style={isMobile ? { maxHeight: 'calc(100dvh - 120px)' } : undefined}
+      >
+        {effectiveSubView === 'day' && (
+          <DayView
+            date={dayViewDate}
+            schedules={dayViewSchedules}
+            users={users}
+            hourPx={hourPx}
+            onEdit={onEditSchedule}
+            onDragStart={handleDragStart}
+            dragState={dragState}
+            onSlotClick={handleSlotClick}
+            selectedScheduleId={selectedScheduleId}
+            isMobile={isMobile}
+            containerRef={scrollContainerRef}
+            nowSentinelRef={nowSentinelRef}
+          />
+        )}
+        {effectiveSubView === 'week' && (
+          <WeekView
+            weekDates={weekDates}
+            schedules={weekSchedules}
+            users={users}
+            hourPx={hourPx}
+            onEdit={onEditSchedule}
+            onDragStart={handleDragStart}
+            dragState={dragState}
+            onSlotClick={handleSlotClick}
+            selectedScheduleId={selectedScheduleId}
+            isMobile={isMobile}
+            mobileDayCenter={mobileDayCenter}
+            onMobileDayCenterChange={setMobileDayCenter}
+            containerRef={scrollContainerRef}
+            nowSentinelRef={nowSentinelRef}
+          />
+        )}
+        {effectiveSubView === 'month' && (
+          <MonthView
+            year={monthViewDate.getFullYear()}
+            month={monthViewDate.getMonth()}
+            schedules={monthSchedules}
+            users={users}
+            onEdit={onEditSchedule}
+            onDayClick={handleMonthDayClick}
+            onEmptyDayClick={handleMonthEmptyDayClick}
+          />
+        )}
+        {effectiveSubView === 'year' && (
+          <YearView
+            year={yearViewYear}
+            schedules={yearSchedules}
+            onDayNavigate={handleYearDayNavigate}
+          />
+        )}
+      </div>
+
+      {/* "Now" FAB — bottom-right, appears when current-time line is not visible */}
+      {showNowFab && (effectiveSubView === 'day' || effectiveSubView === 'week') && (
+        <button
+          onClick={scrollToNow}
+          className={cn(
+            "fixed bottom-6 right-4 z-30 flex items-center gap-1.5 px-3 py-2 rounded-full",
+            "bg-red-500 text-white shadow-lg hover:bg-red-600 active:bg-red-700",
+            "text-xs font-medium transition-colors",
+            "pb-[calc(0.5rem+env(safe-area-inset-bottom,0px))]"
+          )}
+          aria-label="Scroll to current time"
+          style={{ marginBottom: 'env(safe-area-inset-bottom, 0px)' }}
+        >
+          <Circle className="h-3 w-3 fill-white" />
+          Now
+        </button>
       )}
     </div>
   );
