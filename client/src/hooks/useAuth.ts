@@ -44,12 +44,12 @@ export function useAuth() {
   const hasInvalidatedPerms = useRef(false);
   const queryClient = useQueryClient();
 
-  const { data: syncedUser, isLoading: isSyncing } = useQuery<UserWithRole>({
+  const { data: syncedUser, isLoading: isSyncing } = useQuery<UserWithRole | null>({
     queryKey: ["/api/auth/user"],
     enabled: e2eMode || (isLoaded && !!isSignedIn),
     retry: 1,
     staleTime: 30000,
-    queryFn: async () => {
+    queryFn: async (): Promise<UserWithRole | null> => {
       if (e2eMode) {
         const res = await fetch("/api/auth/user", { credentials: "include" });
         if (!res.ok) {
@@ -99,7 +99,7 @@ export function useAuth() {
   const bootstrapPerms = queryClient.getQueryData<unknown[]>(["/api/auth/permissions"]);
   useEffect(() => {
     if (
-      syncedUser?.id &&
+      syncedUser &&
       Array.isArray(bootstrapPerms) &&
       bootstrapPerms.length === 0 &&
       !hasInvalidatedPerms.current
