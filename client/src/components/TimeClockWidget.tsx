@@ -469,11 +469,26 @@ export default function TimeClockWidget({ greetingSlot, footerSlot, hideClock = 
       document.addEventListener('visibilitychange', onVisibilityChange);
 
     } else if (geofenceStatus?.isInWorkLocation) {
+      // User returned to the work zone — cancel the grace period.
       setCountdownSeconds(null);
       totalGraceSecondsRef.current = 0;
       gracePeriodStartedAtRef.current = null;
       initialGraceRemainingRef.current = null;
       cleanupAll();
+    } else if (
+      geofenceStatus &&
+      !geofenceStatus.isInWorkLocation &&
+      gracePeriodStartedAtRef.current !== null &&
+      (geofenceStatus.geofenceExitInfo?.graceRemaining == null ||
+        geofenceStatus.geofenceExitInfo.graceRemaining <= 0)
+    ) {
+      // Grace period was already running (gracePeriodStartedAtRef is set) but the
+      // server now reports graceRemaining as null or 0 — the grace window expired
+      // server-side before the client interval could fire.  Trigger clock-out now
+      // so the user isn't left in a stuck "outside zone" state indefinitely.
+      console.log("[Geofence] Server grace period expired — triggering immediate clock-out");
+      cleanupInterval();
+      geofenceBackgroundClockOut();
     }
 
     return () => {
@@ -497,7 +512,12 @@ export default function TimeClockWidget({ greetingSlot, footerSlot, hideClock = 
   }, [activeTimeEntry?.id, geofenceBackgroundClockOut]);
 
   useEffect(() => {
-    if (activeTimeEntry && workLocations.length > 0) {
+    // Only start watching when permission is confirmed granted.
+    // Calling watchPosition() with an unknown permission triggers the OS
+    // location dialog unexpectedly (e.g. on every app open on iOS Safari).
+    // Once permission becomes 'granted' this effect re-runs and begins tracking.
+    const permissionConfirmed = permissionState === 'granted';
+    if (activeTimeEntry && workLocations.length > 0 && permissionConfirmed) {
       if (watchIdRef.current == null) {
         const id = watchPosition(() => {});
         if (id != null) watchIdRef.current = id;
@@ -514,7 +534,7 @@ export default function TimeClockWidget({ greetingSlot, footerSlot, hideClock = 
         watchIdRef.current = null;
       }
     };
-  }, [activeTimeEntry, workLocations]);
+  }, [activeTimeEntry, workLocations, permissionState]);
 
   useEffect(() => {
     const wasClocked = prevActiveEntryRef.current != null;
