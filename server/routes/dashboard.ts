@@ -214,21 +214,34 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
       const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
-      // Resolve the requesting user's companyId so all queries are tenant-scoped.
-      // If the user has no companyId the endpoint returns an empty safe payload —
-      // it must never execute unscoped queries that could return another tenant's data.
-      const [requestingUser] = await db.select({ companyId: users.companyId })
+      // Resolve the requesting user's companyId and locationName for tenant scoping.
+      // companyId is preferred; locationName is the fallback for stores where companyId
+      // was never populated. If neither is set we return an empty safe payload to avoid
+      // ever executing unscoped queries that could leak another tenant's data.
+      const [requestingUser] = await db.select({
+        companyId: users.companyId,
+        locationName: users.locationName,
+      })
         .from(users)
         .where(eq(users.id, requestingUserId))
         .limit(1);
       const companyId = requestingUser?.companyId ?? null;
-      if (!companyId) {
+      const reqLocationName = requestingUser?.locationName ?? null;
+      if (!companyId && !reqLocationName) {
         return res.json({
           schedules: [],
           clockedIn: [],
           summary: { totalScheduled: 0, totalClockedIn: 0, totalLate: 0, totalNotArrived: 0, totalLocationBlocked: 0 },
           serverTimestamp: now.toISOString(),
         });
+      }
+
+      // Helper: build the WHERE sub-condition that scopes a query to this tenant.
+      // When companyId is available, use it (possibly narrowed by locationName).
+      // When only locationName is available, match exactly on that column.
+      function tenantUserCondition() {
+        if (companyId) return eq(users.companyId, companyId);
+        return eq(users.locationName, reqLocationName!);
       }
 
       const todaySchedules = await db.select({
@@ -243,7 +256,7 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
         .where(and(
           gte(schedules.startTime, startOfDay),
           lte(schedules.startTime, endOfDay),
-          eq(users.companyId, companyId),
+          tenantUserCondition(),
         ));
 
       const todayTimeEntries = await db.select({
@@ -257,7 +270,7 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
         .innerJoin(users, eq(timeEntries.userId, users.id))
         .where(and(
           gte(timeEntries.clockInTime, startOfDay),
-          eq(users.companyId, companyId),
+          tenantUserCondition(),
         ));
 
       // Also fetch entries that started BEFORE today but are still active (clocked in overnight).
@@ -276,7 +289,7 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
           and(
             isNull(timeEntries.clockOutTime),
             lt(timeEntries.clockInTime, startOfDay),
-            eq(users.companyId, companyId),
+            tenantUserCondition(),
           )
         );
 
@@ -306,7 +319,7 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
       // refresh). This prevents "Unknown" names and missing clock-in entries.
       type UserRow = { id: string; firstName: string | null; lastName: string | null; profileImageUrl: string | null };
       // companyId is guaranteed non-null here (early return above); always use per-tenant key.
-      const userListCacheKey = `dashboard:userlist:${companyId}`;
+      const userListCacheKey = `dashboard:userlist:${companyId ?? reqLocationName}`;
       let userList = cache.get<UserRow[]>(userListCacheKey);
       if (!userList) {
         userList = await db.select({
@@ -316,7 +329,7 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
           profileImageUrl: users.profileImageUrl,
         }).from(users).where(and(
           eq(users.isActive, true),
-          eq(users.companyId, companyId),
+          tenantUserCondition(),
         ));
         cache.set(userListCacheKey, userList, 60_000);
       }
@@ -608,14 +621,23 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
 
       const { locationName, companyId } = currentUser;
 
-      if (!companyId) {
+      if (!companyId && !locationName) {
         return res.json({ clockedIn: [] });
       }
 
       const now = new Date();
 
-      // "Currently clocked in" = clockOutTime IS NULL, regardless of when they clocked in
-      // Filter by company always; also filter by location when both requester and others have one set.
+      // Build the tenant-scoping condition.
+      // companyId is preferred; locationName is the fallback for stores where companyId is unset.
+      // When scoping by companyId + locationName, also include users with no locationName set
+      // (so cross-location admins see everyone). When scoping only by locationName, match exactly.
+      const clockedInTenantCond = companyId
+        ? and(
+            eq(users.companyId, companyId),
+            ...(locationName ? [or(eq(users.locationName, locationName), isNull(users.locationName))] : []),
+          )
+        : eq(users.locationName, locationName!);
+
       const activeEntries = await db.select({
         entryUserId: timeEntries.userId,
         clockInTime: timeEntries.clockInTime,
@@ -628,8 +650,7 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
         .where(and(
           isNull(timeEntries.clockOutTime),
           eq(users.isActive, true),
-          eq(users.companyId, companyId),
-          ...(locationName ? [or(eq(users.locationName, locationName), isNull(users.locationName))] : []),
+          clockedInTenantCond,
         ));
 
       // Deduplicate by userId — keep the earliest clock-in per person
@@ -682,13 +703,21 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
 
       const { locationName, companyId } = currentUser;
 
-      if (!companyId) {
+      if (!companyId && !locationName) {
         return res.json({ upcomingShifts: [] });
       }
 
       const now = new Date();
       const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
+      // Build the tenant-scoping condition (same pattern as clocked-in endpoint).
+      const upcomingTenantCond = companyId
+        ? and(
+            eq(users.companyId, companyId),
+            ...(locationName ? [or(eq(users.locationName, locationName), isNull(users.locationName))] : []),
+          )
+        : eq(users.locationName, locationName!);
 
       const [upcomingSchedules, activeEntries] = await Promise.all([
         // All of today's shifts (including those that already started) scoped to same tenant
@@ -709,8 +738,7 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
             gte(schedules.startTime, startOfDay),
             lte(schedules.startTime, endOfDay),
             eq(users.isActive, true),
-            eq(users.companyId, companyId),
-            ...(locationName ? [or(eq(users.locationName, locationName), isNull(users.locationName))] : []),
+            upcomingTenantCond,
           )),
 
         // Exclude anyone currently clocked in (clockOutTime IS NULL = actively on shift)
@@ -719,8 +747,7 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
           .innerJoin(users, eq(timeEntries.userId, users.id))
           .where(and(
             isNull(timeEntries.clockOutTime),
-            eq(users.companyId, companyId),
-            ...(locationName ? [or(eq(users.locationName, locationName), isNull(users.locationName))] : []),
+            upcomingTenantCond,
           )),
       ]);
 
