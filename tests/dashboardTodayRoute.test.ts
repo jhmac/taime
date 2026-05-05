@@ -100,30 +100,39 @@ interface TestFixtures {
   locationPermRows: any[];
 }
 
-function wireDbMock(f: TestFixtures) {
+function wireDbMock(f: TestFixtures, requestingUserId = "user-alice") {
   let selectCallIdx = 0;
 
-  const makeSelectChain = (rows: any[]) => ({
-    from: vi.fn().mockReturnValue({
-      where: vi.fn().mockReturnValue(Promise.resolve(rows)),
-    }),
-  });
+  // Supports any chain: .from().where(), .from().innerJoin().where(), .from().where().limit(), etc.
+  // The chain object is thenable so `await chain` resolves to rows even without .limit().
+  const makeSelectChain = (rows: any[]) => {
+    const chain: any = {};
+    chain.from = vi.fn().mockReturnValue(chain);
+    chain.innerJoin = vi.fn().mockReturnValue(chain);
+    chain.where = vi.fn().mockReturnValue(chain);
+    chain.limit = vi.fn().mockReturnValue(Promise.resolve(rows));
+    chain.then = (resolve: any, reject: any) => Promise.resolve(rows).then(resolve, reject);
+    chain.catch = (handler: any) => Promise.resolve(rows).catch(handler);
+    return chain;
+  };
 
   dbMock.select.mockImplementation(() => {
     const idx = selectCallIdx++;
     // Call order inside the route handler:
-    // 0: todaySchedules  (schedules table)
-    // 1: todayTimeEntries (timeEntries – gte startOfDay)
-    // 2: overnightActiveEntries (timeEntries – isNull + lt)
-    // 3: activeUser list (users where isActive=true) ← only if cache miss
-    // 4: extra users (users where id in [missing]) ← only if any missing
-    // 5: locationPermissions
-    if (idx === 0) return makeSelectChain(f.scheduleRows);
-    if (idx === 1) return makeSelectChain(f.todayEntryRows);
-    if (idx === 2) return makeSelectChain(f.overnightRows);
-    if (idx === 3) return makeSelectChain(f.activeUserRows);
-    if (idx === 4) return makeSelectChain(f.extraUserRows);
-    if (idx === 5) return makeSelectChain(f.locationPermRows);
+    // 0: requesting user companyId lookup (users table – NEW)
+    // 1: todaySchedules (schedules table + innerJoin users)
+    // 2: todayTimeEntries (timeEntries + innerJoin users)
+    // 3: overnightActiveEntries (timeEntries + innerJoin users)
+    // 4: activeUser list (users where isActive=true) ← only if cache miss
+    // 5: extra users (users where id in [missing]) ← only if any missing
+    // 6: locationPermissions
+    if (idx === 0) return makeSelectChain([{ companyId: 'company-test' }]);
+    if (idx === 1) return makeSelectChain(f.scheduleRows);
+    if (idx === 2) return makeSelectChain(f.todayEntryRows);
+    if (idx === 3) return makeSelectChain(f.overnightRows);
+    if (idx === 4) return makeSelectChain(f.activeUserRows);
+    if (idx === 5) return makeSelectChain(f.extraUserRows);
+    if (idx === 6) return makeSelectChain(f.locationPermRows);
     return makeSelectChain([]);
   });
 
@@ -328,6 +337,67 @@ describe("GET /api/dashboard/today — clock-in accuracy (Task #581)", () => {
       expect(data.summary.totalClockedIn).toBe(0);
       expect(data.clockedIn).toHaveLength(0);
       expect(data.schedules[0].isClockedIn).toBe(false);
+    } finally {
+      await close();
+    }
+  });
+
+  it("returns empty safe payload when the requesting user has no companyId (null-tenant guard)", async () => {
+    // The user lookup returns a row with companyId=null — the handler must short-circuit
+    // and return an empty payload without executing any unscoped DB queries.
+    let selectCallCount = 0;
+    const makeChain = (rows: any[]) => {
+      const chain: any = {};
+      chain.from = vi.fn().mockReturnValue(chain);
+      chain.innerJoin = vi.fn().mockReturnValue(chain);
+      chain.where = vi.fn().mockReturnValue(chain);
+      chain.limit = vi.fn().mockReturnValue(Promise.resolve(rows));
+      chain.then = (resolve: any, reject: any) => Promise.resolve(rows).then(resolve, reject);
+      chain.catch = (handler: any) => Promise.resolve(rows).catch(handler);
+      return chain;
+    };
+    dbMock.select.mockImplementation(() => {
+      selectCallCount++;
+      // idx 0 is the companyId lookup — return null
+      return makeChain([{ companyId: null }]);
+    });
+    dbMock.delete.mockReturnValue({ where: vi.fn().mockResolvedValue(undefined) });
+
+    const { port, close } = await buildTestServer(USERS.alice.id);
+    try {
+      const data = await getToday(port);
+      expect(data.schedules).toHaveLength(0);
+      expect(data.clockedIn).toHaveLength(0);
+      expect(data.summary.totalClockedIn).toBe(0);
+      expect(data.summary.totalScheduled).toBe(0);
+      // Only the companyId lookup (idx 0) should have been called; no unscoped queries.
+      expect(selectCallCount).toBe(1);
+    } finally {
+      await close();
+    }
+  });
+
+  it("uses a per-tenant cache key (dashboard:userlist:<companyId>) and never a global fallback", async () => {
+    wireDbMock({
+      scheduleRows: [makeSchedule(USERS.alice.id)],
+      todayEntryRows: [makeEntry(USERS.alice.id, { active: true })],
+      overnightRows: [],
+      activeUserRows: [USERS.alice],
+      extraUserRows: [],
+      locationPermRows: [],
+    });
+
+    const { port, close } = await buildTestServer(USERS.alice.id);
+    try {
+      await getToday(port);
+      // The cache.set call must use the tenant-scoped key, never the bare global key.
+      const setCalls = (cacheMock.cache.set as any).mock.calls as [string, ...any[]][];
+      const userListKeys = setCalls.filter(([k]) => k.startsWith('dashboard:userlist')).map(([k]) => k);
+      expect(userListKeys.length).toBeGreaterThan(0);
+      for (const key of userListKeys) {
+        expect(key).toMatch(/^dashboard:userlist:.+/);
+        expect(key).not.toBe('dashboard:userlist');
+      }
     } finally {
       await close();
     }

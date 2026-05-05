@@ -209,9 +209,27 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
 
   app.get('/api/dashboard/today', isAuthenticated, async (req: any, res) => {
     try {
+      const requestingUserId: string = req.user.id;
       const now = new Date();
       const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
+      // Resolve the requesting user's companyId so all queries are tenant-scoped.
+      // If the user has no companyId the endpoint returns an empty safe payload —
+      // it must never execute unscoped queries that could return another tenant's data.
+      const [requestingUser] = await db.select({ companyId: users.companyId })
+        .from(users)
+        .where(eq(users.id, requestingUserId))
+        .limit(1);
+      const companyId = requestingUser?.companyId ?? null;
+      if (!companyId) {
+        return res.json({
+          schedules: [],
+          clockedIn: [],
+          summary: { totalScheduled: 0, totalClockedIn: 0, totalLate: 0, totalNotArrived: 0, totalLocationBlocked: 0 },
+          serverTimestamp: now.toISOString(),
+        });
+      }
 
       const todaySchedules = await db.select({
           id: schedules.id,
@@ -221,9 +239,11 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
           title: schedules.title,
         })
         .from(schedules)
+        .innerJoin(users, eq(schedules.userId, users.id))
         .where(and(
           gte(schedules.startTime, startOfDay),
-          lte(schedules.startTime, endOfDay)
+          lte(schedules.startTime, endOfDay),
+          eq(users.companyId, companyId),
         ));
 
       const todayTimeEntries = await db.select({
@@ -234,9 +254,11 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
           locationId: timeEntries.locationId,
         })
         .from(timeEntries)
-        .where(
-          gte(timeEntries.clockInTime, startOfDay)
-        );
+        .innerJoin(users, eq(timeEntries.userId, users.id))
+        .where(and(
+          gte(timeEntries.clockInTime, startOfDay),
+          eq(users.companyId, companyId),
+        ));
 
       // Also fetch entries that started BEFORE today but are still active (clocked in overnight).
       // These are "currently on shift" and must appear in the clocked-in list even though
@@ -249,10 +271,12 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
           locationId: timeEntries.locationId,
         })
         .from(timeEntries)
+        .innerJoin(users, eq(timeEntries.userId, users.id))
         .where(
           and(
             isNull(timeEntries.clockOutTime),
             lt(timeEntries.clockInTime, startOfDay),
+            eq(users.companyId, companyId),
           )
         );
 
@@ -281,15 +305,20 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
       // owners whose isActive flag is false, or users added after the last cache
       // refresh). This prevents "Unknown" names and missing clock-in entries.
       type UserRow = { id: string; firstName: string | null; lastName: string | null; profileImageUrl: string | null };
-      let userList = cache.get<UserRow[]>('dashboard:userlist');
+      // companyId is guaranteed non-null here (early return above); always use per-tenant key.
+      const userListCacheKey = `dashboard:userlist:${companyId}`;
+      let userList = cache.get<UserRow[]>(userListCacheKey);
       if (!userList) {
         userList = await db.select({
           id: users.id,
           firstName: users.firstName,
           lastName: users.lastName,
           profileImageUrl: users.profileImageUrl,
-        }).from(users).where(eq(users.isActive, true));
-        cache.set('dashboard:userlist', userList, 60_000);
+        }).from(users).where(and(
+          eq(users.isActive, true),
+          eq(users.companyId, companyId),
+        ));
+        cache.set(userListCacheKey, userList, 60_000);
       }
       const userMap = new Map<string, UserRow>(userList.map(u => [String(u.id), u]));
 
@@ -658,10 +687,13 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
       }
 
       const now = new Date();
+      const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
       const [upcomingSchedules, activeEntries] = await Promise.all([
-        // Upcoming shifts scoped to same tenant (+ location when set) at SQL level
+        // All of today's shifts (including those that already started) scoped to same tenant
+        // Using startOfDay (not now) so employees whose shift started but who haven't clocked in
+        // are still returned as "Not In" / absent instead of silently disappearing.
         db.select({
           scheduleId: schedules.id,
           scheduleUserId: schedules.userId,
@@ -674,7 +706,7 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
           .from(schedules)
           .innerJoin(users, eq(schedules.userId, users.id))
           .where(and(
-            gte(schedules.startTime, now),
+            gte(schedules.startTime, startOfDay),
             lte(schedules.startTime, endOfDay),
             eq(users.isActive, true),
             eq(users.companyId, companyId),
@@ -704,16 +736,20 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
         }
       }
 
-      const upcomingShifts = Array.from(seenShiftUsers.values()).map(s => ({
-        scheduleId: s.scheduleId,
-        userId: s.scheduleUserId,
-        firstName: s.firstName,
-        lastName: s.lastName,
-        profileImageUrl: s.profileImageUrl,
-        startTime: s.startTime,
-        endTime: s.endTime,
-        minutesUntilShift: Math.floor((new Date(s.startTime).getTime() - now.getTime()) / 60000),
-      }));
+      const upcomingShifts = Array.from(seenShiftUsers.values()).map(s => {
+        const minsOffset = Math.floor((new Date(s.startTime).getTime() - now.getTime()) / 60000);
+        return {
+          scheduleId: s.scheduleId,
+          userId: s.scheduleUserId,
+          firstName: s.firstName,
+          lastName: s.lastName,
+          profileImageUrl: s.profileImageUrl,
+          startTime: s.startTime,
+          endTime: s.endTime,
+          minutesUntilShift: minsOffset,
+          minutesLate: minsOffset < 0 ? Math.abs(minsOffset) : 0,
+        };
+      });
 
       upcomingShifts.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
 

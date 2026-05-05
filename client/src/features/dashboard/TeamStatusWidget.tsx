@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@clerk/clerk-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AlertTriangle, CalendarDays, MapPinOff, Users, X } from 'lucide-react';
@@ -40,6 +40,7 @@ interface UpcomingShift {
   startTime: string;
   endTime: string;
   minutesUntilShift: number;
+  minutesLate?: number;
 }
 
 function getInitials(firstName: string | null, lastName: string | null): string {
@@ -95,6 +96,7 @@ export default function TeamStatusWidget({ hoursStats }: { hoursStats?: HoursSta
   const [filterLocationBlocked, setFilterLocationBlocked] = useState(false);
   const [filterLate, setFilterLate] = useState(false);
   const { user: clerkUser } = useUser();
+  const queryClient = useQueryClient();
 
   const {
     data: clockedInData,
@@ -173,8 +175,10 @@ export default function TeamStatusWidget({ hoursStats }: { hoursStats?: HoursSta
       lastMessage.type === 'time_entry_updated'
     ) {
       refetchClockedIn();
+      refetchUpcoming();
+      queryClient.invalidateQueries({ queryKey: ['/api/schedules'] });
     }
-  }, [lastMessage]);
+  }, [lastMessage, refetchClockedIn, refetchUpcoming, queryClient]);
 
   const totalLocationBlocked = todayData?.summary?.totalLocationBlocked ?? 0;
 
@@ -306,9 +310,9 @@ export default function TeamStatusWidget({ hoursStats }: { hoursStats?: HoursSta
         combined.push({
           kind: 'absent',
           userId: sched.userId,
-          firstName: userInfo?.firstName ?? sched.firstName ?? sched.user?.firstName ?? null,
-          lastName: userInfo?.lastName ?? sched.lastName ?? sched.user?.lastName ?? null,
-          profileImageUrl: userInfo?.profileImageUrl ?? sched.profileImageUrl ?? null,
+          firstName: userInfo?.firstName ?? upcomingShift?.firstName ?? sched.firstName ?? sched.user?.firstName ?? null,
+          lastName: userInfo?.lastName ?? upcomingShift?.lastName ?? sched.lastName ?? sched.user?.lastName ?? null,
+          profileImageUrl: userInfo?.profileImageUrl ?? upcomingShift?.profileImageUrl ?? sched.profileImageUrl ?? null,
           scheduledStart: sched.startTime,
           scheduledEnd: sched.endTime,
           sortTime: schedStart,
@@ -330,11 +334,21 @@ export default function TeamStatusWidget({ hoursStats }: { hoursStats?: HoursSta
 
     for (const s of upcomingShifts) {
       if (!processedUserIds.has(s.userId)) {
-        combined.push({
-          kind: 'upcoming',
-          shift: s,
-          sortTime: new Date(s.startTime).getTime(),
-        });
+        const shiftStart = new Date(s.startTime).getTime();
+        if (shiftStart > now) {
+          combined.push({ kind: 'upcoming', shift: s, sortTime: shiftStart });
+        } else {
+          combined.push({
+            kind: 'absent',
+            userId: s.userId,
+            firstName: s.firstName,
+            lastName: s.lastName,
+            profileImageUrl: s.profileImageUrl,
+            scheduledStart: s.startTime,
+            scheduledEnd: s.endTime,
+            sortTime: shiftStart,
+          });
+        }
       }
     }
   } else {
@@ -348,11 +362,21 @@ export default function TeamStatusWidget({ hoursStats }: { hoursStats?: HoursSta
       });
     }
     for (const s of upcomingShifts) {
-      combined.push({
-        kind: 'upcoming',
-        shift: s,
-        sortTime: new Date(s.startTime).getTime(),
-      });
+      const shiftStart = new Date(s.startTime).getTime();
+      if (shiftStart > now) {
+        combined.push({ kind: 'upcoming', shift: s, sortTime: shiftStart });
+      } else {
+        combined.push({
+          kind: 'absent',
+          userId: s.userId,
+          firstName: s.firstName,
+          lastName: s.lastName,
+          profileImageUrl: s.profileImageUrl,
+          scheduledStart: s.startTime,
+          scheduledEnd: s.endTime,
+          sortTime: shiftStart,
+        });
+      }
     }
   }
 
