@@ -50,7 +50,7 @@ vi.mock("../server/db", () => ({ db: dbMock }));
 vi.mock("../server/services/storeResolver", () => storeResolverMock);
 vi.mock("../server/services/cache", () => cacheMock);
 vi.mock("../server/lib/config", () => ({
-  config: { anthropic: { apiKey: "" } },
+  config: { anthropic: { apiKey: "" }, nylas: { apiKey: "", grantId: "" } },
 }));
 vi.mock("../server/lib/logger", () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },

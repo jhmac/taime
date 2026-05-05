@@ -1,8 +1,9 @@
-import sgMail from "@sendgrid/mail";
+import { sendViaNylas } from "./emailService";
 import { db } from "../db";
 import { eq, and, gte, desc, inArray } from "drizzle-orm";
 import { operationalInsights, workLocations, companySettings } from "@shared/schema";
 import logger from "../lib/logger";
+import { config } from "../lib/config";
 import { getOwnerAndManagerEmailsForStore } from "./insightGenerator";
 import { aggregateOperations } from "./operationsIntelligence";
 
@@ -206,12 +207,10 @@ function buildDigestEmailHtml(firstName: string, data: DigestData, appUrl: strin
 }
 
 export async function sendWeeklyOpsDigest(opts: { storeIds?: string[] } = {}): Promise<{ sent: number; skipped: number }> {
-  const sendgridKey = process.env.SENDGRID_API_KEY;
-  if (!sendgridKey) {
-    logger.info("[WeeklyOpsDigest] SENDGRID_API_KEY not set — skipping digest");
+  if (!config.nylas.apiKey || !config.nylas.grantId) {
+    logger.info("[WeeklyOpsDigest] Nylas not configured — skipping digest");
     return { sent: 0, skipped: 0 };
   }
-  sgMail.setApiKey(sendgridKey);
 
   const baseQuery = db.select({ id: workLocations.id }).from(workLocations);
   const stores = opts.storeIds && opts.storeIds.length > 0
@@ -219,8 +218,6 @@ export async function sendWeeklyOpsDigest(opts: { storeIds?: string[] } = {}): P
     : await baseQuery.where(eq(workLocations.isActive, true));
   if (stores.length === 0) return { sent: 0, skipped: 0 };
 
-  // Build per-store digest content (small installs typically have one store)
-  const fromEmail = process.env.SENDGRID_FROM_EMAIL || "noreply@taime.app";
   const appUrl = process.env.APP_URL || process.env.PUBLIC_APP_URL || "https://app.taime.app";
 
   let sent = 0;
@@ -249,11 +246,10 @@ export async function sendWeeklyOpsDigest(opts: { storeIds?: string[] } = {}): P
       for (const owner of owners) {
         try {
           const html = buildDigestEmailHtml(owner.firstName || "", data, appUrl);
-          await sgMail.send({
+          await sendViaNylas({
             to: owner.email,
-            from: fromEmail,
             subject: `MAinager weekly digest — ${data.topInsights.length} insight${data.topInsights.length === 1 ? "" : "s"} for ${data.storeName}`,
-            html,
+            body: html,
           });
           sent++;
         } catch (sendErr: any) {

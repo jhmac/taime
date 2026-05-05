@@ -1,9 +1,10 @@
-import sgMail from "@sendgrid/mail";
+import { sendViaNylas } from "./emailService";
 import { db } from "../db";
 import { users, roles } from "@shared/schema";
 import type { AiBudget } from "@shared/schema";
 import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import logger from "../lib/logger";
+import { config } from "../lib/config";
 
 function resolveAppUrl(): string {
   const replitDomains = process.env.REPLIT_DOMAINS;
@@ -13,15 +14,7 @@ function resolveAppUrl(): string {
   return "http://localhost:5000";
 }
 
-const FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || "noreply@taime.app";
-const FROM_NAME = "Taime AI Spend Alerts";
-
-if (process.env.SENDGRID_API_KEY) {
-  sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-}
-
 async function getRecipientEmails(scope: "global" | "store", storeId: string | null): Promise<string[]> {
-  // Owner + admin role names trigger an alert. (Per the user's spec.)
   const ownerAdminRoles = await db
     .select({ id: roles.id })
     .from(roles)
@@ -47,8 +40,8 @@ export async function sendBudgetAlertEmail(
   limitUsd: number,
   periodKey: string,
 ): Promise<void> {
-  if (!process.env.SENDGRID_API_KEY) {
-    logger.warn("SENDGRID_API_KEY not set — skipping AI budget alert email");
+  if (!config.nylas.apiKey || !config.nylas.grantId) {
+    logger.warn("Nylas not configured — skipping AI budget alert email");
     return;
   }
   const recipients = await getRecipientEmails(budget.scope as "global" | "store", budget.storeId);
@@ -92,13 +85,9 @@ export async function sendBudgetAlertEmail(
   `;
 
   try {
-    await sgMail.send({
-      to: recipients,
-      from: { email: FROM_EMAIL, name: FROM_NAME },
-      subject,
-      html,
-      text: `${headline}\n\n${body}\n\nMTD: $${spendUsd.toFixed(2)} of $${limitUsd.toFixed(2)}\nManage budgets: ${adminUrl}`,
-    });
+    for (const recipient of recipients) {
+      await sendViaNylas({ to: recipient, subject, body: html });
+    }
     logger.info(
       { budgetId: budget.id, threshold: thresholdPercent, recipients: recipients.length },
       "AI budget alert email sent",

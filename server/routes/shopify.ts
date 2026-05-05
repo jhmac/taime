@@ -2132,7 +2132,7 @@ Rules:
           .where(eq(shopifyReportSchedules.id, schedule.id));
         res.json({ success: true });
       } else {
-        res.status(500).json({ error: "Failed to send report email. Check SENDGRID_API_KEY configuration." });
+        res.status(500).json({ error: "Failed to send report email. Check Nylas (NYLAS_API_KEY / NYLAS_GRANT_ID) configuration." });
       }
     } catch (error) {
       console.error("[ReportSchedule] Send-now error:", error);

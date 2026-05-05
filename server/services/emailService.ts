@@ -1,5 +1,4 @@
 import Nylas from "nylas";
-import sgMail from "@sendgrid/mail";
 import { config } from "../lib/config";
 
 const nylas = new Nylas({
@@ -8,6 +7,35 @@ const nylas = new Nylas({
 });
 
 const grantId = config.nylas.grantId;
+
+interface NylasAttachment {
+  filename: string;
+  contentType: string;
+  content: string;
+}
+
+export async function sendViaNylas(opts: {
+  to: string;
+  subject: string;
+  body: string;
+  attachments?: NylasAttachment[];
+}): Promise<boolean> {
+  if (!config.nylas.apiKey || !config.nylas.grantId) {
+    return false;
+  }
+  await nylas.messages.send({
+    identifier: grantId,
+    requestBody: {
+      to: [{ email: opts.to }],
+      subject: opts.subject,
+      body: opts.body,
+      ...(opts.attachments && opts.attachments.length > 0
+        ? { attachments: opts.attachments.map(a => ({ filename: a.filename, contentType: a.contentType, content: a.content })) }
+        : {}),
+    },
+  });
+  return true;
+}
 
 function getAppUrl(req: { headers: Record<string, string | undefined> }): string {
   if (config.server.appUrl) {
@@ -190,12 +218,9 @@ export async function sendAvailabilityUpdateEmail(
   employeeName: string,
   appUrl: string,
 ): Promise<boolean> {
-  const sendgridKey = process.env.SENDGRID_API_KEY;
-  if (!sendgridKey) {
+  if (!config.nylas.apiKey || !config.nylas.grantId) {
     return false;
   }
-
-  sgMail.setApiKey(sendgridKey);
 
   const firstName = (managerName || managerEmail).split(" ")[0] || managerName;
   const scheduleUrl = `${appUrl}/schedule`;
@@ -255,13 +280,11 @@ export async function sendAvailabilityUpdateEmail(
   `;
 
   try {
-    await sgMail.send({
+    return await sendViaNylas({
       to: managerEmail,
-      from: process.env.SENDGRID_FROM_EMAIL || "noreply@taime.app",
       subject: `${employeeName} updated their availability`,
-      html: htmlBody,
+      body: htmlBody,
     });
-    return true;
   } catch (error) {
     console.error("[Availability] Failed to send availability update email:", error);
     return false;
@@ -276,12 +299,9 @@ export async function sendAvailabilityOverrideEmail(
   changeDescription: string,
   appUrl: string,
 ): Promise<boolean> {
-  const sendgridKey = process.env.SENDGRID_API_KEY;
-  if (!sendgridKey) {
+  if (!config.nylas.apiKey || !config.nylas.grantId) {
     return false;
   }
-
-  sgMail.setApiKey(sendgridKey);
 
   const firstName = (employeeName || employeeEmail).split(" ")[0] || employeeName;
   const formattedDate = (() => {
@@ -348,13 +368,11 @@ export async function sendAvailabilityOverrideEmail(
   `;
 
   try {
-    await sgMail.send({
+    return await sendViaNylas({
       to: employeeEmail,
-      from: process.env.SENDGRID_FROM_EMAIL || "noreply@taime.app",
       subject: `Your availability on ${formattedDate} was updated`,
-      html: htmlBody,
+      body: htmlBody,
     });
-    return true;
   } catch (error) {
     console.error("[Availability] Failed to send availability override email:", error);
     return false;
@@ -368,13 +386,10 @@ export async function sendShopifyAnalyticsReport(
   csvContent: string,
   summary: { totalRevenue: number; totalLaborCost: number; laborCostPercentage: number; daysBack: number },
 ): Promise<boolean> {
-  const sendgridKey = process.env.SENDGRID_API_KEY;
-  if (!sendgridKey) {
-    console.error("[ShopifyReport] SENDGRID_API_KEY not configured");
+  if (!config.nylas.apiKey || !config.nylas.grantId) {
+    console.error("[ShopifyReport] Nylas not configured (NYLAS_API_KEY / NYLAS_GRANT_ID)");
     return false;
   }
-
-  sgMail.setApiKey(sendgridKey);
 
   const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
   const frequencyLabel = frequency === "daily" ? "Daily" : frequency === "weekly" ? "Weekly" : "Monthly";
@@ -461,22 +476,22 @@ export async function sendShopifyAnalyticsReport(
   `;
 
   try {
-    await sgMail.send({
+    const result = await sendViaNylas({
       to: recipientEmail,
-      from: process.env.SENDGRID_FROM_EMAIL || "noreply@taime.app",
       subject: `${frequencyLabel} Shopify Report — ${shopDomain} (${today})`,
-      html: htmlBody,
+      body: htmlBody,
       attachments: [
         {
-          content: Buffer.from(csvContent).toString("base64"),
           filename,
-          type: "text/csv",
-          disposition: "attachment",
+          contentType: "text/csv",
+          content: Buffer.from(csvContent).toString("base64"),
         },
       ],
     });
-    console.log(`[ShopifyReport] Sent ${frequency} report to ${recipientEmail} for ${shopDomain}`);
-    return true;
+    if (result) {
+      console.log(`[ShopifyReport] Sent ${frequency} report to ${recipientEmail} for ${shopDomain}`);
+    }
+    return result;
   } catch (error) {
     console.error("[ShopifyReport] Failed to send report email:", error);
     return false;

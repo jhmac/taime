@@ -1,7 +1,8 @@
 import { storage } from "../storage";
 import { notificationService } from "./notificationService";
-import sgMail from "@sendgrid/mail";
+import { sendViaNylas } from "./emailService";
 import logger from "../lib/logger";
+import { config } from "../lib/config";
 
 interface PayPeriodWindow {
   startDate: string;
@@ -72,8 +73,8 @@ async function isPeriodFullyApproved(periodStart: string, periodEnd: string): Pr
 }
 
 /**
- * Send a notification via in-app push and optionally via SendGrid email.
- * Email is only sent when emailRemindersEnabled=true and SENDGRID_API_KEY is configured.
+ * Send a notification via in-app push and optionally via Nylas email.
+ * Email is only sent when emailRemindersEnabled=true and Nylas is configured.
  */
 async function sendTimesheetNotification(opts: {
   userId: string;
@@ -90,29 +91,24 @@ async function sendTimesheetNotification(opts: {
     data: opts.data,
   });
 
-  // Optionally send email via SendGrid
+  // Optionally send email via Nylas
   if (opts.emailRemindersEnabled) {
-    const sendgridKey = process.env.SENDGRID_API_KEY;
-    if (!sendgridKey) {
-      logger.warn("[TimesheetReminder] emailRemindersEnabled but SENDGRID_API_KEY not set — skipping email");
+    if (!config.nylas.apiKey || !config.nylas.grantId) {
+      logger.warn("[TimesheetReminder] emailRemindersEnabled but Nylas not configured — skipping email");
       return;
     }
     try {
       const user = await storage.getUser(opts.userId);
       if (!user?.email) return;
-      sgMail.setApiKey(sendgridKey);
-      const fromEmail = opts.fromEmail || "no-reply@taime.app";
-      await sgMail.send({
+      await sendViaNylas({
         to: user.email,
-        from: fromEmail,
         subject: opts.title,
-        text: opts.body,
-        html: `<p>${opts.body}</p>`,
+        body: `<p>${opts.body}</p>`,
       });
-      logger.info({ userId: opts.userId, title: opts.title }, "[TimesheetReminder] Email sent via SendGrid");
+      logger.info({ userId: opts.userId, title: opts.title }, "[TimesheetReminder] Email sent via Nylas");
     } catch (emailErr: unknown) {
       const e = emailErr as { message?: string };
-      logger.warn({ error: e?.message, userId: opts.userId }, "[TimesheetReminder] SendGrid email failed (non-fatal)");
+      logger.warn({ error: e?.message, userId: opts.userId }, "[TimesheetReminder] Nylas email failed (non-fatal)");
     }
   }
 }

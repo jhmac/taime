@@ -1,20 +1,14 @@
-import sgMail from "@sendgrid/mail";
+import { sendViaNylas } from "./emailService";
 import { db } from "../db";
 import { users, roles } from "@shared/schema";
 import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import logger from "../lib/logger";
+import { config } from "../lib/config";
 
 function resolveAppUrl(): string {
   const replitDomains = process.env.REPLIT_DOMAINS;
   if (replitDomains) return `https://${replitDomains.split(",")[0].trim()}`;
   return "http://localhost:5000";
-}
-
-const FROM_EMAIL = process.env.SENDGRID_FROM_EMAIL || "noreply@taime.app";
-const FROM_NAME = "Taime Cash Alerts";
-
-if (process.env.SENDGRID_API_KEY) {
-  sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 }
 
 async function getAdminOwnerEmails(storeId: string): Promise<string[]> {
@@ -68,8 +62,8 @@ function deltaColor(delta: number | null, threshold: number): string {
 }
 
 export async function sendReconciliationAlertEmail(params: ReconciliationEmailParams): Promise<void> {
-  if (!process.env.SENDGRID_API_KEY) {
-    logger.warn("SENDGRID_API_KEY not set — skipping reconciliation alert email");
+  if (!config.nylas.apiKey || !config.nylas.grantId) {
+    logger.warn("Nylas not configured — skipping reconciliation alert email");
     return;
   }
   const recipients = await getAdminOwnerEmails(params.storeId);
@@ -145,27 +139,10 @@ export async function sendReconciliationAlertEmail(params: ReconciliationEmailPa
     </div>
   `;
 
-  const text = [
-    `Cash Reconciliation Discrepancy — ${params.registerName} on ${params.sessionDate}`,
-    "",
-    `Shopify Expected: ${fmt(params.shopifyExpected)}`,
-    `Physical Count: ${fmt(params.physicalCount)}`,
-    `Deposit Slip (AI): ${fmt(params.depositSlipAmount)}`,
-    "",
-    `Shopify vs Count: ${deltaLabel(params.shopifyVsCountDelta)}`,
-    `Count vs Deposit: ${deltaLabel(params.countVsDepositDelta)}`,
-    "",
-    `Manage: ${appUrl}/cash`,
-  ].join("\n");
-
   try {
-    await sgMail.send({
-      to: recipients,
-      from: { email: FROM_EMAIL, name: FROM_NAME },
-      subject,
-      html,
-      text,
-    });
+    for (const recipient of recipients) {
+      await sendViaNylas({ to: recipient, subject, body: html });
+    }
     logger.info({ registerName: params.registerName, recipients: recipients.length }, "Reconciliation alert email sent");
   } catch (err) {
     logger.error({ err }, "Reconciliation alert email send failed");
