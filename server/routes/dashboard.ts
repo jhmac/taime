@@ -177,18 +177,6 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
       const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
-      let userList = cache.get<{ id: string; firstName: string | null; lastName: string | null; profileImageUrl: string | null }[]>('dashboard:userlist');
-      if (!userList) {
-        userList = await db.select({
-          id: users.id,
-          firstName: users.firstName,
-          lastName: users.lastName,
-          profileImageUrl: users.profileImageUrl,
-        }).from(users).where(eq(users.isActive, true));
-        cache.set('dashboard:userlist', userList, 60_000);
-      }
-      const userMap = new Map(userList.map(u => [u.id, u]));
-
       const todaySchedules = await db.select({
           id: schedules.id,
           userId: schedules.userId,
@@ -245,9 +233,46 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
 
       const entriesByUser = new Map<string, typeof allTimeEntries>();
       for (const te of allTimeEntries) {
-        const arr = entriesByUser.get(te.userId) ?? [];
+        const uid = String(te.userId);
+        const arr = entriesByUser.get(uid) ?? [];
         arr.push(te);
-        entriesByUser.set(te.userId, arr);
+        entriesByUser.set(uid, arr);
+      }
+
+      // Build a userMap that covers everyone referenced in today's schedules AND
+      // active time entries. Start with the cached active-user list, then do a
+      // single supplemental fetch for any IDs that are missing (e.g. account
+      // owners whose isActive flag is false, or users added after the last cache
+      // refresh). This prevents "Unknown" names and missing clock-in entries.
+      type UserRow = { id: string; firstName: string | null; lastName: string | null; profileImageUrl: string | null };
+      let userList = cache.get<UserRow[]>('dashboard:userlist');
+      if (!userList) {
+        userList = await db.select({
+          id: users.id,
+          firstName: users.firstName,
+          lastName: users.lastName,
+          profileImageUrl: users.profileImageUrl,
+        }).from(users).where(eq(users.isActive, true));
+        cache.set('dashboard:userlist', userList, 60_000);
+      }
+      const userMap = new Map<string, UserRow>(userList.map(u => [String(u.id), u]));
+
+      // Collect all user IDs referenced by schedules and active time entries.
+      const referencedUserIds = new Set<string>([
+        ...todaySchedules.map(s => String(s.userId)),
+        ...activeEntries.map(te => String(te.userId)),
+      ]);
+      const missingUserIds = [...referencedUserIds].filter(id => !userMap.has(id));
+      if (missingUserIds.length > 0) {
+        const extraUsers = await db.select({
+          id: users.id,
+          firstName: users.firstName,
+          lastName: users.lastName,
+          profileImageUrl: users.profileImageUrl,
+        }).from(users).where(inArray(users.id, missingUserIds));
+        for (const u of extraUsers) {
+          userMap.set(String(u.id), u);
+        }
       }
 
       const TTL_MS = 24 * 60 * 60 * 1000;
@@ -273,8 +298,9 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
       }
 
       const scheduleData = todaySchedules.map(s => {
-        const user = userMap.get(s.userId);
-        const userEntries = entriesByUser.get(s.userId) ?? [];
+        const uid = String(s.userId);
+        const user = userMap.get(uid);
+        const userEntries = entriesByUser.get(uid) ?? [];
         const clockedInEntry = userEntries.find(te => !te.clockOutTime);
         const firstClockIn = userEntries.length > 0
           ? userEntries.reduce((earliest, te) =>
@@ -311,16 +337,30 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
           minutesLate,
           minutesUntilShift: minutesUntilShift > 0 ? minutesUntilShift : null,
           shiftPassed: minutesUntilShift <= 0 && !clockedInEntry,
-          locationBlocked: locationBlockedMap.get(s.userId) ?? false,
+          locationBlocked: locationBlockedMap.get(uid) ?? false,
           isOvernightShift: clockedInEntry ? new Date(clockedInEntry.clockInTime) < startOfDay : false,
         };
       });
 
       scheduleData.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
 
-      const clockedInData = activeEntries.map(te => {
-        const user = userMap.get(te.userId);
-        const matchingSchedule = todaySchedules.find(s => s.userId === te.userId);
+      // Deduplicate active entries by userId — keep the most-recently-clocked-in
+      // entry per user to guard against data-integrity edge cases where two rows
+      // somehow lack a clockOutTime for the same person.
+      const activeByUser = new Map<string, typeof activeEntries[number]>();
+      for (const te of activeEntries) {
+        const uid = String(te.userId);
+        const existing = activeByUser.get(uid);
+        if (!existing || new Date(te.clockInTime) > new Date(existing.clockInTime)) {
+          activeByUser.set(uid, te);
+        }
+      }
+      const deduplicatedActiveEntries = [...activeByUser.values()];
+
+      const clockedInData = deduplicatedActiveEntries.map(te => {
+        const uid = String(te.userId);
+        const user = userMap.get(uid);
+        const matchingSchedule = todaySchedules.find(s => String(s.userId) === uid);
         let isLate = false;
         let minutesLate = 0;
         if (matchingSchedule) {
@@ -353,11 +393,12 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
         clockedIn: clockedInData,
         summary: {
           totalScheduled: todaySchedules.length,
-          totalClockedIn: activeEntries.length,
+          totalClockedIn: deduplicatedActiveEntries.length,
           totalLate: scheduleData.filter(s => s.isLate).length,
           totalNotArrived: scheduleData.filter(s => !s.isClockedIn && s.shiftPassed).length,
           totalLocationBlocked: new Set(scheduleData.filter(s => s.locationBlocked && !s.isClockedIn).map(s => s.userId)).size,
         },
+        serverTimestamp: now.toISOString(),
       });
     } catch (error) {
       console.error("Error fetching dashboard data:", error);

@@ -1,10 +1,11 @@
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useState, useEffect, useRef } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Clock, UserCheck, AlertTriangle, Timer, Users, ChevronRight, MapPinOff, X } from 'lucide-react';
+import { Clock, UserCheck, AlertTriangle, Timer, Users, ChevronRight, MapPinOff, X, RefreshCw } from 'lucide-react';
 import { useLocation } from 'wouter';
+import { useWebSocketContext } from '@/contexts/WebSocketContext';
 
 interface ScheduleEntry {
   scheduleId: string;
@@ -43,6 +44,7 @@ interface DashboardData {
     totalNotArrived: number;
     totalLocationBlocked: number;
   };
+  serverTimestamp?: string;
 }
 
 function formatTime(dateStr: string) {
@@ -62,6 +64,15 @@ function formatHours(hours: number) {
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
+function formatSecondsAgo(ms: number) {
+  const secs = Math.floor(ms / 1000);
+  if (secs < 60) return `${secs}s ago`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  return `${hrs}h ago`;
+}
+
 function UserAvatar({ name, imageUrl, size = 'md' }: { name: string; imageUrl: string | null; size?: 'sm' | 'md' }) {
   const initials = name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
   const sizeClass = size === 'sm' ? 'w-8 h-8 text-xs' : 'w-10 h-10 text-sm';
@@ -79,11 +90,37 @@ export default function TodaySchedulePanel() {
   const [, navigate] = useLocation();
   const [filterLocationBlocked, setFilterLocationBlocked] = useState(false);
   const [filterLate, setFilterLate] = useState(false);
+  const [, forceUpdate] = useState(0);
+  const queryClient = useQueryClient();
+  const { lastMessage } = useWebSocketContext();
+  const lastMessageIdRef = useRef<string | null>(null);
 
-  const { data, isLoading } = useQuery<DashboardData>({
+  const { data, isLoading, dataUpdatedAt } = useQuery<DashboardData>({
     queryKey: ['/api/dashboard/today'],
-    refetchInterval: 30000,
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: true,
+    staleTime: 0,
   });
+
+  // Tick the "updated X ago" counter every 10 seconds
+  useEffect(() => {
+    const interval = setInterval(() => forceUpdate(n => n + 1), 10_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Instant refresh on any clock-in / clock-out WebSocket event
+  useEffect(() => {
+    if (!lastMessage) return;
+    const msgId = lastMessage['id'] != null ? String(lastMessage['id']) : JSON.stringify(lastMessage);
+    if (msgId === lastMessageIdRef.current) return;
+    lastMessageIdRef.current = msgId;
+    if (
+      lastMessage.type === 'time_entry_created' ||
+      lastMessage.type === 'time_entry_updated'
+    ) {
+      queryClient.invalidateQueries({ queryKey: ['/api/dashboard/today'] });
+    }
+  }, [lastMessage, queryClient]);
 
   if (isLoading) {
     return (
@@ -116,6 +153,12 @@ export default function TodaySchedulePanel() {
       ? allSchedules.filter(e => e.isLate)
       : allSchedules;
   const clockedIn = data?.clockedIn || [];
+
+  const updatedAgoMs = data?.serverTimestamp
+    ? Date.now() - new Date(data.serverTimestamp).getTime()
+    : dataUpdatedAt
+      ? Date.now() - dataUpdatedAt
+      : null;
 
   return (
     <div className="space-y-4">
@@ -173,6 +216,12 @@ export default function TodaySchedulePanel() {
                   {filterLocationBlocked && <X className="h-3 w-3 ml-0.5" />}
                 </button>
               )}
+            </div>
+          )}
+          {updatedAgoMs !== null && (
+            <div className="flex items-center gap-1 mt-1.5 text-[10px] text-muted-foreground/60">
+              <RefreshCw className="h-2.5 w-2.5" />
+              <span>Updated {formatSecondsAgo(updatedAgoMs)}</span>
             </div>
           )}
         </CardHeader>
