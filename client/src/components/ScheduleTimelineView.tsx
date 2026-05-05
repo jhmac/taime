@@ -950,11 +950,40 @@ export default function ScheduleTimelineView({
   // Reactive hourPx — controlled by pinch-to-zoom, defaults by subview and breakpoint
   const [hourPx, setHourPx] = useState(() => {
     if (typeof window === 'undefined') return DEFAULT_DAY_HOUR_PX;
+    // Try to restore from localStorage
+    try {
+      const saved = localStorage.getItem('scheduleHourPx');
+      if (saved !== null) {
+        const parsed = Number(saved);
+        if (!Number.isNaN(parsed) && parsed >= MIN_HOUR_PX && parsed <= MAX_HOUR_PX) {
+          return parsed;
+        }
+      }
+    } catch { /* ignore storage errors */ }
     // Mobile always starts at the compact week density regardless of subview
     if (window.innerWidth < MOBILE_BREAKPOINT) return DEFAULT_WEEK_HOUR_PX;
     // Desktop: match the initial subview for a sensible baseline
     return subView === 'week' ? DEFAULT_WEEK_HOUR_PX : DEFAULT_DAY_HOUR_PX;
   });
+
+  // Debounced localStorage persistence for hourPx
+  useEffect(() => {
+    const id = setTimeout(() => {
+      try {
+        localStorage.setItem('scheduleHourPx', String(hourPx));
+      } catch { /* ignore storage errors */ }
+    }, 500);
+    return () => clearTimeout(id);
+  }, [hourPx]);
+
+  const defaultHourPx = typeof window !== 'undefined' && window.innerWidth < MOBILE_BREAKPOINT
+    ? DEFAULT_WEEK_HOUR_PX
+    : subView === 'week' ? DEFAULT_WEEK_HOUR_PX : DEFAULT_DAY_HOUR_PX;
+
+  const handleResetZoom = useCallback(() => {
+    setHourPx(defaultHourPx);
+    try { localStorage.removeItem('scheduleHourPx'); } catch { /* ignore */ }
+  }, [defaultHourPx]);
 
   // Slide animation state
   const [slideClass, setSlideClass] = useState('');
@@ -1365,6 +1394,16 @@ export default function ScheduleTimelineView({
           ))}
         </div>
         {renderNav()}
+        {/* Reset zoom — only shown in day/week views where pinch-zoom is active */}
+        {(effectiveSubView === 'day' || effectiveSubView === 'week') && hourPx !== defaultHourPx && (
+          <button
+            onClick={handleResetZoom}
+            className="text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded border border-border hover:bg-muted transition-colors flex-shrink-0"
+            title="Reset zoom to default"
+          >
+            Reset zoom
+          </button>
+        )}
       </div>
 
       {/* Content — slide animation wrapper; explicit max-height keeps timeline inside viewport on mobile */}
