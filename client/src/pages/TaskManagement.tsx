@@ -1679,6 +1679,16 @@ export default function TaskManagement() {
             </div>
           )}
           <DialogFooter>
+            {canDeleteTasks && (
+              <Button
+                variant="destructive"
+                className="mr-auto"
+                onClick={() => { setDeleteConfirm(viewingTask); setViewingTask(null); }}
+                data-testid="view-delete-task-btn"
+              >
+                <i className="fas fa-trash-alt mr-1.5"></i>Delete
+              </Button>
+            )}
             <Button variant="outline" onClick={() => setViewingTask(null)}>Close</Button>
           </DialogFooter>
         </DialogContent>

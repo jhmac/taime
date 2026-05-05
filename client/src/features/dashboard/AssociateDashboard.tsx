@@ -12,7 +12,6 @@ import ImprovementFeedWidget from '@/components/ImprovementFeedWidget';
 import LeanBoardCard from '@/features/dashboard/LeanBoardCard';
 import SmartSuggestionsCard from '@/features/dashboard/SmartSuggestionsCard';
 import { DashboardErrorBoundary } from '@/features/dashboard/DashboardErrorBoundary';
-import ScoreWidget from '@/features/dashboard/ScoreWidget';
 import TimeClockWidget from '@/components/TimeClockWidget';
 import PaySummaryWidget from '@/features/dashboard/PaySummaryWidget';
 import DailyQuestionnaireCard from '@/features/dashboard/DailyQuestionnaireCard';
@@ -574,9 +573,7 @@ export default function AssociateDashboard() {
             <TimeClockWidget />
           </DashboardErrorBoundary>
 
-          <DashboardErrorBoundary fallback="">
-            <SmartSuggestionsCard />
-          </DashboardErrorBoundary>
+          <DashboardErrorBoundary fallback=""><DailyQuoteCard /></DashboardErrorBoundary>
 
           {/* Stat chips — 3 column */}
           <div className="grid grid-cols-3 gap-3">
@@ -717,12 +714,13 @@ export default function AssociateDashboard() {
           <DashboardErrorBoundary fallback=""><DailyQuestionnaireCard /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><BrainBoostCard /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><ScenarioCard /></DashboardErrorBoundary>
-          <DashboardErrorBoundary fallback=""><ScoreWidget /></DashboardErrorBoundary>
-          <DashboardErrorBoundary fallback=""><DailyQuoteCard /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><TeamStatusWidget /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><SurfacedSOPBanner /></DashboardErrorBoundary>
           <QuickActions navigate={navigate} />
           <DashboardErrorBoundary fallback=""><TrainingProgressCard /></DashboardErrorBoundary>
+          <DashboardErrorBoundary fallback="">
+            <SmartSuggestionsCard />
+          </DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><LeanBoardCard /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><ImprovementFeedWidget /></DashboardErrorBoundary>
           {showPaySummary && (
@@ -946,15 +944,15 @@ export default function AssociateDashboard() {
             <TimeClockWidget />
           </DashboardErrorBoundary>
 
+          <DashboardErrorBoundary fallback=""><DailyQuoteCard /></DashboardErrorBoundary>
+
           <DashboardErrorBoundary fallback=""><DailyQuestionnaireCard /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><BrainBoostCard /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><ScenarioCard /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><SurfacedSOPBanner /></DashboardErrorBoundary>
-          <DashboardErrorBoundary fallback=""><DailyQuoteCard /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><TeamStatusWidget /></DashboardErrorBoundary>
           <QuickActions navigate={navigate} />
           <DashboardErrorBoundary fallback=""><TrainingProgressCard /></DashboardErrorBoundary>
-          <DashboardErrorBoundary fallback=""><ScoreWidget /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><LeanBoardCard /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><ImprovementFeedWidget /></DashboardErrorBoundary>
           {showPaySummary && (
