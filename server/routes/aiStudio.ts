@@ -271,7 +271,15 @@ async function publishTaskItem(
   createdBy: string,
   storage: IStorage
 ) {
-  type AiTaskItem = { title: string; description?: string; estimatedMinutes?: number };
+  type AiTaskItem = {
+    title: string;
+    description?: string;
+    estimatedMinutes?: number;
+    dayOfWeek?: string;
+    timeOfDay?: string;
+    eligibleRoles?: string[];
+    priority?: string;
+  };
   const rawContent = item.content as Record<string, unknown>;
   const taskItems: AiTaskItem[] = Array.isArray(rawContent.tasks) ? (rawContent.tasks as AiTaskItem[]) : [];
   const category = typeof rawContent.category === "string" ? rawContent.category : null;
@@ -285,8 +293,14 @@ async function publishTaskItem(
       locationId: storeId,
       estimatedMinutes: taskItem.estimatedMinutes ?? null,
       status: "pending",
-      priority: "medium",
+      priority: (taskItem.priority as "low" | "medium" | "high" | "urgent") ?? "medium",
       category,
+      isAIAssigned: true,
+      dayOfWeek: taskItem.dayOfWeek ? taskItem.dayOfWeek.toLowerCase() : null,
+      timeOfDay: taskItem.timeOfDay ? taskItem.timeOfDay.toLowerCase() : null,
+      eligibleRoles: Array.isArray(taskItem.eligibleRoles) && taskItem.eligibleRoles.length > 0
+        ? taskItem.eligibleRoles
+        : null,
     };
     const t = await storage.createTask(payload);
     createdIds.push(t.id);

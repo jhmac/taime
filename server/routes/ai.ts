@@ -245,10 +245,28 @@ export async function runClockInRedistribute(
   const clockedIn = await storage.getClockedInUsers();
   if (clockedIn.length === 0) return;
 
+  // Today's day-of-week in lowercase (e.g. "monday") to match the dayOfWeek column
+  const todayDow = new Date().toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase();
+
   const allTasks = await storage.getAllTasks();
-  // Only re-distribute AI-assigned tasks that haven't been completed
-  const pendingAiTasks = allTasks.filter(t => t.isAIAssigned && t.status !== 'completed' && t.status !== 'cancelled');
-  if (pendingAiTasks.length === 0) return;
+
+  // Include tasks that should be assigned/re-assigned today:
+  //  1. Already AI-assigned pending tasks (rebalance as more people clock in)
+  //  2. Unassigned pending tasks that are for today or have no specific day
+  // In both cases skip: manually-assigned tasks, deferred pins, completed/cancelled, and tasks for other days.
+  const pendingTasks = allTasks.filter(t => {
+    if (t.status === 'completed' || t.status === 'cancelled') return false;
+    // Skip tasks with a deferred pin intent — they wait for the pinned employee to clock in
+    if (t.pinnedTo) return false;
+    // Skip tasks that are explicitly manually assigned by a manager (not eligible for AI redistribution)
+    if (t.assignedTo && !t.isAIAssigned) return false;
+    // Only include tasks for today or with no specific day scheduled
+    if (t.dayOfWeek && t.dayOfWeek !== todayDow) return false;
+    // Include: already AI-assigned (rebalance) OR unassigned pending (first assignment)
+    return t.isAIAssigned || (!t.assignedTo && t.status === 'pending');
+  });
+
+  if (pendingTasks.length === 0) return;
 
   // Fetch role names for clocked-in employees so eligibility can be respected
   const clockedInIds = clockedIn.map(u => u.id);
@@ -265,9 +283,7 @@ export async function runClockInRedistribute(
   const clockedInPool = clockedIn.map(u => ({ id: u.id, roleName: roleByUserId.get(u.id) ?? null }));
 
   let roundRobinIndex = 0;
-  for (const task of pendingAiTasks) {
-    // Skip tasks with a deferred pin — they wait for the pinned employee to clock in
-    if (task.pinnedTo) continue;
+  for (const task of pendingTasks) {
     // Filter pool by task's eligible roles before redistributing
     const eligiblePool = clockedInPool.filter(emp => isEligible(emp.roleName, task.eligibleRoles as string[] | null));
     if (eligiblePool.length === 0) continue;
@@ -275,7 +291,11 @@ export async function runClockInRedistribute(
     const newAssigneeId = eligiblePool[roundRobinIndex % eligiblePool.length].id;
     roundRobinIndex++;
     if (task.assignedTo !== newAssigneeId) {
-      const updated = await storage.updateTask(task.id, { assignedTo: newAssigneeId });
+      const updated = await storage.updateTask(task.id, {
+        assignedTo: newAssigneeId,
+        isAIAssigned: true,
+        aiReasoning: `Auto-assigned on clock-in — distributed equally across ${eligiblePool.length} eligible clocked-in employee(s)`,
+      });
       broadcastToAll?.({ type: 'task_updated', data: { task: updated } });
     }
   }
