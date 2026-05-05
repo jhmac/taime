@@ -1794,3 +1794,35 @@ export function scheduleDeliveryLogCleanup(): void {
   runDeliveryLogCleanup();
   setInterval(runDeliveryLogCleanup, CLEANUP_INTERVAL_MS);
 }
+
+/**
+ * One-time startup cleanup: marks any offsite_sessions rows as 'completed' where
+ * the linked time_entry already has a clock_out_time but the session is still 'active'.
+ * This clears phantom/stale sessions that were left open by a crash or missed clock-out.
+ */
+export async function cleanupStaleOffsiteSessions(): Promise<void> {
+  try {
+    const result = await db.execute(sql`
+      UPDATE offsite_sessions
+      SET status = 'completed',
+          return_time = COALESCE(
+            (SELECT clock_out_time FROM time_entries WHERE id = offsite_sessions.time_entry_id),
+            NOW()
+          )
+      WHERE status = 'active'
+        AND time_entry_id IS NOT NULL
+        AND EXISTS (
+          SELECT 1 FROM time_entries
+          WHERE id = offsite_sessions.time_entry_id
+            AND clock_out_time IS NOT NULL
+        )
+    `);
+    const count = (result as any).rowCount ?? 0;
+    if (count > 0) {
+      console.log(`[OffsiteCleanup] Completed ${count} stale active offsite session(s) whose time entry was already clocked out`);
+    }
+  } catch (err: unknown) {
+    const pgErr = err as { message?: string };
+    console.warn('[OffsiteCleanup] Stale offsite session cleanup failed (non-fatal):', pgErr?.message ?? err);
+  }
+}

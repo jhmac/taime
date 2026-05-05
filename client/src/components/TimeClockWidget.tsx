@@ -1290,7 +1290,7 @@ export default function TimeClockWidget({ greetingSlot, footerSlot, hideClock = 
                   </Button>
                 );
               })()}
-              {activeOffsiteSession && (
+              {activeOffsiteSession && permissionState !== 'denied' && permissionState !== 'unknown' && (
                 <div className="flex items-center gap-2 text-xs text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30 rounded-xl px-3 py-2">
                   <Route className="h-3.5 w-3.5 flex-shrink-0" />
                   <span className="flex-1">Off-site trip in progress</span>

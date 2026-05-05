@@ -339,6 +339,20 @@ export function registerTimeEntryRoutes(
 
       const timeEntry = await storage.updateTimeEntry(id, safeUpdates);
 
+      if (safeUpdates.clockOutTime) {
+        try {
+          const activeSessions = await storage.getOffsiteSessions({ userId: existing.userId, status: 'active' });
+          for (const session of activeSessions) {
+            await storage.updateOffsiteSession(session.id, {
+              status: 'completed',
+              returnTime: new Date(safeUpdates.clockOutTime),
+            });
+          }
+        } catch (err: any) {
+          logger.warn({ error: err?.message }, '[ClockOut] Failed to auto-end active offsite session (non-fatal)');
+        }
+      }
+
       cache.invalidate(`dashboard:init:${existing.userId}`);
 
       const timeEntryRecipients = await computeTimeEntryRecipients(existing.userId, getUserIdsWithPermission);

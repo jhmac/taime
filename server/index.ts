@@ -18,7 +18,7 @@ import { startRitualScheduler } from "./services/ritualScheduler";
 import { startDailyQuestionnaireScheduler } from "./services/dailyQuestionnaireScheduler";
 import { startShopifyReportScheduler } from "./routes/shopify";
 import { backfillLegacyUserRoles, backfillInactiveAuthenticatedUsers, backfillStoreCreatorOwnerRole } from "./services/backfill";
-import { runSchemaMigrations, scheduleStaleTokenCleanup, scheduleDeliveryLogCleanup } from "./services/migrations";
+import { runSchemaMigrations, scheduleStaleTokenCleanup, scheduleDeliveryLogCleanup, cleanupStaleOffsiteSessions } from "./services/migrations";
 import { runStartupAiContentBackfill } from "./services/sopIndexer";
 import { validateMigrationJournal } from "./lib/validateMigrations";
 
@@ -294,6 +294,7 @@ app.use((req, res, next) => {
       backfillStoreCreatorOwnerRole();
       scheduleStaleTokenCleanup();
       scheduleDeliveryLogCleanup();
+      cleanupStaleOffsiteSessions();
       // Start after migrations so the shopify_report_schedules table is guaranteed to exist
       stopShopifyReportScheduler = startShopifyReportScheduler();
       const { scheduleTimesheetReminders } = await import('./services/timesheetReminderService');

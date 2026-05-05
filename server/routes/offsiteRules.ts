@@ -204,7 +204,20 @@ export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAu
     try {
       const userId = req.user.id;
       const sessions = await storage.getOffsiteSessions({ userId, status: 'active' });
-      res.json(sessions[0] || null);
+      const session = sessions[0] || null;
+
+      if (session) {
+        const activeEntry = await storage.getActiveTimeEntry(userId);
+        if (!activeEntry) {
+          await storage.updateOffsiteSession(session.id, {
+            status: 'completed',
+            returnTime: new Date(),
+          });
+          return res.json(null);
+        }
+      }
+
+      res.json(session);
     } catch (error) {
       console.error("Error fetching active offsite session:", error);
       res.status(500).json({ message: "Failed to fetch active session" });
