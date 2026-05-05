@@ -218,6 +218,13 @@
       "when": 1746885600000,
       "tag": "0030_task_pinned_to",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1746972000000,
+      "tag": "0031_work_locations_company_id",
+      "breakpoints": true
     }
   ]
 }

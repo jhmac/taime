@@ -86,6 +86,7 @@ export const workLocations = pgTable("work_locations", {
   geofenceGraceMinutes: text("geofence_grace_minutes").default("5.00"),
   geofenceEnabled: boolean("geofence_enabled").default(true),
   autoClockOut: boolean("auto_clock_out").default(true),
+  companyId: varchar("company_id").references(() => companies.id),
   createdAt: timestamp("created_at").defaultNow(),
 });
 

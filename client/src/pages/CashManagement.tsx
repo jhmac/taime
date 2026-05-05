@@ -45,6 +45,8 @@ export default function CashManagement() {
   const autoSyncRef = useRef(false);
   const mountSyncDoneRef = useRef(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
+  // null = no sync attempted yet; string[] = sync ran (may be empty — don't fall back to settings)
+  const [syncedRegisterNames, setSyncedRegisterNames] = useState<string[] | null>(null);
   const [, setTick] = useState(0);
 
   // Re-render every minute so the "X min ago" label stays accurate
@@ -79,9 +81,10 @@ export default function CashManagement() {
     return res.json();
   }});
 
-  // Reset timestamp whenever the user switches to a different day
+  // Reset timestamp and synced register names whenever the user switches to a different day
   useEffect(() => {
     setLastSyncedAt(null);
+    setSyncedRegisterNames(null);
   }, [selectedDate]);
 
   // Seed lastSyncedAt from the most recent syncedAt across all returned sessions
@@ -132,6 +135,11 @@ export default function CashManagement() {
       queryClient.invalidateQueries({ queryKey: ["/api/cash/shopify-sessions"] });
       queryClient.invalidateQueries({ queryKey: ["/api/cash/sessions"] });
       if (!data.noShopify) setLastSyncedAt(new Date());
+      // Always record the synced register list (even if empty) so we don't
+      // revert to stale manual settings.registers after a real sync.
+      if (Array.isArray(data.registerNames) && !data.noShopify) {
+        setSyncedRegisterNames(data.registerNames);
+      }
       const isAuto = autoSyncRef.current;
       autoSyncRef.current = false;
       if (isAuto) return;
@@ -183,7 +191,18 @@ export default function CashManagement() {
     onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
   });
 
-  const registers = (settings?.registers as any[]) || [{ name: "Register 1", id: "register-1" }];
+  // Prefer register names from the most recent Shopify sync.
+  // syncedRegisterNames === null  → no sync run yet → use settings.registers
+  // syncedRegisterNames === []    → sync ran, Shopify returned none → show nothing (don't revert to manual list)
+  // syncedRegisterNames === [...]  → use Shopify-derived list
+  const registers: { name: string; id: string }[] = (() => {
+    if (syncedRegisterNames !== null) {
+      return syncedRegisterNames.map(name => ({ name, id: name }));
+    }
+    const fromSettings = settings?.registers as any[] | undefined;
+    if (fromSettings && fromSettings.length > 0) return fromSettings;
+    return [{ name: "Register 1", id: "register-1" }];
+  })();
 
   if (accessLoading) {
     return (

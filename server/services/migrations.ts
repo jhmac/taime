@@ -87,6 +87,15 @@ export async function runSchemaMigrations(): Promise<void> {
       table: "shops",
       sql: `ALTER TABLE shops ADD COLUMN IF NOT EXISTS company_id varchar`,
     },
+    // work_locations.company_id: tenant isolation for location sync and name-based matching
+    {
+      table: "work_locations",
+      sql: `ALTER TABLE work_locations ADD COLUMN IF NOT EXISTS company_id varchar REFERENCES companies(id)`,
+    },
+    {
+      table: "work_locations",
+      sql: `UPDATE work_locations SET company_id = (SELECT id FROM companies ORDER BY created_at ASC LIMIT 1) WHERE company_id IS NULL`,
+    },
     // company_settings: mobile clock-in enforcement flag
     {
       table: "company_settings",

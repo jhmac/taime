@@ -1,6 +1,6 @@
 import type { Express, Response } from "express";
 import type { IStorage } from "../storage";
-import { shops, userShops, shopifyDailySales, shopifyOrders, shopifyReportSchedules, timeEntries, users, companies } from "@shared/schema";
+import { shops, userShops, shopifyDailySales, shopifyOrders, shopifyReportSchedules, timeEntries, users, companies, workLocations } from "@shared/schema";
 import { eq, and, or, gte, lte, desc, sql } from "drizzle-orm";
 import { db } from "../db";
 import crypto from "crypto";
@@ -615,6 +615,53 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
       } else {
         console.log('[Shopify OAuth] Skipping webhook registration: no production URL available');
       }
+
+      // Fire-and-forget: sync Shopify locations into work_locations on first connect
+      // so admins don't have to type them in manually.
+      (async () => {
+        try {
+          const shopifyService = new ShopifyService(shopDomain, accessToken);
+          const shopLocations = await shopifyService.getLocations();
+          for (const loc of shopLocations) {
+            const addressParts = [
+              loc.address?.address1,
+              loc.address?.address2,
+              loc.address?.city,
+              loc.address?.province,
+              loc.address?.zip,
+              loc.address?.country,
+            ].filter(Boolean);
+            const formattedAddress = addressParts.length > 0 ? addressParts.join(', ') : null;
+            const phone = loc.phone || loc.address?.phone || null;
+
+            const normalizedName = loc.name.trim();
+            // Match only within this company's locations to prevent cross-tenant overwrites
+            const [existing] = installingUserCompanyId
+              ? await db.select({ id: workLocations.id })
+                  .from(workLocations)
+                  .where(and(
+                    sql`lower(trim(${workLocations.name})) = ${normalizedName.toLowerCase()}`,
+                    eq(workLocations.companyId, installingUserCompanyId)
+                  ))
+                  .limit(1)
+              : [];
+
+            if (existing) {
+              await db.update(workLocations)
+                .set({ address: formattedAddress, phone })
+                .where(eq(workLocations.id, existing.id));
+            } else {
+              await db.insert(workLocations).values({
+                name: normalizedName, address: formattedAddress, phone,
+                companyId: installingUserCompanyId ?? undefined,
+              });
+            }
+          }
+          console.log(`[Shopify OAuth] Synced ${shopLocations.length} location(s) for ${shopDomain}`);
+        } catch (locErr: any) {
+          console.warn('[Shopify OAuth] Location sync failed (non-fatal):', locErr.message);
+        }
+      })();
 
       res.redirect(`/shopify-callback-success?shop=${encodeURIComponent(shopDomain)}`);
     } catch (error) {
@@ -1865,6 +1912,81 @@ Rules:
     } catch (error) {
       console.error("[GDPR] Customer redact error:", error);
       return res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // ── Sync locations from Shopify ───────────────────────────────────────────
+  app.post("/api/shopify/sync-locations", isAuthenticated, async (req: any, res: Response) => {
+    try {
+      const userId = req.user?.id || req.auth?.userId;
+      const roleName = req.user?.role?.name ?? '';
+      const isAdminOrOwner = roleName === 'owner' || roleName === 'admin';
+      if (!isAdminOrOwner) return res.status(403).json({ error: "Admin access required" });
+
+      const userRow = await db.select({ companyId: users.companyId })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+      const userCompanyId = userRow[0]?.companyId;
+      if (!userCompanyId) {
+        return res.status(400).json({ error: "No connected Shopify store found. Connect Shopify first.", noShopify: true });
+      }
+
+      const [shop] = await db.select().from(shops)
+        .where(and(eq(shops.isActive, true), eq(shops.companyId, userCompanyId)))
+        .limit(1);
+
+      if (!shop || !shop.accessToken) {
+        return res.status(400).json({ error: "No connected Shopify store found. Connect Shopify first.", noShopify: true });
+      }
+
+      let accessToken = shop.accessToken;
+      try { accessToken = decryptToken(accessToken); } catch {}
+
+      const shopifyService = new ShopifyService(shop.shopDomain, accessToken);
+      const shopLocations = await shopifyService.getLocations();
+
+      const upserted = [];
+      for (const loc of shopLocations) {
+        const addressParts = [
+          loc.address?.address1,
+          loc.address?.address2,
+          loc.address?.city,
+          loc.address?.province,
+          loc.address?.zip,
+          loc.address?.country,
+        ].filter(Boolean);
+        const formattedAddress = addressParts.length > 0 ? addressParts.join(', ') : null;
+        const phone = loc.phone || loc.address?.phone || null;
+
+        const normalizedName = loc.name.trim();
+        // Match only within this company's locations to prevent cross-tenant overwrites
+        const [existing] = await db.select().from(workLocations)
+          .where(and(
+            sql`lower(trim(${workLocations.name})) = ${normalizedName.toLowerCase()}`,
+            eq(workLocations.companyId, userCompanyId)
+          ))
+          .limit(1);
+
+        if (existing) {
+          const [updated] = await db.update(workLocations)
+            .set({ address: formattedAddress, phone })
+            .where(eq(workLocations.id, existing.id))
+            .returning();
+          upserted.push(updated);
+        } else {
+          const [created] = await db.insert(workLocations)
+            .values({ name: normalizedName, address: formattedAddress, phone, companyId: userCompanyId })
+            .returning();
+          upserted.push(created);
+        }
+      }
+
+      console.log(`[Shopify] sync-locations: upserted ${upserted.length} location(s) for ${shop.shopDomain}`);
+      res.json({ synced: upserted.length, locations: upserted });
+    } catch (error: any) {
+      console.error('[Shopify] sync-locations error:', error);
+      res.status(500).json({ error: "Failed to sync locations from Shopify", detail: error.message });
     }
   });
 

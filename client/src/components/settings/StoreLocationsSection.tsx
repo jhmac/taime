@@ -12,8 +12,9 @@ import type { WorkLocation } from '@shared/schema';
 import {
   MapPin, Phone, Mail, Clock, Globe, Plus, Edit2, Trash2,
   ChevronDown, ChevronUp, CheckCircle2, XCircle, Building2,
-  ExternalLink,
+  ExternalLink, RefreshCw,
 } from 'lucide-react';
+import { SiShopify } from 'react-icons/si';
 
 const DAYS = [
   { key: 'monday', label: 'Mon', full: 'Monday' },
@@ -312,6 +313,21 @@ export default function StoreLocationsSection() {
     queryKey: ['/api/work-locations'],
   });
 
+  const syncFromShopifyMutation = useMutation({
+    mutationFn: () => apiRequest('POST', '/api/shopify/sync-locations').then(r => r.json()),
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/work-locations'] });
+      if (data.noShopify) {
+        toast({ title: 'No Shopify Store', description: 'Connect a Shopify store first.', variant: 'destructive' });
+      } else if (data.synced === 0) {
+        toast({ title: 'No locations found', description: 'Shopify returned no active locations.' });
+      } else {
+        toast({ title: `Imported ${data.synced} location${data.synced !== 1 ? 's' : ''}`, description: 'Store locations imported from Shopify.' });
+      }
+    },
+    onError: (err: any) => toast({ title: 'Sync failed', description: err.message, variant: 'destructive' }),
+  });
+
   const createMutation = useMutation({
     mutationFn: (data: LocationFormData) => apiRequest('POST', '/api/work-locations', data),
     onSuccess: () => {
@@ -349,7 +365,7 @@ export default function StoreLocationsSection() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold">Store locations</h2>
           <p className="text-sm text-muted-foreground mt-0.5">
@@ -357,9 +373,23 @@ export default function StoreLocationsSection() {
           </p>
         </div>
         {!showAdd && !editing && (
-          <Button onClick={() => setShowAdd(true)} size="sm" className="gap-1.5">
-            <Plus className="w-4 h-4" /> Add location
-          </Button>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => syncFromShopifyMutation.mutate()}
+              disabled={syncFromShopifyMutation.isPending}
+            >
+              {syncFromShopifyMutation.isPending
+                ? <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                : <SiShopify className="w-3.5 h-3.5 text-green-600" />}
+              Import from Shopify
+            </Button>
+            <Button onClick={() => setShowAdd(true)} size="sm" className="gap-1.5">
+              <Plus className="w-4 h-4" /> Add location
+            </Button>
+          </div>
         )}
       </div>
 

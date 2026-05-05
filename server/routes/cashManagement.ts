@@ -21,6 +21,7 @@ import { isNull } from "drizzle-orm";
 import logger from "../lib/logger";
 import { ShopifyService } from "../services/shopifyService";
 import { decryptToken } from "../utils/tokenEncryption";
+import { workLocations as workLocationsTable } from "@shared/schema";
 
 function parseClosingTime(raw: string | null | undefined): Record<string, string | null> | null {
   if (!raw) return null;
@@ -824,17 +825,19 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
   app.post("/api/cash/sync-shopify", isAuthenticated, async (req: any, res) => {
     try {
       if (!(await requireCashAccess(req, res))) return;
-      const storeId = await getStoreId();
       const userId = req.user?.id || req.auth?.userId;
       const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
 
       const today = new Date().toISOString().split("T")[0];
       const isPastDate = date < today;
 
+      // For past dates, return stored data using fallback storeId
       if (isPastDate) {
+        const storeId = await getStoreId();
         const stored = await db.select().from(shopifyRegisterSessions)
           .where(and(eq(shopifyRegisterSessions.storeId, storeId), eq(shopifyRegisterSessions.sessionDate, date)));
-        return res.json({ synced: 0, sessions: stored, message: "Past dates use stored Shopify data only." });
+        const registerNames = [...new Set(stored.map((s: any) => s.registerName))];
+        return res.json({ synced: 0, sessions: stored, registerNames, message: "Past dates use stored Shopify data only." });
       }
 
       const [userRow] = await db.select({ companyId: users.companyId })
@@ -861,16 +864,40 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
       const shopifyService = new ShopifyService(shop.shopDomain, accessToken);
       const sessions = await shopifyService.getCashTrackingSessions(date);
 
+      // Pre-load active work locations for this company for storeId resolution by name
+      const allWorkLocations = await db.select({ id: workLocationsTable.id, name: workLocationsTable.name })
+        .from(workLocationsTable)
+        .where(and(eq(workLocationsTable.isActive, true), eq(workLocationsTable.companyId, userCompanyId)));
+
+      // Fallback: first active location (single-store compatibility)
+      const fallbackStoreId = allWorkLocations[0]?.id ?? await getStoreId();
+
       if (sessions.length === 0) {
         const stored = await db.select().from(shopifyRegisterSessions)
-          .where(and(eq(shopifyRegisterSessions.storeId, storeId), eq(shopifyRegisterSessions.sessionDate, date)));
-        return res.json({ synced: 0, sessions: stored, message: "No Shopify POS sessions found for this date (or POS Pro not enabled)." });
+          .where(and(eq(shopifyRegisterSessions.storeId, fallbackStoreId), eq(shopifyRegisterSessions.sessionDate, date)));
+        const registerNames = [...new Set(stored.map((s: any) => s.registerName))];
+        return res.json({ synced: 0, sessions: stored, registerNames, message: "No Shopify POS sessions found for this date (or POS Pro not enabled)." });
       }
 
       const upserted = [];
       for (const s of sessions) {
         const registerName = s.register?.name || s.name || "Register";
         const shopifySessionId = s.id;
+
+        // Resolve storeId: match Shopify location name (if present) to a work_location by name.
+        // If Shopify omits the location field on a session (e.g. POS Basic / older API), we fall
+        // back to the first active work_location (single-location compatibility). A future
+        // improvement could pre-fetch getLocations() here and use Shopify location IDs for a
+        // more reliable mapping when location names are absent.
+        const shopifyLocationName: string | null = s.location?.name ?? null;
+        let sessionStoreId = fallbackStoreId;
+        if (shopifyLocationName) {
+          const matchedLoc = allWorkLocations.find(
+            l => l.name.toLowerCase() === shopifyLocationName.toLowerCase()
+          );
+          if (matchedLoc) sessionStoreId = matchedLoc.id;
+        }
+
         const cashSales = s.cashSalesCents?.shopMoney?.amount || s.cashSales?.shopMoney?.amount || null;
         const cashRefunds = s.cashRefundsCents?.shopMoney?.amount || s.cashRefunds?.shopMoney?.amount || null;
         const cashAdjustments = s.cashAdjustments?.shopMoney?.amount || null;
@@ -895,7 +922,7 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
           .limit(1);
 
         const record: any = {
-          storeId,
+          storeId: sessionStoreId,
           sessionDate: date,
           registerName,
           shopifySessionId,
@@ -928,7 +955,7 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
 
         const matchingClosing = await db.select().from(drawerSessions)
           .where(and(
-            eq(drawerSessions.storeId, storeId),
+            eq(drawerSessions.storeId, sessionStoreId),
             eq(drawerSessions.sessionDate, date),
             eq(drawerSessions.sessionType, "closing"),
             eq(drawerSessions.registerName, registerName),
@@ -953,7 +980,9 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
         }
       }
 
-      res.json({ synced: upserted.length, sessions: upserted });
+      // Return distinct register names from synced sessions so the UI knows which registers exist
+      const registerNames = [...new Set(upserted.map((s: any) => s.registerName))];
+      res.json({ synced: upserted.length, sessions: upserted, registerNames });
     } catch (err: any) {
       logger.error({ error: err.message }, "[Cash] Shopify sync failed");
       res.status(500).json({ error: "Failed to sync from Shopify", detail: err.message });

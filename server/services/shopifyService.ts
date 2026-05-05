@@ -33,6 +33,21 @@ export interface ShopifyOrder {
   };
 }
 
+export interface ShopifyLocation {
+  id: string;
+  name: string;
+  address?: {
+    address1?: string;
+    address2?: string;
+    city?: string;
+    province?: string;
+    country?: string;
+    zip?: string;
+    phone?: string;
+  };
+  phone?: string;
+}
+
 export class ShopifyService {
   private shopDomain: string;
   private accessToken: string;
@@ -277,6 +292,10 @@ export class ShopifyService {
               id
               name
             }
+            location {
+              id
+              name
+            }
             openingFloat {
               shopMoney {
                 amount
@@ -375,6 +394,53 @@ export class ShopifyService {
       }
       throw error;
     }
+  }
+
+  async getLocations(): Promise<ShopifyLocation[]> {
+    const query = `
+      query GetLocations($first: Int!, $after: String) {
+        locations(first: $first, after: $after, includeInactive: false) {
+          nodes {
+            id
+            name
+            address {
+              address1
+              address2
+              city
+              province
+              country
+              zip
+              phone
+            }
+            phone
+          }
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+        }
+      }
+    `;
+
+    const allLocations: ShopifyLocation[] = [];
+    let cursor: string | null = null;
+
+    try {
+      do {
+        const variables: Record<string, any> = { first: 50 };
+        if (cursor) variables.after = cursor;
+
+        const response = await this.makeGraphQLRequest(query, variables);
+        const connection = response.data?.locations;
+        allLocations.push(...(connection?.nodes || []));
+        cursor = connection?.pageInfo?.hasNextPage ? connection.pageInfo.endCursor : null;
+      } while (cursor);
+    } catch (error: any) {
+      console.error('[ShopifyService] getLocations failed:', error.message);
+      throw error;
+    }
+
+    return allLocations;
   }
 
   async registerWebhook(callbackUrl: string, topic: string = 'orders/create') {
