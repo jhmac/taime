@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { db } from "../db";
-import { eq, and, desc, gte, sql } from "drizzle-orm";
+import { eq, and, desc, gte, sql, inArray } from "drizzle-orm";
 import { z } from "zod";
 import {
   drawerSessions, cashDeposits, cashDiscrepancyLog, cashManagementSettings,
@@ -1020,12 +1020,51 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
   app.get("/api/cash/shopify-sessions", isAuthenticated, async (req: any, res) => {
     try {
       if (!(await requireCashAccess(req, res))) return;
-      const storeId = await getStoreId();
+      const userId = req.user?.id || req.auth?.userId;
       const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
-      const sessions = await db.select().from(shopifyRegisterSessions)
-        .where(and(eq(shopifyRegisterSessions.storeId, storeId), eq(shopifyRegisterSessions.sessionDate, date)));
+
+      // Resolve all work locations for this company so multi-location stores see
+      // sessions for every location, not just the primary one.
+      const [userRow] = await db.select({ companyId: users.companyId })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+      const userCompanyId = userRow?.companyId;
+
+      let sessions: any[];
+      if (userCompanyId) {
+        const companyLocations = await db
+          .select({ id: workLocationsTable.id, name: workLocationsTable.name })
+          .from(workLocationsTable)
+          .where(and(eq(workLocationsTable.isActive, true), eq(workLocationsTable.companyId, userCompanyId)));
+
+        const locationIds = companyLocations.map(l => l.id);
+        const locationMap = Object.fromEntries(companyLocations.map(l => [l.id, l.name]));
+
+        if (locationIds.length === 0) {
+          return res.json([]);
+        }
+
+        const rawSessions = await db.select().from(shopifyRegisterSessions)
+          .where(and(
+            inArray(shopifyRegisterSessions.storeId, locationIds),
+            eq(shopifyRegisterSessions.sessionDate, date),
+          ));
+
+        sessions = rawSessions.map(s => ({
+          ...s,
+          locationName: locationMap[s.storeId] ?? null,
+        }));
+      } else {
+        // Fallback for accounts without companyId (shouldn't normally happen)
+        const storeId = await getStoreId();
+        sessions = await db.select().from(shopifyRegisterSessions)
+          .where(and(eq(shopifyRegisterSessions.storeId, storeId), eq(shopifyRegisterSessions.sessionDate, date)));
+      }
+
       res.json(sessions);
     } catch (err: any) {
+      logger.error({ error: err.message }, "[Cash] Failed to get Shopify sessions");
       res.status(500).json({ error: "Failed to get Shopify sessions" });
     }
   });

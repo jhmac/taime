@@ -312,6 +312,28 @@ export default function CashManagement() {
     return { opening, closing, shopify };
   };
 
+  // Build a map of register name → location name from synced Shopify sessions.
+  // Only populated when locationName is present (multi-location stores).
+  // If two locations use the same register name, we suppress the label for
+  // that register (null sentinel) rather than showing the wrong location.
+  const registerLocationMap: Record<string, string | null> = {};
+  for (const s of shopifySessions as any[]) {
+    if (s.locationName && s.registerName) {
+      const existing = registerLocationMap[s.registerName];
+      if (existing === undefined) {
+        registerLocationMap[s.registerName] = s.locationName;
+      } else if (existing !== null && existing !== s.locationName) {
+        // Collision: same register name belongs to 2+ locations — suppress
+        registerLocationMap[s.registerName] = null;
+      }
+    }
+  }
+  // Show location labels only when there are 2+ distinct (non-null) location names
+  const distinctLocationNames = new Set(
+    Object.values(registerLocationMap).filter((v): v is string => v !== null)
+  );
+  const showLocationLabels = distinctLocationNames.size > 1;
+
   const totalOverShort = sessions
     .filter((s: any) => s.overShortAmount)
     .reduce((sum: number, s: any) => sum + parseFloat(s.overShortAmount), 0);
@@ -411,19 +433,29 @@ export default function CashManagement() {
               const regDeposits = closing ? depositsForSession(closing.id) : [];
               const allSessions = [opening, closing].filter(Boolean);
 
+              const locationName = registerLocationMap[reg.name];
+
               return (
                 <Card key={reg.name}>
                   <CardContent className="p-4">
                     <div className="flex items-center justify-between mb-3">
-                      <h3 className="font-semibold flex items-center gap-2">
-                        <i className="fas fa-tablet-alt text-muted-foreground" />
-                        {reg.name}
-                        {shopify && (
-                          <Badge variant="outline" className="text-green-600 border-green-300 text-[10px]">
-                            <i className="fab fa-shopify mr-1" /> Synced
-                          </Badge>
+                      <div className="flex flex-col gap-0.5">
+                        <h3 className="font-semibold flex items-center gap-2">
+                          <i className="fas fa-tablet-alt text-muted-foreground" />
+                          {reg.name}
+                          {shopify && (
+                            <Badge variant="outline" className="text-green-600 border-green-300 text-[10px]">
+                              <i className="fab fa-shopify mr-1" /> Synced
+                            </Badge>
+                          )}
+                        </h3>
+                        {showLocationLabels && locationName && (
+                          <span className="text-xs text-muted-foreground flex items-center gap-1 ml-5">
+                            <i className="fas fa-map-marker-alt text-[10px]" />
+                            {locationName}
+                          </span>
                         )}
-                      </h3>
+                      </div>
                       {opening && opening.status !== "pending" && closing && closing.status !== "pending" ? (
                         <Badge variant="default" className="bg-green-500">Complete</Badge>
                       ) : (
