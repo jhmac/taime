@@ -501,6 +501,47 @@ export default function AssociateDashboard() {
     queryKey: ['/api/tasks'],
     enabled: deferredEnabled,
   });
+
+  const { data: timeEntries } = useQuery<any[]>({
+    queryKey: ['/api/time-entries'],
+    enabled: deferredEnabled,
+    staleTime: 60_000,
+  });
+
+  const { data: myPaySummary } = useQuery<{ periodStart: string; totalHours: number; hourlyRate: number; estimatedPay: number }>({
+    queryKey: ['/api/dashboard/my-pay-summary'],
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const startOfThisWeek = new Date();
+  startOfThisWeek.setDate(startOfThisWeek.getDate() - startOfThisWeek.getDay());
+  startOfThisWeek.setHours(0, 0, 0, 0);
+
+  const myEntriesToday = (timeEntries || []).filter((e: any) =>
+    e.userId === user?.id && new Date(e.clockInTime).toDateString() === new Date().toDateString()
+  );
+  const myTodayHours = myEntriesToday.reduce((sum: number, e: any) => {
+    const start = new Date(e.clockInTime).getTime();
+    const end = e.clockOutTime ? new Date(e.clockOutTime).getTime() : Date.now();
+    return sum + (end - start) / 3600000;
+  }, 0);
+
+  const myEntriesThisWeek = (timeEntries || []).filter((e: any) =>
+    e.userId === user?.id && new Date(e.clockInTime) >= startOfThisWeek
+  );
+  const myWeekHours = myEntriesThisWeek.reduce((sum: number, e: any) => {
+    const start = new Date(e.clockInTime).getTime();
+    const end = e.clockOutTime ? new Date(e.clockOutTime).getTime() : Date.now();
+    return sum + (end - start) / 3600000;
+  }, 0);
+
+  const myHoursStats = {
+    todayHours: myTodayHours,
+    weekHours: myWeekHours,
+    periodHours: myPaySummary?.totalHours,
+    estimatedPay: myPaySummary?.estimatedPay,
+    hourlyRate: myPaySummary?.hourlyRate,
+  };
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const todayEnd = new Date(today); todayEnd.setHours(23, 59, 59, 999);
   // Show ALL tasks assigned to this user that aren't completed (not just ones with today's due date)
@@ -714,7 +755,7 @@ export default function AssociateDashboard() {
           <DashboardErrorBoundary fallback=""><DailyQuestionnaireCard /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><BrainBoostCard /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><ScenarioCard /></DashboardErrorBoundary>
-          <DashboardErrorBoundary fallback=""><TeamStatusWidget /></DashboardErrorBoundary>
+          <DashboardErrorBoundary fallback=""><TeamStatusWidget hoursStats={myHoursStats} /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><SurfacedSOPBanner /></DashboardErrorBoundary>
           <QuickActions navigate={navigate} />
           <DashboardErrorBoundary fallback=""><TrainingProgressCard /></DashboardErrorBoundary>
@@ -950,7 +991,7 @@ export default function AssociateDashboard() {
           <DashboardErrorBoundary fallback=""><BrainBoostCard /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><ScenarioCard /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><SurfacedSOPBanner /></DashboardErrorBoundary>
-          <DashboardErrorBoundary fallback=""><TeamStatusWidget /></DashboardErrorBoundary>
+          <DashboardErrorBoundary fallback=""><TeamStatusWidget hoursStats={myHoursStats} /></DashboardErrorBoundary>
           <QuickActions navigate={navigate} />
           <DashboardErrorBoundary fallback=""><TrainingProgressCard /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><LeanBoardCard /></DashboardErrorBoundary>

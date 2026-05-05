@@ -739,14 +739,8 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
 
       const companySettings = await storage.getCompanySettings();
 
-      // Allow any manager/owner/admin to view their own pay summary in the header stats bar.
-      // The showPaySummaryToManagers toggle controls additional UI widgets, not this endpoint.
-      const callerRole = (req.user as any)?.role?.name as string | undefined;
-      const isManagerOrAbove = callerRole === 'manager' || callerRole === 'owner' || callerRole === 'admin' || callerRole === 'assistant_manager';
-      if (!isManagerOrAbove) {
-        return res.status(403).json({ message: 'Access denied.' });
-      }
-
+      // Any authenticated user may fetch their own pay summary.
+      // All DB queries below are scoped to req.user.id so there is no cross-user data exposure.
       const hourlyRate = parseFloat(userRow?.hourlyRate ?? '0');
 
       // Determine current pay period start
