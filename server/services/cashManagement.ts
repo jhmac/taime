@@ -535,6 +535,14 @@ function formatCurrency(amount: number): string {
   return `$${Math.abs(amount).toFixed(2)}${amount < 0 ? " short" : amount > 0 ? " over" : ""}`;
 }
 
+export interface SessionBreakdownEntry {
+  registerName: string;
+  shopifyExpected: number | null;
+  physicalCount: number | null;
+  shopifyVsCountDelta: number | null;
+  exceeds: boolean;
+}
+
 export interface ReconciliationResult {
   shopifyExpectedCash: number | null;
   physicalCountCash: number | null;
@@ -544,7 +552,8 @@ export interface ReconciliationResult {
   shopifyVsDepositDelta: number | null;
   threshold: number;
   hasDiscrepancy: boolean;
-  discrepancySources: Array<{ pair: string; delta: number; exceeds: boolean }>;
+  discrepancySources: Array<{ pair: string; delta: number; exceeds: boolean; register?: string }>;
+  sessionBreakdown: SessionBreakdownEntry[];
 }
 
 export async function reconcileDrawer(
@@ -570,46 +579,78 @@ export async function reconcileDrawer(
     throw new Error(`Deposit ${depositId} not found for store ${storeId}`);
   }
 
-  const physicalCountCash = session?.totalCashCounted
-    ? parseFloat(session.totalCashCounted)
-    : null;
+  // ── Step 1: Build per-register breakdown from ALL closed sessions on this date ──────────────
+  // "Closed" means totalCashCounted is set; only counted drawers contribute to the deposit.
+  const closedSessionsForDate = await db.select().from(drawerSessions)
+    .where(and(
+      eq(drawerSessions.storeId, storeId),
+      eq(drawerSessions.sessionDate, session.sessionDate),
+      isNotNull(drawerSessions.totalCashCounted),
+    ));
 
-  // Prefer Shopify's authoritative expectedClosingCash; fall back to drawerSession.expectedCash
-  let shopifyExpectedCash: number | null = null;
-  if (session) {
-    const [shopifySession] = await db.select().from(shopifyRegisterSessions)
-      .where(and(
-        eq(shopifyRegisterSessions.storeId, storeId),
-        eq(shopifyRegisterSessions.sessionDate, session.sessionDate),
-        eq(shopifyRegisterSessions.registerName, session.registerName),
-      ));
-    if (shopifySession?.expectedClosingCash != null) {
-      shopifyExpectedCash = parseFloat(shopifySession.expectedClosingCash);
-    } else if (session.expectedCash != null) {
-      shopifyExpectedCash = parseFloat(session.expectedCash);
-    }
-  }
+  const sessionBreakdown: SessionBreakdownEntry[] = await Promise.all(
+    closedSessionsForDate.map(async (s) => {
+      const physCount = parseFloat(s.totalCashCounted!);
+      let shopifyExp: number | null = null;
+      const [shopifySess] = await db.select().from(shopifyRegisterSessions)
+        .where(and(
+          eq(shopifyRegisterSessions.storeId, storeId),
+          eq(shopifyRegisterSessions.sessionDate, s.sessionDate),
+          eq(shopifyRegisterSessions.registerName, s.registerName),
+        ));
+      if (shopifySess?.expectedClosingCash != null) {
+        shopifyExp = parseFloat(shopifySess.expectedClosingCash);
+      } else if (s.expectedCash != null) {
+        shopifyExp = parseFloat(s.expectedCash);
+      }
+      const delta = shopifyExp != null
+        ? Math.round((physCount - shopifyExp) * 100) / 100
+        : null;
+      return {
+        registerName: s.registerName,
+        shopifyExpected: shopifyExp,
+        physicalCount: physCount,
+        shopifyVsCountDelta: delta,
+        exceeds: delta != null ? Math.abs(delta) > threshold : false,
+      };
+    })
+  );
+
+  // ── Step 2: Aggregate totals across all closed sessions ──────────────────────────────────
+  // Sum physical counts; sum shopify expected only when every session has Shopify data.
+  const physicalCountCash: number = sessionBreakdown.reduce((sum, e) => sum + e.physicalCount, 0);
+  const allHaveShopify = sessionBreakdown.length > 0 && sessionBreakdown.every(e => e.shopifyExpected != null);
+  const shopifyExpectedCash: number | null = allHaveShopify
+    ? sessionBreakdown.reduce((sum, e) => sum + (e.shopifyExpected ?? 0), 0)
+    : null;
+  // Total starting cash across all contributing drawers (needed for deposit-slip deltas)
+  const totalStartingCash = closedSessionsForDate.reduce(
+    (sum, s) => sum + parseFloat(s.startingCash || "200"), 0
+  );
 
   const depositSlipAmount = deposit?.aiExtractedAmount
     ? parseFloat(deposit.aiExtractedAmount)
     : null;
 
   const shopifyVsCountDelta =
-    shopifyExpectedCash != null && physicalCountCash != null
+    shopifyExpectedCash != null
       ? Math.round((physicalCountCash - shopifyExpectedCash) * 100) / 100
       : null;
 
   const countVsDepositDelta =
-    physicalCountCash != null && depositSlipAmount != null
-      ? Math.round((depositSlipAmount - physicalCountCash + parseFloat(session?.startingCash || "200")) * 100) / 100
+    depositSlipAmount != null
+      ? Math.round((depositSlipAmount - physicalCountCash + totalStartingCash) * 100) / 100
       : null;
 
   const shopifyVsDepositDelta =
     shopifyExpectedCash != null && depositSlipAmount != null
-      ? Math.round((depositSlipAmount - (shopifyExpectedCash - parseFloat(session?.startingCash || "200"))) * 100) / 100
+      ? Math.round((depositSlipAmount - (shopifyExpectedCash - totalStartingCash)) * 100) / 100
       : null;
 
-  const discrepancySources: Array<{ pair: string; delta: number; exceeds: boolean }> = [];
+  // ── Step 3: Build discrepancySources — aggregate pairs first, then per-register detail ──
+  // Per-register entries use the same structure with an added `register` field so callers
+  // that only understand the base shape degrade gracefully.
+  const discrepancySources: Array<{ pair: string; delta: number; exceeds: boolean; register?: string }> = [];
   if (shopifyVsCountDelta != null && Math.abs(shopifyVsCountDelta) > 0.005) {
     discrepancySources.push({ pair: "shopify_vs_count", delta: shopifyVsCountDelta, exceeds: Math.abs(shopifyVsCountDelta) > threshold });
   }
@@ -619,17 +660,31 @@ export async function reconcileDrawer(
   if (shopifyVsDepositDelta != null && Math.abs(shopifyVsDepositDelta) > 0.005) {
     discrepancySources.push({ pair: "shopify_vs_deposit", delta: shopifyVsDepositDelta, exceeds: Math.abs(shopifyVsDepositDelta) > threshold });
   }
+  // Per-register breakdown entries in discrepancySources (only meaningful with multiple registers)
+  if (sessionBreakdown.length > 1) {
+    for (const entry of sessionBreakdown) {
+      if (entry.shopifyVsCountDelta != null && Math.abs(entry.shopifyVsCountDelta) > 0.005) {
+        discrepancySources.push({
+          pair: "shopify_vs_count",
+          delta: entry.shopifyVsCountDelta,
+          exceeds: entry.exceeds,
+          register: entry.registerName,
+        });
+      }
+    }
+  }
 
   const hasDiscrepancy = discrepancySources.some(s => s.exceeds);
   const reconStatus = hasDiscrepancy ? "discrepancy" : discrepancySources.length > 0 ? "within_tolerance" : "matched";
 
   await db.update(cashDeposits).set({
     shopifyExpectedCash: shopifyExpectedCash?.toFixed(2) ?? null,
-    physicalCountCash: physicalCountCash?.toFixed(2) ?? null,
+    physicalCountCash: physicalCountCash.toFixed(2),
     shopifyVsCountDelta: shopifyVsCountDelta?.toFixed(2) ?? null,
     countVsDepositDelta: countVsDepositDelta?.toFixed(2) ?? null,
     shopifyVsDepositDelta: shopifyVsDepositDelta?.toFixed(2) ?? null,
     reconciliationStatus: reconStatus,
+    sessionBreakdown,
   }).where(eq(cashDeposits.id, depositId));
 
   if (hasDiscrepancy && session) {
@@ -726,5 +781,6 @@ export async function reconcileDrawer(
     threshold,
     hasDiscrepancy,
     discrepancySources,
+    sessionBreakdown,
   };
 }

@@ -455,6 +455,11 @@ export async function runSchemaMigrations(): Promise<void> {
       table: "offsite_sessions",
       sql: `ALTER TABLE offsite_sessions ADD COLUMN IF NOT EXISTS review_status varchar`,
     },
+    // Task #593 — per-register session breakdown stored on the deposit
+    {
+      table: "cash_deposits",
+      sql: `ALTER TABLE cash_deposits ADD COLUMN IF NOT EXISTS session_breakdown jsonb`,
+    },
   ];
 
   let altered = 0;

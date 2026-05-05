@@ -847,6 +847,7 @@ export const cashDeposits = pgTable("cash_deposits", {
   countVsDepositDelta: decimal("count_vs_deposit_delta", { precision: 10, scale: 2 }),
   shopifyVsDepositDelta: decimal("shopify_vs_deposit_delta", { precision: 10, scale: 2 }),
   reconciliationStatus: text("reconciliation_status"),
+  sessionBreakdown: jsonb("session_breakdown"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 }, (table) => [
   index("idx_cash_deposits_store_date").on(table.storeId, table.depositDate),

@@ -52,6 +52,14 @@ function compressImage(file: File, maxSizeKB: number = 512): Promise<string> {
   });
 }
 
+interface SessionBreakdownEntry {
+  registerName: string;
+  shopifyExpected: number | null;
+  physicalCount: number | null;
+  shopifyVsCountDelta: number | null;
+  exceeds: boolean;
+}
+
 interface ReconciliationData {
   shopifyExpectedCash: number | null;
   physicalCountCash: number | null;
@@ -61,6 +69,7 @@ interface ReconciliationData {
   shopifyVsDepositDelta: number | null;
   threshold: number;
   hasDiscrepancy: boolean;
+  sessionBreakdown?: SessionBreakdownEntry[];
 }
 
 function fmt(n: number | null | undefined): string {
@@ -98,9 +107,12 @@ function DeltaBadge({ delta, threshold, label }: { delta: number | null; thresho
 }
 
 function ReconciliationPanel({ recon }: { recon: ReconciliationData }) {
+  const [breakdownOpen, setBreakdownOpen] = useState(false);
   const hasSlip = recon.depositSlipAmount != null;
   const colCount = hasSlip ? 3 : 2;
   const deltaCount = hasSlip ? 3 : 1;
+  const breakdown = recon.sessionBreakdown ?? [];
+  const showBreakdown = breakdown.length > 1;
 
   return (
     <Card className={cn(
@@ -172,6 +184,63 @@ function ReconciliationPanel({ recon }: { recon: ReconciliationData }) {
           )}
         </div>
 
+        {showBreakdown && (
+          <div className="border-t pt-2">
+            <button
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors w-full"
+              onClick={() => setBreakdownOpen(o => !o)}
+            >
+              <i className={`fas fa-chevron-${breakdownOpen ? "up" : "down"} text-[10px]`} />
+              <i className="fas fa-cash-register text-[10px]" />
+              Per-Register Breakdown
+              <span className="ml-auto text-[10px]">{breakdown.length} registers</span>
+            </button>
+            {breakdownOpen && (
+              <div className="mt-2 space-y-1.5">
+                {breakdown.map((entry) => {
+                  const abs = entry.shopifyVsCountDelta != null ? Math.abs(entry.shopifyVsCountDelta) : null;
+                  const isExact = abs != null && abs < 0.01;
+                  const deltaColor = isExact
+                    ? "text-green-600 dark:text-green-400"
+                    : entry.exceeds
+                    ? "text-red-600 dark:text-red-400"
+                    : "text-amber-600 dark:text-amber-400";
+                  const deltaText = entry.shopifyVsCountDelta == null
+                    ? "—"
+                    : isExact
+                    ? "Match"
+                    : entry.shopifyVsCountDelta > 0
+                    ? `+$${abs!.toFixed(2)}`
+                    : `-$${abs!.toFixed(2)}`;
+                  return (
+                    <div key={entry.registerName} className="flex items-center justify-between text-[11px] px-2 py-1.5 rounded bg-muted/30 border">
+                      <div className="flex items-center gap-1.5">
+                        <i className="fas fa-cash-register text-muted-foreground text-[10px]" />
+                        <span className="font-medium">{entry.registerName}</span>
+                      </div>
+                      <div className="flex items-center gap-3 text-right">
+                        {entry.shopifyExpected != null && (
+                          <span className="text-muted-foreground">
+                            <span className="text-[10px]">Shopify </span>
+                            <span className="font-medium text-foreground">${entry.shopifyExpected.toFixed(2)}</span>
+                          </span>
+                        )}
+                        {entry.physicalCount != null && (
+                          <span className="text-muted-foreground">
+                            <span className="text-[10px]">Physical </span>
+                            <span className="font-medium text-foreground">${entry.physicalCount.toFixed(2)}</span>
+                          </span>
+                        )}
+                        <span className={cn("font-semibold", deltaColor)}>{deltaText}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
         {recon.hasDiscrepancy && (
           <p className="text-xs text-red-600 dark:text-red-400 text-center">
             <i className="fas fa-bell mr-1" />
@@ -209,6 +278,12 @@ export default function DepositFlow({ sessions, sessionId, onComplete, onCancel 
     return sum + Math.max(0, counted - starting);
   }, 0);
 
+  // For multi-register deposits (no specific sessionId), anchor to the first counted session
+  // so the reconcile endpoint can look up all sessions for that date.
+  const anchorSessionId: string | null =
+    sessionId ??
+    (relevantSessions.find((s: any) => s.totalCashCounted != null)?.id ?? null);
+
   const skipPhotoAndReconcile = async () => {
     setStep("analyzing");
     try {
@@ -216,14 +291,14 @@ export default function DepositFlow({ sessions, sessionId, onComplete, onCancel 
       if (!id) {
         const createRes = await apiRequest("POST", "/api/cash/deposits", {
           expectedAmount: expectedAmount.toFixed(2),
-          ...(sessionId ? { drawerSessionId: sessionId } : {}),
+          ...(anchorSessionId ? { drawerSessionId: anchorSessionId } : {}),
         });
         const deposit = await createRes.json();
         id = deposit.id;
         setDepositId(id);
       }
 
-      if (id && sessionId) {
+      if (id && anchorSessionId) {
         try {
           const reconRes = await apiRequest("POST", `/api/cash/deposits/${id}/reconcile`);
           const reconData = await reconRes.json();
@@ -281,7 +356,7 @@ export default function DepositFlow({ sessions, sessionId, onComplete, onCancel 
         const createRes = await apiRequest("POST", "/api/cash/deposits", {
           expectedAmount: expectedAmount.toFixed(2),
           depositSlipPhoto: photo,
-          ...(sessionId ? { drawerSessionId: sessionId } : {}),
+          ...(anchorSessionId ? { drawerSessionId: anchorSessionId } : {}),
         });
         const deposit = await createRes.json();
         id = deposit.id;
@@ -349,7 +424,7 @@ export default function DepositFlow({ sessions, sessionId, onComplete, onCancel 
         const createRes = await apiRequest("POST", "/api/cash/deposits", {
           expectedAmount: expectedAmount.toFixed(2),
           actualAmount: parseFloat(actualAmount).toFixed(2),
-          ...(sessionId ? { drawerSessionId: sessionId } : {}),
+          ...(anchorSessionId ? { drawerSessionId: anchorSessionId } : {}),
         });
         const deposit = await createRes.json();
         id = deposit.id;

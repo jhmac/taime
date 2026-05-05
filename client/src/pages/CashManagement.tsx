@@ -749,6 +749,37 @@ function ReconciliationRow({ dep, threshold }: { dep: any; threshold: number }) 
             {deltaChip(cvdd, "vs Deposit")}
             {dep.shopifyVsDepositDelta != null && deltaChip(parseFloat(dep.shopifyVsDepositDelta), "Shopify vs Slip")}
           </div>
+          {Array.isArray(dep.sessionBreakdown) && dep.sessionBreakdown.length > 1 && (
+            <div className="pt-1 border-t space-y-1">
+              <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Per-Register Breakdown</p>
+              {(dep.sessionBreakdown as Array<{ registerName: string; shopifyExpected: number | null; physicalCount: number | null; shopifyVsCountDelta: number | null; exceeds: boolean }>).map((entry) => {
+                const abs = entry.shopifyVsCountDelta != null ? Math.abs(entry.shopifyVsCountDelta) : null;
+                const isExact = abs != null && abs < 0.01;
+                const cls = isExact
+                  ? "text-green-700 dark:text-green-300"
+                  : entry.exceeds
+                  ? "text-red-700 dark:text-red-300"
+                  : "text-amber-700 dark:text-amber-300";
+                const deltaText = entry.shopifyVsCountDelta == null
+                  ? "—"
+                  : isExact
+                  ? "✓"
+                  : entry.shopifyVsCountDelta > 0
+                  ? `+$${abs!.toFixed(2)}`
+                  : `-$${abs!.toFixed(2)}`;
+                return (
+                  <div key={entry.registerName} className="flex items-center justify-between text-[10px] px-1.5 py-1 rounded bg-muted/30">
+                    <span className="font-medium text-foreground">{entry.registerName}</span>
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      {entry.shopifyExpected != null && <span>Shopify <span className="text-foreground font-medium">${entry.shopifyExpected.toFixed(2)}</span></span>}
+                      {entry.physicalCount != null && <span>Physical <span className="text-foreground font-medium">${entry.physicalCount.toFixed(2)}</span></span>}
+                      <span className={cn("font-semibold", cls)}>{deltaText}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
     </div>
