@@ -1,26 +1,11 @@
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { useEffect, useRef } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest } from "@/lib/queryClient";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import ErrorWithRetry from "@/components/ErrorWithRetry";
-import { useOnlineRetry } from "@/hooks/useOnlineRetry";
-import {
-  Sparkles,
-  RefreshCw,
-  ClipboardList,
-  AlertCircle,
-  ListChecks,
-  Zap,
-  Video,
-  Star,
-  Clock,
-  ArrowRight,
-} from "lucide-react";
+import { Sparkles, ChevronDown, CheckCircle2, Circle } from "lucide-react";
+import type { Task } from "@shared/schema";
 
 interface TaskSuggestion {
   priority: number;
@@ -32,102 +17,189 @@ interface TaskSuggestion {
   urgency: "overdue" | "due_now" | "upcoming" | "proactive";
 }
 
-interface SuggestionsResponse {
-  suggestions: TaskSuggestion[];
-  context_note: string;
+const urgencyBadge: Record<string, { label: string; className: string }> = {
+  overdue: { label: "Overdue", className: "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400" },
+  due_now: { label: "Now", className: "bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400" },
+  upcoming: { label: "Soon", className: "bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400" },
+  proactive: { label: "Soon", className: "bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400" },
+};
+
+function getTimeLabel(task: Task): string | null {
+  if (task.timeOfDay) {
+    const map: Record<string, string> = {
+      morning: "9 AM",
+      afternoon: "1 PM",
+      evening: "5 PM",
+      closing: "8 PM",
+      opening: "8 AM",
+    };
+    return map[task.timeOfDay] ?? task.timeOfDay;
+  }
+  if (task.dueDate) {
+    const d = new Date(task.dueDate);
+    const now = new Date();
+    const diffMs = d.getTime() - now.getTime();
+    if (Math.abs(diffMs) < 30 * 60 * 1000) return "Now";
+    return d.toLocaleTimeString("en-US", { hour: "numeric", hour12: true });
+  }
+  return null;
 }
 
-const typeIcons: Record<string, typeof ClipboardList> = {
-  task: ClipboardList,
-  sop: ListChecks,
-  issue: AlertCircle,
-  gtd_action: Zap,
-  improvement: Video,
-  custom: Star,
-};
+function TaskRow({
+  task,
+  onToggle,
+  isPending,
+}: {
+  task: Task;
+  onToggle: (id: string, status: string) => void;
+  isPending: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const isCompleted = task.status === "completed";
+  const hasDescription = !!(task.description?.trim());
+  const timeLabel = getTimeLabel(task);
+  const isNow = timeLabel === "Now";
 
-const urgencyConfig = {
-  overdue: {
-    label: "Overdue",
-    badgeClass: "bg-red-500 text-white border-0",
-    cardClass: "bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800/50 hover:bg-red-100 dark:hover:bg-red-950/50",
-    iconBg: "bg-red-500",
-    pulse: true,
-  },
-  due_now: {
-    label: "Now",
-    badgeClass: "bg-amber-500 text-white border-0",
-    cardClass: "bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 hover:bg-amber-100 dark:hover:bg-amber-950/50",
-    iconBg: "bg-amber-500",
-    pulse: false,
-  },
-  upcoming: {
-    label: "Soon",
-    badgeClass: "bg-blue-500 text-white border-0",
-    cardClass: "bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800/50 hover:bg-blue-100 dark:hover:bg-blue-950/50",
-    iconBg: "bg-blue-500",
-    pulse: false,
-  },
-  proactive: {
-    label: "Proactive",
-    badgeClass: "bg-green-500 text-white border-0",
-    cardClass: "bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800/50 hover:bg-green-100 dark:hover:bg-green-950/50",
-    iconBg: "bg-green-500",
-    pulse: false,
-  },
-};
+  return (
+    <div className="border-t border-border/40 first:border-t-0">
+      <div className="flex items-center gap-3 px-4 py-3.5">
+        {/* Checkbox — clicking it toggles completion */}
+        <button
+          onClick={() => onToggle(task.id, isCompleted ? "pending" : "completed")}
+          disabled={isPending}
+          className="flex-shrink-0 active:scale-90 transition-transform"
+          aria-label={isCompleted ? "Mark incomplete" : "Mark complete"}
+        >
+          {isCompleted ? (
+            <CheckCircle2 className="h-[22px] w-[22px] text-green-500" />
+          ) : (
+            <Circle className="h-[22px] w-[22px] text-muted-foreground/40" />
+          )}
+        </button>
+
+        {/* Title — also tappable to complete */}
+        <button
+          className="flex-1 text-left"
+          onClick={() => onToggle(task.id, isCompleted ? "pending" : "completed")}
+          disabled={isPending}
+        >
+          <span
+            className={`text-[15px] font-semibold leading-snug ${
+              isCompleted
+                ? "line-through text-muted-foreground"
+                : "text-foreground"
+            }`}
+          >
+            {task.title}
+          </span>
+        </button>
+
+        {/* Right: time badge + optional expand arrow */}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {timeLabel && (
+            <span
+              className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                isNow
+                  ? "bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400"
+                  : "text-muted-foreground"
+              }`}
+            >
+              {timeLabel}
+            </span>
+          )}
+          {hasDescription && (
+            <button
+              onClick={() => setExpanded((v) => !v)}
+              className="text-muted-foreground active:scale-90 transition-transform"
+              aria-label={expanded ? "Collapse notes" : "Expand notes"}
+            >
+              <ChevronDown
+                className={`h-4 w-4 transition-transform duration-200 ${
+                  expanded ? "rotate-180" : ""
+                }`}
+              />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Expanded description */}
+      {hasDescription && expanded && (
+        <div className="px-4 pb-4 -mt-1">
+          <div className="ml-[34px] bg-muted/60 rounded-xl p-3">
+            <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap">
+              {task.description}
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SuggestionRow({ suggestion, onTap }: { suggestion: TaskSuggestion; onTap: () => void }) {
+  const badge = urgencyBadge[suggestion.urgency] ?? urgencyBadge.upcoming;
+  return (
+    <div className="border-t border-border/40">
+      <button className="w-full flex items-center gap-3 px-4 py-3.5 text-left active:bg-muted/40 transition-colors" onClick={onTap}>
+        <Circle className="h-[22px] w-[22px] text-muted-foreground/40 flex-shrink-0" />
+        <div className="flex-1 min-w-0">
+          <p className="text-[15px] font-semibold leading-snug text-foreground truncate">{suggestion.title}</p>
+          <p className="text-xs text-muted-foreground mt-0.5 truncate">{suggestion.reason}</p>
+        </div>
+        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${badge.className}`}>
+          {badge.label}
+        </span>
+      </button>
+    </div>
+  );
+}
 
 export default function SmartSuggestionsCard() {
+  const { user } = useAuth();
   const [, navigate] = useLocation();
   const queryClient = useQueryClient();
-  const { user } = useAuth();
   const roleName = user?.role?.name;
-  const isAdminOrOwner = roleName === 'admin' || roleName === 'owner';
-  const refreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isAdminOrOwner = roleName === "admin" || roleName === "owner";
 
-  const { data, isLoading, isError, refetch } = useQuery<{ success: boolean; data: SuggestionsResponse }>({
+  const { data: allTasks = [], isLoading: tasksLoading } = useQuery<Task[]>({
+    queryKey: ["/api/tasks"],
+    staleTime: 30_000,
+  });
+
+  const { data: suggestionsRes, isLoading: suggestionsLoading } = useQuery<{
+    success: boolean;
+    data: { suggestions: TaskSuggestion[]; context_note: string };
+  }>({
     queryKey: ["/api/ai/suggestions"],
     staleTime: 15 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
 
-  const refreshMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/ai/suggestions/refresh"),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/ai/suggestions"] });
-    },
+  const toggleMutation = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: string }) =>
+      apiRequest("PATCH", `/api/tasks/${id}`, { status }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/tasks"] }),
   });
 
-  useEffect(() => {
-    refreshTimerRef.current = setInterval(() => {
-      queryClient.invalidateQueries({ queryKey: ["/api/ai/suggestions"] });
-    }, 30 * 60 * 1000);
+  const myTasks = allTasks.filter(
+    (t) => t.assignedTo === user?.id && t.status !== "completed"
+  );
 
-    return () => {
-      if (refreshTimerRef.current) clearInterval(refreshTimerRef.current);
-    };
-  }, [queryClient]);
+  const suggestions = (suggestionsRes?.data?.suggestions ?? []).filter(
+    (s) => s.type !== "task"
+  );
 
-  useOnlineRetry(refetch, isError);
+  const isLoading = tasksLoading || suggestionsLoading;
+  const hasContent = myTasks.length > 0 || suggestions.length > 0;
 
-  function handleTap(suggestion: TaskSuggestion) {
-    switch (suggestion.type) {
-      case "task":
-        navigate(isAdminOrOwner ? "/operations" : "/tasks");
-        break;
+  function handleSuggestionTap(s: TaskSuggestion) {
+    switch (s.type) {
       case "sop":
-        if (suggestion.entity_id) {
-          navigate(`/sops/execute/${suggestion.entity_id}`);
-        } else {
-          navigate("/sops");
-        }
+        navigate(s.entity_id ? `/sops/execute/${s.entity_id}` : "/sops");
         break;
       case "issue":
-        if (suggestion.entity_id) {
-          navigate(`/issues/${suggestion.entity_id}`);
-        } else {
-          navigate("/issues");
-        }
+        navigate(s.entity_id ? `/issues/${s.entity_id}` : "/issues");
         break;
       case "gtd_action":
         navigate("/gtd/actions");
@@ -136,116 +208,62 @@ export default function SmartSuggestionsCard() {
         navigate("/improvements");
         break;
       case "custom":
-        if (suggestion.entity_id === "brain_boost") {
+        if (s.entity_id === "brain_boost") {
           window.dispatchEvent(new CustomEvent("open-brain-boost"));
-        } else if (suggestion.entity_id === "daily_training") {
+        } else if (s.entity_id === "daily_training") {
           navigate("/sops/training");
         }
         break;
       default:
-        break;
+        navigate(isAdminOrOwner ? "/operations" : "/tasks");
     }
   }
 
-  const suggestions = data?.data?.suggestions || [];
-  const contextNote = data?.data?.context_note || "What to Focus On";
-
-  if (isLoading) {
-    return (
-      <Card>
-        <CardHeader className="pb-2 px-4 pt-4">
-          <Skeleton className="h-5 w-48" />
-        </CardHeader>
-        <CardContent className="px-4 pb-4 pt-0 space-y-3">
-          {[1, 2, 3].map(i => (
-            <Skeleton key={i} className="h-16 w-full rounded-2xl" />
-          ))}
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (isError) {
-    return (
-      <Card>
-        <CardContent className="px-4 py-4">
-          <ErrorWithRetry onRetry={() => refetch()} message="Could not load suggestions" />
-        </CardContent>
-      </Card>
-    );
-  }
-
   return (
-    <Card className="overflow-hidden">
-      <CardHeader className="pb-2 px-4 pt-4">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-bold flex items-center gap-1.5">
-            <Sparkles className="h-4 w-4 text-purple-500" />
-            {contextNote}
-          </CardTitle>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 w-7 p-0"
-            onClick={() => refreshMutation.mutate()}
-            disabled={refreshMutation.isPending}
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${refreshMutation.isPending ? "animate-spin" : ""}`} />
-          </Button>
+    <div className="bg-card dark:bg-card rounded-2xl border border-border overflow-hidden shadow-sm">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 pt-4 pb-3">
+        <div className="flex items-center gap-1.5">
+          <Sparkles className="h-4 w-4 text-purple-500" />
+          <span className="text-sm font-bold text-foreground">
+            Here's what to focus on right now.
+          </span>
         </div>
-      </CardHeader>
-      <CardContent className="px-4 pb-4 pt-0">
-        {suggestions.length === 0 ? (
-          <div className="text-center py-6 text-muted-foreground text-sm">
-            <Sparkles className="h-8 w-8 mx-auto mb-2 text-green-500" />
-            <p className="font-medium text-foreground">All caught up!</p>
-            <p>No urgent items right now.</p>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {suggestions.map((suggestion, idx) => {
-              const Icon = typeIcons[suggestion.type] || Star;
-              const urgency = urgencyConfig[suggestion.urgency] || urgencyConfig.upcoming;
+        <button
+          onClick={() => navigate("/tasks")}
+          className="text-xs font-bold text-primary"
+        >
+          See all
+        </button>
+      </div>
 
-              return (
-                <button
-                  key={idx}
-                  onClick={() => handleTap(suggestion)}
-                  className={`w-full text-left rounded-2xl p-3.5 transition-all active:scale-[0.98] ${urgency.cardClass} ${
-                    urgency.pulse ? "animate-pulse-subtle" : ""
-                  }`}
-                >
-                  <div className="flex items-start gap-3">
-                    <div className={`w-9 h-9 rounded-xl ${urgency.iconBg} flex items-center justify-center shrink-0`}>
-                      <Icon className="h-4 w-4 text-white" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold truncate">{suggestion.title}</span>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">
-                        {suggestion.reason}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      {suggestion.time_estimate_minutes && (
-                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-5 font-normal">
-                          <Clock className="h-2.5 w-2.5 mr-0.5" />
-                          {suggestion.time_estimate_minutes}m
-                        </Badge>
-                      )}
-                      <Badge className={`text-[10px] px-1.5 py-0 h-5 font-medium ${urgency.badgeClass}`}>
-                        {urgency.label}
-                      </Badge>
-                      <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+      {isLoading ? (
+        <div className="px-4 pb-4 space-y-2">
+          {[1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-14 w-full rounded-xl" />
+          ))}
+        </div>
+      ) : !hasContent ? (
+        <div className="px-4 pb-6 text-center">
+          <CheckCircle2 className="h-8 w-8 mx-auto mb-2 text-green-500" />
+          <p className="font-medium text-foreground text-sm">All caught up!</p>
+          <p className="text-xs text-muted-foreground">No urgent items right now.</p>
+        </div>
+      ) : (
+        <div className="pb-2">
+          {myTasks.map((task) => (
+            <TaskRow
+              key={task.id}
+              task={task}
+              onToggle={(id, status) => toggleMutation.mutate({ id, status })}
+              isPending={toggleMutation.isPending}
+            />
+          ))}
+          {suggestions.map((s, i) => (
+            <SuggestionRow key={i} suggestion={s} onTap={() => handleSuggestionTap(s)} />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
