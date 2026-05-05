@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useLocation } from 'wouter';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
@@ -92,6 +92,22 @@ function BrainBoostCard() {
     staleTime: 120_000,
     enabled: open,
   });
+
+  const quizDataRef = useRef(quizData);
+  useEffect(() => { quizDataRef.current = quizData; });
+
+  useEffect(() => {
+    const listener = () => {
+      const currentQuiz = quizDataRef.current?.data;
+      setOpen(true);
+      setQIndex(currentQuiz?.answeredCount ?? 0);
+      setSelected(null);
+      setAnswerResult(null);
+      setSessionDone(currentQuiz?.completed ?? false);
+    };
+    window.addEventListener("open-brain-boost", listener);
+    return () => window.removeEventListener("open-brain-boost", listener);
+  }, []);
 
   const answerMutation = useMutation<QuizAnswerResponse, Error, { sessionId: string; questionId: string; selectedIndex: number }>({
     mutationFn: async ({ sessionId, questionId, selectedIndex }) => {
@@ -442,14 +458,12 @@ function ScenarioCard() {
   );
 }
 
-const TASK_COLORS = ['#F47D31', '#4ECDC4', '#9B59B6', '#F9C846', '#6BCB77', '#FF6B6B'];
 
 export default function AssociateDashboard() {
   const { user } = useAuth() as { user: UserWithRole | undefined; isLoading: boolean; isAuthenticated: boolean; error: any };
   const isMobile = useIsMobile();
   const [, navigate] = useLocation();
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [tasksExpanded, setTasksExpanded] = useState(false);
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -549,11 +563,6 @@ export default function AssociateDashboard() {
     t.assignedTo === user?.id && t.status !== 'completed'
   );
 
-  const DOW_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-  const todayDOW = DOW_NAMES[new Date().getDay()];
-  const teamChoresToday = tasks.filter(t =>
-    (t as any).isRecurring && (t as any).dayOfWeek === todayDOW && t.status !== 'completed'
-  );
 
   const toggleTaskMutation = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: string }) =>
@@ -578,7 +587,13 @@ export default function AssociateDashboard() {
   const showPaySummary = companySettings?.showPaySummaryToEmployees ?? false;
 
   const pendingTasks = myTasksToday.filter(t => t.status !== 'completed');
-  const completedTasks = myTasksToday.filter(t => t.status === 'completed');
+  // Completed tasks: assigned to this user, completed today (completedAt falls within today's window)
+  const completedTasks = tasks.filter(t => {
+    if (t.assignedTo !== user?.id || t.status !== 'completed') return false;
+    if (!t.completedAt) return false;
+    const c = new Date(t.completedAt);
+    return c >= today && c <= todayEnd;
+  });
   // Unassigned tasks — visible to all clocked-in employees so they can pick them up
   const unassignedTasks = tasks.filter(t => !t.assignedTo && t.status !== 'completed');
 
@@ -615,6 +630,10 @@ export default function AssociateDashboard() {
           </DashboardErrorBoundary>
 
           <DashboardErrorBoundary fallback=""><DailyQuoteCard /></DashboardErrorBoundary>
+
+          <DashboardErrorBoundary fallback="">
+            <SmartSuggestionsCard />
+          </DashboardErrorBoundary>
 
           {/* Stat chips — 3 column */}
           <div className="grid grid-cols-3 gap-3">
@@ -654,104 +673,6 @@ export default function AssociateDashboard() {
             />
           </div>
 
-          {/* Today's Team Chores */}
-          {teamChoresToday.length > 0 && (
-            <DashboardErrorBoundary fallback="">
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <h2 className="text-lg font-extrabold text-foreground">Today's Chores</h2>
-                  <button onClick={() => navigate('/tasks')} className="text-sm font-bold text-primary">
-                    View all
-                  </button>
-                </div>
-                <div className="rounded-3xl overflow-hidden bg-card border border-border">
-                  {teamChoresToday.slice(0, 5).map((task, i) => (
-                    <div
-                      key={task.id}
-                      className="flex items-center gap-3.5 px-4 py-3 min-h-[52px]"
-                      style={{ borderBottom: i < Math.min(teamChoresToday.length, 5) - 1 ? '1px solid hsl(var(--border))' : 'none' }}
-                    >
-                      <div className="w-2 h-2 rounded-full bg-primary/60 flex-shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[14px] font-semibold text-foreground leading-snug truncate">{task.title}</p>
-                        {(task as any).timeOfDay && (
-                          <p className="text-xs text-muted-foreground capitalize">{(task as any).timeOfDay}</p>
-                        )}
-                      </div>
-                      {(task as any).assignedTo ? (
-                        <span className="text-xs text-muted-foreground font-medium shrink-0">Assigned</span>
-                      ) : (
-                        <span className="text-xs text-orange-500 font-semibold shrink-0">Open</span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-                {teamChoresToday.length > 5 && (
-                  <button onClick={() => navigate('/tasks')} className="w-full text-center text-sm font-bold text-primary mt-3 py-1">
-                    +{teamChoresToday.length - 5} more chores today
-                  </button>
-                )}
-              </div>
-            </DashboardErrorBoundary>
-          )}
-
-          {/* Task preview */}
-          {myTasksToday.length > 0 && (
-            <DashboardErrorBoundary fallback="">
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <h2 className="text-lg font-extrabold text-foreground">Your Tasks</h2>
-                  {pendingTasks.length > 0 && (
-                    <span className="w-6 h-6 rounded-full text-white text-xs font-extrabold flex items-center justify-center bg-primary">
-                      {pendingTasks.length}
-                    </span>
-                  )}
-                </div>
-                {(() => {
-                  const visibleTasks = myTasksToday.slice(0, tasksExpanded ? myTasksToday.length : 5);
-                  return (
-                    <>
-                      <div className="rounded-3xl overflow-hidden bg-card border border-border">
-                        {visibleTasks.map((task, i) => (
-                          <button
-                            key={task.id}
-                            onClick={() => toggleTaskMutation.mutate({ id: task.id, status: task.status === 'completed' ? 'pending' : 'completed' })}
-                            className="w-full flex items-center gap-3.5 px-4 py-4 text-left hover:bg-muted/40 transition-colors min-h-[56px]"
-                            style={{ borderBottom: i < visibleTasks.length - 1 ? '1px solid hsl(var(--border))' : 'none' }}
-                          >
-                            {task.status === 'completed'
-                              ? <CheckCircle2 className="h-5 w-5 flex-shrink-0 text-green-500" />
-                              : <Circle className="h-5 w-5 flex-shrink-0 text-muted-foreground/30" />
-                            }
-                            <div className="flex-1 min-w-0">
-                              <p className={`text-[15px] font-bold leading-snug ${task.status === 'completed' ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
-                                {task.title}
-                              </p>
-                              {task.dueDate && (
-                                <p className="text-xs text-muted-foreground mt-0.5 font-medium">
-                                  Due {new Date(task.dueDate).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                                </p>
-                              )}
-                            </div>
-                            <ChevronRight className="h-4 w-4 text-muted-foreground/30 flex-shrink-0" />
-                          </button>
-                        ))}
-                      </div>
-                      {myTasksToday.length > 5 && (
-                        <button
-                          onClick={() => setTasksExpanded(e => !e)}
-                          className="w-full text-center text-sm font-bold text-primary mt-3 py-1"
-                        >
-                          {tasksExpanded ? 'Show less ↑' : `Show all ${myTasksToday.length} tasks ↓`}
-                        </button>
-                      )}
-                    </>
-                  );
-                })()}
-              </div>
-            </DashboardErrorBoundary>
-          )}
-
           <DashboardErrorBoundary fallback=""><DailyQuestionnaireCard /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><BrainBoostCard /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><ScenarioCard /></DashboardErrorBoundary>
@@ -759,9 +680,6 @@ export default function AssociateDashboard() {
           <DashboardErrorBoundary fallback=""><SurfacedSOPBanner /></DashboardErrorBoundary>
           <QuickActions navigate={navigate} />
           <DashboardErrorBoundary fallback=""><TrainingProgressCard /></DashboardErrorBoundary>
-          <DashboardErrorBoundary fallback="">
-            <SmartSuggestionsCard />
-          </DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><LeanBoardCard /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><ImprovementFeedWidget /></DashboardErrorBoundary>
           {showPaySummary && (
@@ -775,114 +693,6 @@ export default function AssociateDashboard() {
       {isClockedIn && (
         <div className={wrapper}>
 
-          {/* Tasks — HERO */}
-          <DashboardErrorBoundary fallback="Tasks failed to load">
-            {tasksLoading ? (
-              <div className="space-y-3">
-                {[1, 2, 3].map(i => <Skeleton key={i} className="h-20 w-full rounded-3xl" />)}
-              </div>
-            ) : (
-              <div>
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-2.5">
-                    {/* 20px section heading — clear hierarchy on mobile */}
-                    <h2 className="text-xl font-extrabold text-foreground">Your Tasks</h2>
-                    {pendingTasks.length > 0 && (
-                      <span className="w-6 h-6 rounded-full text-white text-xs font-extrabold flex items-center justify-center bg-primary">
-                        {pendingTasks.length}
-                      </span>
-                    )}
-                  </div>
-                  <button onClick={() => navigate('/tasks')} className="text-sm font-bold text-primary flex items-center gap-0.5 py-1 px-2">
-                    See all <ChevronRight className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-
-                {myTasksToday.length === 0 ? (
-                  <div className="rounded-3xl p-8 text-center bg-card border border-border">
-                    <p className="text-3xl mb-2">🎉</p>
-                    <p className="text-lg font-bold text-foreground">All clear!</p>
-                    <p className="text-sm text-muted-foreground mt-1">No tasks assigned to you yet.</p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {/* Pending — numbered hero cards (top 5 by default, expandable) */}
-                    {pendingTasks.slice(0, tasksExpanded ? pendingTasks.length : 5).map((task, i) => (
-                      <button
-                        key={task.id}
-                        onClick={() => toggleTaskMutation.mutate({ id: task.id, status: 'completed' })}
-                        disabled={toggleTaskMutation.isPending}
-                        className="w-full rounded-3xl px-4 py-4 flex items-center gap-4 text-left transition-transform active:scale-[0.98] bg-card border min-h-[72px]"
-                        style={{
-                          borderColor: `${TASK_COLORS[i % TASK_COLORS.length]}30`,
-                          boxShadow: `0 2px 12px ${TASK_COLORS[i % TASK_COLORS.length]}12`,
-                        }}
-                      >
-                        {/* Number badge — 18px, well-sized for finger tap */}
-                        <div
-                          className="w-11 h-11 rounded-2xl flex items-center justify-center font-extrabold text-white text-lg flex-shrink-0"
-                          style={{ backgroundColor: TASK_COLORS[i % TASK_COLORS.length] }}
-                        >
-                          {i + 1}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          {/* 16px body — the minimum for comfortable mobile reading */}
-                          <p className="text-base font-extrabold leading-snug text-foreground">{task.title}</p>
-                          {task.dueDate && (
-                            // 13px for supplementary metadata — acceptable below body min
-                            <p className="text-[13px] font-semibold text-muted-foreground mt-1">
-                              Due {new Date(task.dueDate).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                            </p>
-                          )}
-                        </div>
-                        {task.dueDate && (
-                          <span
-                            className="text-xs font-extrabold px-2.5 py-1 rounded-xl flex-shrink-0"
-                            style={{
-                              backgroundColor: `${TASK_COLORS[i % TASK_COLORS.length]}18`,
-                              color: TASK_COLORS[i % TASK_COLORS.length],
-                            }}
-                          >
-                            {new Date(task.dueDate).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                          </span>
-                        )}
-                      </button>
-                    ))}
-
-                    {/* Expand/collapse pending tasks */}
-                    {pendingTasks.length > 5 && (
-                      <button
-                        onClick={() => setTasksExpanded(e => !e)}
-                        className="w-full text-center text-sm font-bold text-primary py-1"
-                      >
-                        {tasksExpanded ? 'Show less ↑' : `Show all ${pendingTasks.length} tasks ↓`}
-                      </button>
-                    )}
-
-                    {/* Completed — compact rows */}
-                    {completedTasks.map(task => (
-                      <button
-                        key={task.id}
-                        onClick={() => toggleTaskMutation.mutate({ id: task.id, status: 'pending' })}
-                        disabled={toggleTaskMutation.isPending}
-                        className="w-full flex items-center gap-3 px-4 py-3.5 rounded-2xl text-left transition-colors hover:bg-muted/30 min-h-[52px]"
-                        style={{ backgroundColor: 'hsl(142 60% 50% / 0.06)', border: '1px solid hsl(142 60% 50% / 0.2)' }}
-                      >
-                        <CheckCircle2 className="h-5 w-5 text-green-500 flex-shrink-0" />
-                        <div className="flex-1 min-w-0">
-                          {/* 14px — secondary text, acceptable for "done" items */}
-                          <p className="text-sm font-bold line-through truncate text-muted-foreground">{task.title}</p>
-                          <p className="text-xs text-muted-foreground/60 mt-0.5">Done · tap to undo</p>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </DashboardErrorBoundary>
-
-          <DashboardErrorBoundary fallback=""><SmartSuggestionsCard /></DashboardErrorBoundary>
 
           {/* Unassigned / open tasks — visible to all clocked-in staff */}
           {unassignedTasks.length > 0 && (
@@ -922,45 +732,6 @@ export default function AssociateDashboard() {
             </DashboardErrorBoundary>
           )}
 
-          {/* Today's Team Chores (post-clock-in) */}
-          {teamChoresToday.length > 0 && (
-            <DashboardErrorBoundary fallback="">
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <h2 className="text-lg font-extrabold text-foreground">Today's Chores</h2>
-                  <button onClick={() => navigate('/tasks')} className="text-sm font-bold text-primary">View all</button>
-                </div>
-                <div className="rounded-3xl overflow-hidden bg-card border border-border">
-                  {teamChoresToday.slice(0, 5).map((task, i) => (
-                    <div
-                      key={task.id}
-                      className="flex items-center gap-3.5 px-4 py-3 min-h-[52px]"
-                      style={{ borderBottom: i < Math.min(teamChoresToday.length, 5) - 1 ? '1px solid hsl(var(--border))' : 'none' }}
-                    >
-                      <div className="w-2 h-2 rounded-full bg-primary/60 flex-shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[14px] font-semibold text-foreground leading-snug truncate">{task.title}</p>
-                        {(task as any).timeOfDay && (
-                          <p className="text-xs text-muted-foreground capitalize">{(task as any).timeOfDay}</p>
-                        )}
-                      </div>
-                      {(task as any).assignedTo ? (
-                        <span className="text-xs text-muted-foreground font-medium shrink-0">Assigned</span>
-                      ) : (
-                        <span className="text-xs text-orange-500 font-semibold shrink-0">Open</span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-                {teamChoresToday.length > 5 && (
-                  <button onClick={() => navigate('/tasks')} className="w-full text-center text-sm font-bold text-primary mt-3 py-1">
-                    +{teamChoresToday.length - 5} more chores today
-                  </button>
-                )}
-              </div>
-            </DashboardErrorBoundary>
-          )}
-
           {inProgressExecutions.length > 0 && (
             <DashboardErrorBoundary fallback="">
               <button
@@ -986,6 +757,32 @@ export default function AssociateDashboard() {
           </DashboardErrorBoundary>
 
           <DashboardErrorBoundary fallback=""><DailyQuoteCard /></DashboardErrorBoundary>
+
+          <DashboardErrorBoundary fallback="">
+            <SmartSuggestionsCard />
+          </DashboardErrorBoundary>
+
+          {/* Completed tasks — compact "Done" strip below focus card */}
+          {completedTasks.length > 0 && (
+            <DashboardErrorBoundary fallback="">
+              <div className="space-y-1.5">
+                <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground px-1">Done today</p>
+                {completedTasks.map(task => (
+                  <button
+                    key={task.id}
+                    onClick={() => toggleTaskMutation.mutate({ id: task.id, status: 'pending' })}
+                    disabled={toggleTaskMutation.isPending}
+                    className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-left transition-colors hover:bg-muted/30 min-h-[48px]"
+                    style={{ backgroundColor: 'hsl(142 60% 50% / 0.06)', border: '1px solid hsl(142 60% 50% / 0.2)' }}
+                  >
+                    <CheckCircle2 className="h-4 w-4 text-green-500 flex-shrink-0" />
+                    <p className="flex-1 text-sm font-semibold line-through truncate text-muted-foreground">{task.title}</p>
+                    <span className="text-xs text-muted-foreground/50 shrink-0">undo</span>
+                  </button>
+                ))}
+              </div>
+            </DashboardErrorBoundary>
+          )}
 
           <DashboardErrorBoundary fallback=""><DailyQuestionnaireCard /></DashboardErrorBoundary>
           <DashboardErrorBoundary fallback=""><BrainBoostCard /></DashboardErrorBoundary>

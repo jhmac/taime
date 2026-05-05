@@ -1,10 +1,11 @@
 import { anthropic, withAiContext } from "../lib/aiClients";
 import { config } from "../lib/config";
 import { db } from "../db";
-import { eq, and, gte, lte, desc, sql, ne, isNull } from "drizzle-orm";
+import { eq, and, gte, lte, desc, sql, ne, isNull, or } from "drizzle-orm";
 import {
   users, tasks, issues, timeEntries, schedules, sopExecutions,
   sopTemplates, gtdNextActions, workLocations,
+  quizSessions, employeeTrainingProgress, trainingModules,
 } from "@shared/schema";
 import { getSurfacedSOPsForEmployee } from "./sopSurfacing";
 import { cache } from "./cache";
@@ -36,6 +37,10 @@ async function gatherEmployeeContext(employeeId: string, storeId: string) {
   const threeDaysOut = new Date(now);
   threeDaysOut.setDate(threeDaysOut.getDate() + 3);
 
+  const todayDateStr = todayStart.toISOString().slice(0, 10);
+  const DOW_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+  const todayDOW = DOW_NAMES[now.getDay()];
+
   const [
     employee,
     assignedTasks,
@@ -46,6 +51,9 @@ async function gatherEmployeeContext(employeeId: string, storeId: string) {
     activeTimeEntry,
     surfacedSOPs,
     storeName,
+    todayQuizSession,
+    incompleteTrainingCount,
+    teamChores,
   ] = await Promise.all([
     db.select({
       id: users.id,
@@ -137,6 +145,41 @@ async function gatherEmployeeContext(employeeId: string, storeId: string) {
     db.select({ name: workLocations.name }).from(workLocations)
       .where(eq(workLocations.id, storeId))
       .then(r => r[0]?.name || "Store"),
+
+    db.select({ id: quizSessions.id, status: quizSessions.status })
+      .from(quizSessions)
+      .where(and(
+        eq(quizSessions.userId, employeeId),
+        eq(quizSessions.sessionDate, todayDateStr),
+      ))
+      .limit(1)
+      .then(r => r[0] || null),
+
+    // Count incomplete active training modules. The training progress model
+    // does not carry a due-date field; we surface all incomplete active
+    // modules rather than over-filtering on a non-existent column.
+    db.select({ id: employeeTrainingProgress.id, status: employeeTrainingProgress.status })
+      .from(employeeTrainingProgress)
+      .innerJoin(trainingModules, eq(employeeTrainingProgress.moduleId, trainingModules.id))
+      .where(and(
+        eq(employeeTrainingProgress.userId, employeeId),
+        eq(trainingModules.isActive, true),
+      ))
+      .then(rows => rows.filter(r => r.status !== "completed").length),
+
+    db.select({
+      id: tasks.id,
+      title: tasks.title,
+      dayOfWeek: tasks.dayOfWeek,
+      timeOfDay: tasks.timeOfDay,
+    }).from(tasks)
+      .where(and(
+        eq(tasks.locationId, storeId),
+        eq(tasks.isRecurring, true),
+        eq(tasks.dayOfWeek, todayDOW),
+        ne(tasks.status, "completed"),
+      ))
+      .limit(10),
   ]);
 
   const sopTemplateNames: Record<string, string> = {};
@@ -159,6 +202,10 @@ async function gatherEmployeeContext(employeeId: string, storeId: string) {
   const isClosingShift = mySchedule.length > 0 && todaySchedules.every(s => !s.endTime || new Date(s.endTime) <= new Date(mySchedule[0].endTime!));
   const othersOnShift = todaySchedules.filter(s => s.userId !== employeeId && s.startTime && new Date(s.startTime) <= now && s.endTime && new Date(s.endTime) >= now).length;
 
+  const brainBoostCompleted = !!todayQuizSession && todayQuizSession.status === "completed";
+  const brainBoostStarted = !!todayQuizSession && todayQuizSession.status !== "completed";
+  const hasIncompleteTraining = typeof incompleteTrainingCount === "number" ? incompleteTrainingCount > 0 : false;
+
   return {
     employee,
     storeName,
@@ -179,89 +226,149 @@ async function gatherEmployeeContext(employeeId: string, storeId: string) {
     gtdActions,
     openIssues,
     surfacedSOPs: surfacedSOPs.slice(0, 5),
+    teamChores,
+    brainBoostCompleted,
+    brainBoostStarted,
+    hasIncompleteTraining,
+    incompleteTrainingCount: typeof incompleteTrainingCount === "number" ? incompleteTrainingCount : 0,
   };
 }
 
 function buildFallbackSuggestions(ctx: Awaited<ReturnType<typeof gatherEmployeeContext>>): SuggestionsResponse {
-  const suggestions: TaskSuggestion[] = [];
-  let priority = 1;
+  // Build a scored candidate list so we can always pick the top 5
+  // without silently dropping Brain Boost or training items.
+  type Candidate = TaskSuggestion & { score: number };
+  const candidates: Candidate[] = [];
 
   for (const exec of ctx.activeExecutions) {
-    if (priority > 5) break;
-    suggestions.push({
-      priority: priority++,
+    candidates.push({
+      priority: 0,
       type: "sop",
       entity_id: exec.id,
       title: `Continue: ${exec.templateTitle}`,
       reason: "You have an SOP in progress",
       time_estimate_minutes: null,
       urgency: "due_now",
+      score: 100,
     });
   }
 
   for (const t of ctx.overdueTasks) {
-    if (priority > 5) break;
-    suggestions.push({
-      priority: priority++,
+    candidates.push({
+      priority: 0,
       type: "task",
       entity_id: t.id,
       title: t.title,
       reason: "This task is overdue",
       time_estimate_minutes: t.estimatedMinutes,
       urgency: "overdue",
+      score: 90,
     });
   }
 
   for (const t of ctx.todayTasks) {
-    if (priority > 5) break;
-    suggestions.push({
-      priority: priority++,
+    candidates.push({
+      priority: 0,
       type: "task",
       entity_id: t.id,
       title: t.title,
       reason: "Due today",
       time_estimate_minutes: t.estimatedMinutes,
       urgency: "due_now",
+      score: 80,
+    });
+  }
+
+  for (const chore of ctx.teamChores) {
+    candidates.push({
+      priority: 0,
+      type: "task",
+      entity_id: chore.id,
+      title: chore.title,
+      reason: chore.timeOfDay ? `Team chore — ${chore.timeOfDay} shift` : "Team chore for today",
+      time_estimate_minutes: null,
+      urgency: "upcoming",
+      score: 70,
+    });
+  }
+
+  if (!ctx.brainBoostCompleted) {
+    candidates.push({
+      priority: 0,
+      type: "custom" as const,
+      entity_id: "brain_boost",
+      title: ctx.brainBoostStarted ? "Finish your Brain Boost quiz" : "Tackle your Brain Boost quiz",
+      reason: ctx.brainBoostStarted ? "You have an in-progress quiz today" : "Daily quiz not yet completed",
+      time_estimate_minutes: 5,
+      urgency: "upcoming",
+      score: 65,
+    });
+  }
+
+  if (ctx.hasIncompleteTraining) {
+    candidates.push({
+      priority: 0,
+      type: "custom" as const,
+      entity_id: "daily_training",
+      title: "Finish your daily training",
+      reason: `${ctx.incompleteTrainingCount} training module${ctx.incompleteTrainingCount !== 1 ? "s" : ""} not yet completed`,
+      time_estimate_minutes: 10,
+      urgency: "upcoming",
+      score: 60,
     });
   }
 
   for (const issue of ctx.openIssues) {
-    if (priority > 5) break;
-    suggestions.push({
-      priority: priority++,
+    candidates.push({
+      priority: 0,
       type: "issue",
       entity_id: issue.id,
       title: issue.title,
       reason: `Open ${issue.priority} priority issue`,
       time_estimate_minutes: null,
       urgency: issue.priority === "urgent" || issue.priority === "high" ? "due_now" : "upcoming",
+      score: issue.priority === "urgent" ? 85 : issue.priority === "high" ? 75 : 55,
     });
   }
 
   for (const sop of ctx.surfacedSOPs) {
-    if (priority > 5) break;
-    suggestions.push({
-      priority: priority++,
+    candidates.push({
+      priority: 0,
       type: "sop",
       entity_id: (sop as any).templateId || null,
       title: (sop as any).title || "Suggested SOP",
       reason: (sop as any).reason || "Relevant to your current shift",
       time_estimate_minutes: null,
       urgency: "upcoming",
+      score: 50,
     });
   }
 
-  if (suggestions.length === 0) {
-    suggestions.push({
-      priority: 1,
+  if (candidates.length === 0) {
+    candidates.push({
+      priority: 0,
       type: "improvement",
       entity_id: null,
       title: "Record a quick improvement video",
       reason: "No urgent tasks — great time to share an idea!",
       time_estimate_minutes: 5,
       urgency: "proactive",
+      score: 10,
     });
   }
+
+  // Sort by score descending, take top 5, assign priority.
+  // Always reserve a slot for Brain Boost and training when they are pending,
+  // so they are never crowded out by other items.
+  const sorted = candidates.sort((a, b) => b.score - a.score);
+  const guaranteed = sorted.filter(c => c.entity_id === "brain_boost" || c.entity_id === "daily_training");
+  const nonGuaranteed = sorted.filter(c => c.entity_id !== "brain_boost" && c.entity_id !== "daily_training");
+  const freeSlots = Math.max(0, 5 - guaranteed.length);
+  const top5 = [...nonGuaranteed.slice(0, freeSlots), ...guaranteed].sort((a, b) => b.score - a.score);
+  const suggestions: TaskSuggestion[] = top5.map((c, i) => {
+    const { score: _score, ...fields } = c;
+    return { ...fields, priority: i + 1 };
+  });
 
   return {
     suggestions: suggestions.slice(0, 5),
@@ -307,6 +414,13 @@ ${ctx.openIssues.map(i => `- [${i.priority}] ${i.title} (${i.category})`).join("
 
 SUGGESTED SOPs FOR THIS SHIFT (${ctx.surfacedSOPs.length}):
 ${ctx.surfacedSOPs.map((s: any) => `- ${s.title || "SOP"}: ${s.reason || ""}`).join("\n") || "None"}
+
+TEAM CHORES FOR TODAY (${ctx.teamChores.length}):
+${ctx.teamChores.map(c => `- ${c.title}${c.timeOfDay ? ` (${c.timeOfDay})` : ""}`).join("\n") || "None"}
+
+LEARNING STATUS:
+- Brain Boost quiz today: ${ctx.brainBoostCompleted ? "Completed ✓" : ctx.brainBoostStarted ? "In progress (not finished)" : "Not yet started"}
+- Daily training modules incomplete: ${ctx.incompleteTrainingCount}
 `.trim();
 
   try {
@@ -322,8 +436,11 @@ Rules:
 - Factor in urgency (overdue > due today > upcoming)
 - Factor in store context (if it's busy, prioritize customer-facing tasks; if slow, prioritize back-of-house)
 - Include a brief reason for each suggestion
+- Always include team chores for today from TEAM CHORES FOR TODAY when they exist
+- If the Brain Boost quiz is not yet completed, include it as an action item with type "custom" and entity_id "brain_boost"
+- If the employee has incomplete training modules, include "Finish your daily training" with type "custom" and entity_id "daily_training"
 - If there's nothing urgent, suggest a proactive improvement: "Slow moment — great time to record a quick improvement video!"
-- For entity_id, use the exact ID from the data provided, or null for custom suggestions
+- For entity_id, use the exact ID from the data provided, "brain_boost", "daily_training", or null for other custom suggestions
 - For type, use: task, sop, issue, gtd_action, improvement, or custom
 
 Return ONLY valid JSON (no markdown):

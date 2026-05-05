@@ -135,6 +135,13 @@ export default function SmartSuggestionsCard() {
       case "improvement":
         navigate("/improvements");
         break;
+      case "custom":
+        if (suggestion.entity_id === "brain_boost") {
+          window.dispatchEvent(new CustomEvent("open-brain-boost"));
+        } else if (suggestion.entity_id === "daily_training") {
+          navigate("/sops/training");
+        }
+        break;
       default:
         break;
     }
