@@ -186,9 +186,7 @@ export default function SmartSuggestionsCard() {
     (t) => t.assignedTo === user?.id && t.status !== "completed"
   );
 
-  const suggestions = (suggestionsRes?.data?.suggestions ?? []).filter(
-    (s) => s.type !== "task"
-  );
+  const suggestions = suggestionsRes?.data?.suggestions ?? [];
 
   const isLoading = tasksLoading || suggestionsLoading;
   const hasContent = myTasks.length > 0 || suggestions.length > 0;
