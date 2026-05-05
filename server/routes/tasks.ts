@@ -160,10 +160,13 @@ export function registerTaskRoutes(
 
       const isManager = await resolveAnyPermission(userId, ['admin.manage_all', 'hr.manage_employees'], storage);
       const isAssignee = existing.assignedTo === userId;
-      // Allow any employee to claim+complete an unassigned task (team chores surfaced by AI)
-      const isUnassignedClaim = !existing.assignedTo && req.body?.status === 'completed';
+      // Allow any employee to complete a team-visible task (eligible to 'all' or 'team')
+      // This covers AI-surfaced team chores that may be assigned to a different employee
+      const eligibleRoles: string[] = Array.isArray(existing.eligibleRoles) ? existing.eligibleRoles : [];
+      const isTeamTask = eligibleRoles.includes('all') || eligibleRoles.includes('team');
+      const isEligibleClaim = isTeamTask && req.body?.status === 'completed';
 
-      if (!isAssignee && !isManager && !isUnassignedClaim) {
+      if (!isAssignee && !isManager && !isEligibleClaim) {
         return res.status(403).json({ message: "You can only update tasks assigned to you" });
       }
 
@@ -201,9 +204,9 @@ export function registerTaskRoutes(
         safeUpdates.completedAt = new Date();
       }
 
-      // When an employee claims an unassigned task by completing it, assign it to them
-      // so it appears in their "Done today" strip and gamification tracking.
-      if (isUnassignedClaim) {
+      // When an employee completes a team-visible task (that may belong to someone else),
+      // reassign it to them so it appears in their "Done today" strip and gamification.
+      if (isEligibleClaim) {
         safeUpdates.assignedTo = userId;
       }
 
