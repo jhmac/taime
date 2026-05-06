@@ -465,6 +465,15 @@ export async function runSchemaMigrations(): Promise<void> {
       table: "cash_deposits",
       sql: `ALTER TABLE cash_deposits ADD COLUMN IF NOT EXISTS session_breakdown jsonb`,
     },
+    // cash_management_settings: deposit_tolerance and reference_deposit_slip
+    {
+      table: "cash_management_settings",
+      sql: `ALTER TABLE cash_management_settings ADD COLUMN IF NOT EXISTS deposit_tolerance numeric(10,2) DEFAULT 1.00`,
+    },
+    {
+      table: "cash_management_settings",
+      sql: `ALTER TABLE cash_management_settings ADD COLUMN IF NOT EXISTS reference_deposit_slip text`,
+    },
     // Task #628 — weekly digest settings
     {
       table: "company_settings",
