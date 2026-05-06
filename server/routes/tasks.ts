@@ -219,9 +219,11 @@ export function registerTaskRoutes(
         safeUpdates.aiReasoning = null;
         const targetUserId = safeUpdates.assignedTo as string | null;
         if (!targetUserId) {
-          // Unpin entirely — clear both assignedTo and any deferred intent
+          // Manager explicitly unassigned — set sentinel so auto-assign skips this task.
+          // runAutoAssign has: `if (task.pinnedTo) return false`, so any truthy pinnedTo
+          // prevents reassignment. activateDeferredPins only matches real user IDs.
           safeUpdates.assignedTo = null;
-          safeUpdates.pinnedTo = null;
+          safeUpdates.pinnedTo = 'manager_unassigned';
         } else {
           // Check if the target is currently clocked in
           const clockedIn = await storage.getClockedInUsers();

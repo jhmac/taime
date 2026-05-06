@@ -134,8 +134,8 @@ export default function TaskManagement() {
   });
 
   const canManageTasks = userPermissions?.some?.(p =>
-    p.name === 'tasks.edit_all' || p.name === 'tasks.create' || p.name === 'admin.manage_all'
-  ) || isAdmin || false;
+    p.name === 'tasks.edit_all' || p.name === 'tasks.create' || p.name === 'admin.manage_all' || p.name === 'tasks.manage' || p.name === 'hr.manage_employees'
+  ) || isAdmin || user?.role?.name === 'manager' || false;
 
   // Stricter check matching backend manager guards: admin.manage_all OR hr.manage_employees
   const canBroadcast = userPermissions?.some?.(p =>
@@ -1055,7 +1055,7 @@ export default function TaskManagement() {
                                 {canDeleteTasks && (
                                   <button
                                     onClick={(e) => { e.stopPropagation(); setDeleteConfirm(task); }}
-                                    className="h-6 w-6 flex items-center justify-center rounded text-destructive/50 hover:text-destructive hover:bg-destructive/10 transition-colors"
+                                    className="h-7 w-7 flex items-center justify-center rounded text-destructive hover:bg-destructive/10 transition-colors border border-destructive/30"
                                     title="Delete task"
                                     data-testid={`delete-task-bottom-${task.id}`}
                                   >
