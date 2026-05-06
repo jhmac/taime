@@ -592,12 +592,19 @@ export default function TimeClockWidget({ greetingSlot, footerSlot, hideClock = 
   }, [activeTimeEntry, locationError]);
 
   useEffect(() => {
-    const prev = prevPermissionStateRef.current;
     prevPermissionStateRef.current = permissionState;
-    if (prev === 'denied' && permissionState === 'granted') {
+    // Auto-fetch position whenever permission is known to be granted but we
+    // don't yet have a position. This covers:
+    //  - initial hydration from server ('unknown' → 'granted'): user previously
+    //    granted permission on another device/session and we restored that state
+    //  - re-grant after revoke ('denied' → 'granted')
+    //  - returning from background where the OS dropped our cached position
+    // Without this, `position` stays null after hydration and the UI shows
+    // "Location needed to clock in" even though the user has already granted.
+    if (permissionState === 'granted' && !position && !locationLoading) {
       getCurrentPosition().catch(() => {});
     }
-  }, [permissionState]);
+  }, [permissionState, position, locationLoading, getCurrentPosition]);
 
   useEffect(() => {
     const isDenied =
