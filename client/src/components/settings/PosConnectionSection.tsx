@@ -53,19 +53,11 @@ export default function PosConnectionSection({
     dateRange: { from: string; to: string };
   } | null>(null);
 
-  // Auto-populate sensible defaults: last year same week as hint for the user
+  // Default to the known historical gap that breaks the Sales vs. Goal engine
   useEffect(() => {
     if (!connectedShop) return;
-    const today = new Date();
-    const oneYearAgo = new Date(today);
-    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-    // Default range: ±4 weeks around exactly one year ago
-    const rangeStart = new Date(oneYearAgo);
-    rangeStart.setDate(rangeStart.getDate() - 28);
-    const rangeEnd = new Date(oneYearAgo);
-    rangeEnd.setDate(rangeEnd.getDate() + 28);
-    setBackfillStart(rangeStart.toISOString().split('T')[0]);
-    setBackfillEnd(rangeEnd.toISOString().split('T')[0]);
+    setBackfillStart('2025-05-07');
+    setBackfillEnd('2025-10-03');
   }, [connectedShop?.shopDomain]);
 
   async function runConnectionTest(showToast = false) {
