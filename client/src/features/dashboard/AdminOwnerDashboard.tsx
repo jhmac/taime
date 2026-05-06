@@ -29,6 +29,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { DashboardErrorBoundary } from '@/features/dashboard/DashboardErrorBoundary';
 import CashStatusCard from '@/features/dashboard/CashStatusCard';
+import TimeClockWidget from '@/components/TimeClockWidget';
 import {
   ChevronDown, ChevronUp, Users, Clock, AlertTriangle,
   TrendingUp, TrendingDown, DollarSign, CheckSquare, Package,
@@ -1474,6 +1475,11 @@ export default function AdminOwnerDashboard() {
         </div>
         <Button variant="outline" size="sm" onClick={() => navigate('/settings?section=dashboard')}>Settings</Button>
       </div>
+
+      {/* Time Clock */}
+      <DashboardErrorBoundary fallback="Time clock failed to load">
+        <TimeClockWidget />
+      </DashboardErrorBoundary>
 
       {/* Action Required */}
       <DashboardErrorBoundary fallback="Could not load action items">
