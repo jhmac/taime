@@ -296,8 +296,11 @@ export function registerTaskRoutes(
       const { id } = req.params;
       const userId = req.user.id;
 
-      const isManager = await resolveAnyPermission(userId, ['admin.manage_all', 'hr.manage_employees'], storage);
-      if (!isManager) {
+      const MANAGER_ROLES = new Set(['manager', 'admin', 'owner']);
+      const roleName: string = (req.user?.role?.name ?? '') as string;
+      const isManagerByRole = MANAGER_ROLES.has(roleName);
+      const isManagerByPerm = await resolveAnyPermission(userId, ['admin.manage_all', 'hr.manage_employees', 'tasks.manage'], storage);
+      if (!isManagerByRole && !isManagerByPerm) {
         return res.status(403).json({ message: "Only managers can delete tasks" });
       }
 

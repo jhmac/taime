@@ -143,8 +143,8 @@ export default function TaskManagement() {
   ) || isAdmin || false;
 
   const canDeleteTasks = userPermissions?.some?.(p =>
-    p.name === 'tasks.edit_all' || p.name === 'admin.manage_all'
-  ) || isAdmin || false;
+    p.name === 'tasks.edit_all' || p.name === 'admin.manage_all' || p.name === 'tasks.manage' || p.name === 'hr.manage_employees'
+  ) || isAdmin || user?.role?.name === 'manager' || false;
 
   const { data: tasks = [], isLoading } = useQuery<TaskWithInsight[]>({
     queryKey: ['/api/tasks'],
