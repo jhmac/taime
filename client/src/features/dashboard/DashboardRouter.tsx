@@ -7,6 +7,7 @@ import { WifiOff, RefreshCw, Wifi, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import AssociateDashboard from './AssociateDashboard';
 import ManagerDashboard from './ManagerDashboard';
+import AdminOwnerDashboard from './AdminOwnerDashboard';
 
 interface DashboardInitData {
   user: any;
@@ -160,7 +161,11 @@ export default function DashboardRouter() {
     </div>
   ) : null;
 
-  if (role === 'owner' || role === 'admin' || role === 'manager' || role === 'assistant_manager') {
+  if (role === 'owner' || role === 'admin') {
+    return <>{StaleBanner}<AdminOwnerDashboard /></>;
+  }
+
+  if (role === 'manager' || role === 'assistant_manager') {
     return <>{StaleBanner}<ManagerDashboard /></>;
   }
 

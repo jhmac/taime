@@ -232,6 +232,13 @@
       "when": 1747058400000,
       "tag": "0032_cash_reconciliation_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1747144800000,
+      "tag": "0033_dashboard_settings_fields",
+      "breakpoints": true
     }
   ]
 }

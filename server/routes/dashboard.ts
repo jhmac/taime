@@ -6,6 +6,8 @@ import { eq, and, gte, lte, lt, desc, isNull, ne, inArray, or } from "drizzle-or
 import { cache } from "../services/cache";
 import { gamificationService } from "../services/gamificationService";
 import { setLocationPermission, getLocationPermissionPreference } from "../services/locationPermissionStore";
+import { claudeService } from "../services/claudeService";
+import { resolveAnyPermission } from "../services/permissionResolver";
 
 // Maximum time the init endpoint will wait for DB queries before responding
 // with a 503 so the client can show a retry prompt rather than hanging.
@@ -868,6 +870,68 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
     } catch (error) {
       console.error("Error fetching pay summary:", error);
       res.status(500).json({ message: "Failed to fetch pay summary" });
+    }
+  });
+
+  // ── POST /api/dashboard/ai-briefing ──────────────────────────────────────
+  // Generates a 3–4 sentence morning briefing for the admin/owner dashboard.
+  // Cached per (userId-derived storeId + calendar date) to avoid repeat calls.
+  app.post("/api/dashboard/ai-briefing", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) return res.status(401).json({ message: "Unauthorized" });
+
+      const isAdmin = await resolveAnyPermission(userId, ["admin.manage_all"], storage);
+      if (!isAdmin) return res.status(403).json({ message: "Owner or admin access required" });
+
+      const today = new Date().toISOString().split("T")[0];
+      const { tryResolveStoreIdForUser: resolveStore } = await import("../services/storeResolver");
+      const storeId = await resolveStore(userId) ?? userId;
+      const cacheKey = `dashboard:ai-briefing:${storeId}:${today}`;
+      const { bypassCache = false } = req.body ?? {};
+      if (!bypassCache) {
+        const cached = cache.get(cacheKey);
+        if (cached) return res.json({ briefing: cached });
+      }
+
+      const {
+        activeCount = 0,
+        scheduledCount = 0,
+        lateSinceOpen = 0,
+        salesVsGoalPct = null,
+        openIssues = 0,
+        openTasks = 0,
+        dayOfWeek = new Date().toLocaleDateString("en-US", { weekday: "long" }),
+        payrollHealthPct = null,
+        topPerformer = null,
+      } = req.body ?? {};
+
+      const prompt = `You are MAinager, the AI business health assistant for a retail boutique.
+Today is ${dayOfWeek}, ${today}. Generate a concise, professional, and actionable 3–4 sentence morning briefing for the owner/admin dashboard based on the following real-time snapshot:
+
+- Staff currently clocked in: ${activeCount} / ${scheduledCount} scheduled
+- Late arrivals since opening: ${lateSinceOpen}
+- Sales vs. daily goal: ${salesVsGoalPct !== null ? `${salesVsGoalPct}%` : "no sales data yet"}
+- Open issues: ${openIssues}
+- Open tasks: ${openTasks}
+- Payroll health (hours used vs. budget): ${payrollHealthPct !== null ? `${payrollHealthPct}%` : "unavailable"}
+- Top performer today: ${topPerformer ?? "none identified yet"}
+
+Write the briefing in a calm, confident tone. Lead with the most important operational signal. End with one concrete action the owner should take. Do not use bullet points. Write plain sentences only.`;
+
+      const message = await claudeService.chat(prompt, { type: "dashboard_briefing" });
+      const briefing = message.trim();
+
+      // Cache until end of day (so all admin users get the same briefing for the day)
+      const endOfDay = new Date();
+      endOfDay.setHours(23, 59, 59, 999);
+      const msUntilMidnight = endOfDay.getTime() - Date.now();
+      cache.set(cacheKey, briefing, msUntilMidnight);
+
+      return res.json({ briefing });
+    } catch (error) {
+      console.error("[Dashboard] AI briefing error:", error);
+      return res.status(500).json({ message: "Failed to generate briefing" });
     }
   });
 }

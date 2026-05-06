@@ -27,7 +27,7 @@ The backend is a Node.js Express.js server written in TypeScript, utilizing Driz
 - **Unified AI Learning Platform**: Integrates AI Content Studio and AI Learning Center for quiz generation from documents, daily quizzes, and manager learning analytics.
 - **Daily Ritual System**: Includes Morning Huddle, Daily Debrief, and Kudos, with AI-generated content.
 - **Offline Mode**: Utilizes a service worker with IndexedDB for offline data storage and background synchronization.
-- **Role-Specific Dashboards**: Provides distinct dashboards for Associates, Managers, and Owners.
+- **Role-Specific Dashboards**: Provides distinct dashboards for Associates, Managers, and Owners/Admins. The AdminOwnerDashboard is a real-time business health monitor with ~11 collapsible panels (AI Morning Briefing, Floor Status, Sales vs. Goal, Payroll Health, Performance Leaderboard, HR Actions, Tasks Health, Supplies Reorder, Issues Snapshot, Schedule Overview, Cash Status). Panels are collapsible with localStorage persistence.
 - **Performance Optimizations**: Includes request timing middleware, N+1 query fixes, strategic database indexes, and in-memory caching.
 - **RAG Semantic Search**: Vector-based SOP search using pgvector and local embeddings.
 - **Lean Board**: Team-level improvement tracking board with daily snapshots and weekly AI summaries.

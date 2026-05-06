@@ -37,6 +37,7 @@ import OffsiteAllowanceSection from '@/components/settings/OffsiteAllowanceSecti
 import StoreLocationsSection from '@/components/settings/StoreLocationsSection';
 import DailySalesGoalSection from '@/components/settings/DailySalesGoalSection';
 import WeeklyDigestSection from '@/components/settings/WeeklyDigestSection';
+import DashboardSection from '@/components/settings/DashboardSection';
 
 const SIDEBAR_SECTIONS = [
   {
@@ -91,6 +92,7 @@ const SIDEBAR_SECTIONS = [
       { id: 'profile', label: 'Profile', icon: User },
       { id: 'notifications', label: 'Notifications', icon: Bell },
       { id: 'weekly-digest', label: 'Weekly insights email', icon: Mail },
+      { id: 'dashboard', label: 'Dashboard', icon: BrainCircuit },
     ],
   },
 ];
@@ -264,6 +266,8 @@ export default function AdminSettings() {
         weeklyDigestEnabled: settings.weeklyDigestEnabled ?? true,
         weeklyDigestDayOfWeek: settings.weeklyDigestDayOfWeek ?? 0,
         weeklyDigestHour: settings.weeklyDigestHour ?? 17,
+        dashboardTopBottomN: settings.dashboardTopBottomN ?? 3,
+        lateClockInAlertThreshold: settings.lateClockInAlertThreshold ?? 2,
       });
     }
   }, [settings]);
@@ -642,6 +646,8 @@ export default function AdminSettings() {
         return <NotificationsSection />;
       case 'weekly-digest':
         return <WeeklyDigestSection settingsForm={settingsForm} updateForm={updateForm} />;
+      case 'dashboard':
+        return <DashboardSection settingsForm={settingsForm} updateForm={updateForm} />;
       default:
         return (
           <BasicInfoSection

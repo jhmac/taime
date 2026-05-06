@@ -311,6 +311,8 @@ export const companySettings = pgTable("company_settings", {
   weeklyDigestEnabled: boolean("weekly_digest_enabled").default(true),
   weeklyDigestDayOfWeek: integer("weekly_digest_day_of_week").default(0),
   weeklyDigestHour: integer("weekly_digest_hour").default(17),
+  dashboardTopBottomN: integer("dashboard_top_bottom_n").default(3),
+  lateClockInAlertThreshold: integer("late_clock_in_alert_threshold").default(2),
   version: integer("version").default(1).notNull(),
 });
 

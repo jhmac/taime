@@ -106,6 +106,8 @@ const companySettingsUpdateSchema = z.object({
   weeklyDigestEnabled: z.boolean().optional(),
   weeklyDigestDayOfWeek: z.number().int().min(0).max(6).optional(),
   weeklyDigestHour: z.number().int().min(0).max(23).optional(),
+  dashboardTopBottomN: z.number().int().min(1).max(10).optional(),
+  lateClockInAlertThreshold: z.number().int().min(1).max(20).optional(),
 }).strict();
 
 async function requireAdmin(storageParam: IStorage, userId: string): Promise<void> {
