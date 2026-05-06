@@ -635,6 +635,15 @@ export default function TaskManagement() {
                       {task.choreZone && (
                         <Badge variant="outline" className="text-[10px]">{task.choreZone}</Badge>
                       )}
+                      {canDeleteTasks && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setDeleteConfirm(task); }}
+                          className="ml-1 text-destructive/60 hover:text-destructive transition-colors"
+                          title="Delete task"
+                        >
+                          <i className="fas fa-trash-alt text-xs"></i>
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -1026,8 +1035,8 @@ export default function TaskManagement() {
                                   <span className="text-xs text-muted-foreground">{getUserName(task.assignedTo)}</span>
                                 )}
                               </div>
-                              {canManageTasks && task.status !== 'completed' && (
-                                <div onClick={e => e.stopPropagation()}>
+                              <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                                {canManageTasks && task.status !== 'completed' && (
                                   <Select
                                     value={task.status || 'pending'}
                                     onValueChange={(val) => statusMutation.mutate({ id: task.id, status: val })}
@@ -1042,8 +1051,18 @@ export default function TaskManagement() {
                                       <SelectItem value="cancelled">Cancelled</SelectItem>
                                     </SelectContent>
                                   </Select>
-                                </div>
-                              )}
+                                )}
+                                {canDeleteTasks && (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); setDeleteConfirm(task); }}
+                                    className="h-6 w-6 flex items-center justify-center rounded text-destructive/50 hover:text-destructive hover:bg-destructive/10 transition-colors"
+                                    title="Delete task"
+                                    data-testid={`delete-task-bottom-${task.id}`}
+                                  >
+                                    <i className="fas fa-trash-alt text-xs"></i>
+                                  </button>
+                                )}
+                              </div>
                             </div>
                           </div>
                         </div>
