@@ -170,7 +170,6 @@ const LeanBoard = lazy(() => import("@/pages/LeanBoard"));
 const InsightsPage = lazy(() => import("@/pages/InsightsPage"));
 const OperationalInsights = lazy(() => import("@/pages/OperationalInsights"));
 const SupplyCatalog = lazy(() => import("@/pages/SupplyCatalog"));
-const InventoryCount = lazy(() => import("@/pages/InventoryCount"));
 const CashManagement = lazy(() => import("@/pages/CashManagement"));
 const MileageReport = lazy(() => import("@/pages/MileageReport"));
 const Timesheets = lazy(() => import("@/pages/Timesheets"));
@@ -394,7 +393,6 @@ function AuthenticatedApp() {
           <RedirectTo to="/learning?tab=lean-board" />
         </Route>
         <Route path="/supply" component={SupplyCatalog} />
-        <Route path="/supply/count/:sessionId" component={InventoryCount} />
         <Route path="/cash">
           <ProtectedRoute allowAllAuthenticated><CashManagement /></ProtectedRoute>
         </Route>

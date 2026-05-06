@@ -1,15 +1,13 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useLocation } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import {
-  Card, CardContent, CardHeader, CardTitle,
+  Card, CardContent,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
@@ -24,9 +22,8 @@ import {
 } from "@/components/ui/form";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  Package, Plus, ExternalLink, Edit2, Trash2, ClipboardList,
-  Users, Calendar, AlertTriangle, CheckCircle2, RefreshCw, Layers,
-  RotateCcw, Search, X as XIcon,
+  Package, Plus, ExternalLink, Edit2, Trash2,
+  AlertTriangle, CheckCircle2, Search, X as XIcon, Save, Loader2,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
@@ -48,8 +45,6 @@ type SupplyItem = {
   isActive: boolean;
 };
 
-type TeamMember = { id: string; firstName: string; lastName: string };
-
 const CATEGORIES = [
   { value: "all", label: "All Items" },
   { value: "bags", label: "Bags" },
@@ -60,8 +55,6 @@ const CATEGORIES = [
 ];
 
 const UNITS = ["each", "rolls", "boxes", "cases", "packs", "bottles", "pairs", "sets"];
-const DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
-const TIMES = ["morning", "afternoon", "evening"];
 
 const itemSchema = z.object({
   name: z.string().min(1, "Name required"),
@@ -93,7 +86,7 @@ function StockBar({ item }: { item: SupplyItem }) {
 
   return (
     <div className="space-y-1">
-      <div className={`h-2 rounded-full bg-gray-100 overflow-hidden`}>
+      <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
         <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${pct}%` }} />
       </div>
       <div className="flex justify-between text-xs text-muted-foreground">
@@ -112,11 +105,100 @@ function StatusBadge({ item }: { item: SupplyItem }) {
   return <Badge className="text-xs bg-emerald-100 text-emerald-700 border-emerald-200">Stocked</Badge>;
 }
 
-function ItemCard({ item, onEdit, onArchive }: { item: SupplyItem; onEdit: () => void; onArchive: () => void }) {
+function QuantityInput({ item, onSaved }: { item: SupplyItem; onSaved: () => void }) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState<string>(
+    item.lastCountedQty !== null ? String(item.lastCountedQty) : ""
+  );
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const updateMutation = useMutation({
+    mutationFn: (qty: number) =>
+      apiRequest("PATCH", `/api/supply/items/${item.id}/quantity`, { quantity: qty }),
+    onSuccess: async (res: any) => {
+      const data = await res.json().catch(() => ({}));
+      setEditing(false);
+      qc.invalidateQueries({ queryKey: ["/api/supply/items"] });
+      qc.invalidateQueries({ queryKey: ["/api/supply/stats"] });
+      onSaved();
+      if (data.isCritical) {
+        toast({ title: `Critical: ${item.name}`, description: `Only ${data.quantity} ${item.unit} left — admins have been alerted.`, variant: "destructive" });
+      } else if (data.isLow) {
+        toast({ title: `Low stock: ${item.name}`, description: `${data.quantity} ${item.unit} remaining — below par level.` });
+      } else {
+        toast({ title: "Quantity saved" });
+      }
+    },
+    onError: (e: any) => toast({ title: "Error saving quantity", description: e.message, variant: "destructive" }),
+  });
+
+  const handleSave = () => {
+    const num = parseInt(value, 10);
+    if (isNaN(num) || num < 0) {
+      toast({ title: "Invalid quantity", description: "Enter a whole number (0 or more).", variant: "destructive" });
+      return;
+    }
+    updateMutation.mutate(num);
+  };
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-1.5 mt-2">
+        <Input
+          ref={inputRef}
+          type="number"
+          min={0}
+          autoFocus
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") handleSave();
+            if (e.key === "Escape") setEditing(false);
+          }}
+          className="h-8 text-sm w-20 text-center font-medium"
+        />
+        <Button
+          size="sm"
+          className="h-8 px-2 bg-emerald-600 hover:bg-emerald-700"
+          onClick={handleSave}
+          disabled={updateMutation.isPending}
+        >
+          {updateMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-8 px-2"
+          onClick={() => setEditing(false)}
+        >
+          <XIcon className="h-3 w-3" />
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      onClick={() => {
+        setValue(item.lastCountedQty !== null ? String(item.lastCountedQty) : "");
+        setEditing(true);
+      }}
+      className="mt-1.5 text-xs text-primary underline underline-offset-2 hover:text-primary/80 transition-colors"
+    >
+      {item.lastCountedQty === null ? "Enter quantity" : "Update qty"}
+    </button>
+  );
+}
+
+function ItemCard({ item, isAdmin, onEdit, onArchive }: { item: SupplyItem; isAdmin: boolean; onEdit: () => void; onArchive: () => void }) {
   const status = stockStatus(item);
   const borderColor =
     status === "critical" ? "border-red-300 bg-red-50/40" :
     status === "low" ? "border-amber-200 bg-amber-50/30" : "border-border";
+
+  const qc = useQueryClient();
 
   return (
     <Card className={`relative overflow-hidden transition-all hover:shadow-md ${borderColor}`}>
@@ -139,14 +221,14 @@ function ItemCard({ item, onEdit, onArchive }: { item: SupplyItem; onEdit: () =>
 
         <StockBar item={item} />
 
+        <QuantityInput item={item} onSaved={() => {
+          qc.invalidateQueries({ queryKey: ["/api/supply/items"] });
+          qc.invalidateQueries({ queryKey: ["/api/supply/stats"] });
+        }} />
+
         <div className="flex items-center gap-2">
           {item.orderUrl && (
-            <a
-              href={item.orderUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex-1"
-            >
+            <a href={item.orderUrl} target="_blank" rel="noopener noreferrer" className="flex-1">
               <Button size="sm" variant="outline" className="w-full text-xs h-7 gap-1">
                 <ExternalLink className="h-3 w-3" />
                 Order Online
@@ -156,12 +238,16 @@ function ItemCard({ item, onEdit, onArchive }: { item: SupplyItem; onEdit: () =>
           {item.isLocalPickup && (
             <Badge variant="secondary" className="text-xs">Local Pickup</Badge>
           )}
-          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={onEdit}>
-            <Edit2 className="h-3.5 w-3.5" />
-          </Button>
-          <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive" onClick={onArchive}>
-            <Trash2 className="h-3.5 w-3.5" />
-          </Button>
+          {isAdmin && (
+            <>
+              <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={onEdit}>
+                <Edit2 className="h-3.5 w-3.5" />
+              </Button>
+              <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive" onClick={onArchive}>
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            </>
+          )}
         </div>
       </CardContent>
     </Card>
@@ -172,7 +258,6 @@ export default function SupplyCatalog() {
   const { user } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
-  const [, navigate] = useLocation();
 
   const isAdmin = ["owner", "admin", "manager"].includes(user?.role?.name || "");
 
@@ -180,25 +265,9 @@ export default function SupplyCatalog() {
   const [searchQuery, setSearchQuery] = useState("");
   const [editItem, setEditItem] = useState<SupplyItem | null>(null);
   const [showAddItem, setShowAddItem] = useState(false);
-  const [showCountDialog, setShowCountDialog] = useState(false);
-  const [showScheduleDialog, setShowScheduleDialog] = useState(false);
-  const [countAssignee, setCountAssignee] = useState("");
-  const [countCategories, setCountCategories] = useState<string[]>([]);
-  const [scheduleDay, setScheduleDay] = useState("monday");
-  const [scheduleTime, setScheduleTime] = useState("morning");
 
   const { data: items = [], isLoading } = useQuery<SupplyItem[]>({
     queryKey: ["/api/supply/items"],
-  });
-
-  const { data: teamMembers = [] } = useQuery<TeamMember[]>({
-    queryKey: ["/api/users"],
-    enabled: isAdmin,
-  });
-
-  const { data: weeklySchedule } = useQuery<any>({
-    queryKey: ["/api/supply/weekly-schedule"],
-    enabled: isAdmin,
   });
 
   const { data: stats } = useQuery<{
@@ -246,30 +315,6 @@ export default function SupplyCatalog() {
       qc.invalidateQueries({ queryKey: ["/api/supply/items"] });
       toast({ title: "Item archived" });
     },
-  });
-
-  const createSessionMutation = useMutation({
-    mutationFn: async (data: any) => {
-      const res = await apiRequest("POST", "/api/supply/sessions", data);
-      return res.json();
-    },
-    onSuccess: (data: any) => {
-      qc.invalidateQueries({ queryKey: ["/api/supply/items"] });
-      setShowCountDialog(false);
-      toast({ title: "Inventory count assigned", description: "Task created and assigned to team member" });
-      navigate(`/supply/count/${data.session.id}`);
-    },
-    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
-  });
-
-  const scheduleMutation = useMutation({
-    mutationFn: (data: any) => apiRequest("POST", "/api/supply/weekly-schedule", data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["/api/supply/weekly-schedule"] });
-      setShowScheduleDialog(false);
-      toast({ title: "Weekly schedule saved", description: "AI will assign the inventory count to a team member each week" });
-    },
-    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
   const filtered = items.filter((i) => {
@@ -325,37 +370,19 @@ export default function SupplyCatalog() {
               <Package className="h-5 w-5 text-[#F47D31]" />
             </div>
             <div>
-              <h1 className="text-lg font-bold">Supply Kanban</h1>
-              <p className="text-xs text-muted-foreground">Two-bin inventory system</p>
+              <h1 className="text-lg font-bold">Supply Catalog</h1>
+              <p className="text-xs text-muted-foreground">Tap any item to update its quantity</p>
             </div>
           </div>
           {isAdmin && (
-            <div className="flex gap-2">
-              <Button
-                size="sm" variant="outline"
-                className="gap-1.5 text-xs"
-                onClick={() => setShowScheduleDialog(true)}
-              >
-                <RotateCcw className="h-3.5 w-3.5" />
-                Weekly
-              </Button>
-              <Button
-                size="sm" variant="outline"
-                className="gap-1.5 text-xs"
-                onClick={() => setShowCountDialog(true)}
-              >
-                <ClipboardList className="h-3.5 w-3.5" />
-                Count Now
-              </Button>
-              <Button
-                size="sm"
-                className="gap-1.5 text-xs bg-[#F47D31] hover:bg-[#e06b20]"
-                onClick={() => { setEditItem(null); form.reset(); setShowAddItem(true); }}
-              >
-                <Plus className="h-3.5 w-3.5" />
-                Add Item
-              </Button>
-            </div>
+            <Button
+              size="sm"
+              className="gap-1.5 text-xs bg-[#F47D31] hover:bg-[#e06b20]"
+              onClick={() => { setEditItem(null); form.reset(); setShowAddItem(true); }}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Add Item
+            </Button>
           )}
         </div>
       </div>
@@ -388,7 +415,7 @@ export default function SupplyCatalog() {
         {stats?.lastCountedAt && (
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-            Last full count: {new Date(stats.lastCountedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+            Last updated: {new Date(stats.lastCountedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
           </div>
         )}
 
@@ -425,23 +452,11 @@ export default function SupplyCatalog() {
           </div>
         )}
 
-        {/* Weekly schedule status */}
-        {isAdmin && weeklySchedule && (
-          <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-4 py-2.5">
-            <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0" />
-            <p className="text-sm text-emerald-800">
-              Weekly count scheduled every{" "}
-              <strong className="capitalize">{weeklySchedule.dayOfWeek}</strong>{" "}
-              <span className="capitalize">{weeklySchedule.timeOfDay}</span> — AI will auto-assign to a team member
-            </p>
-          </div>
-        )}
-
         {totalUnknown > 0 && (
           <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-lg px-4 py-2.5">
             <AlertTriangle className="h-4 w-4 text-blue-600 flex-shrink-0" />
             <p className="text-sm text-blue-800">
-              {totalUnknown} item{totalUnknown !== 1 ? "s" : ""} haven't been counted yet. Run an inventory count to track stock levels.
+              {totalUnknown} item{totalUnknown !== 1 ? "s" : ""} haven't been counted yet. Tap "Enter quantity" on any card to update stock levels.
             </p>
           </div>
         )}
@@ -493,7 +508,7 @@ export default function SupplyCatalog() {
         {isLoading ? (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
             {[...Array(6)].map((_, i) => (
-              <div key={i} className="h-36 bg-gray-100 rounded-xl animate-pulse" />
+              <div key={i} className="h-44 bg-gray-100 rounded-xl animate-pulse" />
             ))}
           </div>
         ) : filtered.length === 0 ? (
@@ -526,6 +541,7 @@ export default function SupplyCatalog() {
               <ItemCard
                 key={item.id}
                 item={item}
+                isAdmin={isAdmin}
                 onEdit={() => openEdit(item)}
                 onArchive={() => {
                   if (confirm(`Archive "${item.name}"?`)) archiveMutation.mutate(item.id);
@@ -585,7 +601,7 @@ export default function SupplyCatalog() {
               <div className="grid grid-cols-2 gap-3">
                 <FormField control={form.control} name="parLevel" render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Par Level (Bin 1)</FormLabel>
+                    <FormLabel>Par Level</FormLabel>
                     <FormControl><Input type="number" min={1} {...field} /></FormControl>
                     <FormMessage />
                   </FormItem>
@@ -593,13 +609,13 @@ export default function SupplyCatalog() {
 
                 <FormField control={form.control} name="safetyStock" render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Safety Stock (Bin 2)</FormLabel>
+                    <FormLabel>Safety Stock</FormLabel>
                     <FormControl><Input type="number" min={0} {...field} /></FormControl>
                     <FormMessage />
                   </FormItem>
                 )} />
               </div>
-              <p className="text-xs text-muted-foreground -mt-2">Safety stock = reorder-NOW threshold (red alert)</p>
+              <p className="text-xs text-muted-foreground -mt-2">Safety stock = critical reorder threshold (red alert)</p>
 
               <FormField control={form.control} name="supplierName" render={({ field }) => (
                 <FormItem>
@@ -646,123 +662,6 @@ export default function SupplyCatalog() {
               </DialogFooter>
             </form>
           </Form>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Start Count Dialog ── */}
-      <Dialog open={showCountDialog} onOpenChange={setShowCountDialog}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Start Inventory Count</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div>
-              <label className="text-sm font-medium">Assign To</label>
-              <Select value={countAssignee} onValueChange={setCountAssignee}>
-                <SelectTrigger className="mt-1.5">
-                  <SelectValue placeholder="Select team member…" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="self">Myself</SelectItem>
-                  {teamMembers.map((m) => (
-                    <SelectItem key={m.id} value={m.id}>
-                      {m.firstName} {m.lastName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="text-sm font-medium">Categories to Count</label>
-              <p className="text-xs text-muted-foreground mb-2">Leave empty to count everything</p>
-              <div className="flex flex-wrap gap-2">
-                {CATEGORIES.filter(c => c.value !== "all").map(cat => (
-                  <button
-                    key={cat.value}
-                    type="button"
-                    onClick={() => setCountCategories(prev =>
-                      prev.includes(cat.value) ? prev.filter(c => c !== cat.value) : [...prev, cat.value]
-                    )}
-                    className={`px-3 py-1.5 rounded-full text-xs border transition-colors ${
-                      countCategories.includes(cat.value)
-                        ? "bg-[#F47D31] text-white border-[#F47D31]"
-                        : "border-gray-200 text-gray-600 hover:border-gray-400"
-                    }`}
-                  >
-                    {cat.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCountDialog(false)}>Cancel</Button>
-            <Button
-              className="bg-[#F47D31] hover:bg-[#e06b20]"
-              disabled={createSessionMutation.isPending}
-              onClick={() => {
-                createSessionMutation.mutate({
-                  assignedTo: countAssignee === "self" || !countAssignee ? undefined : countAssignee,
-                  categories: countCategories.length > 0 ? countCategories : undefined,
-                });
-              }}
-            >
-              {createSessionMutation.isPending ? "Creating…" : "Start Count"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Weekly Schedule Dialog ── */}
-      <Dialog open={showScheduleDialog} onOpenChange={setShowScheduleDialog}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <RotateCcw className="h-4 w-4 text-[#F47D31]" />
-              Weekly Count Schedule
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <p className="text-sm text-muted-foreground">
-              The AI will automatically assign an inventory count task to a team member at this time each week.
-            </p>
-            <div>
-              <label className="text-sm font-medium">Day of Week</label>
-              <Select value={scheduleDay} onValueChange={setScheduleDay}>
-                <SelectTrigger className="mt-1.5">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {DAYS.map(d => <SelectItem key={d} value={d} className="capitalize">{d.charAt(0).toUpperCase() + d.slice(1)}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="text-sm font-medium">Time of Day</label>
-              <Select value={scheduleTime} onValueChange={setScheduleTime}>
-                <SelectTrigger className="mt-1.5">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {TIMES.map(t => <SelectItem key={t} value={t} className="capitalize">{t.charAt(0).toUpperCase() + t.slice(1)}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 text-xs text-orange-800 space-y-1">
-              <p className="font-semibold">How it works</p>
-              <p>This creates a recurring task in the AI task rotation. When the AI runs "Auto-Assign" on that day, it will assign the inventory count to a scheduled team member automatically.</p>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowScheduleDialog(false)}>Cancel</Button>
-            <Button
-              className="bg-[#F47D31] hover:bg-[#e06b20]"
-              disabled={scheduleMutation.isPending}
-              onClick={() => scheduleMutation.mutate({ dayOfWeek: scheduleDay, timeOfDay: scheduleTime })}
-            >
-              {scheduleMutation.isPending ? "Saving…" : "Save Schedule"}
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

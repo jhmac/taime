@@ -13,6 +13,7 @@ import {
 } from "@shared/schema";
 import type { IStorage } from "../storage";
 import { resolveStoreId } from "../services/storeResolver";
+import { notificationService } from "../services/notificationService";
 import logger from "../lib/logger";
 import { z } from "zod";
 
@@ -147,6 +148,73 @@ export function registerSupplyRoutes(app: Express, storage: IStorage, isAuthenti
       res.json({ message: "Item archived" });
     } catch (err: any) {
       res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ── Live Quantity Update (open to all roles) ─────────────────────────────
+
+  app.patch("/api/supply/items/:id/quantity", isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { quantity } = z.object({
+        quantity: z.number().int().min(0),
+      }).parse(req.body);
+
+      // Resolve the store this request belongs to — enforces tenant isolation
+      const storeId = (await resolveStoreId()) || "default";
+
+      // Fetch item scoped to the caller's store (prevents cross-tenant IDOR)
+      const [item] = await db
+        .select()
+        .from(supplyItems)
+        .where(and(eq(supplyItems.id, id), eq(supplyItems.storeId, storeId)))
+        .limit(1);
+
+      if (!item) return res.status(404).json({ message: "Item not found" });
+
+      await db
+        .update(supplyItems)
+        .set({ lastCountedQty: quantity, lastCountedAt: new Date(), updatedAt: new Date() })
+        .where(and(eq(supplyItems.id, id), eq(supplyItems.storeId, storeId)));
+
+      // Send in-app notifications to admins/managers in the same store only
+      const isCritical = quantity <= item.safetyStock;
+      const isLow = !isCritical && quantity < item.parLevel;
+
+      if (isCritical || isLow) {
+        try {
+          // Scope recipients to this store via users.locationId = storeId
+          const adminManagers = await db
+            .select({ id: users.id })
+            .from(users)
+            .innerJoin(roles, eq(users.roleId, roles.id))
+            .where(
+              and(
+                inArray(roles.name, ["owner", "admin", "manager"]),
+                eq(users.isActive, true),
+                eq(users.locationId, storeId)
+              )
+            );
+
+          const title = isCritical
+            ? `🔴 Critical Stock: ${item.name}`
+            : `🟡 Low Stock: ${item.name}`;
+          const body = `${quantity} ${item.unit} remaining (par: ${item.parLevel})`;
+
+          await Promise.allSettled(
+            adminManagers.map((u) =>
+              notificationService.sendToUser(u.id, { title, body, notificationType: "supply_alert" })
+            )
+          );
+        } catch (notifErr: any) {
+          logger.warn({ error: notifErr.message }, "[Supply] Failed to send stock notifications");
+        }
+      }
+
+      res.json({ message: "Quantity updated", quantity, isCritical, isLow });
+    } catch (err: any) {
+      logger.error({ error: err.message }, "[Supply] Failed to update quantity");
+      res.status(400).json({ message: err.message });
     }
   });
 

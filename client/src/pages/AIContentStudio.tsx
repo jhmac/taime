@@ -49,6 +49,7 @@ import {
   Keyboard,
   ExternalLink,
   RotateCcw,
+  Package,
 } from "lucide-react";
 import type { KnowledgeDocument, AiGeneratedItem, QuizQuestion } from "@shared/schema";
 
@@ -125,6 +126,7 @@ type KbContent = { category?: string; summary?: string; paragraphs?: KbParagraph
 
 type QuickActionResult =
   | { action: "create_tasks"; summary: string; count: number; tasks: { id: string; title: string; dayOfWeek?: string; timeOfDay?: string }[] }
+  | { action: "create_supplies"; summary: string; count: number; items: { id: string; name: string }[]; task: { id: string; title: string } }
   | { action: "answer"; text: string }
   | null;
 
@@ -241,6 +243,11 @@ function QuickActionPanel() {
         const taskIds: string[] = (data.tasks ?? []).map((t: { id: string }) => t.id);
         setUndoTaskIds(taskIds);
         undoTimerRef.current = setTimeout(clearUndo, 5 * 60 * 1000);
+      } else if (data.action === "create_supplies") {
+        toast({ title: `Imported ${data.count} supply items`, description: "One 'Check Supplies' task has been created." });
+        qc.invalidateQueries({ queryKey: ["/api/supply/items"] });
+        qc.invalidateQueries({ queryKey: ["/api/supply/stats"] });
+        qc.invalidateQueries({ queryKey: ["/api/tasks"] });
       }
     } catch (err: unknown) {
       toast({ title: "Error", description: err instanceof Error ? err.message : "Something went wrong", variant: "destructive" });
@@ -383,6 +390,38 @@ function QuickActionPanel() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {result?.action === "create_supplies" && (
+          <div className="mt-2 space-y-3 animate-in fade-in-0 duration-300">
+            <div className="flex items-center gap-2 text-sm font-medium text-emerald-700 dark:text-emerald-400">
+              <Package className="w-4 h-4" />
+              {result.summary}
+            </div>
+            <div className="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-lg p-3 space-y-2">
+              <p className="text-xs text-emerald-800 dark:text-emerald-300 font-medium">
+                {result.count} item{result.count !== 1 ? "s" : ""} added to your supply catalog
+              </p>
+              <div className="grid gap-1 max-h-40 overflow-y-auto">
+                {result.items.slice(0, 8).map((item) => (
+                  <div key={item.id} className="flex items-center gap-2 text-xs px-2 py-1 rounded bg-emerald-100/60 dark:bg-emerald-900/30">
+                    <CheckCircle className="w-3 h-3 text-emerald-600 shrink-0" />
+                    <span className="truncate">{item.name}</span>
+                  </div>
+                ))}
+                {result.count > 8 && (
+                  <p className="text-xs text-muted-foreground px-2">…and {result.count - 8} more</p>
+                )}
+              </div>
+              <p className="text-xs text-emerald-700 dark:text-emerald-400 border-t border-emerald-200 dark:border-emerald-800 pt-2">
+                One "Check Supplies" task was created for you to verify quantities.
+              </p>
+              <a href="/supply" className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 hover:text-emerald-900 underline underline-offset-2">
+                <ArrowRight className="w-3 h-3" />
+                View Supply Catalog
+              </a>
+            </div>
           </div>
         )}
 

@@ -13,6 +13,7 @@ import {
   knowledgeDocuments,
   companyAiContext,
   tasks,
+  supplyItems,
 } from "@shared/schema";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { asyncHandler, AppError } from "../lib/routeWrapper";
@@ -496,7 +497,7 @@ Supported actions:
    {
      "action": "create_tasks",
      "summary": "Short description of what was created",
-     "category": "supply_check" | null,
+     "category": null,
      "tasks": [
        {
          "title": "Task name",
@@ -510,13 +511,33 @@ Supported actions:
        }
      ]
    }
-   IMPORTANT: If the document is a supply list, inventory sheet, stock form, or product quantity tracker, set "category": "supply_check". Each line item in the supply list becomes one task. Otherwise set "category": null.
 
-2. answer — answer a question from the document without creating anything
+2. create_supplies — import a list of supply items into the store supply catalog
+   Use this action when the document is clearly a supply list, inventory sheet, stock form, or product quantity tracker (item names, quantities, units).
+   Do NOT use create_tasks for supply lists — use create_supplies instead.
+   Response shape:
+   {
+     "action": "create_supplies",
+     "summary": "Short description, e.g. 'Imported 12 supply items from your inventory sheet'",
+     "supplies": [
+       {
+         "name": "Item name (required)",
+         "quantity": 5,
+         "unit": "each" | "rolls" | "boxes" | "cases" | "packs" | "bottles" | "pairs" | "sets",
+         "parLevel": 10
+       }
+     ]
+   }
+   If quantity is not specified for an item, default to 0. If unit is ambiguous, use "each". If parLevel is not stated, omit it (the server will use a sensible default).
+
+3. answer — answer a question from the document without creating anything
    Response shape:
    { "action": "answer", "text": "Your answer here" }
 
-Infer the action from the user prompt. If the prompt asks to create, add, generate, or schedule tasks/chores, use create_tasks. If the document looks like a supply/inventory list and no explicit action is stated, use create_tasks with category: "supply_check".`;
+Infer the action from the user prompt and document content:
+- If the document is a supply/inventory list (item names + quantities), use create_supplies.
+- If the prompt asks to create, add, generate, or schedule tasks/chores, use create_tasks.
+- Otherwise use answer.`;
 
       if (req.file) {
         const file = req.file;
@@ -619,6 +640,60 @@ Infer the action from the user prompt. If the prompt asks to create, add, genera
           count: createdTasks.length,
           tasks: createdTasks,
           category: taskCategory,
+        });
+      }
+
+      if (parsed.action === "create_supplies") {
+        type QuickSupply = { name: string; quantity?: number; unit?: string; parLevel?: number };
+        const supplyList = Array.isArray(parsed.supplies) ? (parsed.supplies as QuickSupply[]) : [];
+
+        const VALID_UNITS = ["each", "rolls", "boxes", "cases", "packs", "bottles", "pairs", "sets"];
+        const importedItems = [];
+
+        for (const s of supplyList) {
+          if (!s.name) continue;
+          const unit = VALID_UNITS.includes(s.unit ?? "") ? (s.unit as string) : "each";
+          const parLevel = typeof s.parLevel === "number" && s.parLevel > 0 ? s.parLevel : 10;
+          const lastCountedQty = typeof s.quantity === "number" && s.quantity >= 0 ? s.quantity : 0;
+
+          const [created] = await db
+            .insert(supplyItems)
+            .values({
+              storeId,
+              name: s.name,
+              category: "other",
+              unit,
+              parLevel,
+              safetyStock: Math.max(1, Math.floor(parLevel * 0.2)),
+              lastCountedQty,
+              lastCountedAt: new Date(),
+              createdBy: req.user.id,
+            })
+            .returning();
+          importedItems.push(created);
+        }
+
+        const n = importedItems.length;
+        const checkTask = await storage.createTask({
+          title: `Check Supplies — verify quantities for ${n} newly imported item${n !== 1 ? "s" : ""}`,
+          description: `${n} supply item${n !== 1 ? "s" : ""} were just imported via AI Studio. Please visit the Supply Catalog at /supply to confirm the quantities are correct.`,
+          createdBy: req.user.id,
+          assignedTo: req.user.id,
+          locationId: storeId,
+          status: "pending",
+          priority: "medium",
+          estimatedMinutes: 10,
+          isAIAssigned: false,
+          aiReasoning: `Auto-created after bulk supply import via Quick Action`,
+        });
+
+        return res.json({
+          success: true,
+          action: "create_supplies",
+          summary: parsed.summary ?? `Imported ${n} supply item${n !== 1 ? "s" : ""}`,
+          count: n,
+          items: importedItems,
+          task: checkTask,
         });
       }
 
