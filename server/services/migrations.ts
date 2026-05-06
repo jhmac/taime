@@ -1295,6 +1295,26 @@ export async function runSchemaMigrations(): Promise<void> {
         `CREATE INDEX IF NOT EXISTS idx_timesheet_period_approvals_store_period ON timesheet_period_approvals (store_id, period_start, period_end)`,
       ],
     },
+    // Task #636 — Shopify reconciliation run log (idempotency + audit trail)
+    {
+      name: "shopify_reconciliation_runs",
+      ddl: `CREATE TABLE IF NOT EXISTS shopify_reconciliation_runs (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        shop_domain varchar NOT NULL,
+        date varchar NOT NULL,
+        status varchar NOT NULL,
+        before_revenue decimal(12,2) DEFAULT 0,
+        after_revenue decimal(12,2) DEFAULT 0,
+        before_order_count integer DEFAULT 0,
+        after_order_count integer DEFAULT 0,
+        error text,
+        ran_at timestamp DEFAULT now()
+      )`,
+      indexes: [
+        `CREATE INDEX IF NOT EXISTS idx_shopify_recon_runs_shop_date ON shopify_reconciliation_runs (shop_domain, date)`,
+        `CREATE INDEX IF NOT EXISTS idx_shopify_recon_runs_ran_at ON shopify_reconciliation_runs (ran_at DESC)`,
+      ],
+    },
     // Task #256 — Shopify POS register data
     {
       name: "shopify_register_sessions",

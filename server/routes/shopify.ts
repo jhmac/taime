@@ -11,6 +11,22 @@ import { encryptToken, decryptToken } from "../utils/tokenEncryption";
 import rateLimit from "express-rate-limit";
 import { config } from "../lib/config";
 import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
+import { resolveShopTimezone, dateKeyInTz, dayOfWeekInTz, dailySalesRowDate, shopDayUtcBounds } from "../lib/shopTimezone";
+import { reconcileShopDay, getLastReconciliation } from "../services/shopifyReconciliation";
+
+// ── Tiny per-process cache: shopDomain → IANA timezone ────────────────────────
+// Webhook handlers run hot and the timezone changes only when a shop reinstalls
+// or admins update it. Stale entries are harmless (recomputed on next miss).
+const shopTzCache = new Map<string, { tz: string; expires: number }>();
+const SHOP_TZ_TTL_MS = 5 * 60 * 1000;
+async function getShopTz(shopDomain: string): Promise<string> {
+  const cached = shopTzCache.get(shopDomain);
+  if (cached && cached.expires > Date.now()) return cached.tz;
+  const row = await db.select({ timezone: shops.timezone }).from(shops).where(eq(shops.shopDomain, shopDomain)).limit(1);
+  const tz = resolveShopTimezone(row[0]?.timezone);
+  shopTzCache.set(shopDomain, { tz, expires: Date.now() + SHOP_TZ_TTL_MS });
+  return tz;
+}
 
 const aiRateLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -309,9 +325,17 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
         try {
           const normalizedDomain = shopDomain.trim().toLowerCase();
           const orderDate = new Date(order.created_at);
-          const dateKey = orderDate.toISOString().split('T')[0];
-          const date = new Date(dateKey + 'T00:00:00Z');
-          const dayOfWeek = date.getUTCDay();
+          // OWNERSHIP RULE: today's row is owned by this webhook path
+          // (incremental adds). Completed days are owned by the nightly
+          // reconciliation job (see server/services/shopifyReconciliation.ts).
+          // Backfill / sync routes do full overwrites and may safely stomp
+          // either, but should be considered manual interventions.
+          // Bucket by the *shop's* local calendar date so a 10pm-local order
+          // doesn't slide into the next day's totals.
+          const tz = await getShopTz(normalizedDomain);
+          const dateKey = dateKeyInTz(orderDate, tz);
+          const date = dailySalesRowDate(dateKey);
+          const dayOfWeek = dayOfWeekInTz(orderDate, tz);
 
           const orderTotal = parseFloat(order.total_price || order.subtotal_price || '0');
           let itemCount = 0;
@@ -563,7 +587,9 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
             shopName: shopInfo?.name || existing[0].shopName,
             shopEmail: shopInfo?.email || existing[0].shopEmail,
             currency: shopInfo?.currencyCode || existing[0].currency,
-            timezone: shopInfo?.timezoneAbbreviation || existing[0].timezone,
+            // Prefer the IANA name (e.g. "America/New_York") over the
+            // ambiguous abbreviation ("EST") so timezone-aware bucketing works.
+            timezone: shopInfo?.ianaTimezone || shopInfo?.timezoneAbbreviation || existing[0].timezone,
             updatedAt: new Date(),
             // Set companyId if not already set
             ...(installingUserCompanyId && !existing[0].companyId
@@ -579,7 +605,7 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
           shopName: shopInfo?.name || null,
           shopEmail: shopInfo?.email || null,
           currency: shopInfo?.currencyCode || 'USD',
-          timezone: shopInfo?.timezoneAbbreviation || null,
+          timezone: shopInfo?.ianaTimezone || shopInfo?.timezoneAbbreviation || null,
           companyId: installingUserCompanyId,
         });
       }
@@ -840,6 +866,83 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
     }
   });
 
+  // Diagnostic: returns today's raw shopify_daily_sales rows, today's
+  // shopify_orders count (the per-order source of truth for the webhook
+  // increments), and the latest reconciliation run for each connected shop.
+  // Admin-only — useful for spotting drift without a DB shell.
+  app.get("/api/admin/shopify-sales-debug", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.id || req.auth?.userId;
+      const isAdmin = await resolvePermission(userId, 'admin.manage_all', storage);
+      const roleName = req.user?.role?.name ?? '';
+      if (!isAdmin && roleName !== 'owner' && roleName !== 'admin') {
+        return res.status(403).json({ error: "Admin access required" });
+      }
+
+      const requestedShop = (req.query.shop as string)?.trim().toLowerCase();
+      const shopRows = await db.select({
+        shopDomain: shops.shopDomain,
+        timezone: shops.timezone,
+        isActive: shops.isActive,
+        lastSyncAt: shops.lastSyncAt,
+      }).from(shops).where(requestedShop ? eq(shops.shopDomain, requestedShop) : eq(shops.isActive, true));
+
+      const now = new Date();
+      const out: any[] = [];
+      for (const s of shopRows) {
+        const tz = resolveShopTimezone(s.timezone);
+        const todayKey = dateKeyInTz(now, tz);
+        // Daily-sales row is keyed on the shop-local calendar date (stored as
+        // YYYY-MM-DDT00:00:00Z), so its bounds are the canonical row date ±24h.
+        const rowStart = dailySalesRowDate(todayKey);
+        const rowEnd = new Date(rowStart.getTime() + 24 * 60 * 60 * 1000 - 1);
+
+        const dailyRows = await db.select().from(shopifyDailySales)
+          .where(and(eq(shopifyDailySales.shopDomain, s.shopDomain),
+            gte(shopifyDailySales.date, rowStart),
+            lte(shopifyDailySales.date, rowEnd)));
+
+        // shopify_orders.order_created_at is a real UTC instant, so to count
+        // "today's" orders accurately we need the shop-local day's true UTC
+        // bounds — NOT the daily_sales row's UTC midnight (which would slip
+        // the window for non-UTC shops).
+        const { startUtc, endUtc } = shopDayUtcBounds(todayKey, tz);
+        const orderCountRow: any = await db.execute(sql`
+          SELECT COUNT(*)::int AS c, COALESCE(SUM(total_price), 0)::numeric AS total
+          FROM shopify_orders
+          WHERE shop_domain = ${s.shopDomain}
+            AND order_created_at >= ${startUtc}
+            AND order_created_at <= ${endUtc}
+        `);
+        const orderRow = orderCountRow.rows?.[0] ?? { c: 0, total: 0 };
+
+        const lastRun = await getLastReconciliation(s.shopDomain);
+        out.push({
+          shopDomain: s.shopDomain,
+          timezone: tz,
+          shopLocalDate: todayKey,
+          dailySalesRows: dailyRows.map(r => ({
+            date: r.date,
+            orderCount: r.orderCount,
+            totalRevenue: r.totalRevenue,
+            itemCount: r.itemCount,
+            averageOrderValue: r.averageOrderValue,
+          })),
+          shopifyOrdersToday: {
+            orderCount: Number(orderRow.c),
+            sumTotalPrice: Number(orderRow.total),
+          },
+          lastReconciliation: lastRun,
+          lastSyncAt: s.lastSyncAt,
+        });
+      }
+      res.json({ now: now.toISOString(), shops: out });
+    } catch (error) {
+      console.error('[shopify-sales-debug] error:', error);
+      res.status(500).json({ error: "Failed to load diagnostic" });
+    }
+  });
+
   app.post("/api/shopify/disconnect", isAuthenticated, async (req: any, res) => {
     try {
       const { shopDomain: domain } = req.body;
@@ -941,15 +1044,16 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
         itemCount: number;
       }> = {};
 
+      // Bucket by the shop's local calendar date so totals match Shopify Analytics.
+      const tz = await getShopTz(credentials.shopDomain);
       for (const order of orders) {
         const orderDate = new Date(order.createdAt);
-        const dateKey = orderDate.toISOString().split('T')[0];
+        const dateKey = dateKeyInTz(orderDate, tz);
 
         if (!dailyAggregation[dateKey]) {
-          const d = new Date(dateKey + 'T00:00:00Z');
           dailyAggregation[dateKey] = {
-            date: d,
-            dayOfWeek: d.getUTCDay(),
+            date: dailySalesRowDate(dateKey),
+            dayOfWeek: dayOfWeekInTz(orderDate, tz),
             orderCount: 0,
             totalRevenue: 0,
             itemCount: 0,
@@ -1035,10 +1139,30 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
       }
 
       const service = new ShopifyService(credentials.shopDomain, credentials.accessToken);
-      const startIso = `${date}T00:00:00Z`;
-      const endIso   = `${date}T23:59:59Z`;
+      // Bucket the requested local date into UTC bounds for the Shopify query.
+      const normalizedDomain = credentials.shopDomain;
+      const tz = await getShopTz(normalizedDomain);
+      const { shopDayUtcBounds } = await import("../lib/shopTimezone");
+      const { startUtc, endUtc } = shopDayUtcBounds(date, tz);
 
-      const orders = await service.getOrders({ first: 250, createdAtMin: startIso, createdAtMax: endIso, maxPages: 5 });
+      const rawOrders = await service.getOrders({
+        first: 250,
+        createdAtMin: startUtc.toISOString(),
+        createdAtMax: endUtc.toISOString(),
+        maxPages: 5,
+      });
+
+      // Re-filter to the requested shop-local date. Shopify's `created_at`
+      // search is timestamp-precise but we still defend against any edge cases
+      // (clock skew, tz config drift) by checking each order's actual local
+      // calendar date here. Without this, we could overwrite the daily
+      // aggregate with totals that include orders from a neighboring day.
+      const { dateKeyInTz: _dateKeyInTz } = await import("../lib/shopTimezone");
+      const orders = rawOrders.filter((o) => {
+        const created = (o as any).createdAt;
+        if (!created) return false;
+        return _dateKeyInTz(new Date(created), tz) === date;
+      });
 
       if (orders.length === 0) {
         return res.json({ ordersFound: 0, dayRevenue: 0, date });
@@ -1046,8 +1170,7 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
 
       let dayRevenue = 0;
       let itemCount  = 0;
-      const normalizedDomain = credentials.shopDomain;
-      const dateObj = new Date(`${date}T00:00:00Z`);
+      const dateObj = dailySalesRowDate(date);
 
       for (const order of orders) {
         const rawId   = (order as any).id ?? '';
@@ -1089,7 +1212,8 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
       }
 
       // Upsert daily aggregate
-      const dayOfWeek = dateObj.getUTCDay();
+      const { dayOfWeekInTz: _dowInTz } = await import("../lib/shopTimezone");
+      const dayOfWeek = _dowInTz(new Date(`${date}T12:00:00Z`), tz);
       const avgOrderValue = orders.length > 0 ? Math.round((dayRevenue / orders.length) * 100) / 100 : 0;
       const existingDay = await db.select({ id: shopifyDailySales.id })
         .from(shopifyDailySales)
@@ -1172,7 +1296,10 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
 
       // Auto-sync today's data from Shopify if missing from the DB.
       // This self-heals on every first load of the day without a manual trigger.
-      const todayKeyCheck = new Date().toISOString().split('T')[0];
+      // Use the shop's local date so we don't false-positive a "missing" row at,
+      // e.g., 02:00 UTC when it's still yesterday in the shop's timezone.
+      const tzForKey = await getShopTz(resolvedDomain);
+      const todayKeyCheck = dateKeyInTz(new Date(), tzForKey);
       const todayRow = await db.select({ id: shopifyDailySales.id })
         .from(shopifyDailySales)
         .where(and(
@@ -1189,11 +1316,12 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
             const svc = new ShopifyService(creds.shopDomain, creds.accessToken);
             const syncStart = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
             const orders = await svc.getOrders({ first: 250, createdAtMin: syncStart.toISOString(), createdAtMax: new Date().toISOString(), maxPages: 5 });
+            const tz = await getShopTz(resolvedDomain);
             const agg: Record<string, { date: Date; dayOfWeek: number; orderCount: number; totalRevenue: number; itemCount: number }> = {};
             for (const o of orders) {
               const d = new Date(o.createdAt);
-              const k = d.toISOString().split('T')[0];
-              if (!agg[k]) agg[k] = { date: new Date(k + 'T00:00:00Z'), dayOfWeek: new Date(k + 'T00:00:00Z').getUTCDay(), orderCount: 0, totalRevenue: 0, itemCount: 0 };
+              const k = dateKeyInTz(d, tz);
+              if (!agg[k]) agg[k] = { date: dailySalesRowDate(k), dayOfWeek: dayOfWeekInTz(d, tz), orderCount: 0, totalRevenue: 0, itemCount: 0 };
               agg[k].orderCount++;
               agg[k].totalRevenue += parseFloat(o.totalPriceSet?.shopMoney?.amount || '0');
               for (const li of (o.lineItems?.nodes || [])) agg[k].itemCount += li.quantity || 1;

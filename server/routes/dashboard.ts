@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import type { IStorage } from "../storage";
 import { db } from "../db";
-import { schedules, timeEntries, shopifyDailySales, userShops, users, locationPermissions } from "@shared/schema";
+import { schedules, timeEntries, shopifyDailySales, shops, userShops, users, locationPermissions } from "@shared/schema";
 import { eq, and, gte, lte, lt, desc, isNull, ne, inArray, or } from "drizzle-orm";
 import { cache } from "../services/cache";
 import { gamificationService } from "../services/gamificationService";
@@ -552,7 +552,17 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
         ? Math.ceil(goalRevenue / avgOrderValue)
         : lastYearOrders;
 
-      // Fetch today's current sales
+      // Fetch today's current sales — bucket by the SHOP's local calendar day,
+      // not the server's wall clock. The shopify ingestion path stores rows
+      // keyed on `${shop_local_YYYY-MM-DD}T00:00:00Z`; the read side has to
+      // use the same key or we'll fetch the wrong day (or no day) when the
+      // server timezone differs from the shop timezone.
+      const { resolveShopTimezone, dateKeyInTz, dailySalesRowDate } = await import('../lib/shopTimezone');
+      const shopTzRow = await db.select({ timezone: shops.timezone }).from(shops).where(eq(shops.shopDomain, shopDomain)).limit(1);
+      const shopTz = resolveShopTimezone(shopTzRow[0]?.timezone);
+      const localTodayKey = dateKeyInTz(now, shopTz);
+      const localTodayStart = dailySalesRowDate(localTodayKey);
+      const localTodayEnd = new Date(localTodayStart.getTime() + 24 * 60 * 60 * 1000 - 1);
       const todaySales = await db.select({
           totalRevenue: shopifyDailySales.totalRevenue,
           orderCount: shopifyDailySales.orderCount,
@@ -560,8 +570,8 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
         .from(shopifyDailySales)
         .where(and(
           eq(shopifyDailySales.shopDomain, shopDomain),
-          gte(shopifyDailySales.date, new Date(now.getFullYear(), now.getMonth(), now.getDate())),
-          lte(shopifyDailySales.date, new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59))
+          gte(shopifyDailySales.date, localTodayStart),
+          lte(shopifyDailySales.date, localTodayEnd)
         ))
         .limit(1);
 

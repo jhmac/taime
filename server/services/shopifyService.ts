@@ -112,6 +112,7 @@ export class ShopifyService {
         }
         currencyCode
         timezoneAbbreviation
+        ianaTimezone
         plan {
           displayName
         }
@@ -132,13 +133,14 @@ export class ShopifyService {
     let queryFilter = '';
     const filterParts: string[] = [];
 
+    // Preserve full ISO-8601 instants (Shopify GraphQL search supports
+    // timestamp granularity in the created_at filter). Truncating to
+    // YYYY-MM-DD breaks shop-timezone bucketing for non-UTC stores.
     if (createdAtMin) {
-      const dateOnly = createdAtMin.split('T')[0];
-      filterParts.push(`created_at:>=${dateOnly}`);
+      filterParts.push(`created_at:>='${createdAtMin}'`);
     }
     if (createdAtMax) {
-      const dateOnly = createdAtMax.split('T')[0];
-      filterParts.push(`created_at:<=${dateOnly}`);
+      filterParts.push(`created_at:<='${createdAtMax}'`);
     }
     if (filterParts.length > 0) {
       queryFilter = filterParts.join(' ');

@@ -42,6 +42,7 @@ The backend is a Node.js Express.js server written in TypeScript, utilizing Driz
 - **AI Content Studio**: Manager-only hub for AI-powered content generation from uploaded documents.
 - **Digital Cash Management System**: Replaces paper-based processes with a guided denomination wizard, AI deposit slip verification, and an AI Cash Investigation Engine, including advanced drawer reconciliation features.
 - **Mobile-First Schedule Page**: Redesigned timeline view with pinch-zoom, swipe navigation, a mobile 3-day week window, and touch-friendly shift block interactions.
+- **Shopify Sales Accuracy & Reconciliation**: Daily sales bucketed in shop's IANA timezone (`server/lib/shopTimezone.ts`); `orders/create` webhook owns today's row, a 30-min reconciliation cron (`server/services/shopifyReconciliation.ts`) overwrites completed days from Shopify (handles refunds/voids/edits/missed webhooks), with idempotency in `shopify_reconciliation_runs`. Admin diagnostic at `GET /api/admin/shopify-sales-debug`.
 
 ## External Dependencies
 

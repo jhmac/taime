@@ -17,6 +17,7 @@ import { globalErrorHandler } from "./lib/routeWrapper";
 import { startRitualScheduler } from "./services/ritualScheduler";
 import { startDailyQuestionnaireScheduler } from "./services/dailyQuestionnaireScheduler";
 import { startShopifyReportScheduler } from "./routes/shopify";
+import { startShopifyReconciliationCron } from "./services/shopifyReconciliation";
 import { backfillLegacyUserRoles, backfillInactiveAuthenticatedUsers, backfillStoreCreatorOwnerRole } from "./services/backfill";
 import { runSchemaMigrations, scheduleStaleTokenCleanup, scheduleDeliveryLogCleanup, cleanupStaleOffsiteSessions } from "./services/migrations";
 import { runStartupAiContentBackfill } from "./services/sopIndexer";
@@ -288,6 +289,7 @@ app.use((req, res, next) => {
     startDailyQuestionnaireScheduler(storage);
     // Run migrations first so default roles are seeded, then run backfills that depend on them
     let stopShopifyReportScheduler: (() => void) | null = null;
+    let stopShopifyReconciliationCron: (() => void) | null = null;
     runSchemaMigrations().then(async () => {
       backfillLegacyUserRoles();
       backfillInactiveAuthenticatedUsers();
@@ -297,6 +299,7 @@ app.use((req, res, next) => {
       cleanupStaleOffsiteSessions();
       // Start after migrations so the shopify_report_schedules table is guaranteed to exist
       stopShopifyReportScheduler = startShopifyReportScheduler();
+      stopShopifyReconciliationCron = startShopifyReconciliationCron();
       const { scheduleTimesheetReminders } = await import('./services/timesheetReminderService');
       scheduleTimesheetReminders();
     }).catch((err) => console.error('[Startup] Migration failed:', err));
@@ -304,6 +307,7 @@ app.use((req, res, next) => {
     // Graceful shutdown: stop all background schedulers
     const gracefulStop = () => {
       stopShopifyReportScheduler?.();
+      stopShopifyReconciliationCron?.();
       process.exit(0);
     };
     process.once('SIGTERM', gracefulStop);
