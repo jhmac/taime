@@ -926,7 +926,7 @@ export default function TaskManagement() {
                                       <i className="fas fa-pencil-alt text-xs"></i>
                                     </Button>
                                     {canDeleteTasks && (
-                                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-destructive hover:text-destructive" onClick={() => setDeleteConfirm(task)} data-testid={`delete-task-${task.id}`}>
+                                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-destructive hover:text-destructive hover:bg-destructive/10" onClick={(e) => { e.stopPropagation(); setDeleteConfirm(task); }} data-testid={`delete-task-${task.id}`}>
                                         <i className="fas fa-trash-alt text-xs"></i>
                                       </Button>
                                     )}
@@ -1574,6 +1574,16 @@ export default function TaskManagement() {
             </div>
           </div>
           <DialogFooter className="flex-col sm:flex-row gap-2">
+            {editingTask && canDeleteTasks && (
+              <Button
+                variant="destructive"
+                className="sm:mr-auto"
+                onClick={() => { setEditingTask(null); setShowCreateDialog(false); setDeleteConfirm(editingTask); }}
+                data-testid="edit-dialog-delete-btn"
+              >
+                <i className="fas fa-trash-alt mr-1.5"></i>Delete
+              </Button>
+            )}
             <Button variant="outline" onClick={() => { setShowCreateDialog(false); setEditingTask(null); setForm(emptyForm); }}>
               Cancel
             </Button>
