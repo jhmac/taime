@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Bell, Clock, Target, Award, Users, CheckCheck, Pencil, Sparkles } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
+import ReportIssueDialog from '@/components/ReportIssueDialog';
 
 const pageTitles: Record<string, string> = {
   '/': 'Dashboard',
@@ -235,11 +236,12 @@ function MobileBellButton() {
 export default function TopNavigation() {
   const { user } = useAuth();
   const isMobile = useIsMobile();
-  const [location, navigate] = useLocation();
+  const [location] = useLocation();
+  const [showReportDialog, setShowReportDialog] = useState(false);
 
   const pageTitle = pageTitles[location] || 'Taime';
 
-  const openLetUsKnow = () => navigate('/issues');
+  const openLetUsKnow = () => setShowReportDialog(true);
   const openAskAra = () => window.dispatchEvent(new Event("open-ask-ara"));
 
   if (isMobile) {
@@ -288,6 +290,7 @@ export default function TopNavigation() {
           </div>
         </div>
       </header>
+      <ReportIssueDialog open={showReportDialog} onOpenChange={setShowReportDialog} />
     );
   }
 
@@ -342,6 +345,7 @@ export default function TopNavigation() {
           )}
         </div>
       </div>
+      <ReportIssueDialog open={showReportDialog} onOpenChange={setShowReportDialog} />
     </header>
   );
 }

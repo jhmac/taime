@@ -11,7 +11,7 @@ import { useWebSocket } from '@/hooks/useWebSocket';
 import {
   AlertTriangle, Clock, ChevronRight, LayoutGrid, List,
   Wrench, RefreshCw, Users, Warehouse, Package, ShieldAlert,
-  GraduationCap, HelpCircle, Filter
+  GraduationCap, HelpCircle, Filter, Plus
 } from 'lucide-react';
 import ReportIssueDialog from '@/components/ReportIssueDialog';
 
@@ -171,6 +171,14 @@ export default function IssueList() {
                 <TabsTrigger value="list" className="h-7 px-2"><List className="h-3.5 w-3.5" /></TabsTrigger>
               </TabsList>
             </Tabs>
+            <Button
+              size="sm"
+              className="h-8 gap-1.5 text-xs font-semibold"
+              onClick={() => setShowReportDialog(true)}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              New Issue
+            </Button>
           </div>
         </div>
 

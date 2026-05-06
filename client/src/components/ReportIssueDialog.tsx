@@ -12,7 +12,7 @@ import { apiRequest } from '@/lib/queryClient';
 import { useIsMobile } from '@/hooks/use-mobile';
 import {
   Wrench, RefreshCw, Users, Warehouse, Package, ShieldAlert,
-  GraduationCap, HelpCircle, Camera, X, Loader2, AlertTriangle
+  GraduationCap, HelpCircle, Camera, ImagePlus, X, Loader2, AlertTriangle, Send
 } from 'lucide-react';
 
 const CATEGORIES = [
@@ -42,6 +42,7 @@ function IssueForm({ onSuccess }: { onSuccess: () => void }) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState('');
@@ -168,45 +169,71 @@ function IssueForm({ onSuccess }: { onSuccess: () => void }) {
 
       <div>
         <input
-          ref={fileInputRef}
+          ref={cameraInputRef}
           type="file"
           accept="image/*"
           capture="environment"
           className="hidden"
           onChange={handlePhotoCapture}
         />
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={handlePhotoCapture}
+        />
         {photoUrl ? (
-          <div className="relative rounded-lg overflow-hidden border">
-            <img src={photoUrl} alt="Issue photo" className="w-full max-h-32 object-cover" />
+          <div className="relative rounded-xl overflow-hidden border-2 border-border">
+            <img src={photoUrl} alt="Issue photo" className="w-full max-h-40 object-cover" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent" />
             <Button
               variant="destructive"
               size="sm"
-              className="absolute top-1 right-1 h-7 w-7 p-0"
-              onClick={() => { setPhotoUrl(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}
+              className="absolute top-2 right-2 h-7 w-7 p-0 shadow-md"
+              onClick={() => {
+                setPhotoUrl(null);
+                if (fileInputRef.current) fileInputRef.current.value = '';
+                if (cameraInputRef.current) cameraInputRef.current.value = '';
+              }}
             >
               <X className="h-3.5 w-3.5" />
             </Button>
+            <p className="absolute bottom-2 left-2 text-[11px] text-white/80 font-medium">Photo attached</p>
           </div>
         ) : (
-          <Button
-            type="button"
-            variant="outline"
-            className="w-full min-h-[48px] gap-2 border-dashed"
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <Camera className="h-5 w-5" />
-            Add Photo
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="flex-1 min-h-[48px] gap-2 border-dashed hover:border-primary/40 hover:bg-primary/5 transition-colors"
+              onClick={() => cameraInputRef.current?.click()}
+            >
+              <Camera className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm">Take Photo</span>
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="flex-1 min-h-[48px] gap-2 border-dashed hover:border-primary/40 hover:bg-primary/5 transition-colors"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <ImagePlus className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm">Upload Image</span>
+            </Button>
+          </div>
         )}
       </div>
 
       <Button
-        className="w-full min-h-[48px] text-base font-semibold"
+        className="w-full min-h-[52px] text-base font-semibold gap-2 rounded-xl"
         disabled={!canSubmit || createMutation.isPending}
         onClick={() => createMutation.mutate()}
       >
-        {createMutation.isPending ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : null}
-        Report Issue
+        {createMutation.isPending
+          ? <Loader2 className="h-5 w-5 animate-spin" />
+          : <Send className="h-4 w-4" />}
+        {createMutation.isPending ? 'Submitting…' : 'Submit Issue'}
       </Button>
     </div>
   );
