@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Store, ExternalLink, RefreshCw, Unlink, TrendingUp, ShoppingCart, Wifi, WifiOff } from 'lucide-react';
+import { Store, ExternalLink, RefreshCw, Unlink, TrendingUp, ShoppingCart, Wifi, WifiOff, Database, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import type { PosConnectionSectionProps } from '@/components/settings/types';
 
@@ -42,6 +42,31 @@ export default function PosConnectionSection({
     lastSyncAt?: string | Date | null;
     error?: string;
   } | null>(null);
+
+  // Backfill range state
+  const [backfillStart, setBackfillStart] = useState('');
+  const [backfillEnd, setBackfillEnd] = useState('');
+  const [backfillPending, setBackfillPending] = useState(false);
+  const [backfillResult, setBackfillResult] = useState<{
+    ordersProcessed: number;
+    daysSynced: number;
+    dateRange: { from: string; to: string };
+  } | null>(null);
+
+  // Auto-populate sensible defaults: last year same week as hint for the user
+  useEffect(() => {
+    if (!connectedShop) return;
+    const today = new Date();
+    const oneYearAgo = new Date(today);
+    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+    // Default range: ±4 weeks around exactly one year ago
+    const rangeStart = new Date(oneYearAgo);
+    rangeStart.setDate(rangeStart.getDate() - 28);
+    const rangeEnd = new Date(oneYearAgo);
+    rangeEnd.setDate(rangeEnd.getDate() + 28);
+    setBackfillStart(rangeStart.toISOString().split('T')[0]);
+    setBackfillEnd(rangeEnd.toISOString().split('T')[0]);
+  }, [connectedShop?.shopDomain]);
 
   async function runConnectionTest(showToast = false) {
     setTestingConnection(true);
@@ -95,6 +120,42 @@ export default function PosConnectionSection({
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === 'Enter') handleConnect();
   }
+
+  async function handleBackfillRange() {
+    if (!connectedShop || !backfillStart || !backfillEnd) return;
+    setBackfillPending(true);
+    setBackfillResult(null);
+    try {
+      const res = await apiRequest('POST', '/api/shopify/backfill-range', {
+        shopDomain: connectedShop.shopDomain,
+        startDate: backfillStart,
+        endDate: backfillEnd,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || err.message || `Server error ${res.status}`);
+      }
+      const data = await res.json();
+      setBackfillResult(data);
+      toast({
+        title: 'Backfill complete',
+        description: `Pulled ${data.ordersProcessed.toLocaleString()} orders across ${data.daysSynced} days.`,
+      });
+    } catch (err: any) {
+      toast({
+        title: 'Backfill failed',
+        description: err.message || 'Could not fetch historical data from Shopify.',
+        variant: 'destructive',
+      });
+    } finally {
+      setBackfillPending(false);
+    }
+  }
+
+  const backfillDiffDays = backfillStart && backfillEnd
+    ? Math.ceil((new Date(backfillEnd).getTime() - new Date(backfillStart).getTime()) / (24 * 60 * 60 * 1000))
+    : 0;
+  const estimatedMinutes = backfillDiffDays > 0 ? Math.ceil(backfillDiffDays / 60) : 0;
 
   return (
     <div className="space-y-6">
@@ -251,6 +312,88 @@ export default function PosConnectionSection({
           )}
         </CardContent>
       </Card>
+
+      {/* Historical Data Backfill — only shown when connected */}
+      {connectedShop && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Database className="w-5 h-5" /> Historical Data Backfill
+            </CardTitle>
+            <CardDescription>
+              The Sales vs. Goal panel compares today to the same day last year. If that data is missing, the goal will use an older date instead. Use this to fill in any gaps.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/10 p-3 flex gap-2.5">
+              <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+              <div className="text-xs text-amber-800 dark:text-amber-300 space-y-1">
+                <p className="font-medium">Gap detected in historical data</p>
+                <p>
+                  Your database is missing sales data from approximately <strong>May 7 – Oct 3, 2025</strong>. Today's goal engine is falling back to April 30, 2025 instead of the correct same-week date from last year.
+                  Run the backfill below to fetch the missing period from Shopify.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Start date</label>
+                <Input
+                  type="date"
+                  value={backfillStart}
+                  onChange={e => setBackfillStart(e.target.value)}
+                  disabled={backfillPending}
+                  max={backfillEnd || undefined}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">End date</label>
+                <Input
+                  type="date"
+                  value={backfillEnd}
+                  onChange={e => setBackfillEnd(e.target.value)}
+                  disabled={backfillPending}
+                  min={backfillStart || undefined}
+                />
+              </div>
+            </div>
+
+            {backfillDiffDays > 0 && (
+              <p className="text-xs text-muted-foreground">
+                {backfillDiffDays} day{backfillDiffDays !== 1 ? 's' : ''} selected
+                {estimatedMinutes > 0 && ` · typically takes ~${estimatedMinutes} minute${estimatedMinutes !== 1 ? 's' : ''}`}
+              </p>
+            )}
+
+            <Button
+              onClick={handleBackfillRange}
+              disabled={backfillPending || !backfillStart || !backfillEnd || backfillDiffDays <= 0 || backfillDiffDays > 730}
+              className="w-full gap-2"
+            >
+              <Database className={`w-4 h-4 ${backfillPending ? 'animate-pulse' : ''}`} />
+              {backfillPending
+                ? 'Fetching from Shopify… this may take a moment'
+                : 'Backfill Historical Data'}
+            </Button>
+
+            {backfillResult && (
+              <div className="rounded-lg border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/10 p-3 flex gap-2.5">
+                <CheckCircle2 className="w-4 h-4 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
+                <div className="text-xs text-green-800 dark:text-green-300">
+                  <p className="font-medium">Backfill complete</p>
+                  <p>
+                    Pulled <strong>{backfillResult.ordersProcessed.toLocaleString()}</strong> orders across{' '}
+                    <strong>{backfillResult.daysSynced}</strong> days
+                    ({backfillResult.dateRange.from} → {backfillResult.dateRange.to}).
+                  </p>
+                  <p className="mt-1">The Sales vs. Goal panel will now use the correct date from last year.</p>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

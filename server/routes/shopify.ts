@@ -1242,6 +1242,134 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
     }
   });
 
+  // ── Backfill a date range from Shopify (chunks of 60 days to stay within pagination limits) ─
+  app.post("/api/shopify/backfill-range", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.id || req.auth?.userId;
+      const { shopDomain: domain, startDate, endDate } = req.body as {
+        shopDomain?: string;
+        startDate?: string; // YYYY-MM-DD
+        endDate?: string;   // YYYY-MM-DD
+      };
+
+      if (!domain || !startDate || !endDate) {
+        return res.status(400).json({ error: "shopDomain, startDate, and endDate required" });
+      }
+      if (!(await assertUserShopAccess(userId, domain))) {
+        return res.status(403).json({ error: "No access to this shop" });
+      }
+
+      const start = new Date(`${startDate}T00:00:00Z`);
+      const end   = new Date(`${endDate}T23:59:59Z`);
+      if (isNaN(start.getTime()) || isNaN(end.getTime()) || start > end) {
+        return res.status(400).json({ error: "Invalid date range" });
+      }
+      const diffDays = Math.ceil((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000));
+      if (diffDays > 730) {
+        return res.status(400).json({ error: "Date range cannot exceed 2 years" });
+      }
+
+      const credentials = await getShopifyCredentials(domain);
+      if (!credentials) {
+        return res.status(400).json({ error: "No credentials found for this shop" });
+      }
+
+      const shopifyService = new ShopifyService(credentials.shopDomain, credentials.accessToken);
+      const tz = await getShopTz(credentials.shopDomain);
+      const CHUNK_DAYS = 60;
+
+      let totalOrders = 0;
+      let daysSynced = 0;
+      let chunkStart = new Date(start);
+
+      while (chunkStart <= end) {
+        const chunkEnd = new Date(Math.min(
+          chunkStart.getTime() + CHUNK_DAYS * 24 * 60 * 60 * 1000 - 1,
+          end.getTime()
+        ));
+
+        const orders = await shopifyService.getOrders({
+          first: 250,
+          createdAtMin: chunkStart.toISOString(),
+          createdAtMax: chunkEnd.toISOString(),
+          maxPages: 40, // up to 10,000 orders per chunk
+        });
+
+        totalOrders += orders.length;
+
+        const dailyAggregation: Record<string, {
+          date: Date;
+          dayOfWeek: number;
+          orderCount: number;
+          totalRevenue: number;
+          itemCount: number;
+        }> = {};
+
+        for (const order of orders) {
+          const orderDate = new Date((order as any).createdAt);
+          const dateKey = dateKeyInTz(orderDate, tz);
+          if (!dailyAggregation[dateKey]) {
+            dailyAggregation[dateKey] = {
+              date: dailySalesRowDate(dateKey),
+              dayOfWeek: dayOfWeekInTz(orderDate, tz),
+              orderCount: 0,
+              totalRevenue: 0,
+              itemCount: 0,
+            };
+          }
+          dailyAggregation[dateKey].orderCount++;
+          dailyAggregation[dateKey].totalRevenue += parseFloat(
+            (order as any).totalPriceSet?.shopMoney?.amount || '0'
+          );
+          for (const li of ((order as any).lineItems?.nodes || [])) {
+            dailyAggregation[dateKey].itemCount += li.quantity || 1;
+          }
+        }
+
+        for (const [, dayData] of Object.entries(dailyAggregation)) {
+          const avgOrderValue = dayData.orderCount > 0
+            ? Math.round((dayData.totalRevenue / dayData.orderCount) * 100) / 100
+            : 0;
+          const totalRevenueStr = String(Math.round(dayData.totalRevenue * 100) / 100);
+
+          await db.insert(shopifyDailySales)
+            .values({
+              shopDomain: credentials.shopDomain,
+              date: dayData.date,
+              dayOfWeek: dayData.dayOfWeek,
+              orderCount: dayData.orderCount,
+              totalRevenue: totalRevenueStr,
+              itemCount: dayData.itemCount,
+              averageOrderValue: String(avgOrderValue),
+            })
+            .onConflictDoUpdate({
+              target: [shopifyDailySales.shopDomain, shopifyDailySales.date],
+              set: {
+                orderCount: dayData.orderCount,
+                totalRevenue: totalRevenueStr,
+                itemCount: dayData.itemCount,
+                averageOrderValue: String(avgOrderValue),
+                dayOfWeek: dayData.dayOfWeek,
+              },
+            });
+          daysSynced++;
+        }
+
+        chunkStart = new Date(chunkEnd.getTime() + 1);
+      }
+
+      res.json({
+        success: true,
+        ordersProcessed: totalOrders,
+        daysSynced,
+        dateRange: { from: startDate, to: endDate },
+      });
+    } catch (error) {
+      console.error("Error in backfill-range:", error);
+      res.status(500).json({ message: "Failed to backfill date range", detail: String(error) });
+    }
+  });
+
   app.get("/api/shopify/sales-data", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user?.id || req.auth?.userId;
