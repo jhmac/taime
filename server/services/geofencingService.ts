@@ -2,7 +2,7 @@ import { storage } from '../storage';
 import { notificationService } from './notificationService';
 import { db } from '../db';
 import { geofenceEvents, timeEntries, workLocations, offsiteAllowanceRules, offsiteSessions, users } from '@shared/schema';
-import { eq, and, isNull, isNotNull, desc } from 'drizzle-orm';
+import { eq, and, isNull, isNotNull, desc, gt } from 'drizzle-orm';
 import { fetchAndStoreRoute, clearWatchdogs } from './routeTrackingService';
 import { postMileageReimbursement } from './mileageReimbursementService';
 import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
@@ -977,7 +977,91 @@ export class GeofencingService {
                   timeEntryId: entry.id,
                 }).catch(() => {/* non-fatal */});
               }
+              // Skip geofence check — already handled above
+              continue;
             }
+          }
+
+          // --- Server-side geofence grace expiry check ---
+          // Runs every 60 s. Catches the case where the user left the geofenced
+          // area and closed/backgrounded the app before the client-side countdown
+          // could fire (or before the server-side in-memory setTimeout could fire
+          // after a restart). We look up the DB exit event directly so clock-out
+          // is backdated to the real departure time, not the stale-check time.
+          try {
+            // Most recent exit event for this time entry
+            const [lastExitEvent] = await db.select()
+              .from(geofenceEvents)
+              .where(and(
+                eq(geofenceEvents.userId, entry.userId),
+                eq(geofenceEvents.eventType, 'exit'),
+                eq(geofenceEvents.timeEntryId, entry.id),
+              ))
+              .orderBy(desc(geofenceEvents.createdAt))
+              .limit(1);
+
+            if (!lastExitEvent?.createdAt) continue; // no recorded exit — nothing to do
+
+            // If the user returned after this exit, skip
+            const [lastEnterEvent] = await db.select()
+              .from(geofenceEvents)
+              .where(and(
+                eq(geofenceEvents.userId, entry.userId),
+                eq(geofenceEvents.eventType, 'enter'),
+                gt(geofenceEvents.createdAt, lastExitEvent.createdAt),
+              ))
+              .orderBy(desc(geofenceEvents.createdAt))
+              .limit(1);
+
+            if (lastEnterEvent) continue; // user came back
+
+            // Also skip if an auto_clock_out event already exists for this entry
+            const [existingAutoOut] = await db.select()
+              .from(geofenceEvents)
+              .where(and(
+                eq(geofenceEvents.userId, entry.userId),
+                eq(geofenceEvents.eventType, 'auto_clock_out'),
+                eq(geofenceEvents.timeEntryId, entry.id),
+              ))
+              .limit(1);
+
+            if (existingAutoOut) continue; // already processed
+
+            // Determine grace period for this entry's location
+            const exitLocation = await this.getLocationForTimeEntry(entry);
+            const { graceMs, autoClockOut } = await this.getEffectiveGraceMs(exitLocation);
+
+            if (!autoClockOut) continue; // auto clock-out disabled for this location
+
+            const elapsedSinceExit = Date.now() - new Date(lastExitEvent.createdAt).getTime();
+            if (elapsedSinceExit < graceMs) continue; // grace period still running
+
+            console.log(`[Geofence] Stale checker: user ${entry.userId} exited geofence ${Math.round(elapsedSinceExit / 1000)}s ago (grace=${graceMs / 1000}s) with no return — auto clocking out.`);
+
+            // Backdate clock-out to the exit event so timesheets are accurate
+            await storage.updateTimeEntry(entry.id, {
+              clockOutTime: lastExitEvent.createdAt,
+              clockOutSource: 'auto-geofence',
+              notes: `${(entry as any).notes ? (entry as any).notes + ' | ' : ''}Auto clocked out: left geofence boundary (detected by server stale checker)`,
+            });
+
+            const locationId = exitLocation?.id || entry.locationId || '';
+            if (locationId) {
+              await db.insert(geofenceEvents).values({
+                userId: entry.userId,
+                locationId,
+                eventType: 'auto_clock_out',
+                timeEntryId: entry.id,
+              }).catch(() => {/* non-fatal */});
+            }
+
+            // Cancel any in-memory timer that may still be running
+            if (activeExitTimers.has(entry.userId)) {
+              clearTimeout(activeExitTimers.get(entry.userId)!);
+              activeExitTimers.delete(entry.userId);
+            }
+          } catch (geofenceCheckErr) {
+            console.error(`[Geofence] Stale geofence exit check failed for entry ${entry.id}:`, geofenceCheckErr);
           }
         }
       } catch (error) {
