@@ -1215,6 +1215,30 @@ function DocumentFullPage({
     onUpdate(item.id, { content: { ...contentRaw, paragraphs: newParas } });
   };
 
+  const handleDecisionOptionSave = (stepIndex: number, optIndex: number, field: "condition" | "action", newValue: string) => {
+    const newSteps = [...(sopContent.steps || [])];
+    const opts = [...(newSteps[stepIndex].decisionOptions || [])];
+    opts[optIndex] = { ...opts[optIndex], [field]: newValue };
+    newSteps[stepIndex] = { ...newSteps[stepIndex], decisionOptions: opts };
+    onUpdate(item.id, { content: { ...contentRaw, steps: newSteps } });
+  };
+
+  const handleDecisionOptionDelete = (stepIndex: number, optIndex: number) => {
+    const newSteps = [...(sopContent.steps || [])];
+    const opts = [...(newSteps[stepIndex].decisionOptions || [])];
+    opts.splice(optIndex, 1);
+    newSteps[stepIndex] = { ...newSteps[stepIndex], decisionOptions: opts };
+    onUpdate(item.id, { content: { ...contentRaw, steps: newSteps } });
+  };
+
+  const handleDecisionOptionAdd = (stepIndex: number) => {
+    const newSteps = [...(sopContent.steps || [])];
+    const opts = [...(newSteps[stepIndex].decisionOptions || [])];
+    opts.push({ condition: "New condition", action: "New action" });
+    newSteps[stepIndex] = { ...newSteps[stepIndex], decisionOptions: opts };
+    onUpdate(item.id, { content: { ...contentRaw, steps: newSteps } });
+  };
+
   const handleTitleSave = (newTitle: string) => {
     onUpdate(item.id, { title: newTitle });
   };
@@ -1250,15 +1274,47 @@ function DocumentFullPage({
                 <div className="flex-1 min-w-0 pb-4">
                   <InlineTextField value={step.title || ""} onSave={(v) => handleStepFieldSave(i, "title", v)} editable={editable} className="font-semibold text-base text-foreground block mb-1" />
                   <InlineTextField value={step.description || ""} onSave={(v) => handleStepFieldSave(i, "description", v)} editable={editable} multiline className="text-sm text-muted-foreground leading-relaxed block" />
-                  {step.decisionOptions && step.decisionOptions.length > 0 && (
-                    <div className="mt-3 space-y-1.5 pl-2 border-l-2 border-amber-300 dark:border-amber-700">
-                      {step.decisionOptions.map((opt, j) => (
-                        <div key={j} className="text-xs bg-amber-50 dark:bg-amber-950/30 rounded-lg px-3 py-1.5">
-                          <span className="font-semibold text-amber-800 dark:text-amber-300">{opt.condition}</span>
-                          <span className="text-muted-foreground mx-2">→</span>
-                          <span>{opt.action}</span>
+                  {(editable || (step.decisionOptions && step.decisionOptions.length > 0)) && (
+                    <div className="mt-3 pl-2 border-l-2 border-amber-300 dark:border-amber-700 space-y-1.5">
+                      {(step.decisionOptions || []).map((opt, j) => (
+                        <div key={j} className="text-xs bg-amber-50 dark:bg-amber-950/30 rounded-lg px-3 py-2 flex items-start gap-2 group/opt">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+                              <InlineTextField
+                                value={opt.condition}
+                                onSave={(v) => handleDecisionOptionSave(i, j, "condition", v)}
+                                editable={editable}
+                                className="font-semibold text-amber-800 dark:text-amber-300"
+                              />
+                              <span className="text-muted-foreground shrink-0">→</span>
+                              <InlineTextField
+                                value={opt.action}
+                                onSave={(v) => handleDecisionOptionSave(i, j, "action", v)}
+                                editable={editable}
+                                className="text-foreground/80"
+                              />
+                            </div>
+                          </div>
+                          {editable && (
+                            <button
+                              onClick={() => handleDecisionOptionDelete(i, j)}
+                              className="opacity-0 group-hover/opt:opacity-100 text-destructive/60 hover:text-destructive transition-opacity shrink-0 mt-0.5"
+                              title="Remove this option"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          )}
                         </div>
                       ))}
+                      {editable && (
+                        <button
+                          onClick={() => handleDecisionOptionAdd(i)}
+                          className="flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400 hover:text-amber-900 dark:hover:text-amber-200 px-3 py-1 transition-colors"
+                        >
+                          <Plus className="w-3 h-3" />
+                          Add option
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
