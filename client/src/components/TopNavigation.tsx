@@ -246,6 +246,58 @@ export default function TopNavigation() {
 
   if (isMobile) {
     return (
+      <>
+        <header
+          className="sticky top-0 z-40 w-full border-b"
+          style={{
+            backgroundColor: 'var(--background)',
+            backdropFilter: 'blur(12px)',
+            WebkitBackdropFilter: 'blur(12px)',
+            borderColor: 'var(--border)',
+          }}
+        >
+          <div className="flex h-14 items-center justify-between px-4">
+            <div className="flex items-center gap-2.5">
+              <div
+                className="w-8 h-8 rounded-xl flex items-center justify-center"
+                style={{ backgroundColor: 'var(--primary)' }}
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <circle cx="8" cy="8" r="6" stroke="white" strokeWidth="1.5" />
+                  <path d="M8 4.5V8L10.5 10" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </div>
+              <h1 className="text-[15px] font-semibold tracking-[-0.01em]" style={{ color: 'var(--foreground)' }}>
+                {pageTitle}
+              </h1>
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={openLetUsKnow}
+                className="p-1.5 rounded-xl hover:bg-muted transition-colors"
+                aria-label="Report Issue"
+              >
+                <Pencil className="h-4 w-4 text-muted-foreground" />
+              </button>
+              <button
+                onClick={openAskAra}
+                className="p-1.5 rounded-xl hover:bg-muted transition-colors"
+                aria-label="Ask Ara"
+              >
+                <Sparkles className="h-4 w-4 text-muted-foreground" />
+              </button>
+              <MobileBellButton />
+              {user && <UserButton afterSignOutUrl="/" />}
+            </div>
+          </div>
+        </header>
+        <ReportIssueDialog open={showReportDialog} onOpenChange={setShowReportDialog} />
+      </>
+    );
+  }
+
+  return (
+    <>
       <header
         className="sticky top-0 z-40 w-full border-b"
         style={{
@@ -255,97 +307,49 @@ export default function TopNavigation() {
           borderColor: 'var(--border)',
         }}
       >
-        <div className="flex h-14 items-center justify-between px-4">
-          <div className="flex items-center gap-2.5">
-            <div
-              className="w-8 h-8 rounded-xl flex items-center justify-center"
-              style={{ backgroundColor: 'var(--primary)' }}
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <circle cx="8" cy="8" r="6" stroke="white" strokeWidth="1.5" />
-                <path d="M8 4.5V8L10.5 10" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </div>
-            <h1 className="text-[15px] font-semibold tracking-[-0.01em]" style={{ color: 'var(--foreground)' }}>
-              {pageTitle}
-            </h1>
+        <div className="flex h-14 items-center justify-between px-6">
+          <div>
+            <h1 className="text-base font-semibold tracking-[-0.01em]">{pageTitle}</h1>
           </div>
-          <div className="flex items-center gap-1">
-            <button
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5 text-xs font-medium rounded-xl"
               onClick={openLetUsKnow}
-              className="p-1.5 rounded-xl hover:bg-muted transition-colors"
-              aria-label="Report Issue"
             >
-              <Pencil className="h-4 w-4 text-muted-foreground" />
-            </button>
-            <button
+              <Pencil className="h-3.5 w-3.5" />
+              Let us Know
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5 text-xs font-medium rounded-xl"
               onClick={openAskAra}
-              className="p-1.5 rounded-xl hover:bg-muted transition-colors"
-              aria-label="Ask Ara"
             >
-              <Sparkles className="h-4 w-4 text-muted-foreground" />
-            </button>
-            <MobileBellButton />
-            {user && <UserButton afterSignOutUrl="/" />}
+              <Sparkles className="h-3.5 w-3.5 text-primary" />
+              Ask Ara
+            </Button>
+            <NotificationsDropdown />
+            {user && (
+              <div className="flex items-center gap-3">
+                <div className="text-right">
+                  <div className="text-sm font-medium text-foreground leading-tight">
+                    {user.firstName} {user.lastName}
+                  </div>
+                  {user.role && (
+                    <div className="text-xs text-muted-foreground capitalize leading-tight">
+                      {user.role.displayName || user.role.name}
+                    </div>
+                  )}
+                </div>
+                <UserButton afterSignOutUrl="/" />
+              </div>
+            )}
           </div>
         </div>
       </header>
       <ReportIssueDialog open={showReportDialog} onOpenChange={setShowReportDialog} />
-    );
-  }
-
-  return (
-    <header
-      className="sticky top-0 z-40 w-full border-b"
-      style={{
-        backgroundColor: 'var(--background)',
-        backdropFilter: 'blur(12px)',
-        WebkitBackdropFilter: 'blur(12px)',
-        borderColor: 'var(--border)',
-      }}
-    >
-      <div className="flex h-14 items-center justify-between px-6">
-        <div>
-          <h1 className="text-base font-semibold tracking-[-0.01em]">{pageTitle}</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 gap-1.5 text-xs font-medium rounded-xl"
-            onClick={openLetUsKnow}
-          >
-            <Pencil className="h-3.5 w-3.5" />
-            Let us Know
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 gap-1.5 text-xs font-medium rounded-xl"
-            onClick={openAskAra}
-          >
-            <Sparkles className="h-3.5 w-3.5 text-primary" />
-            Ask Ara
-          </Button>
-          <NotificationsDropdown />
-          {user && (
-            <div className="flex items-center gap-3">
-              <div className="text-right">
-                <div className="text-sm font-medium text-foreground leading-tight">
-                  {user.firstName} {user.lastName}
-                </div>
-                {user.role && (
-                  <div className="text-xs text-muted-foreground capitalize leading-tight">
-                    {user.role.displayName || user.role.name}
-                  </div>
-                )}
-              </div>
-              <UserButton afterSignOutUrl="/" />
-            </div>
-          )}
-        </div>
-      </div>
-      <ReportIssueDialog open={showReportDialog} onOpenChange={setShowReportDialog} />
-    </header>
+    </>
   );
 }
