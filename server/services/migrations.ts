@@ -465,6 +465,29 @@ export async function runSchemaMigrations(): Promise<void> {
       table: "cash_deposits",
       sql: `ALTER TABLE cash_deposits ADD COLUMN IF NOT EXISTS session_breakdown jsonb`,
     },
+    // Task #628 — weekly digest settings
+    {
+      table: "company_settings",
+      sql: `ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS weekly_digest_enabled boolean DEFAULT true`,
+    },
+    {
+      table: "company_settings",
+      sql: `ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS weekly_digest_day_of_week integer DEFAULT 0`,
+    },
+    {
+      table: "company_settings",
+      sql: `ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS weekly_digest_hour integer DEFAULT 17`,
+    },
+    // Task #628 — admin dashboard top/bottom N leaderboard setting
+    {
+      table: "company_settings",
+      sql: `ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS dashboard_top_bottom_n integer DEFAULT 3`,
+    },
+    // Task #628 — late clock-in alert threshold
+    {
+      table: "company_settings",
+      sql: `ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS late_clock_in_alert_threshold integer DEFAULT 2`,
+    },
   ];
 
   let altered = 0;
