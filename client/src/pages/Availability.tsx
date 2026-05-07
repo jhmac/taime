@@ -343,21 +343,12 @@ export default function Availability() {
   const [templateSlots, setTemplateSlots] = useState<Record<string, DayTemplate>>(emptyWeekTemplateSlots);
   const [templateHasChanges, setTemplateHasChanges] = useState(false);
   const [autoApplyTemplate, setAutoApplyTemplate] = useState(false);
-  // Preset time range for quick-fill buttons — seeded from store hours for today's day-of-week
+  // Preset time range for quick-fill buttons — seeded from the specific day's store hours in openDayEditor
   const [presetStart, setPresetStart] = useState(DEFAULT_START);
   const [presetEnd, setPresetEnd] = useState(DEFAULT_END);
 
   const isDesktop = useIsDesktop();
 
-  // Seed presetStart/presetEnd from per-day store hours once company settings load
-  useEffect(() => {
-    if (!companySettings?.schedulingHoursByDay) return;
-    const todayDow = new Date().getDay();
-    const dayKey = DOW_KEYS[todayDow];
-    const daySchedule = companySettings.schedulingHoursByDay[dayKey];
-    if (daySchedule?.enabled && daySchedule.startTime) setPresetStart(daySchedule.startTime);
-    if (daySchedule?.enabled && daySchedule.endTime) setPresetEnd(daySchedule.endTime);
-  }, [companySettings]);
 
   // ── New calendar state ──────────────────────────────────────────────────────
   const [calViewMonth, setCalViewMonth] = useState(new Date());
@@ -816,10 +807,14 @@ export default function Availability() {
     const storeStart = (daySchedule?.enabled && daySchedule.startTime) ? daySchedule.startTime : DEFAULT_START;
     const storeEnd = (daySchedule?.enabled && daySchedule.endTime) ? daySchedule.endTime : DEFAULT_END;
 
+    // Seed preset buttons for this specific day
+    setPresetStart(storeStart);
+    setPresetEnd(storeEnd);
+
     // Pre-fill from existing data
     if (entry && entry.available) {
-      setEditorStartTime(entry.startTime || DEFAULT_START);
-      setEditorEndTime(entry.endTime || DEFAULT_END);
+      setEditorStartTime(entry.startTime || storeStart);
+      setEditorEndTime(entry.endTime || storeEnd);
       setEditorUnavailable(false);
     } else if (entry && entry.unavailable) {
       setEditorStartTime(storeStart);
