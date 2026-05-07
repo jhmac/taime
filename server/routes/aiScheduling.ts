@@ -743,13 +743,15 @@ export function registerAiSchedulingRoutes(
       }
 
       if (resolvedShopDomain) {
-        const oneYearAgo = new Date(start);
-        oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 2);
+        // Pull 2 years of data so findClosestDayOfWeekDate has enough same-weekday
+        // candidates to pick from. The variable is deliberately 2 years, not 1.
+        const twoYearsAgo = new Date(start);
+        twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
         const salesResult = await db.select()
           .from(shopifyDailySales)
           .where(and(
             eq(shopifyDailySales.shopDomain, resolvedShopDomain),
-            gte(shopifyDailySales.date, oneYearAgo)
+            gte(shopifyDailySales.date, twoYearsAgo)
           ))
           .orderBy(desc(shopifyDailySales.date));
 

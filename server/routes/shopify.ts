@@ -1957,9 +1957,9 @@ DATA FOR EACH DAY:
 ${scheduleDayDetails.map(d => {
   let info = `${d.date} (${d.dayName}):`;
   if (d.lastYearRevenue !== null) {
-    info += ` Last year same date: $${d.lastYearRevenue} revenue, ${d.lastYearOrders} orders.`;
+    info += ` Same weekday last year (52 weeks back): $${d.lastYearRevenue} revenue, ${d.lastYearOrders} orders.`;
   } else {
-    info += ` No data for same date last year.`;
+    info += ` No data for same weekday last year.`;
   }
   info += ` ${d.dayName} historical average: $${d.avgDowRevenue} revenue, ${d.avgDowOrders} orders (from ${d.dataSamples} samples).`;
   return info;

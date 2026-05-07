@@ -531,7 +531,7 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
         return res.json({ hasGoal: false, goalEnabled, message: "No sales data for this day from last year" });
       }
 
-      // Use the closest same-day entry from last year
+      // Exact match: one row for the 364-day-back date
       const lastYearEntry = lastYearSales[0];
       const lastYearRevenue = parseFloat(lastYearEntry.totalRevenue || '0');
       const lastYearOrders = lastYearEntry.orderCount || 0;
