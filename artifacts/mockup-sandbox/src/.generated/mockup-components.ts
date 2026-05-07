@@ -17,6 +17,7 @@ export const modules: ModuleMap = {
   "./components/mockups/taime-stripe/cash.tsx": () => import("../components/mockups/taime-stripe/cash.tsx"),
   "./components/mockups/taime-stripe/clockin.tsx": () => import("../components/mockups/taime-stripe/clockin.tsx"),
   "./components/mockups/taime-stripe/dashboard.tsx": () => import("../components/mockups/taime-stripe/dashboard.tsx"),
+  "./components/mockups/taime-stripe/edit-shift.tsx": () => import("../components/mockups/taime-stripe/edit-shift.tsx"),
   "./components/mockups/taime-stripe/learning.tsx": () => import("../components/mockups/taime-stripe/learning.tsx"),
   "./components/mockups/taime-stripe/manager.tsx": () => import("../components/mockups/taime-stripe/manager.tsx"),
   "./components/mockups/taime-stripe/messages.tsx": () => import("../components/mockups/taime-stripe/messages.tsx"),
