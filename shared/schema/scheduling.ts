@@ -424,6 +424,29 @@ export const aiSuggestedSchedules = pgTable("ai_suggested_schedules", {
   uniqueIndex("ai_sched_store_date_idx").on(t.storeId, t.date),
 ]);
 
+// Action log — persistent audit trail for critical labor events (clock-in/out, edits, exports)
+export const actionLog = pgTable("action_log", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  storeId: varchar("store_id").references(() => workLocations.id, { onDelete: 'set null' }),
+  userId: varchar("user_id").references(() => users.id, { onDelete: 'set null' }),
+  actorId: varchar("actor_id").references(() => users.id, { onDelete: 'set null' }),
+  eventType: varchar("event_type").notNull(),
+  payload: jsonb("payload").$type<Record<string, unknown>>(),
+  ipAddress: varchar("ip_address"),
+  userAgent: text("user_agent"),
+  source: varchar("source"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_action_log_user_created").on(table.userId, table.createdAt),
+  index("idx_action_log_event_type").on(table.eventType),
+  index("idx_action_log_store_created").on(table.storeId, table.createdAt),
+  index("idx_action_log_created_at").on(table.createdAt),
+]);
+
+export const insertActionLogSchema = createInsertSchema(actionLog).omit({ id: true, createdAt: true });
+export type ActionLog = typeof actionLog.$inferSelect;
+export type InsertActionLog = z.infer<typeof insertActionLogSchema>;
+
 // Insert schemas
 export const insertTimeEntrySchema = createInsertSchema(timeEntries).omit({ id: true, createdAt: true });
 export const insertScheduleSchema = createInsertSchema(schedules).omit({ id: true, createdAt: true });

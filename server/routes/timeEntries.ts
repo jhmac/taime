@@ -9,6 +9,8 @@ import { getUserIdsWithPermission } from "../lib/permissionUtils";
 import { computeTimeEntryRecipients } from "../lib/broadcastRecipients";
 import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
 import { cache } from "../services/cache";
+import { logLaborEvent } from "../services/actionLogger";
+import { tryResolveStoreIdForUser } from "../services/storeResolver";
 
 async function withRetry<T>(fn: () => Promise<T>, retries = 2, delay = 500): Promise<T> {
   for (let i = 0; i <= retries; i++) {
@@ -79,6 +81,24 @@ export function registerTimeEntryRoutes(
       const timeEntry = await withRetry(() => storage.createTimeEntry(data));
 
       cache.invalidate(`dashboard:init:${userId}`);
+
+      tryResolveStoreIdForUser(userId).then(storeId => {
+        logLaborEvent({
+          eventType: 'clock_in',
+          userId,
+          actorId: userId,
+          storeId,
+          payload: {
+            timeEntryId: timeEntry.id,
+            clockInTime: timeEntry.clockInTime?.toISOString() ?? null,
+            locationId: timeEntry.locationId ?? null,
+            source: data.clockInSource || 'manual',
+          },
+          ipAddress: ((req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket?.remoteAddress),
+          userAgent: req.headers['user-agent']?.slice(0, 500),
+          source: data.clockInSource || 'manual',
+        });
+      }).catch(() => {});
 
       const timeEntryRecipients = await computeTimeEntryRecipients(userId, getUserIdsWithPermission);
       sendToUsers(timeEntryRecipients, {
@@ -358,6 +378,39 @@ export function registerTimeEntryRoutes(
 
       const timeEntry = await storage.updateTimeEntry(id, safeUpdates);
 
+      const isClockOut = !!safeUpdates.clockOutTime && !existing.clockOutTime;
+      const editChanges = isClockOut ? [] : Object.keys(safeUpdates).map(field => {
+        const oldVal = (existing as Record<string, unknown>)[field];
+        const newVal = safeUpdates[field];
+        const before = oldVal instanceof Date ? oldVal.toISOString() : oldVal != null ? String(oldVal) : null;
+        const after = newVal instanceof Date ? newVal.toISOString() : newVal != null ? String(newVal) : null;
+        return { field, before, after };
+      }).filter(c => c.before !== c.after);
+      tryResolveStoreIdForUser(existing.userId).then(storeId => {
+        logLaborEvent({
+          eventType: isClockOut ? 'clock_out' : 'time_entry_edit',
+          userId: existing.userId,
+          actorId: userId,
+          storeId,
+          payload: isClockOut
+            ? {
+                timeEntryId: id,
+                clockOutTime: safeUpdates.clockOutTime instanceof Date ? safeUpdates.clockOutTime.toISOString() : String(safeUpdates.clockOutTime ?? ''),
+                clockOutSource: safeUpdates.clockOutSource || null,
+                isManagerAction: userId !== existing.userId,
+              }
+            : {
+                timeEntryId: id,
+                isManagerAction: userId !== existing.userId,
+                editReason: req.body.editReason || null,
+                changes: editChanges,
+              },
+          ipAddress: ((req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket?.remoteAddress),
+          userAgent: req.headers['user-agent']?.slice(0, 500),
+          source: safeUpdates.clockOutSource || 'manual',
+        });
+      }).catch(() => {});
+
       if (safeUpdates.clockOutTime) {
         try {
           const activeSessions = await storage.getOffsiteSessions({ userId: existing.userId, status: 'active' });
@@ -459,6 +512,19 @@ export function registerTimeEntryRoutes(
 
       logBreakClockEvent(storage, userId, id, 'break-start', { breakStartTime: now.toISOString() });
 
+      tryResolveStoreIdForUser(userId).then(storeId => {
+        logLaborEvent({
+          eventType: 'break_start',
+          userId,
+          actorId: userId,
+          storeId,
+          payload: { timeEntryId: id, breakStartTime: now.toISOString() },
+          ipAddress: ((req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket?.remoteAddress),
+          userAgent: req.headers['user-agent']?.slice(0, 500),
+          source: 'manual',
+        });
+      }).catch(() => {});
+
       res.json(timeEntry);
     } catch (error) {
       console.error("Error starting break:", error);
@@ -507,6 +573,19 @@ export function registerTimeEntryRoutes(
       });
 
       logBreakClockEvent(storage, userId, id, eventType, { elapsedMinutes, totalBreakMinutes: newBreakMinutes });
+
+      tryResolveStoreIdForUser(userId).then(storeId => {
+        logLaborEvent({
+          eventType: 'break_end',
+          userId,
+          actorId: userId,
+          storeId,
+          payload: { timeEntryId: id, elapsedMinutes, totalBreakMinutes: newBreakMinutes, breakEventType: eventType },
+          ipAddress: ((req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket?.remoteAddress),
+          userAgent: req.headers['user-agent']?.slice(0, 500),
+          source: 'manual',
+        });
+      }).catch(() => {});
 
       res.json(timeEntry);
     } catch (error) {

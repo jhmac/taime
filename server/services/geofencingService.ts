@@ -3,6 +3,8 @@ import { notificationService } from './notificationService';
 import { db } from '../db';
 import { geofenceEvents, timeEntries, workLocations, offsiteAllowanceRules, offsiteSessions, users } from '@shared/schema';
 import { eq, and, isNull, isNotNull, desc, gt } from 'drizzle-orm';
+import { logLaborEvent } from './actionLogger';
+import { tryResolveStoreIdForUser } from './storeResolver';
 import { fetchAndStoreRoute, clearWatchdogs } from './routeTrackingService';
 import { postMileageReimbursement } from './mileageReimbursementService';
 import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
@@ -671,8 +673,9 @@ export class GeofencingService {
         return false;
       }
 
+      const clockOutTime = exitEvent.length > 0 && exitEvent[0].createdAt ? exitEvent[0].createdAt : new Date();
       await storage.updateTimeEntry(activeTimeEntry.id, {
-        clockOutTime: exitEvent.length > 0 && exitEvent[0].createdAt ? exitEvent[0].createdAt : new Date(),
+        clockOutTime,
         clockOutSource: 'auto-geofence',
         notes: `${activeTimeEntry.notes ? activeTimeEntry.notes + ' | ' : ''}Auto clocked out: left geofence boundary`,
       });
@@ -687,6 +690,23 @@ export class GeofencingService {
           timeEntryId: activeTimeEntry.id,
         });
       }
+
+      tryResolveStoreIdForUser(userId).then(storeId => {
+        logLaborEvent({
+          eventType: 'auto_clock_out',
+          userId,
+          actorId: userId,
+          storeId,
+          payload: {
+            timeEntryId: activeTimeEntry.id,
+            clockOutTime: clockOutTime.toISOString(),
+            clockOutSource: 'auto-geofence',
+            latitude: latitude ?? null,
+            longitude: longitude ?? null,
+          },
+          source: 'auto-geofence',
+        });
+      }).catch(() => {});
 
       console.log(`[Geofence] Auto clocked out user ${userId} (entry ${activeTimeEntry.id})`);
       return true;

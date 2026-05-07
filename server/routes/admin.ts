@@ -6,6 +6,9 @@ import { asyncHandler, AppError } from "../lib/routeWrapper";
 import { tryResolveStoreIdForUser } from "../services/storeResolver";
 import { getUserIdsWithPermission } from "../lib/permissionUtils";
 import { resolveAnyPermission } from "../services/permissionResolver";
+import { db } from "../db";
+import { actionLog } from "@shared/schema";
+import { eq, and, gte, lte, desc, sql, SQL } from "drizzle-orm";
 
 const companySettingsUpdateSchema = z.object({
   companyName: z.string().max(200).optional(),
@@ -253,6 +256,56 @@ export function registerAdminRoutes(app: Express, storage: IStorage, isAuthentic
 
     const rule = await storage.updateHolidayPayRule(id, safeUpdates);
     res.json(rule);
+  }));
+
+  app.get('/api/admin/action-log', isAuthenticated, asyncHandler(async (req: any, res) => {
+    await requireAdmin(storage, req.user.id);
+
+    // Tenant-scope: restrict logs to the requesting admin's store (fail-closed if unresolvable).
+    const adminStoreId = await tryResolveStoreIdForUser(req.user.id);
+    if (!adminStoreId) {
+      return res.json({ entries: [], pagination: { page: 1, limit: 50, total: 0, totalPages: 0 } });
+    }
+
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 50, 1), 200);
+    const offset = (page - 1) * limit;
+
+    const { userId: filterUserId, eventType: filterEventType, startDate, endDate } = req.query;
+
+    const conditions: SQL[] = [eq(actionLog.storeId, adminStoreId)];
+    if (filterUserId && typeof filterUserId === 'string') {
+      conditions.push(eq(actionLog.userId, filterUserId));
+    }
+    if (filterEventType && typeof filterEventType === 'string') {
+      conditions.push(eq(actionLog.eventType, filterEventType));
+    }
+    if (startDate && typeof startDate === 'string') {
+      conditions.push(gte(actionLog.createdAt, new Date(startDate)));
+    }
+    if (endDate && typeof endDate === 'string') {
+      const end = new Date(endDate);
+      if (!endDate.includes('T')) end.setUTCHours(23, 59, 59, 999);
+      conditions.push(lte(actionLog.createdAt, end));
+    }
+
+    const whereClause = and(...conditions);
+
+    const [rows, countResult] = await Promise.all([
+      db.select().from(actionLog)
+        .where(whereClause)
+        .orderBy(desc(actionLog.createdAt))
+        .limit(limit)
+        .offset(offset),
+      db.select({ count: sql<number>`count(*)` }).from(actionLog).where(whereClause),
+    ]);
+
+    const total = Number(countResult[0]?.count ?? 0);
+
+    res.json({
+      entries: rows,
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    });
   }));
 
   app.get('/api/admin/health/sop-sign-off', isAuthenticated, asyncHandler(async (req: any, res) => {

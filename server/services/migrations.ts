@@ -1347,6 +1347,28 @@ export async function runSchemaMigrations(): Promise<void> {
         `CREATE INDEX IF NOT EXISTS idx_shopify_recon_runs_ran_at ON shopify_reconciliation_runs (ran_at DESC)`,
       ],
     },
+    // Task #676 — Persistent action log for critical labor events
+    {
+      name: "action_log",
+      ddl: `CREATE TABLE IF NOT EXISTS action_log (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        store_id varchar REFERENCES work_locations(id) ON DELETE SET NULL,
+        user_id varchar REFERENCES users(id) ON DELETE SET NULL,
+        actor_id varchar REFERENCES users(id) ON DELETE SET NULL,
+        event_type varchar NOT NULL,
+        payload jsonb,
+        ip_address varchar,
+        user_agent text,
+        source varchar,
+        created_at timestamp DEFAULT now()
+      )`,
+      indexes: [
+        `CREATE INDEX IF NOT EXISTS idx_action_log_user_created ON action_log (user_id, created_at DESC)`,
+        `CREATE INDEX IF NOT EXISTS idx_action_log_event_type ON action_log (event_type)`,
+        `CREATE INDEX IF NOT EXISTS idx_action_log_store_created ON action_log (store_id, created_at DESC)`,
+        `CREATE INDEX IF NOT EXISTS idx_action_log_created_at ON action_log (created_at DESC)`,
+      ],
+    },
     // Task #256 — Shopify POS register data
     {
       name: "shopify_register_sessions",

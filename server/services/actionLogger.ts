@@ -1,6 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
+import { db } from '../db';
+import { actionLog } from '@shared/schema';
 
 const DATA_DIR = path.join(process.cwd(), '.logs');
 const ACTION_LOG_FILE = path.join(DATA_DIR, 'action-log.jsonl');
@@ -137,6 +139,50 @@ interface ActionLogEntry {
   errorStack?: string;
   userAgent?: string;
   ip?: string;
+}
+
+export interface LaborEventParams {
+  eventType: string;
+  userId: string;
+  actorId?: string;
+  storeId?: string | null;
+  payload?: Record<string, unknown>;
+  ipAddress?: string;
+  userAgent?: string;
+  source?: string;
+}
+
+/**
+ * Persists a critical labor event (clock-in, clock-out, break, payroll export, etc.)
+ * to the action_log database table. Fire-and-forget: never throws so it cannot
+ * disrupt the primary request flow.
+ */
+export function logLaborEvent(params: LaborEventParams): void {
+  const { eventType, userId, actorId, storeId, payload, ipAddress, userAgent, source } = params;
+  const insertData: typeof actionLog.$inferInsert = {
+    eventType,
+    userId: userId || null,
+    actorId: actorId || null,
+    storeId: storeId || null,
+    payload: payload ?? null,
+    ipAddress: ipAddress?.slice(0, 200) ?? null,
+    userAgent: userAgent?.slice(0, 500) ?? null,
+    source: source ?? null,
+  };
+  db.insert(actionLog).values(insertData).catch((err: unknown) => {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[ActionLogger] DB insert failed for event', eventType, ':', msg);
+    appendLog(ACTION_LOG_FILE, {
+      timestamp: new Date().toISOString(),
+      eventType,
+      userId: userId || null,
+      actorId: actorId || null,
+      storeId: storeId || null,
+      payload: payload ?? null,
+      source: source ?? null,
+      _fallback: true,
+    });
+  });
 }
 
 export function createActionLoggerMiddleware(): RequestHandler {

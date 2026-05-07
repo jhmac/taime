@@ -9,6 +9,7 @@ import { payrollAutomationService } from "../services/payrollAutomationService";
 import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
 import { tryResolveStoreIdForUser } from "../services/storeResolver";
 import { hasEntitlement } from "../services/entitlements";
+import { logLaborEvent } from "../services/actionLogger";
 
 function sanitizeCsvField(field: string): string {
   const dangerous = /^[=+\-@\t\r]/;
@@ -248,6 +249,22 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
       });
 
       const csv = [csvHeaders.join(','), ...csvRows].join('\n');
+
+      logLaborEvent({
+        eventType: 'payroll_export',
+        userId,
+        actorId: userId,
+        storeId: storeId || null,
+        payload: {
+          startDate: startDate as string,
+          endDate: endDate as string,
+          employeeCount: Object.keys(employeeMap).length,
+          rowCount: csvRows.length,
+        },
+        ipAddress: ((req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket?.remoteAddress),
+        userAgent: req.headers['user-agent']?.slice(0, 500),
+        source: 'admin',
+      });
 
       res.setHeader('Content-Type', 'text/csv');
       res.setHeader('Content-Disposition', `attachment; filename=payroll_export_${startDate}_${endDate}.csv`);
