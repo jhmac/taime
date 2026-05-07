@@ -370,6 +370,48 @@ export function registerTimeEntryRoutes(
         } catch (err: any) {
           logger.warn({ error: err?.message }, '[ClockOut] Failed to auto-end active offsite session (non-fatal)');
         }
+
+        // Fire-and-forget: check for early clock-out against scheduled shift end
+        (async () => {
+          try {
+            const clockOutTime = new Date(safeUpdates.clockOutTime);
+            const windowStart = new Date(clockOutTime.getTime() - 8 * 60 * 60 * 1000);
+            const windowEnd = new Date(clockOutTime.getTime() + 4 * 60 * 60 * 1000);
+            const userSchedules = await storage.getUserSchedules(existing.userId, windowStart, windowEnd);
+            const activeShift = userSchedules.find(s => {
+              const start = new Date(s.startTime);
+              const end = new Date(s.endTime);
+              return clockOutTime >= start && clockOutTime <= new Date(end.getTime() + 60 * 60 * 1000);
+            });
+            if (activeShift) {
+              const shiftEnd = new Date(activeShift.endTime);
+              const earlyByMs = shiftEnd.getTime() - clockOutTime.getTime();
+              const gracePeriodMs = 5 * 60 * 1000;
+              if (earlyByMs > gracePeriodMs) {
+                const scoreSettings = await storage.getPerformanceScoreSettings();
+                const setting = scoreSettings.find(s => s.eventType === 'early-clockout');
+                if (setting && setting.isActive === false) {
+                  // Admin has disabled early clock-out scoring — skip
+                } else {
+                  const pointValue = setting?.pointValue ?? -10;
+                  await storage.createClockEvent({
+                    userId: existing.userId,
+                    timeEntryId: id,
+                    eventType: 'early-clockout',
+                    pointValue,
+                    metadata: {
+                      scheduledEnd: shiftEnd.toISOString(),
+                      actualClockOut: clockOutTime.toISOString(),
+                      earlyByMinutes: Math.round(earlyByMs / 60000),
+                    },
+                  });
+                }
+              }
+            }
+          } catch (err: any) {
+            logger.warn({ error: err?.message }, '[ClockOut] Early clock-out check failed (non-fatal)');
+          }
+        })();
       }
 
       cache.invalidate(`dashboard:init:${existing.userId}`);

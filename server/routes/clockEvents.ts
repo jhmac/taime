@@ -7,6 +7,7 @@ const DEFAULT_SCORE_SETTINGS = [
   { eventType: 'late-clock-in', category: 'attendance', displayName: 'Late Clock In', pointValue: -5 },
   { eventType: 'excessive-late', category: 'attendance', displayName: 'Excessively Late Clock In', pointValue: -15 },
   { eventType: 'shift-end', category: 'attendance', displayName: 'Normal Clock Out', pointValue: 0 },
+  { eventType: 'early-clockout', category: 'attendance', displayName: 'Early Clock Out', pointValue: -10 },
   { eventType: 'app-switch-out', category: 'attendance', displayName: 'Phone Use (App Switch)', pointValue: -10 },
   { eventType: 'auto-resume', category: 'attendance', displayName: 'Quick Return (Auto Resume)', pointValue: 0 },
   { eventType: 'prompted-resume', category: 'attendance', displayName: 'Prompted Clock Back In', pointValue: -5 },
@@ -158,8 +159,11 @@ export function registerClockEventRoutes(app: Express, storage: IStorage, isAuth
   app.get('/api/performance/settings', isAuthenticated, async (req: any, res) => {
     try {
       let settings = await storage.getPerformanceScoreSettings();
-      if (settings.length === 0) {
-        for (const setting of DEFAULT_SCORE_SETTINGS) {
+      const existingKeys = new Set(settings.map(s => s.eventType));
+      const missingDefaults = DEFAULT_SCORE_SETTINGS.filter(s => !existingKeys.has(s.eventType));
+      if (settings.length === 0 || missingDefaults.length > 0) {
+        const toSeed = settings.length === 0 ? DEFAULT_SCORE_SETTINGS : missingDefaults;
+        for (const setting of toSeed) {
           await storage.upsertPerformanceScoreSetting({
             ...setting,
             isActive: true,

@@ -173,7 +173,7 @@ export class GamificationService {
       const defaultMax = Math.abs(ev.pointValue || 0) || 10;
       if (['shift-start', 'late-clock-in', 'excessive-late', 'full-shift-bonus', 'geofence-exit-out',
            'break-end-on-time', 'break-overrun', 'app-switch-out', 'prompted-resume',
-           'geofence-prompt-in', 'geofence-denied', 'auto-timeout-out'].includes(ev.eventType)) {
+           'geofence-prompt-in', 'geofence-denied', 'auto-timeout-out', 'early-clockout'].includes(ev.eventType)) {
         attendancePoints += (ev.pointValue || 0);
         maxAttendancePoints += defaultMax;
 
