@@ -499,6 +499,29 @@ export async function runSchemaMigrations(): Promise<void> {
     },
   ];
 
+  // Task #677 — Create break_events table for individual break tracking
+  try {
+    await db.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS break_events (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        time_entry_id varchar NOT NULL REFERENCES time_entries(id),
+        user_id varchar NOT NULL REFERENCES users(id),
+        store_id varchar REFERENCES work_locations(id),
+        break_start timestamp NOT NULL,
+        break_end timestamp,
+        duration_minutes integer,
+        break_type varchar DEFAULT 'unpaid',
+        source varchar DEFAULT 'manual',
+        created_at timestamp DEFAULT now()
+      )
+    `));
+    await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_break_events_time_entry ON break_events(time_entry_id)`));
+    await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS idx_break_events_user ON break_events(user_id)`));
+  } catch (err: unknown) {
+    const pgErr = err as { message?: string };
+    console.warn("[Migration] break_events table creation failed (non-fatal):", pgErr?.message ?? err);
+  }
+
   let altered = 0;
   for (const { table, sql: statement } of columnAlterations) {
     try {

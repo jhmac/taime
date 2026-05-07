@@ -18,6 +18,7 @@ import {
   timesheetWorkflowSettings,
   timesheetReminderLog,
   timesheetPeriodApprovals,
+  breakEvents,
   type TimeEntry,
   type InsertTimeEntry,
   type Schedule,
@@ -53,6 +54,8 @@ import {
   type TimesheetWorkflowSettings,
   type TimesheetReminderLog,
   type TimesheetPeriodApproval,
+  type BreakEvent,
+  type InsertBreakEvent,
   users,
 } from "@shared/schema";
 import { db } from "../db";
@@ -163,6 +166,10 @@ export interface ISchedulingStorage {
     adminApprovedBy?: string | null;
     adminApprovedAt?: Date | null;
   }): Promise<TimesheetPeriodApproval>;
+
+  createBreakEvent(event: InsertBreakEvent): Promise<BreakEvent>;
+  closeBreakEvent(timeEntryId: string, breakEnd: Date, durationMinutes: number): Promise<BreakEvent | undefined>;
+  getBreakEvents(timeEntryId: string): Promise<BreakEvent[]>;
 }
 
 export class SchedulingStorage implements ISchedulingStorage {
@@ -963,5 +970,35 @@ export class SchedulingStorage implements ISchedulingStorage {
       })
       .returning();
     return created;
+  }
+
+  async createBreakEvent(event: InsertBreakEvent): Promise<BreakEvent> {
+    const [created] = await db.insert(breakEvents).values(event).returning();
+    return created;
+  }
+
+  async closeBreakEvent(timeEntryId: string, breakEnd: Date, durationMinutes: number): Promise<BreakEvent | undefined> {
+    // Find the most recent open row for this time entry to avoid closing multiple rows
+    const [openRow] = await db
+      .select()
+      .from(breakEvents)
+      .where(and(eq(breakEvents.timeEntryId, timeEntryId), isNull(breakEvents.breakEnd)))
+      .orderBy(desc(breakEvents.breakStart))
+      .limit(1);
+    if (!openRow) return undefined;
+    const [updated] = await db
+      .update(breakEvents)
+      .set({ breakEnd, durationMinutes })
+      .where(eq(breakEvents.id, openRow.id))
+      .returning();
+    return updated;
+  }
+
+  async getBreakEvents(timeEntryId: string): Promise<BreakEvent[]> {
+    return await db
+      .select()
+      .from(breakEvents)
+      .where(eq(breakEvents.timeEntryId, timeEntryId))
+      .orderBy(breakEvents.breakStart);
   }
 }

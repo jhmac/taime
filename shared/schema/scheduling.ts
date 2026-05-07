@@ -447,6 +447,24 @@ export const insertActionLogSchema = createInsertSchema(actionLog).omit({ id: tr
 export type ActionLog = typeof actionLog.$inferSelect;
 export type InsertActionLog = z.infer<typeof insertActionLogSchema>;
 
+// Break events — one row per break period within a shift
+export const breakEvents = pgTable("break_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  timeEntryId: varchar("time_entry_id").references(() => timeEntries.id).notNull(),
+  userId: varchar("user_id").references(() => users.id).notNull(),
+  storeId: varchar("store_id").references(() => workLocations.id),
+  breakStart: timestamp("break_start").notNull(),
+  breakEnd: timestamp("break_end"),
+  durationMinutes: integer("duration_minutes"),
+  breakType: varchar("break_type").default("unpaid"),
+  source: varchar("source").default("manual"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_break_events_time_entry").on(table.timeEntryId),
+  index("idx_break_events_user").on(table.userId),
+]);
+
+
 // Insert schemas
 export const insertTimeEntrySchema = createInsertSchema(timeEntries).omit({ id: true, createdAt: true });
 export const insertScheduleSchema = createInsertSchema(schedules).omit({ id: true, createdAt: true });
@@ -470,6 +488,7 @@ export const insertOvertimeAlertSchema = createInsertSchema(overtimeAlerts).omit
 export const insertMileageReimbursementSchema = createInsertSchema(mileageReimbursements).omit({ id: true, appliedAt: true });
 export const insertAiSuggestedScheduleSchema = createInsertSchema(aiSuggestedSchedules).omit({ id: true, generatedAt: true });
 export const insertSpecialCircumstanceSchema = createInsertSchema(specialCircumstances).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertBreakEventSchema = createInsertSchema(breakEvents).omit({ id: true, createdAt: true });
 
 // Timesheet workflow settings — one row per store (location)
 export const timesheetWorkflowSettings = pgTable("timesheet_workflow_settings", {
@@ -581,3 +600,5 @@ export type TimesheetPeriodApproval = typeof timesheetPeriodApprovals.$inferSele
 export type InsertTimesheetPeriodApproval = z.infer<typeof insertTimesheetPeriodApprovalSchema>;
 export type SpecialCircumstance = typeof specialCircumstances.$inferSelect;
 export type InsertSpecialCircumstance = z.infer<typeof insertSpecialCircumstanceSchema>;
+export type BreakEvent = typeof breakEvents.$inferSelect;
+export type InsertBreakEvent = z.infer<typeof insertBreakEventSchema>;

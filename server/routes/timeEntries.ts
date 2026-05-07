@@ -296,6 +296,45 @@ export function registerTimeEntryRoutes(
     }
   });
 
+  app.get('/api/time-entries/:id/breaks', isAuthenticated, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const existing = await storage.getTimeEntry(id);
+      if (!existing) {
+        return res.status(404).json({ message: "Time entry not found" });
+      }
+
+      const userId = req.user.id;
+      const isOwner = existing.userId === userId;
+
+      if (!isOwner) {
+        // Global admins (admin.manage_all) can view any break events
+        const isGlobalAdmin = await resolvePermission(userId, 'admin.manage_all', storage);
+        if (isGlobalAdmin) {
+          // allowed — fall through to return events
+        } else {
+          // Store-scoped managers: must have time.approve AND be in the same store as the time entry
+          const hasManagerPermission = await resolvePermission(userId, 'time.approve', storage);
+          if (!hasManagerPermission) {
+            return res.status(403).json({ message: "You can only view break events for your own time entries" });
+          }
+          const requestingUser = await storage.getUser(userId);
+          const entryLocationId = (existing as any).locationId;
+          const isSameStore = requestingUser?.locationId && entryLocationId && requestingUser.locationId === entryLocationId;
+          if (!isSameStore) {
+            return res.status(403).json({ message: "You can only view break events for employees in your store" });
+          }
+        }
+      }
+
+      const events = await storage.getBreakEvents(id);
+      res.json(events);
+    } catch (error) {
+      console.error("Error fetching break events:", error);
+      res.status(500).json({ message: "Failed to fetch break events" });
+    }
+  });
+
   app.get('/api/time-entries/:id/history', isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
@@ -502,6 +541,15 @@ export function registerTimeEntryRoutes(
       }
 
       const now = new Date();
+      // Record individual break event before updating the time entry (Task #677)
+      await storage.createBreakEvent({
+        timeEntryId: id,
+        userId,
+        storeId: (existing as any).locationId ?? null,
+        breakStart: now,
+        source: (req.body.source as string) || 'manual',
+      });
+
       const timeEntry = await storage.updateTimeEntry(id, { breakStartTime: now });
 
       const timeEntryRecipients = await computeTimeEntryRecipients(userId, getUserIdsWithPermission);
@@ -560,6 +608,9 @@ export function registerTimeEntryRoutes(
       const rule2Minutes = companySettings?.breakRule2Minutes ?? 30;
       const maxRuleMinutes = Math.max(rule1Minutes, rule2Minutes);
       const eventType = elapsedMinutes > maxRuleMinutes ? 'break-overrun' : 'break-end-on-time';
+
+      // Close the open break event row (Task #677)
+      await storage.closeBreakEvent(id, now, elapsedMinutes);
 
       const timeEntry = await storage.updateTimeEntry(id, {
         breakMinutes: newBreakMinutes,
