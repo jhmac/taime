@@ -618,20 +618,50 @@ function TrainingMini({ scores, onNavigate }: { scores: GamificationScore[]; onN
 // ─────────────────────────────────────────────────────────────────────────────
 // Daily Rituals mini
 // ─────────────────────────────────────────────────────────────────────────────
-function DailyRitualsMini({ huddleStatus, onNavigate }: { huddleStatus: string | null; onNavigate: (p: string) => void }) {
-  const now = new Date();
-  const hour = now.getHours();
+interface DailyRitualsProps {
+  huddleStatus: string | null;
+  huddleLedByName: string | null;
+  openingChecklistCompleter: string | null;
+  middayPulseExists: boolean;
+  debriefCount: number;
+  onNavigate: (p: string) => void;
+}
+
+function DailyRitualsMini({
+  huddleStatus, huddleLedByName, openingChecklistCompleter,
+  middayPulseExists, debriefCount, onNavigate,
+}: DailyRitualsProps) {
   const rituals = [
-    { label: 'Morning huddle',    done: huddleStatus === 'completed',    active: huddleStatus === 'in_progress' },
-    { label: 'Opening checklist', done: hour >= 10,                      active: hour >= 9 && hour < 10 },
-    { label: 'Midday pulse',      done: hour >= 13,                      active: hour >= 12 && hour < 13 },
-    { label: 'Daily debrief',     done: hour >= 18,                      active: hour >= 17 && hour < 18 },
+    {
+      label: 'Morning huddle',
+      done: huddleStatus === 'completed',
+      active: huddleStatus === 'in_progress',
+      completerLabel: huddleLedByName ?? null,
+    },
+    {
+      label: 'Opening checklist',
+      done: openingChecklistCompleter !== null,
+      active: false,
+      completerLabel: openingChecklistCompleter,
+    },
+    {
+      label: 'Midday pulse',
+      done: middayPulseExists,
+      active: false,
+      completerLabel: middayPulseExists ? 'Auto' : null,
+    },
+    {
+      label: 'Daily debrief',
+      done: debriefCount > 0,
+      active: false,
+      completerLabel: debriefCount > 0 ? `${debriefCount} submitted` : null,
+    },
   ];
 
   return (
     <div>
       <div className="space-y-2 mb-3">
-        {rituals.map(({ label, done, active }) => (
+        {rituals.map(({ label, done, active, completerLabel }) => (
           <div key={label} className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               {done
@@ -642,7 +672,12 @@ function DailyRitualsMini({ huddleStatus, onNavigate }: { huddleStatus: string |
             {active && !done && (
               <Badge className="text-[10px] px-1.5 py-0 bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400">Now</Badge>
             )}
-            {done && <span className="text-xs text-muted-foreground">Done</span>}
+            {done && completerLabel && (
+              <span className="text-xs text-muted-foreground">Done · {completerLabel}</span>
+            )}
+            {done && !completerLabel && (
+              <span className="text-xs text-muted-foreground">Done</span>
+            )}
           </div>
         ))}
       </div>
@@ -829,6 +864,43 @@ export default function AdminOwnerDashboard() {
     staleTime: 5 * 60_000,
   });
   const huddleStatus: string | null = (huddleQ.data as any)?.data?.status ?? null;
+  const huddleLedByName: string | null = (huddleQ.data as any)?.data?.ledByName ?? null;
+
+  const openingChecklistQ = useQuery<{ employeeId: string; employeeName: string } | null>({
+    queryKey: ['/api/rituals/opening-checklist/today'],
+    queryFn: async () => {
+      const r = await apiRequest('GET', '/api/rituals/opening-checklist/today');
+      if (!r.ok) return null;
+      const j = await r.json();
+      return j.data ?? null;
+    },
+    staleTime: 5 * 60_000,
+  });
+  const openingChecklistCompleter: string | null = openingChecklistQ.data?.employeeName ?? null;
+
+  const pulseStatusQ = useQuery<{ exists: boolean }>({
+    queryKey: ['/api/rituals/pulse/status'],
+    queryFn: async () => {
+      const r = await apiRequest('GET', '/api/rituals/pulse/status');
+      if (!r.ok) return { exists: false };
+      const j = await r.json();
+      return j.data ?? { exists: false };
+    },
+    staleTime: 5 * 60_000,
+  });
+  const middayPulseExists: boolean = pulseStatusQ.data?.exists ?? false;
+
+  const debriefQ = useQuery<Array<{ id: string }>>({
+    queryKey: ['/api/rituals/debrief', 'today'],
+    queryFn: async () => {
+      const r = await apiRequest('GET', '/api/rituals/debrief');
+      if (!r.ok) return [];
+      const j = await r.json();
+      return Array.isArray(j.data) ? j.data : [];
+    },
+    staleTime: 5 * 60_000,
+  });
+  const debriefCount: number = debriefQ.data?.length ?? 0;
 
   // Score histories
   const sortedScores = [...gamificationScores].sort((a, b) => (b.overallScore ?? 0) - (a.overallScore ?? 0));
@@ -1286,7 +1358,14 @@ export default function AdminOwnerDashboard() {
           </CardHeader>
           <CardContent className="px-4 pb-4">
             <DashboardErrorBoundary fallback="Ritual data unavailable">
-              <DailyRitualsMini huddleStatus={huddleStatus} onNavigate={(p) => navigate(p)} />
+              <DailyRitualsMini
+                huddleStatus={huddleStatus}
+                huddleLedByName={huddleLedByName}
+                openingChecklistCompleter={openingChecklistCompleter}
+                middayPulseExists={middayPulseExists}
+                debriefCount={debriefCount}
+                onNavigate={(p) => navigate(p)}
+              />
             </DashboardErrorBoundary>
           </CardContent>
         </Card>

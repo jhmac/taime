@@ -1,10 +1,11 @@
 import type { Express } from "express";
 import { z } from "zod";
 import { db } from "../db";
-import { eq, and, gte, desc, sql } from "drizzle-orm";
+import { eq, and, gte, desc, sql, ilike, or } from "drizzle-orm";
 import {
   morningHuddles, dailyDebriefs, kudos, users, workLocations,
-  insertDailyDebriefSchema, insertKudoSchema, gtdInboxItems
+  insertDailyDebriefSchema, insertKudoSchema, gtdInboxItems,
+  sopExecutions, sopTemplates, middayPulses,
 } from "@shared/schema";
 import { asyncHandler, AppError } from "../lib/routeWrapper";
 import { getOrGenerateHuddle } from "../services/morningHuddleAI";
@@ -89,6 +90,61 @@ export function registerRitualRoutes(
     const huddleRecipients = await computeHuddleRecipients(storeId, getAllStoreUserIds);
     sendToUsers(huddleRecipients, { type: 'huddle_updated', data: { huddle: updated } });
     res.json({ success: true, data: updated });
+  }));
+
+  app.get('/api/rituals/opening-checklist/today', isAuthenticated, asyncHandler(async (req: any, res) => {
+    const storeId = await getFirstStoreId();
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const rows = await db
+      .select({
+        employeeId: sopExecutions.employeeId,
+        completedAt: sopExecutions.completedAt,
+        firstName: users.firstName,
+        lastName: users.lastName,
+      })
+      .from(sopExecutions)
+      .innerJoin(sopTemplates, eq(sopExecutions.templateId, sopTemplates.id))
+      .leftJoin(users, eq(sopExecutions.employeeId, users.id))
+      .where(
+        and(
+          eq(sopExecutions.storeId, storeId),
+          eq(sopExecutions.status, 'completed'),
+          gte(sopExecutions.completedAt, todayStart),
+          or(
+            ilike(sopTemplates.title, '%open%'),
+            ilike(sopTemplates.title, '%morning%'),
+            ilike(sopTemplates.title, '%start of day%'),
+            ilike(sopTemplates.category, '%open%'),
+            ilike(sopTemplates.category, '%morning%'),
+            ilike(sopTemplates.category, '%start of day%'),
+          )
+        )
+      )
+      .orderBy(sopExecutions.completedAt)
+      .limit(1);
+
+    if (rows.length === 0) {
+      return res.json({ success: true, data: null });
+    }
+
+    const row = rows[0];
+    const employeeName = getUserName({ firstName: row.firstName ?? null, lastName: row.lastName ?? null });
+    res.json({ success: true, data: { employeeId: row.employeeId, employeeName } });
+  }));
+
+  app.get('/api/rituals/pulse/status', isAuthenticated, asyncHandler(async (req: any, res) => {
+    const storeId = await getFirstStoreId();
+    const todayStr = new Date().toISOString().slice(0, 10);
+
+    const [row] = await db
+      .select({ id: middayPulses.id })
+      .from(middayPulses)
+      .where(and(eq(middayPulses.storeId, storeId), eq(middayPulses.pulseDate, todayStr)))
+      .limit(1);
+
+    res.json({ success: true, data: { exists: !!row } });
   }));
 
   app.get('/api/rituals/pulse/today', isAuthenticated, asyncHandler(async (req: any, res) => {
