@@ -665,7 +665,7 @@ export default function AdminOwnerDashboard() {
 
   const entriesQ = useQuery<TimeEntry[]>({
     queryKey: ['/api/time-entries', 'today'],
-    queryFn: () => fetchArr<TimeEntry>(`/api/time-entries?startDate=${today}&endDate=${today}`),
+    queryFn: () => fetchArr<TimeEntry>(`/api/time-entries?startDate=${today}&endDate=${today}&includeActive=true`),
     staleTime: 15_000, refetchInterval: 30_000,
   });
   const todayEntries = entriesQ.data ?? [];

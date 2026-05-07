@@ -136,17 +136,36 @@ export function registerTimeEntryRoutes(
     try {
       const userId = req.user.id;
       const user = await storage.getUser(userId);
-      
+
       const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
-      const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
+      let endDate: Date | undefined;
+      if (req.query.endDate) {
+        const raw = req.query.endDate as string;
+        // Date-only strings (no 'T') are parsed as midnight UTC — extend to end of day so the
+        // full calendar day is included rather than just the midnight instant.
+        if (!raw.includes('T')) {
+          endDate = new Date(raw);
+          endDate.setUTCHours(23, 59, 59, 999);
+        } else {
+          endDate = new Date(raw);
+        }
+      }
+
+      const includeActive = req.query.includeActive === 'true';
 
       let timeEntries;
       const canViewAll = await resolvePermission(userId, 'time.view_all', storage);
-      
+
       if (canViewAll) {
-        timeEntries = await storage.getAllTimeEntries(startDate, endDate);
+        // Build tenant filter mirroring dashboard.ts: prefer companyId, fall back to
+        // locationName. Storage returns [] when neither is present (fail-closed).
+        const tenantFilter = {
+          companyId: user?.companyId ?? null,
+          locationName: user?.locationName ?? null,
+        };
+        timeEntries = await storage.getAllTimeEntries(startDate, endDate, includeActive, tenantFilter);
       } else {
-        timeEntries = await storage.getUserTimeEntries(userId, startDate, endDate);
+        timeEntries = await storage.getUserTimeEntries(userId, startDate, endDate, includeActive);
       }
 
       res.json(timeEntries);

@@ -53,17 +53,21 @@ import {
   type TimesheetWorkflowSettings,
   type TimesheetReminderLog,
   type TimesheetPeriodApproval,
+  users,
 } from "@shared/schema";
 import { db } from "../db";
-import { eq, and, desc, gte, lte, isNull, sql } from "drizzle-orm";
+import { eq, and, or, desc, gte, lte, isNull, sql } from "drizzle-orm";
 
 export interface ISchedulingStorage {
   createTimeEntry(entry: InsertTimeEntry): Promise<TimeEntry>;
   getTimeEntry(id: string): Promise<TimeEntry | undefined>;
   getActiveTimeEntry(userId: string): Promise<TimeEntry | undefined>;
   updateTimeEntry(id: string, updates: Partial<TimeEntry>): Promise<TimeEntry>;
-  getUserTimeEntries(userId: string, startDate?: Date, endDate?: Date): Promise<TimeEntry[]>;
-  getAllTimeEntries(startDate?: Date, endDate?: Date): Promise<TimeEntry[]>;
+  getUserTimeEntries(userId: string, startDate?: Date, endDate?: Date, includeActive?: boolean): Promise<TimeEntry[]>;
+  // Pass a tenantFilter object to scope to one tenant. Pass null to explicitly
+  // bypass scoping (internal/cross-store services only). Omitting the argument
+  // (undefined) is fail-closed: returns [].
+  getAllTimeEntries(startDate?: Date, endDate?: Date, includeActive?: boolean, tenantFilter?: { companyId?: string | null; locationName?: string | null } | null): Promise<TimeEntry[]>;
 
   createSchedule(schedule: InsertSchedule): Promise<Schedule>;
   createSchedulesBatch(scheduleList: InsertSchedule[]): Promise<Schedule[]>;
@@ -195,26 +199,82 @@ export class SchedulingStorage implements ISchedulingStorage {
     return updated;
   }
 
-  async getUserTimeEntries(userId: string, startDate?: Date, endDate?: Date): Promise<TimeEntry[]> {
-    const conditions = [eq(timeEntries.userId, userId)];
-    if (startDate) conditions.push(gte(timeEntries.clockInTime, startDate));
-    if (endDate) conditions.push(lte(timeEntries.clockInTime, endDate));
+  async getUserTimeEntries(userId: string, startDate?: Date, endDate?: Date, includeActive?: boolean): Promise<TimeEntry[]> {
+    const userCondition = eq(timeEntries.userId, userId);
+    const dateConditions = [];
+    if (startDate) dateConditions.push(gte(timeEntries.clockInTime, startDate));
+    if (endDate) dateConditions.push(lte(timeEntries.clockInTime, endDate));
+
+    let rangeClause = dateConditions.length > 0 ? and(...dateConditions) : undefined;
+    if (includeActive && rangeClause) {
+      rangeClause = or(rangeClause, isNull(timeEntries.clockOutTime));
+    }
+
+    const whereClause = rangeClause ? and(userCondition, rangeClause) : userCondition;
 
     return await db
       .select()
       .from(timeEntries)
-      .where(and(...conditions))
+      .where(whereClause)
       .orderBy(desc(timeEntries.clockInTime))
       .limit(1000);
   }
 
-  async getAllTimeEntries(startDate?: Date, endDate?: Date): Promise<TimeEntry[]> {
-    const conditions = [];
-    if (startDate) conditions.push(gte(timeEntries.clockInTime, startDate));
-    if (endDate) conditions.push(lte(timeEntries.clockInTime, endDate));
+  async getAllTimeEntries(startDate?: Date, endDate?: Date, includeActive?: boolean, tenantFilter?: { companyId?: string | null; locationName?: string | null } | null): Promise<TimeEntry[]> {
+    // Fail-closed: callers must be explicit about scope. Omitting tenantFilter
+    // entirely is treated as a misconfiguration and returns nothing. Pass null to
+    // bypass tenant scoping (for internal cross-store services only).
+    if (tenantFilter === undefined) return [];
+    const dateConditions = [];
+    if (startDate) dateConditions.push(gte(timeEntries.clockInTime, startDate));
+    if (endDate) dateConditions.push(lte(timeEntries.clockInTime, endDate));
 
-    const query = conditions.length > 0
-      ? db.select().from(timeEntries).where(and(...conditions))
+    let rangeClause = dateConditions.length > 0 ? and(...dateConditions) : undefined;
+    if (includeActive && rangeClause) {
+      rangeClause = or(rangeClause, isNull(timeEntries.clockOutTime));
+    }
+
+    if (tenantFilter) {
+      // Build tenant condition: prefer companyId, fall back to locationName.
+      // If neither is present fail-closed and return nothing (no cross-tenant leakage).
+      let tenantClause;
+      if (tenantFilter.companyId) {
+        tenantClause = eq(users.companyId, tenantFilter.companyId);
+      } else if (tenantFilter.locationName) {
+        tenantClause = eq(users.locationName, tenantFilter.locationName);
+      } else {
+        return [];
+      }
+
+      const whereClause = rangeClause ? and(rangeClause, tenantClause) : tenantClause;
+      return await db
+        .select({
+          id: timeEntries.id,
+          userId: timeEntries.userId,
+          locationId: timeEntries.locationId,
+          clockInTime: timeEntries.clockInTime,
+          clockOutTime: timeEntries.clockOutTime,
+          breakMinutes: timeEntries.breakMinutes,
+          breakStartTime: timeEntries.breakStartTime,
+          notes: timeEntries.notes,
+          clockInSource: timeEntries.clockInSource,
+          clockOutSource: timeEntries.clockOutSource,
+          isApproved: timeEntries.isApproved,
+          approvedBy: timeEntries.approvedBy,
+          approvedAt: timeEntries.approvedAt,
+          mileageMinutes: timeEntries.mileageMinutes,
+          mileageTotalCents: timeEntries.mileageTotalCents,
+          createdAt: timeEntries.createdAt,
+        })
+        .from(timeEntries)
+        .innerJoin(users, eq(timeEntries.userId, users.id))
+        .where(whereClause)
+        .orderBy(desc(timeEntries.clockInTime))
+        .limit(1000);
+    }
+
+    const query = rangeClause
+      ? db.select().from(timeEntries).where(rangeClause)
       : db.select().from(timeEntries);
 
     return await query.orderBy(desc(timeEntries.clockInTime)).limit(1000);

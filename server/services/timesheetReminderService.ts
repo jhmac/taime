@@ -62,7 +62,9 @@ async function isPeriodFullyApproved(periodStart: string, periodEnd: string): Pr
   try {
     const entries = await storage.getAllTimeEntries(
       new Date(periodStart + "T00:00:00"),
-      new Date(periodEnd + "T23:59:59")
+      new Date(periodEnd + "T23:59:59"),
+      false,
+      null
     );
     if (entries.length === 0) return false;
     const completed = entries.filter((e) => e.clockOutTime);

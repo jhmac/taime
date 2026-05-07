@@ -151,7 +151,7 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
       const endDateStr = (endDate || new Date(Date.now() + 24 * 60 * 60 * 1000)).toISOString().split("T")[0];
 
       const [allEntries, allUsers, allOffsiteSessions, allSchedules, allMileageReimbs] = await Promise.all([
-        storage.getAllTimeEntries(startDate, endDate),
+        storage.getAllTimeEntries(startDate, endDate, false, null),
         storage.getAllUsers(),
         storage.getOffsiteSessions({}),
         storage.getAllSchedules(scheduleStart, scheduleEnd),
@@ -609,7 +609,7 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
       const notifyAdmin = workflowSettings?.notifyAdminOnManagerApproval ?? false;
       const adminUserId = workflowSettings?.adminUserId ?? null;
 
-      const entries = await storage.getAllTimeEntries(new Date(startDate), toEndOfDay(new Date(endDate)));
+      const entries = await storage.getAllTimeEntries(new Date(startDate), toEndOfDay(new Date(endDate)), false, null);
 
       if (singleStep) {
         // Single-step: immediately mark all completed entries as approved (final)
@@ -738,7 +738,7 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
         }
       }
 
-      const entries = await storage.getAllTimeEntries(new Date(startDate), toEndOfDay(new Date(endDate)));
+      const entries = await storage.getAllTimeEntries(new Date(startDate), toEndOfDay(new Date(endDate)), false, null);
       const unapproved = entries.filter((e: any) => !e.isApproved && e.clockOutTime);
 
       let approvedCount = 0;
@@ -804,7 +804,7 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
         }
       }
 
-      const entries = await storage.getAllTimeEntries(new Date(startDate), toEndOfDay(new Date(endDate)));
+      const entries = await storage.getAllTimeEntries(new Date(startDate), toEndOfDay(new Date(endDate)), false, null);
       let lockedCount = 0;
 
       for (const entry of entries) {
@@ -1052,7 +1052,7 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
       const otThreshold = settings?.overtimeThresholdHours ?? 40;
 
       const [allEntries, allUsers, exportOffsiteSessions, allMileageReimbursements] = await Promise.all([
-        storage.getAllTimeEntries(startDate, endDate),
+        storage.getAllTimeEntries(startDate, endDate, false, null),
         storage.getAllUsers(),
         storage.getOffsiteSessions({}),
         storage.getMileageReimbursements({}),

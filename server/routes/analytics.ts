@@ -59,7 +59,7 @@ export function registerAnalyticsRoutes(app: Express, storage: IStorage, isAuthe
       lastWeekEnd.setMilliseconds(-1);
 
       const [allTimeEntries, allUsers, allSchedules, allTasks] = await Promise.all([
-        storage.getAllTimeEntries(thirtyDaysAgo, now),
+        storage.getAllTimeEntries(thirtyDaysAgo, now, false, null),
         cache.getOrSet('analytics:users', () =>
           db.select({ id: users.id, hourlyRate: users.hourlyRate, isActive: users.isActive, firstName: users.firstName, lastName: users.lastName })
             .from(users).where(eq(users.isActive, true)),

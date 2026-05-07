@@ -1712,7 +1712,7 @@ Keep your response concise, practical, and focused on actionable staffing advice
         ))
         .orderBy(shopifyDailySales.date);
 
-      const allTimeEntries = await storage.getAllTimeEntries(startDate, now);
+      const allTimeEntries = await storage.getAllTimeEntries(startDate, now, false, null);
       const allUsers = await db.select().from(users).where(eq(users.isActive, true));
 
       const userRateMap = new Map<string, number>();

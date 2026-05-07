@@ -367,7 +367,7 @@ export function registerAIRoutes(app: Express, storage: IStorage, isAuthenticate
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - 30);
 
-      const timeEntriesData = await storage.getAllTimeEntries(startDate, endDate);
+      const timeEntriesData = await storage.getAllTimeEntries(startDate, endDate, false, null);
       const allUsers = await db.select().from(users);
       const userMap: Record<string, string> = {};
       allUsers.forEach(u => {

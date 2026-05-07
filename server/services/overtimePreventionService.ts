@@ -83,7 +83,7 @@ export class OvertimePreventionService {
     const weekEnd = getWeekEnd(weekStart);
 
     const [allEntries, allSchedules, allUsers, allAvailability] = await Promise.all([
-      this.storage.getAllTimeEntries(weekStart, weekEnd),
+      this.storage.getAllTimeEntries(weekStart, weekEnd, false, null),
       this.storage.getAllSchedules(weekStart, weekEnd),
       this.storage.getAllUsers(),
       this.storage.getAllAvailabilityByDateRange(weekStart, weekEnd),

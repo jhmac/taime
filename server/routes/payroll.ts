@@ -25,7 +25,7 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
       const start = new Date(startDate);
       const end = new Date(endDate);
       
-      const timeEntries = await storage.getAllTimeEntries(start, end);
+      const timeEntries = await storage.getAllTimeEntries(start, end, false, null);
       
       const payrollData = timeEntries.map(entry => {
         const clockIn = new Date(entry.clockInTime);
@@ -162,7 +162,7 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
       const start = new Date(startDate as string);
       const end = new Date(endDate as string);
 
-      const timeEntriesData = await storage.getAllTimeEntries(start, end);
+      const timeEntriesData = await storage.getAllTimeEntries(start, end, false, null);
       const allUsers = await db.select().from(users);
       const [settings] = await db.select().from(companySettings).limit(1);
       const holidayRules = await storage.getAllHolidayPayRules();
@@ -428,7 +428,7 @@ export function registerPayrollRoutes(app: Express, storage: IStorage, isAuthent
 
       const start = new Date(period.startDate);
       const end = new Date(period.endDate);
-      const timeEntriesData = await storage.getAllTimeEntries(start, end);
+      const timeEntriesData = await storage.getAllTimeEntries(start, end, false, null);
       const schedulesData = await storage.getAllSchedules(start, end);
       const allUsers = await db.select().from(users);
       const [settings] = await db.select().from(companySettings).limit(1);
