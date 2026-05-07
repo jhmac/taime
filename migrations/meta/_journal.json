@@ -239,6 +239,13 @@
       "when": 1747144800000,
       "tag": "0033_dashboard_settings_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1747231200000,
+      "tag": "0034_scheduling_hours_by_day",
+      "breakpoints": true
     }
   ]
 }

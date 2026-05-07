@@ -2,12 +2,44 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { DAYS_OF_WEEK, TIME_OPTIONS } from '@/components/settings/constants';
 import type { SettingsSectionProps } from '@/components/settings/types';
+import type { DaySchedulingHours, SchedulingHoursByDay } from '@shared/schema';
+
+const ALL_DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const;
+type DayKey = typeof ALL_DAYS[number];
 
 export default function ScheduleEnforcementSection({ settingsForm, updateForm }: SettingsSectionProps) {
+  const workWeekStart: DayKey = (settingsForm.workWeekStart as DayKey) || 'sunday';
+
+  const startIdx = ALL_DAYS.indexOf(workWeekStart);
+  const orderedDays: DayKey[] = [
+    ...ALL_DAYS.slice(startIdx),
+    ...ALL_DAYS.slice(0, startIdx),
+  ];
+
+  const hoursByDay = (settingsForm.schedulingHoursByDay ?? {}) as Partial<SchedulingHoursByDay>;
+
+  const getDefaultDay = (): DaySchedulingHours => ({
+    enabled: true,
+    startTime: (settingsForm.schedulingStartTime as string) || '09:00',
+    endTime: (settingsForm.schedulingEndTime as string) || '17:00',
+  });
+
+  const getDayData = (day: DayKey): DaySchedulingHours =>
+    hoursByDay[day] ?? getDefaultDay();
+
+  const updateDay = (day: DayKey, field: keyof DaySchedulingHours, value: string | boolean) => {
+    const current = getDayData(day);
+    updateForm('schedulingHoursByDay', {
+      ...hoursByDay,
+      [day]: { ...current, [field]: value },
+    });
+  };
+
   return (
     <div className="space-y-6">
       <Card>
@@ -35,34 +67,53 @@ export default function ScheduleEnforcementSection({ settingsForm, updateForm }:
         <CardHeader>
           <CardTitle className="text-base">Scheduling hours</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label>Start time</Label>
-              <Select value={settingsForm.schedulingStartTime || '09:00'} onValueChange={val => updateForm('schedulingStartTime', val)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {TIME_OPTIONS.map(t => (
-                    <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>End time</Label>
-              <Select value={settingsForm.schedulingEndTime || '17:00'} onValueChange={val => updateForm('schedulingEndTime', val)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {TIME_OPTIONS.map(t => (
-                    <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+        <CardContent>
+          <div className="space-y-3">
+            {orderedDays.map(day => {
+              const dayData = getDayData(day);
+              const label = DAYS_OF_WEEK.find(d => d.value === day)?.label ?? day;
+              const closed = !dayData.enabled;
+              return (
+                <div key={day} className="flex items-center gap-3">
+                  <Switch
+                    checked={dayData.enabled}
+                    onCheckedChange={val => updateDay(day, 'enabled', val)}
+                  />
+                  <span className={`w-24 text-sm font-medium ${closed ? 'text-muted-foreground' : ''}`}>
+                    {label}
+                  </span>
+                  <Select
+                    value={dayData.startTime}
+                    onValueChange={val => updateDay(day, 'startTime', val)}
+                    disabled={closed}
+                  >
+                    <SelectTrigger className={`w-32 ${closed ? 'opacity-40' : ''}`}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {TIME_OPTIONS.map(t => (
+                        <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <span className={`text-sm text-muted-foreground ${closed ? 'opacity-40' : ''}`}>to</span>
+                  <Select
+                    value={dayData.endTime}
+                    onValueChange={val => updateDay(day, 'endTime', val)}
+                    disabled={closed}
+                  >
+                    <SelectTrigger className={`w-32 ${closed ? 'opacity-40' : ''}`}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {TIME_OPTIONS.map(t => (
+                        <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              );
+            })}
           </div>
         </CardContent>
       </Card>

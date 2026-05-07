@@ -193,6 +193,23 @@ export default function AdminSettings() {
         workWeekStart: settings.workWeekStart || 'sunday',
         schedulingStartTime: settings.schedulingStartTime || '09:00',
         schedulingEndTime: settings.schedulingEndTime || '17:00',
+        schedulingHoursByDay: (() => {
+          if (settings.schedulingHoursByDay) return settings.schedulingHoursByDay;
+          const defaultDay = {
+            enabled: true,
+            startTime: settings.schedulingStartTime ?? '09:00',
+            endTime: settings.schedulingEndTime ?? '17:00',
+          };
+          return {
+            sunday: { ...defaultDay },
+            monday: { ...defaultDay },
+            tuesday: { ...defaultDay },
+            wednesday: { ...defaultDay },
+            thursday: { ...defaultDay },
+            friday: { ...defaultDay },
+            saturday: { ...defaultDay },
+          };
+        })(),
         lateThresholdMinutes: settings.lateThresholdMinutes ?? 5,
         preventEarlyClockIn: settings.preventEarlyClockIn || false,
         earlyClockInMinutes: settings.earlyClockInMinutes ?? 5,

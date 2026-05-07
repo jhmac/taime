@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient, invalidatePrefix } from "@/lib/queryClient";
+import { useCompanySettings } from "@/hooks/useCompanySettings";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -307,9 +308,12 @@ function DayNoteButton({ date, notes, userId }: {
 }
 
 // ─── Main Availability page ───────────────────────────────────────────────────
+const DOW_KEYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const;
+
 export default function Availability() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const { settings: companySettings } = useCompanySettings();
 
   const [showDefaultSchedule, setShowDefaultSchedule] = useState(false);
   // Tabs
@@ -339,11 +343,21 @@ export default function Availability() {
   const [templateSlots, setTemplateSlots] = useState<Record<string, DayTemplate>>(emptyWeekTemplateSlots);
   const [templateHasChanges, setTemplateHasChanges] = useState(false);
   const [autoApplyTemplate, setAutoApplyTemplate] = useState(false);
-  // Preset time range for quick-fill buttons
+  // Preset time range for quick-fill buttons — seeded from store hours for today's day-of-week
   const [presetStart, setPresetStart] = useState(DEFAULT_START);
   const [presetEnd, setPresetEnd] = useState(DEFAULT_END);
 
   const isDesktop = useIsDesktop();
+
+  // Seed presetStart/presetEnd from per-day store hours once company settings load
+  useEffect(() => {
+    if (!companySettings?.schedulingHoursByDay) return;
+    const todayDow = new Date().getDay();
+    const dayKey = DOW_KEYS[todayDow];
+    const daySchedule = companySettings.schedulingHoursByDay[dayKey];
+    if (daySchedule?.enabled && daySchedule.startTime) setPresetStart(daySchedule.startTime);
+    if (daySchedule?.enabled && daySchedule.endTime) setPresetEnd(daySchedule.endTime);
+  }, [companySettings]);
 
   // ── New calendar state ──────────────────────────────────────────────────────
   const [calViewMonth, setCalViewMonth] = useState(new Date());
@@ -794,18 +808,26 @@ export default function Availability() {
     }
     // User is actively editing — dismiss the auto-fill indicator
     if (weekWasAutoFilled) setWeekWasAutoFilled(false);
+
+    // Derive per-day scheduling hours for this date
+    const dowIndex = new Date(dateStr + 'T12:00:00Z').getUTCDay();
+    const dayKey = DOW_KEYS[dowIndex];
+    const daySchedule = companySettings?.schedulingHoursByDay?.[dayKey];
+    const storeStart = (daySchedule?.enabled && daySchedule.startTime) ? daySchedule.startTime : DEFAULT_START;
+    const storeEnd = (daySchedule?.enabled && daySchedule.endTime) ? daySchedule.endTime : DEFAULT_END;
+
     // Pre-fill from existing data
     if (entry && entry.available) {
       setEditorStartTime(entry.startTime || DEFAULT_START);
       setEditorEndTime(entry.endTime || DEFAULT_END);
       setEditorUnavailable(false);
     } else if (entry && entry.unavailable) {
-      setEditorStartTime(DEFAULT_START);
-      setEditorEndTime(DEFAULT_END);
+      setEditorStartTime(storeStart);
+      setEditorEndTime(storeEnd);
       setEditorUnavailable(true);
     } else {
-      setEditorStartTime(DEFAULT_START);
-      setEditorEndTime(DEFAULT_END);
+      setEditorStartTime(storeStart);
+      setEditorEndTime(storeEnd);
       setEditorUnavailable(false);
     }
     // If the day already has an override, default scope to override; else default to override too (most common case)

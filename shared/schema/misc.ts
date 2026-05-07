@@ -209,6 +209,22 @@ export const kudos = pgTable("kudos", {
 
 // ── Company / Admin ───────────────────────────────────────────────────────────
 
+export type DaySchedulingHours = {
+  enabled: boolean;
+  startTime: string;
+  endTime: string;
+};
+
+export type SchedulingHoursByDay = {
+  sunday: DaySchedulingHours;
+  monday: DaySchedulingHours;
+  tuesday: DaySchedulingHours;
+  wednesday: DaySchedulingHours;
+  thursday: DaySchedulingHours;
+  friday: DaySchedulingHours;
+  saturday: DaySchedulingHours;
+};
+
 export const companySettings = pgTable("company_settings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   storeId: varchar("store_id").references(() => workLocations.id),
@@ -238,6 +254,7 @@ export const companySettings = pgTable("company_settings", {
   workWeekStart: varchar("work_week_start").default("sunday"),
   schedulingStartTime: varchar("scheduling_start_time").default("09:00"),
   schedulingEndTime: varchar("scheduling_end_time").default("17:00"),
+  schedulingHoursByDay: jsonb("scheduling_hours_by_day").$type<SchedulingHoursByDay>(),
   lateThresholdMinutes: integer("late_threshold_minutes").default(5),
   preventEarlyClockIn: boolean("prevent_early_clock_in").default(false),
   earlyClockInMinutes: integer("early_clock_in_minutes").default(5),
