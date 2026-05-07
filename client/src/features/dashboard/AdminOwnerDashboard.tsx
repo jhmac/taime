@@ -72,7 +72,7 @@ interface DailyGoal {
   goal?: { revenue?: number; orders?: number };
   current?: { revenue?: number; orders?: number };
   progress?: number; amountRemaining?: number; salesNeeded?: number;
-  averageOrderValue?: number; lastYearRevenue?: number;
+  averageOrderValue?: number; lastYearRevenue?: number; lastYearDate?: string;
 }
 interface PayrollSummary {
   shopConnected?: boolean; grossSales?: number; totalHours?: number;
@@ -1049,7 +1049,7 @@ export default function AdminOwnerDashboard() {
 
   const currentRevenue = goalQ.data?.current?.revenue ?? 0;
   const goalRevenue    = goalQ.data?.goal?.revenue ?? 0;
-  const lastYearRevenue = (goalQ.data as any)?.lastYearRevenue ?? (goalRevenue > 0 ? goalRevenue * 0.88 : 0);
+  const lastYearRevenue = goalQ.data?.lastYearRevenue ?? (goalRevenue > 0 ? goalRevenue * 0.88 : 0);
   const vsLastYearPct = lastYearRevenue > 0 ? Math.round(((currentRevenue - lastYearRevenue) / lastYearRevenue) * 100) : null;
 
   const activeLocations = locations.filter((l) => l.isActive !== false);
@@ -1100,6 +1100,11 @@ export default function AdminOwnerDashboard() {
             {vsLastYearPct != null && (
               <p className="text-xs text-zinc-300 mt-1">
                 {vsLastYearPct >= 0 ? `+${vsLastYearPct}%` : `${vsLastYearPct}%`} vs last year
+              </p>
+            )}
+            {lastYearRevenue > 0 && (
+              <p className="text-xs text-zinc-400 mt-0.5">
+                Last year{goalQ.data?.lastYearDate ? ` (${format(new Date(goalQ.data.lastYearDate), 'EEE MMM d')})` : ''}: {fmtMoney(lastYearRevenue)}
               </p>
             )}
           </div>
