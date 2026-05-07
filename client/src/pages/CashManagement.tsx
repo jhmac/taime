@@ -881,6 +881,19 @@ function OwnerSection({ selectedDate, ownerTab, setOwnerTab, deposits, settings 
   const [closingTimeInputs, setClosingTimeInputs] = useState<Record<DayKey, string>>(settingsToClosingInputs(settings));
   const [applyAllTime, setApplyAllTime] = useState<string>("");
 
+  const defaultRegisters = () => {
+    const fromSettings = settings?.registers as Array<{ name: string; id: string }> | undefined;
+    if (fromSettings && fromSettings.length > 0) return fromSettings;
+    return [{ name: "Register 1", id: "register-1" }, { name: "Register 2", id: "register-2" }];
+  };
+
+  const [registerList, setRegisterList] = useState<Array<{ name: string; id: string }>>(defaultRegisters());
+
+  useEffect(() => {
+    const fromSettings = settings?.registers as Array<{ name: string; id: string }> | undefined;
+    if (fromSettings && fromSettings.length > 0) setRegisterList(fromSettings);
+  }, [settings?.registers]);
+
   useEffect(() => {
     setReferenceSlipPreview(settings?.referenceDepositSlip || null);
     setDepositToleranceInput(settings?.depositTolerance || "1.00");
@@ -1100,6 +1113,51 @@ function OwnerSection({ selectedDate, ownerTab, setOwnerTab, deposits, settings 
           <TabsContent value="settings" className="space-y-4 mt-3">
             <div className="space-y-3">
               <div>
+                <label className="text-sm font-medium">POS Registers</label>
+                <p className="text-xs text-muted-foreground mb-2">
+                  Configure the registers shown on the Open/Close page. Register names should match your Shopify POS register names so Shopify sync data maps correctly.
+                </p>
+                <div className="space-y-2">
+                  {registerList.map((reg, idx) => (
+                    <div key={idx} className="flex items-center gap-2">
+                      <div className="flex-1 grid grid-cols-2 gap-2">
+                        <Input
+                          placeholder="Register name (e.g. Register 1)"
+                          value={reg.name}
+                          onChange={(e) => setRegisterList(prev => prev.map((r, i) => i === idx ? { ...r, name: e.target.value } : r))}
+                        />
+                        <Input
+                          placeholder="ID (e.g. register-1)"
+                          value={reg.id}
+                          onChange={(e) => setRegisterList(prev => prev.map((r, i) => i === idx ? { ...r, id: e.target.value } : r))}
+                        />
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-red-500 px-2 shrink-0"
+                        onClick={() => setRegisterList(prev => prev.filter((_, i) => i !== idx))}
+                        disabled={registerList.length <= 1}
+                      >
+                        <i className="fas fa-times" />
+                      </Button>
+                    </div>
+                  ))}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full border-dashed text-muted-foreground"
+                    onClick={() => {
+                      const n = registerList.length + 1;
+                      setRegisterList(prev => [...prev, { name: `Register ${n}`, id: `register-${n}` }]);
+                    }}
+                  >
+                    <i className="fas fa-plus mr-1" /> Add Register
+                  </Button>
+                </div>
+              </div>
+
+              <div>
                 <label className="text-sm font-medium">Closing Times by Day</label>
                 <p className="text-xs text-muted-foreground mb-3">
                   Employees cannot start a closing count before this time on the given day. Leave a day blank to allow closing counts at any time on that day.
@@ -1211,8 +1269,10 @@ function OwnerSection({ selectedDate, ownerTab, setOwnerTab, deposits, settings 
                   const closingTime = Object.fromEntries(
                     DAYS_OF_WEEK.map(d => [d, closingTimeInputs[d] || null])
                   );
+                  const validRegisters = registerList.filter(r => r.name.trim());
                   settingsMutation.mutate({
                     ...settings,
+                    registers: validRegisters.length > 0 ? validRegisters : settings?.registers,
                     closingTime,
                     depositTolerance: depositToleranceInput || "1.00",
                     referenceDepositSlip: referenceSlipPreview || null,

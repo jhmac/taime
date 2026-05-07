@@ -121,7 +121,10 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
 
       const [created] = await db.insert(cashManagementSettings).values({
         storeId,
-        registers: [{ name: "Register 1", id: "register-1" }],
+        registers: [
+          { name: "Register 1", id: "register-1" },
+          { name: "Register 2", id: "register-2" },
+        ],
       }).returning();
 
       res.json({ ...created, closingTime: parseClosingTime(created.closingTime) });
@@ -189,7 +192,7 @@ export function registerCashManagementRoutes(app: Express, storage: IStorage, is
       const [created] = await db.insert(cashManagementSettings).values({
         storeId,
         defaultStartingCash: defaultStartingCash?.toString() || "200.00",
-        registers: registers || [{ name: "Register 1", id: "register-1" }],
+        registers: registers || [{ name: "Register 1", id: "register-1" }, { name: "Register 2", id: "register-2" }],
         overShortThreshold: overShortThreshold?.toString() || "5.00",
         requireDepositPhoto, requireOverShortExplanation,
         autoFlagThreshold: autoFlagThreshold?.toString() || "20.00",
