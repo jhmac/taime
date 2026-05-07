@@ -47,6 +47,146 @@ setInterval(() => {
   });
 }, 300000);
 
+// ── Backfill job store — in-memory, not persisted across restarts ─────────────
+interface BackfillJob {
+  status: 'running' | 'done' | 'error';
+  chunksCompleted: number;
+  totalChunks: number;
+  ordersProcessed: number;
+  daysSynced: number;
+  error?: string;
+  dateRange: { from: string; to: string };
+  ownerId: string;
+  shopDomain: string;
+}
+const backfillJobs = new Map<string, BackfillJob>();
+const BACKFILL_JOB_TTL_MS = 60 * 60 * 1000; // 1 hour after terminal state
+
+function scheduleJobCleanup(jobId: string) {
+  setTimeout(() => backfillJobs.delete(jobId), BACKFILL_JOB_TTL_MS);
+}
+
+function createBackfillJob(
+  totalChunks: number,
+  dateRange: { from: string; to: string },
+  ownerId: string,
+  shopDomain: string
+): string {
+  const jobId = crypto.randomUUID();
+  backfillJobs.set(jobId, {
+    status: 'running',
+    chunksCompleted: 0,
+    totalChunks,
+    ordersProcessed: 0,
+    daysSynced: 0,
+    dateRange,
+    ownerId,
+    shopDomain,
+  });
+  return jobId;
+}
+
+async function runBackfillJob(
+  jobId: string,
+  shopifyService: InstanceType<typeof ShopifyService>,
+  credentials: { shopDomain: string; accessToken: string },
+  tz: string,
+  start: Date,
+  end: Date,
+  CHUNK_DAYS: number
+) {
+  const job = backfillJobs.get(jobId);
+  if (!job) return;
+  try {
+    let chunkStart = new Date(start);
+    while (chunkStart <= end) {
+      const chunkEnd = new Date(Math.min(
+        chunkStart.getTime() + CHUNK_DAYS * 24 * 60 * 60 * 1000 - 1,
+        end.getTime()
+      ));
+
+      const orders = await shopifyService.getOrders({
+        first: 250,
+        createdAtMin: chunkStart.toISOString(),
+        createdAtMax: chunkEnd.toISOString(),
+        maxPages: 40,
+      });
+
+      job.ordersProcessed += orders.length;
+
+      const dailyAggregation: Record<string, {
+        date: Date;
+        dayOfWeek: number;
+        orderCount: number;
+        totalRevenue: number;
+        itemCount: number;
+      }> = {};
+
+      for (const order of orders) {
+        const orderDate = new Date((order as any).createdAt);
+        const dateKey = dateKeyInTz(orderDate, tz);
+        if (!dailyAggregation[dateKey]) {
+          dailyAggregation[dateKey] = {
+            date: dailySalesRowDate(dateKey),
+            dayOfWeek: dayOfWeekInTz(orderDate, tz),
+            orderCount: 0,
+            totalRevenue: 0,
+            itemCount: 0,
+          };
+        }
+        dailyAggregation[dateKey].orderCount++;
+        dailyAggregation[dateKey].totalRevenue += parseFloat(
+          (order as any).totalPriceSet?.shopMoney?.amount || '0'
+        );
+        for (const li of ((order as any).lineItems?.nodes || [])) {
+          dailyAggregation[dateKey].itemCount += li.quantity || 1;
+        }
+      }
+
+      const rows = Object.values(dailyAggregation).map(dayData => {
+        const avgOrderValue = dayData.orderCount > 0
+          ? Math.round((dayData.totalRevenue / dayData.orderCount) * 100) / 100
+          : 0;
+        return {
+          shopDomain: credentials.shopDomain,
+          date: dayData.date,
+          dayOfWeek: dayData.dayOfWeek,
+          orderCount: dayData.orderCount,
+          totalRevenue: String(Math.round(dayData.totalRevenue * 100) / 100),
+          itemCount: dayData.itemCount,
+          averageOrderValue: String(avgOrderValue),
+        };
+      });
+
+      if (rows.length > 0) {
+        await db.insert(shopifyDailySales)
+          .values(rows)
+          .onConflictDoUpdate({
+            target: [shopifyDailySales.shopDomain, shopifyDailySales.date],
+            set: {
+              orderCount: sql`excluded.order_count`,
+              totalRevenue: sql`excluded.total_revenue`,
+              itemCount: sql`excluded.item_count`,
+              averageOrderValue: sql`excluded.average_order_value`,
+              dayOfWeek: sql`excluded.day_of_week`,
+            },
+          });
+        job.daysSynced += rows.length;
+      }
+
+      job.chunksCompleted++;
+      chunkStart = new Date(chunkEnd.getTime() + 1);
+    }
+    job.status = 'done';
+    scheduleJobCleanup(jobId);
+  } catch (err) {
+    job.status = 'error';
+    job.error = String(err);
+    scheduleJobCleanup(jobId);
+    console.error(`[backfill] job ${jobId} failed:`, err);
+  }
+}
+
 // ── OAuth state: HMAC-signed, stateless — survives server restarts ────────────
 // Previously we stored state in an in-memory Map. Any server restart (common
 // in Replit's production environment) between auth-init and callback caused
@@ -1249,8 +1389,8 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
       const userId = req.user?.id || req.auth?.userId;
       const { shopDomain: domain, startDate, endDate } = req.body as {
         shopDomain?: string;
-        startDate?: string; // YYYY-MM-DD
-        endDate?: string;   // YYYY-MM-DD
+        startDate?: string;
+        endDate?: string;
       };
 
       if (!domain || !startDate || !endDate) {
@@ -1277,98 +1417,37 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
 
       const shopifyService = new ShopifyService(credentials.shopDomain, credentials.accessToken);
       const tz = await getShopTz(credentials.shopDomain);
+
       const CHUNK_DAYS = 60;
+      const totalChunks = Math.ceil(diffDays / CHUNK_DAYS);
+      const jobId = createBackfillJob(totalChunks, { from: startDate, to: endDate }, userId, credentials.shopDomain);
 
-      let totalOrders = 0;
-      let daysSynced = 0;
-      let chunkStart = new Date(start);
+      // Fire-and-forget — do not await
+      runBackfillJob(jobId, shopifyService, credentials, tz, start, end, CHUNK_DAYS).catch(() => {});
 
-      while (chunkStart <= end) {
-        const chunkEnd = new Date(Math.min(
-          chunkStart.getTime() + CHUNK_DAYS * 24 * 60 * 60 * 1000 - 1,
-          end.getTime()
-        ));
-
-        const orders = await shopifyService.getOrders({
-          first: 250,
-          createdAtMin: chunkStart.toISOString(),
-          createdAtMax: chunkEnd.toISOString(),
-          maxPages: 40, // up to 10,000 orders per chunk
-        });
-
-        totalOrders += orders.length;
-
-        const dailyAggregation: Record<string, {
-          date: Date;
-          dayOfWeek: number;
-          orderCount: number;
-          totalRevenue: number;
-          itemCount: number;
-        }> = {};
-
-        for (const order of orders) {
-          const orderDate = new Date((order as any).createdAt);
-          const dateKey = dateKeyInTz(orderDate, tz);
-          if (!dailyAggregation[dateKey]) {
-            dailyAggregation[dateKey] = {
-              date: dailySalesRowDate(dateKey),
-              dayOfWeek: dayOfWeekInTz(orderDate, tz),
-              orderCount: 0,
-              totalRevenue: 0,
-              itemCount: 0,
-            };
-          }
-          dailyAggregation[dateKey].orderCount++;
-          dailyAggregation[dateKey].totalRevenue += parseFloat(
-            (order as any).totalPriceSet?.shopMoney?.amount || '0'
-          );
-          for (const li of ((order as any).lineItems?.nodes || [])) {
-            dailyAggregation[dateKey].itemCount += li.quantity || 1;
-          }
-        }
-
-        for (const [, dayData] of Object.entries(dailyAggregation)) {
-          const avgOrderValue = dayData.orderCount > 0
-            ? Math.round((dayData.totalRevenue / dayData.orderCount) * 100) / 100
-            : 0;
-          const totalRevenueStr = String(Math.round(dayData.totalRevenue * 100) / 100);
-
-          await db.insert(shopifyDailySales)
-            .values({
-              shopDomain: credentials.shopDomain,
-              date: dayData.date,
-              dayOfWeek: dayData.dayOfWeek,
-              orderCount: dayData.orderCount,
-              totalRevenue: totalRevenueStr,
-              itemCount: dayData.itemCount,
-              averageOrderValue: String(avgOrderValue),
-            })
-            .onConflictDoUpdate({
-              target: [shopifyDailySales.shopDomain, shopifyDailySales.date],
-              set: {
-                orderCount: dayData.orderCount,
-                totalRevenue: totalRevenueStr,
-                itemCount: dayData.itemCount,
-                averageOrderValue: String(avgOrderValue),
-                dayOfWeek: dayData.dayOfWeek,
-              },
-            });
-          daysSynced++;
-        }
-
-        chunkStart = new Date(chunkEnd.getTime() + 1);
-      }
-
-      res.json({
-        success: true,
-        ordersProcessed: totalOrders,
-        daysSynced,
-        dateRange: { from: startDate, to: endDate },
-      });
+      return res.status(202).json({ jobId, totalChunks });
     } catch (error) {
-      console.error("Error in backfill-range:", error);
-      res.status(500).json({ message: "Failed to backfill date range", detail: String(error) });
+      console.error("Error starting backfill-range:", error);
+      res.status(500).json({ message: "Failed to start backfill", detail: String(error) });
     }
+  });
+
+  app.get("/api/shopify/backfill-status/:jobId", isAuthenticated, async (req: any, res) => {
+    const userId = req.user?.id || req.auth?.userId;
+    const job = backfillJobs.get(req.params.jobId);
+    if (!job) return res.status(404).json({ error: "Job not found or expired" });
+    if (job.ownerId !== userId && !(await assertUserShopAccess(userId, job.shopDomain))) {
+      return res.status(403).json({ error: "Access denied" });
+    }
+    res.json({
+      status: job.status,
+      chunksCompleted: job.chunksCompleted,
+      totalChunks: job.totalChunks,
+      ordersProcessed: job.ordersProcessed,
+      daysSynced: job.daysSynced,
+      dateRange: job.dateRange,
+      ...(job.error ? { error: job.error } : {}),
+    });
   });
 
   app.get("/api/shopify/sales-data", isAuthenticated, async (req: any, res) => {

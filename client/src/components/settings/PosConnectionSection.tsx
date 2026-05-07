@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { apiRequest } from '@/lib/queryClient';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -52,6 +52,14 @@ export default function PosConnectionSection({
     daysSynced: number;
     dateRange: { from: string; to: string };
   } | null>(null);
+  const [backfillError, setBackfillError] = useState<string | null>(null);
+  const [backfillProgress, setBackfillProgress] = useState<{
+    chunksCompleted: number;
+    totalChunks: number;
+    ordersProcessed: number;
+  } | null>(null);
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Default to the known historical gap that breaks the Sales vs. Goal engine
   useEffect(() => {
@@ -59,6 +67,62 @@ export default function PosConnectionSection({
     setBackfillStart('2025-05-07');
     setBackfillEnd('2025-10-03');
   }, [connectedShop?.shopDomain]);
+
+  // Polling effect: starts/stops based on activeJobId; cleans up on unmount or when jobId changes
+  useEffect(() => {
+    if (!activeJobId) return;
+
+    const poll = async () => {
+      try {
+        const statusRes = await apiRequest('GET', `/api/shopify/backfill-status/${activeJobId}`);
+        if (!statusRes.ok) {
+          setActiveJobId(null);
+          setBackfillPending(false);
+          setBackfillError('Lost track of the backfill job. It may still be running in the background.');
+          return;
+        }
+        const job = await statusRes.json();
+        setBackfillProgress({
+          chunksCompleted: job.chunksCompleted,
+          totalChunks: job.totalChunks,
+          ordersProcessed: job.ordersProcessed,
+        });
+
+        if (job.status === 'done') {
+          setActiveJobId(null);
+          setBackfillPending(false);
+          setBackfillProgress(null);
+          setBackfillResult({
+            ordersProcessed: job.ordersProcessed,
+            daysSynced: job.daysSynced,
+            dateRange: job.dateRange,
+          });
+          toast({
+            title: 'Backfill complete',
+            description: `Pulled ${job.ordersProcessed.toLocaleString()} orders across ${job.daysSynced} days.`,
+          });
+        } else if (job.status === 'error') {
+          setActiveJobId(null);
+          setBackfillPending(false);
+          setBackfillProgress(null);
+          const msg = job.error || 'An error occurred during the backfill.';
+          setBackfillError(`Failed after ${job.chunksCompleted} of ${job.totalChunks} chunks (${job.ordersProcessed.toLocaleString()} orders synced so far). ${msg}`);
+          toast({ title: 'Backfill failed', description: msg, variant: 'destructive' });
+        }
+      } catch {
+        // transient network error — keep polling
+      }
+    };
+
+    poll(); // immediate first tick so UI shows progress without waiting 2s
+    pollIntervalRef.current = setInterval(poll, 2000);
+    return () => {
+      if (pollIntervalRef.current !== null) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+    };
+  }, [activeJobId]);
 
   async function runConnectionTest(showToast = false) {
     setTestingConnection(true);
@@ -113,10 +177,13 @@ export default function PosConnectionSection({
     if (e.key === 'Enter') handleConnect();
   }
 
-  async function handleBackfillRange() {
+  const handleBackfillRange = useCallback(async () => {
     if (!connectedShop || !backfillStart || !backfillEnd) return;
     setBackfillPending(true);
     setBackfillResult(null);
+    setBackfillError(null);
+    setBackfillProgress(null);
+
     try {
       const res = await apiRequest('POST', '/api/shopify/backfill-range', {
         shopDomain: connectedShop.shopDomain,
@@ -127,22 +194,16 @@ export default function PosConnectionSection({
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || err.message || `Server error ${res.status}`);
       }
-      const data = await res.json();
-      setBackfillResult(data);
-      toast({
-        title: 'Backfill complete',
-        description: `Pulled ${data.ordersProcessed.toLocaleString()} orders across ${data.daysSynced} days.`,
-      });
+      const { jobId } = await res.json();
+      // Triggers the polling useEffect
+      setActiveJobId(jobId);
     } catch (err: any) {
-      toast({
-        title: 'Backfill failed',
-        description: err.message || 'Could not fetch historical data from Shopify.',
-        variant: 'destructive',
-      });
-    } finally {
       setBackfillPending(false);
+      const msg = err.message || 'Could not fetch historical data from Shopify.';
+      setBackfillError(msg);
+      toast({ title: 'Backfill failed', description: msg, variant: 'destructive' });
     }
-  }
+  }, [connectedShop, backfillStart, backfillEnd, toast]);
 
   const backfillDiffDays = backfillStart && backfillEnd
     ? Math.ceil((new Date(backfillEnd).getTime() - new Date(backfillStart).getTime()) / (24 * 60 * 60 * 1000))
@@ -365,9 +426,30 @@ export default function PosConnectionSection({
             >
               <Database className={`w-4 h-4 ${backfillPending ? 'animate-pulse' : ''}`} />
               {backfillPending
-                ? 'Fetching from Shopify… this may take a moment'
+                ? backfillProgress
+                  ? `Syncing chunk ${backfillProgress.chunksCompleted + 1} of ${backfillProgress.totalChunks} — ${backfillProgress.ordersProcessed.toLocaleString()} orders so far…`
+                  : 'Starting backfill…'
                 : 'Backfill Historical Data'}
             </Button>
+
+            {backfillPending && backfillProgress && (
+              <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
+                <div
+                  className="bg-primary h-1.5 rounded-full transition-all duration-500"
+                  style={{ width: `${Math.round((backfillProgress.chunksCompleted / backfillProgress.totalChunks) * 100)}%` }}
+                />
+              </div>
+            )}
+
+            {backfillError && (
+              <div className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/10 p-3 flex gap-2.5">
+                <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+                <div className="text-xs text-red-800 dark:text-red-300">
+                  <p className="font-medium">Backfill failed</p>
+                  <p>{backfillError}</p>
+                </div>
+              </div>
+            )}
 
             {backfillResult && (
               <div className="rounded-lg border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/10 p-3 flex gap-2.5">
