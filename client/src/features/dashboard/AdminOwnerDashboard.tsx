@@ -201,8 +201,9 @@ function FloorStatusPanel({
   ]);
 
   type Row = {
-    uid: string; u: User | undefined; status: 'on-shift' | 'late' | 'break' | 'no-show' | 'upcoming';
-    locationName: string; detail: string;
+    uid: string; u: User | undefined;
+    status: 'on-shift' | 'late' | 'break' | 'no-show' | 'upcoming' | 'early-departure';
+    locationName: string; detail: string; endTime?: string;
   };
   const rows: Row[] = [];
 
@@ -216,15 +217,42 @@ function FloorStatusPanel({
     if (entry && !entry.clockOutTime) {
       const late = sched ? differenceInMinutes(new Date(entry.clockInTime), new Date(sched.startTime)) > lateThresholdMinutes : false;
       const onBreak = !!entry.breakStartTime;
-      const sinceMin = differenceInMinutes(now, new Date(entry.clockInTime));
       const sinceLabel = `Since ${format(new Date(entry.clockInTime), 'h:mm a')}`;
+      const endTime = sched ? format(new Date(sched.endTime), 'h:mm a') : undefined;
       rows.push({
         uid, u, locationName: offsite ? (offsite.destinationName ?? 'Off-site') : locName,
         status: onBreak ? 'break' : late ? 'late' : 'on-shift',
-        detail: sinceLabel,
+        detail: sinceLabel, endTime,
       });
     } else if (sched && !activeByUser.has(uid)) {
-      rows.push({ uid, u, locationName: locName, status: 'no-show', detail: `Shift ${format(new Date(sched.startTime), 'h:mm a')}` });
+      const schedStart = new Date(sched.startTime);
+      const schedEnd = new Date(sched.endTime);
+      // Find a completed entry that overlaps this schedule window:
+      //   clockIn < schedEnd  (they arrived before the shift ended)
+      //   clockOut > schedStart (they were present during the shift window)
+      // This correctly handles early clock-ins (before schedStart) and excludes
+      // prior-shift entries whose clockOut predates this shift's start.
+      const correlatedEntry = timeEntries.find(
+        (e) => e.userId === uid && e.clockOutTime &&
+          new Date(e.clockInTime) < schedEnd &&
+          new Date(e.clockOutTime!) > schedStart
+      );
+      const clockedOutEarly = correlatedEntry &&
+        new Date(correlatedEntry.clockOutTime!) < schedEnd;
+
+      if (clockedOutEarly && now < schedEnd) {
+        // Employee clocked out early and the shift window hasn't ended yet — show the flag
+        rows.push({
+          uid, u, locationName: locName, status: 'early-departure',
+          detail: `Left ${format(new Date(correlatedEntry!.clockOutTime!), 'h:mm a')}`,
+          endTime: format(schedEnd, 'h:mm a'),
+        });
+      } else if (correlatedEntry) {
+        // Employee completed (or early-departed and window has passed) — drop from card silently
+      } else {
+        // No clock-in at all for this shift window → genuine no-show
+        rows.push({ uid, u, locationName: locName, status: 'no-show', detail: `Shift ${format(schedStart, 'h:mm a')}` });
+      }
     }
   }
 
@@ -242,12 +270,13 @@ function FloorStatusPanel({
 
   const allRows = [...rows, ...upcomingRows].slice(0, 8);
 
-  const statusBadge: Record<string, { label: string; cls: string }> = {
-    'on-shift': { label: 'On shift', cls: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' },
-    'late':     { label: 'Late',     cls: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' },
-    'break':    { label: 'Break',    cls: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' },
-    'no-show':  { label: 'No-show',  cls: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' },
-    'upcoming': { label: 'Scheduled', cls: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400' },
+  const statusBadge: Record<string, { label: string; cls: string; rowCls?: string }> = {
+    'on-shift':        { label: 'On shift',        cls: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' },
+    'late':            { label: 'Late',             cls: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' },
+    'break':           { label: 'Break',            cls: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' },
+    'no-show':         { label: 'No-show',          cls: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' },
+    'upcoming':        { label: 'Scheduled',        cls: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400' },
+    'early-departure': { label: 'Early departure',  cls: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400', rowCls: 'bg-amber-50/60 dark:bg-amber-900/10' },
   };
 
   return (
@@ -255,16 +284,19 @@ function FloorStatusPanel({
       {allRows.length === 0 && (
         <p className="text-sm text-muted-foreground py-3 text-center">No active shifts right now.</p>
       )}
-      {allRows.map(({ uid, u, locationName, status, detail }) => {
-        const { label, cls } = statusBadge[status];
+      {allRows.map(({ uid, u, locationName, status, detail, endTime }) => {
+        const { label, cls, rowCls } = statusBadge[status];
         return (
-          <div key={uid} className="flex items-center gap-3 py-2 border-b border-border/40 last:border-0">
+          <div key={uid} className={cn('flex items-center gap-3 py-2 px-1.5 rounded-md border-b border-border/40 last:border-0', rowCls)}>
             <div className={cn('w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0', avatarColor(uid))}>
               {u ? initials(u) : '?'}
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-foreground truncate">{u ? uName(u) : 'Employee'}</p>
-              <p className="text-xs text-muted-foreground">{detail}{locationName ? ` · ${locationName}` : ''}</p>
+              <p className="text-xs text-muted-foreground">
+                {detail}{locationName ? ` · ${locationName}` : ''}
+                {endTime && <span className="ml-1 text-muted-foreground/70">· Until {endTime}</span>}
+              </p>
             </div>
             <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full shrink-0', cls)}>{label}</span>
           </div>
