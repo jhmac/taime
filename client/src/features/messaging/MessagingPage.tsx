@@ -1067,7 +1067,7 @@ export default function MessagingPage() {
   }, [threadData]);
 
   return (
-    <div className="h-page-chat flex flex-col bg-background">
+    <div className="h-page-chat flex flex-col bg-background overflow-hidden" style={{ overscrollBehavior: "none", paddingBottom: keyboardHeight > 0 ? `${keyboardHeight}px` : undefined }}>
       {/* Top tabs — Tabs root is the flex-1 column so TabsContent panels get bounded height */}
       <Tabs value={activeTab} onValueChange={v => setActiveTab(v as "chats" | "wall")} className="flex-1 flex flex-col min-h-0">
         <div className="border-b border-border shrink-0">
@@ -1495,7 +1495,7 @@ export default function MessagingPage() {
                   {!inlineRecognition && (
                     <div
                       className="p-3 border-t border-border bg-background shrink-0"
-                      style={{ paddingBottom: keyboardHeight > 0 ? `calc(0.75rem + ${keyboardHeight}px)` : `calc(0.75rem + env(safe-area-inset-bottom, 0px))` }}
+                      style={{ paddingBottom: `calc(0.75rem + env(safe-area-inset-bottom, 0px))` }}
                     >
                       {/* Image preview strip */}
                       {pendingImageUrl && (
