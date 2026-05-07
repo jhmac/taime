@@ -9,6 +9,7 @@ import { ShopifyService } from "../services/shopifyService";
 import { decryptToken } from "../utils/tokenEncryption";
 
 import { config } from "../lib/config";
+import { sameWeekdayLastYear } from "../lib/dateUtils";
 import {
   applyShiftOverlap,
   calculateOverlapLaborCost,
@@ -155,24 +156,12 @@ function localDayBoundsUtc(dateStr: string, timezone: string): { start: Date; en
   return { start, endExclusive };
 }
 
-/**
- * Computes the historical comparison date: 52 weeks ago (364 days) from the target date.
- * This guarantees the same day of the week (e.g. Thursday → Thursday) and correctly
- * captures seasonal context (e.g. "week before Easter" last year).
- */
-function historicalComparisonDate(targetDate: Date): Date {
-  const d = new Date(targetDate);
-  d.setUTCDate(d.getUTCDate() - 364); // 52 × 7 = 364
-  return d;
-}
-
 function findClosestDayOfWeekDate(targetDate: Date, salesDates: Array<{ date: Date; dayOfWeek: number; totalRevenue: string }>): { date: Date; totalRevenue: string } | null {
   const targetDow = targetDate.getDay();
-  const targetMonth = targetDate.getMonth();
-  const targetDay = targetDate.getDate();
 
-  const lastYearApprox = new Date(targetDate);
-  lastYearApprox.setFullYear(lastYearApprox.getFullYear() - 1);
+  // Anchor at exactly 52 weeks back so the closest-match search centres on the
+  // correct week rather than the same calendar date (which shifts the weekday).
+  const lastYearApprox = sameWeekdayLastYear(targetDate);
 
   const sameDowDates = salesDates.filter(s => s.dayOfWeek === targetDow);
   if (sameDowDates.length === 0) return null;
@@ -2199,10 +2188,8 @@ Required JSON structure:
       const targetDate = new Date(dateParam + 'T12:00:00Z');
       const targetDow = targetDate.getUTCDay();
 
-      // Use 52 weeks ago (same day of week) as the historical comparison date.
-      // 364 days = 52 × 7, guaranteeing the same weekday as today and capturing the
-      // same seasonal context (e.g. "week before Easter" last year).
-      const historicalDate = historicalComparisonDate(targetDate);
+      // Use 52 weeks ago (same day of week, 364 days) as the historical comparison date.
+      const historicalDate = sameWeekdayLastYear(targetDate);
       let historicalDateStr = historicalDate.toISOString().slice(0, 10);
 
       // Resolve Shopify credentials for this user (enables auto-backfill)
@@ -2957,7 +2944,7 @@ Required JSON structure:
 
       // ── Get historical sales: backfill from Shopify GraphQL if needed ────────
       // Use 52 weeks ago (same day of week, 364 days) for like-for-like comparison
-      const historicalDate2 = historicalComparisonDate(dateObj);
+      const historicalDate2 = sameWeekdayLastYear(dateObj);
       let historicalDateStr2 = historicalDate2.toISOString().slice(0, 10);
 
       // Resolve Shopify shop credentials for this user

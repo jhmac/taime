@@ -13,6 +13,7 @@ import { config } from "../lib/config";
 import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
 import { resolveShopTimezone, dateKeyInTz, dayOfWeekInTz, dailySalesRowDate, shopDayUtcBounds } from "../lib/shopTimezone";
 import { reconcileShopDay, getLastReconciliation } from "../services/shopifyReconciliation";
+import { sameWeekdayLastYear } from "../lib/dateUtils";
 
 // ── Tiny per-process cache: shopDomain → IANA timezone ────────────────────────
 // Webhook handlers run hot and the timezone changes only when a shop reinstalls
@@ -1779,10 +1780,10 @@ Keep your response concise, practical, and focused on actionable staffing advice
       const currentStart = new Date(startDate + 'T00:00:00Z');
       const currentEnd = new Date(endDate + 'T23:59:59Z');
 
-      const prevStart = new Date(currentStart);
-      prevStart.setFullYear(prevStart.getFullYear() - 1);
-      const prevEnd = new Date(currentEnd);
-      prevEnd.setFullYear(prevEnd.getFullYear() - 1);
+      // Shift the comparison window back exactly 364 days (52 weeks) so each
+      // day aligns to the same weekday last year — matching Shopify's own YoY logic.
+      const prevStart = sameWeekdayLastYear(currentStart);
+      const prevEnd = sameWeekdayLastYear(currentEnd);
 
       const [currentYearSales, previousYearSales] = await Promise.all([
         db.select().from(shopifyDailySales)
@@ -1871,10 +1872,10 @@ Keep your response concise, practical, and focused on actionable staffing advice
       const domain = shopDomain.toLowerCase().trim();
       const currentStart = new Date(startDate + 'T00:00:00Z');
       const currentEnd = new Date(endDate + 'T23:59:59Z');
-      const prevStart = new Date(currentStart);
-      prevStart.setFullYear(prevStart.getFullYear() - 1);
-      const prevEnd = new Date(currentEnd);
-      prevEnd.setFullYear(prevEnd.getFullYear() - 1);
+      // Shift the comparison window back exactly 364 days (52 weeks) so each
+      // day aligns to the same weekday last year — matching Shopify's own YoY logic.
+      const prevStart = sameWeekdayLastYear(currentStart);
+      const prevEnd = sameWeekdayLastYear(currentEnd);
 
       const [previousYearSales, historicalSales, activeEmployees] = await Promise.all([
         db.select().from(shopifyDailySales)
@@ -1921,8 +1922,7 @@ Keep your response concise, practical, and focused on actionable staffing advice
       const scheduleDayDetails = scheduleDays.map(dateStr => {
         const d = new Date(dateStr + 'T00:00:00Z');
         const dow = d.getUTCDay();
-        const lastYearDate = new Date(d);
-        lastYearDate.setFullYear(lastYearDate.getFullYear() - 1);
+        const lastYearDate = sameWeekdayLastYear(d);
         const lastYearKey = lastYearDate.toISOString().split('T')[0];
         const lastYearMatch = prevDayData.find(p => p.date === lastYearKey);
 

@@ -8,6 +8,7 @@ import { gamificationService } from "../services/gamificationService";
 import { setLocationPermission, getLocationPermissionPreference } from "../services/locationPermissionStore";
 import { claudeService } from "../services/claudeService";
 import { resolveAnyPermission } from "../services/permissionResolver";
+import { sameWeekdayLastYear } from "../lib/dateUtils";
 
 // Maximum time the init endpoint will wait for DB queries before responding
 // with a 503 so the client can show a retry prompt rather than hanging.
@@ -503,13 +504,14 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
 
       const shopDomain = userShopRows[0].shopDomain;
 
-      // Find the closest same-day-of-week from approximately one year ago (look in a ±4 week window around exactly 52 weeks back)
-      const exactlyOneYearAgo = new Date(now);
-      exactlyOneYearAgo.setFullYear(exactlyOneYearAgo.getFullYear() - 1);
-      const windowStart = new Date(exactlyOneYearAgo);
-      windowStart.setDate(windowStart.getDate() - 28);
-      const windowEnd = new Date(exactlyOneYearAgo);
-      windowEnd.setDate(windowEnd.getDate() + 28);
+      // Compare to the exact same weekday 52 weeks ago (364 days back).
+      // 52 × 7 = 364 always preserves the day-of-week so Thursday → Thursday,
+      // matching Shopify's own "same period last year" analytics logic.
+      const compDate = sameWeekdayLastYear(now);
+      const compStart = new Date(compDate);
+      compStart.setUTCHours(0, 0, 0, 0);
+      const compEnd = new Date(compDate);
+      compEnd.setUTCHours(23, 59, 59, 999);
 
       const lastYearSales = await db.select({
           date: shopifyDailySales.date,
@@ -520,9 +522,8 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
         .from(shopifyDailySales)
         .where(and(
           eq(shopifyDailySales.shopDomain, shopDomain),
-          eq(shopifyDailySales.dayOfWeek, todayDow),
-          gte(shopifyDailySales.date, windowStart),
-          lte(shopifyDailySales.date, windowEnd)
+          gte(shopifyDailySales.date, compStart),
+          lte(shopifyDailySales.date, compEnd)
         ))
         .orderBy(desc(shopifyDailySales.date));
 
