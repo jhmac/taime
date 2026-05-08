@@ -22,6 +22,7 @@ import SurfacedSOPBanner from '@/components/SurfacedSOPBanner';
 import DailyTrainingManagerWidget from '@/features/dashboard/DailyTrainingManagerWidget';
 import TimeClockWidget from '@/components/TimeClockWidget';
 import TeamStatusWidget from '@/features/dashboard/TeamStatusWidget';
+import ManagerSchedulingActionsCard from '@/features/dashboard/ManagerSchedulingActionsCard';
 import {
   Sun,
   Check,
@@ -280,6 +281,13 @@ export default function ManagerDashboard() {
         {/* Personal time clock widget — clock face hidden to avoid redundancy with header live time, but today's total, geofencing badge, and action buttons are shown */}
         <DashboardErrorBoundary fallback="Time clock failed to load">
           <TimeClockWidget hideClock />
+        </DashboardErrorBoundary>
+      </div>
+
+      {/* ── Scheduling Actions Required ── */}
+      <div className={isMobile ? "px-4 pb-2" : "px-6 pb-2"}>
+        <DashboardErrorBoundary fallback="Scheduling actions failed to load">
+          <ManagerSchedulingActionsCard enabled={deferredEnabled} />
         </DashboardErrorBoundary>
       </div>
 

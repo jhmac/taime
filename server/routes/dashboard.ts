@@ -3,6 +3,8 @@ import type { IStorage } from "../storage";
 import { db } from "../db";
 import { schedules, timeEntries, shopifyDailySales, shops, userShops, users, locationPermissions } from "@shared/schema";
 import { eq, and, gte, lte, lt, desc, isNull, ne, inArray, or } from "drizzle-orm";
+import { getAllStoreUserIds } from "../lib/permissionUtils";
+import { tryResolveStoreIdForUser } from "../services/storeResolver";
 import { cache } from "../services/cache";
 import { gamificationService } from "../services/gamificationService";
 import { setLocationPermission, getLocationPermissionPreference } from "../services/locationPermissionStore";
@@ -891,6 +893,152 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
     } catch (error) {
       console.error("Error fetching pay summary:", error);
       res.status(500).json({ message: "Failed to fetch pay summary" });
+    }
+  });
+
+  // ── GET /api/dashboard/manager-scheduling-actions ────────────────────────
+  // Returns store-scoped scheduling action items for the Manager dashboard:
+  // pending time-off requests, employees missing availability templates,
+  // unscheduled next week, and availability conflicts on shifts.
+  app.get('/api/dashboard/manager-scheduling-actions', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId: string = req.user.id;
+
+      const userWithRole = await storage.getUserWithRole(userId);
+      const roleName = userWithRole?.role?.name;
+      if (!roleName || !['manager', 'admin', 'owner'].includes(roleName)) {
+        return res.status(403).json({ message: 'Manager or higher access required' });
+      }
+
+      const storeId = await tryResolveStoreIdForUser(userId);
+      if (!storeId) {
+        return res.status(400).json({ message: 'No store found for this user' });
+      }
+
+      // Compute next Monday–Sunday date range
+      const now = new Date();
+      const dayOfWeek = now.getDay();
+      const daysUntilNextMonday = dayOfWeek === 1 ? 7 : (8 - dayOfWeek) % 7;
+      const nextMonday = new Date(now);
+      nextMonday.setDate(now.getDate() + daysUntilNextMonday);
+      nextMonday.setHours(0, 0, 0, 0);
+      const nextSunday = new Date(nextMonday);
+      nextSunday.setDate(nextMonday.getDate() + 6);
+      nextSunday.setHours(23, 59, 59, 999);
+      const nextMondayStr = nextMonday.toISOString().split('T')[0];
+      const nextSundayStr = nextSunday.toISOString().split('T')[0];
+
+      const [storeUserIds, allTimeOff] = await Promise.all([
+        getAllStoreUserIds(storeId),
+        storage.getTimeOffRequests(),
+      ]);
+
+      const [templates, nextWeekSchedules, availabilityOverrides, storeUsers] = await Promise.all([
+        storage.getAvailabilityTemplatesForUsers(storeUserIds),
+        storeUserIds.length > 0
+          ? db.select().from(schedules).where(
+              and(
+                inArray(schedules.userId, storeUserIds),
+                gte(schedules.startTime, nextMonday),
+                lte(schedules.startTime, nextSunday),
+              )
+            )
+          : Promise.resolve([]),
+        storage.getAvailabilityOverridesForUsers(storeUserIds, nextMondayStr, nextSundayStr),
+        storeUserIds.length > 0
+          ? db.select({ id: users.id, firstName: users.firstName, lastName: users.lastName })
+              .from(users)
+              .where(inArray(users.id, storeUserIds))
+          : Promise.resolve([]),
+      ]);
+
+      const pendingTimeOff = allTimeOff.filter(
+        r => storeUserIds.includes(r.userId) && r.status === 'pending'
+      );
+
+      const usersWithTemplate = new Set(templates.map(t => t.userId));
+      const noTemplateUserIds = storeUserIds.filter(id => !usersWithTemplate.has(id));
+
+      const actions: Array<{
+        id: string;
+        severity: 'red' | 'orange' | 'green' | 'blue' | 'amber';
+        title: string;
+        subtitle: string;
+        linkTarget: string;
+        urgency: number;
+      }> = [];
+
+      // Pending time-off requests (amber, urgency 3)
+      if (pendingTimeOff.length > 0) {
+        const n = pendingTimeOff.length;
+        actions.push({
+          id: 'pending-timeoff',
+          severity: 'amber',
+          title: `${n} time-off request${n !== 1 ? 's' : ''} need review`,
+          subtitle: `${n} pending request${n !== 1 ? 's' : ''} awaiting your approval`,
+          linkTarget: '/requests',
+          urgency: 3,
+        });
+      }
+
+      // Employees with no availability template (orange, urgency 2)
+      if (noTemplateUserIds.length > 0) {
+        const userMap = new Map(
+          storeUsers.map(u => [u.id, `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() || `#${u.id.slice(-4)}`])
+        );
+        const displayNames = noTemplateUserIds.slice(0, 3).map(id => userMap.get(id) ?? `#${id.slice(-4)}`);
+        const extra = noTemplateUserIds.length - 3;
+        const nameStr = displayNames.join(', ') + (extra > 0 ? ` +${extra} more` : '');
+        actions.push({
+          id: 'no-availability-template',
+          severity: 'orange',
+          title: `${noTemplateUserIds.length} employee${noTemplateUserIds.length !== 1 ? 's' : ''} missing weekly availability`,
+          subtitle: `${nameStr} haven't set their weekly availability`,
+          linkTarget: '/availability',
+          urgency: 2,
+        });
+      }
+
+      // No shifts next week (blue, urgency 1)
+      if (nextWeekSchedules.length === 0) {
+        const weekLabel = nextMonday.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        actions.push({
+          id: 'no-shifts-next-week',
+          severity: 'blue',
+          title: 'Next week has no scheduled shifts yet',
+          subtitle: `No shifts have been created for the week of ${weekLabel}`,
+          linkTarget: '/schedules',
+          urgency: 1,
+        });
+      }
+
+      // Availability conflicts on scheduled shifts (red, urgency 4)
+      const unavailableDates = new Map<string, Set<string>>();
+      for (const o of availabilityOverrides) {
+        if (o.unavailable) {
+          if (!unavailableDates.has(o.userId)) unavailableDates.set(o.userId, new Set());
+          unavailableDates.get(o.userId)!.add(o.date);
+        }
+      }
+      const conflictCount = nextWeekSchedules.filter(s => {
+        const shiftDate = new Date(s.startTime).toISOString().split('T')[0];
+        return unavailableDates.get(s.userId)?.has(shiftDate) ?? false;
+      }).length;
+      if (conflictCount > 0) {
+        actions.push({
+          id: 'availability-conflicts',
+          severity: 'red',
+          title: `${conflictCount} shift${conflictCount !== 1 ? 's' : ''} conflict with submitted availability`,
+          subtitle: `${conflictCount} scheduled shift${conflictCount !== 1 ? 's' : ''} overlap with employee unavailability for next week`,
+          linkTarget: '/schedules',
+          urgency: 4,
+        });
+      }
+
+      return res.json(actions);
+    } catch (error) {
+      console.error('[Dashboard] manager-scheduling-actions error:', error);
+      return res.status(500).json({ message: 'Failed to fetch scheduling actions' });
     }
   });
 
