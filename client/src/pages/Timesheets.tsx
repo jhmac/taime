@@ -2326,6 +2326,36 @@ export default function Timesheets() {
     queryKey: [`/api/timesheets/review?startDate=${startDate}&endDate=${endDate}`],
   });
 
+  // Auto-fall-back: if the current period loaded with zero entries and a prior period
+  // exists (e.g. today is the very first day of a brand-new period), switch to the
+  // previous period so the manager sees their team's recent activity immediately.
+  const [autoFallbackDone, setAutoFallbackDone] = useState(false);
+  useEffect(() => {
+    if (
+      !autoFallbackDone &&
+      !isLoading &&
+      !isError &&
+      data &&
+      periodInitialized &&
+      payPeriods.length >= 2
+    ) {
+      const totalEntries = (data.employees ?? []).reduce(
+        (sum, emp) => sum + emp.dailyBreakdown.reduce((s, d) => s + d.entries.length, 0),
+        0,
+      );
+      if (totalEntries === 0) {
+        // Find the previous period (the one just before the current startDate)
+        const currentIdx = payPeriods.findIndex((p) => p.startDate === startDate);
+        if (currentIdx > 0) {
+          const prev = payPeriods[currentIdx - 1];
+          setStartDate(prev.startDate);
+          setEndDate(prev.endDate);
+        }
+      }
+      setAutoFallbackDone(true);
+    }
+  }, [data, isLoading, isError, periodInitialized, autoFallbackDone, payPeriods, startDate]);
+
   const { data: otData } = useQuery<OTAlertsData>({
     queryKey: ["/api/timesheets/overtime-alerts"],
   });
