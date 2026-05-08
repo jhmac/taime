@@ -226,27 +226,40 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
       const [requestingUser] = await db.select({
         companyId: users.companyId,
         locationName: users.locationName,
+        locationId: users.locationId,
       })
         .from(users)
         .where(eq(users.id, requestingUserId))
         .limit(1);
       const companyId = requestingUser?.companyId ?? null;
       const reqLocationName = requestingUser?.locationName ?? null;
+      let reqLocationId: string | null = requestingUser?.locationId ?? null;
+
       if (!companyId && !reqLocationName) {
-        return res.json({
-          schedules: [],
-          clockedIn: [],
-          summary: { totalScheduled: 0, totalClockedIn: 0, totalLate: 0, totalNotArrived: 0, totalLocationBlocked: 0 },
-          serverTimestamp: now.toISOString(),
-        });
+        if (!reqLocationId) {
+          reqLocationId = await tryResolveStoreIdForUser(requestingUserId);
+        }
+        if (!reqLocationId) {
+          return res.json({
+            schedules: [],
+            clockedIn: [],
+            summary: { totalScheduled: 0, totalClockedIn: 0, totalLate: 0, totalNotArrived: 0, totalLocationBlocked: 0 },
+            serverTimestamp: now.toISOString(),
+          });
+        }
       }
 
       // Helper: build the WHERE sub-condition that scopes a query to this tenant.
-      // When companyId is available, use it as the primary key. Also include employees
-      // whose companyId is null but who are at the same location — this covers users
-      // onboarded before companyId was fully adopted on all accounts (backward compat).
-      // When only locationName is available, match exactly on that column.
+      // Priority: locationId fallback (for admins with no companyId/locationName) →
+      // companyId → locationName. The locationId path also includes employees with
+      // no location assignment (null+null) for backward compatibility.
       function tenantUserCondition() {
+        if (!companyId && !reqLocationName && reqLocationId) {
+          return or(
+            eq(users.locationId, reqLocationId),
+            and(isNull(users.locationId), isNull(users.locationName)),
+          )!;
+        }
         if (companyId) {
           if (reqLocationName) {
             return or(
@@ -635,6 +648,7 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
       const [currentUser] = await db.select({
         locationName: users.locationName,
         companyId: users.companyId,
+        locationId: users.locationId,
       })
         .from(users)
         .where(eq(users.id, userId))
@@ -646,22 +660,34 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
 
       const { locationName, companyId } = currentUser;
 
+      let fallbackLocationId: string | null = currentUser.locationId ?? null;
       if (!companyId && !locationName) {
-        return res.json({ clockedIn: [] });
+        if (!fallbackLocationId) {
+          fallbackLocationId = await tryResolveStoreIdForUser(userId);
+        }
+        if (!fallbackLocationId) {
+          return res.json({ clockedIn: [] });
+        }
       }
 
       const now = new Date();
 
       // Build the tenant-scoping condition.
-      // companyId is preferred; locationName is the fallback for stores where companyId is unset.
-      // When scoping by companyId + locationName, also include users with no locationName set
-      // (so cross-location admins see everyone). When scoping only by locationName, match exactly.
-      const clockedInTenantCond = companyId
-        ? and(
-            eq(users.companyId, companyId),
-            ...(locationName ? [or(eq(users.locationName, locationName), isNull(users.locationName))] : []),
-          )
-        : eq(users.locationName, locationName!);
+      // Priority: locationId fallback (for admins with no companyId/locationName) →
+      // companyId → locationName. When using locationId, also include employees with
+      // no location assignment at all (null locationId + null locationName) so boutiques
+      // that onboarded before location fields were required still appear.
+      const clockedInTenantCond = (!companyId && !locationName && fallbackLocationId)
+        ? or(
+            eq(users.locationId, fallbackLocationId),
+            and(isNull(users.locationId), isNull(users.locationName)),
+          )!
+        : companyId
+          ? and(
+              eq(users.companyId, companyId),
+              ...(locationName ? [or(eq(users.locationName, locationName), isNull(users.locationName))] : []),
+            )
+          : eq(users.locationName, locationName!);
 
       const activeEntries = await db.select({
         entryUserId: timeEntries.userId,
@@ -717,6 +743,7 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
       const [currentUser] = await db.select({
         locationName: users.locationName,
         companyId: users.companyId,
+        locationId: users.locationId,
       })
         .from(users)
         .where(eq(users.id, userId))
@@ -728,8 +755,14 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
 
       const { locationName, companyId } = currentUser;
 
+      let fallbackLocationId: string | null = currentUser.locationId ?? null;
       if (!companyId && !locationName) {
-        return res.json({ upcomingShifts: [] });
+        if (!fallbackLocationId) {
+          fallbackLocationId = await tryResolveStoreIdForUser(userId);
+        }
+        if (!fallbackLocationId) {
+          return res.json({ upcomingShifts: [] });
+        }
       }
 
       const now = new Date();
@@ -737,12 +770,17 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
       const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
       // Build the tenant-scoping condition (same pattern as clocked-in endpoint).
-      const upcomingTenantCond = companyId
-        ? and(
-            eq(users.companyId, companyId),
-            ...(locationName ? [or(eq(users.locationName, locationName), isNull(users.locationName))] : []),
-          )
-        : eq(users.locationName, locationName!);
+      const upcomingTenantCond = (!companyId && !locationName && fallbackLocationId)
+        ? or(
+            eq(users.locationId, fallbackLocationId),
+            and(isNull(users.locationId), isNull(users.locationName)),
+          )!
+        : companyId
+          ? and(
+              eq(users.companyId, companyId),
+              ...(locationName ? [or(eq(users.locationName, locationName), isNull(users.locationName))] : []),
+            )
+          : eq(users.locationName, locationName!);
 
       const [upcomingSchedules, activeEntries] = await Promise.all([
         // All of today's shifts (including those that already started) scoped to same tenant

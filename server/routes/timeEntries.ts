@@ -178,11 +178,17 @@ export function registerTimeEntryRoutes(
 
       if (canViewAll) {
         // Build tenant filter mirroring dashboard.ts: prefer companyId, fall back to
-        // locationName. Storage returns [] when neither is present (fail-closed).
+        // locationName/locationId. If all three are null (e.g. owner account with no
+        // explicit location assignment), resolve the store's locationId so the query
+        // still returns results instead of failing closed.
+        let resolvedLocationId = user?.locationId ?? null;
+        if (!user?.companyId && !user?.locationName && !resolvedLocationId) {
+          resolvedLocationId = await tryResolveStoreIdForUser(userId);
+        }
         const tenantFilter = {
           companyId: user?.companyId ?? null,
           locationName: user?.locationName ?? null,
-          locationId: user?.locationId ?? null,
+          locationId: resolvedLocationId,
         };
         timeEntries = await storage.getAllTimeEntries(startDate, endDate, includeActive, tenantFilter);
       } else {

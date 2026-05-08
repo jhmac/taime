@@ -5,6 +5,7 @@
  */
 import { useState, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueries } from '@tanstack/react-query';
+import LiveFloorPanelShared from '@/features/dashboard/LiveFloorPanel';
 import { useLocation } from 'wouter';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -170,141 +171,6 @@ function ActionItemCard({ item, onNavigate }: { item: RichActionItem; onNavigate
       <span className={cn('text-xs font-medium px-2 py-0.5 rounded border whitespace-nowrap shrink-0 mt-0.5', severityBadge[item.severity])}>
         {item.badgeLabel}
       </span>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Floor Status — compact rows with avatar
-// ─────────────────────────────────────────────────────────────────────────────
-function FloorStatusPanel({
-  timeEntries, todaySchedules, users, locations, offsiteSessions, lateThresholdMinutes, onNavigate,
-}: {
-  timeEntries: TimeEntry[]; todaySchedules: Schedule[]; users: User[];
-  locations: WorkLocation[]; offsiteSessions: OffsiteSession[];
-  lateThresholdMinutes: number; onNavigate: (path: string) => void;
-}) {
-  const now = new Date();
-  const userMap = new Map(users.map((u) => [u.id, u]));
-  const activeByUser = new Map<string, TimeEntry>(
-    timeEntries.filter((e) => !e.clockOutTime).map((e) => [e.userId, e])
-  );
-  const offsiteMap = new Map<string, OffsiteSession>(
-    offsiteSessions.filter((s) => s.status === 'active').map((s) => [s.userId, s])
-  );
-  const locMap = new Map(locations.map((l) => [l.id, l.name]));
-  const startedSchedules = todaySchedules.filter((s) => new Date(s.startTime) <= now);
-  const upcomingSchedules = todaySchedules.filter((s) => new Date(s.startTime) > now);
-  const allUids = new Set([
-    ...startedSchedules.map((s) => s.userId),
-    ...[...activeByUser.keys()],
-  ]);
-
-  type Row = {
-    uid: string; u: User | undefined;
-    status: 'on-shift' | 'late' | 'break' | 'no-show' | 'upcoming' | 'early-departure';
-    locationName: string; detail: string; endTime?: string;
-  };
-  const rows: Row[] = [];
-
-  for (const uid of allUids) {
-    const u = userMap.get(uid);
-    const entry = activeByUser.get(uid);
-    const sched = startedSchedules.find((s) => s.userId === uid);
-    const locName = sched?.locationId ? (locMap.get(sched.locationId) ?? '') : (entry?.locationId ? (locMap.get(entry.locationId) ?? '') : '');
-    const offsite = offsiteMap.get(uid);
-
-    if (entry && !entry.clockOutTime) {
-      const late = sched ? differenceInMinutes(new Date(entry.clockInTime), new Date(sched.startTime)) > lateThresholdMinutes : false;
-      const onBreak = !!entry.breakStartTime;
-      const sinceLabel = `Since ${format(new Date(entry.clockInTime), 'h:mm a')}`;
-      const endTime = sched ? format(new Date(sched.endTime), 'h:mm a') : undefined;
-      rows.push({
-        uid, u, locationName: offsite ? (offsite.destinationName ?? 'Off-site') : locName,
-        status: onBreak ? 'break' : late ? 'late' : 'on-shift',
-        detail: sinceLabel, endTime,
-      });
-    } else if (sched && !activeByUser.has(uid)) {
-      const schedStart = new Date(sched.startTime);
-      const schedEnd = new Date(sched.endTime);
-      // Find a completed entry that overlaps this schedule window:
-      //   clockIn < schedEnd  (they arrived before the shift ended)
-      //   clockOut > schedStart (they were present during the shift window)
-      // This correctly handles early clock-ins (before schedStart) and excludes
-      // prior-shift entries whose clockOut predates this shift's start.
-      const correlatedEntry = timeEntries.find(
-        (e) => e.userId === uid && e.clockOutTime &&
-          new Date(e.clockInTime) < schedEnd &&
-          new Date(e.clockOutTime!) > schedStart
-      );
-      const clockedOutEarly = correlatedEntry &&
-        new Date(correlatedEntry.clockOutTime!) < schedEnd;
-
-      if (clockedOutEarly && now < schedEnd) {
-        // Employee clocked out early and the shift window hasn't ended yet — show the flag
-        rows.push({
-          uid, u, locationName: locName, status: 'early-departure',
-          detail: `Left ${format(new Date(correlatedEntry!.clockOutTime!), 'h:mm a')}`,
-          endTime: format(schedEnd, 'h:mm a'),
-        });
-      } else if (correlatedEntry) {
-        // Employee completed (or early-departed and window has passed) — drop from card silently
-      } else {
-        // No clock-in at all for this shift window → genuine no-show
-        rows.push({ uid, u, locationName: locName, status: 'no-show', detail: `Shift ${format(schedStart, 'h:mm a')}` });
-      }
-    }
-  }
-
-  // Upcoming shifts
-  const upcomingRows = upcomingSchedules
-    .filter((s) => !activeByUser.has(s.userId))
-    .slice(0, 3)
-    .map((s) => {
-      const u = userMap.get(s.userId);
-      return {
-        uid: s.userId, u, locationName: s.locationId ? (locMap.get(s.locationId) ?? '') : '',
-        status: 'upcoming' as const, detail: `Arriving ${format(new Date(s.startTime), 'h:mm a')}`,
-      };
-    });
-
-  const allRows = [...rows, ...upcomingRows].slice(0, 8);
-
-  const statusBadge: Record<string, { label: string; cls: string; rowCls?: string }> = {
-    'on-shift':        { label: 'On shift',        cls: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' },
-    'late':            { label: 'Late',             cls: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' },
-    'break':           { label: 'Break',            cls: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' },
-    'no-show':         { label: 'No-show',          cls: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' },
-    'upcoming':        { label: 'Scheduled',        cls: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400' },
-    'early-departure': { label: 'Early departure',  cls: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400', rowCls: 'bg-amber-50/60 dark:bg-amber-900/10' },
-  };
-
-  return (
-    <div className="space-y-1">
-      {allRows.length === 0 && (
-        <p className="text-sm text-muted-foreground py-3 text-center">No active shifts right now.</p>
-      )}
-      {allRows.map(({ uid, u, locationName, status, detail, endTime }) => {
-        const { label, cls, rowCls } = statusBadge[status];
-        return (
-          <div key={uid} className={cn('flex items-center gap-3 py-2 px-1.5 rounded-md border-b border-border/40 last:border-0', rowCls)}>
-            <div className={cn('w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0', avatarColor(uid))}>
-              {u ? initials(u) : '?'}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-foreground truncate">{u ? uName(u) : 'Employee'}</p>
-              <p className="text-xs text-muted-foreground">
-                {detail}{locationName ? ` · ${locationName}` : ''}
-                {endTime && <span className="ml-1 text-muted-foreground/70">· Until {endTime}</span>}
-              </p>
-            </div>
-            <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full shrink-0', cls)}>{label}</span>
-          </div>
-        );
-      })}
-      <button onClick={() => onNavigate('/time')} className="text-xs text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-0.5 pt-1">
-        All locations <ChevronRight className="h-3 w-3" />
-      </button>
     </div>
   );
 }
@@ -737,6 +603,11 @@ export default function AdminOwnerDashboard() {
   });
   const todayEntries = entriesQ.data ?? [];
 
+  const clockedInQ = useQuery<{ clockedIn: Array<{ userId: string }> }>({
+    queryKey: ['/api/team-status/clocked-in'],
+    staleTime: 15_000, refetchInterval: 30_000,
+  });
+
   const usersQ = useQuery<User[]>({
     queryKey: ['/api/users'],
     queryFn: () => fetchArr<User>('/api/users'),
@@ -928,7 +799,9 @@ export default function AdminOwnerDashboard() {
   const now = currentTime;
   const userMap = new Map(users.map((u) => [u.id, u]));
   const activeEntries = todayEntries.filter((e) => !e.clockOutTime);
-  const activeCount   = activeEntries.length;
+  // Prefer the live clocked-in endpoint for the header count — it uses the same
+  // dedicated query as LiveFloorPanel and updates every 30 s via its own refetch.
+  const activeCount = clockedInQ.data?.clockedIn.length ?? activeEntries.length;
   const scheduledCount = todaySchedules.length;
   const upcomingSoon = todaySchedules.filter((s) => {
     const minsTo = differenceInMinutes(new Date(s.startTime), now);
@@ -1220,10 +1093,7 @@ export default function AdminOwnerDashboard() {
           </CardHeader>
           <CardContent className="px-4 pb-4">
             <DashboardErrorBoundary fallback="Floor status unavailable">
-              <FloorStatusPanel
-                timeEntries={todayEntries} todaySchedules={todaySchedules}
-                users={users} locations={locations} offsiteSessions={offsiteSessions}
-                lateThresholdMinutes={lateThresholdMin} onNavigate={(p) => navigate(p)} />
+              <LiveFloorPanelShared />
             </DashboardErrorBoundary>
           </CardContent>
         </Card>

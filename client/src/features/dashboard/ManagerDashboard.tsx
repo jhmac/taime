@@ -23,6 +23,7 @@ import DailyTrainingManagerWidget from '@/features/dashboard/DailyTrainingManage
 import TimeClockWidget from '@/components/TimeClockWidget';
 import TeamStatusWidget from '@/features/dashboard/TeamStatusWidget';
 import ManagerSchedulingActionsCard from '@/features/dashboard/ManagerSchedulingActionsCard';
+import LiveFloorPanel from '@/features/dashboard/LiveFloorPanel';
 import {
   Sun,
   Check,
@@ -288,6 +289,20 @@ export default function ManagerDashboard() {
       <div className={isMobile ? "px-4 pb-2" : "px-6 pb-2"}>
         <DashboardErrorBoundary fallback="Scheduling actions failed to load">
           <ManagerSchedulingActionsCard enabled={deferredEnabled} />
+        </DashboardErrorBoundary>
+      </div>
+
+      {/* ── Who's on floor now ── */}
+      <div className={isMobile ? "px-4 pb-2" : "px-6 pb-2"}>
+        <DashboardErrorBoundary fallback="Floor status unavailable">
+          <div className="bg-card border border-border rounded-lg">
+            <div className="px-4 pt-4 pb-2">
+              <p className="text-sm font-semibold">Who's on floor now</p>
+            </div>
+            <div className="px-4 pb-4">
+              <LiveFloorPanel />
+            </div>
+          </div>
         </DashboardErrorBoundary>
       </div>
 
