@@ -553,6 +553,49 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
           console.error('[Shopify Webhook] Error processing order payload:', processingError);
         }
       }
+
+      if (topic === 'refunds/create') {
+        const refund = req.body;
+        try {
+          const normalizedDomain = shopDomain.trim().toLowerCase();
+          const tz = await getShopTz(normalizedDomain);
+
+          // A refund reduces the revenue of the day the *order* was placed,
+          // not the day the refund was issued.  Look up the order's creation
+          // date in shopify_orders first; fall back to refund.created_at only
+          // if the order has not been recorded yet (e.g. very old orders).
+          const rawRefundOrderId = String(refund.order_id ?? '');
+          const refundOrderId = rawRefundOrderId.includes('/')
+            ? rawRefundOrderId.split('/').pop()!
+            : rawRefundOrderId;
+
+          let pivotDate: Date | null = null;
+          if (refundOrderId) {
+            const orderRows = await db
+              .select({ orderCreatedAt: shopifyOrders.orderCreatedAt })
+              .from(shopifyOrders)
+              .where(and(
+                eq(shopifyOrders.shopDomain, normalizedDomain),
+                eq(shopifyOrders.orderId, refundOrderId),
+              ))
+              .limit(1);
+            if (orderRows.length > 0 && orderRows[0].orderCreatedAt) {
+              pivotDate = new Date(orderRows[0].orderCreatedAt);
+            }
+          }
+
+          // Fall back to refund.created_at when the order isn't in our DB
+          if (!pivotDate) {
+            pivotDate = refund.created_at ? new Date(refund.created_at) : new Date();
+          }
+
+          const dateKey = dateKeyInTz(pivotDate, tz);
+          await reconcileShopDay(normalizedDomain, dateKey);
+          console.log(`[Shopify Webhook] Processed refunds/create for ${normalizedDomain} on ${dateKey} (order ${refundOrderId || 'unknown'})`);
+        } catch (processingError) {
+          console.error('[Shopify Webhook] Error processing refund payload:', processingError);
+        }
+      }
     } catch (error) {
       console.error('[Shopify Webhook] Handler error:', error);
       if (!res.headersSent) {
@@ -777,6 +820,16 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
             console.warn('[Shopify OAuth] Webhook registration warnings:', webhookResult.userErrors);
           } else {
             console.log(`[Shopify OAuth] Webhook registered for ${shopDomain} -> ${webhookUrl}`);
+          }
+          try {
+            const refundWebhookResult = await shopifyService.registerWebhook(webhookUrl, 'refunds/create');
+            if (refundWebhookResult?.userErrors?.length > 0) {
+              console.warn('[Shopify OAuth] refunds/create webhook registration warnings:', refundWebhookResult.userErrors);
+            } else {
+              console.log(`[Shopify OAuth] refunds/create webhook registered for ${shopDomain}`);
+            }
+          } catch (refundWebhookError) {
+            console.error('[Shopify OAuth] refunds/create webhook registration failed (non-fatal):', refundWebhookError);
           }
         } catch (webhookError) {
           console.error('[Shopify OAuth] Webhook registration failed (non-fatal):', webhookError);
@@ -1204,7 +1257,8 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
         }
 
         dailyAggregation[dateKey].orderCount++;
-        dailyAggregation[dateKey].totalRevenue += parseFloat(order.totalPriceSet?.shopMoney?.amount || '0');
+        const _ctp = (order as any).currentTotalPriceSet?.shopMoney?.amount;
+        dailyAggregation[dateKey].totalRevenue += parseFloat(_ctp ?? order.totalPriceSet?.shopMoney?.amount ?? '0');
 
         for (const lineItem of (order.lineItems?.nodes || [])) {
           dailyAggregation[dateKey].itemCount += lineItem.quantity || 1;

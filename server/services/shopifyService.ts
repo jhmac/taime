@@ -254,9 +254,10 @@ export class ShopifyService {
     const productSales: Record<string, { title: string; quantity: number; revenue: number }> = {};
 
     for (const order of orders) {
-      const orderTotal = parseFloat(order.totalPriceSet?.shopMoney?.amount || '0');
+      const _ctp = (order as any).currentTotalPriceSet?.shopMoney?.amount;
+      const orderTotal = parseFloat(_ctp ?? order.totalPriceSet?.shopMoney?.amount ?? '0');
       totalRevenue += orderTotal;
-      currency = order.totalPriceSet?.shopMoney?.currencyCode || 'USD';
+      currency = (order as any).currentTotalPriceSet?.shopMoney?.currencyCode || order.totalPriceSet?.shopMoney?.currencyCode || 'USD';
 
       for (const lineItem of (order.lineItems?.nodes || [])) {
         const productTitle = lineItem.variant?.product?.title || lineItem.title || 'Unknown';
