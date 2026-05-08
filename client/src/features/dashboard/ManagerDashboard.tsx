@@ -277,9 +277,9 @@ export default function ManagerDashboard() {
       </DashboardErrorBoundary>
 
       <div className={isMobile ? "px-4 py-3" : "px-6 py-4"}>
-        {/* Personal time clock widget — large clock + today total hidden (stats live in Today card header) */}
+        {/* Personal time clock widget — clock face hidden to avoid redundancy with header live time, but today's total, geofencing badge, and action buttons are shown */}
         <DashboardErrorBoundary fallback="Time clock failed to load">
-          <TimeClockWidget hideClock hideTodayTotal />
+          <TimeClockWidget hideClock />
         </DashboardErrorBoundary>
       </div>
 
