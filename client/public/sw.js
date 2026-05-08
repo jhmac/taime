@@ -7,8 +7,8 @@ const BUILD_ID = '__BUILD_ID__';
 const CACHE_NAME = 'taime-' + BUILD_ID;
 const STATIC_CACHE_URLS = [
   '/manifest.json',
-  '/icon-192x192.png',
-  '/icon-512x512.png'
+  '/assets/icons/icon-192.png',
+  '/assets/icons/icon-512.png'
 ];
 
 const DB_NAME = 'taime-offline';
@@ -170,7 +170,7 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(request).catch(() =>
         new Response(
-          '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Taime - Offline</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Nunito,system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;background:#FFFBF5;gap:16px;padding:24px;text-align:center}img{width:64px;height:64px;border-radius:14px}p{color:#78716c;font-size:15px}strong{color:#F47D31;display:block;font-size:18px;margin-bottom:4px}</style></head><body><img src="/taime-icon.png" alt="Taime"><div><strong>You\'re offline</strong><p>Check your connection and refresh to continue.</p></div></body></html>',
+          '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Taime - Offline</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:Nunito,system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;background:#FFFBF5;gap:16px;padding:24px;text-align:center}img{width:64px;height:64px;border-radius:14px}p{color:#78716c;font-size:15px}strong{color:#F47D31;display:block;font-size:18px;margin-bottom:4px}</style></head><body><img src="/favicon.png" alt="Taime"><div><strong>You\'re offline</strong><p>Check your connection and refresh to continue.</p></div></body></html>',
           { headers: { 'Content-Type': 'text/html; charset=utf-8' } }
         )
       )
@@ -226,8 +226,8 @@ self.addEventListener('push', (event) => {
     const data = event.data.json();
     const options = {
       body: data.body,
-      icon: data.icon || '/icon-192x192.png',
-      badge: data.badge || '/icon-72x72.png',
+      icon: data.icon || '/assets/icons/icon-192.png',
+      badge: data.badge || '/assets/icons/icon-72.png',
       data: data.data || {},
       actions: data.actions || [],
       tag: data.data?.type || 'general',
@@ -241,8 +241,8 @@ self.addEventListener('push', (event) => {
     event.waitUntil(
       self.registration.showNotification('Taime', {
         body: 'You have a new notification',
-        icon: '/icon-192x192.png',
-        badge: '/icon-72x72.png'
+        icon: '/assets/icons/icon-192.png',
+        badge: '/assets/icons/icon-72.png'
       })
     );
   }
