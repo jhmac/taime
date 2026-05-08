@@ -4,6 +4,7 @@ import { createServer, type Server } from "http";
 import path from "path";
 import { WebSocketServer, WebSocket } from "ws";
 import { storage } from "./storage";
+import { initTimesheetMessaging } from "./services/timesheetInAppMessage";
 import { setupAuth, requireAuth as isAuthenticated } from "./streamlinedAuth";
 import { registerAuthRoutes } from "./routes/auth";
 import { registerTimeEntryRoutes } from "./routes/timeEntries";
@@ -273,6 +274,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   startHeartbeat();
+
+  // Give the WS broadcaster to the timesheet in-app message service so it can
+  // deliver real-time new_message events when reminder notifications are sent.
+  initTimesheetMessaging(sendToUsers);
 
   // Stagger cron job startup to avoid DB and AI API spikes during initial user requests.
   const staggered = [

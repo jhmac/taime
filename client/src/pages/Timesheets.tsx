@@ -638,15 +638,15 @@ function WorkflowSettingsTab() {
         <CardHeader className="pb-3">
           <CardTitle className="text-sm flex items-center gap-2">
             <Mail className="h-4 w-4" />
-            Email reminders
+            Reminders &amp; notifications
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <Label className="text-sm font-medium">Send email reminders via SendGrid</Label>
+              <Label className="text-sm font-medium">Also send email reminders</Label>
               <p className="text-xs text-muted-foreground mt-0.5">
-                In addition to in-app notifications, send emails. Requires SENDGRID_API_KEY to be configured.
+                Every reminder already sends an in-app push notification and a direct message in the Messages inbox. Enable this to also send an email via Nylas.
               </p>
             </div>
             <Switch checked={form.emailRemindersEnabled} onCheckedChange={(v) => updateField("emailRemindersEnabled", v)} />

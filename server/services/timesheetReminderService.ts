@@ -1,6 +1,7 @@
 import { storage } from "../storage";
 import { notificationService } from "./notificationService";
 import { sendViaNylas } from "./emailService";
+import { sendTimesheetSystemMessage } from "./timesheetInAppMessage";
 import logger from "../lib/logger";
 import { config } from "../lib/config";
 
@@ -75,8 +76,11 @@ async function isPeriodFullyApproved(periodStart: string, periodEnd: string): Pr
 }
 
 /**
- * Send a notification via in-app push and optionally via Nylas email.
+ * Send a notification via in-app push, an in-app direct message, and
+ * optionally via Nylas email.
  * Email is only sent when emailRemindersEnabled=true and Nylas is configured.
+ * The in-app message is sent from senderUserId → userId so it appears in
+ * the recipient's Messages inbox in real time.
  */
 async function sendTimesheetNotification(opts: {
   userId: string;
@@ -85,6 +89,8 @@ async function sendTimesheetNotification(opts: {
   data: Record<string, string>;
   emailRemindersEnabled: boolean;
   fromEmail?: string | null;
+  senderUserId?: string | null;
+  storeId?: string | null;
 }): Promise<void> {
   // Always send in-app push notification
   await notificationService.sendToUser(opts.userId, {
@@ -92,6 +98,16 @@ async function sendTimesheetNotification(opts: {
     body: opts.body,
     data: opts.data,
   });
+
+  // Send in-app direct message so it appears in the recipient's Messages inbox
+  if (opts.senderUserId && opts.storeId) {
+    await sendTimesheetSystemMessage({
+      senderUserId: opts.senderUserId,
+      recipientUserId: opts.userId,
+      storeId: opts.storeId,
+      content: `📋 ${opts.title}\n${opts.body}`,
+    });
+  }
 
   // Optionally send email via Nylas
   if (opts.emailRemindersEnabled) {
@@ -162,6 +178,8 @@ async function runTimesheetReminderCheckForStore(
             data: { type: "employee_self_review", periodStart: period.startDate, periodEnd: period.endDate },
             emailRemindersEnabled,
             fromEmail,
+            senderUserId: adminUserId ?? managerUserIds[0] ?? null,
+            storeId,
           });
           await storage.createTimesheetReminderLog({
             storeId,
@@ -207,6 +225,8 @@ async function runTimesheetReminderCheckForStore(
             data: { type: "timesheet_reminder", periodStart: period.startDate, periodEnd: period.endDate },
             emailRemindersEnabled,
             fromEmail,
+            senderUserId: adminUserId ?? null,
+            storeId,
           });
           await storage.createTimesheetReminderLog({
             storeId,
@@ -236,6 +256,8 @@ async function runTimesheetReminderCheckForStore(
             data: { type: "timesheet_escalation", periodStart: period.startDate, periodEnd: period.endDate },
             emailRemindersEnabled,
             fromEmail,
+            senderUserId: managerUserIds[0] ?? null,
+            storeId,
           });
           await storage.createTimesheetReminderLog({
             storeId,
@@ -260,6 +282,8 @@ async function runTimesheetReminderCheckForStore(
             data: { type: "admin_finalize_nudge", periodStart: period.startDate, periodEnd: period.endDate },
             emailRemindersEnabled,
             fromEmail,
+            senderUserId: managerUserIds[0] ?? null,
+            storeId,
           });
           await storage.createTimesheetReminderLog({
             storeId,
