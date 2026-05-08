@@ -67,15 +67,6 @@ export async function reconcileShopDay(shopDomain: string, dateKey: string): Pro
     const tzRow = await db.select({ timezone: shops.timezone }).from(shops).where(eq(shops.shopDomain, shopDomain)).limit(1);
     const tz = resolveShopTimezone(tzRow[0]?.timezone);
 
-    // Guard: never overwrite today.
-    const todayLocal = dateKeyInTz(new Date(), tz);
-    if (dateKey >= todayLocal) {
-      result.status = "skipped";
-      result.error = `Refusing to reconcile today's row (${dateKey} >= ${todayLocal}); webhook owns it`;
-      await recordRun(result);
-      return result;
-    }
-
     const dateObj = dailySalesRowDate(dateKey);
     const before = await db.select({
       totalRevenue: shopifyDailySales.totalRevenue,
@@ -113,7 +104,10 @@ export async function reconcileShopDay(shopDomain: string, dateKey: string): Pro
       const created = new Date((o as any).createdAt);
       if (dateKeyInTz(created, tz) !== dateKey) continue;
       orderCount++;
-      revenue += parseFloat((o as any).totalPriceSet?.shopMoney?.amount || "0");
+      // Prefer currentTotalPriceSet (refund-adjusted, matches Shopify Analytics
+      // total_sales) over totalPriceSet (original order total, ignores returns).
+      const refundAdjusted = (o as any).currentTotalPriceSet?.shopMoney?.amount;
+      revenue += parseFloat(refundAdjusted ?? (o as any).totalPriceSet?.shopMoney?.amount ?? "0");
       for (const li of ((o as any).lineItems?.nodes || [])) itemCount += li.quantity || 1;
     }
     revenue = Math.round(revenue * 100) / 100;
@@ -209,8 +203,16 @@ async function tick(): Promise<void> {
     for (const s of activeShops) {
       const tz = resolveShopTimezone(s.timezone);
       const { yesterday } = shopTodayAndYesterday(tz);
-      if (await alreadyReconciled(s.shopDomain, yesterday)) continue;
-      await reconcileShopDay(s.shopDomain, yesterday);
+      const today = dateKeyInTz(new Date(), tz);
+
+      // Always reconcile today — revenue accumulates throughout the day and
+      // webhooks can miss orders, so we refresh from Shopify every tick.
+      await reconcileShopDay(s.shopDomain, today);
+
+      // Reconcile yesterday exactly once after local midnight (data is final).
+      if (!(await alreadyReconciled(s.shopDomain, yesterday))) {
+        await reconcileShopDay(s.shopDomain, yesterday);
+      }
     }
   } catch (err) {
     console.error('[ShopifyReconciliation] tick error:', err);

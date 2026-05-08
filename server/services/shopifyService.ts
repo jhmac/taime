@@ -10,6 +10,12 @@ export interface ShopifyOrder {
       currencyCode: string;
     };
   };
+  currentTotalPriceSet?: {
+    shopMoney: {
+      amount: string;
+      currencyCode: string;
+    };
+  };
   subtotalPriceSet?: {
     shopMoney: {
       amount: string;
@@ -154,6 +160,12 @@ export class ShopifyService {
             name
             createdAt
             totalPriceSet {
+              shopMoney {
+                amount
+                currencyCode
+              }
+            }
+            currentTotalPriceSet {
               shopMoney {
                 amount
                 currencyCode

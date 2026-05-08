@@ -135,8 +135,10 @@ async function runBackfillJob(
           };
         }
         dailyAggregation[dateKey].orderCount++;
+        // Prefer currentTotalPriceSet (refund-adjusted) to match Shopify Analytics total_sales.
+        const _adjAmt = (order as any).currentTotalPriceSet?.shopMoney?.amount;
         dailyAggregation[dateKey].totalRevenue += parseFloat(
-          (order as any).totalPriceSet?.shopMoney?.amount || '0'
+          _adjAmt ?? (order as any).totalPriceSet?.shopMoney?.amount ?? '0'
         );
         for (const li of ((order as any).lineItems?.nodes || [])) {
           dailyAggregation[dateKey].itemCount += li.quantity || 1;
@@ -1316,7 +1318,8 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
       for (const order of orders) {
         const rawId   = (order as any).id ?? '';
         const orderId = rawId.includes('/') ? rawId.split('/').pop()! : rawId;
-        const orderPrice = parseFloat((order as any).totalPriceSet?.shopMoney?.amount ?? '0');
+        const _refAdj = (order as any).currentTotalPriceSet?.shopMoney?.amount;
+        const orderPrice = parseFloat(_refAdj ?? (order as any).totalPriceSet?.shopMoney?.amount ?? '0');
         dayRevenue += orderPrice;
         const lineItems = (order as any).lineItems?.nodes ?? [];
         for (const li of lineItems) itemCount += li.quantity || 1;
@@ -1531,7 +1534,8 @@ export function registerShopifyRoutes(app: Express, storage: IStorage, isAuthent
               const k = dateKeyInTz(d, tz);
               if (!agg[k]) agg[k] = { date: dailySalesRowDate(k), dayOfWeek: dayOfWeekInTz(d, tz), orderCount: 0, totalRevenue: 0, itemCount: 0 };
               agg[k].orderCount++;
-              agg[k].totalRevenue += parseFloat(o.totalPriceSet?.shopMoney?.amount || '0');
+              const _ctp = (o as any).currentTotalPriceSet?.shopMoney?.amount;
+              agg[k].totalRevenue += parseFloat(_ctp ?? o.totalPriceSet?.shopMoney?.amount ?? '0');
               for (const li of (o.lineItems?.nodes || [])) agg[k].itemCount += li.quantity || 1;
             }
             for (const dayData of Object.values(agg)) {

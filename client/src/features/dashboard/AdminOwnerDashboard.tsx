@@ -1176,7 +1176,7 @@ export default function AdminOwnerDashboard() {
             )}
             {lastYearRevenue > 0 && (
               <p className="text-xs text-zinc-400 mt-0.5">
-                Last year{goalQ.data?.lastYearDate ? ` (${format(new Date(goalQ.data.lastYearDate), 'EEE MMM d')})` : ''}: {fmtMoney(lastYearRevenue)}
+                Last year{goalQ.data?.lastYearDate ? ` (${format(new Date(goalQ.data.lastYearDate.substring(0, 10) + 'T12:00:00'), 'EEE MMM d')})` : ''}: {fmtMoney(lastYearRevenue)}
               </p>
             )}
           </div>
