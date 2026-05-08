@@ -349,19 +349,30 @@ function computePayPeriods(settings: PayPeriodSettings | null, count: number = 6
   if (!settings?.firstPayPeriodStart) return [];
   const intervalType = settings.intervalType || "bi-weekly";
   const intervalDays = intervalType === "weekly" ? 7 : intervalType === "bi-weekly" ? 14 : intervalType === "semi-monthly" ? 15 : 30;
-  const start = new Date(settings.firstPayPeriodStart);
-  start.setHours(0, 0, 0, 0);
+  const msPerDay = 86400000;
+  // Anchor to midnight local time on the firstPayPeriodStart date
+  const anchorRaw = new Date(settings.firstPayPeriodStart);
+  const anchor = new Date(anchorRaw.getFullYear(), anchorRaw.getMonth(), anchorRaw.getDate());
   const now = new Date();
+  const todayLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const periods: Array<{ label: string; startDate: string; endDate: string }> = [];
-  let periodStart = new Date(start);
-  while (new Date(periodStart.getTime() + intervalDays * 86400000) < now) {
-    periodStart = new Date(periodStart.getTime() + intervalDays * 86400000);
+  // Walk forward from anchor until the period that contains today
+  let periodStart = new Date(anchor);
+  while (new Date(periodStart.getTime() + intervalDays * msPerDay) <= todayLocal) {
+    periodStart = new Date(periodStart.getTime() + intervalDays * msPerDay);
+  }
+  // Also walk backward from anchor if anchor is in the future
+  if (anchor > todayLocal) {
+    periodStart = new Date(anchor.getTime() - intervalDays * msPerDay);
+    while (new Date(periodStart.getTime() + intervalDays * msPerDay) <= todayLocal) {
+      periodStart = new Date(periodStart.getTime() + intervalDays * msPerDay);
+    }
   }
   for (let i = count - 1; i >= 0; i--) {
-    const ps = new Date(periodStart.getTime() - i * intervalDays * 86400000);
-    const pe = new Date(ps.getTime() + (intervalDays - 1) * 86400000);
+    const ps = new Date(periodStart.getTime() - i * intervalDays * msPerDay);
+    const pe = new Date(ps.getTime() + (intervalDays - 1) * msPerDay);
     const label = `${ps.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${pe.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
-    periods.push({ label, startDate: ps.toISOString().split("T")[0], endDate: pe.toISOString().split("T")[0] });
+    periods.push({ label, startDate: ps.toLocaleDateString("sv"), endDate: pe.toLocaleDateString("sv") });
   }
   return periods;
 }
@@ -1909,6 +1920,11 @@ function DailyReviewTab({ onEntryClick }: { onEntryClick?: (entry: DailyEntry, d
             <p className="text-muted-foreground text-sm">
               {filter === "needs-review" ? "No entries needing review for this day." : "No scheduled or worked shifts for this day."}
             </p>
+            {filter !== "needs-review" && selectedDate === today && (
+              <p className="text-xs text-muted-foreground mt-2">
+                Use the <span className="font-medium">←</span> arrow to navigate back and see recent activity.
+              </p>
+            )}
           </CardContent>
         </Card>
       )}
@@ -2288,7 +2304,15 @@ export default function Timesheets() {
   const singleStepApproval = workflowSettings?.singleStepApproval ?? false;
 
   const payPeriods = useMemo(() => computePayPeriods(payPeriodSettings || null), [payPeriodSettings]);
-  const currentPeriod = payPeriods.length > 0 ? payPeriods[payPeriods.length - 1] : null;
+  // The "active" period is the most recent one whose start date is on or before today
+  const currentPeriod = useMemo(() => {
+    if (payPeriods.length === 0) return null;
+    const today = new Date().toLocaleDateString("sv");
+    for (let i = payPeriods.length - 1; i >= 0; i--) {
+      if (payPeriods[i].startDate <= today) return payPeriods[i];
+    }
+    return payPeriods[0];
+  }, [payPeriods]);
 
   useEffect(() => {
     if (!periodInitialized && currentPeriod) {
