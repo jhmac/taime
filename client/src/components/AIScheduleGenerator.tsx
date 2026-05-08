@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import {
   BrainCircuit, DollarSign, Users, Loader2,
   Check, AlertTriangle, ChevronDown, ChevronUp, Sparkles,
-  ShieldCheck, Settings2,
+  ShieldCheck, Settings2, CalendarDays, RefreshCw, Zap,
 } from 'lucide-react';
 import ScheduleReviewModal, { type ReviewResult, ratingConfig } from '@/components/ScheduleReviewModal';
 
@@ -63,6 +63,38 @@ interface GenerateResult {
   salesDataAvailable: boolean;
 }
 
+interface PrebuildStatus {
+  prebuiltDates: Array<{ date: string; generatedAt: string | null }>;
+  rangeStart: string;
+  rangeEnd: string;
+  total: number;
+}
+
+function getWeekLabel(startDate: Date): string {
+  const end = new Date(startDate);
+  end.setDate(end.getDate() + 6);
+  const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return `${fmt(startDate)} – ${fmt(end)}`;
+}
+
+function getNext4Weeks(): Array<{ label: string; dates: string[] }> {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const weeks = [];
+  for (let w = 0; w < 4; w++) {
+    const weekStart = new Date(today);
+    weekStart.setDate(today.getDate() + w * 7);
+    const dates: string[] = [];
+    for (let d = 0; d < 7; d++) {
+      const day = new Date(weekStart);
+      day.setDate(weekStart.getDate() + d);
+      dates.push(day.toISOString().split('T')[0]);
+    }
+    weeks.push({ label: getWeekLabel(weekStart), dates });
+  }
+  return weeks;
+}
+
 export default function AIScheduleGenerator() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -89,6 +121,23 @@ export default function AIScheduleGenerator() {
 
   const { data: aiSettings } = useQuery<any>({
     queryKey: ['/api/ai-scheduling/settings'],
+  });
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const rangeStart = today.toISOString().split('T')[0];
+  const rangeEndDate = new Date(today);
+  rangeEndDate.setDate(today.getDate() + 27);
+  const rangeEnd = rangeEndDate.toISOString().split('T')[0];
+
+  const { data: prebuildStatus, refetch: refetchStatus } = useQuery<PrebuildStatus>({
+    queryKey: ['/api/ai-scheduling/prebuild-status', rangeStart, rangeEnd],
+    queryFn: async () => {
+      const res = await fetch(`/api/ai-scheduling/prebuild-status?startDate=${rangeStart}&endDate=${rangeEnd}`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to fetch status');
+      return res.json();
+    },
+    refetchInterval: false,
   });
 
   const activeShop = connectedShops.find((s: any) => s.isActive);
@@ -118,6 +167,36 @@ export default function AIScheduleGenerator() {
     },
     onError: (error: any) => {
       toast({ title: "Generation Failed", description: error.message || "Failed to generate schedule.", variant: "destructive" });
+    },
+  });
+
+  const prebuildMutation = useMutation({
+    mutationFn: async (force = false) => {
+      const res = await apiRequest('POST', '/api/ai-scheduling/prebuild', { force });
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      toast({ title: "Pre-build Complete", description: data.message || `${data.daysPrebuilt} days pre-built.` });
+      refetchStatus();
+      queryClient.invalidateQueries({ queryKey: ['/api/schedules/suggest'] });
+    },
+    onError: (error: any) => {
+      toast({ title: "Pre-build Failed", description: error.message || "Failed to pre-build schedules.", variant: "destructive" });
+    },
+  });
+
+  const regenerateMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest('POST', '/api/ai-scheduling/prebuild', { force: true });
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      toast({ title: "Schedules Regenerated", description: data.message || `${data.daysPrebuilt} days rebuilt.` });
+      refetchStatus();
+      queryClient.invalidateQueries({ queryKey: ['/api/schedules/suggest'] });
+    },
+    onError: (error: any) => {
+      toast({ title: "Regeneration Failed", description: error.message || "Failed to regenerate.", variant: "destructive" });
     },
   });
 
@@ -181,8 +260,119 @@ export default function AIScheduleGenerator() {
       .filter(e => e.date === date);
   };
 
+  const weeks = getNext4Weeks();
+  const prebuiltSet = new Set((prebuildStatus?.prebuiltDates || []).map(d => d.date));
+  const totalDays = 28;
+  const prebuiltCount = prebuildStatus?.total ?? 0;
+  const isPrebuildPending = prebuildMutation.isPending || regenerateMutation.isPending;
+
   return (
     <div className="space-y-6">
+
+      {/* ── Smart Pre-build Card ─────────────────────────────────────────── */}
+      <Card className="border-primary/30 bg-primary/5 dark:bg-primary/10">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Zap className="h-4 w-4 text-primary" />
+            Smart Pre-build — Next 4 Weeks
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Generate AI suggestions once for the entire month and save them. When any manager opens the create shift panel, suggestions are already there — no extra AI calls needed.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Coverage grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {weeks.map((week, wi) => {
+              const prebuiltInWeek = week.dates.filter(d => prebuiltSet.has(d)).length;
+              const allDone = prebuiltInWeek === 7;
+              const noneDone = prebuiltInWeek === 0;
+              return (
+                <div
+                  key={wi}
+                  className={`rounded-lg border p-3 text-center ${
+                    allDone
+                      ? 'border-green-300 bg-green-50 dark:border-green-700 dark:bg-green-950/30'
+                      : noneDone
+                      ? 'border-muted bg-muted/30'
+                      : 'border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/30'
+                  }`}
+                >
+                  <p className="text-xs font-medium text-muted-foreground truncate">{week.label}</p>
+                  <div className="mt-1">
+                    {allDone ? (
+                      <Badge variant="outline" className="text-green-700 border-green-400 dark:text-green-400 gap-1 text-xs">
+                        <Check className="h-3 w-3" /> Ready
+                      </Badge>
+                    ) : noneDone ? (
+                      <Badge variant="outline" className="text-muted-foreground text-xs">
+                        Not built
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-amber-700 border-amber-400 dark:text-amber-400 text-xs">
+                        {prebuiltInWeek}/7 days
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Summary + actions */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <p className="text-sm text-muted-foreground">
+              {prebuiltCount === 0
+                ? 'No suggestions pre-built yet.'
+                : `${prebuiltCount} of ${totalDays} days have pre-built suggestions.`}
+            </p>
+            <div className="flex gap-2 flex-wrap">
+              {prebuiltCount > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  onClick={() => regenerateMutation.mutate()}
+                  disabled={isPrebuildPending}
+                >
+                  {regenerateMutation.isPending ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-3.5 w-3.5" />
+                  )}
+                  Regenerate All
+                </Button>
+              )}
+              <Button
+                size="sm"
+                className="gap-2"
+                onClick={() => prebuildMutation.mutate(false)}
+                disabled={isPrebuildPending}
+              >
+                {prebuildMutation.isPending ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Building... (takes ~30s)
+                  </>
+                ) : (
+                  <>
+                    <CalendarDays className="h-3.5 w-3.5" />
+                    {prebuiltCount === 0 ? 'Pre-build Next 4 Weeks' : 'Fill Missing Days'}
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+
+          {isPrebuildPending && (
+            <div className="rounded-md bg-primary/10 border border-primary/20 px-3 py-2 text-sm text-primary">
+              AI is generating and saving shift suggestions for each day. This may take up to a minute…
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ── Manual Week Generator ─────────────────────────────────────────── */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -190,7 +380,7 @@ export default function AIScheduleGenerator() {
             AI Schedule Generator
           </CardTitle>
           <p className="text-sm text-muted-foreground">
-            Generate optimized schedules based on last year's sales data, employee availability, and your staffing settings.
+            Generate an optimized schedule for a specific date range, review shift-by-shift, then apply or publish.
             {!activeShop && (
               <span className="text-amber-600 dark:text-amber-400 block mt-1">
                 No Shopify store connected. The AI will use minimum staffing levels. Connect your store in Settings &gt; POS connection for sales-based predictions.

@@ -1022,17 +1022,21 @@ OUTPUT INSTRUCTIONS: Return ONLY a single JSON object. Do NOT include any text, 
 Required JSON structure:
 {"schedule":[{"date":"YYYY-MM-DD","employeeId":"id","employeeName":"Name","shiftBlock":"block name","startTime":"HH:MM","endTime":"HH:MM","reasoning":"brief reason"}],"summary":"Brief summary","warnings":["any warnings"]}`;
 
-      const aiResult = await anthropic.messages.create({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 8192,
-        system: "You are a workforce scheduling AI. You MUST respond with valid JSON only. No markdown, no explanations, no code fences. Your entire response must be a single JSON object starting with { and ending with }.",
-        messages: [{ role: 'user', content: prompt }],
+      let aiResponseText: string = '';
+      await withAiContext({ feature: "ai.scheduling.generate", storeId: generateStoreId, userId }, async () => {
+        const aiResult = await anthropic.messages.create({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 8192,
+          system: "You are a workforce scheduling AI. You MUST respond with valid JSON only. No markdown, no explanations, no code fences. Your entire response must be a single JSON object starting with { and ending with }.",
+          messages: [{ role: 'user', content: prompt }],
+        });
+        const aiContent = aiResult.content[0];
+        if (aiContent.type !== 'text') {
+          throw new Error('Expected text response from Claude');
+        }
+        aiResponseText = aiContent.text;
       });
-      const aiContent = aiResult.content[0];
-      if (aiContent.type !== 'text') {
-        throw new Error('Expected text response from Claude');
-      }
-      const aiResponse = aiContent.text;
+      const aiResponse = aiResponseText;
 
       let parsedSchedule: any;
       try {
@@ -1173,9 +1177,403 @@ Required JSON structure:
         },
         salesDataAvailable: salesData.length > 0,
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error generating AI schedule:", error);
-      res.status(500).json({ message: "Failed to generate schedule" });
+      if (error?.name === 'BudgetExceededError' || error?.constructor?.name === 'BudgetExceededError') {
+        return res.status(402).json({ message: error.message || "AI spending budget exceeded. Contact your administrator." });
+      }
+      const msg = error instanceof Error ? `${error.message}` : "Failed to generate schedule";
+      res.status(500).json({ message: msg });
+    }
+  });
+
+  // ── Prebuild status — which days in the next 4 weeks already have suggestions ──
+  app.get("/api/ai-scheduling/prebuild-status", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const isAdmin = await resolveAnyPermission(userId, ['admin.manage_all', 'schedule.view_all', 'schedule.create'], storage);
+      if (!isAdmin) return res.status(403).json({ message: "Manager access required" });
+
+      const storeId = await tryResolveStoreIdForUser(userId);
+      if (!storeId) return res.status(400).json({ message: "No store associated with your account" });
+
+      const { startDate, endDate } = req.query as { startDate?: string; endDate?: string };
+      const rangeStart = startDate || new Date().toISOString().split('T')[0];
+      const rangeEnd = endDate || (() => { const d = new Date(); d.setDate(d.getDate() + 27); return d.toISOString().split('T')[0]; })();
+
+      const rows = await db.select({
+        date: aiSuggestedSchedules.date,
+        generatedAt: aiSuggestedSchedules.generatedAt,
+      }).from(aiSuggestedSchedules)
+        .where(and(
+          eq(aiSuggestedSchedules.storeId, storeId),
+          gte(aiSuggestedSchedules.date, rangeStart),
+          lte(aiSuggestedSchedules.date, rangeEnd),
+        ));
+
+      res.json({
+        prebuiltDates: rows.map(r => ({
+          date: typeof r.date === 'string' ? r.date : new Date(r.date).toISOString().split('T')[0],
+          generatedAt: r.generatedAt,
+        })),
+        rangeStart,
+        rangeEnd,
+        total: rows.length,
+      });
+    } catch (error) {
+      logger.error({ error: String(error) }, "[prebuild-status] error");
+      res.status(500).json({ message: "Failed to fetch prebuild status" });
+    }
+  });
+
+  // ── Prebuild — generate one month of suggestions in a single AI call ──────────
+  app.post("/api/ai-scheduling/prebuild", isAuthenticated, aiRateLimiter, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const isAdmin = await resolveAnyPermission(userId, ['admin.manage_all', 'schedule.create'], storage);
+      if (!isAdmin) return res.status(403).json({ message: "Admin access required" });
+
+      const storeId = await tryResolveStoreIdForUser(userId);
+      if (!storeId) return res.status(400).json({ message: "No store associated with your account" });
+
+      if (!await hasEntitlement(storeId, "ai.scheduling")) {
+        return res.status(403).json({ message: "Your plan does not include AI scheduling. Please upgrade." });
+      }
+
+      const { force = false } = req.body;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const pbStartRaw: string = req.body.startDate || today.toISOString().split('T')[0];
+      const pbEnd = req.body.endDate
+        ? new Date(req.body.endDate)
+        : (() => { const d = new Date(today); d.setDate(d.getDate() + 27); return d; })();
+      const pbStart = new Date(pbStartRaw);
+
+      // ── If not forced, skip days that already have suggestions ─────────────
+      const existingRows = force ? [] : await db.select({ date: aiSuggestedSchedules.date })
+        .from(aiSuggestedSchedules)
+        .where(and(eq(aiSuggestedSchedules.storeId, storeId), gte(aiSuggestedSchedules.date, pbStartRaw)));
+      const existingDates = new Set(existingRows.map(r => typeof r.date === 'string' ? r.date : new Date(r.date).toISOString().split('T')[0]));
+
+      // ── Load settings ───────────────────────────────────────────────────────
+      const settingsResult = await db.select().from(aiSchedulingSettings)
+        .where(eq(aiSchedulingSettings.storeId, storeId)).limit(1);
+      const settings = settingsResult[0] || {
+        shiftBlocks: [
+          { name: "Morning", startTime: "09:00", endTime: "14:00" },
+          { name: "Afternoon", startTime: "14:00", endTime: "21:00" },
+        ],
+        staffingTiers: [
+          { minRevenue: 0, maxRevenue: 2000, employeeCount: 2 },
+          { minRevenue: 2001, maxRevenue: 5000, employeeCount: 3 },
+          { minRevenue: 5001, maxRevenue: 10000, employeeCount: 5 },
+        ],
+        minimumStaffing: 2,
+        minStaffingPreHours: 1,
+        minStaffingDuringHours: 2,
+        minStaffingPostHours: 1,
+        storeHours: [],
+      };
+      const storeHoursArray = (settings.storeHours as any[]) || [];
+
+      // ── Load Shopify sales data ─────────────────────────────────────────────
+      const activeShops = await db.select().from(shops).where(eq(shops.isActive, true)).limit(1);
+      const shopDomain = activeShops[0]?.shopDomain;
+      let salesData: Array<{ date: Date; dayOfWeek: number; totalRevenue: string }> = [];
+      if (shopDomain) {
+        const twoYearsAgo = new Date(pbStart);
+        twoYearsAgo.setFullYear(twoYearsAgo.getFullYear() - 2);
+        const salesResult = await db.select().from(shopifyDailySales)
+          .where(and(eq(shopifyDailySales.shopDomain, shopDomain), gte(shopifyDailySales.date, twoYearsAgo)))
+          .orderBy(desc(shopifyDailySales.date));
+        salesData = salesResult.map(s => ({
+          date: new Date(s.date),
+          dayOfWeek: s.dayOfWeek ?? 0,
+          totalRevenue: s.totalRevenue || '0',
+        }));
+      }
+
+      // ── Build days array ────────────────────────────────────────────────────
+      const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      const days: Array<{
+        date: string; dayOfWeek: number; dayName: string;
+        predictedRevenue: number; requiredStaff: number;
+        requiredStaffPre: number; requiredStaffDuring: number; requiredStaffPost: number;
+        matchedLastYearDate?: string;
+      }> = [];
+
+      for (let d = new Date(pbStart); d <= pbEnd; d.setDate(d.getDate() + 1)) {
+        const current = new Date(d);
+        const dateStr = current.toISOString().split('T')[0];
+        const dow = current.getDay();
+        let predictedRevenue = 0;
+        let matchedDate: string | undefined;
+        if (salesData.length > 0) {
+          const match = findClosestDayOfWeekDate(current, salesData);
+          if (match) {
+            predictedRevenue = parseFloat(match.totalRevenue);
+            matchedDate = match.date.toISOString().split('T')[0];
+          }
+        }
+        const genMinPre = settings.minStaffingPreHours ?? settings.minimumStaffing ?? 1;
+        const genMinDuring = settings.minStaffingDuringHours ?? settings.minimumStaffing ?? 2;
+        const genMinPost = settings.minStaffingPostHours ?? settings.minimumStaffing ?? 1;
+        const tiers = settings.staffingTiers as any[];
+        days.push({
+          date: dateStr,
+          dayOfWeek: dow,
+          dayName: dayNames[dow],
+          predictedRevenue: Math.round(predictedRevenue * 100) / 100,
+          requiredStaff: getStaffingForRevenue(predictedRevenue, tiers, genMinDuring),
+          requiredStaffPre: getStaffingForRevenue(predictedRevenue, tiers, genMinPre),
+          requiredStaffDuring: getStaffingForRevenue(predictedRevenue, tiers, genMinDuring),
+          requiredStaffPost: getStaffingForRevenue(predictedRevenue, tiers, genMinPost),
+          matchedLastYearDate: matchedDate,
+        });
+      }
+
+      // ── Load users + availability ───────────────────────────────────────────
+      const { getAllStoreUserIds } = await import('../lib/permissionUtils');
+      const storeUserIds = await getAllStoreUserIds(storeId);
+      if (storeUserIds.length === 0) {
+        return res.json({ success: true, daysPrebuilt: 0, skipped: 0, message: "No employees found for this store." });
+      }
+
+      const allUsers = await db.select().from(users)
+        .where(and(eq(users.isActive, true), inArray(users.id, storeUserIds)));
+
+      const availabilityResult = await db.select().from(userAvailability)
+        .where(and(gte(userAvailability.date, pbStart), lte(userAvailability.date, pbEnd)));
+      const availabilityByUserDate: Record<string, Record<string, { isAvailable: boolean }[]>> = {};
+      for (const avail of availabilityResult) {
+        const dateKey = new Date(avail.date).toISOString().split('T')[0];
+        if (!availabilityByUserDate[avail.userId]) availabilityByUserDate[avail.userId] = {};
+        if (!availabilityByUserDate[avail.userId][dateKey]) availabilityByUserDate[avail.userId][dateKey] = [];
+        availabilityByUserDate[avail.userId][dateKey].push({ isAvailable: avail.isAvailable ?? true });
+      }
+
+      const allWorkPatterns = await db.select().from(userWorkPatterns);
+      const workPatternsByUser: Record<string, Record<number, string>> = {};
+      for (const wp of allWorkPatterns) {
+        if (!workPatternsByUser[wp.userId]) workPatternsByUser[wp.userId] = {};
+        workPatternsByUser[wp.userId][(wp as any).dayOfWeek] = (wp as any).status;
+      }
+
+      const scoreWindow = new Date();
+      scoreWindow.setDate(scoreWindow.getDate() - 90);
+      const performanceScores = await db.select({
+        userId: clockEvents.userId,
+        totalPoints: sql<number>`COALESCE(SUM(${clockEvents.pointValue}), 0)::int`,
+      }).from(clockEvents).where(gte(clockEvents.createdAt, scoreWindow)).groupBy(clockEvents.userId);
+      const scoreMap: Record<string, number> = {};
+      for (const s of performanceScores) scoreMap[s.userId] = s.totalPoints;
+
+      // ── AI rules + special circumstances ───────────────────────────────────
+      const allPromptRules = await db.select().from(aiSchedulingRules)
+        .where(and(eq(aiSchedulingRules.storeId, storeId), eq(aiSchedulingRules.isEnabled, true)));
+      const instructionsSingleton = allPromptRules.find(r => r.ruleType === 'custom_instructions');
+      const activeRules = allPromptRules.filter(r => r.ruleType !== 'custom_instructions');
+      const customAiInstructions = instructionsSingleton
+        ? String(((instructionsSingleton.params as AiRuleParams).text) || '')
+        : '';
+      const enabledSpecialCircumstances = await db.select().from(specialCircumstances)
+        .where(and(eq(specialCircumstances.storeId, storeId), eq(specialCircumstances.isEnabled, true)));
+
+      // ── Employee list ───────────────────────────────────────────────────────
+      const employeeList = allUsers.filter(u => u.showInSchedule !== false).map(u => {
+        const userAvail: Record<string, any> = {};
+        const userPatterns = workPatternsByUser[u.id] || {};
+        for (const day of days) {
+          const explicitAvail = availabilityByUserDate[u.id]?.[day.date];
+          const workPattern = userPatterns[day.dayOfWeek];
+          if (workPattern === 'hard_off') {
+            userAvail[day.date] = 'HARD_OFF';
+          } else if (explicitAvail) {
+            const unavailable = explicitAvail.some(a => a.isAvailable === false);
+            userAvail[day.date] = unavailable ? 'unavailable' : (workPattern === 'required' ? 'REQUIRED' : 'available');
+          } else if (workPattern === 'required') {
+            userAvail[day.date] = 'REQUIRED';
+          } else if (workPattern === 'preferred_off') {
+            userAvail[day.date] = 'preferred_off';
+          } else {
+            userAvail[day.date] = 'available';
+          }
+        }
+        return {
+          id: u.id,
+          name: `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.email || 'Unknown',
+          availability: userAvail,
+          targetWeeklyHours: u.targetWeeklyHours ? parseFloat(u.targetWeeklyHours) : null,
+          performanceScore: scoreMap[u.id] ?? 0,
+          classifications: (u.schedulingClassifications as string[] | null) || [],
+        };
+      });
+
+      const shiftBlocks = (settings.shiftBlocks as any[]) || [];
+      const closedDays = new Set<number>();
+      for (const sh of storeHoursArray) { if (sh.isClosed) closedDays.add(sh.day); }
+      const schedulableDays = days.filter(d => !closedDays.has(d.dayOfWeek));
+
+      const storeHoursInfo = storeHoursArray.length === 7
+        ? `\nSTORE HOURS:\n${storeHoursArray.map((sh: any) => {
+            const dn = dayNames[sh.day];
+            return sh.isClosed ? `${dn}: CLOSED` : `${dn}: ${sh.openTime} - ${sh.closeTime}`;
+          }).join('\n')}\n`
+        : '';
+
+      const prompt = `You are a workforce scheduling AI that ONLY outputs valid JSON. No markdown, no explanations, no text before or after the JSON object.
+
+SCHEDULING PRINCIPLES:
+- Coverage priority: meet required headcount per shift block before considering fairness.
+- Rest gaps: never schedule the same employee with fewer than 10 hours between shifts.
+- Role sequencing: opening shifts require at least one Opener or Key Holder; closing shifts require at least one Closer or Key Holder.
+- No clopening: do not assign an employee to a closing shift on day N and an opening shift on day N+1.
+- New Hire pairing: any New Hire on a shift must share that shift with at least one Trainer.
+- Target-hours priority: full-time employees must receive enough shifts to meet their weekly target.
+- Fairness: distribute undesirable shifts evenly.
+- Composite scoring tiebreaker: availability overlap (40%), 90-day performance score (40%), hours remaining toward target (20%).
+
+DATA:
+SHIFT BLOCKS: ${JSON.stringify(shiftBlocks.map((b: any) => ({ name: b.name, start: b.startTime, end: b.endTime })))}
+${storeHoursInfo}
+SCHEDULE PERIOD:
+${schedulableDays.map(d => `${d.date} (${d.dayName}): revenue=$${d.predictedRevenue}, need ${d.requiredStaff} staff${d.matchedLastYearDate ? ` (matched ${d.matchedLastYearDate})` : ''}`).join('\n')}
+${closedDays.size > 0 ? `\nCLOSED DAYS: ${days.filter(d => closedDays.has(d.dayOfWeek)).map(d => `${d.date} (${d.dayName})`).join(', ')}\n` : ''}
+MIN STAFFING BY ZONE:
+- Opening zone: ${settings.minStaffingPreHours ?? 1} employee(s)
+- Peak zone: ${settings.minStaffingDuringHours ?? settings.minimumStaffing ?? 2} employee(s)
+- Closing zone: ${settings.minStaffingPostHours ?? 1} employee(s)
+
+EMPLOYEES:
+${employeeList.map(e => {
+  const targetInfo = e.targetWeeklyHours ? ` [TARGET: ${e.targetWeeklyHours}hrs/wk]` : '';
+  const scoreInfo = ` [SCORE: ${e.performanceScore}]`;
+  const classInfo = e.classifications.length > 0 ? ` [ROLES: ${e.classifications.join(', ')}]` : '';
+  return `${e.name} (${e.id})${targetInfo}${scoreInfo}${classInfo}: ${Object.entries(e.availability).map(([date, status]) => `${date}=${status}`).join(', ')}`;
+}).join('\n')}
+
+AVAILABILITY STATUS KEY:
+- REQUIRED = must be scheduled; HARD_OFF = must NOT be scheduled; preferred_off = prefer not to work; available = can work; unavailable = cannot work
+${activeRules.length > 0 ? `\nCOVERAGE RULES:\n${activeRules.map((r, i) => {
+  const p: AiRuleParams = (r.params as AiRuleParams) || {};
+  switch (r.ruleType) {
+    case 'opening_requires_classification': return `${i + 1}. Opening shift must include at least ${p.count || 1} employee(s) with [${p.classification || 'Key Holder'}] role.`;
+    case 'closing_requires_classification': return `${i + 1}. Closing shift must include at least ${p.count || 1} employee(s) with [${p.classification || 'Closer'}] role.`;
+    case 'no_clopening': return `${i + 1}. Avoid clopening.`;
+    default: return `${i + 1}. ${r.ruleType}: ${JSON.stringify(p)}`;
+  }
+}).join('\n')}\n` : ''}${customAiInstructions ? `\nCUSTOM INSTRUCTIONS:\n${customAiInstructions}\n` : ''}${enabledSpecialCircumstances.length > 0 ? `\nSPECIAL CIRCUMSTANCES:\n${enabledSpecialCircumstances.map((c: any, i: number) => `${i + 1}. ${c.name}${c.description ? ': ' + c.description : ''}`).join('\n')}\n` : ''}
+OUTPUT: Return ONLY a single JSON object. No text, no markdown.
+Required format:
+{"schedule":[{"date":"YYYY-MM-DD","employeeId":"id","employeeName":"Name","shiftBlock":"block name","startTime":"HH:MM","endTime":"HH:MM","reasoning":"brief reason"}],"summary":"Brief summary"}`;
+
+      let parsedSchedule: any;
+      await withAiContext({ feature: "ai.scheduling.prebuild", storeId, userId }, async () => {
+        const aiResult = await anthropic.messages.create({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 16000,
+          system: "You are a workforce scheduling AI. Respond with valid JSON only. No markdown, no explanations, no code fences. Your entire response must be a single JSON object starting with { and ending with }.",
+          messages: [{ role: 'user', content: prompt }],
+        });
+        const aiContent = aiResult.content[0];
+        if (aiContent.type !== 'text') throw new Error('Expected text response from Claude');
+        let jsonStr = aiContent.text.trim();
+        const codeBlockMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
+        if (codeBlockMatch) jsonStr = codeBlockMatch[1].trim();
+        if (!jsonStr.startsWith('{')) {
+          const firstBrace = jsonStr.indexOf('{');
+          if (firstBrace !== -1) jsonStr = jsonStr.slice(firstBrace);
+        }
+        const lastBrace = jsonStr.lastIndexOf('}');
+        if (lastBrace !== -1 && lastBrace < jsonStr.length - 1) jsonStr = jsonStr.slice(0, lastBrace + 1);
+        parsedSchedule = JSON.parse(jsonStr);
+      });
+
+      // ── Group validated entries by date ────────────────────────────────────
+      const employeeIds = new Set(employeeList.map(e => e.id));
+      const userMap: Record<string, typeof allUsers[0]> = {};
+      for (const u of allUsers) userMap[u.id] = u;
+
+      const validEntries = (parsedSchedule.schedule || []).filter((entry: any) => {
+        if (!entry.date || !entry.employeeId || !entry.startTime || !entry.endTime) return false;
+        if (!employeeIds.has(entry.employeeId)) return false;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(entry.date)) return false;
+        if (!/^\d{2}:\d{2}$/.test(entry.startTime) || !/^\d{2}:\d{2}$/.test(entry.endTime)) return false;
+        return true;
+      });
+
+      const byDate: Record<string, any[]> = {};
+      for (const entry of validEntries) {
+        if (!byDate[entry.date]) byDate[entry.date] = [];
+        byDate[entry.date].push(entry);
+      }
+
+      // ── Get store hours per day ────────────────────────────────────────────
+      const getStoreHoursForDow = (dow: number) => {
+        const sh = storeHoursArray.find((h: any) => h.day === dow);
+        if (!sh || sh.isClosed) return { open: '09:00', close: '21:00' };
+        return { open: sh.openTime || '09:00', close: sh.closeTime || '21:00' };
+      };
+
+      // ── Upsert each day into aiSuggestedSchedules ─────────────────────────
+      let daysPrebuilt = 0;
+      let skipped = 0;
+
+      for (const day of days) {
+        if (closedDays.has(day.dayOfWeek)) continue;
+        if (!force && existingDates.has(day.date)) { skipped++; continue; }
+
+        const dayEntries = byDate[day.date] || [];
+        const proposedShifts = dayEntries.map((entry: any) => {
+          const emp = employeeList.find(e => e.id === entry.employeeId);
+          const user = userMap[entry.employeeId];
+          return {
+            employeeId: entry.employeeId,
+            employeeName: String(entry.employeeName || emp?.name || 'Unknown').slice(0, 200),
+            profileImageUrl: user?.profileImageUrl || null,
+            startTime: String(entry.startTime),
+            endTime: String(entry.endTime),
+            shiftBlock: String(entry.shiftBlock || '').slice(0, 100),
+            rationale: String(entry.reasoning || '').slice(0, 500),
+            revenue: day.predictedRevenue || 0,
+          };
+        });
+
+        const storeHours = getStoreHoursForDow(day.dayOfWeek);
+        const scheduleData = {
+          date: day.date,
+          proposedShifts,
+          historicalDate: day.matchedLastYearDate || '',
+          dataSource: salesData.length > 0 ? 'shopify' : 'synthetic',
+          hourlyData: [],
+          storeHours,
+          prebuildSummary: typeof parsedSchedule.summary === 'string' ? parsedSchedule.summary.slice(0, 500) : '',
+        };
+
+        await db.insert(aiSuggestedSchedules)
+          .values({ storeId, date: day.date, scheduleData: scheduleData as any })
+          .onConflictDoUpdate({
+            target: [aiSuggestedSchedules.storeId, aiSuggestedSchedules.date],
+            set: { scheduleData: scheduleData as any, generatedAt: new Date() },
+          });
+
+        daysPrebuilt++;
+      }
+
+      logger.info({ storeId, daysPrebuilt, skipped, force }, "[prebuild] completed");
+      res.json({
+        success: true,
+        daysPrebuilt,
+        skipped,
+        message: `Pre-built suggestions for ${daysPrebuilt} day${daysPrebuilt !== 1 ? 's' : ''}${skipped > 0 ? ` (${skipped} already had suggestions — use force to overwrite)` : ''}.`,
+      });
+    } catch (error: any) {
+      logger.error({ error: String(error) }, "[prebuild] error");
+      if (error?.name === 'BudgetExceededError' || error?.constructor?.name === 'BudgetExceededError') {
+        return res.status(402).json({ message: error.message || "AI spending budget exceeded." });
+      }
+      const msg = error instanceof Error ? error.message : "Failed to pre-build schedules";
+      res.status(500).json({ message: msg });
     }
   });
 
