@@ -25,6 +25,7 @@ import {
   type InsertActivityLog,
 } from "@shared/schema";
 import { db } from "../db";
+import { AppError } from "../lib/routeWrapper";
 import { eq, and, desc, isNull, or, inArray, sql } from "drizzle-orm";
 import { cache } from "../services/cache";
 import { timeEntries } from "@shared/schema";
@@ -392,7 +393,11 @@ export class IdentityStorage implements IIdentityStorage {
 
     if (existing) {
       if (expectedVersion !== undefined && expectedVersion !== (existing.version || 1)) {
-        throw new Error("Settings were modified by another user. Please refresh and try again.");
+        throw new AppError(
+          409,
+          "Settings were modified by another user. Please refresh and try again.",
+          "VERSION_CONFLICT"
+        );
       }
 
       const updatePayload: any = {

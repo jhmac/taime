@@ -159,7 +159,32 @@ export function registerAdminRoutes(app: Express, storage: IStorage, isAuthentic
     const storeId = await tryResolveStoreIdForUser(userId);
 
     const { expectedVersion, ...bodyWithoutVersion } = req.body;
-    const validated = companySettingsUpdateSchema.parse(bodyWithoutVersion);
+
+    let validated: z.infer<typeof companySettingsUpdateSchema>;
+    try {
+      validated = companySettingsUpdateSchema.parse(bodyWithoutVersion);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        const fields = err.errors.flatMap(e => {
+          if (e.code === 'unrecognized_keys' && Array.isArray((e as any).keys)) {
+            return (e as any).keys as string[];
+          }
+          const p = e.path.join('.');
+          return p ? [p] : [];
+        });
+        const detail = fields.length > 0 ? ` (fields: ${fields.join(', ')})` : '';
+        const message = process.env.NODE_ENV === 'production'
+          ? 'Invalid request data'
+          : `Invalid request data${detail}`;
+        throw new AppError(400, message, 'VALIDATION_ERROR');
+      }
+      throw err;
+    }
+
+    if (validated.nextPayrollDate === '') {
+      validated.nextPayrollDate = null;
+    }
+
     const settingsUpdates: Record<string, any> = { updatedBy: userId, ...validated };
 
     if (validated.autoClockOutAfterMinutes !== undefined) {
