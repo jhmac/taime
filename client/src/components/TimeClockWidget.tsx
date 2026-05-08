@@ -87,6 +87,12 @@ export default function TimeClockWidget({ greetingSlot, footerSlot, hideClock = 
   const lastMonitorTimeRef = useRef<number>(0);
   const prevActiveEntryRef = useRef<any>(null);
   const prevPermissionStateRef = useRef<string | null>(null);
+  // Tracks the latest permissionState for use inside long-lived listeners
+  // (e.g. the Capacitor appStateChange handler) whose effect intentionally has
+  // an empty dependency array so it only subscribes once.  Reading from this
+  // ref avoids the stale-closure pitfall where a listener captured at mount
+  // would forever see the initial permissionState even after it changed.
+  const permissionStateRef = useRef(permissionState);
   const [hasAttemptedClockIn, setHasAttemptedClockIn] = useState(false);
   const [showDeniedBanner, setShowDeniedBanner] = useState(false);
   const [deniedBannerFading, setDeniedBannerFading] = useState(false);
@@ -592,19 +598,28 @@ export default function TimeClockWidget({ greetingSlot, footerSlot, hideClock = 
   }, [activeTimeEntry, locationError]);
 
   useEffect(() => {
+    permissionStateRef.current = permissionState;
+  }, [permissionState]);
+
+  useEffect(() => {
     prevPermissionStateRef.current = permissionState;
-    // Auto-fetch position whenever permission is known to be granted but we
-    // don't yet have a position. This covers:
-    //  - initial hydration from server ('unknown' → 'granted'): user previously
-    //    granted permission on another device/session and we restored that state
-    //  - re-grant after revoke ('denied' → 'granted')
-    //  - returning from background where the OS dropped our cached position
-    // Without this, `position` stays null after hydration and the UI shows
-    // "Location needed to clock in" even though the user has already granted.
-    if (permissionState === 'granted' && !position && !locationLoading) {
+    // Only fetch a position speculatively when there's an active shift — the
+    // geofence monitor genuinely needs a fresh fix to know whether the user
+    // has left the work area.  When the user is NOT clocked in we MUST NOT
+    // call into the OS geolocation API on mount: on web that triggers the
+    // browser permission prompt for users whose state is still being hydrated,
+    // and on native it can show the OS dialog.  The position for clock-in is
+    // acquired on demand inside handleClockAction() instead.
+    if (
+      permissionState === 'granted' &&
+      activeTimeEntry &&
+      workLocations.length > 0 &&
+      !position &&
+      !locationLoading
+    ) {
       getCurrentPosition().catch(() => {});
     }
-  }, [permissionState, position, locationLoading, getCurrentPosition]);
+  }, [permissionState, position, locationLoading, getCurrentPosition, activeTimeEntry, workLocations.length]);
 
   useEffect(() => {
     const isDenied =
@@ -702,6 +717,16 @@ export default function TimeClockWidget({ greetingSlot, footerSlot, hideClock = 
     let listenerHandle: { remove: () => void } | null = null;
     CapacitorApp.addListener('appStateChange', ({ isActive }) => {
       if (!isActive) return;
+      // Only refresh the cached fix when we already hold an active shift —
+      // otherwise a foreground transition would speculatively call into the
+      // OS geolocation API, which on native re-prompts users who haven't yet
+      // granted permission.  When clocked in the geofence monitor needs a
+      // fresh position; when clocked out we can wait until the user actually
+      // taps Clock In.
+      if (!activeTimeEntryRef.current) return;
+      // Read from the ref so the latest permissionState is observed — the
+      // outer effect intentionally subscribes only once at mount.
+      if (permissionStateRef.current !== 'granted') return;
       getCurrentPosition().catch(() => {});
     }).then((handle) => {
       if (mounted) {

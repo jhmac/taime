@@ -63,13 +63,24 @@ function BlockingScreen({ onOpenSettings }: { onOpenSettings: () => void }) {
 }
 
 function LocationPermissionGateInner({ children }: LocationPermissionGateProps) {
-  const { permissionState, requestPermission } = useGeolocation();
+  const { permissionState, requestPermission, isHydrated, hadPreviousGrant } = useGeolocation();
 
   useEffect(() => {
-    if (permissionState === "prompt" || permissionState === "unknown") {
+    // Only ask for permission when:
+    //  - hydration from localStorage + server (and the OS on native) has fully
+    //    completed, so we know the cached state is the source of truth, AND
+    //  - the user has never previously granted access (returning users who
+    //    already said Yes must never see the OS dialog again on cold load), AND
+    //  - the resolved permission state is genuinely 'unknown' (no cache, no
+    //    server record, no OS answer).  We deliberately do NOT trigger on
+    //    'prompt' here — a transient 'prompt' during init should be ignored
+    //    and the user can press Clock In to elicit the real prompt on demand.
+    if (!isHydrated) return;
+    if (hadPreviousGrant) return;
+    if (permissionState === "unknown") {
       requestPermission().catch(() => {});
     }
-  }, [permissionState, requestPermission]);
+  }, [permissionState, requestPermission, isHydrated, hadPreviousGrant]);
 
   useEffect(() => {
     if (!isNativePlatform()) return;

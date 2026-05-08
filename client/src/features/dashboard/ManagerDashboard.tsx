@@ -60,6 +60,23 @@ export default function ManagerDashboard() {
     return () => clearInterval(timer);
   }, []);
 
+  // Bottom-nav 'Clock' shortcut dispatches `focus-time-clock`; scroll the
+  // widget into view and briefly highlight it so managers can find Clock In
+  // without hunting through the dashboard.
+  useEffect(() => {
+    const handler = () => {
+      const el = document.getElementById('time-clock-widget');
+      if (!el) return;
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      el.classList.add('ring-2', 'ring-primary', 'ring-offset-2', 'rounded-xl');
+      setTimeout(() => {
+        el.classList.remove('ring-2', 'ring-primary', 'ring-offset-2', 'rounded-xl');
+      }, 1500);
+    };
+    window.addEventListener('focus-time-clock', handler);
+    return () => window.removeEventListener('focus-time-clock', handler);
+  }, []);
+
   // Pre-hydrated by DashboardRouter from /api/dashboard/init — no network request on first render
   const { data: todaySummary } = useQuery<{ totalClockedIn: number; totalScheduled: number; activeEntries: any[] } | null>({
     queryKey: ['/api/dashboard/today-summary'],
@@ -252,34 +269,42 @@ export default function ManagerDashboard() {
     <div className="min-h-full bg-background">
       {/* ── Header ── */}
       <DashboardErrorBoundary fallback="Could not load header">
-        <section className="bg-gradient-to-br from-primary to-primary/80 text-primary-foreground p-5 md:p-6 md:rounded-xl md:m-6 md:mt-4">
+        <section className={
+          isMobile
+            ? "bg-gradient-to-br from-primary to-primary/80 text-primary-foreground px-4 py-2.5"
+            : "bg-gradient-to-br from-primary to-primary/80 text-primary-foreground p-5 md:p-6 md:rounded-xl md:m-6 md:mt-4"
+        }>
           <div className="flex items-center justify-between gap-2">
             <div className="min-w-0 shrink-0">
-              <h1 className={`font-bold truncate ${isMobile ? 'text-base' : 'text-lg'}`}>
+              <h1 className={`font-bold truncate ${isMobile ? 'text-sm' : 'text-lg'}`}>
                 {getGreeting()}, {(user as any)?.firstName || 'Manager'}!
               </h1>
-              <p className="text-xs opacity-70">
+              <p className={isMobile ? 'text-[10px] opacity-70 leading-tight' : 'text-xs opacity-70'}>
                 {currentTime.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
               </p>
             </div>
             <div className="flex-1 flex justify-center px-2">
-              <p className={`font-bold tabular-nums tracking-tight leading-none text-center ${isMobile ? 'text-xl' : 'text-3xl'}`}>
+              <p className={`font-bold tabular-nums tracking-tight leading-none text-center ${isMobile ? 'text-base' : 'text-3xl'}`}>
                 {formatHeaderDateTime(currentTime)}
               </p>
             </div>
             <Button
               onClick={() => window.dispatchEvent(new Event("open-ask-mainager"))}
               size="icon"
-              className="bg-white/20 hover:bg-white/30 text-white rounded-full h-10 w-10 flex-shrink-0"
+              className={`bg-white/20 hover:bg-white/30 text-white rounded-full flex-shrink-0 ${isMobile ? 'h-8 w-8' : 'h-10 w-10'}`}
             >
-              <Bot className="h-5 w-5" />
+              <Bot className={isMobile ? 'h-4 w-4' : 'h-5 w-5'} />
             </Button>
           </div>
         </section>
       </DashboardErrorBoundary>
 
-      <div className={isMobile ? "px-4 py-3" : "px-6 py-4"}>
-        {/* Personal time clock widget — clock face hidden to avoid redundancy with header live time, but today's total, geofencing badge, and action buttons are shown */}
+      {/* Personal time clock widget — rendered immediately under the (now compact)
+          header so Clock In/Out is the first interactive control above the fold
+          on a mobile manager dashboard.  The id is targeted by the bottom-nav
+          'Clock' shortcut to scroll the widget into view from anywhere on the
+          dashboard. */}
+      <div id="time-clock-widget" className={isMobile ? "px-4 py-3 transition-shadow" : "px-6 py-4 transition-shadow"}>
         <DashboardErrorBoundary fallback="Time clock failed to load">
           <TimeClockWidget hideClock />
         </DashboardErrorBoundary>

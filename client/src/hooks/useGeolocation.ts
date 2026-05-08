@@ -116,6 +116,12 @@ export function useGeolocation(userId?: string) {
   // Used by consumers to suppress the in-app permission nudge banner for
   // returning users who have already agreed to location access.
   const [hadPreviousGrant] = useState(() => readCachedPermission() === 'granted');
+  // Becomes true once we've finished pulling state from localStorage AND the
+  // server (and the OS, on native).  Consumers like LocationPermissionGate
+  // must wait for this before deciding whether to trigger a permission prompt
+  // — otherwise the brief 'unknown'/'prompt' window during init fires the OS
+  // dialog for users who already granted access.
+  const [isHydrated, setIsHydrated] = useState(false);
 
   const setPermissionState = (state: PermissionState | 'unsupported' | 'unknown') => {
     cachePermission(state);
@@ -352,6 +358,14 @@ export function useGeolocation(userId?: string) {
     let permissionStatus: PermissionStatus | null = null;
 
     async function init() {
+      try {
+        await initInner();
+      } finally {
+        if (!cancelled) setIsHydrated(true);
+      }
+    }
+
+    async function initInner() {
       // Step 1: hydrate localStorage from the server first (non-blocking but
       // awaited so the cached value is populated before the OS check reads it).
       // This prevents the OS check from reading 'unknown' and issuing a
@@ -423,7 +437,15 @@ export function useGeolocation(userId?: string) {
           }
 
           result.onchange = () => {
-            setPermissionState(result.state);
+            // Apply the same guard here: a 'prompt' notification from the
+            // browser must not clobber a definitive cached 'granted'/'denied'
+            // (which can happen when the origin changes or the browser
+            // momentarily forgets the grant during session restore).
+            const cached = readCachedPermission();
+            const definitive = cached === 'granted' || cached === 'denied';
+            if (result.state !== 'prompt' || !definitive) {
+              setPermissionState(result.state);
+            }
             if (result.state === 'denied') {
               setError({
                 code: 1,
@@ -458,6 +480,7 @@ export function useGeolocation(userId?: string) {
     loading,
     permissionState,
     hadPreviousGrant,
+    isHydrated,
     getCurrentPosition,
     watchPosition,
     clearWatch,

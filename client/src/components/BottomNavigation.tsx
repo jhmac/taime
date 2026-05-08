@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useLocation } from 'wouter';
 import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
-import { Home, Calendar, MessageCircle, Settings, LayoutDashboard, Sparkles, type LucideIcon } from 'lucide-react';
+import { Home, Calendar, MessageCircle, Settings, LayoutDashboard, Sparkles, Clock, type LucideIcon } from 'lucide-react';
 
 type NavItem = {
   path?: string;
@@ -17,8 +17,15 @@ function openAskMAinager() {
   window.dispatchEvent(new Event('open-ask-mainager'));
 }
 
+function focusTimeClock() {
+  // Defer to next tick so wouter has finished navigation before the dashboard
+  // listener tries to scroll the widget into view.
+  setTimeout(() => window.dispatchEvent(new Event('focus-time-clock')), 0);
+}
+
 const adminNavItems: NavItem[] = [
   { key: 'home', path: '/', icon: LayoutDashboard, label: 'Home' },
+  { key: 'clock', path: '/', action: focusTimeClock, icon: Clock, label: 'Clock' },
   { key: 'schedule', path: '/schedules', icon: Calendar, label: 'Schedule' },
   { key: 'ai', action: openAskMAinager, icon: Sparkles, label: 'Ask AI' },
   { key: 'messages', path: '/messages', icon: MessageCircle, label: 'Messages', badge: true },
@@ -65,6 +72,10 @@ export default function BottomNavigation() {
 
   const isActive = (item: NavItem) => {
     if (item.key === 'ai') return aiSheetOpen;
+    // The 'clock' item shares its path with 'home' but is purely a quick-action
+    // shortcut; never paint it as the active tab so it doesn't fight 'home'
+    // for the selected style on the dashboard.
+    if (item.key === 'clock') return false;
     if (!item.path) return false;
     if (item.path === '/') return location === '/';
     if (item.path === '/more') {
@@ -83,7 +94,12 @@ export default function BottomNavigation() {
           const active = isActive(item);
           const Icon = item.icon;
           const handleClick = () => {
-            if (item.action) {
+            // Items with both a path and an action (e.g. the 'clock' shortcut)
+            // navigate first, then dispatch the side-effect action.
+            if (item.path && item.action) {
+              navigate(item.path);
+              item.action();
+            } else if (item.action) {
               item.action();
             } else if (item.path) {
               navigate(item.path);
