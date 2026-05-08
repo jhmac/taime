@@ -13,6 +13,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import TimeCardModal from "@/components/TimeCardModal";
 import ExportOptionsModal from "@/components/timesheets/ExportOptionsModal";
 import OvertimePreventionPanel from "@/components/timesheets/OvertimePreventionPanel";
+import TimeEntryAuditPanel from "@/components/timesheets/TimeEntryAuditPanel";
 import {
   Table,
   TableBody,
@@ -73,6 +74,7 @@ import {
   ArrowDown,
   ChevronsUpDown,
   Columns,
+  History,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -1649,9 +1651,9 @@ function PayPeriodReviewTab({
   const [resolveOpen, setResolveOpen] = useState(false);
   const [resolveAlert, setResolveAlert] = useState<DiscrepancyAlert | null>(null);
   const [showOTPanel, setShowOTPanel] = useState(false);
-
   const [sortField, setSortField] = useState<"actual" | "regular" | "ot" | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc" | null>(null);
+  const [auditEntryId, setAuditEntryId] = useState<string | null>(null);
 
   const handleAddTimeCard = (employeeId: string) => {
     setAddTimeCardEmployeeId(employeeId);
@@ -1775,174 +1777,17 @@ function PayPeriodReviewTab({
         employees={data?.employees || []}
         onResolved={() => setResolveAlert(null)}
       />
-
-      {(!data || data.employees.length === 0) ? (
-        <Card>
-          <CardContent className="py-12 text-center">
-            <Users className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
-            <p className="text-muted-foreground">No time entries found for this period.</p>
-          </CardContent>
-        </Card>
-      ) : (
-        <Card>
-          <CardContent className="p-0">
-            {/* Employee count */}
-            <div className="px-4 py-2 border-b text-xs text-muted-foreground">
-              {hoursOnlyFilter
-                ? `${visibleEmployees.length} of ${data?.employees.length} employees (hours only)`
-                : `${data?.employees.length} employees`}
-            </div>
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-muted/30">
-                    <TableHead className="w-[280px] font-semibold text-xs">Date / Employee</TableHead>
-                    <TableHead
-                      className="text-right w-[130px] font-semibold text-xs cursor-pointer select-none hover:text-foreground"
-                      onClick={() => cycleSort("actual")}
-                    >
-                      Actual hours
-                      <SortIcon field="actual" sortField={sortField} sortDir={sortDir} />
-                    </TableHead>
-                    <TableHead
-                      className="text-right w-[130px] font-semibold text-xs cursor-pointer select-none hover:text-foreground"
-                      onClick={() => cycleSort("regular")}
-                    >
-                      Regular hours
-                      <SortIcon field="regular" sortField={sortField} sortDir={sortDir} />
-                    </TableHead>
-                    <TableHead
-                      className="text-right w-[120px] font-semibold text-xs cursor-pointer select-none hover:text-foreground"
-                      onClick={() => cycleSort("ot")}
-                    >
-                      OT hours
-                      <SortIcon field="ot" sortField={sortField} sortDir={sortDir} />
-                    </TableHead>
-                    {showScheduledHours && (
-                      <TableHead className="text-right w-[120px] font-semibold text-xs">Sched. hours</TableHead>
-                    )}
-                    {showOffsiteMinutes && (
-                      <TableHead className="text-right w-[110px] font-semibold text-xs">Off-site hrs</TableHead>
-                    )}
-                    <TableHead className="w-[50px]" />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {/* Needs review group */}
-                  {needsReviewEmps.length > 0 && (
-                    <>
-                      <TableRow
-                        className="bg-amber-50 dark:bg-amber-950/30 cursor-pointer hover:bg-amber-100 dark:hover:bg-amber-900/40"
-                        onClick={() => setGroupNeedsReviewCollapsed(!groupNeedsReviewCollapsed)}
-                      >
-                        <TableCell colSpan={totalCols} className="py-2 px-4">
-                          <div className="flex items-center gap-2">
-                            {groupNeedsReviewCollapsed
-                              ? <ChevronRight className="h-3.5 w-3.5 text-amber-700 dark:text-amber-400" />
-                              : <ChevronDown className="h-3.5 w-3.5 text-amber-700 dark:text-amber-400" />}
-                            <span className="text-xs font-semibold text-amber-800 dark:text-amber-300">Needs review</span>
-                            <Badge className="h-4 min-w-[18px] px-1.5 text-[10px] bg-amber-500 hover:bg-amber-500 text-white">
-                              {needsReviewEmps.length}
-                            </Badge>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                      {!groupNeedsReviewCollapsed && needsReviewEmps.map((emp) => (
-                        <ExpandableEmployeeRow
-                          key={emp.userId}
-                          employee={emp}
-                          isExpanded={expandedRows.has(emp.userId)}
-                          onToggle={() => onToggleRow(emp.userId)}
-                          otThreshold={data?.otThreshold}
-                          onAddTimeCard={handleAddTimeCard}
-                          onEntryClick={onEntryClick}
-                          onViewTimeCard={handleViewTimeCard}
-                          onApproveEmployee={(id) => approveEmployeeMutation.mutate(id)}
-                          onResolveDiscrepancy={handleAlertClick}
-                          showScheduledHours={showScheduledHours}
-                          showOffsiteMinutes={showOffsiteMinutes}
-                          totalCols={totalCols}
-                        />
-                      ))}
-                    </>
-                  )}
-
-                  {/* Approved / Other group */}
-                  {otherEmps.length > 0 && (
-                    <>
-                      <TableRow
-                        className="bg-muted/50 cursor-pointer hover:bg-muted/70"
-                        onClick={() => setGroupOtherCollapsed(!groupOtherCollapsed)}
-                      >
-                        <TableCell colSpan={totalCols} className="py-2 px-4">
-                          <div className="flex items-center gap-2">
-                            {groupOtherCollapsed
-                              ? <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-                              : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
-                            <span className="text-xs font-semibold text-muted-foreground">Approved / Other</span>
-                            <Badge variant="secondary" className="h-4 min-w-[18px] px-1.5 text-[10px]">
-                              {otherEmps.length}
-                            </Badge>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                      {!groupOtherCollapsed && otherEmps.map((emp) => (
-                        <ExpandableEmployeeRow
-                          key={emp.userId}
-                          employee={emp}
-                          isExpanded={expandedRows.has(emp.userId)}
-                          onToggle={() => onToggleRow(emp.userId)}
-                          otThreshold={data?.otThreshold}
-                          onAddTimeCard={handleAddTimeCard}
-                          onEntryClick={onEntryClick}
-                          onViewTimeCard={handleViewTimeCard}
-                          onApproveEmployee={(id) => approveEmployeeMutation.mutate(id)}
-                          onResolveDiscrepancy={handleAlertClick}
-                          showScheduledHours={showScheduledHours}
-                          showOffsiteMinutes={showOffsiteMinutes}
-                          totalCols={totalCols}
-                        />
-                      ))}
-                    </>
-                  )}
-
-                  {/* Period totals footer */}
-                  {data && visibleEmployees.length > 0 && (
-                    <TableRow className="bg-muted/60 font-semibold border-t-2">
-                      <TableCell className="py-2.5 px-4">
-                        <span className="text-sm font-semibold">
-                          Period totals ({visibleEmployees.length} employee{visibleEmployees.length !== 1 ? "s" : ""})
-                        </span>
-                      </TableCell>
-                      <TableCell className="py-2.5 text-right font-mono text-sm font-bold">
-                        {visibleTotals.actual.toFixed(2)}
-                      </TableCell>
-                      <TableCell className="py-2.5 text-right font-mono text-sm font-bold">
-                        {visibleTotals.regular.toFixed(2)}
-                      </TableCell>
-                      <TableCell className="py-2.5 text-right font-mono text-sm font-bold">
-                        <span className={visibleTotals.ot > 0 ? "text-orange-500" : ""}>
-                          {visibleTotals.ot.toFixed(2)}
-                        </span>
-                      </TableCell>
-                      {showScheduledHours && <TableCell />}
-                      {showOffsiteMinutes && <TableCell />}
-                      <TableCell />
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
       <AddTimeCardDialog
         open={addTimeCardOpen}
         onOpenChange={(open) => { setAddTimeCardOpen(open); if (!open) setAddTimeCardEmployeeId(undefined); }}
         preselectedEmployeeId={addTimeCardEmployeeId}
         employees={data?.employees.map((e) => ({ id: e.userId, firstName: e.firstName, lastName: e.lastName, email: e.email }))}
         scheduleSource={data?.employees}
+      />
+      <TimeEntryAuditPanel
+        entryId={auditEntryId}
+        open={!!auditEntryId}
+        onOpenChange={(open) => { if (!open) setAuditEntryId(null); }}
       />
     </div>
   );
@@ -1957,6 +1802,7 @@ function DailyReviewTab({ onEntryClick }: { onEntryClick?: (entry: DailyEntry, d
   const [resolveAlert, setResolveAlert] = useState<DiscrepancyAlert | null>(null);
   const [addTimeCardOpen, setAddTimeCardOpen] = useState(false);
   const [addTimeCardEmpId, setAddTimeCardEmpId] = useState<string | undefined>();
+  const [auditEntryId, setAuditEntryId] = useState<string | null>(null);
 
   const { data, isLoading, isError } = useQuery<TimesheetReviewData>({
     queryKey: [`/api/timesheets/review?startDate=${selectedDate}&endDate=${selectedDate}`],
@@ -2135,15 +1981,24 @@ function DailyReviewTab({ onEntryClick }: { onEntryClick?: (entry: DailyEntry, d
                           <div className="space-y-2">
                             {entries.map((entry) => (
                               <div key={entry.id}>
-                                <button
-                                  className="text-sm font-medium hover:text-primary hover:underline cursor-pointer transition-colors text-left"
-                                  onClick={() => onEntryClick?.(entry, selectedDate, emp)}
-                                >
-                                  {formatTime(entry.clockInTime)} –{" "}
-                                  {entry.clockOutTime
-                                    ? formatTime(entry.clockOutTime)
-                                    : <span className="text-green-600 dark:text-green-400">active</span>}
-                                </button>
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    className="text-sm font-medium hover:text-primary hover:underline cursor-pointer transition-colors text-left"
+                                    onClick={() => onEntryClick?.(entry, selectedDate, emp)}
+                                  >
+                                    {formatTime(entry.clockInTime)} –{" "}
+                                    {entry.clockOutTime
+                                      ? formatTime(entry.clockOutTime)
+                                      : <span className="text-green-600 dark:text-green-400">active</span>}
+                                  </button>
+                                  <button
+                                    title="View audit trail"
+                                    className="p-0.5 rounded text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted transition-colors flex-shrink-0"
+                                    onClick={() => setAuditEntryId(entry.id)}
+                                  >
+                                    <History className="h-3.5 w-3.5" />
+                                  </button>
+                                </div>
                                 {entry.clockOutTime ? (
                                   <p className="text-xs text-muted-foreground">Total: {formatDuration(entry.hours)}</p>
                                 ) : (
@@ -2237,6 +2092,11 @@ function DailyReviewTab({ onEntryClick }: { onEntryClick?: (entry: DailyEntry, d
         preselectedEmployeeId={addTimeCardEmpId}
         employees={data?.employees?.map((e) => ({ id: e.userId, firstName: e.firstName, lastName: e.lastName, email: e.email })) || []}
         scheduleSource={data?.employees}
+      />
+      <TimeEntryAuditPanel
+        entryId={auditEntryId}
+        open={!!auditEntryId}
+        onOpenChange={(open) => { if (!open) setAuditEntryId(null); }}
       />
     </div>
   );

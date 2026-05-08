@@ -1362,4 +1362,179 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
       res.status(500).json({ message: "Failed to dismiss overtime alert" });
     }
   });
+
+  // Audit trail endpoint — aggregates time_entry_edits, clock_events, break_events for one entry
+  app.get("/api/time-entries/:id/audit-trail", isAuthenticated, async (req: any, res) => {
+    try {
+      const requestingUserId = req.user.id;
+      const entryId = req.params.id;
+
+      const canViewAll = await resolveAnyPermission(requestingUserId, ['time.view_all', 'admin.manage_all'], storage);
+      if (!canViewAll) {
+        return res.status(403).json({ message: "Insufficient permissions" });
+      }
+
+      const entry = await storage.getTimeEntry(entryId);
+      if (!entry) {
+        return res.status(404).json({ message: "Time entry not found" });
+      }
+
+      // Tenant isolation: global admins can view any entry; everyone else must
+      // share the same location as the time entry to prevent cross-tenant IDOR.
+      const isGlobalAdmin = await resolvePermission(requestingUserId, 'admin.manage_all', storage);
+      if (!isGlobalAdmin) {
+        const requestingUser = await storage.getUser(requestingUserId);
+        const entryLocationId = (entry as any).locationId as string | null | undefined;
+        const isSameLocation = requestingUser?.locationId && entryLocationId && requestingUser.locationId === entryLocationId;
+        if (!isSameLocation) {
+          return res.status(403).json({ message: "You can only view audit trails for employees in your store" });
+        }
+      }
+
+      // Fetch all data sources in parallel
+      const [edits, breakEventsData, clockEventsForUser] = await Promise.all([
+        storage.getTimeEntryEdits(entryId),
+        storage.getBreakEvents(entryId),
+        storage.getClockEvents(
+          entry.userId,
+          new Date(new Date(entry.clockInTime).getTime() - 60000),
+          entry.clockOutTime ? new Date(new Date(entry.clockOutTime).getTime() + 60000) : new Date(),
+        ),
+      ]);
+
+      // Filter clock events to those linked to this specific entry
+      const entryClockEvents = clockEventsForUser.filter((ce: any) => ce.timeEntryId === entryId);
+
+      // Collect all actor IDs for batch lookup
+      const actorIds = new Set<string>([entry.userId]);
+      for (const edit of edits) actorIds.add(edit.editedBy);
+      for (const ce of entryClockEvents) actorIds.add(ce.userId);
+
+      const actorMap = new Map<string, any>();
+      await Promise.all(
+        Array.from(actorIds).map(async (id) => {
+          const user = await storage.getUser(id);
+          if (user) actorMap.set(id, user);
+        })
+      );
+
+      const getActorName = (id: string): string => {
+        const u = actorMap.get(id);
+        if (!u) return id;
+        return [u.firstName, u.lastName].filter(Boolean).join(" ") || u.email || id;
+      };
+
+      const formatClockEventLabel = (eventType: string): string => {
+        const labels: Record<string, string> = {
+          geofence_exit: "Left geofence",
+          geofence_enter: "Entered geofence",
+          auto_clock_out: "Auto clock-out (geofence)",
+          location_check: "Location verified",
+          training_morning_moment: "Training event",
+        };
+        return labels[eventType] || eventType.replace(/_/g, " ");
+      };
+
+      const employeeName = getActorName(entry.userId);
+      const events: any[] = [];
+
+      // 1. Original clock-in
+      events.push({
+        id: `clock_in_${entry.id}`,
+        eventType: "clock_in",
+        timestamp: entry.clockInTime,
+        actorId: entry.userId,
+        actorName: employeeName,
+        label: "Clocked in",
+        detail: { source: entry.clockInSource || "manual" },
+      });
+
+      // 2. Break events (graceful if none exist)
+      for (const brk of breakEventsData) {
+        events.push({
+          id: `break_start_${brk.id}`,
+          eventType: "break_start",
+          timestamp: brk.breakStart,
+          actorId: entry.userId,
+          actorName: employeeName,
+          label: "Break started",
+          detail: { breakType: brk.breakType || "unpaid" },
+        });
+        if (brk.breakEnd) {
+          events.push({
+            id: `break_end_${brk.id}`,
+            eventType: "break_end",
+            timestamp: brk.breakEnd,
+            actorId: entry.userId,
+            actorName: employeeName,
+            label: "Break ended",
+            detail: { durationMinutes: brk.durationMinutes, breakType: brk.breakType || "unpaid" },
+          });
+        }
+      }
+
+      // 3. Clock events tied to this entry (geofence, etc.)
+      for (const ce of entryClockEvents) {
+        events.push({
+          id: `clock_event_${ce.id}`,
+          eventType: ce.eventType,
+          timestamp: ce.createdAt,
+          actorId: ce.userId,
+          actorName: getActorName(ce.userId),
+          label: formatClockEventLabel(ce.eventType),
+          detail: ce.metadata || null,
+        });
+      }
+
+      // 4. Manual edits
+      for (const edit of edits) {
+        events.push({
+          id: `edit_${edit.id}`,
+          eventType: "edit",
+          timestamp: edit.editedAt,
+          actorId: edit.editedBy,
+          actorName: getActorName(edit.editedBy),
+          label: `Edited: ${edit.fieldChanged}`,
+          detail: {
+            fieldChanged: edit.fieldChanged,
+            oldValue: edit.oldValue,
+            newValue: edit.newValue,
+            reason: edit.reason,
+          },
+        });
+      }
+
+      // 5. Clock-out (if present)
+      if (entry.clockOutTime) {
+        events.push({
+          id: `clock_out_${entry.id}`,
+          eventType: "clock_out",
+          timestamp: entry.clockOutTime,
+          actorId: entry.userId,
+          actorName: employeeName,
+          label: "Clocked out",
+          detail: { source: entry.clockOutSource || "manual" },
+        });
+      }
+
+      // Sort chronologically
+      events.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+      const employee = actorMap.get(entry.userId);
+
+      res.json({
+        entryId,
+        employee: employee
+          ? { id: employee.id, firstName: employee.firstName, lastName: employee.lastName, email: employee.email }
+          : null,
+        clockInTime: entry.clockInTime,
+        clockOutTime: entry.clockOutTime,
+        hasBreakEventRecords: breakEventsData.length > 0,
+        events,
+      });
+    } catch (error: any) {
+      logger.error({ error: error.message }, "Error fetching time entry audit trail");
+      res.status(500).json({ message: "Failed to fetch audit trail" });
+    }
+  });
 }
