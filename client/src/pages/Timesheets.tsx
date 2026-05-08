@@ -98,6 +98,7 @@ interface DailyEntry {
   clockOutTime: string | null;
   breakMinutes: number;
   hours: number;
+  isActive?: boolean;
   isApproved: boolean;
   notes: string | null;
   scheduledStart?: string | null;
@@ -277,8 +278,8 @@ function getDefaultDateRange() {
   end.setDate(start.getDate() + 6);
   end.setHours(23, 59, 59, 999);
   return {
-    startDate: start.toISOString().split("T")[0],
-    endDate: end.toISOString().split("T")[0],
+    startDate: start.toLocaleDateString("sv"),
+    endDate: end.toLocaleDateString("sv"),
   };
 }
 
@@ -1949,7 +1950,7 @@ function PayPeriodReviewTab({
 
 
 function DailyReviewTab({ onEntryClick }: { onEntryClick?: (entry: DailyEntry, date: string, employee: EmployeeReview) => void }) {
-  const today = new Date().toISOString().split("T")[0];
+  const today = new Date().toLocaleDateString("sv");
   const [selectedDate, setSelectedDate] = useState(today);
   const [filter, setFilter] = useState<"all" | "needs-review">("all");
   const [resolveOpen, setResolveOpen] = useState(false);
@@ -1964,7 +1965,7 @@ function DailyReviewTab({ onEntryClick }: { onEntryClick?: (entry: DailyEntry, d
   const navigateDate = (direction: "prev" | "next") => {
     const d = new Date(selectedDate + "T12:00:00");
     d.setDate(d.getDate() + (direction === "prev" ? -1 : 1));
-    const next = d.toISOString().split("T")[0];
+    const next = d.toLocaleDateString("sv");
     if (next <= today) setSelectedDate(next);
   };
 
@@ -2143,8 +2144,13 @@ function DailyReviewTab({ onEntryClick }: { onEntryClick?: (entry: DailyEntry, d
                                     ? formatTime(entry.clockOutTime)
                                     : <span className="text-green-600 dark:text-green-400">active</span>}
                                 </button>
-                                {entry.clockOutTime && (
+                                {entry.clockOutTime ? (
                                   <p className="text-xs text-muted-foreground">Total: {formatDuration(entry.hours)}</p>
+                                ) : (
+                                  <p className="text-xs text-green-600 dark:text-green-400 italic">
+                                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 mr-1 animate-pulse align-middle" />
+                                    {formatDuration(entry.hours)} so far
+                                  </p>
                                 )}
                                 {underScheduleMinutes > 15 && entries.length === 1 && entry.clockOutTime && (
                                   <p className="text-xs text-blue-600 dark:text-blue-400">{underScheduleMinutes} min under scheduled time</p>

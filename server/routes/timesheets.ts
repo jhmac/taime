@@ -151,7 +151,7 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
       const endDateStr = (endDate || new Date(Date.now() + 24 * 60 * 60 * 1000)).toISOString().split("T")[0];
 
       const [allEntries, allUsers, allOffsiteSessions, allSchedules, allMileageReimbs] = await Promise.all([
-        storage.getAllTimeEntries(startDate, endDate, false, null),
+        storage.getAllTimeEntries(startDate, endDate, true, null),
         storage.getAllUsers(),
         storage.getOffsiteSessions({}),
         storage.getAllSchedules(scheduleStart, scheduleEnd),
@@ -285,12 +285,18 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
             }
 
             const hours = calculateHours(entry.clockInTime, entry.clockOutTime, entry.breakMinutes || 0);
+            // For display only: show elapsed time for active (clocked-in) entries, capped at 16h
+            const isActiveEntry = !entry.clockOutTime;
+            const displayHours = isActiveEntry
+              ? Math.min((Date.now() - new Date(entry.clockInTime).getTime()) / 3600000, 16)
+              : hours;
             const wk = getWeekKey(entry.clockInTime, workWeekStart);
             const accumulated = weeklyAccumulated.get(wk) || 0;
             const { regular, ot } = splitRegularOT(hours, otThreshold, accumulated);
             weeklyAccumulated.set(wk, accumulated + hours);
 
-            totalActual += hours;
+            // totalActual uses displayHours so active entries contribute elapsed time to the totals
+            totalActual += displayHours;
             totalRegular += regular;
             totalOT += ot;
 
@@ -300,7 +306,7 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
 
             const scheduledHoursForDay = daySchedules.reduce((sum: number, s: any) => sum + calculateHours(s.startTime, s.endTime, 0), 0);
             const day = dailyMap.get(dateKey) || { date: dateKey, actual: 0, regular: 0, ot: 0, offsiteMinutes: 0, scheduledHours: scheduledHoursForDay, schedules: daySchedules, entries: [] };
-            day.actual += hours;
+            day.actual += displayHours;
             day.regular += regular;
             day.ot += ot;
             day.offsiteMinutes += entryOffsiteMinutes;
@@ -310,7 +316,8 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
               clockInTime: entry.clockInTime,
               clockOutTime: entry.clockOutTime,
               breakMinutes: entry.breakMinutes || 0,
-              hours,
+              hours: displayHours,
+              isActive: isActiveEntry,
               isApproved: entry.isApproved,
               notes: entry.notes,
               scheduledStart: matchingSchedule?.startTime || null,
@@ -374,18 +381,23 @@ export function registerTimesheetRoutes(app: Express, storage: IStorage, isAuthe
           }
 
           const allApproved = entries.length > 0 && entries.every((e: any) => e.isApproved);
-          const hasNeedsReview = needsReviewFlags.length > 0;
           const hasPendingClockOut = entries.some((e: any) => !e.clockOutTime);
+          // Exclude missing_clock_out flags that are caused by the current active entry
+          // when computing whether the status should be "needs-review" vs "pending_clock_out"
+          const hasNeedsReviewExcludingActiveClockOut = hasPendingClockOut
+            ? needsReviewFlags.filter(f => f.type !== "missing_clock_out").length > 0
+            : needsReviewFlags.length > 0;
 
           let status: string;
           if (allApproved && entries.length > 0) {
             status = "approved";
-          } else if (hasNeedsReview) {
+          } else if (hasPendingClockOut) {
+            // Active clock-in takes precedence; other review flags are still visible in the row
+            status = hasNeedsReviewExcludingActiveClockOut ? "needs-review" : "pending_clock_out";
+          } else if (needsReviewFlags.length > 0) {
             status = "needs-review";
           } else if (entries.length === 0) {
             status = "no_entries";
-          } else if (hasPendingClockOut) {
-            status = "pending_clock_out";
           } else {
             status = "pending";
           }
