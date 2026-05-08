@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import TimeCardModal from "@/components/TimeCardModal";
 import ExportOptionsModal from "@/components/timesheets/ExportOptionsModal";
 import OvertimePreventionPanel from "@/components/timesheets/OvertimePreventionPanel";
@@ -38,7 +39,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest, queryClient as qc } from "@/lib/queryClient";
+import { apiRequest } from "@/lib/queryClient";
 import { Switch } from "@/components/ui/switch";
 import {
   Download,
@@ -67,13 +68,20 @@ import {
   MinusCircle,
   ShieldCheck,
   ShieldOff,
+  MoreVertical,
+  ArrowUp,
+  ArrowDown,
+  ChevronsUpDown,
+  Columns,
 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+
 
 interface OffsiteSessionInfo {
   id: string;
@@ -245,6 +253,20 @@ interface OTAlertsData {
   threshold: number;
 }
 
+interface WorkflowSettings {
+  id?: string;
+  managerReminderDaysAfterPeriod: number;
+  managerEscalationDaysAfterReminder: number;
+  notifyAdminOnManagerApproval: boolean;
+  employeeSelfReviewReminder: boolean;
+  singleStepApproval: boolean;
+  emailRemindersEnabled: boolean;
+  reminderFromEmail: string | null;
+  managerUserIds: string[];
+  adminUserId: string | null;
+}
+
+
 function getDefaultDateRange() {
   const now = new Date();
   const dayOfWeek = now.getDay();
@@ -278,59 +300,87 @@ function formatDate(dateStr: string): string {
   });
 }
 
-function StatusBadge({ status }: { status: string }) {
-  if (status === "approved") {
-    return (
-      <Badge variant="default" className="bg-green-600 hover:bg-green-700">
-        <CheckCircle2 className="h-3 w-3 mr-1" />
-        Approved
-      </Badge>
-    );
-  }
-  if (status === "needs-review") {
-    return (
-      <Badge variant="destructive" className="bg-amber-500 hover:bg-amber-600">
-        <AlertTriangle className="h-3 w-3 mr-1" />
-        Needs Review
-      </Badge>
-    );
-  }
-  if (status === "pending_clock_out") {
-    return (
-      <Badge variant="outline" className="border-orange-400 text-orange-600 dark:text-orange-400">
-        <ClockIcon className="h-3 w-3 mr-1" />
-        Clocked In
-      </Badge>
-    );
-  }
-  if (status === "no_entries") {
-    return (
-      <Badge variant="outline" className="border-muted text-muted-foreground">
-        <MinusCircle className="h-3 w-3 mr-1" />
-        No entries
-      </Badge>
-    );
-  }
-  return (
-    <Badge variant="secondary">
-      <Clock className="h-3 w-3 mr-1" />
-      Pending
-    </Badge>
-  );
+function formatDayLabel(dateStr: string): string {
+  const d = new Date(dateStr + "T12:00:00");
+  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 }
 
-interface WorkflowSettings {
-  id?: string;
-  managerReminderDaysAfterPeriod: number;
-  managerEscalationDaysAfterReminder: number;
-  notifyAdminOnManagerApproval: boolean;
-  employeeSelfReviewReminder: boolean;
-  singleStepApproval: boolean;
-  emailRemindersEnabled: boolean;
-  reminderFromEmail: string | null;
-  managerUserIds: string[];
-  adminUserId: string | null;
+function formatDuration(hours: number): string {
+  const totalMinutes = Math.round(hours * 60);
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  if (h === 0) return `${m} min`;
+  if (m === 0) return `${h} hr${h !== 1 ? "s" : ""}`;
+  return `${h} hr${h !== 1 ? "s" : ""} ${m} min`;
 }
+
+function toTimeInput(dateStr?: string | null): string {
+  if (!dateStr) return "";
+  const d = new Date(dateStr);
+  return `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
+}
+
+function getDiscrepancyIcon(type: string) {
+  switch (type) {
+    case "no_show": return <UserX className="h-4 w-4 text-red-500" />;
+    case "missing_clock_out": return <LogOut className="h-4 w-4 text-amber-500" />;
+    case "early_departure": return <TrendingDown className="h-4 w-4 text-orange-500" />;
+    case "short_shift": return <Clock className="h-4 w-4 text-amber-500" />;
+    case "long_shift": return <Clock className="h-4 w-4 text-blue-500" />;
+    default: return <AlertTriangle className="h-4 w-4 text-amber-500" />;
+  }
+}
+
+function getDiscrepancyLabel(type: string) {
+  switch (type) {
+    case "no_show": return "No show";
+    case "missing_clock_out": return "Missing clock-out";
+    case "early_departure": return "Early departure";
+    case "short_shift": return "Short shift";
+    case "long_shift": return "Long shift";
+    default: return "Review needed";
+  }
+}
+
+function computePayPeriods(settings: PayPeriodSettings | null, count: number = 6): Array<{ label: string; startDate: string; endDate: string }> {
+  if (!settings?.firstPayPeriodStart) return [];
+  const intervalType = settings.intervalType || "bi-weekly";
+  const intervalDays = intervalType === "weekly" ? 7 : intervalType === "bi-weekly" ? 14 : intervalType === "semi-monthly" ? 15 : 30;
+  const start = new Date(settings.firstPayPeriodStart);
+  start.setHours(0, 0, 0, 0);
+  const now = new Date();
+  const periods: Array<{ label: string; startDate: string; endDate: string }> = [];
+  let periodStart = new Date(start);
+  while (new Date(periodStart.getTime() + intervalDays * 86400000) < now) {
+    periodStart = new Date(periodStart.getTime() + intervalDays * 86400000);
+  }
+  for (let i = count - 1; i >= 0; i--) {
+    const ps = new Date(periodStart.getTime() - i * intervalDays * 86400000);
+    const pe = new Date(ps.getTime() + (intervalDays - 1) * 86400000);
+    const label = `${ps.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${pe.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
+    periods.push({ label, startDate: ps.toISOString().split("T")[0], endDate: pe.toISOString().split("T")[0] });
+  }
+  return periods;
+}
+
+
+const AVATAR_COLORS: Array<{ bg: string; text: string }> = [
+  { bg: "bg-violet-100 dark:bg-violet-900/50", text: "text-violet-700 dark:text-violet-300" },
+  { bg: "bg-blue-100 dark:bg-blue-900/50", text: "text-blue-700 dark:text-blue-300" },
+  { bg: "bg-emerald-100 dark:bg-emerald-900/50", text: "text-emerald-700 dark:text-emerald-300" },
+  { bg: "bg-amber-100 dark:bg-amber-900/50", text: "text-amber-700 dark:text-amber-300" },
+  { bg: "bg-rose-100 dark:bg-rose-900/50", text: "text-rose-700 dark:text-rose-300" },
+  { bg: "bg-cyan-100 dark:bg-cyan-900/50", text: "text-cyan-700 dark:text-cyan-300" },
+  { bg: "bg-orange-100 dark:bg-orange-900/50", text: "text-orange-700 dark:text-orange-300" },
+  { bg: "bg-pink-100 dark:bg-pink-900/50", text: "text-pink-700 dark:text-pink-300" },
+];
+
+function getAvatarColor(name: string): { bg: string; text: string } {
+  let hash = 0;
+  for (const ch of name) hash = ((hash * 31) + ch.charCodeAt(0)) & 0xffff;
+  return AVATAR_COLORS[hash % AVATAR_COLORS.length];
+}
+
 
 function WorkflowSettingsTab() {
   const { toast } = useToast();
@@ -446,10 +496,7 @@ function WorkflowSettingsTab() {
                 When enabled, "Approve All" immediately finalizes the period without a second confirmation step.
               </p>
             </div>
-            <Switch
-              checked={form.singleStepApproval}
-              onCheckedChange={(v) => updateField("singleStepApproval", v)}
-            />
+            <Switch checked={form.singleStepApproval} onCheckedChange={(v) => updateField("singleStepApproval", v)} />
           </div>
           <div className="flex items-center justify-between">
             <div>
@@ -458,10 +505,7 @@ function WorkflowSettingsTab() {
                 Admin receives a notification when a manager approves the period.
               </p>
             </div>
-            <Switch
-              checked={form.notifyAdminOnManagerApproval}
-              onCheckedChange={(v) => updateField("notifyAdminOnManagerApproval", v)}
-            />
+            <Switch checked={form.notifyAdminOnManagerApproval} onCheckedChange={(v) => updateField("notifyAdminOnManagerApproval", v)} />
           </div>
         </CardContent>
       </Card>
@@ -485,9 +529,7 @@ function WorkflowSettingsTab() {
                 onChange={(e) => updateField("managerReminderDaysAfterPeriod", Number(e.target.value))}
                 className="h-8 text-sm"
               />
-              <p className="text-[10px] text-muted-foreground">
-                Reminder sent this many days after pay period ends
-              </p>
+              <p className="text-[10px] text-muted-foreground">Reminder sent this many days after pay period ends</p>
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs">Escalation (days after reminder)</Label>
@@ -499,12 +541,9 @@ function WorkflowSettingsTab() {
                 onChange={(e) => updateField("managerEscalationDaysAfterReminder", Number(e.target.value))}
                 className="h-8 text-sm"
               />
-              <p className="text-[10px] text-muted-foreground">
-                Admin escalation sent this many days after the manager reminder
-              </p>
+              <p className="text-[10px] text-muted-foreground">Admin escalation sent this many days after the manager reminder</p>
             </div>
           </div>
-
           <div className="flex items-center justify-between pt-2 border-t">
             <div>
               <Label className="text-sm font-medium">Employee self-review reminder</Label>
@@ -512,10 +551,7 @@ function WorkflowSettingsTab() {
                 Notify employees on the last day of their pay period to review their own hours.
               </p>
             </div>
-            <Switch
-              checked={form.employeeSelfReviewReminder}
-              onCheckedChange={(v) => updateField("employeeSelfReviewReminder", v)}
-            />
+            <Switch checked={form.employeeSelfReviewReminder} onCheckedChange={(v) => updateField("employeeSelfReviewReminder", v)} />
           </div>
         </CardContent>
       </Card>
@@ -565,13 +601,9 @@ function WorkflowSettingsTab() {
               </Select>
             </div>
           </div>
-
           <div className="space-y-1.5">
             <Label className="text-xs">Admin — receives escalations</Label>
-            <Select
-              value={form.adminUserId || "none"}
-              onValueChange={(v) => updateField("adminUserId", v === "none" ? null : v)}
-            >
+            <Select value={form.adminUserId || "none"} onValueChange={(v) => updateField("adminUserId", v === "none" ? null : v)}>
               <SelectTrigger className="h-8 text-sm">
                 <SelectValue placeholder="Select admin" />
               </SelectTrigger>
@@ -603,10 +635,7 @@ function WorkflowSettingsTab() {
                 In addition to in-app notifications, send emails. Requires SENDGRID_API_KEY to be configured.
               </p>
             </div>
-            <Switch
-              checked={form.emailRemindersEnabled}
-              onCheckedChange={(v) => updateField("emailRemindersEnabled", v)}
-            />
+            <Switch checked={form.emailRemindersEnabled} onCheckedChange={(v) => updateField("emailRemindersEnabled", v)} />
           </div>
           {form.emailRemindersEnabled && (
             <div className="space-y-1.5">
@@ -618,9 +647,7 @@ function WorkflowSettingsTab() {
                 onChange={(e) => updateField("reminderFromEmail", e.target.value || null)}
                 className="h-8 text-sm"
               />
-              <p className="text-[10px] text-muted-foreground">
-                Leave blank to use the default sender (no-reply@taime.app)
-              </p>
+              <p className="text-[10px] text-muted-foreground">Leave blank to use the default sender (no-reply@taime.app)</p>
             </div>
           )}
         </CardContent>
@@ -689,9 +716,7 @@ function ReminderLogTable() {
     }
   };
 
-  if (isLoading) {
-    return <Skeleton className="h-24 w-full mt-4" />;
-  }
+  if (isLoading) return <Skeleton className="h-24 w-full mt-4" />;
 
   if (!logs || logs.length === 0) {
     return (
@@ -723,9 +748,7 @@ function ReminderLogTable() {
             {logs.slice(0, 30).map((log) => (
               <TableRow key={log.id} className="text-xs">
                 <TableCell className="pl-4 py-2 font-medium">{reminderTypeLabel(log.reminderType)}</TableCell>
-                <TableCell className="py-2 text-muted-foreground">
-                  {log.periodStart} – {log.periodEnd}
-                </TableCell>
+                <TableCell className="py-2 text-muted-foreground">{log.periodStart} – {log.periodEnd}</TableCell>
                 <TableCell className="py-2 text-muted-foreground">
                   {log.sentAt ? new Date(log.sentAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
                 </TableCell>
@@ -747,23 +770,22 @@ function ReminderLogTable() {
   );
 }
 
+
 function OTProgressBar({ hours, threshold }: { hours: number; threshold: number }) {
   const pct = Math.min((hours / threshold) * 100, 100);
   let colorClass = "bg-green-500";
   if (hours >= threshold - 2) colorClass = "bg-red-500";
   else if (hours >= threshold - 5) colorClass = "bg-amber-500";
-
   return (
-    <div className="flex items-center gap-2 min-w-[120px]">
-      <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+    <div className="flex items-center gap-2 min-w-[100px]">
+      <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
         <div className={`h-full rounded-full transition-all ${colorClass}`} style={{ width: `${pct}%` }} />
       </div>
-      <span className="text-[10px] text-muted-foreground whitespace-nowrap">
-        {hours.toFixed(1)}/{threshold}
-      </span>
+      <span className="text-[10px] text-muted-foreground whitespace-nowrap">{hours.toFixed(1)}h</span>
     </div>
   );
 }
+
 
 interface UserOption {
   id: string;
@@ -771,6 +793,7 @@ interface UserOption {
   lastName: string | null;
   email: string | null;
 }
+
 
 function AddTimeCardDialog({
   open,
@@ -801,7 +824,6 @@ function AddTimeCardDialog({
   });
 
   const availableEmployees = employees?.length ? employees : userList || [];
-
   const effectiveEmployeeId = preselectedEmployeeId || employeeId;
 
   const matchedSchedule = useMemo(() => {
@@ -886,58 +908,29 @@ function AddTimeCardDialog({
           </div>
           <div className="grid gap-2">
             <Label htmlFor="date">Date</Label>
-            <Input
-              id="date"
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-            />
+            <Input id="date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="grid gap-2">
               <Label htmlFor="clockIn">Clock In</Label>
-              <Input
-                id="clockIn"
-                type="time"
-                value={clockInTime}
-                onChange={(e) => setClockInTime(e.target.value)}
-              />
+              <Input id="clockIn" type="time" value={clockInTime} onChange={(e) => setClockInTime(e.target.value)} />
             </div>
             <div className="grid gap-2">
               <Label htmlFor="clockOut">Clock Out</Label>
-              <Input
-                id="clockOut"
-                type="time"
-                value={clockOutTime}
-                onChange={(e) => setClockOutTime(e.target.value)}
-              />
+              <Input id="clockOut" type="time" value={clockOutTime} onChange={(e) => setClockOutTime(e.target.value)} />
             </div>
           </div>
           <div className="grid gap-2">
             <Label htmlFor="breakMinutes">Break Minutes</Label>
-            <Input
-              id="breakMinutes"
-              type="number"
-              min="0"
-              max="480"
-              value={breakMinutes}
-              onChange={(e) => setBreakMinutes(e.target.value)}
-            />
+            <Input id="breakMinutes" type="number" min="0" max="480" value={breakMinutes} onChange={(e) => setBreakMinutes(e.target.value)} />
           </div>
           <div className="grid gap-2">
             <Label htmlFor="notes">Notes</Label>
-            <Textarea
-              id="notes"
-              placeholder="Reason for manual entry..."
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-            />
+            <Textarea id="notes" placeholder="Reason for manual entry..." value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button
             onClick={() => addEntryMutation.mutate()}
             disabled={addEntryMutation.isPending || (!preselectedEmployeeId && !employeeId) || !date || !clockInTime}
@@ -950,256 +943,6 @@ function AddTimeCardDialog({
   );
 }
 
-function ExpandableEmployeeRow({
-  employee,
-  isExpanded,
-  onToggle,
-  otThreshold,
-  onAddTimeCard,
-  onEntryClick,
-}: {
-  employee: EmployeeReview;
-  isExpanded: boolean;
-  onToggle: () => void;
-  otThreshold?: number;
-  onAddTimeCard: (employeeId: string) => void;
-  onEntryClick?: (entry: DailyEntry, date: string, employee: EmployeeReview) => void;
-}) {
-  const initials =
-    ((employee.firstName?.[0] || "") + (employee.lastName?.[0] || "")).toUpperCase() || "?";
-  const fullName = [employee.firstName, employee.lastName].filter(Boolean).join(" ") || "Unknown";
-  const threshold = otThreshold || 40;
-
-  return (
-    <>
-      <TableRow
-        className="cursor-pointer hover:bg-muted/50 transition-colors"
-        onClick={onToggle}
-      >
-        <TableCell>
-          <div className="flex items-center gap-3">
-            {isExpanded ? (
-              <ChevronDown className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-            ) : (
-              <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-            )}
-            <Avatar className="h-8 w-8">
-              <AvatarImage src={employee.profileImageUrl || undefined} />
-              <AvatarFallback className="text-xs">{initials}</AvatarFallback>
-            </Avatar>
-            <div>
-              <p className="font-medium text-sm">{fullName}</p>
-              <p className="text-xs text-muted-foreground">{employee.email}</p>
-            </div>
-          </div>
-        </TableCell>
-        <TableCell className="text-right font-mono text-sm">
-          <div className="flex flex-col items-end gap-1">
-            <span>{employee.actualHours.toFixed(2)}</span>
-            <OTProgressBar hours={employee.actualHours} threshold={threshold} />
-          </div>
-        </TableCell>
-        <TableCell className="text-right font-mono text-sm">
-          {employee.regularHours.toFixed(2)}
-        </TableCell>
-        <TableCell className="text-right font-mono text-sm">
-          <span className={employee.otHours > 0 ? "text-red-600 font-semibold" : ""}>
-            {employee.otHours.toFixed(2)}
-          </span>
-        </TableCell>
-        <TableCell className="text-right">
-          <StatusBadge status={employee.status} />
-        </TableCell>
-      </TableRow>
-
-      {isExpanded &&
-        employee.dailyBreakdown.map((day) => (
-          <TableRow
-            key={day.date}
-            className={
-              day.entries.length === 0 && (day.scheduledHours ?? 0) > 0
-                ? "bg-red-50 dark:bg-red-950/20"
-                : day.entries.some((e) => e.discrepancies && e.discrepancies.length > 0)
-                ? "bg-amber-50 dark:bg-amber-950/20"
-                : day.entries.some((e) => !e.isApproved)
-                ? "bg-muted/40"
-                : "bg-muted/30"
-            }
-          >
-            <TableCell className="pl-16">
-              <div className="flex flex-col gap-1">
-                <span className="text-sm font-medium">{formatDate(day.date)}</span>
-                {day.scheduledHours != null && day.scheduledHours > 0 && (
-                  <span className="text-xs text-muted-foreground flex items-center gap-1">
-                    <Calendar className="h-3 w-3" />
-                    Scheduled: {day.scheduledHours.toFixed(1)}h
-                    {day.schedules && day.schedules[0] && (
-                      <span className="text-muted-foreground/60">
-                        ({formatTime(day.schedules[0].startTime)} – {formatTime(day.schedules[0].endTime)})
-                      </span>
-                    )}
-                  </span>
-                )}
-                <div className="flex flex-wrap gap-1 mt-0.5">
-                  {day.entries.length === 0 && day.scheduledHours != null && day.scheduledHours > 0 && (
-                    <span className="inline-flex items-center gap-1 text-xs text-red-600 dark:text-red-400 font-medium">
-                      <AlertTriangle className="h-3 w-3" />
-                      No show
-                    </span>
-                  )}
-                  {day.entries.map((entry) => (
-                    <div key={entry.id} className="flex flex-col">
-                      <button
-                        className="text-xs text-muted-foreground hover:text-primary hover:underline cursor-pointer transition-colors text-left"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onEntryClick?.(entry, day.date, employee);
-                        }}
-                      >
-                        {formatTime(entry.clockInTime)} – {formatTime(entry.clockOutTime)}
-                        {entry.breakMinutes > 0 && (
-                          <span className="ml-1 text-muted-foreground/60">
-                            ({entry.breakMinutes}m break)
-                          </span>
-                        )}
-                        {entry.discrepancies && entry.discrepancies.length > 0 && (
-                          <span className="ml-1 text-amber-600">
-                            <AlertTriangle className="h-3 w-3 inline" />
-                          </span>
-                        )}
-                      </button>
-                      {entry.offsiteSessions && entry.offsiteSessions.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mt-0.5">
-                          {entry.offsiteSessions.map((session) => {
-                            const statusColor = session.status === "returned"
-                              ? "text-green-600 bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800"
-                              : session.status === "exceeded"
-                              ? "text-amber-600 bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800"
-                              : session.status === "auto_clocked_out"
-                              ? "text-red-600 bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800"
-                              : "text-blue-600 bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800";
-                            return (
-                              <span
-                                key={session.id}
-                                className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border ${statusColor}`}
-                              >
-                                <MapPin className="h-2.5 w-2.5" />
-                                Off-site: {formatTime(session.exitTime)}
-                                {session.returnTime ? ` – ${formatTime(session.returnTime)}` : " (still out)"}
-                                {session.durationMinutes != null && ` (${session.durationMinutes}m)`}
-                              </span>
-                            );
-                          })}
-                        </div>
-                      )}
-                      {entry.mileageReimbursements && entry.mileageReimbursements.length > 0 && (
-                        <div className="mt-1 flex flex-col gap-0.5">
-                          {entry.mileageReimbursements.map((reimb) => {
-                            const miles = reimb.adjustedMilesDecimal != null
-                              ? parseFloat(reimb.adjustedMilesDecimal)
-                              : reimb.milesDecimal;
-                            const ratePerMile = (reimb.rateCents / 100).toFixed(2);
-                            const total = (reimb.totalCents / 100).toFixed(2);
-                            return (
-                              <div
-                                key={reimb.id}
-                                className="pl-2 border-l-2 border-dashed border-muted-foreground/30 text-[10px] text-muted-foreground"
-                              >
-                                🚗 Mileage: {miles.toFixed(2)} mi × ${ratePerMile}/mi = ${total}
-                                {reimb.equivalentMinutes > 0 && ` (+${reimb.equivalentMinutes}min)`}
-                                {reimb.adjustedMilesDecimal != null && (
-                                  <span className="ml-1 text-amber-600">(adjusted)</span>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-                {(day.offsiteMinutes ?? 0) > 0 && (
-                  <div className="flex items-center gap-1 mt-1">
-                    <MapPin className="h-3 w-3 text-muted-foreground" />
-                    <span className="text-[10px] text-muted-foreground">
-                      {day.offsiteMinutes}m off-site total
-                    </span>
-                  </div>
-                )}
-              </div>
-            </TableCell>
-            <TableCell className="text-right font-mono text-xs text-muted-foreground">
-              {day.actual.toFixed(2)}
-            </TableCell>
-            <TableCell className="text-right font-mono text-xs text-muted-foreground">
-              {day.regular.toFixed(2)}
-            </TableCell>
-            <TableCell className="text-right font-mono text-xs text-muted-foreground">
-              <span className={day.ot > 0 ? "text-red-500" : ""}>
-                {day.ot.toFixed(2)}
-              </span>
-            </TableCell>
-            <TableCell className="text-right">
-              {day.entries.every((e) => e.isApproved) ? (
-                <span className="text-xs text-green-600">✓</span>
-              ) : (
-                <span className="text-xs text-amber-500">Pending</span>
-              )}
-            </TableCell>
-          </TableRow>
-        ))}
-      {isExpanded && (
-        <TableRow className="bg-muted/10">
-          <TableCell colSpan={5} className="pl-16">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-xs text-primary hover:text-primary/80 h-7 px-2"
-              onClick={(e) => {
-                e.stopPropagation();
-                onAddTimeCard(employee.userId);
-              }}
-            >
-              <Plus className="h-3 w-3 mr-1" />
-              Add time card
-            </Button>
-          </TableCell>
-        </TableRow>
-      )}
-    </>
-  );
-}
-
-function getDiscrepancyIcon(type: string) {
-  switch (type) {
-    case "no_show": return <UserX className="h-4 w-4 text-red-500" />;
-    case "missing_clock_out": return <LogOut className="h-4 w-4 text-amber-500" />;
-    case "early_departure": return <TrendingDown className="h-4 w-4 text-orange-500" />;
-    case "short_shift": return <Clock className="h-4 w-4 text-amber-500" />;
-    case "long_shift": return <Clock className="h-4 w-4 text-blue-500" />;
-    default: return <AlertTriangle className="h-4 w-4 text-amber-500" />;
-  }
-}
-
-function getDiscrepancyLabel(type: string) {
-  switch (type) {
-    case "no_show": return "No show";
-    case "missing_clock_out": return "Missing clock-out";
-    case "early_departure": return "Early departure";
-    case "short_shift": return "Short shift";
-    case "long_shift": return "Long shift";
-    default: return "Review needed";
-  }
-}
-
-function formatDuration(hours: number): string {
-  const totalMinutes = Math.round(hours * 60);
-  const h = Math.floor(totalMinutes / 60);
-  const m = totalMinutes % 60;
-  if (h === 0) return `${m} min`;
-  if (m === 0) return `${h} hr${h !== 1 ? "s" : ""}`;
-  return `${h} hr${h !== 1 ? "s" : ""} ${m} min`;
-}
 
 function IssueBadge({ type }: { type: string }) {
   const configs: Record<string, { label: string; className: string }> = {
@@ -1220,11 +963,6 @@ function IssueBadge({ type }: { type: string }) {
   );
 }
 
-function toTimeInput(dateStr?: string | null): string {
-  if (!dateStr) return "";
-  const d = new Date(dateStr);
-  return `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
-}
 
 function ResolveDiscrepancyDialog({
   open,
@@ -1251,11 +989,7 @@ function ResolveDiscrepancyDialog({
 
   useEffect(() => {
     if (open && alert) {
-      setClockInTime(
-        toTimeInput(alert.actualClockIn) ||
-        toTimeInput(alert.scheduledStart) ||
-        "09:00"
-      );
+      setClockInTime(toTimeInput(alert.actualClockIn) || toTimeInput(alert.scheduledStart) || "09:00");
       setClockOutTime(toTimeInput(alert.scheduledEnd) || "17:00");
       setReason("");
       setBreakMins("0");
@@ -1324,9 +1058,7 @@ function ResolveDiscrepancyDialog({
                   {formatTime(alert.scheduledStart)} – {formatTime(alert.scheduledEnd ?? null)}
                 </span>
                 {alert.scheduledHours != null && (
-                  <span className="text-xs text-red-600 dark:text-red-400">
-                    {alert.scheduledHours.toFixed(1)} hr
-                  </span>
+                  <span className="text-xs text-red-600 dark:text-red-400">{alert.scheduledHours.toFixed(1)} hr</span>
                 )}
               </div>
               <Button
@@ -1334,12 +1066,7 @@ function ResolveDiscrepancyDialog({
                 className="mt-3 w-full"
                 disabled={resolveMutation.isPending}
                 onClick={() =>
-                  resolveMutation.mutate({
-                    action: "add_time_card",
-                    ciTime: scheduledClockIn,
-                    coTime: scheduledClockOut,
-                    defaultReason: "Scheduled shift time recorded by manager",
-                  })
+                  resolveMutation.mutate({ action: "add_time_card", ciTime: scheduledClockIn, coTime: scheduledClockOut, defaultReason: "Scheduled shift time recorded by manager" })
                 }
               >
                 {resolveMutation.isPending ? "Saving…" : "Save Scheduled Time"}
@@ -1355,9 +1082,7 @@ function ResolveDiscrepancyDialog({
                 <div className="flex-1 border-t border-border" />
               </div>
             )}
-            {!hasScheduled && (
-              <p className="text-xs font-medium text-muted-foreground mb-2">Enter time card manually</p>
-            )}
+            {!hasScheduled && <p className="text-xs font-medium text-muted-foreground mb-2">Enter time card manually</p>}
           </div>
 
           <div className={cn("grid gap-4", hasScheduled && "pt-3")}>
@@ -1378,9 +1103,7 @@ function ResolveDiscrepancyDialog({
           </div>
 
           <div className="grid gap-1.5">
-            <Label className="text-xs">
-              Reason <span className="text-red-500">*</span>
-            </Label>
+            <Label className="text-xs">Reason <span className="text-red-500">*</span></Label>
             <Textarea
               placeholder="e.g. Employee forgot to clock in, verified by manager"
               value={reason}
@@ -1391,9 +1114,7 @@ function ResolveDiscrepancyDialog({
         </div>
 
         <DialogFooter className="gap-2">
-          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
+          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button
             size="sm"
             disabled={resolveMutation.isPending || !reason.trim()}
@@ -1407,6 +1128,7 @@ function ResolveDiscrepancyDialog({
   );
 }
 
+
 function NeedsReviewBanner({
   alerts,
   employees,
@@ -1417,9 +1139,7 @@ function NeedsReviewBanner({
   onAlertClick: (alert: DiscrepancyAlert) => void;
 }) {
   const [dismissed, setDismissed] = useState(false);
-
   if (alerts.length === 0 || dismissed) return null;
-
   const employeeMap = new Map(employees.map((e) => [e.userId, e]));
 
   return (
@@ -1427,32 +1147,18 @@ function NeedsReviewBanner({
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
           <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-          <span className="font-semibold text-sm text-amber-800 dark:text-amber-300">
-            Needs review
-          </span>
-          <Badge variant="destructive" className="bg-amber-500 hover:bg-amber-600 text-xs px-1.5">
-            {alerts.length}
-          </Badge>
+          <span className="font-semibold text-sm text-amber-800 dark:text-amber-300">Needs review</span>
+          <Badge variant="destructive" className="bg-amber-500 hover:bg-amber-600 text-xs px-1.5">{alerts.length}</Badge>
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-6 w-6 text-amber-600 hover:text-amber-800"
-          onClick={() => setDismissed(true)}
-        >
+        <Button variant="ghost" size="icon" className="h-6 w-6 text-amber-600 hover:text-amber-800" onClick={() => setDismissed(true)}>
           <X className="h-3 w-3" />
         </Button>
       </div>
       <div className="flex gap-2 overflow-x-auto pb-1">
         {alerts.map((alert, idx) => {
           const emp = employeeMap.get(alert.userId);
-          const name = emp
-            ? [emp.firstName, emp.lastName].filter(Boolean).join(" ") || emp.email || "?"
-            : "?";
-          const initials = emp
-            ? ((emp.firstName?.[0] || "") + (emp.lastName?.[0] || "")).toUpperCase() || "?"
-            : "?";
-
+          const name = emp ? [emp.firstName, emp.lastName].filter(Boolean).join(" ") || emp.email || "?" : "?";
+          const initials = emp ? ((emp.firstName?.[0] || "") + (emp.lastName?.[0] || "")).toUpperCase() || "?" : "?";
           return (
             <button
               key={idx}
@@ -1468,17 +1174,11 @@ function NeedsReviewBanner({
                 <p className="text-[10px] text-muted-foreground truncate">{formatDate(alert.date)}</p>
                 <div className="flex items-center gap-1 mt-0.5">
                   {getDiscrepancyIcon(alert.type)}
-                  <span className="text-[10px] text-amber-700 dark:text-amber-400 font-medium">
-                    {getDiscrepancyLabel(alert.type)}
-                  </span>
+                  <span className="text-[10px] text-amber-700 dark:text-amber-400 font-medium">{getDiscrepancyLabel(alert.type)}</span>
                 </div>
                 {alert.actualClockIn && alert.scheduledStart && alert.scheduledEnd && (
-                  <p
-                    className="text-[10px] text-muted-foreground truncate mt-0.5"
-                    data-testid={`text-alert-times-${idx}`}
-                  >
-                    Actual in: {formatTime(alert.actualClockIn)} / Scheduled:{" "}
-                    {formatTime(alert.scheduledStart)} – {formatTime(alert.scheduledEnd ?? null)}
+                  <p className="text-[10px] text-muted-foreground truncate mt-0.5" data-testid={`text-alert-times-${idx}`}>
+                    Actual in: {formatTime(alert.actualClockIn)} / Scheduled: {formatTime(alert.scheduledStart)} – {formatTime(alert.scheduledEnd ?? null)}
                   </p>
                 )}
               </div>
@@ -1490,23 +1190,467 @@ function NeedsReviewBanner({
   );
 }
 
+
+function OvertimeAlertsBanner({ alertCount, onToggle, isExpanded }: { alertCount: number; onToggle: () => void; isExpanded: boolean }) {
+  if (alertCount === 0) return null;
+  return (
+    <div
+      className="flex items-center justify-between p-3 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 cursor-pointer"
+      onClick={onToggle}
+    >
+      <div className="flex items-center gap-3">
+        <div className="p-2 rounded-full bg-red-100 dark:bg-red-900/50">
+          <ShieldAlert className="h-5 w-5 text-red-600 dark:text-red-400" />
+        </div>
+        <div>
+          <p className="font-semibold text-red-800 dark:text-red-300 text-sm">
+            {alertCount} employee{alertCount !== 1 ? "s" : ""} approaching overtime this week
+          </p>
+          <p className="text-xs text-red-600 dark:text-red-400">Click to review AI-powered swap suggestions</p>
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <Badge variant="destructive" className="bg-red-600">
+          <Zap className="h-3 w-3 mr-1" />
+          {alertCount} Alert{alertCount !== 1 ? "s" : ""}
+        </Badge>
+        {isExpanded ? <ChevronUp className="h-5 w-5 text-red-600" /> : <ChevronDown className="h-5 w-5 text-red-600" />}
+      </div>
+    </div>
+  );
+}
+
+
+function ApprovalChainPanel({
+  periodApproval,
+  singleStep,
+  onFinalize,
+  isFinalizing,
+}: {
+  periodApproval: PeriodApproval | null | undefined;
+  singleStep: boolean;
+  onFinalize?: () => void;
+  isFinalizing?: boolean;
+}) {
+  const status = periodApproval?.status ?? "pending";
+  const stepManagerDone = status === "manager_approved" || status === "final_approved";
+  const stepAdminDone = status === "final_approved";
+
+  if (singleStep) {
+    return (
+      <div className="rounded-lg border bg-card p-3 flex items-center gap-3">
+        <div className={`flex items-center gap-2 text-sm font-medium ${stepAdminDone ? "text-green-600 dark:text-green-400" : "text-muted-foreground"}`}>
+          {stepAdminDone ? <ShieldCheck className="h-4 w-4" /> : <ShieldOff className="h-4 w-4" />}
+          {stepAdminDone ? "Period Approved" : "Pending Approval"}
+        </div>
+        {stepAdminDone && periodApproval?.adminApprovedAt && (
+          <span className="text-xs text-muted-foreground">{new Date(periodApproval.adminApprovedAt).toLocaleDateString()}</span>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border bg-card p-3 space-y-3">
+      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Approval chain</p>
+      <div className="flex items-start gap-4">
+        <div className="flex flex-col items-center gap-1 min-w-[120px]">
+          <div className={`rounded-full p-1.5 ${stepManagerDone ? "bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400" : "bg-muted text-muted-foreground"}`}>
+            <CheckCircle2 className="h-4 w-4" />
+          </div>
+          <span className={`text-xs font-medium text-center ${stepManagerDone ? "text-green-700 dark:text-green-400" : "text-muted-foreground"}`}>
+            Manager review
+          </span>
+          {stepManagerDone && (
+            <span className="text-[10px] text-muted-foreground text-center">
+              {periodApproval?.managerApproverName && <span className="block font-medium">{periodApproval.managerApproverName}</span>}
+              {periodApproval?.managerApprovedAt && new Date(periodApproval.managerApprovedAt).toLocaleDateString()}
+            </span>
+          )}
+          {!stepManagerDone && <span className="text-[10px] text-muted-foreground">Pending</span>}
+        </div>
+        <div className={`flex-1 h-px mt-4 ${stepManagerDone ? "bg-green-400 dark:bg-green-600" : "bg-border"}`} />
+        <div className="flex flex-col items-center gap-1 min-w-[120px]">
+          <div className={`rounded-full p-1.5 ${stepAdminDone ? "bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400" : stepManagerDone ? "bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400" : "bg-muted text-muted-foreground"}`}>
+            <ShieldCheck className="h-4 w-4" />
+          </div>
+          <span className={`text-xs font-medium text-center ${stepAdminDone ? "text-green-700 dark:text-green-400" : stepManagerDone ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground"}`}>
+            Admin final
+          </span>
+          {stepAdminDone && (
+            <span className="text-[10px] text-muted-foreground text-center">
+              {periodApproval?.adminApproverName && <span className="block font-medium">{periodApproval.adminApproverName}</span>}
+              {periodApproval?.adminApprovedAt && new Date(periodApproval.adminApprovedAt).toLocaleDateString()}
+            </span>
+          )}
+          {!stepAdminDone && stepManagerDone && (
+            <Button size="sm" className="h-6 text-[10px] px-2 mt-1" onClick={onFinalize} disabled={isFinalizing}>
+              {isFinalizing ? "Finalizing…" : "Finalize"}
+            </Button>
+          )}
+          {!stepAdminDone && !stepManagerDone && <span className="text-[10px] text-muted-foreground">Waiting</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+function HealthBar({ health }: { health: HealthSummary | undefined }) {
+  if (!health || health.totalEmployees === 0) return null;
+  const { totalEmployees, approvedCount, needsReviewCount, noEntriesCount, pendingClockOutCount } = health;
+  const pending = totalEmployees - approvedCount - needsReviewCount - noEntriesCount - pendingClockOutCount;
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between text-xs text-muted-foreground">
+        <span>Period health</span>
+        <span>{approvedCount}/{totalEmployees} approved</span>
+      </div>
+      <div className="flex h-2 rounded-full overflow-hidden gap-px">
+        {approvedCount > 0 && <div className="bg-green-500 dark:bg-green-600 transition-all" style={{ width: `${(approvedCount / totalEmployees) * 100}%` }} title={`${approvedCount} approved`} />}
+        {needsReviewCount > 0 && <div className="bg-amber-500 dark:bg-amber-600 transition-all" style={{ width: `${(needsReviewCount / totalEmployees) * 100}%` }} title={`${needsReviewCount} needs review`} />}
+        {pendingClockOutCount > 0 && <div className="bg-orange-400 dark:bg-orange-500 transition-all" style={{ width: `${(pendingClockOutCount / totalEmployees) * 100}%` }} title={`${pendingClockOutCount} pending clock-out`} />}
+        {noEntriesCount > 0 && <div className="bg-red-400 dark:bg-red-600 transition-all" style={{ width: `${(noEntriesCount / totalEmployees) * 100}%` }} title={`${noEntriesCount} no entries`} />}
+        {pending > 0 && <div className="bg-muted-foreground/20 transition-all" style={{ width: `${(pending / totalEmployees) * 100}%` }} title={`${pending} pending`} />}
+      </div>
+      <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground">
+        {approvedCount > 0 && <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-green-500" />{approvedCount} approved</span>}
+        {needsReviewCount > 0 && <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-amber-500" />{needsReviewCount} needs review</span>}
+        {pendingClockOutCount > 0 && <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-orange-400" />{pendingClockOutCount} pending clock-out</span>}
+        {noEntriesCount > 0 && <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-red-400" />{noEntriesCount} no entries</span>}
+      </div>
+    </div>
+  );
+}
+
+
+function OffsiteLiveBadge({ activeOffsite }: { activeOffsite: ActiveOffsite }) {
+  const exitDate = new Date(activeOffsite.exitTime);
+  const elapsedMinutes = Math.floor((Date.now() - exitDate.getTime()) / 60000);
+  let colorClass = "border-green-500 text-green-600 bg-green-50 dark:bg-green-950/30";
+  if (elapsedMinutes >= 30) colorClass = "border-red-500 text-red-600 bg-red-50 dark:bg-red-950/30";
+  else if (elapsedMinutes >= 20) colorClass = "border-amber-500 text-amber-600 bg-amber-50 dark:bg-amber-950/30";
+  return (
+    <Badge variant="outline" className={`text-[10px] px-1 py-0 ${colorClass}`}>
+      <MapPin className="h-2.5 w-2.5 mr-0.5" />
+      Off-site {elapsedMinutes}m
+    </Badge>
+  );
+}
+
+
+interface ExpandableEmployeeRowProps {
+  employee: EmployeeReview;
+  isExpanded: boolean;
+  onToggle: () => void;
+  otThreshold?: number;
+  onAddTimeCard: (employeeId: string) => void;
+  onEntryClick?: (entry: DailyEntry, date: string, employee: EmployeeReview) => void;
+  onViewTimeCard?: (employee: EmployeeReview) => void;
+  onApproveEmployee?: (employeeId: string) => void;
+  onResolveDiscrepancy?: (alert: DiscrepancyAlert) => void;
+  showScheduledHours?: boolean;
+  showOffsiteMinutes?: boolean;
+  totalCols: number;
+}
+
+function ExpandableEmployeeRow({
+  employee,
+  isExpanded,
+  onToggle,
+  otThreshold,
+  onAddTimeCard,
+  onEntryClick,
+  onViewTimeCard,
+  onApproveEmployee,
+  onResolveDiscrepancy,
+  showScheduledHours,
+  showOffsiteMinutes,
+  totalCols,
+}: ExpandableEmployeeRowProps) {
+  const fullName = [employee.firstName, employee.lastName].filter(Boolean).join(" ") || "Unknown";
+  const initials = ((employee.firstName?.[0] || "") + (employee.lastName?.[0] || "")).toUpperCase() || "?";
+  const threshold = otThreshold || 40;
+  const avatarColor = getAvatarColor(fullName);
+  const firstAlert = employee.discrepancyAlerts?.[0] ?? null;
+  const hasAlerts = (employee.discrepancyAlerts?.length ?? 0) > 0;
+
+  return (
+    <>
+      {/* Employee summary row */}
+      <TableRow
+        className="cursor-pointer hover:bg-muted/40 transition-colors group"
+        onClick={onToggle}
+      >
+        <TableCell className="py-2.5">
+          <div className="flex items-center gap-2.5">
+            <button className="flex-shrink-0 text-muted-foreground hover:text-foreground transition-colors" onClick={(e) => { e.stopPropagation(); onToggle(); }}>
+              {isExpanded
+                ? <ChevronDown className="h-3.5 w-3.5" />
+                : <ChevronRight className="h-3.5 w-3.5" />}
+            </button>
+            <div className={`h-7 w-7 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold ${avatarColor.bg} ${avatarColor.text}`}>
+              {initials}
+            </div>
+            <span className="font-medium text-sm max-w-[160px] truncate" title={fullName}>{fullName}</span>
+            {employee.needsReviewCount > 0 && (
+              <Badge className="h-4 min-w-[16px] px-1 text-[10px] bg-amber-500 hover:bg-amber-500 text-white flex-shrink-0">
+                {employee.needsReviewCount}
+              </Badge>
+            )}
+          </div>
+        </TableCell>
+        <TableCell className="py-2.5 text-right">
+          <div className="flex flex-col items-end gap-0.5">
+            <span className="font-mono text-sm">{employee.actualHours.toFixed(2)}</span>
+            <OTProgressBar hours={employee.actualHours} threshold={threshold} />
+          </div>
+        </TableCell>
+        <TableCell className="py-2.5 text-right font-mono text-sm">
+          {employee.regularHours.toFixed(2)}
+        </TableCell>
+        <TableCell className="py-2.5 text-right font-mono text-sm">
+          <span className={employee.otHours > 0 ? "text-orange-500 font-semibold" : "text-muted-foreground"}>
+            {employee.otHours.toFixed(2)}
+          </span>
+        </TableCell>
+        {showScheduledHours && (
+          <TableCell className="py-2.5 text-right font-mono text-sm text-muted-foreground">
+            {employee.dailyBreakdown.reduce((sum, d) => sum + (d.scheduledHours ?? 0), 0).toFixed(2)}
+          </TableCell>
+        )}
+        {showOffsiteMinutes && (
+          <TableCell className="py-2.5 text-right font-mono text-sm text-muted-foreground">
+            {((employee.offsiteMinutes ?? 0) / 60).toFixed(2)}
+          </TableCell>
+        )}
+        <TableCell className="py-2.5 text-right" onClick={(e) => e.stopPropagation()}>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-7 w-7 opacity-60 hover:opacity-100">
+                <MoreVertical className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem onClick={() => onViewTimeCard?.(employee)} className="cursor-pointer gap-2">
+                <ClockIcon className="h-4 w-4" />
+                View time card
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onAddTimeCard(employee.userId)} className="cursor-pointer gap-2">
+                <Plus className="h-4 w-4" />
+                Add time card
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onApproveEmployee?.(employee.userId)} className="cursor-pointer gap-2">
+                <CheckCircle2 className="h-4 w-4" />
+                Approve all entries
+              </DropdownMenuItem>
+              {hasAlerts && firstAlert && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => onResolveDiscrepancy?.(firstAlert)} className="cursor-pointer gap-2 text-amber-600 dark:text-amber-400">
+                    <AlertTriangle className="h-4 w-4" />
+                    Resolve discrepancy
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </TableCell>
+      </TableRow>
+
+      {/* Expanded daily breakdown rows */}
+      {isExpanded && employee.dailyBreakdown.map((day) => {
+        const isNoShow = day.entries.length === 0 && (day.scheduledHours ?? 0) > 0;
+        const hasDiscrepancy = day.entries.some((e) => e.discrepancies && e.discrepancies.length > 0);
+        const rowClass = isNoShow
+          ? "bg-red-50/80 dark:bg-red-950/20"
+          : hasDiscrepancy
+          ? "bg-amber-50/80 dark:bg-amber-950/20"
+          : day.entries.some((e) => !e.isApproved)
+          ? "bg-muted/30"
+          : "bg-muted/20";
+
+        return (
+          <TableRow key={day.date} className={rowClass}>
+            <TableCell className="pl-12 py-2">
+              <div className="flex flex-col gap-0.5">
+                {/* Line 1: day label */}
+                <span className="text-xs font-medium text-foreground">{formatDayLabel(day.date)}</span>
+                {/* Line 2: scheduled hint */}
+                {(day.scheduledHours ?? 0) > 0 && day.schedules?.[0] && (
+                  <span className="text-[11px] text-muted-foreground">
+                    Scheduled {formatTime(day.schedules[0].startTime)} – {formatTime(day.schedules[0].endTime)}, {day.scheduledHours?.toFixed(1)}h
+                  </span>
+                )}
+                {/* Line 3: clock times + badges */}
+                <div className="flex flex-wrap gap-1 mt-0.5">
+                  {isNoShow && (
+                    <span className="inline-flex items-center gap-1 text-xs text-red-600 dark:text-red-400 font-medium">
+                      <AlertTriangle className="h-3 w-3" />
+                      No show
+                    </span>
+                  )}
+                  {day.entries.map((entry) => (
+                    <div key={entry.id} className="flex flex-col">
+                      <button
+                        className="text-xs text-muted-foreground hover:text-primary hover:underline cursor-pointer transition-colors text-left"
+                        onClick={(e) => { e.stopPropagation(); onEntryClick?.(entry, day.date, employee); }}
+                      >
+                        {formatTime(entry.clockInTime)} – {formatTime(entry.clockOutTime)}
+                        {entry.breakMinutes > 0 && (
+                          <span className="ml-1 text-muted-foreground/60">({entry.breakMinutes}m break)</span>
+                        )}
+                        {entry.discrepancies && entry.discrepancies.length > 0 && (
+                          <span className="ml-1 text-amber-600"><AlertTriangle className="h-3 w-3 inline" /></span>
+                        )}
+                      </button>
+                      {entry.offsiteSessions && entry.offsiteSessions.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-0.5">
+                          {entry.offsiteSessions.map((session) => {
+                            const statusColor = session.status === "returned"
+                              ? "text-green-600 bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800"
+                              : session.status === "exceeded"
+                              ? "text-amber-600 bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800"
+                              : session.status === "auto_clocked_out"
+                              ? "text-red-600 bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800"
+                              : "text-blue-600 bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800";
+                            return (
+                              <span key={session.id} className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border ${statusColor}`}>
+                                <MapPin className="h-2.5 w-2.5" />
+                                Off-site: {formatTime(session.exitTime)}{session.returnTime ? ` – ${formatTime(session.returnTime)}` : " (still out)"}
+                                {session.durationMinutes != null && ` (${session.durationMinutes}m)`}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {entry.mileageReimbursements && entry.mileageReimbursements.length > 0 && (
+                        <div className="mt-1 flex flex-col gap-0.5">
+                          {entry.mileageReimbursements.map((reimb) => {
+                            const miles = reimb.adjustedMilesDecimal != null ? parseFloat(reimb.adjustedMilesDecimal) : reimb.milesDecimal;
+                            const ratePerMile = (reimb.rateCents / 100).toFixed(2);
+                            const total = (reimb.totalCents / 100).toFixed(2);
+                            return (
+                              <div key={reimb.id} className="pl-2 border-l-2 border-dashed border-muted-foreground/30 text-[10px] text-muted-foreground">
+                                🚗 Mileage: {miles.toFixed(2)} mi × ${ratePerMile}/mi = ${total}
+                                {reimb.equivalentMinutes > 0 && ` (+${reimb.equivalentMinutes}min)`}
+                                {reimb.adjustedMilesDecimal != null && <span className="ml-1 text-amber-600">(adjusted)</span>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </TableCell>
+            <TableCell className="py-2 text-right font-mono text-xs text-muted-foreground">{day.actual.toFixed(2)}</TableCell>
+            <TableCell className="py-2 text-right font-mono text-xs text-muted-foreground">{day.regular.toFixed(2)}</TableCell>
+            <TableCell className="py-2 text-right font-mono text-xs">
+              <span className={day.ot > 0 ? "text-orange-500" : "text-muted-foreground"}>{day.ot.toFixed(2)}</span>
+            </TableCell>
+            {showScheduledHours && (
+              <TableCell className="py-2 text-right font-mono text-xs text-muted-foreground">
+                {(day.scheduledHours ?? 0).toFixed(2)}
+              </TableCell>
+            )}
+            {showOffsiteMinutes && (
+              <TableCell className="py-2 text-right font-mono text-xs text-muted-foreground">
+                {((day.offsiteMinutes ?? 0) / 60).toFixed(2)}
+              </TableCell>
+            )}
+            <TableCell className="py-2 text-right">
+              {day.entries.every((e) => e.isApproved) && day.entries.length > 0
+                ? <span className="text-[10px] text-green-600">✓</span>
+                : day.entries.length > 0
+                ? <span className="text-[10px] text-amber-500">—</span>
+                : null}
+            </TableCell>
+          </TableRow>
+        );
+      })}
+
+      {/* Add time card link */}
+      {isExpanded && (
+        <TableRow className="bg-muted/10 hover:bg-muted/20">
+          <TableCell colSpan={totalCols} className="pl-12 py-1.5">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-xs text-primary hover:text-primary/80 h-7 px-2"
+              onClick={(e) => { e.stopPropagation(); onAddTimeCard(employee.userId); }}
+            >
+              <Plus className="h-3 w-3 mr-1" />
+              Add time card
+            </Button>
+          </TableCell>
+        </TableRow>
+      )}
+    </>
+  );
+}
+
+
+function SortIcon({ field, sortField, sortDir }: { field: string; sortField: string | null; sortDir: "asc" | "desc" | null }) {
+  if (sortField !== field) return <ChevronsUpDown className="h-3 w-3 ml-1 text-muted-foreground/50 inline" />;
+  return sortDir === "asc"
+    ? <ArrowUp className="h-3 w-3 ml-1 text-foreground inline" />
+    : <ArrowDown className="h-3 w-3 ml-1 text-foreground inline" />;
+}
+
+
 function PayPeriodReviewTab({
   data,
   isLoading,
   isError,
   onEntryClick,
+  expandedRows,
+  onToggleRow,
+  hoursOnlyFilter,
+  showScheduledHours,
+  showOffsiteMinutes,
+  groupNeedsReviewCollapsed,
+  setGroupNeedsReviewCollapsed,
+  groupOtherCollapsed,
+  setGroupOtherCollapsed,
+  otData,
+  singleStepApproval,
+  onFinalize,
+  isFinalizing,
+  startDate,
+  endDate,
 }: {
   data: TimesheetReviewData | undefined;
   isLoading: boolean;
   isError: boolean;
   onEntryClick?: (entry: DailyEntry, date: string, employee: EmployeeReview) => void;
+  expandedRows: Set<string>;
+  onToggleRow: (userId: string) => void;
+  hoursOnlyFilter: boolean;
+  showScheduledHours: boolean;
+  showOffsiteMinutes: boolean;
+  groupNeedsReviewCollapsed: boolean;
+  setGroupNeedsReviewCollapsed: (v: boolean) => void;
+  groupOtherCollapsed: boolean;
+  setGroupOtherCollapsed: (v: boolean) => void;
+  otData: OTAlertsData | undefined;
+  singleStepApproval: boolean;
+  onFinalize: () => void;
+  isFinalizing: boolean;
+  startDate: string;
+  endDate: string;
 }) {
-  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  const { toast } = useToast();
   const [addTimeCardOpen, setAddTimeCardOpen] = useState(false);
   const [addTimeCardEmployeeId, setAddTimeCardEmployeeId] = useState<string | undefined>();
   const [resolveOpen, setResolveOpen] = useState(false);
   const [resolveAlert, setResolveAlert] = useState<DiscrepancyAlert | null>(null);
-  const [hoursOnlyFilter, setHoursOnlyFilter] = useState(false);
+  const [showOTPanel, setShowOTPanel] = useState(false);
+
+  const [sortField, setSortField] = useState<"actual" | "regular" | "ot" | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc" | null>(null);
 
   const handleAddTimeCard = (employeeId: string) => {
     setAddTimeCardEmployeeId(employeeId);
@@ -1518,32 +1662,71 @@ function PayPeriodReviewTab({
     setResolveOpen(true);
   };
 
-  const toggleRow = (userId: string) => {
-    setExpandedRows((prev) => {
-      const next = new Set(prev);
-      if (next.has(userId)) {
-        next.delete(userId);
-      } else {
-        next.add(userId);
-      }
-      return next;
-    });
+  const handleViewTimeCard = (employee: EmployeeReview) => {
+    const allDayEntries = employee.dailyBreakdown
+      .flatMap((d) => d.entries.map((e) => ({ entry: e, date: d.date })))
+      .sort((a, b) => b.date.localeCompare(a.date));
+    const mostRecent = allDayEntries[0];
+    if (mostRecent) onEntryClick?.(mostRecent.entry, mostRecent.date, employee);
+  };
+
+  const approveEmployeeMutation = useMutation({
+    mutationFn: async (employeeId: string) => {
+      await apiRequest("POST", "/api/timesheets/approve-all", { startDate, endDate, employeeId });
+    },
+    onSuccess: () => {
+      toast({ title: "Entries approved" });
+      invalidatePrefix("/api/timesheets/review");
+    },
+    onError: (err: Error) => {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const cycleSort = (field: "actual" | "regular" | "ot") => {
+    if (sortField !== field) {
+      setSortField(field);
+      setSortDir("asc");
+    } else if (sortDir === "asc") {
+      setSortDir("desc");
+    } else {
+      setSortField(null);
+      setSortDir(null);
+    }
   };
 
   const allDiscrepancies = data?.discrepancyAlerts || [];
+  const otRiskCount = otData?.atRiskEmployees?.length || 0;
 
   const visibleEmployees = useMemo(() => {
     if (!data) return [];
-    if (!hoursOnlyFilter) return data.employees;
-    return data.employees.filter((e) => (e.actualHours ?? 0) > 0);
-  }, [data, hoursOnlyFilter]);
+    let emps = hoursOnlyFilter ? data.employees.filter((e) => (e.actualHours ?? 0) > 0) : data.employees;
+    if (sortField && sortDir) {
+      emps = [...emps].sort((a, b) => {
+        const va = sortField === "actual" ? a.actualHours : sortField === "regular" ? a.regularHours : a.otHours;
+        const vb = sortField === "actual" ? b.actualHours : sortField === "regular" ? b.regularHours : b.otHours;
+        return sortDir === "asc" ? va - vb : vb - va;
+      });
+    }
+    return emps;
+  }, [data, hoursOnlyFilter, sortField, sortDir]);
+
+  const visibleTotals = useMemo(() => ({
+    actual: visibleEmployees.reduce((s, e) => s + (e.actualHours ?? 0), 0),
+    regular: visibleEmployees.reduce((s, e) => s + (e.regularHours ?? 0), 0),
+    ot: visibleEmployees.reduce((s, e) => s + (e.otHours ?? 0), 0),
+  }), [visibleEmployees]);
+
+  const needsReviewEmps = visibleEmployees.filter((e) => e.needsReviewCount > 0);
+  const otherEmps = visibleEmployees.filter((e) => e.needsReviewCount === 0);
+
+  const optionalCols = (showScheduledHours ? 1 : 0) + (showOffsiteMinutes ? 1 : 0);
+  const totalCols = 5 + optionalCols; // Employee + Actual + Regular + OT + optional... + ⋮
 
   if (isLoading) {
     return (
       <div className="space-y-3">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <Skeleton key={i} className="h-12 w-full" />
-        ))}
+        {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}
       </div>
     );
   }
@@ -1560,134 +1743,210 @@ function PayPeriodReviewTab({
     );
   }
 
-  if (!data || data.employees.length === 0) {
-    return (
-      <Card>
-        <CardContent className="py-12 text-center">
-          <Users className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
-          <p className="text-muted-foreground">No time entries found for this period.</p>
-        </CardContent>
-      </Card>
-    );
-  }
-
   return (
-    <div className="space-y-4">
-      <NeedsReviewBanner
-        alerts={allDiscrepancies}
-        employees={data.employees}
-        onAlertClick={handleAlertClick}
-      />
+    <div className="space-y-3">
+      {/* Status panels — inside pay period tab */}
+      <OvertimeAlertsBanner alertCount={otRiskCount} onToggle={() => setShowOTPanel(!showOTPanel)} isExpanded={showOTPanel} />
+      {showOTPanel && <OvertimePreventionPanel />}
+      {data?.healthSummary && <HealthBar health={data.healthSummary} />}
+      {data?.periodApproval !== undefined && (
+        <ApprovalChainPanel
+          periodApproval={data.periodApproval}
+          singleStep={singleStepApproval}
+          onFinalize={onFinalize}
+          isFinalizing={isFinalizing}
+        />
+      )}
+
+      {/* Discrepancy banner */}
+      {allDiscrepancies.length > 0 && (
+        <NeedsReviewBanner
+          alerts={allDiscrepancies}
+          employees={data?.employees || []}
+          onAlertClick={handleAlertClick}
+        />
+      )}
+
       <ResolveDiscrepancyDialog
         open={resolveOpen}
         onOpenChange={setResolveOpen}
         alert={resolveAlert}
-        employees={data.employees}
+        employees={data?.employees || []}
         onResolved={() => setResolveAlert(null)}
       />
-    <Card>
-      <CardContent className="p-0">
-        <div className="flex items-center justify-between px-4 py-2 border-b">
-          <span className="text-sm text-muted-foreground">
-            {hoursOnlyFilter
-              ? `${visibleEmployees.length} of ${data.employees.length} employees`
-              : `${data.employees.length} employees`}
-          </span>
-          <label className="flex items-center gap-2 cursor-pointer select-none">
-            <Switch
-              checked={hoursOnlyFilter}
-              onCheckedChange={setHoursOnlyFilter}
-              id="hours-only-filter"
-            />
-            <span className="text-sm text-muted-foreground">Hours only</span>
-          </label>
-        </div>
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-[300px]">Employee</TableHead>
-                <TableHead className="text-right w-[120px]">Actual Hours</TableHead>
-                <TableHead className="text-right w-[120px]">Regular Hours</TableHead>
-                <TableHead className="text-right w-[120px]">OT Hours</TableHead>
-                <TableHead className="text-right w-[140px]">Status</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {visibleEmployees.map((emp) => (
-                <ExpandableEmployeeRow
-                  key={emp.userId}
-                  employee={emp}
-                  isExpanded={expandedRows.has(emp.userId)}
-                  onToggle={() => toggleRow(emp.userId)}
-                  otThreshold={data.otThreshold}
-                  onAddTimeCard={handleAddTimeCard}
-                  onEntryClick={onEntryClick}
-                />
-              ))}
 
-              <TableRow className="bg-muted font-semibold border-t-2">
-                <TableCell>
-                  <span className="text-sm font-semibold">
-                    Period totals ({data.employees.length} employee{data.employees.length !== 1 ? "s" : ""})
-                  </span>
-                </TableCell>
-                <TableCell className="text-right font-mono text-sm">
-                  {data.totals.actualHours.toFixed(2)}
-                </TableCell>
-                <TableCell className="text-right font-mono text-sm">
-                  {data.totals.regularHours.toFixed(2)}
-                </TableCell>
-                <TableCell className="text-right font-mono text-sm">
-                  <span className={data.totals.otHours > 0 ? "text-red-600" : ""}>
-                    {data.totals.otHours.toFixed(2)}
-                  </span>
-                </TableCell>
-                <TableCell />
-              </TableRow>
-            </TableBody>
-          </Table>
-        </div>
-      </CardContent>
-    </Card>
-    <AddTimeCardDialog
-      open={addTimeCardOpen}
-      onOpenChange={(open) => {
-        setAddTimeCardOpen(open);
-        if (!open) setAddTimeCardEmployeeId(undefined);
-      }}
-      preselectedEmployeeId={addTimeCardEmployeeId}
-      employees={data?.employees.map((e) => ({
-        id: e.userId,
-        firstName: e.firstName,
-        lastName: e.lastName,
-        email: e.email,
-      }))}
-      scheduleSource={data?.employees}
-    />
+      {(!data || data.employees.length === 0) ? (
+        <Card>
+          <CardContent className="py-12 text-center">
+            <Users className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
+            <p className="text-muted-foreground">No time entries found for this period.</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardContent className="p-0">
+            {/* Employee count */}
+            <div className="px-4 py-2 border-b text-xs text-muted-foreground">
+              {hoursOnlyFilter
+                ? `${visibleEmployees.length} of ${data?.employees.length} employees (hours only)`
+                : `${data?.employees.length} employees`}
+            </div>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/30">
+                    <TableHead className="w-[280px] font-semibold text-xs">Date / Employee</TableHead>
+                    <TableHead
+                      className="text-right w-[130px] font-semibold text-xs cursor-pointer select-none hover:text-foreground"
+                      onClick={() => cycleSort("actual")}
+                    >
+                      Actual hours
+                      <SortIcon field="actual" sortField={sortField} sortDir={sortDir} />
+                    </TableHead>
+                    <TableHead
+                      className="text-right w-[130px] font-semibold text-xs cursor-pointer select-none hover:text-foreground"
+                      onClick={() => cycleSort("regular")}
+                    >
+                      Regular hours
+                      <SortIcon field="regular" sortField={sortField} sortDir={sortDir} />
+                    </TableHead>
+                    <TableHead
+                      className="text-right w-[120px] font-semibold text-xs cursor-pointer select-none hover:text-foreground"
+                      onClick={() => cycleSort("ot")}
+                    >
+                      OT hours
+                      <SortIcon field="ot" sortField={sortField} sortDir={sortDir} />
+                    </TableHead>
+                    {showScheduledHours && (
+                      <TableHead className="text-right w-[120px] font-semibold text-xs">Sched. hours</TableHead>
+                    )}
+                    {showOffsiteMinutes && (
+                      <TableHead className="text-right w-[110px] font-semibold text-xs">Off-site hrs</TableHead>
+                    )}
+                    <TableHead className="w-[50px]" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {/* Needs review group */}
+                  {needsReviewEmps.length > 0 && (
+                    <>
+                      <TableRow
+                        className="bg-amber-50 dark:bg-amber-950/30 cursor-pointer hover:bg-amber-100 dark:hover:bg-amber-900/40"
+                        onClick={() => setGroupNeedsReviewCollapsed(!groupNeedsReviewCollapsed)}
+                      >
+                        <TableCell colSpan={totalCols} className="py-2 px-4">
+                          <div className="flex items-center gap-2">
+                            {groupNeedsReviewCollapsed
+                              ? <ChevronRight className="h-3.5 w-3.5 text-amber-700 dark:text-amber-400" />
+                              : <ChevronDown className="h-3.5 w-3.5 text-amber-700 dark:text-amber-400" />}
+                            <span className="text-xs font-semibold text-amber-800 dark:text-amber-300">Needs review</span>
+                            <Badge className="h-4 min-w-[18px] px-1.5 text-[10px] bg-amber-500 hover:bg-amber-500 text-white">
+                              {needsReviewEmps.length}
+                            </Badge>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                      {!groupNeedsReviewCollapsed && needsReviewEmps.map((emp) => (
+                        <ExpandableEmployeeRow
+                          key={emp.userId}
+                          employee={emp}
+                          isExpanded={expandedRows.has(emp.userId)}
+                          onToggle={() => onToggleRow(emp.userId)}
+                          otThreshold={data?.otThreshold}
+                          onAddTimeCard={handleAddTimeCard}
+                          onEntryClick={onEntryClick}
+                          onViewTimeCard={handleViewTimeCard}
+                          onApproveEmployee={(id) => approveEmployeeMutation.mutate(id)}
+                          onResolveDiscrepancy={handleAlertClick}
+                          showScheduledHours={showScheduledHours}
+                          showOffsiteMinutes={showOffsiteMinutes}
+                          totalCols={totalCols}
+                        />
+                      ))}
+                    </>
+                  )}
+
+                  {/* Approved / Other group */}
+                  {otherEmps.length > 0 && (
+                    <>
+                      <TableRow
+                        className="bg-muted/50 cursor-pointer hover:bg-muted/70"
+                        onClick={() => setGroupOtherCollapsed(!groupOtherCollapsed)}
+                      >
+                        <TableCell colSpan={totalCols} className="py-2 px-4">
+                          <div className="flex items-center gap-2">
+                            {groupOtherCollapsed
+                              ? <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+                              : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
+                            <span className="text-xs font-semibold text-muted-foreground">Approved / Other</span>
+                            <Badge variant="secondary" className="h-4 min-w-[18px] px-1.5 text-[10px]">
+                              {otherEmps.length}
+                            </Badge>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                      {!groupOtherCollapsed && otherEmps.map((emp) => (
+                        <ExpandableEmployeeRow
+                          key={emp.userId}
+                          employee={emp}
+                          isExpanded={expandedRows.has(emp.userId)}
+                          onToggle={() => onToggleRow(emp.userId)}
+                          otThreshold={data?.otThreshold}
+                          onAddTimeCard={handleAddTimeCard}
+                          onEntryClick={onEntryClick}
+                          onViewTimeCard={handleViewTimeCard}
+                          onApproveEmployee={(id) => approveEmployeeMutation.mutate(id)}
+                          onResolveDiscrepancy={handleAlertClick}
+                          showScheduledHours={showScheduledHours}
+                          showOffsiteMinutes={showOffsiteMinutes}
+                          totalCols={totalCols}
+                        />
+                      ))}
+                    </>
+                  )}
+
+                  {/* Period totals footer */}
+                  {data && visibleEmployees.length > 0 && (
+                    <TableRow className="bg-muted/60 font-semibold border-t-2">
+                      <TableCell className="py-2.5 px-4">
+                        <span className="text-sm font-semibold">
+                          Period totals ({visibleEmployees.length} employee{visibleEmployees.length !== 1 ? "s" : ""})
+                        </span>
+                      </TableCell>
+                      <TableCell className="py-2.5 text-right font-mono text-sm font-bold">
+                        {visibleTotals.actual.toFixed(2)}
+                      </TableCell>
+                      <TableCell className="py-2.5 text-right font-mono text-sm font-bold">
+                        {visibleTotals.regular.toFixed(2)}
+                      </TableCell>
+                      <TableCell className="py-2.5 text-right font-mono text-sm font-bold">
+                        <span className={visibleTotals.ot > 0 ? "text-orange-500" : ""}>
+                          {visibleTotals.ot.toFixed(2)}
+                        </span>
+                      </TableCell>
+                      {showScheduledHours && <TableCell />}
+                      {showOffsiteMinutes && <TableCell />}
+                      <TableCell />
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <AddTimeCardDialog
+        open={addTimeCardOpen}
+        onOpenChange={(open) => { setAddTimeCardOpen(open); if (!open) setAddTimeCardEmployeeId(undefined); }}
+        preselectedEmployeeId={addTimeCardEmployeeId}
+        employees={data?.employees.map((e) => ({ id: e.userId, firstName: e.firstName, lastName: e.lastName, email: e.email }))}
+        scheduleSource={data?.employees}
+      />
     </div>
   );
 }
 
-function OffsiteLiveBadge({ activeOffsite }: { activeOffsite: ActiveOffsite }) {
-  const exitDate = new Date(activeOffsite.exitTime);
-  const elapsedMs = Date.now() - exitDate.getTime();
-  const elapsedMinutes = Math.floor(elapsedMs / 60000);
-
-  let colorClass = "border-green-500 text-green-600 bg-green-50 dark:bg-green-950/30";
-  if (elapsedMinutes >= 30) {
-    colorClass = "border-red-500 text-red-600 bg-red-50 dark:bg-red-950/30";
-  } else if (elapsedMinutes >= 20) {
-    colorClass = "border-amber-500 text-amber-600 bg-amber-50 dark:bg-amber-950/30";
-  }
-
-  return (
-    <Badge variant="outline" className={`text-[10px] px-1 py-0 ${colorClass}`}>
-      <MapPin className="h-2.5 w-2.5 mr-0.5" />
-      Off-site {elapsedMinutes}m
-    </Badge>
-  );
-}
 
 function DailyReviewTab({ onEntryClick }: { onEntryClick?: (entry: DailyEntry, date: string, employee: EmployeeReview) => void }) {
   const today = new Date().toISOString().split("T")[0];
@@ -1726,36 +1985,31 @@ function DailyReviewTab({ onEntryClick }: { onEntryClick?: (entry: DailyEntry, d
 
   const filteredEmployees = useMemo(() => {
     if (filter === "needs-review") {
-      return dayEmployees.filter((emp) =>
-        (emp.discrepancyAlerts || []).some((a) => a.date === selectedDate)
-      );
+      return dayEmployees.filter((emp) => (emp.discrepancyAlerts || []).some((a) => a.date === selectedDate));
     }
     return dayEmployees;
   }, [dayEmployees, filter, selectedDate]);
 
   const needsReviewCount = useMemo(
-    () => dayEmployees.filter((emp) =>
-      (emp.discrepancyAlerts || []).some((a) => a.date === selectedDate)
-    ).length,
+    () => dayEmployees.filter((emp) => (emp.discrepancyAlerts || []).some((a) => a.date === selectedDate)).length,
     [dayEmployees, selectedDate]
   );
 
   return (
     <div className="space-y-4">
-      {/* Date navigation + filters */}
-      <div className="flex flex-col sm:flex-row sm:items-center gap-3 justify-between">
+      {/* Restyled date navigation toolbar */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-1">
-          <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => navigateDate("prev")}>
+          <Button variant="outline" size="icon" className="h-8 w-8 rounded-full" onClick={() => navigateDate("prev")}>
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          <div className="flex items-center gap-2 px-2 min-w-[240px]">
-            <Calendar className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-            <span className="font-medium text-sm">{formattedDate}</span>
+          <div className="px-3 h-8 flex items-center border rounded-md bg-background min-w-[220px] justify-center">
+            <span className="font-mono text-sm font-medium">{formattedDate}</span>
           </div>
           <Button
             variant="outline"
             size="icon"
-            className="h-8 w-8"
+            className="h-8 w-8 rounded-full"
             onClick={() => navigateDate("next")}
             disabled={selectedDate >= today}
           >
@@ -1788,11 +2042,7 @@ function DailyReviewTab({ onEntryClick }: { onEntryClick?: (entry: DailyEntry, d
       </div>
 
       {isLoading && (
-        <div className="space-y-2">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-16 w-full rounded-xl" />
-          ))}
-        </div>
+        <div className="space-y-2">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-16 w-full rounded-xl" />)}</div>
       )}
 
       {isError && !isLoading && (
@@ -1810,9 +2060,7 @@ function DailyReviewTab({ onEntryClick }: { onEntryClick?: (entry: DailyEntry, d
           <CardContent className="py-12 text-center">
             <Clock className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
             <p className="text-muted-foreground text-sm">
-              {filter === "needs-review"
-                ? "No entries needing review for this day."
-                : "No scheduled or worked shifts for this day."}
+              {filter === "needs-review" ? "No entries needing review for this day." : "No scheduled or worked shifts for this day."}
             </p>
           </CardContent>
         </Card>
@@ -1825,7 +2073,7 @@ function DailyReviewTab({ onEntryClick }: { onEntryClick?: (entry: DailyEntry, d
               <TableHeader>
                 <TableRow className="bg-muted/40 hover:bg-muted/40">
                   <TableHead className="w-[200px] font-semibold text-xs uppercase tracking-wide">Team member</TableHead>
-                  <TableHead className="font-semibold text-xs uppercase tracking-wide">Worked</TableHead>
+                  <TableHead className="font-semibold text-xs uppercase tracking-wide">Clock in / Clock out</TableHead>
                   <TableHead className="text-center font-semibold text-xs uppercase tracking-wide w-[110px]">Total breaks</TableHead>
                   <TableHead className="font-semibold text-xs uppercase tracking-wide w-[220px]">Issues</TableHead>
                   <TableHead className="text-right font-semibold text-xs uppercase tracking-wide w-[160px]">Actions</TableHead>
@@ -1835,6 +2083,7 @@ function DailyReviewTab({ onEntryClick }: { onEntryClick?: (entry: DailyEntry, d
                 {filteredEmployees.map((emp) => {
                   const initials = ((emp.firstName?.[0] || "") + (emp.lastName?.[0] || "")).toUpperCase() || "?";
                   const fullName = [emp.firstName, emp.lastName].filter(Boolean).join(" ") || "Unknown";
+                  const avatarColor = getAvatarColor(fullName);
                   const day = emp.dailyBreakdown.find((d) => d.date === selectedDate);
                   const entries = day?.entries || [];
                   const schedule = day?.schedules?.[0];
@@ -1843,9 +2092,7 @@ function DailyReviewTab({ onEntryClick }: { onEntryClick?: (entry: DailyEntry, d
                   const issues = (emp.discrepancyAlerts || []).filter((a) => a.date === selectedDate);
                   const isNoShow = entries.length === 0 && scheduledHours > 0;
                   const actualHours = entries.reduce((sum, e) => sum + e.hours, 0);
-                  const underScheduleMinutes = scheduledHours > 0
-                    ? Math.round((scheduledHours - actualHours) * 60)
-                    : 0;
+                  const underScheduleMinutes = scheduledHours > 0 ? Math.round((scheduledHours - actualHours) * 60) : 0;
 
                   return (
                     <TableRow
@@ -1856,15 +2103,11 @@ function DailyReviewTab({ onEntryClick }: { onEntryClick?: (entry: DailyEntry, d
                         !isNoShow && issues.length > 0 && "bg-amber-50/60 dark:bg-amber-950/20",
                       )}
                     >
-                      {/* Team member */}
                       <TableCell className="py-4">
                         <div className="flex items-center gap-2.5">
-                          <Avatar className="h-9 w-9 flex-shrink-0">
-                            <AvatarImage src={emp.profileImageUrl || undefined} />
-                            <AvatarFallback className="text-xs font-semibold bg-primary/10 text-primary">
-                              {initials}
-                            </AvatarFallback>
-                          </Avatar>
+                          <div className={`h-9 w-9 rounded-full flex-shrink-0 flex items-center justify-center text-sm font-bold ${avatarColor.bg} ${avatarColor.text}`}>
+                            {initials}
+                          </div>
                           <div>
                             <p className="font-semibold text-sm leading-tight">{fullName}</p>
                             {entries.length > 0 && !entries[entries.length - 1]?.clockOutTime && (
@@ -1877,7 +2120,6 @@ function DailyReviewTab({ onEntryClick }: { onEntryClick?: (entry: DailyEntry, d
                         </div>
                       </TableCell>
 
-                      {/* Worked */}
                       <TableCell className="py-4">
                         {isNoShow ? (
                           <div>
@@ -1905,9 +2147,7 @@ function DailyReviewTab({ onEntryClick }: { onEntryClick?: (entry: DailyEntry, d
                                   <p className="text-xs text-muted-foreground">Total: {formatDuration(entry.hours)}</p>
                                 )}
                                 {underScheduleMinutes > 15 && entries.length === 1 && entry.clockOutTime && (
-                                  <p className="text-xs text-blue-600 dark:text-blue-400">
-                                    {underScheduleMinutes} min under scheduled time
-                                  </p>
+                                  <p className="text-xs text-blue-600 dark:text-blue-400">{underScheduleMinutes} min under scheduled time</p>
                                 )}
                               </div>
                             ))}
@@ -1922,27 +2162,20 @@ function DailyReviewTab({ onEntryClick }: { onEntryClick?: (entry: DailyEntry, d
                         )}
                       </TableCell>
 
-                      {/* Total breaks */}
                       <TableCell className="py-4 text-center">
-                        <span className="text-sm text-muted-foreground">
-                          {breakMins > 0 ? `${breakMins} min` : "0 min"}
-                        </span>
+                        <span className="text-sm text-muted-foreground">{breakMins > 0 ? `${breakMins} min` : "0 min"}</span>
                       </TableCell>
 
-                      {/* Issues */}
                       <TableCell className="py-4">
                         {issues.length > 0 ? (
                           <div className="flex flex-col gap-1">
-                            {issues.map((issue, idx) => (
-                              <IssueBadge key={idx} type={issue.type} />
-                            ))}
+                            {issues.map((issue, idx) => <IssueBadge key={idx} type={issue.type} />)}
                           </div>
                         ) : (
                           <span className="text-xs text-muted-foreground/40">—</span>
                         )}
                       </TableCell>
 
-                      {/* Actions */}
                       <TableCell className="py-4 text-right">
                         {issues.length > 0 ? (
                           <DropdownMenu>
@@ -1954,20 +2187,13 @@ function DailyReviewTab({ onEntryClick }: { onEntryClick?: (entry: DailyEntry, d
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="w-52">
                               {issues.map((issue, idx) => (
-                                <DropdownMenuItem
-                                  key={idx}
-                                  onClick={() => { setResolveAlert(issue); setResolveOpen(true); }}
-                                  className="cursor-pointer gap-2"
-                                >
+                                <DropdownMenuItem key={idx} onClick={() => { setResolveAlert(issue); setResolveOpen(true); }} className="cursor-pointer gap-2">
                                   {getDiscrepancyIcon(issue.type)}
                                   Resolve: {getDiscrepancyLabel(issue.type)}
                                 </DropdownMenuItem>
                               ))}
                               {isNoShow && (
-                                <DropdownMenuItem
-                                  onClick={() => { setAddTimeCardEmpId(emp.userId); setAddTimeCardOpen(true); }}
-                                  className="cursor-pointer gap-2"
-                                >
+                                <DropdownMenuItem onClick={() => { setAddTimeCardEmpId(emp.userId); setAddTimeCardOpen(true); }} className="cursor-pointer gap-2">
                                   <Plus className="h-4 w-4" />
                                   Add time card
                                 </DropdownMenuItem>
@@ -2003,229 +2229,150 @@ function DailyReviewTab({ onEntryClick }: { onEntryClick?: (entry: DailyEntry, d
         open={addTimeCardOpen}
         onOpenChange={setAddTimeCardOpen}
         preselectedEmployeeId={addTimeCardEmpId}
-        employees={
-          data?.employees?.map((e) => ({
-            id: e.userId,
-            firstName: e.firstName,
-            lastName: e.lastName,
-            email: e.email,
-          })) || []
-        }
+        employees={data?.employees?.map((e) => ({ id: e.userId, firstName: e.firstName, lastName: e.lastName, email: e.email })) || []}
         scheduleSource={data?.employees}
       />
     </div>
   );
 }
 
-function OvertimeAlertsBanner({ alertCount, onToggle, isExpanded }: { alertCount: number; onToggle: () => void; isExpanded: boolean }) {
-  if (alertCount === 0) return null;
 
-  return (
-    <div
-      className="flex items-center justify-between p-3 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 cursor-pointer"
-      onClick={onToggle}
-    >
-      <div className="flex items-center gap-3">
-        <div className="p-2 rounded-full bg-red-100 dark:bg-red-900/50">
-          <ShieldAlert className="h-5 w-5 text-red-600 dark:text-red-400" />
-        </div>
-        <div>
-          <p className="font-semibold text-red-800 dark:text-red-300 text-sm">
-            {alertCount} employee{alertCount !== 1 ? "s" : ""} approaching overtime this week
-          </p>
-          <p className="text-xs text-red-600 dark:text-red-400">
-            Click to review AI-powered swap suggestions
-          </p>
-        </div>
-      </div>
-      <div className="flex items-center gap-2">
-        <Badge variant="destructive" className="bg-red-600">
-          <Zap className="h-3 w-3 mr-1" />
-          {alertCount} Alert{alertCount !== 1 ? "s" : ""}
-        </Badge>
-        {isExpanded ? (
-          <ChevronUp className="h-5 w-5 text-red-600" />
-        ) : (
-          <ChevronDown className="h-5 w-5 text-red-600" />
-        )}
-      </div>
-    </div>
-  );
-}
-
-
-function ApprovalChainPanel({
-  periodApproval,
-  singleStep,
-  onFinalize,
-  isFinalizing,
+function DateRangePopover({
+  startDate,
+  endDate,
+  onStartDateChange,
+  onEndDateChange,
+  payPeriods,
 }: {
-  periodApproval: PeriodApproval | null | undefined;
-  singleStep: boolean;
-  onFinalize?: () => void;
-  isFinalizing?: boolean;
+  startDate: string;
+  endDate: string;
+  onStartDateChange: (v: string) => void;
+  onEndDateChange: (v: string) => void;
+  payPeriods: Array<{ label: string; startDate: string; endDate: string }>;
 }) {
-  const status = periodApproval?.status ?? "pending";
+  const [open, setOpen] = useState(false);
 
-  const stepManagerDone = status === "manager_approved" || status === "final_approved";
-  const stepAdminDone = status === "final_approved";
-
-  if (singleStep) {
-    return (
-      <div className="rounded-lg border bg-card p-3 flex items-center gap-3">
-        <div className={`flex items-center gap-2 text-sm font-medium ${stepAdminDone ? "text-green-600 dark:text-green-400" : "text-muted-foreground"}`}>
-          {stepAdminDone ? <ShieldCheck className="h-4 w-4" /> : <ShieldOff className="h-4 w-4" />}
-          {stepAdminDone ? "Period Approved" : "Pending Approval"}
-        </div>
-        {stepAdminDone && periodApproval?.adminApprovedAt && (
-          <span className="text-xs text-muted-foreground">
-            {new Date(periodApproval.adminApprovedAt).toLocaleDateString()}
-          </span>
-        )}
-      </div>
-    );
-  }
+  const fmt = (d: string) => new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 
   return (
-    <div className="rounded-lg border bg-card p-3 space-y-3">
-      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Approval chain</p>
-      <div className="flex items-start gap-4">
-        {/* Step 1: Manager */}
-        <div className="flex flex-col items-center gap-1 min-w-[120px]">
-          <div className={`rounded-full p-1.5 ${stepManagerDone ? "bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400" : "bg-muted text-muted-foreground"}`}>
-            <CheckCircle2 className="h-4 w-4" />
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" size="sm" className="h-8 gap-1.5 text-sm font-medium">
+          <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+          <span className="font-mono">{fmt(startDate)} – {fmt(endDate)}</span>
+          <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-80 p-4 space-y-4" align="start">
+        {payPeriods.length > 0 && (
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Pay period preset</Label>
+            <Select
+              value={`${startDate}|${endDate}`}
+              onValueChange={(val) => {
+                const [s, e] = val.split("|");
+                onStartDateChange(s);
+                onEndDateChange(e);
+              }}
+            >
+              <SelectTrigger className="h-8 text-sm">
+                <SelectValue placeholder="Select pay period" />
+              </SelectTrigger>
+              <SelectContent>
+                {payPeriods.map((p) => (
+                  <SelectItem key={p.startDate} value={`${p.startDate}|${p.endDate}`}>
+                    {p.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-          <span className={`text-xs font-medium text-center ${stepManagerDone ? "text-green-700 dark:text-green-400" : "text-muted-foreground"}`}>
-            Manager review
-          </span>
-          {stepManagerDone && (
-            <span className="text-[10px] text-muted-foreground text-center">
-              {periodApproval?.managerApproverName && <span className="block font-medium">{periodApproval.managerApproverName}</span>}
-              {periodApproval?.managerApprovedAt && new Date(periodApproval.managerApprovedAt).toLocaleDateString()}
-            </span>
-          )}
-          {!stepManagerDone && <span className="text-[10px] text-muted-foreground">Pending</span>}
-        </div>
-
-        {/* Connector line */}
-        <div className={`flex-1 h-px mt-4 ${stepManagerDone ? "bg-green-400 dark:bg-green-600" : "bg-border"}`} />
-
-        {/* Step 2: Admin */}
-        <div className="flex flex-col items-center gap-1 min-w-[120px]">
-          <div className={`rounded-full p-1.5 ${stepAdminDone ? "bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400" : stepManagerDone ? "bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400" : "bg-muted text-muted-foreground"}`}>
-            <ShieldCheck className="h-4 w-4" />
+        )}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <Label className="text-xs">Start date</Label>
+            <Input type="date" value={startDate} onChange={(e) => onStartDateChange(e.target.value)} className="h-8 text-xs" />
           </div>
-          <span className={`text-xs font-medium text-center ${stepAdminDone ? "text-green-700 dark:text-green-400" : stepManagerDone ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground"}`}>
-            Admin final
-          </span>
-          {stepAdminDone && (
-            <span className="text-[10px] text-muted-foreground text-center">
-              {periodApproval?.adminApproverName && <span className="block font-medium">{periodApproval.adminApproverName}</span>}
-              {periodApproval?.adminApprovedAt && new Date(periodApproval.adminApprovedAt).toLocaleDateString()}
-            </span>
-          )}
-          {!stepAdminDone && stepManagerDone && (
-            <Button size="sm" className="h-6 text-[10px] px-2 mt-1" onClick={onFinalize} disabled={isFinalizing}>
-              {isFinalizing ? "Finalizing…" : "Finalize"}
-            </Button>
-          )}
-          {!stepAdminDone && !stepManagerDone && <span className="text-[10px] text-muted-foreground">Waiting</span>}
+          <div className="space-y-1.5">
+            <Label className="text-xs">End date</Label>
+            <Input type="date" value={endDate} onChange={(e) => onEndDateChange(e.target.value)} className="h-8 text-xs" />
+          </div>
         </div>
-      </div>
+        <Button size="sm" className="w-full h-8" onClick={() => setOpen(false)}>Apply</Button>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+
+function ManageTimesheetView({
+  hoursOnly,
+  setHoursOnly,
+  showScheduledHours,
+  setShowScheduledHours,
+  showOffsiteMinutes,
+  setShowOffsiteMinutes,
+}: {
+  hoursOnly: boolean;
+  setHoursOnly: (v: boolean) => void;
+  showScheduledHours: boolean;
+  setShowScheduledHours: (v: boolean) => void;
+  showOffsiteMinutes: boolean;
+  setShowOffsiteMinutes: (v: boolean) => void;
+}) {
+  const [expanded, setExpanded] = useState(() => {
+    try { return localStorage.getItem("ts_manage_view_open") === "true"; } catch { return false; }
+  });
+
+  const toggle = () => {
+    const next = !expanded;
+    setExpanded(next);
+    try { localStorage.setItem("ts_manage_view_open", String(next)); } catch {}
+  };
+
+  return (
+    <div className="border rounded-lg overflow-hidden">
+      <button
+        className="w-full flex items-center justify-between px-4 py-2.5 bg-muted/30 hover:bg-muted/50 transition-colors text-left"
+        onClick={toggle}
+      >
+        <div className="flex items-center gap-2">
+          <Columns className="h-3.5 w-3.5 text-muted-foreground" />
+          <span className="text-sm font-medium">Manage timesheet view</span>
+        </div>
+        {expanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+      </button>
+      {expanded && (
+        <div className="px-4 py-3 border-t bg-background">
+          <div className="flex flex-wrap gap-6">
+            <label className="flex items-center gap-2.5 cursor-pointer select-none">
+              <Switch checked={hoursOnly} onCheckedChange={setHoursOnly} id="hours-only" />
+              <div>
+                <span className="text-sm font-medium">Hours only</span>
+                <p className="text-xs text-muted-foreground">Hide employees with no hours</p>
+              </div>
+            </label>
+            <label className="flex items-center gap-2.5 cursor-pointer select-none">
+              <Switch checked={showScheduledHours} onCheckedChange={setShowScheduledHours} id="sched-hours" />
+              <div>
+                <span className="text-sm font-medium">Scheduled hours</span>
+                <p className="text-xs text-muted-foreground">Show column in table</p>
+              </div>
+            </label>
+            <label className="flex items-center gap-2.5 cursor-pointer select-none">
+              <Switch checked={showOffsiteMinutes} onCheckedChange={setShowOffsiteMinutes} id="offsite-mins" />
+              <div>
+                <span className="text-sm font-medium">Off-site hrs column</span>
+                <p className="text-xs text-muted-foreground">Show column in table</p>
+              </div>
+            </label>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function HealthBar({ health }: { health: HealthSummary | undefined }) {
-  if (!health || health.totalEmployees === 0) return null;
-  const { totalEmployees, approvedCount, needsReviewCount, noEntriesCount, pendingClockOutCount } = health;
-  const pending = totalEmployees - approvedCount - needsReviewCount - noEntriesCount - pendingClockOutCount;
-
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between text-xs text-muted-foreground">
-        <span>Period health</span>
-        <span>{approvedCount}/{totalEmployees} approved</span>
-      </div>
-      <div className="flex h-2 rounded-full overflow-hidden gap-px">
-        {approvedCount > 0 && (
-          <div
-            className="bg-green-500 dark:bg-green-600 transition-all"
-            style={{ width: `${(approvedCount / totalEmployees) * 100}%` }}
-            title={`${approvedCount} approved`}
-          />
-        )}
-        {needsReviewCount > 0 && (
-          <div
-            className="bg-amber-500 dark:bg-amber-600 transition-all"
-            style={{ width: `${(needsReviewCount / totalEmployees) * 100}%` }}
-            title={`${needsReviewCount} needs review`}
-          />
-        )}
-        {pendingClockOutCount > 0 && (
-          <div
-            className="bg-orange-400 dark:bg-orange-500 transition-all"
-            style={{ width: `${(pendingClockOutCount / totalEmployees) * 100}%` }}
-            title={`${pendingClockOutCount} pending clock-out`}
-          />
-        )}
-        {noEntriesCount > 0 && (
-          <div
-            className="bg-red-400 dark:bg-red-600 transition-all"
-            style={{ width: `${(noEntriesCount / totalEmployees) * 100}%` }}
-            title={`${noEntriesCount} no entries`}
-          />
-        )}
-        {pending > 0 && (
-          <div
-            className="bg-muted-foreground/20 transition-all"
-            style={{ width: `${(pending / totalEmployees) * 100}%` }}
-            title={`${pending} pending`}
-          />
-        )}
-      </div>
-      <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground">
-        {approvedCount > 0 && <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-green-500" />{approvedCount} approved</span>}
-        {needsReviewCount > 0 && <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-amber-500" />{needsReviewCount} needs review</span>}
-        {pendingClockOutCount > 0 && <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-orange-400" />{pendingClockOutCount} pending clock-out</span>}
-        {noEntriesCount > 0 && <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full bg-red-400" />{noEntriesCount} no entries</span>}
-      </div>
-    </div>
-  );
-}
-
-function computePayPeriods(settings: PayPeriodSettings | null, count: number = 6): Array<{ label: string; startDate: string; endDate: string }> {
-  if (!settings?.firstPayPeriodStart) return [];
-
-  const intervalType = settings.intervalType || "bi-weekly";
-  const intervalDays = intervalType === "weekly" ? 7 : intervalType === "bi-weekly" ? 14 : intervalType === "semi-monthly" ? 15 : 30;
-
-  const start = new Date(settings.firstPayPeriodStart);
-  start.setHours(0, 0, 0, 0);
-
-  const now = new Date();
-  const periods: Array<{ label: string; startDate: string; endDate: string }> = [];
-
-  // Find current period start
-  let periodStart = new Date(start);
-  while (new Date(periodStart.getTime() + intervalDays * 86400000) < now) {
-    periodStart = new Date(periodStart.getTime() + intervalDays * 86400000);
-  }
-
-  // Go back a bit to include recent past periods
-  for (let i = count - 1; i >= 0; i--) {
-    const ps = new Date(periodStart.getTime() - i * intervalDays * 86400000);
-    const pe = new Date(ps.getTime() + (intervalDays - 1) * 86400000);
-    const label = `${ps.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${pe.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
-    periods.push({
-      label,
-      startDate: ps.toISOString().split("T")[0],
-      endDate: pe.toISOString().split("T")[0],
-    });
-  }
-
-  return periods;
-}
 
 export default function Timesheets() {
   const { toast } = useToast();
@@ -2235,7 +2382,8 @@ export default function Timesheets() {
   const [endDate, setEndDate] = useState(defaults.endDate);
   const [periodInitialized, setPeriodInitialized] = useState(false);
   const [activeTab, setActiveTab] = useState("daily");
-  const [showOTPanel, setShowOTPanel] = useState(false);
+
+  // Modal state
   const [timeCardModalOpen, setTimeCardModalOpen] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState<DailyEntry | null>(null);
   const [selectedDate, setSelectedDate] = useState("");
@@ -2243,6 +2391,26 @@ export default function Timesheets() {
   const [allFlatEntries, setAllFlatEntries] = useState<Array<{ entry: DailyEntry; date: string; employee: EmployeeReview }>>([]);
   const [showAddTimeCard, setShowAddTimeCard] = useState(false);
   const [exportModalOpen, setExportModalOpen] = useState(false);
+
+  // Lifted row expansion state
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  const [groupNeedsReviewCollapsed, setGroupNeedsReviewCollapsed] = useState(false);
+  const [groupOtherCollapsed, setGroupOtherCollapsed] = useState(false);
+
+  // View options (localStorage persisted)
+  const [hoursOnly, setHoursOnly] = useState(() => {
+    try { return localStorage.getItem("ts_hours_only") === "true"; } catch { return false; }
+  });
+  const [showScheduledHours, setShowScheduledHours] = useState(() => {
+    try { return localStorage.getItem("ts_show_scheduled") === "true"; } catch { return false; }
+  });
+  const [showOffsiteMinutes, setShowOffsiteMinutes] = useState(() => {
+    try { return localStorage.getItem("ts_show_offsite") === "true"; } catch { return false; }
+  });
+
+  const persistHoursOnly = (v: boolean) => { setHoursOnly(v); try { localStorage.setItem("ts_hours_only", String(v)); } catch {} };
+  const persistShowScheduled = (v: boolean) => { setShowScheduledHours(v); try { localStorage.setItem("ts_show_scheduled", String(v)); } catch {} };
+  const persistShowOffsite = (v: boolean) => { setShowOffsiteMinutes(v); try { localStorage.setItem("ts_show_offsite", String(v)); } catch {} };
 
   const { data: payPeriodSettings } = useQuery<PayPeriodSettings | null>({
     queryKey: ["/api/timesheets/pay-period-settings"],
@@ -2253,11 +2421,9 @@ export default function Timesheets() {
   });
   const singleStepApproval = workflowSettings?.singleStepApproval ?? false;
 
-  // Initialize date range from pay period settings when they load
   const payPeriods = useMemo(() => computePayPeriods(payPeriodSettings || null), [payPeriodSettings]);
   const currentPeriod = payPeriods.length > 0 ? payPeriods[payPeriods.length - 1] : null;
 
-  // Auto-set to current pay period once loaded (only once)
   useEffect(() => {
     if (!periodInitialized && currentPeriod) {
       setStartDate(currentPeriod.startDate);
@@ -2266,7 +2432,7 @@ export default function Timesheets() {
     }
   }, [currentPeriod, periodInitialized]);
 
-  const { data, isLoading, isError, refetch } = useQuery<TimesheetReviewData>({
+  const { data, isLoading, isError } = useQuery<TimesheetReviewData>({
     queryKey: [`/api/timesheets/review?startDate=${startDate}&endDate=${endDate}`],
   });
 
@@ -2274,21 +2440,16 @@ export default function Timesheets() {
     queryKey: ["/api/timesheets/overtime-alerts"],
   });
 
-  const otRiskCount = otData?.atRiskEmployees?.length || 0;
-
   const handleEntryClick = useCallback((entry: DailyEntry, date: string, employee: EmployeeReview) => {
     setSelectedEntry(entry);
     setSelectedDate(date);
     setSelectedEmployee(employee);
     setTimeCardModalOpen(true);
-
     if (data) {
       const flat: Array<{ entry: DailyEntry; date: string; employee: EmployeeReview }> = [];
       for (const emp of data.employees) {
         for (const day of emp.dailyBreakdown) {
-          for (const e of day.entries) {
-            flat.push({ entry: e, date: day.date, employee: emp });
-          }
+          for (const e of day.entries) flat.push({ entry: e, date: day.date, employee: emp });
         }
       }
       setAllFlatEntries(flat);
@@ -2309,6 +2470,7 @@ export default function Timesheets() {
 
   const currentIdx = selectedEntry ? allFlatEntries.findIndex((item) => item.entry.id === selectedEntry.id) : -1;
 
+  // Mutations
   const approveAllMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/timesheets/approve-all", { startDate, endDate });
@@ -2322,9 +2484,7 @@ export default function Timesheets() {
       }
       invalidatePrefix("/api/timesheets/review");
     },
-    onError: (err: Error) => {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
-    },
+    onError: (err: Error) => { toast({ title: "Error", description: err.message, variant: "destructive" }); },
   });
 
   const finalizePeriodMutation = useMutation({
@@ -2336,9 +2496,7 @@ export default function Timesheets() {
       toast({ title: "Period finalized", description: `${result?.approvedCount ?? 0} entries approved. Two-step chain complete.` });
       invalidatePrefix("/api/timesheets/review");
     },
-    onError: (err: Error) => {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
-    },
+    onError: (err: Error) => { toast({ title: "Error", description: err.message, variant: "destructive" }); },
   });
 
   const lockPeriodMutation = useMutation({
@@ -2349,164 +2507,63 @@ export default function Timesheets() {
       toast({ title: "Period locked", description: "This pay period has been locked." });
       invalidatePrefix("/api/timesheets/review");
     },
-    onError: (err: Error) => {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
-    },
+    onError: (err: Error) => { toast({ title: "Error", description: err.message, variant: "destructive" }); },
   });
 
-  const handleEmailAccountant = async () => {
+  const handleEmailAccountant = () => {
     toast({ title: "Coming soon", description: "Email export will be available shortly." });
   };
 
+  // Collapse / expand all
+  const employeeIds = useMemo(() => (data?.employees || []).map((e) => e.userId), [data]);
+  const allExpanded = employeeIds.length > 0 && employeeIds.every((id) => expandedRows.has(id));
+  const handleCollapseAll = () => {
+    setExpandedRows(new Set());
+    setGroupNeedsReviewCollapsed(true);
+    setGroupOtherCollapsed(true);
+  };
+  const handleExpandAll = () => {
+    const allIds = new Set((data?.employees || []).map((e) => e.userId));
+    setExpandedRows(allIds);
+    setGroupNeedsReviewCollapsed(false);
+    setGroupOtherCollapsed(false);
+  };
+
+  const toggleRow = (userId: string) => {
+    setExpandedRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(userId)) next.delete(userId); else next.add(userId);
+      return next;
+    });
+  };
+
+  const showToolbar = activeTab === "daily" || activeTab === "pay-period";
+
   return (
-    <div className="max-w-7xl mx-auto p-4 md:p-6 space-y-6 pb-24 md:pb-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div className="flex items-center gap-3 flex-wrap">
-          <h1 className="text-2xl font-bold">Timesheets</h1>
-          {data && data.totalNeedsReview > 0 && (
-            <Badge variant="destructive" className="bg-amber-500 hover:bg-amber-600">
-              <AlertTriangle className="h-3 w-3 mr-1" />
-              {data.totalNeedsReview} Needs Review
-            </Badge>
-          )}
-              {/* Next pay period chip */}
-          {(() => {
-            if (!payPeriodSettings?.firstPayPeriodStart) return null;
-            const intervalType = payPeriodSettings.intervalType || "bi-weekly";
-            const intervalDays = intervalType === "weekly" ? 7 : intervalType === "bi-weekly" ? 14 : intervalType === "semi-monthly" ? 15 : 30;
-            const allPeriods = computePayPeriods(payPeriodSettings, 8);
-            if (allPeriods.length === 0) return null;
-            const lastKnown = allPeriods[allPeriods.length - 1];
-            const nextStart = new Date(lastKnown.endDate + "T12:00:00");
-            nextStart.setDate(nextStart.getDate() + 1);
-            const nextEnd = new Date(nextStart.getTime() + (intervalDays - 1) * 86400000);
-            return (
-              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground bg-muted rounded-full px-2.5 py-1">
-                <Calendar className="h-3 w-3" />
-                Next period: {nextStart.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – {nextEnd.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-              </span>
-            );
-          })()}
-          {!payPeriodSettings?.firstPayPeriodStart && (
-            <a
-              href="/settings?tab=pay-period"
-              className="inline-flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-700 rounded-full px-2.5 py-1 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors"
-            >
-              <Settings className="h-3 w-3" />
-              Set up pay periods
-            </a>
-          )}
-          {payPeriodSettings?.firstPayPeriodStart && (
-            <a
-              href="/settings?tab=pay-period"
-              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-              title="Pay period settings"
-            >
-              <Settings className="h-3 w-3" />
-              Pay period settings
-            </a>
-          )}
-        </div>
-
-        <div className="flex items-center gap-2 flex-wrap">
-          {payPeriods.length > 0 && (
-            <Select
-              value={`${startDate}|${endDate}`}
-              onValueChange={(val) => {
-                const [s, e] = val.split("|");
-                setStartDate(s);
-                setEndDate(e);
-              }}
-            >
-              <SelectTrigger className="w-[220px] text-sm">
-                <Calendar className="h-4 w-4 mr-1 text-muted-foreground" />
-                <SelectValue placeholder="Select pay period" />
-              </SelectTrigger>
-              <SelectContent>
-                {payPeriods.map((p) => (
-                  <SelectItem key={p.startDate} value={`${p.startDate}|${p.endDate}`}>
-                    {p.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-          <Input
-            type="date"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-            className="w-[150px] text-sm"
-          />
-          <span className="text-muted-foreground text-sm">to</span>
-          <Input
-            type="date"
-            value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
-            className="w-[150px] text-sm"
-          />
-        </div>
+    <div className="max-w-7xl mx-auto p-4 md:p-6 pb-24 md:pb-6 space-y-0">
+      {/* Page header */}
+      <div className="flex items-center gap-3 mb-3 flex-wrap">
+        <h1 className="text-2xl font-bold">Timesheets</h1>
+        {data && data.totalNeedsReview > 0 && (
+          <Badge className="bg-amber-500 hover:bg-amber-600 text-white">
+            <AlertTriangle className="h-3 w-3 mr-1" />
+            {data.totalNeedsReview} Needs Review
+          </Badge>
+        )}
+        {!payPeriodSettings?.firstPayPeriodStart && (
+          <a
+            href="/settings?tab=pay-period"
+            className="inline-flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-700 rounded-full px-2.5 py-1 hover:bg-amber-100 transition-colors"
+          >
+            <Settings className="h-3 w-3" />
+            Set up pay periods
+          </a>
+        )}
       </div>
 
-      <OvertimeAlertsBanner
-        alertCount={otRiskCount}
-        onToggle={() => setShowOTPanel(!showOTPanel)}
-        isExpanded={showOTPanel}
-      />
-
-      {showOTPanel && <OvertimePreventionPanel />}
-
-      {data?.healthSummary && (
-        <HealthBar health={data.healthSummary} />
-      )}
-
-      {data?.periodApproval !== undefined && (
-        <ApprovalChainPanel
-          periodApproval={data.periodApproval}
-          singleStep={singleStepApproval}
-          onFinalize={() => finalizePeriodMutation.mutate()}
-          isFinalizing={finalizePeriodMutation.isPending}
-        />
-      )}
-
-      <div className="flex flex-wrap gap-2">
-        <Button
-          onClick={() => approveAllMutation.mutate()}
-          disabled={approveAllMutation.isPending}
-          variant="default"
-          size="sm"
-        >
-          <CheckCircle2 className="h-4 w-4 mr-1" />
-          {approveAllMutation.isPending ? "Approving…" : "Approve All"}
-        </Button>
-        <Button onClick={() => setExportModalOpen(true)} variant="outline" size="sm">
-          <Download className="h-4 w-4 mr-1" />
-          Download CSV
-        </Button>
-        <Button onClick={handleEmailAccountant} variant="outline" size="sm">
-          <Mail className="h-4 w-4 mr-1" />
-          Email to Accountant
-        </Button>
-        <Button
-          onClick={() => lockPeriodMutation.mutate()}
-          disabled={lockPeriodMutation.isPending}
-          variant="outline"
-          size="sm"
-        >
-          <Lock className="h-4 w-4 mr-1" />
-          {lockPeriodMutation.isPending ? "Locking…" : "Lock Period"}
-        </Button>
-        <Button
-          onClick={() => setShowAddTimeCard(true)}
-          variant="outline"
-          size="sm"
-        >
-          <Plus className="h-4 w-4 mr-1" />
-          Add Time Card
-        </Button>
-      </div>
-
+      {/* Tabs row */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList>
+        <TabsList className="mb-0">
           <TabsTrigger value="daily" className="gap-1.5">
             Daily review
             {data && data.totalNeedsReview > 0 && (
@@ -2522,12 +2579,166 @@ export default function Timesheets() {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="daily" className="mt-4">
+        {/* Toolbar row — below tabs, above content */}
+        {showToolbar && (
+          <div className="flex flex-wrap items-center gap-2 py-2 border-b mb-3">
+            {/* Left: Date range + collapse */}
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              <DateRangePopover
+                startDate={startDate}
+                endDate={endDate}
+                onStartDateChange={setStartDate}
+                onEndDateChange={setEndDate}
+                payPeriods={payPeriods}
+              />
+              {activeTab === "pay-period" && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 gap-1.5 text-xs hidden sm:flex"
+                  onClick={allExpanded ? handleCollapseAll : handleExpandAll}
+                >
+                  {allExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                  {allExpanded ? "Collapse all" : "Expand all"}
+                </Button>
+              )}
+            </div>
+
+            {/* Right: Actions — hidden on mobile, collapsed into ⋮ */}
+            <div className="hidden sm:flex items-center gap-2">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-8 gap-1 text-xs">
+                    More actions
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem
+                    onClick={() => approveAllMutation.mutate()}
+                    disabled={approveAllMutation.isPending}
+                    className="cursor-pointer gap-2"
+                  >
+                    <CheckCircle2 className="h-4 w-4" />
+                    {approveAllMutation.isPending ? "Approving…" : "Approve all"}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => lockPeriodMutation.mutate()}
+                    disabled={lockPeriodMutation.isPending}
+                    className="cursor-pointer gap-2"
+                  >
+                    <Lock className="h-4 w-4" />
+                    {lockPeriodMutation.isPending ? "Locking…" : "Lock period"}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={handleEmailAccountant} className="cursor-pointer gap-2">
+                    <Mail className="h-4 w-4" />
+                    Email to accountant
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs"
+                onClick={() => toast({ title: "Coming soon", description: "Tips management will be available shortly." })}
+              >
+                Manage tips
+              </Button>
+
+              <Button
+                size="sm"
+                className="h-8 gap-1.5 text-xs bg-violet-600 hover:bg-violet-700 text-white"
+                onClick={() => setExportModalOpen(true)}
+              >
+                <Download className="h-3.5 w-3.5" />
+                Download
+              </Button>
+            </div>
+
+            {/* Mobile: single ⋮ menu */}
+            <div className="flex sm:hidden items-center gap-1.5">
+              {activeTab === "pay-period" && (
+                <Button variant="outline" size="icon" className="h-8 w-8" onClick={allExpanded ? handleCollapseAll : handleExpandAll}>
+                  {allExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                </Button>
+              )}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="icon" className="h-8 w-8">
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-52">
+                  <DropdownMenuItem onClick={() => approveAllMutation.mutate()} disabled={approveAllMutation.isPending} className="cursor-pointer gap-2">
+                    <CheckCircle2 className="h-4 w-4" />
+                    Approve all
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => lockPeriodMutation.mutate()} disabled={lockPeriodMutation.isPending} className="cursor-pointer gap-2">
+                    <Lock className="h-4 w-4" />
+                    Lock period
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={handleEmailAccountant} className="cursor-pointer gap-2">
+                    <Mail className="h-4 w-4" />
+                    Email to accountant
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => toast({ title: "Coming soon", description: "Tips management coming soon." })} className="cursor-pointer gap-2">
+                    <Settings className="h-4 w-4" />
+                    Manage tips
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => setExportModalOpen(true)} className="cursor-pointer gap-2">
+                    <Download className="h-4 w-4" />
+                    Download
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
+        )}
+
+        {/* Manage timesheet view collapsible — only for pay period tab */}
+        {activeTab === "pay-period" && (
+          <div className="mb-3">
+            <ManageTimesheetView
+              hoursOnly={hoursOnly}
+              setHoursOnly={persistHoursOnly}
+              showScheduledHours={showScheduledHours}
+              setShowScheduledHours={persistShowScheduled}
+              showOffsiteMinutes={showOffsiteMinutes}
+              setShowOffsiteMinutes={persistShowOffsite}
+            />
+          </div>
+        )}
+
+        <TabsContent value="daily" className="mt-0">
           <DailyReviewTab onEntryClick={handleEntryClick} />
         </TabsContent>
 
-        <TabsContent value="pay-period" className="mt-4">
-          <PayPeriodReviewTab data={data} isLoading={isLoading} isError={isError} onEntryClick={handleEntryClick} />
+        <TabsContent value="pay-period" className="mt-0">
+          <PayPeriodReviewTab
+            data={data}
+            isLoading={isLoading}
+            isError={isError}
+            onEntryClick={handleEntryClick}
+            expandedRows={expandedRows}
+            onToggleRow={toggleRow}
+            hoursOnlyFilter={hoursOnly}
+            showScheduledHours={showScheduledHours}
+            showOffsiteMinutes={showOffsiteMinutes}
+            groupNeedsReviewCollapsed={groupNeedsReviewCollapsed}
+            setGroupNeedsReviewCollapsed={setGroupNeedsReviewCollapsed}
+            groupOtherCollapsed={groupOtherCollapsed}
+            setGroupOtherCollapsed={setGroupOtherCollapsed}
+            otData={otData}
+            singleStepApproval={singleStepApproval}
+            onFinalize={() => finalizePeriodMutation.mutate()}
+            isFinalizing={finalizePeriodMutation.isPending}
+            startDate={startDate}
+            endDate={endDate}
+          />
         </TabsContent>
 
         <TabsContent value="workflow" className="mt-4">
@@ -2562,8 +2773,9 @@ export default function Timesheets() {
         date={selectedDate}
         onNavigate={handleNavigate}
         hasPrev={currentIdx > 0}
-        hasNext={currentIdx >= 0 && currentIdx < allFlatEntries.length - 1}
+        hasNext={currentIdx < allFlatEntries.length - 1}
       />
     </div>
   );
 }
+
