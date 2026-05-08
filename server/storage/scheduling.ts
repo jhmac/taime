@@ -70,7 +70,7 @@ export interface ISchedulingStorage {
   // Pass a tenantFilter object to scope to one tenant. Pass null to explicitly
   // bypass scoping (internal/cross-store services only). Omitting the argument
   // (undefined) is fail-closed: returns [].
-  getAllTimeEntries(startDate?: Date, endDate?: Date, includeActive?: boolean, tenantFilter?: { companyId?: string | null; locationName?: string | null } | null): Promise<TimeEntry[]>;
+  getAllTimeEntries(startDate?: Date, endDate?: Date, includeActive?: boolean, tenantFilter?: { companyId?: string | null; locationName?: string | null; locationId?: string | null } | null): Promise<TimeEntry[]>;
 
   createSchedule(schedule: InsertSchedule): Promise<Schedule>;
   createSchedulesBatch(scheduleList: InsertSchedule[]): Promise<Schedule[]>;
@@ -227,7 +227,7 @@ export class SchedulingStorage implements ISchedulingStorage {
       .limit(1000);
   }
 
-  async getAllTimeEntries(startDate?: Date, endDate?: Date, includeActive?: boolean, tenantFilter?: { companyId?: string | null; locationName?: string | null } | null): Promise<TimeEntry[]> {
+  async getAllTimeEntries(startDate?: Date, endDate?: Date, includeActive?: boolean, tenantFilter?: { companyId?: string | null; locationName?: string | null; locationId?: string | null } | null): Promise<TimeEntry[]> {
     // Fail-closed: callers must be explicit about scope. Omitting tenantFilter
     // entirely is treated as a misconfiguration and returns nothing. Pass null to
     // bypass tenant scoping (for internal cross-store services only).
@@ -242,13 +242,38 @@ export class SchedulingStorage implements ISchedulingStorage {
     }
 
     if (tenantFilter) {
-      // Build tenant condition: prefer companyId, fall back to locationName.
-      // If neither is present fail-closed and return nothing (no cross-tenant leakage).
+      // Build tenant condition: prefer companyId, fall back to locationId/locationName.
+      // When scoping by companyId, also include employees whose companyId is null but
+      // who are at the same location — this covers users onboarded before companyId was
+      // fully adopted on all accounts (backward compat, no cross-tenant leakage).
+      // If no identifier is present, fail-closed and return nothing.
       let tenantClause;
       if (tenantFilter.companyId) {
-        tenantClause = eq(users.companyId, tenantFilter.companyId);
+        const nullCompanyLocationConds = [];
+        if (tenantFilter.locationId) {
+          nullCompanyLocationConds.push(eq(users.locationId, tenantFilter.locationId));
+        }
+        if (tenantFilter.locationName) {
+          nullCompanyLocationConds.push(eq(users.locationName, tenantFilter.locationName));
+        }
+        if (nullCompanyLocationConds.length > 0) {
+          tenantClause = or(
+            eq(users.companyId, tenantFilter.companyId),
+            and(isNull(users.companyId), or(...nullCompanyLocationConds)),
+          );
+        } else {
+          tenantClause = eq(users.companyId, tenantFilter.companyId);
+        }
+      } else if (tenantFilter.locationId) {
+        tenantClause = or(
+          eq(users.locationId, tenantFilter.locationId),
+          and(isNull(users.locationId), isNull(users.locationName)),
+        );
       } else if (tenantFilter.locationName) {
-        tenantClause = eq(users.locationName, tenantFilter.locationName);
+        tenantClause = or(
+          eq(users.locationName, tenantFilter.locationName),
+          isNull(users.locationName),
+        );
       } else {
         return [];
       }

@@ -240,10 +240,20 @@ export function registerDashboardRoutes(app: Express, storage: IStorage, isAuthe
       }
 
       // Helper: build the WHERE sub-condition that scopes a query to this tenant.
-      // When companyId is available, use it (possibly narrowed by locationName).
+      // When companyId is available, use it as the primary key. Also include employees
+      // whose companyId is null but who are at the same location — this covers users
+      // onboarded before companyId was fully adopted on all accounts (backward compat).
       // When only locationName is available, match exactly on that column.
       function tenantUserCondition() {
-        if (companyId) return eq(users.companyId, companyId);
+        if (companyId) {
+          if (reqLocationName) {
+            return or(
+              eq(users.companyId, companyId),
+              and(isNull(users.companyId), eq(users.locationName, reqLocationName)),
+            )!;
+          }
+          return eq(users.companyId, companyId);
+        }
         return eq(users.locationName, reqLocationName!);
       }
 

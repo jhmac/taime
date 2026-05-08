@@ -182,6 +182,7 @@ export function registerTimeEntryRoutes(
         const tenantFilter = {
           companyId: user?.companyId ?? null,
           locationName: user?.locationName ?? null,
+          locationId: user?.locationId ?? null,
         };
         timeEntries = await storage.getAllTimeEntries(startDate, endDate, includeActive, tenantFilter);
       } else {
