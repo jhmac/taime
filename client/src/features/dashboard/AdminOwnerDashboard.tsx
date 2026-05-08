@@ -1093,11 +1093,7 @@ export default function AdminOwnerDashboard() {
           </CardHeader>
           <CardContent className="px-4 pb-4">
             <DashboardErrorBoundary fallback="Floor status unavailable">
-<<<<<<< HEAD
               <LiveFloorPanelShared />
-=======
-              <LiveFloorPanel onNavigate={(p) => navigate(p)} />
->>>>>>> ef5f339 (Saved your changes before starting work)
             </DashboardErrorBoundary>
           </CardContent>
         </Card>
