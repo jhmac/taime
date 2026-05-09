@@ -694,6 +694,20 @@ export default function ScheduleManagement() {
       queryClient.invalidateQueries({ queryKey: ["/api/schedules"] });
       queryClient.invalidateQueries({ queryKey: ["/api/availability/calendar/team"] });
       queryClient.invalidateQueries({ queryKey: ["/api/schedules/today-availability"] });
+      // Task #712 — also invalidate the AI suggest cache so the
+      // CreateShiftSplitPanel's "AI Suggested" column doesn't re-present
+      // employees who were just scheduled (the May 9 trust bug). The server
+      // ships an affected `dates` array on bulk_created/bulk_deleted; when
+      // present we invalidate per-date for precision, otherwise we nuke the
+      // whole suggest namespace.
+      const datesPayload = (wsMessage as { data?: { dates?: string[] } }).data?.dates;
+      if (Array.isArray(datesPayload) && datesPayload.length > 0) {
+        for (const d of datesPayload) {
+          queryClient.invalidateQueries({ queryKey: ["/api/schedules/suggest", d] });
+        }
+      } else {
+        queryClient.invalidateQueries({ queryKey: ["/api/schedules/suggest"] });
+      }
     }
   }, [wsMessage, queryClient]);
 

@@ -1975,11 +1975,69 @@ Required format:
         ...(skippedAsConflict.length > 0 ? { skippedAsConflict } : {}),
       });
 
-      // Single consolidated WS broadcast — clients invalidate `/api/schedules` once
+      // Task #712 — write-time prune of the cached AI suggestion. The GET
+      // `/api/schedules/suggest` self-heals at read time, but a stale React
+      // Query cache on either the saving client or another tab/device can
+      // re-present already-scheduled employees and trigger "overlaps existing
+      // shift" toasts on the next save attempt. Prune the cached
+      // `proposedShifts` for every (store, date) we just wrote so the cache
+      // is clean even if a client forgets to invalidate.
+      const affectedDatesSet = new Set<string>();
+      for (const e of entriesToInsert) {
+        if (e._origDate) affectedDatesSet.add(e._origDate);
+      }
+      const affectedDates = Array.from(affectedDatesSet);
+      if (affectedDates.length > 0) {
+        try {
+          const cachedRows = await db.select()
+            .from(aiSuggestedSchedules)
+            .where(and(
+              eq(aiSuggestedSchedules.storeId, applyStoreId),
+              inArray(aiSuggestedSchedules.date, affectedDates),
+            ));
+          for (const row of cachedRows) {
+            const cached = row.scheduleData as any;
+            if (!cached || !Array.isArray(cached.proposedShifts) || cached.proposedShifts.length === 0) continue;
+            const scheduledIdsForDate = new Set(
+              created
+                .filter((c) => {
+                  try { return new Date(c.startTime).toISOString().slice(0, 10) === row.date; }
+                  catch { return false; }
+                })
+                .map((c) => c.userId),
+            );
+            // Also include rows we just inserted whose original date matches
+            // (covers TZ edge cases where the UTC ISO date != the store-local date).
+            for (const e of entriesToInsert) {
+              if (e._origDate === row.date) scheduledIdsForDate.add(e.userId);
+            }
+            if (scheduledIdsForDate.size === 0) continue;
+            const before = cached.proposedShifts.length;
+            cached.proposedShifts = cached.proposedShifts.filter(
+              (s: any) => !scheduledIdsForDate.has(s?.employeeId),
+            );
+            if (cached.proposedShifts.length !== before) {
+              await db.update(aiSuggestedSchedules)
+                .set({ scheduleData: cached })
+                .where(and(
+                  eq(aiSuggestedSchedules.storeId, applyStoreId),
+                  eq(aiSuggestedSchedules.date, row.date),
+                ));
+            }
+          }
+        } catch (pruneErr) {
+          console.warn("[Taime/apply] write-time AI cache prune failed:", pruneErr);
+        }
+      }
+
+      // Single consolidated WS broadcast — clients invalidate `/api/schedules` once.
+      // Task #712 — include `dates` (store-local YYYY-MM-DD) so listening
+      // clients can precisely invalidate `["/api/schedules/suggest", date]`
+      // for each affected day instead of nuking the whole suggest cache.
       const broadcastIds = created.map(c => c.id);
       sendToUsers(
         await computeScheduleStoreRecipients(applyStoreId, getAllStoreUserIds),
-        { type: 'schedules_bulk_created', data: { ids: broadcastIds, schedules: created } },
+        { type: 'schedules_bulk_created', data: { ids: broadcastIds, schedules: created, dates: affectedDates } },
       );
 
       res.json({

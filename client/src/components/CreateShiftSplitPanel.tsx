@@ -3334,11 +3334,23 @@ export default function CreateShiftSplitPanel({
         rawResultKeys: result && typeof result === 'object' ? Object.keys(result) : null,
       });
       // Refetch grid + availability so the user lands on populated views.
-      await Promise.all([
+      // Task #712 — also refetch the AI suggest cache for the saved date so
+      // the "AI Suggested" column doesn't re-present employees the user
+      // just scheduled (the May 9 "+N shifts on every reopen" trust bug).
+      // We refetch per-modalDate (precise) AND invalidate the namespace as
+      // a safety net for any other date queries currently mounted.
+      const refetches: Array<Promise<unknown>> = [
         queryClient.refetchQueries({ queryKey: ["/api/schedules"], type: 'active' }),
         queryClient.refetchQueries({ queryKey: ["/api/schedules/today-availability"], type: 'active' }),
         queryClient.refetchQueries({ queryKey: ["/api/availability/calendar/team"], type: 'active' }),
-      ]);
+      ];
+      if (modalDate) {
+        refetches.push(
+          queryClient.refetchQueries({ queryKey: ["/api/schedules/suggest", modalDate], type: 'active' }),
+        );
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/schedules/suggest"] });
+      await Promise.all(refetches);
       // Also clear pending manual draft shifts so a subsequent panel open doesn't show
       // them as "still pending" alongside the now-persisted versions.
       setManualShifts([]);
