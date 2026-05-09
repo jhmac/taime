@@ -156,8 +156,23 @@ function localDayBoundsUtc(dateStr: string, timezone: string): { start: Date; en
   return { start, endExclusive };
 }
 
+/**
+ * Parse a YYYY-MM-DD string as a UTC midnight Date. Returns null if the string
+ * is malformed or yields an invalid date. Use this everywhere we accept
+ * `startDate`/`endDate` in request bodies so that day-iteration math
+ * (`getUTCDay`, `setUTCDate`) and DB date predicates stay timezone-stable.
+ */
+function parseDateOnlyUtc(s: unknown): Date | null {
+  if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const d = new Date(`${s}T00:00:00.000Z`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
 function findClosestDayOfWeekDate(targetDate: Date, salesDates: Array<{ date: Date; dayOfWeek: number; totalRevenue: string }>): { date: Date; totalRevenue: string } | null {
-  const targetDow = targetDate.getDay();
+  // Use UTC day-of-week so this matches callers that build dates with Date.UTC().
+  // Using local getDay() here previously caused weekday off-by-one matches in
+  // non-UTC server timezones, returning revenue from the wrong weekday.
+  const targetDow = targetDate.getUTCDay();
 
   // Anchor at exactly 52 weeks back so the closest-match search centres on the
   // correct week rather than the same calendar date (which shifts the weekday).
@@ -681,6 +696,20 @@ export function registerAiSchedulingRoutes(
       if (!startDate || !endDate) {
         return res.status(400).json({ message: "Start date and end date are required" });
       }
+      const startParsed = parseDateOnlyUtc(startDate);
+      const endParsed = parseDateOnlyUtc(endDate);
+      if (!startParsed || !endParsed) {
+        return res.status(400).json({ message: "startDate and endDate must be YYYY-MM-DD" });
+      }
+      if (startParsed > endParsed) {
+        return res.status(400).json({ message: "startDate must be on or before endDate" });
+      }
+      // Cap range to ~3 months so a malformed/abusive request can't iterate
+      // unbounded days, balloon prompt size, or hit Anthropic max_tokens.
+      const rangeDays = Math.round((endParsed.getTime() - startParsed.getTime()) / 86400000) + 1;
+      if (rangeDays > 95) {
+        return res.status(400).json({ message: "Date range cannot exceed 95 days" });
+      }
 
       // Resolve which store this generation run is for. The labor cost band,
       // staffing tiers, and store hours are all per-store now (Task #435), so
@@ -729,8 +758,8 @@ export function registerAiSchedulingRoutes(
 
       const storeHoursArray = (settings.storeHours as any[]) || [];
 
-      const start = new Date(startDate);
-      const end = new Date(endDate);
+      const start = startParsed;
+      const end = endParsed;
 
       let salesData: Array<{ date: Date; dayOfWeek: number; totalRevenue: string }> = [];
       let resolvedShopDomain = shopDomain;
@@ -776,10 +805,10 @@ export function registerAiSchedulingRoutes(
 
       const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
         const current = new Date(d);
         const dateStr = current.toISOString().split('T')[0];
-        const dow = current.getDay();
+        const dow = current.getUTCDay();
 
         let predictedRevenue = 0;
         let matchedDate: string | undefined;
@@ -1197,19 +1226,59 @@ Required JSON structure:
       const storeId = await tryResolveStoreIdForUser(userId);
       if (!storeId) return res.status(400).json({ message: "No store associated with your account" });
 
+      // Use UTC throughout so the default 28-day window stays stable across
+      // timezones (a `setDate` rollover in UTC+ regions would otherwise skip
+      // a day or include a day already past store-local midnight).
       const { startDate, endDate } = req.query as { startDate?: string; endDate?: string };
-      const rangeStart = startDate || new Date().toISOString().split('T')[0];
-      const rangeEnd = endDate || (() => { const d = new Date(); d.setDate(d.getDate() + 27); return d.toISOString().split('T')[0]; })();
+      const todayUtc = new Date();
+      const fmt = (d: Date) =>
+        `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
 
-      const rows = await db.select({
-        date: aiSuggestedSchedules.date,
-        generatedAt: aiSuggestedSchedules.generatedAt,
-      }).from(aiSuggestedSchedules)
-        .where(and(
-          eq(aiSuggestedSchedules.storeId, storeId),
-          gte(aiSuggestedSchedules.date, rangeStart),
-          lte(aiSuggestedSchedules.date, rangeEnd),
-        ));
+      const rangeStartParsed = startDate
+        ? parseDateOnlyUtc(startDate)
+        : new Date(`${fmt(todayUtc)}T00:00:00.000Z`);
+      if (!rangeStartParsed) {
+        return res.status(400).json({ message: "startDate must be YYYY-MM-DD" });
+      }
+      let rangeEndParsed: Date | null;
+      if (endDate) {
+        rangeEndParsed = parseDateOnlyUtc(endDate);
+        if (!rangeEndParsed) return res.status(400).json({ message: "endDate must be YYYY-MM-DD" });
+      } else {
+        rangeEndParsed = new Date(rangeStartParsed);
+        rangeEndParsed.setUTCDate(rangeEndParsed.getUTCDate() + 27);
+      }
+      const rangeStart = fmt(rangeStartParsed);
+      const rangeEnd = fmt(rangeEndParsed);
+
+      // Load store hours so the UI can show "X of N schedulable days" instead
+      // of dividing by a hardcoded 28 (which never reaches 100% for stores
+      // closed one or more days per week — Sunday-closed stores would always
+      // show 24/28 even when fully built).
+      const [rows, settingsRow] = await Promise.all([
+        db.select({
+          date: aiSuggestedSchedules.date,
+          generatedAt: aiSuggestedSchedules.generatedAt,
+        }).from(aiSuggestedSchedules)
+          .where(and(
+            eq(aiSuggestedSchedules.storeId, storeId),
+            gte(aiSuggestedSchedules.date, rangeStart),
+            lte(aiSuggestedSchedules.date, rangeEnd),
+          )),
+        db.select({ storeHours: aiSchedulingSettings.storeHours })
+          .from(aiSchedulingSettings)
+          .where(eq(aiSchedulingSettings.storeId, storeId))
+          .limit(1),
+      ]);
+
+      const storeHoursArr = (settingsRow[0]?.storeHours as any[]) || [];
+      const closedDow = new Set<number>(
+        storeHoursArr.filter((h: any) => h?.isClosed).map((h: any) => h.dayOfWeek)
+      );
+      let schedulableTotal = 0;
+      for (let d = new Date(rangeStartParsed); d <= rangeEndParsed; d.setUTCDate(d.getUTCDate() + 1)) {
+        if (!closedDow.has(d.getUTCDay())) schedulableTotal++;
+      }
 
       res.json({
         prebuiltDates: rows.map(r => ({
@@ -1219,6 +1288,7 @@ Required JSON structure:
         rangeStart,
         rangeEnd,
         total: rows.length,
+        schedulableTotal,
       });
     } catch (error) {
       logger.error({ error: String(error) }, "[prebuild-status] error");
@@ -1241,18 +1311,49 @@ Required JSON structure:
       }
 
       const { force = false } = req.body;
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const pbStartRaw: string = req.body.startDate || today.toISOString().split('T')[0];
-      const pbEnd = req.body.endDate
-        ? new Date(req.body.endDate)
-        : (() => { const d = new Date(today); d.setDate(d.getDate() + 27); return d; })();
-      const pbStart = new Date(pbStartRaw);
+      // Use UTC throughout to avoid local-timezone off-by-one weekday labels.
+      // Validate any caller-provided dates strictly so malformed input becomes
+      // a clean 400 rather than `Invalid Date` propagating into Drizzle.
+      const todayUtc = new Date();
+      const formatUtc = (d: Date) =>
+        `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+
+      let pbStart: Date;
+      if (req.body.startDate !== undefined) {
+        const parsed = parseDateOnlyUtc(req.body.startDate);
+        if (!parsed) return res.status(400).json({ message: "startDate must be YYYY-MM-DD" });
+        pbStart = parsed;
+      } else {
+        pbStart = new Date(`${formatUtc(todayUtc)}T00:00:00.000Z`);
+      }
+
+      let pbEnd: Date;
+      if (req.body.endDate !== undefined) {
+        const parsed = parseDateOnlyUtc(req.body.endDate);
+        if (!parsed) return res.status(400).json({ message: "endDate must be YYYY-MM-DD" });
+        pbEnd = parsed;
+      } else {
+        pbEnd = new Date(pbStart);
+        pbEnd.setUTCDate(pbEnd.getUTCDate() + 27);
+      }
+      if (pbStart > pbEnd) {
+        return res.status(400).json({ message: "startDate must be on or before endDate" });
+      }
+      const pbRangeDays = Math.round((pbEnd.getTime() - pbStart.getTime()) / 86400000) + 1;
+      if (pbRangeDays > 31) {
+        return res.status(400).json({ message: "Pre-build range cannot exceed 31 days (one AI call)" });
+      }
+      const pbStartRaw = formatUtc(pbStart);
+      const pbEndRaw = formatUtc(pbEnd);
 
       // ── If not forced, skip days that already have suggestions ─────────────
       const existingRows = force ? [] : await db.select({ date: aiSuggestedSchedules.date })
         .from(aiSuggestedSchedules)
-        .where(and(eq(aiSuggestedSchedules.storeId, storeId), gte(aiSuggestedSchedules.date, pbStartRaw)));
+        .where(and(
+          eq(aiSuggestedSchedules.storeId, storeId),
+          gte(aiSuggestedSchedules.date, pbStartRaw),
+          lte(aiSuggestedSchedules.date, pbEndRaw),
+        ));
       const existingDates = new Set(existingRows.map(r => typeof r.date === 'string' ? r.date : new Date(r.date).toISOString().split('T')[0]));
 
       // ── Load settings ───────────────────────────────────────────────────────
@@ -1302,10 +1403,10 @@ Required JSON structure:
         matchedLastYearDate?: string;
       }> = [];
 
-      for (let d = new Date(pbStart); d <= pbEnd; d.setDate(d.getDate() + 1)) {
+      for (let d = new Date(pbStart); d <= pbEnd; d.setUTCDate(d.getUTCDate() + 1)) {
         const current = new Date(d);
         const dateStr = current.toISOString().split('T')[0];
-        const dow = current.getDay();
+        const dow = current.getUTCDay();
         let predictedRevenue = 0;
         let matchedDate: string | undefined;
         if (salesData.length > 0) {
@@ -1515,17 +1616,19 @@ Required format:
         return { open: sh.openTime || '09:00', close: sh.closeTime || '21:00' };
       };
 
-      // ── Upsert each day into aiSuggestedSchedules ─────────────────────────
-      let daysPrebuilt = 0;
+      // ── Build upsert rows, then batch into a single statement ──────────────
       let skipped = 0;
+      const employeeById = new Map(employeeList.map(e => [e.id, e]));
+      const summaryText = typeof parsedSchedule.summary === 'string' ? parsedSchedule.summary.slice(0, 500) : '';
+      const dataSource = salesData.length > 0 ? 'shopify' : 'synthetic';
 
-      for (const day of days) {
-        if (closedDays.has(day.dayOfWeek)) continue;
-        if (!force && existingDates.has(day.date)) { skipped++; continue; }
+      const upsertRows = days.flatMap(day => {
+        if (closedDays.has(day.dayOfWeek)) return [];
+        if (!force && existingDates.has(day.date)) { skipped++; return []; }
 
         const dayEntries = byDate[day.date] || [];
         const proposedShifts = dayEntries.map((entry: any) => {
-          const emp = employeeList.find(e => e.id === entry.employeeId);
+          const emp = employeeById.get(entry.employeeId);
           const user = userMap[entry.employeeId];
           return {
             employeeId: entry.employeeId,
@@ -1539,25 +1642,30 @@ Required format:
           };
         });
 
-        const storeHours = getStoreHoursForDow(day.dayOfWeek);
         const scheduleData = {
           date: day.date,
           proposedShifts,
           historicalDate: day.matchedLastYearDate || '',
-          dataSource: salesData.length > 0 ? 'shopify' : 'synthetic',
+          dataSource,
           hourlyData: [],
-          storeHours,
-          prebuildSummary: typeof parsedSchedule.summary === 'string' ? parsedSchedule.summary.slice(0, 500) : '',
+          storeHours: getStoreHoursForDow(day.dayOfWeek),
+          prebuildSummary: summaryText,
         };
 
+        return [{ storeId, date: day.date, scheduleData: scheduleData as any }];
+      });
+
+      const daysPrebuilt = upsertRows.length;
+      if (daysPrebuilt > 0) {
         await db.insert(aiSuggestedSchedules)
-          .values({ storeId, date: day.date, scheduleData: scheduleData as any })
+          .values(upsertRows)
           .onConflictDoUpdate({
             target: [aiSuggestedSchedules.storeId, aiSuggestedSchedules.date],
-            set: { scheduleData: scheduleData as any, generatedAt: new Date() },
+            set: {
+              scheduleData: sql`EXCLUDED.schedule_data`,
+              generatedAt: sql`NOW()`,
+            },
           });
-
-        daysPrebuilt++;
       }
 
       logger.info({ storeId, daysPrebuilt, skipped, force }, "[prebuild] completed");
@@ -3804,6 +3912,14 @@ Respond ONLY with a valid JSON object (no markdown, no explanation) in this exac
       if (!startDate || !endDate) {
         return res.status(400).json({ message: "startDate and endDate are required" });
       }
+      const reviewStartParsed = parseDateOnlyUtc(startDate);
+      const reviewEndParsed = parseDateOnlyUtc(endDate);
+      if (!reviewStartParsed || !reviewEndParsed) {
+        return res.status(400).json({ message: "startDate and endDate must be YYYY-MM-DD" });
+      }
+      if (reviewStartParsed > reviewEndParsed) {
+        return res.status(400).json({ message: "startDate must be on or before endDate" });
+      }
 
       // ── Resolve store and scope all queries to the caller's store ─────────────
       const { getAllStoreUserIds } = await import('../lib/permissionUtils');
@@ -3843,8 +3959,8 @@ Respond ONLY with a valid JSON object (no markdown, no explanation) in this exac
       const shiftBlocks = (settings.shiftBlocks as any[]) || [];
       const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-      const start = new Date(startDate);
-      const end = new Date(endDate);
+      const start = reviewStartParsed;
+      const end = reviewEndParsed;
 
       // Build the days array (use provided days with revenue if available, otherwise build from range)
       const days: Array<{ date: string; dayOfWeek: number; dayName: string; predictedRevenue?: number; requiredStaff?: number }> = [];
@@ -3853,10 +3969,10 @@ Respond ONLY with a valid JSON object (no markdown, no explanation) in this exac
           if (d.date) days.push(d);
         }
       } else {
-        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+        for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
           const current = new Date(d);
           const dateStr = current.toISOString().split('T')[0];
-          const dow = current.getDay();
+          const dow = current.getUTCDay();
           days.push({ date: dateStr, dayOfWeek: dow, dayName: dayNames[dow] });
         }
       }

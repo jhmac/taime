@@ -68,6 +68,9 @@ interface PrebuildStatus {
   rangeStart: string;
   rangeEnd: string;
   total: number;
+  // Days the store is actually open in the range (28 minus closed weekdays).
+  // Optional for backwards compat with older server responses.
+  schedulableTotal?: number;
 }
 
 function getWeekLabel(startDate: Date): string {
@@ -262,7 +265,10 @@ export default function AIScheduleGenerator() {
 
   const weeks = getNext4Weeks();
   const prebuiltSet = new Set((prebuildStatus?.prebuiltDates || []).map(d => d.date));
-  const totalDays = 28;
+  // Use the server's schedulable-day count (28 minus closed weekdays) so a
+  // store closed on Sundays can still reach "X of X days have pre-built
+  // suggestions" instead of stalling at 24/28 forever.
+  const totalDays = prebuildStatus?.schedulableTotal ?? 28;
   const prebuiltCount = prebuildStatus?.total ?? 0;
   const isPrebuildPending = prebuildMutation.isPending || regenerateMutation.isPending;
 
