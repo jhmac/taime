@@ -2103,6 +2103,18 @@ export default function CreateShiftSplitPanel({
   }, [open]);
   // A1 confirm-on-close dialog state.
   const [pendingCloseConfirm, setPendingCloseConfirm] = useState(false);
+  // Local confirmation + in-flight state for the Delete button (Task #700,
+  // Bug 4). Tracking pending here — instead of relying on the parent's
+  // shared `isDeleting` prop — ensures the spinner only appears on the
+  // shift the user actually clicked Delete on.
+  const [pendingDeleteConfirm, setPendingDeleteConfirm] = useState(false);
+  const [localDeletePending, setLocalDeletePending] = useState(false);
+  useEffect(() => {
+    // When the parent's mutation finishes (panel typically closes on
+    // success), drop our local pending flag so a subsequent open starts
+    // fresh.
+    if (!isDeleting) setLocalDeletePending(false);
+  }, [isDeleting]);
   // C6 keyboard cheat-sheet, toggled by ? and /.
   const [showShortcutOverlay, setShowShortcutOverlay] = useState(false);
   // Last batch of created IDs so bulk-undo can DELETE them within 10s.
@@ -2259,6 +2271,19 @@ export default function CreateShiftSplitPanel({
     setModalNotes(editingSchedule.description ?? '');
     if (onDateChange) onDateChange(dateStr);
   }, [open, editingSchedule]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // If `locations` resolves AFTER the populate effect ran (async fetch),
+  // back-fill `modalLocationId` with the first available location so the
+  // location dropdown isn't blank on re-open (Task #700, Bug 3).
+  useEffect(() => {
+    if (!open || !editingSchedule) return;
+    if (modalLocationId) return;
+    if (editingSchedule.locationId) {
+      setModalLocationId(editingSchedule.locationId);
+    } else if (locations.length > 0) {
+      setModalLocationId(locations[0].id);
+    }
+  }, [open, editingSchedule, locations, modalLocationId]);
 
   // When editingSchedule is cleared while the panel is still open (e.g. "Add Shift" clicked),
   // reset the form fields so the user sees a blank create form for the same date
@@ -3668,11 +3693,20 @@ export default function CreateShiftSplitPanel({
     // otherwise the form fields belong to a manual shift and applying them
     // here would corrupt the original shift's times.
     if (editingTheOriginal) {
+      // Mirror handleSaveActual's local-time construction so re-opening the
+      // panel after a save does not drift the displayed times for users in
+      // non-UTC timezones (Task #700, Bug 2).
+      const [y, mo, d] = modalDate.split('-').map(Number);
+      const [sh, sm] = modalStartTime.split(':').map(Number);
+      const [eh, em] = modalEndTime.split(':').map(Number);
+      const startDate = new Date(y, mo - 1, d, sh, sm, 0, 0);
+      const endDate = new Date(y, mo - 1, d, eh, em, 0, 0);
+      if (endDate <= startDate) endDate.setDate(endDate.getDate() + 1);
       const editingPayload = {
         id: editingSchedule.id,
         userId: effectiveUserId,
-        startTime: new Date(`${modalDate}T${modalStartTime}`),
-        endTime: new Date(`${modalDate}T${modalEndTime}`),
+        startTime: startDate,
+        endTime: endDate,
         title: modalTitle || null,
         locationId: modalLocationId || null,
         description: modalNotes || null,
@@ -5393,11 +5427,12 @@ export default function CreateShiftSplitPanel({
                     type="button"
                     variant="destructive"
                     size="sm"
-                    disabled={isDeleting}
-                    onClick={() => onDeleteSchedule(editingSchedule.id)}
+                    disabled={localDeletePending && isDeleting}
+                    onClick={() => setPendingDeleteConfirm(true)}
                     className="gap-1.5"
+                    data-testid="edit-shift-delete"
                   >
-                    {isDeleting ? (
+                    {localDeletePending && isDeleting ? (
                       <><Loader2 className="h-3 w-3 animate-spin" />Deleting…</>
                     ) : (
                       <><Trash2 className="h-3 w-3" />Delete</>
@@ -5702,6 +5737,36 @@ export default function CreateShiftSplitPanel({
             {approveMutation.isPending || updateActualMutation.isPending || isUpdating ? (
               <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" />Saving…</>
             ) : (editingSchedule || isActualEditing) ? 'Save & close' : validActiveShifts.length > 0 ? 'Save & close' : 'Keep draft & close'}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+
+    {/* Delete-shift confirmation (Task #700, Bug 4) */}
+    <AlertDialog open={pendingDeleteConfirm} onOpenChange={setPendingDeleteConfirm}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-destructive" />
+            Delete this shift?
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            This cannot be undone. The shift will be removed from the schedule.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter className="gap-2 sm:gap-2">
+          <AlertDialogCancel data-testid="delete-confirm-cancel">Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            onClick={() => {
+              if (!editingSchedule || !onDeleteSchedule) return;
+              setPendingDeleteConfirm(false);
+              setLocalDeletePending(true);
+              onDeleteSchedule(editingSchedule.id);
+            }}
+            data-testid="delete-confirm-confirm"
+          >
+            Delete
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

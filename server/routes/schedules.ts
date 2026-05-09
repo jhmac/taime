@@ -111,7 +111,15 @@ export function registerScheduleRoutes(
       const canManage = await resolveAnyPermission(userId, ['admin.manage_all', 'schedule.manage'], storage);
       if (!canManage) return res.status(403).json({ message: "Permission denied" });
 
-      const body = { ...req.body };
+      // Strip protected/identity fields from the PATCH body — callers
+      // (notably ScheduleManagement) sometimes pass the full schedule
+      // object as the PATCH body, which includes `id`, `storeId`, and
+      // timestamp columns. Some Drizzle adapters surface "column id
+      // cannot be updated" errors when these are present, causing
+      // intermittent 400 failures (Task #700). `userId` is intentionally
+      // left mutable here because reassigning a shift to a different
+      // employee from the edit panel is a supported flow.
+      const { id: _omitId, storeId: _omitStoreId, createdAt: _omitCreatedAt, updatedAt: _omitUpdatedAt, ...body } = req.body ?? {};
       if (body.startTime && typeof body.startTime === 'string') body.startTime = new Date(body.startTime);
       if (body.endTime && typeof body.endTime === 'string') body.endTime = new Date(body.endTime);
 
