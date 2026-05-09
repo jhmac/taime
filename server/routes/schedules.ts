@@ -143,6 +143,18 @@ export function registerScheduleRoutes(
       res.json(updated);
     } catch (error) {
       console.error("Error updating schedule:", error);
+      // Postgres exclusion-constraint violation (code 23P01) from
+      // `schedules_no_overlap_per_user` — surface a friendly message so the
+      // edit panel can show "Employee already has a shift in this time
+      // range" rather than the generic "Failed to update shift" toast.
+      // (Task #707)
+      const pgErr = error as { code?: string };
+      if (pgErr?.code === '23P01') {
+        return res.status(409).json({
+          message: "Employee already has a shift in this time range",
+          code: 'shift_overlap',
+        });
+      }
       res.status(400).json({ message: (error as Error).message });
     }
   });

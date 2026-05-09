@@ -862,6 +862,32 @@ export default function ScheduleManagement() {
     },
     onError: (err) => {
       dlog("updateScheduleMutation/error", { error: String(err) });
+      // apiRequest throws `new Error(\`${status}: ${text}\`)` where text is
+      // the raw JSON response body. Parse it to detect the structured
+      // shift_overlap code (Task #707) rather than matching on the broad
+      // "409:" prefix — that would mislabel any future unrelated 409 as an
+      // overlap conflict.
+      const rawMsg = String(err?.message ?? err);
+      let isOverlap = false;
+      try {
+        const jsonStart = rawMsg.indexOf('{');
+        if (jsonStart !== -1) {
+          const body = JSON.parse(rawMsg.slice(jsonStart)) as { code?: string };
+          isOverlap = body.code === 'shift_overlap';
+        }
+      } catch {
+        // JSON parsing failed — fall back to text match on the specific code
+        // string so the message stays useful even in degraded response paths.
+        isOverlap = rawMsg.includes('"shift_overlap"');
+      }
+      if (isOverlap) {
+        toast({
+          title: "Scheduling conflict",
+          description: "Employee already has a shift in this time range.",
+          variant: "destructive",
+        });
+        return;
+      }
       toast({ title: "Error", description: "Failed to update shift.", variant: "destructive" });
     },
   });
@@ -2141,6 +2167,10 @@ export default function ScheduleManagement() {
         isCreating={createScheduleMutation.isPending}
         autoAssignMutation={autoAssignMutation}
         isAdmin={isAdmin}
+        onSelectSchedule={(schedule) => {
+          setEditingSchedule(schedule);
+          setShowCreateShift(true);
+        }}
         schedules={schedules}
         editingSchedule={editingSchedule}
         onUpdateSchedule={(data) => updateScheduleMutation.mutate({ id: data.id, data })}

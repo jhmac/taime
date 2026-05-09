@@ -37,13 +37,35 @@ vi.mock("../server/services/locationPermissionStore", () => ({
   setLocationPermission: vi.fn(),
 }));
 vi.mock("../server/lib/config", () => ({
-  config: { server: { nodeEnv: "test", port: 5000 } },
+  config: {
+    server: { nodeEnv: "test", port: 5000 },
+    // emailService.ts reads config.nylas.* at module initialisation; the mock
+    // must include the nylas subtree even when tests don't exercise email paths.
+    nylas: { apiKey: "", grantId: "" },
+  },
 }));
 vi.mock("../server/lib/logger", () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 vi.mock("../server/services/gamificationService", () => ({
   gamificationService: { computeUserScore: vi.fn() },
+}));
+// claudeService instantiates Anthropic at module load using config.anthropic.apiKey;
+// mock it so the config mock doesn't need to carry real AI credentials.
+vi.mock("../server/services/claudeService", () => ({
+  claudeService: {
+    chat: vi.fn().mockResolvedValue(""),
+    generateSchedule: vi.fn().mockResolvedValue({ shifts: [] }),
+    assignChores: vi.fn().mockResolvedValue([]),
+    detectAnomalies: vi.fn().mockResolvedValue([]),
+    analyzePayroll: vi.fn().mockResolvedValue({}),
+  },
+}));
+// storeResolver makes additional DB selects as a fallback when companyId/locationName
+// are null. Mock it so the null-tenant guard test can assert selectCallCount correctly.
+vi.mock("../server/services/storeResolver", () => ({
+  tryResolveStoreIdForUser: vi.fn().mockResolvedValue(null),
+  resolveStoreIdForUser: vi.fn().mockResolvedValue(null),
 }));
 
 // ── Imports (after mocks) ─────────────────────────────────────────────────────

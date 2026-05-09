@@ -2103,6 +2103,15 @@ export default function CreateShiftSplitPanel({
   }, [open]);
   // A1 confirm-on-close dialog state.
   const [pendingCloseConfirm, setPendingCloseConfirm] = useState(false);
+  // Pre-save reassignment-conflict dialog (Task #707). Set when the user
+  // tries to save an editingSchedule edit but the destination employee
+  // already has another shift overlapping the new time window. Carries the
+  // conflicting Schedule + employee display name so the dialog can show
+  // exactly which existing shift is in the way and offer a "View conflict"
+  // jump.
+  const [pendingOverlapConflict, setPendingOverlapConflict] = useState<
+    { conflictSchedule: Schedule; employeeName: string } | null
+  >(null);
   // Local confirmation + in-flight state for the Delete button (Task #700,
   // Bug 4). Tracking pending here — instead of relying on the parent's
   // shared `isDeleting` prop — ensures the spinner only appears on the
@@ -2201,6 +2210,7 @@ export default function CreateShiftSplitPanel({
       setMultiSelectAnchorId(null);
       setShowCopyDayDialog(false);
       setShowMoveDayDialog(false);
+      setPendingOverlapConflict(null);
       forceRegenRef.current = false;
       dlog("panel/open");
     } else {
@@ -3674,6 +3684,38 @@ export default function CreateShiftSplitPanel({
   // otherwise that dialog would call handleBulkSave and create the AI
   // proposals as brand-new shifts each cycle (the "+1 shift on every
   // reopen" bug). Returns true if the save was dispatched.
+  // Pre-save destination-overlap check for editingSchedule mode (Task #707).
+  // Returns the conflicting Schedule (other than the one being edited) on the
+  // destination employee whose time window overlaps the modal start/end on
+  // `modalDate`, or null when the save is safe to proceed. Uses local-time
+  // construction to mirror handleEditingScheduleSave's payload — otherwise a
+  // user in a non-UTC zone could see a false "no conflict" result while the
+  // server still rejects the save.
+  const findEditingDestinationConflict = useCallback((): Schedule | null => {
+    if (!editingSchedule) return null;
+    const targetUserId = selectedUserId || editingSchedule.userId;
+    if (!targetUserId || !modalDate || !modalStartTime || !modalEndTime) return null;
+    const [y, mo, d] = modalDate.split('-').map(Number);
+    const [sh, sm] = modalStartTime.split(':').map(Number);
+    const [eh, em] = modalEndTime.split(':').map(Number);
+    if ([y, mo, d, sh, sm, eh, em].some((n) => Number.isNaN(n))) return null;
+    const newStart = new Date(y, mo - 1, d, sh, sm, 0, 0);
+    const newEnd = new Date(y, mo - 1, d, eh, em, 0, 0);
+    if (newEnd <= newStart) newEnd.setDate(newEnd.getDate() + 1);
+    const newStartMs = newStart.getTime();
+    const newEndMs = newEnd.getTime();
+    for (const s of schedules ?? []) {
+      if (s.id === editingSchedule.id) continue;
+      if (s.userId !== targetUserId) continue;
+      const otherStart = new Date(s.startTime as unknown as string).getTime();
+      const otherEnd = new Date(s.endTime as unknown as string).getTime();
+      if (!Number.isFinite(otherStart) || !Number.isFinite(otherEnd)) continue;
+      // Half-open interval overlap, matching the GIST exclusion constraint.
+      if (newStartMs < otherEnd && newEndMs > otherStart) return s;
+    }
+    return null;
+  }, [editingSchedule, selectedUserId, modalDate, modalStartTime, modalEndTime, schedules]);
+
   const handleEditingScheduleSave = useCallback((): boolean => {
     if (!editingSchedule || !onUpdateSchedule) return false;
     const effectiveUserId = selectedUserId || editingSchedule.userId;
@@ -3815,6 +3857,29 @@ export default function CreateShiftSplitPanel({
       modalTitle: modalTitle || null,
     });
     if (editingSchedule && onUpdateSchedule) {
+      // Task #707 — block the save when reassignment (or simply moving the
+      // time) would land on top of another shift the destination employee
+      // already has. The dialog explains which shift conflicts and offers
+      // a "View conflict" jump; the user has to explicitly confirm or
+      // cancel before the request is sent. Skip the check when the user
+      // had a manual draft selected (selectedShiftIdx !== null) since the
+      // approve path handles those separately.
+      if (selectedShiftIdx === null) {
+        const conflict = findEditingDestinationConflict();
+        if (conflict) {
+          const emp = employees.find((u) => u.id === conflict.userId);
+          const empName = emp
+            ? `${emp.firstName ?? ''} ${emp.lastName ?? ''}`.trim() || emp.email || 'this employee'
+            : 'this employee';
+          dlog("handleSubmit/blockedByOverlap", {
+            editingId: editingSchedule.id,
+            conflictId: conflict.id,
+            destinationUserId: selectedUserId || editingSchedule.userId,
+          });
+          setPendingOverlapConflict({ conflictSchedule: conflict, employeeName: empName });
+          return;
+        }
+      }
       handleEditingScheduleSave();
     } else {
       onCreateShift({
@@ -4174,7 +4239,15 @@ export default function CreateShiftSplitPanel({
 
     // Inline `isActualEditing` (selectedActualSchedule !== null) so this
     // useMemo doesn't depend on a const declared further down in the file.
-    const ignoreScheduleId = selectedActualSchedule ? selectedActualSchedule.id : null;
+    // Also ignore `editingSchedule.id` (Task #707) — when the panel is
+    // opened to edit a single saved shift, the shift itself is in
+    // `liveActualShifts` and would otherwise mark its own assignee as
+    // "already scheduled" against themselves.
+    const ignoreScheduleId = selectedActualSchedule
+      ? selectedActualSchedule.id
+      : editingSchedule
+      ? editingSchedule.id
+      : null;
     // Index of the manual shift currently being edited (if any) so we
     // skip it when checking for self-overlap. selectedShiftIdx is into
     // proposedShifts (AI then manual); subtracting aiCount yields the
@@ -4211,6 +4284,7 @@ export default function CreateShiftSplitPanel({
     proposedShifts.length,
     selectedShiftIdx,
     selectedActualSchedule,
+    editingSchedule,
   ]);
 
   // Employee IDs that already appear on the timeline (proposed + actual) — used by pills
@@ -5741,6 +5815,78 @@ export default function CreateShiftSplitPanel({
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+
+    {/* Reassignment-overlap confirmation (Task #707).
+        Triggered before the PATCH is fired when the destination employee
+        already has another shift overlapping the new time window. Two
+        explicit choices: Cancel (keep editing — the panel stays open with
+        the user's pending changes intact) and View conflict (close this
+        edit and open the conflicting shift so the manager can resolve it
+        directly). Details are pre-computed from the conflict state so the
+        JSX stays flat — no IIFEs, no conditional rendering scattered
+        through the body. */}
+    {(() => {
+      const oc = pendingOverlapConflict;
+      if (!oc) return null;
+      const sd = new Date(oc.conflictSchedule.startTime as unknown as string);
+      const ed = new Date(oc.conflictSchedule.endTime as unknown as string);
+      const conflictDay = sd.toLocaleDateString('en-US', {
+        weekday: 'short', month: 'short', day: 'numeric',
+      });
+      const fmtTime = (d: Date) =>
+        d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+      const conflictTitle = oc.conflictSchedule.title
+        ? `${oc.conflictSchedule.title} – ${conflictDay}`
+        : conflictDay;
+      return (
+        <AlertDialog
+          open
+          onOpenChange={(o) => { if (!o) setPendingOverlapConflict(null); }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle className="flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-500" />
+                Scheduling conflict
+              </AlertDialogTitle>
+              <AlertDialogDescription asChild>
+                <div className="space-y-2 text-sm">
+                  <p>
+                    <span className="font-medium">{oc.employeeName}</span>{' '}
+                    already has a shift that overlaps this time range.
+                  </p>
+                  <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+                    <div className="font-medium">{conflictTitle}</div>
+                    <div>{fmtTime(sd)}–{fmtTime(ed)}</div>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Adjust the time or pick a different employee, or jump to the
+                    conflicting shift to resolve it first.
+                  </p>
+                </div>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter className="gap-2 sm:gap-2">
+              <AlertDialogCancel data-testid="overlap-conflict-cancel">
+                Cancel
+              </AlertDialogCancel>
+              {onSelectSchedule && (
+                <AlertDialogAction
+                  onClick={() => {
+                    const conflict = oc.conflictSchedule;
+                    setPendingOverlapConflict(null);
+                    onSelectSchedule(conflict);
+                  }}
+                  data-testid="overlap-conflict-view"
+                >
+                  View conflict
+                </AlertDialogAction>
+              )}
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      );
+    })()}
 
     {/* Delete-shift confirmation (Task #700, Bug 4) */}
     <AlertDialog open={pendingDeleteConfirm} onOpenChange={setPendingDeleteConfirm}>
