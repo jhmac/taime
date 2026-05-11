@@ -4046,6 +4046,46 @@ export default function CreateShiftSplitPanel({
           : s
       );
       setManualShifts(liveManual);
+    } else if (
+      selectedShiftIdx === null &&
+      manualShifts.length === 0 &&
+      aiProposedShifts.length === 0 &&
+      selectedUserId &&
+      modalStartTime &&
+      modalEndTime &&
+      modalDate
+    ) {
+      // MOBILE / QUICK-ADD FIX: when the panel is opened from a quick-add
+      // (handleQuickAdd / handleGapClick / openCreateShift on a free day) the
+      // parent pre-fills the right-hand form (employee + date + start/end)
+      // but no manual draft card exists in the timeline yet — selectedShiftIdx
+      // is null and manualShifts is []. Previously, tapping Save here silently
+      // dropped the form's contents because the commit branch above only fires
+      // when a draft is selected, leaving liveValid empty and showing the
+      // misleading "No shifts to save / Assign an employee to at least one
+      // shift before saving" toast even though the form was clearly filled in.
+      // Synthesize a single manual shift from the current form state so the
+      // Save button does what the user expects.
+      const emp = employees.find((e) => e.id === selectedUserId);
+      const empName = emp ? `${emp.firstName ?? ''} ${emp.lastName ?? ''}`.trim() : '';
+      const synthesized: ProposedShift = {
+        employeeId: selectedUserId,
+        employeeName: empName,
+        profileImageUrl: (emp as { profileImageUrl?: string | null } | undefined)?.profileImageUrl ?? null,
+        startTime: modalStartTime,
+        endTime: modalEndTime,
+        shiftBlock: modalTitle?.trim() ? modalTitle.trim() : 'Manual Shift',
+        rationale: modalNotes?.trim() || '',
+        revenue: 0,
+      };
+      liveManual = [synthesized];
+      setManualShifts(liveManual);
+      dlog('handleBulkSave/synthesizedFromForm', {
+        date: modalDate,
+        employeeId: selectedUserId,
+        startTime: modalStartTime,
+        endTime: modalEndTime,
+      });
     }
     const liveProposed = [...aiProposedShifts, ...liveManual.filter(
       s => !persistedManualKeys.has(`${s.employeeId}:${s.startTime}:${s.endTime}`)
@@ -5270,14 +5310,27 @@ export default function CreateShiftSplitPanel({
                   required
                   value={modalDate}
                   onChange={(e) => {
-                    setModalDate(e.target.value);
+                    const next = e.target.value;
+                    if (!next || next === modalDate) return;
+                    setModalDate(next);
                     setFormDirty(true);
+                    // Clear timeline-bound selection state for the prior date
+                    // (those indices no longer line up with the new day's
+                    // shifts), but DO NOT wipe manualShifts unconditionally —
+                    // on mobile, an accidental tap on the iOS native date
+                    // wheel was destroying the user's in-progress work even
+                    // when no draft had been selected.  Manual drafts are
+                    // saved against modalDate at save-time, so carrying them
+                    // over to the new date is the user-friendly default; if
+                    // the user really wants a fresh slate they can close and
+                    // reopen the panel.  (See Sydney's bug report: "it keeps
+                    // going back to the first day on the week when I'm
+                    // working on day later in the week.")
                     setSelectedShiftIdx(null);
                     setExcludedIdxs(new Set());
                     setSelectedActualSchedule(null);
                     setActualFormEdits(null);
-                    setManualShifts([]);
-                    onDateChange?.(e.target.value);
+                    onDateChange?.(next);
                   }}
                 />
               </div>
