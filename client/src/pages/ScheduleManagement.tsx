@@ -573,10 +573,23 @@ export default function ScheduleManagement() {
   } | null>(null);
   const [availabilityEditTarget, setAvailabilityEditTarget] = useState<{ userId: string; date: string; empName: string } | null>(null);
   const [showCommandPanel, setShowCommandPanel] = useState(() => {
-    try { return localStorage.getItem('schedMgmt_showCommandPanel') !== 'false'; } catch { return true; }
+    // Default CLOSED — the sidebar repeats the same employee list that's
+    // already in the table's first column, which looks like a duplicate on
+    // any screen size. Users can open it explicitly via "Today's Team".
+    try { return localStorage.getItem('schedMgmt_showCommandPanel') === 'true'; } catch { return false; }
   });
   const [isMobilePanel, setIsMobilePanel] = useState(false);
   const [showMobileSheet, setShowMobileSheet] = useState(false);
+
+  // Mobile roster: which day (0–6) is currently selected in the day-strip
+  const [mobileDayIdx, setMobileDayIdx] = useState(() => {
+    const today = new Date();
+    const weekStart = new Date(today);
+    weekStart.setDate(today.getDate() - today.getDay());
+    weekStart.setHours(0, 0, 0, 0);
+    const idx = Math.round((today.getTime() - weekStart.getTime()) / (24 * 60 * 60 * 1000));
+    return Math.max(0, Math.min(6, idx));
+  });
 
   const [draggedShift, setDraggedShift] = useState<Schedule | null>(null);
   const [dragOverCell, setDragOverCell] = useState<{ empId: string; dayIdx: number } | null>(null);
@@ -634,6 +647,20 @@ export default function ScheduleManagement() {
   useEffect(() => {
     setIsTouchDevice(window.matchMedia('(hover: none) and (pointer: coarse)').matches);
   }, []);
+
+  // When week changes, snap mobile day-strip to today (if today is in the new
+  // week) or to the first day of the week. Prevents the stale-day problem
+  // where the card view was still showing "Wednesday" after jumping to a
+  // completely different week via the arrows.
+  useEffect(() => {
+    if (selectedWeek === 0) {
+      const today = new Date();
+      const idx = today.getDay();
+      setMobileDayIdx(Math.max(0, Math.min(6, idx)));
+    } else {
+      setMobileDayIdx(0);
+    }
+  }, [selectedWeek]);
   const [showSuggestedReview, setShowSuggestedReview] = useState(false);
   const [suggestedData, setSuggestedData] = useState<any>(null);
 
@@ -1489,22 +1516,25 @@ export default function ScheduleManagement() {
       {/* Top Navigation Bar */}
       <div className="sticky top-0 z-10 bg-background border-b px-4 py-3">
         <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2">
             {scheduleView !== 'timeline' && (<>
-              <Button variant="outline" size="sm" className="text-xs font-medium" onClick={() => setSelectedWeek(0)}>
+              <Button variant="outline" size="sm" className="text-xs font-medium h-8 px-2.5" onClick={() => setSelectedWeek(0)}>
                 Today
               </Button>
-              <div className="flex items-center gap-1 bg-muted rounded-md px-3 py-1.5">
-                <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-                <span className="text-sm font-medium">{formatWeekRange()}</span>
-              </div>
               <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setSelectedWeek(selectedWeek - 1)}>
                 <ChevronLeft className="h-4 w-4" />
               </Button>
+              <div className="hidden sm:flex items-center gap-1 bg-muted rounded-md px-3 py-1.5">
+                <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="text-sm font-medium">{formatWeekRange()}</span>
+              </div>
+              {/* Mobile: compact week label */}
+              <span className="sm:hidden text-xs font-medium text-muted-foreground tabular-nums">
+                {weekDates[0]?.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}–{weekDates[6]?.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+              </span>
               <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setSelectedWeek(selectedWeek + 1)}>
                 <ChevronRight className="h-4 w-4" />
               </Button>
-              <Badge variant="secondary" className="text-xs">Week</Badge>
             </>)}
 
             {/* Roster / Timeline toggle */}
@@ -1656,7 +1686,198 @@ export default function ScheduleManagement() {
 
         {/* Schedule Grid (Roster view) */}
         {scheduleView === 'roster' && (
-        <div className="flex-1 overflow-x-auto min-w-0">
+        <>
+
+        {/* ── Mobile: Day-strip + per-day employee card list (hidden md+) ── */}
+        <div className="md:hidden flex-1 flex flex-col min-h-0 overflow-hidden">
+          {/* Horizontal day selector */}
+          <div className="flex overflow-x-auto gap-1.5 px-3 py-2.5 border-b bg-background shrink-0 no-scrollbar">
+            {weekDates.map((date, i) => {
+              const isToday = date.toDateString() === new Date().toDateString();
+              const isSel = mobileDayIdx === i;
+              const dayDateStr = formatLocalDate(date);
+              const dayHasShifts = schedules.some(s =>
+                new Date(s.startTime).toDateString() === date.toDateString()
+              );
+              const dayAvail = teamCalendar[dayDateStr] ?? [];
+              const availCount = dayAvail.filter((a: TeamCalendarEntry) => a.available).length;
+              const total = dayAvail.length;
+              return (
+                <button
+                  key={i}
+                  onClick={() => setMobileDayIdx(i)}
+                  className={cn(
+                    "flex flex-col items-center gap-0.5 px-3 py-2 rounded-xl flex-shrink-0 min-w-[52px] transition-all",
+                    isSel
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : isToday
+                      ? "bg-primary/10 text-primary border border-primary/20"
+                      : "bg-muted/50 text-muted-foreground hover:bg-muted"
+                  )}
+                >
+                  <span className="text-[10px] font-semibold uppercase tracking-wide">
+                    {date.toLocaleDateString('en-US', { weekday: 'short' })}
+                  </span>
+                  <span className={cn("text-lg font-bold leading-none", isSel && "text-primary-foreground")}>
+                    {date.getDate()}
+                  </span>
+                  {total > 0 && (
+                    <span className={cn(
+                      "text-[9px] font-medium leading-none mt-0.5",
+                      isSel ? "text-primary-foreground/70" : availCount > 0 ? "text-emerald-600" : "text-muted-foreground/50"
+                    )}>
+                      {availCount}/{total}
+                    </span>
+                  )}
+                  {dayHasShifts && (
+                    <div className={cn(
+                      "w-1.5 h-1.5 rounded-full mt-0.5",
+                      isSel ? "bg-primary-foreground/60" : "bg-primary"
+                    )} />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Selected day header + employee cards */}
+          <div className="flex-1 overflow-y-auto">
+            {/* Day summary bar */}
+            <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/20 sticky top-0 z-[2]">
+              <span className="text-xs font-semibold text-foreground">
+                {weekDates[mobileDayIdx]?.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+                {weekDates[mobileDayIdx]?.toDateString() === new Date().toDateString() && (
+                  <span className="ml-1.5 text-primary">· Today</span>
+                )}
+              </span>
+              {(() => {
+                const ds = formatLocalDate(weekDates[mobileDayIdx]);
+                const dayAvail = teamCalendar[ds] ?? [];
+                const cnt = dayAvail.filter((a: TeamCalendarEntry) => a.available).length;
+                const tot = dayAvail.length;
+                const scheduled = new Set(schedules.filter(s =>
+                  new Date(s.startTime).toDateString() === weekDates[mobileDayIdx]?.toDateString()
+                ).map(s => s.userId)).size;
+                return (
+                  <div className="flex items-center gap-2 text-[11px]">
+                    {scheduled > 0 && (
+                      <span className="text-primary font-semibold">{scheduled} scheduled</span>
+                    )}
+                    {tot > 0 && (
+                      <span className="text-emerald-600 font-medium">{cnt}/{tot} avail</span>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+
+            <div className="px-3 py-3 space-y-2">
+              {activeEmployees.map(emp => {
+                const name = `${emp.firstName ?? ''} ${emp.lastName ?? ''}`.trim();
+                const mDay = weekDates[mobileDayIdx];
+                if (!mDay) return null;
+                const daySchedules = schedules.filter(s =>
+                  s.userId === emp.id && new Date(s.startTime).toDateString() === mDay.toDateString()
+                );
+                const dateStr = formatLocalDate(mDay);
+                const mergedAvail = (teamCalendar[dateStr] ?? []).find(
+                  (a: TeamCalendarEntry) => a.userId === emp.id
+                );
+                const isPast = mDay < new Date(new Date().setHours(0, 0, 0, 0));
+                const isBlocked = !isPast && (!mergedAvail || mergedAvail.unavailable);
+                const sc = getShiftColors(name);
+
+                return (
+                  <div
+                    key={emp.id}
+                    className={cn(
+                      "rounded-2xl border bg-card overflow-hidden transition-shadow active:shadow-none",
+                      isBlocked && !isPast ? "opacity-60" : "shadow-sm"
+                    )}
+                  >
+                    {/* Employee header row */}
+                    <div className="flex items-center gap-3 px-4 py-3">
+                      <div className={cn(
+                        "w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0",
+                        getInitialColor(name)
+                      )}>
+                        {getInitials(emp)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-semibold truncate">{name}</div>
+                        <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">
+                          {mergedAvail?.unavailable ? (
+                            <span className="text-red-500 font-medium">
+                              {mergedAvail.source === 'time_off' ? 'Time off' : 'Blocked'}
+                            </span>
+                          ) : mergedAvail?.startTime && mergedAvail?.endTime ? (
+                            <span className="text-emerald-600 font-medium">
+                              Avail {formatSchedTimeShort(mergedAvail.startTime)}–{formatSchedTimeShort(mergedAvail.endTime)}
+                            </span>
+                          ) : isPast ? (
+                            <span className="text-muted-foreground/50">—</span>
+                          ) : (
+                            <span className="text-amber-500">No availability set</span>
+                          )}
+                        </div>
+                      </div>
+                      {isAdmin && (
+                        <button
+                          onClick={() => openCreateShift(emp.id, mDay)}
+                          className={cn(
+                            "h-9 w-9 rounded-full flex items-center justify-center shrink-0 transition-colors",
+                            "border border-dashed border-primary/30 text-primary/50 hover:text-primary hover:border-primary hover:bg-primary/5 active:bg-primary/10"
+                          )}
+                          title={`Add shift for ${name}`}
+                        >
+                          <Plus className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Shifts for this day */}
+                    {daySchedules.length > 0 && (
+                      <div className="border-t px-4 py-2 space-y-1.5 bg-muted/10">
+                        {daySchedules.map(s => (
+                          <button
+                            key={s.id}
+                            onClick={() => isAdmin ? openEditShift(s) : undefined}
+                            className={cn(
+                              "w-full rounded-xl border px-3 py-2 text-left transition-colors",
+                              sc.block, isAdmin && sc.hover
+                            )}
+                          >
+                            <div className={cn("text-xs font-bold", sc.text)}>
+                              {formatTime(s.startTime)} – {formatTime(s.endTime)}
+                            </div>
+                            {s.title && (
+                              <div className={cn("text-[11px] mt-0.5", sc.textSub)}>{s.title}</div>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Empty state tap-to-add */}
+                    {daySchedules.length === 0 && isAdmin && !isBlocked && !isPast && (
+                      <div className="border-t px-4 py-2 bg-muted/10">
+                        <button
+                          onClick={() => openCreateShift(emp.id, mDay)}
+                          className="w-full h-8 rounded-lg border border-dashed border-muted-foreground/20 text-[11px] text-muted-foreground/40 hover:border-primary/30 hover:text-primary/60 transition-colors"
+                        >
+                          No shift — tap + to add
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* ── Desktop: Wide weekly roster table (visible md+) ────────────── */}
+        <div className="hidden md:block flex-1 overflow-x-auto min-w-0">
         {/* AI-generated schedule banner */}
         {aiResult && (
           <div className="border-b bg-violet-50/60 dark:bg-violet-950/20 px-4 py-2.5" data-testid="banner-ai-schedule">
@@ -2109,6 +2330,8 @@ export default function ScheduleManagement() {
           </tfoot>
         </table>
         </div>
+
+        </>
         )}
 
       </div>

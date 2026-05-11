@@ -264,3 +264,7 @@
 .animate-slide-in-right  { animation: slideInRight  200ms ease-out forwards; }
 .animate-slide-out-right { animation: slideOutRight 150ms ease-out forwards; }
 .animate-slide-in-left   { animation: slideInLeft   200ms ease-out forwards; }
+
+/* Hide scrollbar while keeping scroll functionality (used in day-strip) */
+.no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
