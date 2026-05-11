@@ -341,16 +341,62 @@ export function useGeolocation(userId?: string) {
       }
     }
 
-    if (!navigator.permissions) {
-      throw new Error('Permissions API not supported');
+    if (!navigator.geolocation) {
+      throw new Error('Geolocation is not supported by this browser');
     }
 
-    try {
-      const result = await navigator.permissions.query({ name: 'geolocation' });
-      return result.state;
-    } catch {
-      throw new Error('Failed to request geolocation permission');
-    }
+    // CRITICAL: on web, calling navigator.permissions.query() only READS the
+    // current state — it never elicits the browser's native permission dialog.
+    // The dialog ONLY appears when something actually tries to access location
+    // (getCurrentPosition / watchPosition).  Previously this function only
+    // queried, which meant the gate's "ask for permission on first load" code
+    // was effectively a no-op on web, and users who had a stale 'denied' from
+    // navigator.permissions.query (common in Safari PWAs after session restore
+    // or origin changes — e.g. Replit preview URLs) had no way to recover
+    // without uninstalling the PWA.  Now we trigger the real prompt and trust
+    // the success/failure callbacks to update state.
+    return new Promise<PermissionState>((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        (p) => {
+          const pos: GeolocationPosition = {
+            latitude: p.coords.latitude,
+            longitude: p.coords.longitude,
+            accuracy: p.coords.accuracy,
+            timestamp: p.timestamp,
+          };
+          setPosition(pos);
+          setError(null);
+          setPermissionState('granted');
+          resolve('granted');
+        },
+        (err) => {
+          if (err.code === 1) {
+            // Truly denied at the OS/browser level — reflect it.
+            setError({ code: 1, message: getErrorMessage(1) });
+            setPermissionState('denied');
+            resolve('denied');
+          } else {
+            // POSITION_UNAVAILABLE / TIMEOUT — permission may still be granted
+            // (the prompt was answered Allow but the device couldn't get a
+            // fix).  Don't downgrade state to 'denied' just because of a
+            // hardware/network failure.  If we previously had a stale cached
+            // 'denied' (e.g. from navigator.permissions.query in a Safari PWA
+            // session), actively clear it so the blocking gate releases —
+            // otherwise the user is permanently trapped on the gate even
+            // after a real in-app prompt attempt.
+            try {
+              if (localStorage.getItem('taime_geo_perm') === 'denied') {
+                localStorage.removeItem('taime_geo_perm');
+              }
+            } catch {}
+            setError(null);
+            setPermissionStateRaw('prompt');
+            resolve('prompt');
+          }
+        },
+        { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 }
+      );
+    });
   }, []);
 
   useEffect(() => {

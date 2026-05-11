@@ -1,5 +1,5 @@
-import { useEffect, useCallback } from "react";
-import { MapPin, Settings } from "lucide-react";
+import { useEffect, useCallback, useState } from "react";
+import { MapPin, Settings, Loader2 } from "lucide-react";
 import { useGeolocation } from "@/hooks/useGeolocation";
 import { useAuth } from "@/hooks/useAuth";
 import { isNativePlatform } from "@/lib/capacitor";
@@ -8,7 +8,27 @@ interface LocationPermissionGateProps {
   children: React.ReactNode;
 }
 
-function BlockingScreen({ onOpenSettings }: { onOpenSettings: () => void }) {
+function BlockingScreen({
+  onOpenSettings,
+  onTryAgain,
+  showInstructions,
+}: {
+  onOpenSettings: () => void;
+  onTryAgain: () => Promise<void>;
+  showInstructions: boolean;
+}) {
+  const [isTrying, setIsTrying] = useState(false);
+  const native = isNativePlatform();
+
+  const handleTry = async () => {
+    setIsTrying(true);
+    try {
+      await onTryAgain();
+    } finally {
+      setIsTrying(false);
+    }
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-6">
       <div className="max-w-sm w-full text-center space-y-6">
@@ -23,39 +43,66 @@ function BlockingScreen({ onOpenSettings }: { onOpenSettings: () => void }) {
             Location Access Required
           </h1>
           <p className="text-sm text-muted-foreground leading-relaxed">
-            This app requires location access for clocking in/out and geofence
-            compliance. You've denied location permission, so access to the
-            dashboard is blocked.
+            This app needs location access for clocking in/out and geofence
+            compliance.
+            {showInstructions
+              ? " You've denied location permission — please allow it to continue."
+              : " Tap the button below to allow access."}
           </p>
         </div>
 
-        <div className="rounded-lg border bg-card p-4 text-left space-y-2">
-          <p className="text-sm font-medium text-foreground">
-            How to enable location access:
-          </p>
-          {isNativePlatform() ? (
-            <ol className="text-sm text-muted-foreground space-y-1 list-decimal list-inside">
-              <li>Tap "Open Settings" below</li>
-              <li>Find "Location" or "Location Services"</li>
-              <li>Set permission to "While Using the App" or "Always"</li>
-              <li>Return to the app</li>
-            </ol>
-          ) : (
-            <ol className="text-sm text-muted-foreground space-y-1 list-decimal list-inside">
-              <li>Click the lock icon in your browser's address bar</li>
-              <li>Find "Location" in the site permissions</li>
-              <li>Change it to "Allow"</li>
-              <li>Reload the page</li>
-            </ol>
-          )}
-        </div>
+        {/* Primary action: try to elicit a fresh permission prompt.  On web,
+            navigator.geolocation.getCurrentPosition() is the ONLY way to make
+            the browser show its native dialog, so this is shown first.  Only
+            falls back to manual instructions if the user has already truly
+            denied at the OS/browser level. */}
+        {!native && (
+          <button
+            onClick={handleTry}
+            disabled={isTrying}
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-60"
+          >
+            {isTrying ? <Loader2 className="h-4 w-4 animate-spin" /> : <MapPin className="h-4 w-4" />}
+            {isTrying ? "Requesting…" : "Allow Location Access"}
+          </button>
+        )}
+
+        {/* Manual recovery instructions only show if the in-app prompt is
+            confirmed blocked at the browser/OS level, or always on native
+            (Capacitor sends users to system Settings). */}
+        {(native || showInstructions) && (
+          <div className="rounded-lg border bg-card p-4 text-left space-y-2">
+            <p className="text-sm font-medium text-foreground">
+              {native ? "How to enable location access:" : "Still not working? Enable it manually:"}
+            </p>
+            {native ? (
+              <ol className="text-sm text-muted-foreground space-y-1 list-decimal list-inside">
+                <li>Tap "Open Settings" below</li>
+                <li>Find "Location" or "Location Services"</li>
+                <li>Set permission to "While Using the App" or "Always"</li>
+                <li>Return to the app</li>
+              </ol>
+            ) : (
+              <ol className="text-sm text-muted-foreground space-y-1 list-decimal list-inside">
+                <li>Tap the lock or "AA" icon in your browser's address bar</li>
+                <li>Find "Location" in the site permissions</li>
+                <li>Change it to "Allow"</li>
+                <li>Tap the button below to reload</li>
+              </ol>
+            )}
+          </div>
+        )}
 
         <button
           onClick={onOpenSettings}
-          className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors"
+          className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
+            native
+              ? "bg-primary text-primary-foreground hover:bg-primary/90"
+              : "bg-muted text-foreground hover:bg-muted/80"
+          }`}
         >
           <Settings className="h-4 w-4" />
-          {isNativePlatform() ? "Open Settings" : "I've updated permissions — reload"}
+          {native ? "Open Settings" : "I've updated permissions — reload"}
         </button>
       </div>
     </div>
@@ -64,6 +111,12 @@ function BlockingScreen({ onOpenSettings }: { onOpenSettings: () => void }) {
 
 function LocationPermissionGateInner({ children }: LocationPermissionGateProps) {
   const { permissionState, requestPermission, isHydrated, hadPreviousGrant } = useGeolocation();
+  // Tracks whether we've actually attempted to elicit the browser's native
+  // permission prompt from inside this gate.  Until we have, "denied" from
+  // navigator.permissions.query() may just be a stale Safari/PWA value and
+  // we should give the user a Try-Again button before sending them into
+  // browser settings.
+  const [hasAttemptedPrompt, setHasAttemptedPrompt] = useState(false);
 
   useEffect(() => {
     // Only ask for permission when:
@@ -78,6 +131,7 @@ function LocationPermissionGateInner({ children }: LocationPermissionGateProps) 
     if (!isHydrated) return;
     if (hadPreviousGrant) return;
     if (permissionState === "unknown") {
+      setHasAttemptedPrompt(true);
       requestPermission().catch(() => {});
     }
   }, [permissionState, requestPermission, isHydrated, hadPreviousGrant]);
@@ -122,8 +176,23 @@ function LocationPermissionGateInner({ children }: LocationPermissionGateProps) 
     }
   }, []);
 
+  const handleTryAgain = useCallback(async () => {
+    setHasAttemptedPrompt(true);
+    try {
+      await requestPermission();
+    } catch {
+      // requestPermission already updates internal state on failure.
+    }
+  }, [requestPermission]);
+
   if (permissionState === "denied") {
-    return <BlockingScreen onOpenSettings={handleOpenSettings} />;
+    return (
+      <BlockingScreen
+        onOpenSettings={handleOpenSettings}
+        onTryAgain={handleTryAgain}
+        showInstructions={hasAttemptedPrompt}
+      />
+    );
   }
 
   return <>{children}</>;
