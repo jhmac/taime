@@ -2230,19 +2230,16 @@ export default function ScheduleManagement() {
                                 } : undefined}
                                 onClick={() => openEditShift(schedule)}
                                 className={cn(
-                                  "group/shift rounded px-1.5 py-0.5 text-[11px] border overflow-hidden transition-opacity flex items-center gap-1",
+                                  "group/shift w-fit rounded px-1.5 py-0.5 text-[11px] border overflow-hidden transition-opacity inline-flex items-center gap-1",
                                   sc.block, sc.hover,
                                   canDrag ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
                                   isBeingDragged && "opacity-30",
                                   editingSchedule?.id === schedule.id && "ring-2 ring-primary shadow-sm"
                                 )}
                               >
-                                <span className={cn("font-semibold truncate flex-1 leading-snug", sc.text)}>
+                                <span className={cn("font-semibold leading-snug whitespace-nowrap", sc.text)}>
                                   {formatTime(schedule.startTime)}–{formatTime(schedule.endTime)}
                                 </span>
-                                {schedule.title && (
-                                  <span className={cn("text-[9px] truncate shrink-0 hidden sm:inline", sc.textSub)}>{schedule.title}</span>
-                                )}
                                 <button
                                   onClick={e => { e.stopPropagation(); deleteScheduleMutation.mutate(schedule.id); }}
                                   className="opacity-0 group-hover/shift:opacity-100 transition-opacity shrink-0 rounded p-0.5 hover:bg-red-100 dark:hover:bg-red-900/40"
@@ -2261,13 +2258,13 @@ export default function ScheduleManagement() {
                               <div
                                 key={`ai-${entry.idx}`}
                                 className={cn(
-                                  "rounded px-1.5 py-0.5 text-[11px] border-2 border-dashed flex items-center gap-1",
+                                  "w-fit rounded px-1.5 py-0.5 text-[11px] border-2 border-dashed inline-flex items-center gap-1",
                                   isRemoved
                                     ? "bg-muted/30 border-muted-foreground/20 opacity-40 line-through"
                                     : "bg-violet-50 dark:bg-violet-900/30 border-violet-300 dark:border-violet-700"
                                 )}
                               >
-                                <span className={cn("font-semibold truncate flex-1 leading-snug", isRemoved ? "text-muted-foreground" : "text-violet-800 dark:text-violet-200")}>
+                                <span className={cn("font-semibold leading-snug whitespace-nowrap", isRemoved ? "text-muted-foreground" : "text-violet-800 dark:text-violet-200")}>
                                   {entry.startTime}–{entry.endTime}
                                 </span>
                                 {!isRemoved && isAdmin && (
