@@ -1818,6 +1818,65 @@ export default function ScheduleManagement() {
               })()}
             </div>
 
+            {/* ── Scheduled coverage strip ── */}
+            {(() => {
+              const mDay = weekDates[mobileDayIdx];
+              if (!mDay) return null;
+              const dayShifts = schedules
+                .filter(s => new Date(s.startTime).toDateString() === mDay.toDateString())
+                .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+              if (dayShifts.length === 0) return null;
+              const seen = new Set<string>();
+              const entries: Array<{ emp: typeof activeEmployees[0]; shifts: typeof dayShifts }> = [];
+              dayShifts.forEach(s => {
+                if (!seen.has(s.userId)) {
+                  seen.add(s.userId);
+                  const emp = activeEmployees.find(e => e.id === s.userId);
+                  if (emp) entries.push({ emp, shifts: dayShifts.filter(x => x.userId === s.userId) });
+                }
+              });
+              if (entries.length === 0) return null;
+              return (
+                <div className="mx-3 mt-3 mb-1 rounded-2xl border bg-card shadow-sm overflow-hidden">
+                  <div className="flex items-center justify-between px-3 py-2 border-b bg-muted/30">
+                    <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Scheduled</span>
+                    <span className="text-[11px] font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded-full">{entries.length} of {activeEmployees.length}</span>
+                  </div>
+                  <div className="divide-y divide-border/50">
+                    {entries.map(({ emp, shifts }) => {
+                      const name = `${emp.firstName ?? ''} ${emp.lastName ?? ''}`.trim();
+                      const sc = getShiftColors(name);
+                      return (
+                        <div key={emp.id} className="flex items-center gap-2.5 px-3 py-2">
+                          <div className={cn(
+                            "w-7 h-7 rounded-full flex items-center justify-center text-white text-[10px] font-bold shrink-0",
+                            getInitialColor(name)
+                          )}>
+                            {getInitials(emp)}
+                          </div>
+                          <span className="text-[12px] font-medium flex-1 truncate">{name}</span>
+                          <div className="flex items-center gap-1 shrink-0">
+                            {shifts.map(s => (
+                              <button
+                                key={s.id}
+                                onClick={() => isAdmin ? openEditShift(s) : undefined}
+                                className={cn(
+                                  "text-[11px] font-semibold px-1.5 py-0.5 rounded border whitespace-nowrap",
+                                  sc.block, sc.text, isAdmin && sc.hover
+                                )}
+                              >
+                                {formatTime(s.startTime)}–{formatTime(s.endTime)}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
+
             <div className="px-3 py-3 space-y-2">
               {activeEmployees.map(emp => {
                 const name = `${emp.firstName ?? ''} ${emp.lastName ?? ''}`.trim();
