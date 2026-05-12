@@ -9,7 +9,7 @@ import { tryResolveStoreIdForUser } from "../services/storeResolver";
 import { clerkClient } from "@clerk/express";
 import { invalidatePermissionCache } from "../lib/permissionUtils";
 import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
-import { redactPayFields, redactPayFieldsFromArray, canSeePayData } from "../lib/payPrivacy";
+import { redactPayFields, redactPayFieldsFromArray, canSeePayData, redactSensitiveFields, redactSensitiveFieldsFromArray, canSeeSensitiveData } from "../lib/payPrivacy";
 import { assertSameTenant, CrossTenantError } from "../lib/tenantScope";
 
 function generateInviteToken(): string {
@@ -184,10 +184,8 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
         if (!currentUser) {
           console.warn(`[/api/users] Fallback miss: no user found for id=${userId} email=${req.user.email || 'none'}`);
         }
-        const selfHasPay = await canSeePayData(userId, storage);
-        const selfResult = currentUser
-          ? (selfHasPay ? currentUser : redactPayFields(currentUser))
-          : null;
+        // Self-exemption: employee always sees their own pay and sensitive data.
+        const selfResult = currentUser ? currentUser : null;
         res.json(selfResult ? [selfResult] : []);
         return;
       }
@@ -200,7 +198,17 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
 
       const activeFilter = includeAll ? undefined : eq(users.isActive, true);
 
-      const hasPay = await canSeePayData(userId, storage);
+      const [hasPay, hasSensitive] = await Promise.all([
+        canSeePayData(userId, storage),
+        canSeeSensitiveData(userId, storage),
+      ]);
+
+      function applyRedactions<T extends Record<string, any>>(list: T[]): any[] {
+        let result: any[] = list;
+        if (!hasPay) result = redactPayFieldsFromArray(result);
+        if (!hasSensitive) result = redactSensitiveFieldsFromArray(result);
+        return result;
+      }
 
       if (requestingLocationId) {
         // Primary path: FK-based store scoping (rename-safe).
@@ -212,7 +220,7 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
         );
         const whereClause = activeFilter ? and(locationFilter, activeFilter) : locationFilter;
         const filteredUsers = await db.select().from(users).where(whereClause);
-        res.json(hasPay ? filteredUsers : redactPayFieldsFromArray(filteredUsers));
+        res.json(applyRedactions(filteredUsers));
       } else if (requestingLocationName) {
         // Compatibility fallback for requesters whose locationId hasn't been backfilled yet.
         // Include users with a matching locationName OR users with no location at all.
@@ -222,7 +230,7 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
         );
         const whereClause = activeFilter ? and(locationFilter, activeFilter) : locationFilter;
         const filteredUsers = await db.select().from(users).where(whereClause);
-        res.json(hasPay ? filteredUsers : redactPayFieldsFromArray(filteredUsers));
+        res.json(applyRedactions(filteredUsers));
       } else {
         // No store assignment — return full list only for owners/admins.
         // Scoped viewers without a store see only themselves.
@@ -231,11 +239,10 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
           const allUsers = includeAll
             ? await db.select().from(users)
             : await db.select().from(users).where(eq(users.isActive, true));
-          res.json(hasPay ? allUsers : redactPayFieldsFromArray(allUsers));
+          res.json(applyRedactions(allUsers));
         } else {
-          const selfUser = requestingUser
-            ? [hasPay ? requestingUser : redactPayFields(requestingUser)]
-            : [];
+          // Non-privileged caller with no store — return only their own record (self-exemption).
+          const selfUser = requestingUser ? [requestingUser] : [];
           res.json(selfUser);
         }
       }
@@ -265,9 +272,16 @@ export function registerUserRoutes(app: Express, storage: IStorage, isAuthentica
 
       const role = user.roleId ? await db.select().from(roles).where(eq(roles.id, user.roleId)).then(r => r[0]) : null;
       const isSelf = requestingUserId === userId;
-      const hasPay = isSelf || await canSeePayData(requestingUserId, storage);
-      const payload = hasPay ? { ...user, role } : { ...redactPayFields(user), role };
-      res.json(payload);
+      const [hasPay, hasSensitive] = isSelf
+        ? [true, true]
+        : await Promise.all([
+            canSeePayData(requestingUserId, storage),
+            canSeeSensitiveData(requestingUserId, storage),
+          ]);
+      let userData: Record<string, any> = { ...user, role };
+      if (!hasPay) userData = { ...redactPayFields(userData), role };
+      if (!hasSensitive) userData = { ...redactSensitiveFields(userData), role };
+      res.json(userData);
     } catch (error) {
       console.error("Error fetching user:", error);
       res.status(500).json({ message: "Failed to fetch user" });
