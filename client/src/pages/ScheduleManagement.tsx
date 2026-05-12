@@ -2181,13 +2181,14 @@ export default function ScheduleManagement() {
                     const showRedBg = !isPast && (!mergedAvail || mergedAvail.unavailable);
 
                     const isDropTarget = dragOverCell?.empId === emp.id && dragOverCell?.dayIdx === dayIdx;
+                    const canDrag = isAdmin && !isTouchDevice;
                     return (
                       <td
                         key={dayIdx}
                         className={cn(
-                          "px-1 py-1 border-r last:border-r-0 align-top min-h-[60px] relative transition-colors",
+                          "px-1 py-1 border-r last:border-r-0 align-middle relative transition-colors group/cell",
                           isToday && !showRedBg && "bg-primary/5",
-                          showRedBg && "bg-red-50 dark:bg-red-950/25",
+                          showRedBg && "bg-red-50/70 dark:bg-red-950/20",
                           isDropTarget && draggedShift?.userId === emp.id && "ring-2 ring-inset ring-primary/50 bg-primary/10"
                         )}
                         onDragOver={(e) => {
@@ -2208,182 +2209,137 @@ export default function ScheduleManagement() {
                           handleDropOnCell(emp.id, date, e.clientY, rect.top, rect.height);
                         }}
                       >
-                        <div className="relative" style={{ height: `${GRID_CELL_HEIGHT_PX}px` }}>
-                          {/* Hourly gridlines */}
-                          {Array.from({ length: GRID_END_HOUR - GRID_START_HOUR + 1 }, (_, i) => (
-                            <div
-                              key={i}
-                              className="absolute w-full border-t border-border/30 pointer-events-none"
-                              style={{ top: `${(i / (GRID_END_HOUR - GRID_START_HOUR)) * 100}%` }}
-                            />
-                          ))}
+                        {/* Compact pill layout — no timeline, uniform height per shift */}
+                        <div className="flex flex-col gap-0.5 min-h-[28px]">
+                          {/* Confirmed shift pills */}
                           {daySchedules.map(schedule => {
                             const sc = getShiftColors(name);
                             const isBeingDragged = draggedShift?.id === schedule.id;
-                            const canDrag = isAdmin && !isTouchDevice;
-                            const sStart = new Date(schedule.startTime);
-                            const sEnd = new Date(schedule.endTime);
-                            const startMin = sStart.getHours() * 60 + sStart.getMinutes();
-                            const endMin = sEnd.getHours() * 60 + sEnd.getMinutes();
-                            const topPct = Math.max(0, ((startMin - GRID_START_HOUR * 60) / GRID_TOTAL_MIN) * 100);
-                            const heightPct = Math.max(4, ((endMin - startMin) / GRID_TOTAL_MIN) * 100);
                             return (
-                            <div
-                              key={schedule.id}
-                              draggable={canDrag}
-                              onDragStart={canDrag ? (e) => {
-                                setDraggedShift(schedule);
-                                e.dataTransfer.effectAllowed = 'move';
-                                e.dataTransfer.setData('text/plain', schedule.id);
-                              } : undefined}
-                              onDragEnd={canDrag ? () => {
-                                setDraggedShift(null);
-                                setDragOverCell(null);
-                              } : undefined}
-                              onClick={() => openEditShift(schedule)}
-                              style={{ position: 'absolute', top: `${topPct}%`, height: `${heightPct}%`, left: '2px', right: '2px', minHeight: '18px' }}
-                              className={cn(
-                                "group/shift border rounded px-1 py-0.5 text-xs overflow-hidden transition-opacity",
-                                sc.block, sc.hover,
-                                canDrag ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
-                                isBeingDragged && "opacity-30",
-                                editingSchedule?.id === schedule.id && "ring-2 ring-primary ring-offset-1 shadow-lg z-10"
-                              )}
-                            >
-                              <div className={cn("font-medium leading-tight truncate", sc.text)}>
-                                {formatTime(schedule.startTime)}–{formatTime(schedule.endTime)}
-                              </div>
-                              {schedule.title && (
-                                <div className={cn("text-[9px] truncate leading-tight", sc.textSub)}>{schedule.title}</div>
-                              )}
-                              <button
-                                onClick={e => { e.stopPropagation(); deleteScheduleMutation.mutate(schedule.id); }}
-                                className="absolute top-0.5 right-0.5 opacity-0 group-hover/shift:opacity-100 transition-opacity bg-red-100 dark:bg-red-900/40 rounded p-0.5"
-                                title="Delete shift"
+                              <div
+                                key={schedule.id}
+                                draggable={canDrag}
+                                onDragStart={canDrag ? (e) => {
+                                  setDraggedShift(schedule);
+                                  e.dataTransfer.effectAllowed = 'move';
+                                  e.dataTransfer.setData('text/plain', schedule.id);
+                                } : undefined}
+                                onDragEnd={canDrag ? () => {
+                                  setDraggedShift(null);
+                                  setDragOverCell(null);
+                                } : undefined}
+                                onClick={() => openEditShift(schedule)}
+                                className={cn(
+                                  "group/shift rounded px-1.5 py-0.5 text-[11px] border overflow-hidden transition-opacity flex items-center gap-1",
+                                  sc.block, sc.hover,
+                                  canDrag ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
+                                  isBeingDragged && "opacity-30",
+                                  editingSchedule?.id === schedule.id && "ring-2 ring-primary shadow-sm"
+                                )}
                               >
-                                <Trash2 className="h-3 w-3 text-red-500" />
-                              </button>
-                            </div>
-                          );
+                                <span className={cn("font-semibold truncate flex-1 leading-snug", sc.text)}>
+                                  {formatTime(schedule.startTime)}–{formatTime(schedule.endTime)}
+                                </span>
+                                {schedule.title && (
+                                  <span className={cn("text-[9px] truncate shrink-0 hidden sm:inline", sc.textSub)}>{schedule.title}</span>
+                                )}
+                                <button
+                                  onClick={e => { e.stopPropagation(); deleteScheduleMutation.mutate(schedule.id); }}
+                                  className="opacity-0 group-hover/shift:opacity-100 transition-opacity shrink-0 rounded p-0.5 hover:bg-red-100 dark:hover:bg-red-900/40"
+                                  title="Delete shift"
+                                >
+                                  <X className="h-2.5 w-2.5 text-red-500" />
+                                </button>
+                              </div>
+                            );
                           })}
 
-                          {/* Add Shift ghost button (absolute, centered in time grid) */}
-                          {daySchedules.length === 0 && aiEntries.length === 0 && (
-                            <button
-                              onClick={() => openCreateShift(emp.id, date)}
-                              className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-primary"
-                              title="Add shift"
-                            >
-                              <Plus className="h-4 w-4" />
-                            </button>
-                          )}
-                          {(daySchedules.length > 0 || aiEntries.length > 0) && (
-                            <button
-                              onClick={() => openCreateShift(emp.id, date)}
-                              className="absolute bottom-0.5 right-0.5 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-primary"
-                              title="Add another shift"
-                            >
-                              <Plus className="h-3 w-3" />
-                            </button>
-                          )}
-                        </div>
-                        {/* Below time-grid: AI preview entries + availability badges */}
-                        <div className="px-1 py-0.5 space-y-0.5">
-                          {/* AI Generated Preview Entries */}
+                          {/* AI preview entry pills */}
                           {aiEntries.map(entry => {
                             const isRemoved = removedEntries.has(entry.idx);
                             return (
                               <div
                                 key={`ai-${entry.idx}`}
                                 className={cn(
-                                  "rounded px-1.5 py-1 text-xs border-2 border-dashed",
+                                  "rounded px-1.5 py-0.5 text-[11px] border-2 border-dashed flex items-center gap-1",
                                   isRemoved
                                     ? "bg-muted/30 border-muted-foreground/20 opacity-40 line-through"
                                     : "bg-violet-50 dark:bg-violet-900/30 border-violet-300 dark:border-violet-700"
                                 )}
                               >
-                                <div className="flex items-center justify-between gap-1">
-                                  <span className={cn("font-medium leading-tight", isRemoved ? "text-muted-foreground" : "text-violet-800 dark:text-violet-200")}>
-                                    {entry.startTime}–{entry.endTime}
-                                  </span>
-                                  <div className="flex items-center gap-0.5 shrink-0">
-                                    {!isRemoved && isAdmin && (
-                                      <button
-                                        onClick={() => openEditAiEntry(entry.idx)}
-                                        className="p-0.5 hover:bg-violet-100 dark:hover:bg-violet-900/50 rounded"
-                                        title="Edit shift"
-                                        data-testid={`button-edit-ai-shift-${entry.idx}`}
-                                      >
-                                        <Pencil className="h-3 w-3 text-violet-600 dark:text-violet-300" />
-                                      </button>
-                                    )}
-                                    <button
-                                      onClick={() => toggleAiEntryRemoved(entry.idx)}
-                                      className="p-0.5 hover:bg-violet-100 dark:hover:bg-violet-900/50 rounded"
-                                      title={isRemoved ? 'Restore' : 'Remove'}
-                                      data-testid={`button-toggle-ai-shift-${entry.idx}`}
-                                    >
-                                      {isRemoved ? (
-                                        <Plus className="h-3 w-3 text-muted-foreground" />
-                                      ) : (
-                                        <X className="h-3 w-3 text-violet-500" />
-                                      )}
-                                    </button>
-                                  </div>
-                                </div>
-                                {!isRemoved && entry.shiftBlock && (
-                                  <div className="text-[10px] text-violet-600 dark:text-violet-400">{entry.shiftBlock}</div>
+                                <span className={cn("font-semibold truncate flex-1 leading-snug", isRemoved ? "text-muted-foreground" : "text-violet-800 dark:text-violet-200")}>
+                                  {entry.startTime}–{entry.endTime}
+                                </span>
+                                {!isRemoved && isAdmin && (
+                                  <button
+                                    onClick={() => openEditAiEntry(entry.idx)}
+                                    className="p-0.5 hover:bg-violet-100 dark:hover:bg-violet-900/50 rounded shrink-0"
+                                    title="Edit shift"
+                                    data-testid={`button-edit-ai-shift-${entry.idx}`}
+                                  >
+                                    <Pencil className="h-2.5 w-2.5 text-violet-600 dark:text-violet-300" />
+                                  </button>
                                 )}
+                                <button
+                                  onClick={() => toggleAiEntryRemoved(entry.idx)}
+                                  className="p-0.5 hover:bg-violet-100 dark:hover:bg-violet-900/50 rounded shrink-0"
+                                  title={isRemoved ? 'Restore' : 'Remove'}
+                                  data-testid={`button-toggle-ai-shift-${entry.idx}`}
+                                >
+                                  {isRemoved
+                                    ? <Plus className="h-2.5 w-2.5 text-muted-foreground" />
+                                    : <X className="h-2.5 w-2.5 text-violet-500" />
+                                  }
+                                </button>
                               </div>
                             );
                           })}
 
-                          {/* Availability indicator — blocked */}
-                          {mergedAvail?.unavailable && (
-                            <div className="flex items-center gap-0.5">
-                              <button
-                                title={mergedAvail.source === 'time_off' ? 'Time off' : (isAdmin ? "Blocked — click to override" : 'Not available')}
-                                onClick={() => isAdmin && mergedAvail.source !== 'time_off' && setAvailabilityEditTarget({ userId: emp.id, date: dateStr, empName: `${emp.firstName} ${emp.lastName}` })}
-                                className={cn(
-                                  "text-[9px] px-1.5 py-0.5 rounded-sm font-medium leading-[14px] inline-flex items-center gap-0.5",
-                                  "bg-red-200 text-red-700 dark:bg-red-900/50 dark:text-red-300",
-                                  isAdmin && mergedAvail.source !== 'time_off' && "hover:bg-red-300 cursor-pointer"
-                                )}
-                              >
-                                {mergedAvail.source === 'time_off' ? 'time off' : 'blocked'}
-                              </button>
-                            </div>
+                          {/* Ghost + button — shows on hover when cell is empty */}
+                          {daySchedules.length === 0 && aiEntries.length === 0 && isAdmin && !isPast && (
+                            <button
+                              onClick={() => openCreateShift(emp.id, date)}
+                              className="opacity-0 group-hover/cell:opacity-100 transition-opacity w-full h-7 flex items-center justify-center rounded border border-dashed border-muted-foreground/20 text-muted-foreground hover:text-primary hover:border-primary/30"
+                              title="Add shift"
+                            >
+                              <Plus className="h-3.5 w-3.5" />
+                            </button>
                           )}
-                          {/* Availability indicator — available with explicit time window or override */}
-                          {mergedAvail && !mergedAvail.unavailable && mergedAvail.source !== 'default' && (
-                            <div className="flex items-center gap-0.5">
-                              <button
-                                title={isAdmin ? "Available — click to edit" : "Available"}
-                                onClick={() => isAdmin && setAvailabilityEditTarget({ userId: emp.id, date: dateStr, empName: `${emp.firstName} ${emp.lastName}` })}
-                                className={cn(
-                                  "text-[9px] px-1.5 py-0.5 rounded-sm font-medium leading-[14px] inline-flex items-center gap-0.5",
-                                  "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300",
-                                  isAdmin && "hover:bg-emerald-200 cursor-pointer"
-                                )}
-                              >
-                                {mergedAvail.startTime && mergedAvail.endTime
-                                  ? `${formatSchedTimeShort(mergedAvail.startTime)}–${formatSchedTimeShort(mergedAvail.endTime)}`
-                                  : 'available'}
-                              </button>
-                            </div>
+
+                          {/* Small + to add another shift alongside existing ones */}
+                          {(daySchedules.length > 0 || aiEntries.length > 0) && isAdmin && (
+                            <button
+                              onClick={() => openCreateShift(emp.id, date)}
+                              className="opacity-0 group-hover/cell:opacity-100 transition-opacity self-end text-muted-foreground hover:text-primary"
+                              title="Add another shift"
+                            >
+                              <Plus className="h-3 w-3" />
+                            </button>
                           )}
-                          {/* Admin: show ghost "set avail" when no data at all (null) or source is default */}
-                          {(!mergedAvail || mergedAvail.source === 'default') && isAdmin && !isPast && (
-                            <div className="flex items-center gap-0.5">
-                              <button
-                                title="Set availability for this day"
-                                onClick={() => setAvailabilityEditTarget({ userId: emp.id, date: dateStr, empName: `${emp.firstName} ${emp.lastName}` })}
-                                className="text-[9px] px-1.5 py-0.5 rounded-sm font-medium text-red-400 hover:text-red-600 hover:bg-red-100 dark:hover:bg-red-900/40 leading-[14px] inline-flex items-center gap-0.5 opacity-50 group-hover:opacity-100 transition-opacity cursor-pointer"
-                              >
-                                <UserCog className="h-2.5 w-2.5" />
-                                <span>set avail</span>
-                              </button>
-                            </div>
+
+                          {/* Availability status badges — blocked / time-off only (avoid cluttering every cell) */}
+                          {mergedAvail?.unavailable && daySchedules.length === 0 && (
+                            <button
+                              title={mergedAvail.source === 'time_off' ? 'Time off' : (isAdmin ? "Blocked — click to override" : 'Not available')}
+                              onClick={() => isAdmin && mergedAvail.source !== 'time_off' && setAvailabilityEditTarget({ userId: emp.id, date: dateStr, empName: `${emp.firstName} ${emp.lastName}` })}
+                              className={cn(
+                                "text-[9px] px-1 py-0 rounded font-medium leading-4 inline-flex items-center self-start",
+                                "text-red-400 dark:text-red-400",
+                                isAdmin && mergedAvail.source !== 'time_off' && "hover:text-red-600 cursor-pointer"
+                              )}
+                            >
+                              {mergedAvail.source === 'time_off' ? 'time off' : 'blocked'}
+                            </button>
+                          )}
+                          {/* Ghost "set avail" for admin on empty unset days */}
+                          {(!mergedAvail || mergedAvail.source === 'default') && isAdmin && !isPast && daySchedules.length === 0 && (
+                            <button
+                              title="Set availability"
+                              onClick={() => setAvailabilityEditTarget({ userId: emp.id, date: dateStr, empName: `${emp.firstName} ${emp.lastName}` })}
+                              className="opacity-0 group-hover/cell:opacity-100 transition-opacity text-[9px] text-muted-foreground/50 hover:text-primary self-start leading-4 flex items-center gap-0.5"
+                            >
+                              <UserCog className="h-2.5 w-2.5" />
+                            </button>
                           )}
                         </div>
                       </td>
