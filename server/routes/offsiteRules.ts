@@ -7,6 +7,7 @@ import { postMileageReimbursement } from "../services/mileageReimbursementServic
 import { db } from "../db";
 import { inArray, eq } from "drizzle-orm";
 import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
+import { tryResolveStoreIdForUser } from "../services/storeResolver";
 
 export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
   app.get('/api/offsite-rules', isAuthenticated, async (req: any, res) => {
@@ -175,12 +176,15 @@ export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAu
         return res.status(403).json({ message: "Admin access required" });
       }
 
-      const filters: { status?: string } = {};
+      const storeId = await tryResolveStoreIdForUser(userId);
+
+      const filters: { status?: string; locationId?: string } = {};
       if (req.query.status) filters.status = req.query.status as string;
+      if (storeId) filters.locationId = storeId;
 
       const sessions = await storage.getOffsiteSessions(filters);
 
-      const allUsers = await storage.getAllUsers();
+      const allUsers = await storage.getAllUsers(storeId ?? undefined);
       const userMap = new Map(allUsers.map(u => [u.id, u]));
 
       const enriched = sessions.map(session => {
@@ -314,12 +318,16 @@ export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAu
         if (!isAdmin) {
           return res.status(403).json({ message: "Access denied" });
         }
+        const requesterStoreId = await tryResolveStoreIdForUser(requestingUserId);
+        if (requesterStoreId && session.locationId && requesterStoreId !== session.locationId) {
+          return res.status(403).json({ message: "Access denied: session belongs to a different store" });
+        }
       }
 
-      const allUsers = await storage.getAllUsers();
-      const userMap = new Map(allUsers.map(u => [u.id, u]));
-      const employee = userMap.get(session.userId);
-      const reviewer = session.reviewedBy ? userMap.get(session.reviewedBy) : null;
+      const [employee, reviewer] = await Promise.all([
+        storage.getUser(session.userId),
+        session.reviewedBy ? storage.getUser(session.reviewedBy) : Promise.resolve(null),
+      ]);
 
       let rule = null;
       if (session.ruleId) {
@@ -443,15 +451,18 @@ export function registerOffsiteRulesRoutes(app: Express, storage: IStorage, isAu
         return res.status(403).json({ message: "Admin access required" });
       }
 
+      const storeId = await tryResolveStoreIdForUser(userId);
+
       const filters: any = {};
-      if (req.query.locationId) filters.locationId = req.query.locationId as string;
+      if (storeId) filters.locationId = storeId;
+      if (req.query.locationId && !storeId) filters.locationId = req.query.locationId as string;
       if (req.query.userId) filters.userId = req.query.userId as string;
       if (req.query.from) filters.from = new Date(req.query.from as string);
       if (req.query.to) filters.to = new Date(req.query.to as string);
 
       const sessions = await storage.getOffsiteSessions(filters);
 
-      const allUsers = await storage.getAllUsers();
+      const allUsers = await storage.getAllUsers(storeId ?? undefined);
       const userMap = new Map(allUsers.map(u => [u.id, u]));
 
       // Batch-fetch all needed offsite rules in a single query (fixes N+1)

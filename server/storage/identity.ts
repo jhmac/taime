@@ -35,7 +35,7 @@ export interface IIdentityStorage {
   getUserByEmail(email: string): Promise<User | undefined>;
   upsertUser(user: UpsertUser): Promise<User>;
 
-  getAllUsers(): Promise<User[]>;
+  getAllUsers(locationId?: string): Promise<User[]>;
   getUsersByRole(roleId: string): Promise<User[]>;
   updateUserRole(userId: string, roleId: string): Promise<User>;
   deleteUser(userId: string): Promise<void>;
@@ -115,10 +115,14 @@ export class IdentityStorage implements IIdentityStorage {
     return user;
   }
 
-  async getAllUsers(): Promise<User[]> {
-    return await db.select().from(users).where(
-      or(eq(users.isActive, true), isNull(users.isActive))
-    );
+  async getAllUsers(locationId?: string): Promise<User[]> {
+    const activeCondition = or(eq(users.isActive, true), isNull(users.isActive));
+    if (locationId) {
+      return await db.select().from(users).where(
+        and(activeCondition, eq(users.locationId, locationId))
+      );
+    }
+    return await db.select().from(users).where(activeCondition);
   }
 
   async getUsersByRole(roleId: string): Promise<User[]> {

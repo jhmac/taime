@@ -5,6 +5,7 @@ import { db } from "../db";
 import { workLocations, geofenceEvents, users } from "@shared/schema";
 import { eq, desc } from "drizzle-orm";
 import { resolvePermission, resolveAnyPermission } from "../services/permissionResolver";
+import { tryResolveStoreIdForUser } from "../services/storeResolver";
 
 export function registerGeofenceRoutes(app: Express, storage: IStorage, isAuthenticated: any) {
   app.post('/api/geofence/check', isAuthenticated, async (req: any, res) => {
@@ -155,12 +156,15 @@ export function registerGeofenceRoutes(app: Express, storage: IStorage, isAuthen
         return res.status(403).json({ message: "Admin access required" });
       }
 
+      const storeId = await tryResolveStoreIdForUser(userId);
+
       const events = await db.select()
         .from(geofenceEvents)
+        .where(storeId ? eq(geofenceEvents.locationId, storeId) : undefined)
         .orderBy(desc(geofenceEvents.createdAt))
         .limit(200);
 
-      const allUsers = await storage.getAllUsers();
+      const allUsers = await storage.getAllUsers(storeId ?? undefined);
       const userMap = new Map(allUsers.map(u => [u.id, u]));
       const allLocations = await storage.getAllWorkLocations();
       const locationMap = new Map(allLocations.map(l => [l.id, l]));

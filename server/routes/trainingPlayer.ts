@@ -243,10 +243,7 @@ export function registerTrainingPlayerRoutes(app: Express, storage: IStorage, is
 
       const storeId = await tryResolveStoreIdForUser(requesterId);
       const allModules = await storage.getTrainingModules(storeId ?? undefined);
-      const managerUser = await storage.getUser(requesterId);
-      const managerLocation = managerUser?.locationName;
-      const rawUsers = await storage.getAllUsers();
-      const allUsers = rawUsers.filter(u => u.isActive && (managerLocation ? u.locationName === managerLocation : true));
+      const allUsers = await storage.getAllUsers(storeId ?? undefined);
       const allProgress = await db.select().from(employeeTrainingProgress);
 
       const matrix = allUsers.map(u => ({
@@ -321,11 +318,8 @@ export function registerTrainingPlayerRoutes(app: Express, storage: IStorage, is
       if (!isManager) return res.status(403).json({ message: "Access denied" });
 
       const storeId = await tryResolveStoreIdForUser(requesterId);
-      const managerUser = await storage.getUser(requesterId);
-      const managerLocation = managerUser?.locationName;
-      const rawUsersForExport = await storage.getAllUsers();
       const allModules = await storage.getTrainingModules(storeId ?? undefined);
-      const allUsers = rawUsersForExport.filter(u => u.isActive && (managerLocation ? u.locationName === managerLocation : true));
+      const allUsers = await storage.getAllUsers(storeId ?? undefined);
       const allProgress = await db.select().from(employeeTrainingProgress);
 
       const headers = ["Employee", "Email", ...allModules.map(m => m.title), "Overall %"];
